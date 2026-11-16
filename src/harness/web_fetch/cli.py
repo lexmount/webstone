@@ -34,6 +34,8 @@ from harness.data_home import data_home
 EXAMPLES = Path(__file__).parent / "data"
 # Stages whose owner parses its own arguments, including --help.
 OWNER_COMMANDS = {
+    "results": ("harness.results.cli", "main",
+                "Submit public benchmark results for review in webstone-site"),
     "headless-run": ("harness.web_fetch.headless_runner", "main",
                      "Run a browser Markdown cohort with shared evidence checks"),
     "headless-observations": ("harness.web_fetch.browser_observations", "main",

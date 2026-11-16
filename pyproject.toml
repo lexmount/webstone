@@ -93,6 +93,8 @@ markers = [
 [tool.ruff]
 line-length = 100
 include = [
+  "src/harness/results/**/*.py",
+  "tests/results/**/*.py",
   "src/harness/web_extract/**/*.py",
   "tests/web_extract/**/*.py",
   "src/harness/environments/**/*.py",

@@ -44,3 +44,9 @@ Job timeouts include setup: 20 minutes for tests, 15 for packaging, 10 for brows
 Code review is dispatched by the organization's [public OCR workflow](https://github.com/lexmount/github-policy-public/blob/main/.github/workflows/codex-code-review.yml). The dispatch job confirms durable task acceptance; the separate `ocr-review` status reports the backend's findings. The repository does not need a copied OCR workflow or local review credentials. Organization Rulesets manage review requirements separately from CI.
 
 Project requirements remain in [AGENTS.md](../../AGENTS.md), with benchmark-specific requirements in [.agents/skills/benchmark-report](../../.agents/skills/benchmark-report/SKILL.md). Backend review-policy configuration is managed separately from the repository's workflows.
+
+## PyPI publication
+
+`publish-pypi.yml` runs only for an explicitly published, non-prerelease GitHub software release. It requires the exact tagged commit to have successful full `Python 3.11` CI, verifies the tag against project/lock metadata, builds the sdist and wheel and checks their metadata. The build job has read-only repository/check access; the isolated publishing job receives only an OIDC identity, downloads the built artifacts and uses the configured PyPI Trusted Publisher with attestations. PRs and ordinary main pushes cannot trigger publication.
+
+Configure the `pypi` GitHub environment with maintainer approval and the matching PyPI publisher before a release. No PyPI password or long-lived token belongs in this repository. The [publication guide](../../docs/result-submissions.md#pypi-publication) lists the exact publisher fields. This workflow neither chooses a new version nor creates a tag; [software release authorization](../../docs/releases.md) remains separate.
