@@ -41,6 +41,23 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
 
 
+def _reject_credentials(value: Any) -> None:
+    if isinstance(value, str):
+        if re.search(
+            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
+            r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b",
+            value,
+        ):
+            raise SubmissionError("Remove credential-like values before submitting public results.")
+    elif isinstance(value, dict):
+        for key, child in value.items():
+            _reject_credentials(key)
+            _reject_credentials(child)
+    elif isinstance(value, list):
+        for child in value:
+            _reject_credentials(child)
+
+
 def _api_path(path: str) -> None:
     if not path.startswith("/") or path.startswith("//") or any(c in path for c in "\r\n"):
         raise SubmissionError("GitHub API paths must be relative to api.github.com.")
@@ -176,12 +193,8 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
         raise SubmissionError("Results must be JSON with finite numeric values.") from error
     if len(encoded.encode("utf-8")) > MAX_REPORT_BYTES:
         raise SubmissionError("A report must not exceed 1 MiB. Keep raw logs outside Git.")
-    if re.search(
-        r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b",
-        _json({"report": report, "providerUrls": provider_urls or {}}),
-    ):
-        raise SubmissionError("Remove credential-like values before submitting public results.")
+    _reject_credentials(report)
+    _reject_credentials(provider_urls or {})
     if (
         not isinstance(report, dict)
         or not isinstance(report.get("benchmarks"), list)
