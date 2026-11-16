@@ -50,8 +50,10 @@ SSH server; loopback targets are rejected. Install
 remote worker path. Declare the remote repository `.env` and `uv` paths. The worker
 checks its source hash and SSH server address before reading the remote
 repository's `.env`. It never transfers the API key or falls back to local HTTP.
-Its remote hard deadline is one second shorter than the caller deadline to
-allow transport cleanup. A fresh message forces the declared Web Fetch tool;
+SSH startup and API work share one caller deadline. The ready handshake anchors
+the remote hard deadline without cross-host clock assumptions or a fixed
+one-second deduction. Cancellation cleanup never extends answer time.
+A fresh message forces the declared Web Fetch tool;
 the final tool result's native text is scored, while all model text remains
 diagnostic. Base64 document results are not replaced by model-generated text.
 

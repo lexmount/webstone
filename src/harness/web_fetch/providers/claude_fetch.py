@@ -5,9 +5,12 @@ import base64
 import hashlib
 import json
 import ipaddress
+import os
 import re
+import selectors
 import shlex
 import subprocess
+import time
 from pathlib import Path
 
 from harness.web_fetch.models import ProviderResult
@@ -20,12 +23,39 @@ TOOL = {'type': 'web_fetch_20260318', 'name': 'web_fetch', 'allowed_callers': ['
         'use_cache': False, 'response_inclusion': 'full', 'citations': {'enabled': False}}
 
 
+def _read_remote_ready(stream, deadline):
+    """Bound SSH/worker startup with the same deadline as the API call."""
+    data = bytearray()
+    with selectors.DefaultSelector() as selector:
+        selector.register(stream, selectors.EVENT_READ)
+        while len(data) <= 8192:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not selector.select(remaining):
+                raise TimeoutError('Remote Claude startup exceeded the call deadline')
+            chunk = os.read(stream.fileno(), 8193 - len(data))
+            if not chunk:
+                raise RuntimeError('Remote Claude worker closed before readiness')
+            data.extend(chunk)
+            if b'\n' in data:
+                return json.loads(data)
+    raise ValueError('Remote Claude readiness exceeds its protocol limit')
+
+
 class ClaudeFetchProvider(Provider):
     native_configuration_fields = (*Provider.native_configuration_fields, 'model', 'max_tokens', 'tool')
 
     def __init__(self, name, config):
         super().__init__(name, config)
         self._process = None
+        self._call_started = None
+
+    def begin_call(self):
+        self._call_started = time.monotonic()
+
+    @property
+    def cancellation_cleanup_seconds(self):
+        # This grace only reaps a cancelled worker; it never extends answer time.
+        return .5
 
     def validate(self):
         errors = []
@@ -68,7 +98,8 @@ class ClaudeFetchProvider(Provider):
             raise ValueError('; '.join(errors))
         # This path has no local HTTP client, key lookup, proxy, or fallback.
         worker = Path(__file__).parents[1] / 'workers/claude_fetch_worker.py'
-        envelope = {'body': arguments['json_body'], 'timeout': arguments['timeout'],
+        deadline = getattr(self, '_call_deadline', time.monotonic() + arguments['timeout'])
+        envelope = {'body': arguments['json_body'],
                     'max_bytes': arguments['max_bytes'],
                     'expected_ssh_server_ip': self.config['ssh_server_ip'],
                     'remote_env_file': self.config['remote_env_file'],
@@ -79,7 +110,16 @@ class ClaudeFetchProvider(Provider):
                          'python', self.config['remote_worker']])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, start_new_session=True)
         try:
-            output, error = self._process.communicate(json.dumps(envelope).encode(), timeout=arguments['timeout'])
+            ready = _read_remote_ready(self._process.stdout, deadline)
+            if (ready.get('kind') != 'claude_fetch_ready'
+                    or ready.get('ssh_server') != self.config['ssh_server_ip']
+                    or ready.get('worker_sha256') != envelope['worker_sha256']):
+                raise ValueError('Remote Claude readiness differs from the declared server or source')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('No API budget remains after SSH startup')
+            envelope['timeout'] = remaining
+            output, error = self._process.communicate(json.dumps(envelope).encode(), timeout=remaining)
         except BaseException:
             self.cancel()
             raise
@@ -88,6 +128,10 @@ class ClaudeFetchProvider(Provider):
         receipt = json.loads(output)
         if receipt.get('ssh_server') != self.config['ssh_server_ip']:
             raise ValueError('Missing designated remote execution receipt')
+        self._remote_execution_receipt = {
+            'remote_api_budget_seconds': receipt.get('remote_api_budget_seconds'),
+            'remote_worker_sha256': ready['worker_sha256'],
+            'deadline_policy': 'shared_caller_deadline_with_ready_anchored_remote_stop'}
         return HttpResponse(receipt['status'], endpoint, receipt.get('headers', {}),
                             base64.b64decode(receipt['body_b64'], validate=True))
 
@@ -97,6 +141,9 @@ class ClaudeFetchProvider(Provider):
             await_owned_process_exit(self._process)
 
     def fetch(self, case, timeout, *, native_route_ledger=None):
+        started = self._call_started if self._call_started is not None else time.monotonic()
+        self._call_started = None
+        self._call_deadline = started + timeout
         self.check_native_call(case)
         endpoint, arguments = self.native_http_arguments(case, timeout)
         response = self.native_http_request(case, self._remote_request, endpoint,
@@ -126,6 +173,7 @@ class ClaudeFetchProvider(Provider):
                     'stop_reason': payload.get('stop_reason'), 'client_retries': 0,
                     'service_retry_policy': 'provider_default_not_overridden',
                     'model_text_scored': False, 'request_timeout_seconds': timeout,
+                    **getattr(self, '_remote_execution_receipt', {}),
                     **response.dns_metadata}
         return ProviderResult(ok=error is None, content=content, error_type=error,
             title=fields['title'], final_url=fields['final_url'],

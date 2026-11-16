@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -15,17 +16,25 @@ def main():
     connection = os.environ.get('SSH_CONNECTION', '').split()
     if len(connection) != 4:
         raise RuntimeError('Refusing Claude access outside designated SSH server')
-    envelope = json.load(sys.stdin)
-    if connection[2] != envelope['expected_ssh_server_ip']:
-        raise RuntimeError('Refusing Claude access outside designated SSH server')
     address = ipaddress.ip_address(connection[2])
     if address.is_loopback or address.is_unspecified:
         raise RuntimeError('Refusing Claude access through a local SSH target')
-    if envelope['worker_sha256'] != hashlib.sha256(Path(__file__).read_bytes()).hexdigest():
+    source_hash = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    ready_started = time.monotonic()
+    print(json.dumps({'kind': 'claude_fetch_ready', 'ssh_server': connection[2],
+                      'worker_sha256': source_hash}), flush=True)
+    envelope = json.load(sys.stdin)
+    if connection[2] != envelope['expected_ssh_server_ip']:
+        raise RuntimeError('Refusing Claude access outside designated SSH server')
+    if envelope['worker_sha256'] != source_hash:
         raise RuntimeError('Remote worker source differs from frozen local source')
     # The remote hard deadline also stops work after an SSH disconnection.
+    # Anchor to readiness, not receipt: this conservatively accounts for both
+    # transport directions without comparing clocks on different machines.
     signal.signal(signal.SIGALRM, lambda *_: sys.exit('Remote call deadline exceeded'))
-    budget = max(.1, float(envelope['timeout']) - 1)
+    budget = ready_started + float(envelope['timeout']) - time.monotonic()
+    if budget <= 0:
+        raise TimeoutError('No remote API budget remains')
     signal.setitimer(signal.ITIMER_REAL, budget)
     env = {}
     for line in Path(envelope['remote_env_file']).read_text().splitlines():
@@ -50,6 +59,7 @@ def main():
         if key.encode() in raw:
             raise RuntimeError('Credential detected in response; refusing transfer')
         print(json.dumps({'ssh_server': connection[2], 'status': response.status,
+                          'remote_api_budget_seconds': budget,
                           'headers': dict(response.headers), 'body_b64': base64.b64encode(raw).decode()}))
 
 

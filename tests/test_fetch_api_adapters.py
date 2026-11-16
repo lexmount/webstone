@@ -1,5 +1,10 @@
 """Native API projection, category configuration, and remote-only Claude controls."""
 import json
+import os
+import time
+import hashlib
+import base64
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -118,3 +123,61 @@ def test_remote_worker_refuses_execution_without_ssh_before_reading_key(monkeypa
             main()
         network.assert_not_called()
         read.assert_not_called()
+
+
+def test_remote_readiness_uses_the_call_deadline():
+    from harness.web_fetch.providers.claude_fetch import _read_remote_ready
+    read, write = os.pipe()
+    try:
+        with os.fdopen(read, 'rb') as stream:
+            with pytest.raises(TimeoutError, match='call deadline'):
+                _read_remote_ready(stream, time.monotonic() + .02)
+    finally:
+        os.close(write)
+
+
+def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction():
+    from harness.web_fetch.providers import claude_fetch
+    from unittest.mock import Mock
+    provider = build_provider('claude', remote_config())
+    worker = Path(claude_fetch.__file__).parents[1]/'workers/claude_fetch_worker.py'
+    ready = {'kind': 'claude_fetch_ready', 'ssh_server': '192.0.2.83',
+             'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest()}
+    read, write = os.pipe()
+    os.write(write, (json.dumps(ready)+'\n').encode())
+    os.close(write)
+    process = Mock(returncode=0)
+    process.stdout = os.fdopen(read, 'rb')
+    process.communicate.return_value = (json.dumps({'ssh_server': '192.0.2.83', 'status': 200,
+        'body_b64': base64.b64encode(json.dumps(claude_payload()).encode()).decode(),
+        'remote_api_budget_seconds': 29.9}).encode(), b'')
+    try:
+        with patch.object(claude_fetch.subprocess, 'Popen', return_value=process):
+            result = provider.fetch(case(), 30)
+        assert result.ok
+        envelope = json.loads(process.communicate.call_args.args[0])
+        assert 29.5 < envelope['timeout'] <= 30
+        assert process.communicate.call_args.kwargs['timeout'] == envelope['timeout']
+    finally:
+        process.stdout.close()
+
+
+def test_remote_deadline_deducts_actual_post_readiness_elapsed_time(monkeypatch, capsys):
+    from harness.web_fetch.workers import claude_fetch_worker as worker
+    from unittest.mock import Mock
+    monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
+    envelope = {'expected_ssh_server_ip': '192.0.2.83',
+        'worker_sha256': hashlib.sha256(Path(worker.__file__).read_bytes()).hexdigest(),
+        'timeout': 27.0, 'remote_env_file': '/remote/.env', 'body': {}, 'max_bytes': 1000}
+    response = Mock(status=200, headers={})
+    response.read.return_value = b'{"content":[]}'
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    with patch.object(worker.json, 'load', return_value=envelope), \
+         patch.object(worker.time, 'monotonic', side_effect=[10.0, 12.0]), \
+         patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer') as timer, \
+         patch.object(worker.Path, 'read_text', return_value='ANTHROPIC_API_KEY=unit-test-key'), \
+         patch.object(worker.urllib.request, 'urlopen', return_value=response):
+        worker.main()
+    assert timer.call_args.args[1] == 25.0
+    assert len(capsys.readouterr().out.splitlines()) == 2
