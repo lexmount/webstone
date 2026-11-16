@@ -100,6 +100,9 @@ class FakeGitHub:
         self.fail_pr_once = False
         self.fork_pending = 0
         self.proposed_catalog = None
+        self.original_catalog = copy.deepcopy(CATALOG)
+        self.saved_catalog = None
+        self.extra_changes = []
 
     def request(self, method, path, body=None):
         self.calls.append((method, path, copy.deepcopy(body)))
@@ -130,10 +133,14 @@ class FakeGitHub:
             if prefix == fork and self.fork_pending:
                 self.fork_pending -= 1
                 raise GitHubError(409)
-            return {"tree": {"sha": "b" * 40}}
+            return {"tree": {"sha": "b" * 40}, "parents": [{"sha": "a" * 40}]}
         if method == "GET" and suffix == "contents/benchmarks/catalog.json":
             if prefix == fork and self.proposed_catalog is not None:
                 return encoded(self.proposed_catalog)
+            if prefix == fork and self.saved_catalog is not None:
+                return encoded(self.saved_catalog)
+            if query.get("ref") == ["a" * 40]:
+                return encoded(self.original_catalog)
             return encoded(self.catalog)
         if method == "GET" and suffix == "contents/results/fixture-results":
             versions = self.versions
@@ -141,13 +148,30 @@ class FakeGitHub:
                 versions = [int(self.saved_report["version"][1:])]
             return [{"name": f"fixture-results-v{version}-report.json"} for version in versions]
         if method == "GET" and suffix.startswith("compare/"):
-            return {"merge_base_commit": {"sha": "a" * 40}}
+            changes = [
+                {
+                    "filename": "results/fixture-results/"
+                    f"fixture-results-{self.saved_report['version']}-report.json",
+                    "status": "added",
+                }
+            ]
+            if self.saved_catalog != self.original_catalog:
+                changes.append({"filename": "benchmarks/catalog.json", "status": "modified"})
+            return {"merge_base_commit": {"sha": "a" * 40}, "files": changes + self.extra_changes}
         if method == "GET" and suffix.startswith("contents/results/fixture-results/"):
             return encoded(self.saved_report)
         if method == "GET" and suffix == "pulls":
             return self.prs
         if method == "POST" and suffix == "git/trees":
             self.saved_report = json.loads(body["tree"][0]["content"])
+            self.saved_catalog = next(
+                (
+                    json.loads(item["content"])
+                    for item in body["tree"]
+                    if item["path"] == "benchmarks/catalog.json"
+                ),
+                copy.deepcopy(self.catalog),
+            )
             return {"sha": "c" * 40}
         if method == "POST" and suffix == "git/commits":
             return {"sha": "d" * 40}
@@ -257,6 +281,41 @@ def test_async_fork_readiness_has_bounded_retry_before_writes(setup_client, monk
     with pytest.raises(SubmissionError, match="Retry the same"):
         client.submit(REPORT)
     assert all(method == "GET" for method, _, _ in api.calls)
+
+
+def test_retry_rejects_changed_catalog_links_and_unrelated_branch_edits(setup_client):
+    api, client = setup_client
+    api.fail_pr_once = True
+    with pytest.raises(GitHubError):
+        client.submit(REPORT)
+    writes = sum(method != "GET" for method, _, _ in api.calls)
+    api.proposed_catalog = copy.deepcopy(CATALOG)
+    api.proposed_catalog["providerUrls"]["fixture"] = "https://example.com/changed"
+    with pytest.raises(SubmissionError, match="changed links"):
+        client.submit(REPORT)
+    api.proposed_catalog = None
+    api.extra_changes = [{"filename": "README.md", "status": "modified"}]
+    with pytest.raises(SubmissionError, match="unrelated files"):
+        client.submit(REPORT)
+    assert sum(method != "GET" for method, _, _ in api.calls) == writes
+
+
+def test_history_and_file_pagination_are_complete(setup_client):
+    api, client = setup_client
+    original = api.request
+
+    def request(method, path, body=None):
+        if "/reviews?" in path:
+            page = int(parse_qs(urlsplit(path).query)["page"][0])
+            return [{"user": {"login": "fixture"}, "state": "APPROVED"}] * (100 if page == 1 else 1)
+        return original(method, path, body)
+
+    api.request = request
+    client.submit(REPORT)
+    assert len(client.status(7)["reviews"]) == 101
+    api.prs[0].update(merged=True, merge_commit_sha="f" * 40, changed_files=101)
+    with pytest.raises(SubmissionError, match="incomplete file list"):
+        client.status(7, verify_published=True)
 
 
 def test_private_repository_and_invalid_public_payloads_fail_before_writes(setup_client):

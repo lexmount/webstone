@@ -330,6 +330,17 @@ class ResultsClient:
     def catalog(self) -> dict:
         return self._file("benchmarks/catalog.json")
 
+    def _pages(self, suffix: str) -> list:
+        records = []
+        for page in range(1, 32):
+            batch = self._request("GET", f"{suffix}?per_page=100&page={page}")
+            records.extend(batch)
+            if len(batch) < 100:
+                return records
+        raise SubmissionError(
+            "GitHub pagination exceeded the inspection limit; no status is certified."
+        )
+
     def check(self, report: dict, provider_urls: dict[str, str] | None = None) -> dict:
         info = preflight(report, self.catalog(), provider_urls)
         return {
@@ -573,6 +584,32 @@ class ResultsClient:
                 raise SubmissionError(
                     "The existing submission branch changed. Inspect it before retrying."
                 )
+            saved_commit = self._request("GET", f"git/commits/{saved_head}", repository=fork)
+            parents = saved_commit.get("parents", [])
+            if len(parents) != 1:
+                raise SubmissionError("Inspect the changed submission branch before retrying.")
+            parent = parents[0]["sha"]
+            original_catalog = self._file("benchmarks/catalog.json", parent)
+            expected_catalog = copy.deepcopy(original_catalog)
+            expected_catalog["providerUrls"].update(provider_urls or {})
+            saved_catalog = self._file("benchmarks/catalog.json", saved_head, fork)
+            difference = self._request("GET", f"compare/{parent}...{saved_head}")
+            expected_paths = {saved_file}
+            if expected_catalog != original_catalog:
+                expected_paths.add("benchmarks/catalog.json")
+            changed_files = difference.get("files", [])
+            if (
+                saved_catalog != expected_catalog
+                or {item["filename"] for item in changed_files} != expected_paths
+                or any(
+                    item["status"] != ("added" if item["filename"] == saved_file else "modified")
+                    for item in changed_files
+                )
+            ):
+                raise SubmissionError(
+                    "The saved submission includes changed links or unrelated files. "
+                    "Inspect it before retrying."
+                )
             prepared.update(file=saved_file, version=saved["version"])
         result = report["benchmarks"][0]
         pr = self._request(
@@ -676,7 +713,7 @@ class ResultsClient:
                 "Specify website for publication verification of a custom repository."
             )
         pr = self._request("GET", f"pulls/{number}")
-        reviews = self._request("GET", f"pulls/{number}/reviews?per_page=100")
+        reviews = self._pages(f"pulls/{number}/reviews")
         result = {
             "url": pr["html_url"],
             "number": number,
@@ -687,7 +724,11 @@ class ResultsClient:
             "note": "A merged PR still needs deployment; verify its version on the website.",
         }
         if verify_published and pr.get("merged"):
-            files = self._request("GET", f"pulls/{number}/files?per_page=100")
+            files = self._pages(f"pulls/{number}/files")
+            if pr.get("changed_files", len(files)) != len(files):
+                raise SubmissionError(
+                    "GitHub returned an incomplete file list; publication is not verified."
+                )
             paths = [
                 item["filename"]
                 for item in files
