@@ -21,6 +21,7 @@ DOCUMENTED_COMMAND_FILES = ("Makefile", "docs/benchmarks.md", "docs/architecture
 COMMAND_INDEX_FILES = (*DOCUMENTED_COMMAND_FILES, "configs/report-templates.json")
 # A distinctive option each owner declares, so the help cannot come from the router.
 OWNER_OPTIONS = {
+    "results": "--repo",
     "headless-run": "--cohort",
     "headless-observations": "--observation-scope",
     "headless-assemble": "--certificates",

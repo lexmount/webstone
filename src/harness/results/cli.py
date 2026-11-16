@@ -27,6 +27,8 @@ def _read_report(path: Path) -> dict:
         return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
     except RecursionError as error:
         raise SubmissionError("The JSON nesting exceeds the supported input depth.") from error
+    except ValueError as error:
+        raise SubmissionError("Select a valid UTF-8 JSON report with supported numbers.") from error
 
 
 def _provider_urls(values: list[str]) -> dict[str, str]:

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_REPOSITORY = "lexmount/webstone-site"
 DEFAULT_WEBSITE = "https://webstone.dev.lexmount.net"
@@ -136,7 +136,8 @@ class GitHubTransport:
             },
         )
         try:
-            with self._opener.open(request, timeout=60) as response:
+            opener = self._opener
+            with opener.open(request, timeout=60) as response:
                 raw = response.read(4 * 1024 * 1024 + 1)
                 if len(raw) > 4 * 1024 * 1024:
                     raise SubmissionError("GitHub response exceeds the client limit.")
@@ -147,6 +148,18 @@ class GitHubTransport:
             raise SubmissionError(
                 "Unable to contact GitHub. Check your network connection."
             ) from error
+
+
+class _PublicationRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urlsplit(newurl).scheme != "https":
+            raise SubmissionError("Publication verification refuses a non-HTTPS redirect.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _publication_open(request: Request):
+    opener = build_opener(_PublicationRedirect())
+    return opener.open(request, timeout=20)
 
 
 def _https(value: Any) -> bool:
@@ -680,7 +693,7 @@ class ResultsClient:
                 url = f"{self.website.rstrip('/')}/{path}?submission={pr['merge_commit_sha']}"
                 request = Request(url, headers={"User-Agent": "Webstone-results"})
                 try:
-                    with urlopen(request, timeout=20) as response:
+                    with _publication_open(request) as response:
                         actual = json.loads(response.read(MAX_REPORT_BYTES + 1))
                     published = published and actual == expected
                 except (OSError, ValueError):

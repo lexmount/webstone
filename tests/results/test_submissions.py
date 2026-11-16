@@ -9,7 +9,7 @@ import pytest
 
 from harness.results import GhTransport, GitHubTransport, ResultsClient, SubmissionError
 from harness.results.cli import main
-from harness.results.client import GitHubError
+from harness.results.client import GitHubError, _PublicationRedirect
 
 CATALOG = {
     "providerUrls": {"fixture": "https://example.com/method"},
@@ -60,7 +60,7 @@ def encoded(value):
 def test_preflight_rejects_private_evidence_and_project_credentials():
     from harness.results.client import preflight
 
-    for host in ["localhost", "127.0.0.1", "192.168.1.1", "[::1]", "[fd00::1]", "reports.local"]:
+    for host in ["localhost", "127.0.0.1", "192.168.0.1", "[::1]", "[fd00::1]", "reports.local"]:
         report = copy.deepcopy(REPORT)
         report["source"]["url"] = f"https://{host}/report"
         with pytest.raises(SubmissionError, match="public HTTPS"):
@@ -356,9 +356,17 @@ def test_publication_status_requires_exact_live_result_not_just_a_merge(setup_cl
         assert request.full_url.startswith("https://example.com/results/")
         return response
 
-    monkeypatch.setattr("harness.results.client.urlopen", fetch)
+    monkeypatch.setattr("harness.results.client._publication_open", fetch)
     assert client.status(7, verify_published=True)["state"] == "published"
     response.data = {**api.saved_report, "datasetDifference": "A different result"}
+    assert client.status(7, verify_published=True)["published"] is False
+
+    def downgrade(request):
+        return _PublicationRedirect().redirect_request(
+            request, None, 302, "Found", {}, "http://example.com/result.json"
+        )
+
+    monkeypatch.setattr("harness.results.client._publication_open", downgrade)
     assert client.status(7, verify_published=True)["published"] is False
 
 
@@ -368,12 +376,17 @@ def test_cli_uses_shared_client_and_does_not_overwrite_templates(
     api, client = setup_client
     monkeypatch.setattr("harness.results.cli.ResultsClient", lambda **kwargs: client)
     output = tmp_path / "template.json"
+    report = tmp_path / "report.json"
     main(["template", "--benchmark", "fixture-results", "--output", str(output)])
     template = json.loads(output.read_text(encoding="utf-8"))
     assert template["benchmarks"][0]["taskCount"] is None
     assert template["benchmarks"][0]["providers"][0]["scores"] == {"quality": None}
     with pytest.raises(SystemExit) as error:
         main(["template", "--benchmark", "fixture-results", "--output", str(output)])
+    assert error.value.code == 2
+    report.write_text('{"score":' + "1" * 4301 + "}", encoding="utf-8")
+    with pytest.raises(SystemExit) as error:
+        main(["validate", str(report)])
     assert error.value.code == 2
     report = tmp_path / "report.json"
     report.write_text("[" * 2000 + "]" * 2000, encoding="utf-8")
