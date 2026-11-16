@@ -311,7 +311,9 @@ class ResultsClient:
             raise SubmissionError("Invalid repository name.")
         self.transport = transport or GhTransport()
         self.repository = repository.casefold()
-        self.website = website or (DEFAULT_WEBSITE if repository.casefold() == DEFAULT_REPOSITORY else None)
+        self.website = website or (
+            DEFAULT_WEBSITE if self.repository == DEFAULT_REPOSITORY else None
+        )
         if self.website and (
             not _public_evidence(self.website)
             or urlsplit(self.website).query
