@@ -25,6 +25,8 @@ def test_pypi_dependencies_keep_the_frozen_evaluator_out_of_public_url_metadata(
 
 
 def test_release_requires_matching_metadata_and_exact_tag(tmp_path, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=tmp_path, stderr=subprocess.DEVNULL)
 

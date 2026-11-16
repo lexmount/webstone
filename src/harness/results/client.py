@@ -46,7 +46,7 @@ def _reject_credentials(value: Any) -> None:
     if isinstance(value, str):
         if re.search(
             r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|"
-            r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b",
+            r"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})",
             value,
         ):
             raise SubmissionError("Remove credential-like values before submitting public results.")

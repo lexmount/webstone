@@ -67,7 +67,7 @@ def test_preflight_rejects_private_evidence_and_project_credentials():
             preflight(report, CATALOG)
     with pytest.raises(SubmissionError, match="credential-like"):
         preflight(REPORT, CATALOG, {"fixture": "https://example.com/?token=ghp_" + "x" * 36})
-    for prefix in ["\n", "\t"]:
+    for prefix in ["\n", "\t", "token_"]:
         report = copy.deepcopy(REPORT)
         report["benchmarks"][0]["notes"] = [prefix + "ghp_" + "x" * 36]
         with pytest.raises(SubmissionError, match="credential-like"):
