@@ -184,7 +184,7 @@ def validate_reference_evidence(dataset, artifacts):
         if rebuilt[field] != dataset.get(field):
             raise ValueError('Reference candidate audit differs from full capture replay')
     for actual, expected in zip(dataset['cases'], rebuilt['cases'], strict=True):
-        for field in ('equivalent_reference_urls', 'equivalent_reference_provenance'):
+        for field in ('equivalent_reference_urls', 'equivalent_reference_provenance', 'url_equivalence'):
             if actual.get(field) != expected[field]:
                 raise ValueError('Reference admission differs from full capture replay')
 

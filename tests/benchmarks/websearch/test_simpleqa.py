@@ -182,6 +182,14 @@ def test_full_mirror_proof_is_question_scoped_and_replayable(change):
     assert result['cases'][1]['equivalent_reference_urls'] == [urls[1]]
     assert len(result['reference_equivalence_audit']) == 18
     validate_reference_evidence(result, artifacts)
+    for policy in (None, 'literal/1'):
+        changed = deepcopy(result)
+        if policy is None:
+            changed['cases'][0].pop('url_equivalence')
+        else:
+            changed['cases'][0]['url_equivalence'] = policy
+        with pytest.raises(ValueError, match='admission'):
+            validate_reference_evidence(changed, artifacts)
     incomplete = deepcopy(result)
     incomplete['reference_equivalence_audit'].pop()
     with pytest.raises(ValueError, match='audit'):

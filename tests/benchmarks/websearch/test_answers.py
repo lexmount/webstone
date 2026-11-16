@@ -721,3 +721,14 @@ def test_inapplicable_content_visibility_does_not_remove_part_of_a_claim():
 def test_content_visibility_does_not_erase_a_replaced_image_alternative():
     citation, = answers.citation_inventory('<a href="https://source.test/a"><img style="content-visibility:hidden" alt="Claim"></a>', [dict(url='https://source.test/a')])
     assert citation['claim_context'] == 'Claim'
+
+
+@pytest.mark.parametrize('tag,style,claim', [
+    ('span', 'display:block', 'Supported claim'),
+    ('div', 'display:inline', 'UnrelatedSupported claim'),
+    ('div', 'display:contents', 'UnrelatedSupported claim'),
+])
+def test_claims_follow_resolved_block_boundaries(tag, style, claim):
+    answer = '<section><' + tag + ' style="' + style + '">Unrelated</' + tag + '><' + tag + ' style="' + style + '">Supported claim [引用:1]</' + tag + '></section>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == claim

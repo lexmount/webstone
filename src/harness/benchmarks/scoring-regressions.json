@@ -88626,6 +88626,66 @@
           "Claim"
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<section><span style=\"display:block\">Unrelated</span><span style=\"display:block\">Supported claim [引用:1]</span></section>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "Supported claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<section><span style=\"display:block\">Unrelated</span><span style=\"display:block\">Supported claim [引用:1]</span></section>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "UnrelatedSupported claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<section><div style=\"display:inline\">Unrelated</div><div style=\"display:inline\">Supported claim [引用:1]</div></section>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "UnrelatedSupported claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<section><div style=\"display:inline\">Unrelated</div><div style=\"display:inline\">Supported claim [引用:1]</div></section>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "Supported claim"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

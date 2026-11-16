@@ -754,8 +754,8 @@ def test_reference_capture_freezes_attempts_and_resumes_without_repeating_reques
     assert len(requested) == 1  # Full capture reuses the preflight's saved request.
     assert {o['url'] for o in first} == {reference, *mirror_candidates(reference)}
     assert all(o.get('fetch_attempts') == 1 for o in first if o['status'] != 200)
-    capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture')
-    second = capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', collect=True)
+    capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', previous_root=tmp_path/'capture')
+    second = capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', collect=True, previous_root=tmp_path/'capture')
     assert len(requested) == 2
     assert all(o['fetch_attempts'] == 2 for o in second if o['status'] != 200)
     assert capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', collect=True) == second
@@ -772,3 +772,56 @@ def test_current_full_capture_and_visible_html_controls_use_production_scoring()
     validate_revision_controls(dict(
         root_cause='Question-specific full capture evidence and rendered HTML citation boundaries.',
         regression_ids=['reference-question-evidence', 'visible-html-citation-links'], provider_calls=0))
+
+
+@pytest.mark.parametrize('initial_full', [False, True])
+@pytest.mark.parametrize('retry_failure', [False, True])
+def test_full_capture_reuses_portable_prior_evidence_without_repeating_successes(tmp_path, monkeypatch, initial_full, retry_failure):
+    from harness.web_search.revisions import capture_mirror_observations
+    from lexbench_websearch.simpleqa import mirror_candidates, extend_reference_urls, validate_reference_evidence
+
+    reference = 'https://en.wikipedia.org/wiki/Example'
+    failed = mirror_candidates(reference)[0]
+    dataset = dict(cases=[dict(id='q', query='Which stone?', reference_answer='sapphire', reference_urls=[reference])])
+    requests = []
+    def capture(_url, request, _header, _timeout):
+        requests.append(request['urls'])
+        excluded = {failed} if retry_failure and len(requests) == 1 else set()
+        payload = dict(statuses=[dict(id=u, status='error' if u in excluded else 'success', source='crawled') for u in request['urls']],
+                       results=[dict(id=u, url=u, title='Example', text='# Example\n\n' + 'A complete documented article. '*20 + '\n\nAnswer: sapphire.') for u in request['urls'] if u not in excluded])
+        return dict(http_status=200, transport_exit=0), json.dumps(payload).encode()
+    monkeypatch.setattr('harness.web_search.runner.http_call', capture)
+    first_root, next_root = tmp_path/'first', tmp_path/'next'
+    capture_mirror_observations(dataset, [], first_root, 'fixture', full=initial_full)
+    first = capture_mirror_observations(dataset, [], first_root, 'fixture', collect=True, full=initial_full)
+    capture_mirror_observations(dataset, first, next_root, 'fixture', full=True, previous_root=first_root)
+    second = capture_mirror_observations(dataset, first, next_root, 'fixture', collect=True, full=True, previous_root=first_root)
+    assert requests == [sorted({reference, *mirror_candidates(reference)})] + ([[failed]] if retry_failure else [])
+    assert capture_mirror_observations(dataset, first, next_root, 'fixture', collect=True, full=True) == second
+    for observation in second:
+        for field in ('body_artifact', 'native_evidence', 'capture'):
+            binding = observation[field]
+            assert digest((next_root/binding['path']).read_bytes()) == binding['sha256']
+    by_url = {o['url']: o for o in second}
+    if retry_failure:
+        assert by_url[reference]['native_evidence']['path'] != by_url[failed]['native_evidence']['path']
+        assert by_url[reference]['native_evidence']['sha256'] != by_url[failed]['native_evidence']['sha256']
+    revised = extend_reference_urls(dataset, second, artifacts=lambda path: (next_root/path).read_bytes())
+    validate_reference_evidence(revised, lambda path: (next_root/path).read_bytes())
+    request_count = len(requests)
+    (next_root/by_url[reference]['body_artifact']['path']).write_bytes(b'changed')
+    with pytest.raises(ValueError, match='artifact changed'):
+        capture_mirror_observations(dataset, first, next_root, 'fixture', collect=True, full=True, previous_root=first_root)
+    assert len(requests) == request_count
+
+
+def test_full_capture_rejects_missing_previous_bodies_before_any_request(tmp_path, monkeypatch):
+    from harness.web_search.revisions import capture_mirror_observations
+
+    def must_not_call(*_args):
+        raise AssertionError('Incompatible previous evidence must fail before account calls')
+    monkeypatch.setattr('harness.web_search.runner.http_call', must_not_call)
+    dataset = dict(cases=[dict(id='q', reference_urls=['https://en.wikipedia.org/wiki/Example'])])
+    previous = [dict(url=dataset['cases'][0]['reference_urls'][0], status=200)]
+    with pytest.raises(ValueError, match='body artifacts'):
+        capture_mirror_observations(dataset, previous, tmp_path/'capture', 'fixture', full=True)

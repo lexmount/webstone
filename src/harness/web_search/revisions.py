@@ -25,11 +25,13 @@ def _rescore(profile, rows):
 NATIVE_CONTROLS = Path(__file__).with_name("data") / "native-normalization-regressions.json"
 
 
-def capture_mirror_observations(dataset, previous, output, token, *, collect=False, full=False):
+def capture_mirror_observations(dataset, previous, output, token, *, collect=False, full=False, previous_root=None):
     """Capture reference-derived pages once, retrying prior fetch failures once.
 
     Native responses, request reservations and the execution contract are retained;
     a resumed capture never repeats an already completed physical request.
+    Use previous_root to carry evidence into a new output directory. Full mode
+    upgrades retained complete bodies without another HTTP request.
     """
     import time
     from datetime import UTC, datetime
@@ -37,30 +39,80 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
     from harness.benchmark_execution import ExecutionPolicy, Job, assess_execution, run_jobs
     from harness.web_search.core import response_entries, write_json
     from harness.web_search.runner import http_call
-    from lexbench_websearch.simpleqa import mirror_candidates
+    from lexbench_webfetch.paths import contained_path
+    from lexbench_websearch.simpleqa import article_text, mirror_candidates
 
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
     references = {u for case in dataset['cases'] for u in case['reference_urls'] if mirror_candidates(u)}
     required = references | {u for ref in references for u in mirror_candidates(ref)}
-    indexed = {item['url']: item for item in previous}
+    indexed = {item['url']: deepcopy(item) for item in previous}
     if len(indexed) != len(previous) or set(indexed) - required:
         raise ValueError('Capture observations must be unique reference-derived URLs')
     urls = sorted(u for u in required if indexed.get(u, {}).get('status') != 200
                   and indexed.get(u, {}).get('fetch_attempts', int(u in indexed)) < 2)
+    previous_raw = json.dumps(previous, sort_keys=True).encode()
+    inherited = 'inherited/' + digest(previous_raw)
+    source_root = Path(previous_root) if previous_root is not None else output
+    retained, retained_hashes = {}, {}
+    def retain(relative, expected):
+        target = inherited + '/' + relative
+        if target not in retained:
+            destination = contained_path(output, target, reject_symlinks=True)
+            source = destination if destination.is_file() else contained_path(source_root, relative, reject_symlinks=True)
+            if not source.is_file():
+                raise ValueError('Previous capture artifact is missing; supply its previous_root')
+            retained[target] = source.read_bytes()
+            retained_hashes[target] = digest(retained[target])
+        if retained_hashes[target] != expected:
+            raise ValueError('Previous capture artifact changed')
+        return retained[target], target
+    for observation in indexed.values():
+        if full and observation.get('status') == 200 and not observation.get('body_artifact'):
+            body_hash = observation.get('body_sha256', '')
+            if not isinstance(body_hash, str) or len(body_hash) != 64:
+                raise ValueError('Full capture requires retained body artifacts')
+            candidate = 'bodies/' + body_hash + '.md'
+            raw, _ = retain(candidate, body_hash)
+            title, text = article_text(raw, media_type='text/markdown', source_title=observation.get('title'))
+            if not title or len(text) < 200:
+                raise ValueError('Previous lead-only observation has no complete retained article')
+            observation.update(body_artifact=dict(path=candidate, sha256=body_hash),
+                               media_type='text/markdown', source_title=observation.get('title'))
+        if full and observation.get('status') == 200 and (
+                observation.get('media_type') not in {'text/html', 'text/markdown'}
+                or observation['body_artifact'].get('sha256') != observation.get('body_sha256')):
+            raise ValueError('Previous full capture metadata is incomplete')
+        for field in ('body_artifact', 'native_evidence', 'capture'):
+            binding = observation.get(field)
+            if not binding:
+                continue
+            _, relative = retain(binding['path'], binding['sha256'])
+            binding['path'] = relative
     batches = [urls[i:i + 12] for i in range(0, len(urls), 12)]
     policy = dict(purpose='quality', max_in_flight=4, resources={'reference-pages': {'capacity': 4}})
     options = dict(text={'verbosity': 'full'}, maxAgeHours=0, livecrawlTimeout=20000)
     contract = dict(schema='reference-page-capture/2', dataset_sha256=digest(json.dumps(dataset, sort_keys=True).encode()),
-                    previous_sha256=digest(json.dumps(previous, sort_keys=True).encode()), urls=urls,
+                    previous_sha256=digest(previous_raw), urls=urls,
                     execution_policy=policy, maximum_calls=len(batches), timeout_s=45,
                     retries=1, request=options, maximum_url_charge_usd=len(urls) * .001)
     if full:
         contract['full_capture'] = True
+    if retained:
+        retained[inherited + '.json'] = previous_raw
+        contract['previous_capture'] = dict(path=inherited + '.json', sha256=digest(previous_raw), artifact_root=inherited)
     path = output / 'contract.json'
     if path.exists() and json.loads(path.read_bytes()) != contract:
         raise ValueError('Reference capture contract changed after preparation')
     write_json(path, contract)
+    for relative, raw in retained.items():
+        destination = contained_path(output, relative, reject_symlinks=True)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(raw)
+    if not batches:
+        observations = [indexed[url] for url in sorted(required)]
+        write_json(output / 'observations.json', observations)
+        return observations
     def execute(payload):
         key, batch = payload
         receipt_path, raw_path = output / (key + '.json'), output / (key + '-response.json')
@@ -121,8 +173,6 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
             observation = article_observation(body, url, status=200 if successful else 0,
                 verified_at=receipt['completed_at'], media_type='text/markdown', source_title=item.get('title'))
             if full and body:
-                from lexbench_websearch.simpleqa import article_text
-
                 title, text = article_text(body, media_type='text/markdown', source_title=item.get('title'))
                 if title and len(text) >= 200:
                     observation.update(title=title, media_type='text/markdown', source_title=item.get('title'),

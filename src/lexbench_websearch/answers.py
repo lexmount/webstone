@@ -421,7 +421,6 @@ def citation_inventory(answer, results):
     rendered = parser.renderer.render(tokens, parser.options, {})
     tree = html5lib.parseFragment(rendered, treebuilder='etree', namespaceHTMLElements=False)
     parts, length, local, block_breaks, linked = [], 0, [], [0], {}
-    block_tags = _BLOCK_TAGS
     literal_tags = {'pre', 'code', 'kbd', 'samp', 'textarea', 'xmp', 'plaintext'}
 
     def text(value):
@@ -462,8 +461,6 @@ def citation_inventory(answer, results):
             continue
         literal = literal or tag in literal_tags
         closed = tag == 'details' and 'open' not in node.attrib
-        if tag in block_tags and not visibility:
-            boundary()
         identity = node.attrib.get(attribute)
         records = occurrences.get(identity, [])
         if records and records[0]['native']:
@@ -474,6 +471,11 @@ def citation_inventory(answer, results):
                     local.extend(dict(record, local_start=length, local_end=length,
                                       block_floor=block_breaks[-1]) for record in records)
             continue
+        separate = not visibility and box['display'] in {
+            'block', 'flow-root', 'flex', 'grid', 'list-item', 'table', 'table-row',
+            'table-row-group', 'table-header-group', 'table-footer-group', 'table-caption'}
+        if separate:
+            boundary()
         if records:
             item, valid = link_item(node.attrib.get('href') or '')
             records = [dict(record, item=item) for record in records] if valid else []
@@ -487,7 +489,7 @@ def citation_inventory(answer, results):
             if not closed:
                 text(node.text)
         children = [child for child in node if child.tag == 'summary'][:1] if closed else node
-        pending.append(('exit', (records, identity, start, tag in block_tags and not visibility)))
+        pending.append(('exit', (records, identity, start, separate)))
         for child in reversed(children):
             if not visibility and not closed:
                 pending.append(('text', child.tail))
