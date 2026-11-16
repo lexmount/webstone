@@ -4736,7 +4736,7 @@ requires-dist = [
     { name = "soupsieve", marker = "extra == 'reference-audit'", specifier = "==2.9.2" },
     { name = "tiktoken", marker = "extra == 'browser-use-eval'", specifier = ">=0.7,<1" },
     { name = "uvicorn", marker = "extra == 'test'", specifier = "==0.54.0" },
-    { name = "webarena-verified", marker = "extra == 'browser-use-eval'", git = "https://github.com/lexmount/webarena-verified.git?rev=da7b992eb10de78000f11a7f34fd4590c171fbd6" },
+    { name = "webarena-verified", marker = "extra == 'browser-use-eval'", specifier = "==1.2.3.post1.dev16" },
 ]
 provides-extras = ["dataset-publish", "tree", "headless-eval", "reference-audit", "webmainbench-eval", "browser-use-eval", "test", "oss-eval", "web-extract-eval"]
 

@@ -34,6 +34,7 @@ jobs:
           sha="$(git rev-parse HEAD)"
           conclusion="$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name == "Python 3.11")] | sort_by(.started_at) | last | .conclusion')"
           test "$conclusion" = success
+      - run: uv lock --check
       - run: uv sync --frozen
       - name: Verify approved tag and package metadata
         env:

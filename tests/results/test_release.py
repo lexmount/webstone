@@ -2,11 +2,26 @@
 
 import runpy
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_pypi_dependencies_keep_the_frozen_evaluator_out_of_public_url_metadata():
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    dependencies = project["project"]["dependencies"] + [
+        item for extra in project["project"]["optional-dependencies"].values() for item in extra
+    ]
+    assert not any(" @ " in item for item in dependencies)
+    source = project["tool"]["uv"]["sources"]["webarena-verified"]
+    evaluator = next(item for item in lock["package"] if item["name"] == "webarena-verified")
+    assert evaluator["version"] == "1.2.3.post1.dev16"
+    assert evaluator["source"]["git"] == f"{source['git']}?rev={source['rev']}#{source['rev']}"
+    assert f"webarena-verified=={evaluator['version']}" in dependencies
 
 
 def test_release_requires_matching_metadata_and_exact_tag(tmp_path, monkeypatch):

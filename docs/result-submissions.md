@@ -54,6 +54,15 @@ The [site's submission guide](https://github.com/lexmount/webstone-site/blob/mai
 
 ## PyPI publication
 
+The base package and results CLI do not need the optional WebArena evaluator. PyPI metadata pins that evaluator by package version; `tool.uv.sources` and `uv.lock` retain its exact Git fork and commit for source environments. Until that fork version is independently published, users who need the optional Browser Use evaluator must install it explicitly before installing the extra:
+
+```sh
+pip install "git+https://github.com/lexmount/webarena-verified.git@da7b992eb10de78000f11a7f34fd4590c171fbd6"
+pip install "webstone[browser-use-eval]"
+```
+
+Do not substitute the upstream registry evaluator: its source and scoring may differ. `uv sync --frozen --extra browser-use-eval` from the source checkout continues to use the pinned fork.
+
 The package already declares the `webstone` command and an installable wheel/sdist configuration. The PyPI workflow uses Trusted Publishing, not a stored PyPI token. An account owner must configure a publisher for:
 
 - PyPI project: `webstone`
