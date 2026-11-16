@@ -9,6 +9,7 @@ import json
 import math
 import re
 import subprocess
+import time
 from datetime import UTC, datetime
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -259,10 +260,15 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
                 "Include every metric in the definition; use null for undisclosed values."
             )
         if any(
-            value is not None and (type(value) not in (int, float) or not math.isfinite(value))
+            value is not None
+            and (
+                type(value) not in (int, float)
+                or (isinstance(value, float) and not math.isfinite(value))
+                or (type(value) is int and abs(value) > 2**53 - 1)
+            )
             for value in scores.values()
         ):
-            raise SubmissionError("Scores must be finite numbers or null.")
+            raise SubmissionError("Scores must be finite JSON numbers with safe integers, or null.")
     for provider, url in (provider_urls or {}).items():
         if provider not in ids or not _https(url):
             raise SubmissionError("Project URLs must be HTTPS and belong to a submitted method.")
@@ -289,11 +295,10 @@ class ResultsClient:
             method, f"/repos/{repository or self.repository}/{suffix}", body
         )
 
-    def _file(self, file: str, ref: str = "main", repository: str | None = None):
+    def _file(self, file: str, ref: str | None = None, repository: str | None = None):
+        suffix = "?" + urlencode({"ref": ref}) if ref else ""
         return _read_json_file(
-            self._request(
-                "GET", f"contents/{file}?{urlencode({'ref': ref})}", repository=repository
-            )
+            self._request("GET", f"contents/{file}{suffix}", repository=repository)
         )
 
     def catalog(self) -> dict:
@@ -434,6 +439,18 @@ class ResultsClient:
         )
         return commit["sha"]
 
+    def _wait_for_fork(self, fork: str, base: str) -> None:
+        for attempt in range(5):
+            try:
+                self._request("GET", f"git/commits/{base}", repository=fork)
+                return
+            except GitHubError as error:
+                if error.status not in {404, 409}:
+                    raise
+                if attempt < 4:
+                    time.sleep(0.5 * 2**attempt)
+        raise SubmissionError("GitHub is still preparing your fork. Retry the same submit command.")
+
     def submit(
         self, report: dict, provider_urls: dict[str, str] | None = None, *, dry_run: bool = False
     ) -> dict:
@@ -481,6 +498,7 @@ class ResultsClient:
                 "Your same-named repository is not a fork of the website. "
                 "Resolve that name collision before submitting."
             )
+        self._wait_for_fork(fork, prepared["base"])
         try:
             existing_ref = self._request(
                 "GET", f"git/ref/heads/{quote(branch, safe='')}", repository=fork
@@ -491,11 +509,32 @@ class ResultsClient:
             sha = self._commit(prepared, fork, [prepared["base"]])
             self._request("POST", "git/refs", {"ref": f"refs/heads/{branch}", "sha": sha}, fork)
         else:
-            saved = self._file(prepared["file"], existing_ref["object"]["sha"], fork)
-            if saved != json.loads(prepared["entries"][0]["content"]):
+            saved_head = existing_ref["object"]["sha"]
+            files = self._request(
+                "GET",
+                f"contents/results/{prepared['benchmark']}?{urlencode({'ref': saved_head})}",
+                repository=fork,
+            )
+            names = [
+                item["name"]
+                for item in files
+                if re.fullmatch(
+                    re.escape(prepared["benchmark"]) + r"-v[1-9]\d*-report\.json", item["name"]
+                )
+            ]
+            if not names:
+                raise SubmissionError("The existing submission branch has no result report.")
+            name = max(names, key=lambda value: int(value.rsplit("-v", 1)[1].split("-", 1)[0]))
+            saved_file = f"results/{prepared['benchmark']}/{name}"
+            saved = self._file(saved_file, saved_head, fork)
+            saved_identity = copy.deepcopy(saved)
+            saved_identity.pop("id", None)
+            saved_identity.pop("version", None)
+            if saved_identity != identity:
                 raise SubmissionError(
                     "The existing submission branch changed. Inspect it before retrying."
                 )
+            prepared.update(file=saved_file, version=saved["version"])
         result = report["benchmarks"][0]
         pr = self._request(
             "POST",
@@ -526,8 +565,20 @@ class ResultsClient:
         pr = self._request("GET", f"pulls/{number}")
         login = self.transport.request("GET", "/user")["login"]
         head_repository = pr.get("head", {}).get("repo") or {}
-        if pr["state"] != "open" or head_repository.get("owner", {}).get("login") != login:
+        fork = head_repository.get("full_name")
+        if (
+            pr["state"] != "open"
+            or head_repository.get("owner", {}).get("login") != login
+            or not fork
+            or fork == self.repository
+            or not re.fullmatch(r"webstone-results/[a-z0-9-]+/[a-f0-9]{16}", pr["head"]["ref"])
+        ):
             raise SubmissionError("Only rebase your own open result submission.")
+        fork_info = self.transport.request("GET", f"/repos/{fork}")
+        if fork_info.get("parent", {}).get("full_name") != self.repository:
+            raise SubmissionError(
+                "The result branch must belong to your personal fork of the target."
+            )
         changes = self._request("GET", f"pulls/{number}/files?per_page=100")
         reports = [
             item
@@ -549,8 +600,24 @@ class ResultsClient:
         report = self._file(reports[0]["filename"], head, fork)
         proposed = self._file("benchmarks/catalog.json", head, fork)
         ids = {provider["id"] for provider in report["benchmarks"][0]["providers"]}
+        original_base = self._request("GET", f"compare/{pr['base']['sha']}...{head}")[
+            "merge_base_commit"
+        ]["sha"]
+        original_catalog = self._file("benchmarks/catalog.json", original_base)
+        original_urls, proposed_urls = original_catalog["providerUrls"], proposed["providerUrls"]
+        if (
+            {key: value for key, value in proposed.items() if key != "providerUrls"}
+            != {key: value for key, value in original_catalog.items() if key != "providerUrls"}
+            or any(proposed_urls.get(key) != value for key, value in original_urls.items())
+            or any(key not in original_urls and key not in ids for key in proposed_urls)
+        ):
+            raise SubmissionError(
+                "Rebase only supports result data and additive participant links."
+            )
         links = {key: value for key, value in proposed["providerUrls"].items() if key in ids}
         prepared = self._prepare(report, links)
+        if pr["base"]["ref"] != prepared["base_branch"]:
+            raise SubmissionError("The submission must target the repository default branch.")
         sha = self._commit(prepared, fork, list(dict.fromkeys([head, prepared["base"]])))
         self._request(
             "PATCH",

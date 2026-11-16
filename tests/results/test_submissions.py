@@ -89,6 +89,8 @@ class FakeGitHub:
         self.saved_report = None
         self.fork_exists = True
         self.fail_pr_once = False
+        self.fork_pending = 0
+        self.proposed_catalog = None
 
     def request(self, method, path, body=None):
         self.calls.append((method, path, copy.deepcopy(body)))
@@ -116,13 +118,21 @@ class FakeGitHub:
                 raise GitHubError(404)
             return {"object": {"sha": self.refs[branch]}}
         if method == "GET" and suffix.startswith("git/commits/"):
+            if prefix == fork and self.fork_pending:
+                self.fork_pending -= 1
+                raise GitHubError(409)
             return {"tree": {"sha": "b" * 40}}
         if method == "GET" and suffix == "contents/benchmarks/catalog.json":
+            if prefix == fork and self.proposed_catalog is not None:
+                return encoded(self.proposed_catalog)
             return encoded(self.catalog)
         if method == "GET" and suffix == "contents/results/fixture-results":
-            return [
-                {"name": f"fixture-results-v{version}-report.json"} for version in self.versions
-            ]
+            versions = self.versions
+            if prefix == fork and self.saved_report:
+                versions = [int(self.saved_report["version"][1:])]
+            return [{"name": f"fixture-results-v{version}-report.json"} for version in versions]
+        if method == "GET" and suffix.startswith("compare/"):
+            return {"merge_base_commit": {"sha": "a" * 40}}
         if method == "GET" and suffix.startswith("contents/results/fixture-results/"):
             return encoded(self.saved_report)
         if method == "GET" and suffix == "pulls":
@@ -144,6 +154,7 @@ class FakeGitHub:
                 "html_url": f"https://github.com/{self.repository}/pull/7",
                 "state": "open",
                 "merged": False,
+                "base": {"sha": self.base, "ref": "main"},
                 "head": {
                     "sha": "d" * 40,
                     "ref": body["head"].split(":", 1)[1],
@@ -207,12 +218,27 @@ def test_retry_after_pr_creation_failure_reuses_the_existing_data_branch(setup_c
     api.fork_exists, api.fail_pr_once = False, True
     with pytest.raises(GitHubError):
         client.submit(REPORT)
+    api.versions, api.base = [1, 2], "e" * 40
     result = client.submit(REPORT)
     assert result["number"] == 7
+    assert result["version"] == "v2"
     assert (
         sum(method == "POST" and path.endswith("/git/commits") for method, path, _ in api.calls)
         == 1
     )
+
+
+def test_async_fork_readiness_has_bounded_retry_before_writes(setup_client, monkeypatch):
+    api, client = setup_client
+    api.fork_exists, api.fork_pending = False, 2
+    monkeypatch.setattr("harness.results.client.time.sleep", lambda seconds: None)
+    assert client.submit(REPORT)["number"] == 7
+    api = FakeGitHub()
+    client = ResultsClient(api, repository=api.repository)
+    api.fork_pending = 10
+    with pytest.raises(SubmissionError, match="Retry the same"):
+        client.submit(REPORT)
+    assert all(method == "GET" for method, _, _ in api.calls)
 
 
 def test_private_repository_and_invalid_public_payloads_fail_before_writes(setup_client):
@@ -227,6 +253,7 @@ def test_private_repository_and_invalid_public_payloads_fail_before_writes(setup
         lambda item: item["benchmarks"][0].update(taskCount=True),
         lambda item: item["benchmarks"][0]["providers"][0]["scores"].update(quality=float("nan")),
         lambda item: item.update(benchmarks=[None]),
+        lambda item: item["benchmarks"][0]["providers"][0]["scores"].update(quality=10**400),
     ]:
         data = copy.deepcopy(REPORT)
         change(data)
@@ -252,6 +279,27 @@ def test_new_provider_url_and_version_collision_rebase_preserve_measured_values(
     assert commits[-1]["parents"] == ["d" * 40, "e" * 40]
     update = [body for method, _, body in api.calls if method == "PATCH"][-1]
     assert update["force"] is False
+
+
+def test_rebase_rejects_upstream_heads_and_unrelated_catalog_edits(setup_client):
+    api, client = setup_client
+    client.submit(REPORT)
+    writes = sum(method != "GET" for method, _, _ in api.calls)
+    api.prs[0]["head"]["repo"]["full_name"] = api.repository
+    with pytest.raises(SubmissionError, match="own open"):
+        client.rebase(7)
+    api.prs[0]["head"]["repo"]["full_name"] = api.fork
+    api.proposed_catalog = copy.deepcopy(api.catalog)
+    api.proposed_catalog["benchmarks"][0]["definitions"][0]["metrics"][0]["unit"] = "ratio"
+    with pytest.raises(SubmissionError, match="additive participant"):
+        client.rebase(7)
+    assert sum(method != "GET" for method, _, _ in api.calls) == writes
+
+
+def test_catalog_uses_github_default_branch_without_assuming_main(setup_client):
+    api, client = setup_client
+    client.catalog()
+    assert api.calls[-1][1].endswith("contents/benchmarks/catalog.json")
 
 
 def test_transport_errors_never_repeat_credentials_and_sdk_rejects_other_hosts(monkeypatch):
@@ -313,3 +361,7 @@ def test_cli_uses_shared_client_and_does_not_overwrite_templates(
     link.symlink_to(report)
     with pytest.raises(SystemExit):
         main(["validate", str(link)])
+    report.write_bytes(b"\xff")
+    with pytest.raises(SystemExit) as error:
+        main(["validate", str(report)])
+    assert error.value.code == 2

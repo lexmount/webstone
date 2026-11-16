@@ -111,6 +111,6 @@ def main(argv: list[str] | None = None) -> None:
             result = client.rebase(args.number)
         else:
             result = client.status(args.number, verify_published=args.verify_published)
-    except (SubmissionError, OSError, json.JSONDecodeError) as error:
+    except (SubmissionError, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         parser.exit(2, f"error: {error}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))
