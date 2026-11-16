@@ -4285,5 +4285,5 @@ def dataset_context(profile, content, zh, *, reference_profile=None):
                     ('candidate_count', 'verified', 'title_mismatch', 'evidence_mismatch', 'capture_failed')]]) for case in verified]
         result += '<section data-reference-verification><h2>' + report_text('Reference mirror verification', zh) + '</h2><p><a href="' + esc(verified[0]['reference_verification_audit_url']) + '">' + report_text('Full capture audit', zh) + '</a></p>'
         result += table([report_text('Query ID', zh), report_text('Candidates', zh), report_text('Verified', zh),
-                         report_text('Title mismatch', zh), report_text('Evidence mismatch', zh), report_text('Capture failed', zh)], coverage) + '</section>'
+                         report_text('Title mismatch', zh), report_text('Evidence mismatch', zh), report_text('Capture failed', zh)], coverage, bounded=True) + '</section>'
     return result

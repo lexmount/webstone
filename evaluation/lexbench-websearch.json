@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "huggingface_benchmark_binding",
   "repository": "https://huggingface.co/datasets/Lexmount/LexBench-Web-Search",
-  "revision": "626d7ab0f06922add3f073f908f550a2006e4e35",
+  "revision": "7297b3a7a665cb7f79fd7986e78d19e72f962645",
   "datasets": {
     "scenarios-v1": {
       "path": "datasets/scenarios-v1.json",
@@ -24,5 +24,5 @@
     "registry.json": "f9eba7d3553bbbfb2486e42b4c66be1d45ad1221cda512191005e190901b9eca",
     "benchmark-release.json": "0d9d84ef66d1eab3c4907c639ba2174b769f430fbf8efd8b2cf924671081cf63"
   },
-  "source_revision": "34c4c5a7327cc8da1d14e7f4ca7a40553b263df5"
+  "source_revision": "15bea2c3c57579c1611d818cb96c5e8a9390af3b"
 }
