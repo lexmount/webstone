@@ -512,7 +512,7 @@ def _load_saved_matrix(spec_path):
         _require_public_json(pricing, label='Pricing catalog')
         priced = {item['id'] for item in pricing.get('providers', [])}
         priced.update(name for item in pricing.get('other_methods', []) for name in item['ids'])
-        if not set(providers) <= priced:
+        if not (set(providers)-set(spec.get('excluded_report_providers', []))) <= priced:
             raise ValueError('Pricing catalog omits selected participants')
     for suite in spec['suites']:
         dataset = _json(binding(suite['dataset']))

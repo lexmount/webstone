@@ -1,5 +1,6 @@
 {
   "zh": {
+    "saved_matrix_reproduction_note": "使用原始保存结果规格及保留的来源证据重建、核对本报告。以下命令不会新增 API 调用；来源核对需要另行保留的原始证据。",
     "review_scope": "复核范围",
     "saved_settings_budget_link": "实际调用预算、重试上限和原生参数按方法与任务类别列在下方，可展开核对。",
     "saved_reproduction_settings_link": "执行设置和采集时间已根据原始调用记录核对，详见评测方法页。",

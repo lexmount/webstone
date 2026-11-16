@@ -2,6 +2,8 @@
 
 import json
 import re
+from copy import deepcopy
+from pathlib import Path
 from collections import Counter
 from html import escape
 from types import SimpleNamespace
@@ -21,6 +23,7 @@ from harness.web_fetch.methods import (
  report_method_catalog,
 )
 from harness.web_fetch.models import REPORT_FAMILIES, report_family
+from harness.web_fetch.native_routes import declared_input_media_kind
 from harness.web_fetch.providers.headless import output_mode_for_case
 from harness.web_fetch.report_components import bilingual_text, measurement_presentation
 
@@ -216,6 +219,11 @@ def render_interfaces(out,records,*,only_measured=False):
  dataset=json.loads(dataset_path.read_text(encoding='utf-8')) if dataset_path.is_file() else {}
  comparison=dataset.get("comparison",{})
  native_default=measurement_presentation(dataset).native_outputs
+ evidence_scopes={}
+ if dataset.get('saved_matrix_scope') and (out/'execution.json').is_file():
+  execution=json.loads((out/'execution.json').read_text(encoding='utf-8'))
+  evidence_scopes={item['attempt_route']:Path(item['source_record']).parent
+                   for item in execution.get('identities',[])}
  def pre(value):return '<pre>'+escape(value if isinstance(value,str) else json.dumps(value,ensure_ascii=False,indent=2))+'</pre>'
  def fields(rows,english):
   if len(rows)!=len(english):raise ValueError('Interface field language mismatch')
@@ -231,11 +239,32 @@ def render_interfaces(out,records,*,only_measured=False):
   r=min((r for r in records if r['provider']==name), key=lambda row: case_order.get(row['case_id'], len(case_order)), default=None)
   s=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"))
   english=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"),language="en")
-  bindings=evidence_artifacts.record_public_call_log_bindings(r) if r else []
+  log_record=r
+  log_root=out
+  if r and r['attempt_id'] in evidence_scopes:
+    prefix=evidence_scopes[r['attempt_id']]
+    log_root=contained_path(out,str(prefix),reject_symlinks=True)
+    log_record=deepcopy(r)
+    metadata=log_record.get('provider_metadata',{})
+    for item in [metadata,*metadata.get('retry',{}).get('attempts',[])]:
+     if item.get('call_log'):
+      item['call_log']['path']=Path(item['call_log']['path']).relative_to(prefix).as_posix()
+  bindings=evidence_artifacts.record_public_call_log_bindings(log_record) if r else []
   if r and native_default and not bindings:
    raise ValueError("Measured native interface requires a saved call log: "+name)
-  if bindings:
-   request=json.loads(evidence_artifacts.verify_public_call_log(out,bindings[-1]).read_text(encoding='utf-8'))["request"]
+  example_case=next((case for case in dataset.get('cases',[]) if r and case['id']==r['case_id']),None)
+  verified=[]
+  if example_case and dataset.get('saved_matrix_scope'):
+   input_class=[example_case.get('track','web'),example_case.get('task_kind','body'),
+                declared_input_media_kind(example_case,required=False)]
+   verified=[setting['request'] for item in dataset['saved_matrix_scope'].get('execution_settings',[])
+             if item['provider']==name and item['family']==report_family(example_case)
+             for setting in item['settings'] if setting.get('input_class')==input_class and setting.get('request')]
+  if len(verified)==1:
+   s={**s,'request':verified[0],'notes':'按原始调用核验的请求模板；<input-url> 表示该题网址。'+s['notes']}
+   english={**english,'request':verified[0],'notes':'Request template verified against retained calls; <input-url> denotes the task URL. '+english['notes']}
+  elif bindings:
+   request=json.loads(evidence_artifacts.verify_public_call_log(log_root,bindings[-1]).read_text(encoding='utf-8'))["request"]
    model=method_page_model(name,name,[x for x in records if x["provider"]==name])
    s={**s,"entry":model["endpoint"],"params":[],"request":request,"notes":messages['interface_request_note']}
    english_model=method_page_model(name,name,[x for x in records if x["provider"]==name],language="en")
