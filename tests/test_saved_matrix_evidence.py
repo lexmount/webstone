@@ -1860,6 +1860,17 @@ def test_saved_records_reject_private_metadata_before_publication(tmp_path, extr
     assert (root/'results.jsonl').read_bytes() == original
 
 
+def test_site_entry_paths_are_contract_rules_while_local_paths_stay_private():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    for rule in [{'kind':'named_link'}, {'kind':'linked_table'}, {'schema':'named_link'}]:
+        _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/weibo'})
+        with pytest.raises(ValueError,match='private content'):
+            _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/Users/private/data'})
+    for value in [{'entry_path':'/tmp/private-run/log'}, {'debug_path':'/tmp/private-run/log'}]:
+        with pytest.raises(ValueError,match='private content'):
+            _require_public_json(value)
+
+
 def test_portable_checker_scans_auxiliary_json_even_with_updated_hash(tmp_path):
     spec, _, _, _ = fixture(tmp_path)
     output = build(tmp_path, spec).parent

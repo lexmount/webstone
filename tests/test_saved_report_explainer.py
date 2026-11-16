@@ -50,7 +50,7 @@ def test_saved_failure_chapters_cover_every_method_and_failure_with_exact_eviden
     soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False), 'html.parser')
     chapters = soup.select('[data-method-failures]')
     assert [node['data-method-failures'] for node in chapters] == ['first', 'second']
-    for provider, chapter in zip(['first', 'second'], chapters):
+    for provider, chapter in zip(['first', 'second'], chapters, strict=True):
         cells = [node.get_text() for node in chapter.select('tbody tr td')]
         assert cells[1:4] == ['Missing <body>', '2', '100.0%']
         assert chapter.select_one('a')['href'] == '../attempts/'+provider+'--one.html'

@@ -88,7 +88,13 @@ def _require_public_json(receipt, *, label="Missing receipt"):
 
     def local_path(value):
         if isinstance(value, dict):
-            return any((key.endswith('path') and isinstance(item, str)
+            # Composite task groups use entry_path for an origin-relative web
+            # route. It is not an evidence-file location; the shared privacy
+            # scan above still rejects actual home paths and secrets there.
+            web_route = ((value.get('kind') in {'named_link', 'linked_table'}
+                          or value.get('schema') == 'named_link')
+                         and isinstance(value.get('hosts'), list) and bool(value['hosts']))
+            return any((key.endswith('path') and not (key == 'entry_path' and web_route) and isinstance(item, str)
                         and (item.startswith(('/', '~', '\\')) or re.match(r'^[A-Za-z]:', item)))
                        or local_path(item) for key, item in value.items())
         if isinstance(value, list):
