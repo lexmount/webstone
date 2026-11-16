@@ -527,3 +527,12 @@ def test_cli_uses_shared_client_and_does_not_overwrite_templates(
     with pytest.raises(SystemExit) as error:
         main(["validate", str(report)])
     assert error.value.code == 2
+
+
+def test_repository_identity_is_case_insensitive_for_submission_and_rebase(setup_client):
+    api, _ = setup_client
+    client = ResultsClient(api, "Fixture-Owner/Fixture-Site", website="https://example.com")
+    assert client.submit(REPORT)["version"] == "v2"
+    api.versions = [1, 2]
+    assert client.rebase(7)["version"] == "v3"
+    assert ResultsClient(api, "Lexmount/Webstone-Site").website == "https://webstone.dev.lexmount.net"

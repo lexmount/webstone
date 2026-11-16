@@ -310,8 +310,8 @@ class ResultsClient:
         if any(part in {".", ".."} for part in repository.split("/")):
             raise SubmissionError("Invalid repository name.")
         self.transport = transport or GhTransport()
-        self.repository = repository
-        self.website = website or (DEFAULT_WEBSITE if repository == DEFAULT_REPOSITORY else None)
+        self.repository = repository.casefold()
+        self.website = website or (DEFAULT_WEBSITE if repository.casefold() == DEFAULT_REPOSITORY else None)
         if self.website and (
             not _public_evidence(self.website)
             or urlsplit(self.website).query
@@ -546,7 +546,7 @@ class ResultsClient:
                 raise
             fork_info = self._request("POST", "forks", {"default_branch_only": True})
             fork = fork_info["full_name"]
-        if fork_info.get("parent", {}).get("full_name") != self.repository:
+        if fork_info.get("parent", {}).get("full_name", "").casefold() != self.repository:
             raise SubmissionError(
                 "Your same-named repository is not a fork of the website. "
                 "Resolve that name collision before submitting."
@@ -649,12 +649,12 @@ class ResultsClient:
             pr["state"] != "open"
             or head_repository.get("owner", {}).get("login") != login
             or not fork
-            or fork == self.repository
+            or fork.casefold() == self.repository
             or not re.fullmatch(r"webstone-results/[a-z0-9-]+/[a-f0-9]{16}", pr["head"]["ref"])
         ):
             raise SubmissionError("Only rebase your own open result submission.")
         fork_info = self.transport.request("GET", f"/repos/{fork}")
-        if fork_info.get("parent", {}).get("full_name") != self.repository:
+        if fork_info.get("parent", {}).get("full_name", "").casefold() != self.repository:
             raise SubmissionError(
                 "The result branch must belong to your personal fork of the target."
             )
