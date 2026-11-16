@@ -395,6 +395,8 @@ def validate_revision_controls(revision, normalizer=None):
                     accepted = accepted and [c['claim_context'] for c in citations] == control['claims']
                 if 'span_starts' in control:
                     accepted = accepted and [c['span'][0] for c in citations] == control['span_starts']
+                if 'sources' in control:
+                    accepted = accepted and [c['source'] for c in citations] == control['sources']
                 if accepted != control['expected']:
                     raise ValueError('Native citation identity regression failed')
                 continue

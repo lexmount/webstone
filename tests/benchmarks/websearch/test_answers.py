@@ -575,3 +575,24 @@ def test_closed_disclosure_exposes_only_its_first_summary_link():
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
     assert citation['marker'] == '<a href="https://source.test/a">Visible</a>'
     assert citation['claim_context'] == 'Visible'
+
+
+def test_html_target_uses_browser_attribute_entity_rules():
+    url = 'https://source.test/a?ref=&notit;'
+    citation, = answers.citation_inventory('<a href="' + url + '">Claim</a>', [dict(url=url, snippet='Correct evidence')])
+    assert citation['in_results']
+    assert citation['source']['url'] == url
+
+
+def test_anchor_without_a_target_does_not_hide_a_native_citation():
+    citation, = answers.citation_inventory('<a>Claim [引用:1]</a>', [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['marker'] == '[引用:1]'
+    assert citation['claim_context'] == 'Claim'
+
+
+@pytest.mark.parametrize('identifier', ['1', 'https://api.example.test/v1/#WebPages.0'])
+def test_repeated_source_identifier_uses_first_ranked_evidence_for_every_syntax(identifier):
+    results = [dict(url='https://source.test/a', citation_id=identifier, snippet=snippet) for snippet in ['First evidence', 'Later evidence']]
+    for answer in ['Claim [引用:1]', 'Claim [source](https://source.test/a)', 'Claim <a href="https://source.test/a">source</a>']:
+        citation, = answers.citation_inventory(answer, results)
+        assert citation['source']['snippet'] == 'First evidence'

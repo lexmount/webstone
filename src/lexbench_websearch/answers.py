@@ -224,7 +224,7 @@ def citation_inventory(answer, results):
                     and canonical_url(by_id[identity]["url"], policy="document-url/2") != url
                 ):
                     raise ValueError("One citation identifier refers to different documents")
-                by_id[identity] = item
+                by_id.setdefault(identity, item)
     from markdown_it.rules_inline.autolink import autolink
     from markdown_it.rules_inline.html_inline import html_inline
     from markdown_it.rules_inline.link import link
@@ -275,15 +275,6 @@ def citation_inventory(answer, results):
     raw_text = None
     search_source = answer.replace("\x00", "\ufffd")
     line_offsets = [0, *(match.end() for match in re.finditer(r"\r\n|\r|\n", answer)), len(answer)]
-
-    class Tag(HTMLParser):
-        def __init__(self, source):
-            super().__init__()
-            self.attributes = {}
-            self.feed(source)
-
-        def handle_starttag(self, name, attrs):
-            self.attributes = dict(reversed(attrs))
 
     def occurrence(begin, end, items, native):
         identity = str(len(occurrences))
@@ -345,11 +336,9 @@ def citation_inventory(answer, results):
                         raw_text = name
                     elif name == 'a':
                         close_html_link(positions[begin])
-                        item, valid = link_item(Tag(source).attributes.get('href') or '')
-                        if valid:
-                            identity = occurrence(positions[begin], len(answer), [item], False)
-                            html_pending.append(identity)
-                            replacement = source[:opening.end()] + ' ' + attribute + '="' + identity + '"' + source[opening.end():]
+                        identity = occurrence(positions[begin], len(answer), [None], False)
+                        html_pending.append(identity)
+                        replacement = source[:opening.end()] + ' ' + attribute + '="' + identity + '"' + source[opening.end():]
                 elif closing and closing[1].lower() == 'a' and html_pending:
                     identity = html_pending.pop()
                     for record in occurrences[identity]:
@@ -419,8 +408,11 @@ def citation_inventory(answer, results):
                     local.extend(dict(record, local_start=length, local_end=length,
                                       block_floor=block_breaks[-1]) for record in records)
             return
+        if records:
+            item, valid = link_item(node.attrib.get('href') or '')
+            records = [dict(record, item=item) for record in records] if valid else []
         start = length
-        inside_link = inside_link or tag == 'a'
+        inside_link = inside_link or tag == 'a' and 'href' in node.attrib
         if not visibility:
             if tag == 'img':
                 text(node.attrib.get('alt') or '')
