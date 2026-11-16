@@ -271,6 +271,8 @@ def level_benchmarks(view):
     level = profile['protocol']['relevance_level']
     excluded = set(profile.get('factual_quality_exclusions', []))
     cases = {c['id']: c for c in profile['cases']}
+    factual_cases = [case for case in cases.values() if 'reference_answer' in case and case['id'] not in excluded]
+    audit_complete = bool(factual_cases) and all('reference_verification_coverage' in case for case in factual_cases)
     scenario_scores = {(s['case_id'], s['method']): s for s in view.get('relevance_scores', [])}
     answer_scores = {(s['case_id'], s['method']): s for s in view.get('answer_scores', [])}
     if level == 'l3':
@@ -282,7 +284,7 @@ def level_benchmarks(view):
                            factual=([('source_rr', 'MRR@5'), ('source_hit', 'Source Hit@5'),
                                      ('answer_match', 'Answer Match@5')]
                                     if level == 'l1' else [('answer_match', 'Extra-text Answer Match@5')]))
-        if level == 'l1' and any('reference_verification_coverage' in case for case in cases.values()):
+        if level == 'l1' and audit_complete:
             definitions['factual'] += [('publisher_rr', 'Publisher-only MRR@5'),
                                        ('publisher_hit', 'Publisher-only Hit@5'),
                                        ('capture_failed', 'Unverified mirror questions')]
@@ -316,7 +318,7 @@ def level_benchmarks(view):
                 if level == 'l1':
                     values.update(source_rr=metrics['labeled_source_rr_5'], source_hit=metrics['labeled_source_hit_5'],
                                   answer_match=metrics['answer_in_preview_5'])
-                    if 'reference_verification_coverage' in cases[cid]:
+                    if audit_complete:
                         from lexbench_websearch.scoring import canonical_url, factual_evidence
 
                         publisher = factual_evidence(dict(cases[cid], equivalent_reference_urls=[]), row['results'], cutoff=5)

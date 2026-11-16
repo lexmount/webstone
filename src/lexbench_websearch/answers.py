@@ -91,6 +91,10 @@ class _InlineVisibility(HTMLParser):
     def hidden(self):
         return bool(self.stack and (self.stack[-1][1] or self.stack[-1][2]))
 
+    @property
+    def literal(self):
+        return any(tag in {'pre', 'code', 'kbd', 'samp'} for tag, _, _ in self.stack)
+
     def feed(self, data):
         self.separator = False
         self.anchor_events = []
@@ -125,7 +129,7 @@ class _InlineVisibility(HTMLParser):
             self.stack.append((tag, blocked, visibility))
         if tag == 'a':
             self.anchor_events.append(('open', attributes.get('href') or '', not self.hidden))
-        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote', 'hr',
+        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote', 'hr', 'pre',
                    'h1', 'h2', 'h3', 'h4', 'h5', 'h6'} and not self.hidden:
             self.block_break = True
 
@@ -136,7 +140,7 @@ class _InlineVisibility(HTMLParser):
     def handle_endtag(self, tag):
         if tag == 'a':
             self.anchor_events.append(('close', '', False))
-        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote',
+        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote', 'pre',
                    'h1', 'h2', 'h3', 'h4', 'h5', 'h6'} and not self.hidden:
             self.block_break = True
         if tag == 'br' and not self.hidden:
@@ -361,7 +365,7 @@ def citation_inventory(answer, results):
                 try:
                     key = canonical_url(token.attrGet("href") or "", policy="document-url/2")
                     item = by_url.get(key)
-                    eligible = not visibility.hidden
+                    eligible = True
                 except ValueError:
                     item, eligible = None, False
                 pending.append(dict(begin=positions[begin], end=positions[end - 1] + 1,
@@ -374,7 +378,7 @@ def citation_inventory(answer, results):
                 continue
             if visibility.hidden:
                 continue
-            if token.type == "native_citation" and not pending and not html_pending:
+            if token.type == "native_citation" and not pending and not html_pending and not visibility.literal:
                 begin, end = token.meta["span"]
                 for identity in token.meta["identities"]:
                     local.append(dict(begin=positions[begin], end=positions[end - 1] + 1,

@@ -87569,6 +87569,73 @@
         ],
         "claims": [],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<pre><code>[引用:1]</code></pre>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Prefix Paris."
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<code>[引用:1]</code>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Prefix Paris."
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "`[引用:1]`",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Prefix Paris."
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "Prefix <span style=\"visibility:hidden\">[<span style=\"visibility:visible\">Paris</span>](https://source.test/a)</span>.",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Prefix Paris."
+          }
+        ],
+        "claims": [
+          "Prefix Paris."
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "Prefix <span style=\"display:none\">[<span style=\"visibility:visible\">Paris</span>](https://source.test/a)</span>.",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Prefix Paris."
+          }
+        ],
+        "claims": [],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

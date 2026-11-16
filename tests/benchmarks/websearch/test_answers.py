@@ -424,3 +424,35 @@ def test_html_native_markers_use_only_their_own_visible_block(answer, context):
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1', snippet='Claim.')])
     assert citation['claim_context'] == context
     assert citation['marker'] == '[引用:1]'
+
+
+@pytest.mark.parametrize('answer', [
+    '<pre><code>[引用:1]</code></pre>', '<code>[引用:1]</code>',
+    '<kbd>[引用:1]</kbd>', '<samp>[引用:1]</samp>',
+    '`[引用:1]`', '```text\n[引用:1]\n```',
+])
+def test_native_markers_in_literal_code_are_not_citations(answer):
+    assert answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')]) == []
+
+
+@pytest.mark.parametrize('link', [
+    '<a href="https://source.test/a"><span style="visibility:visible">Paris</span></a>',
+    '[<span style="visibility:visible">Paris</span>](https://source.test/a)',
+])
+@pytest.mark.parametrize('hidden,expected', [('visibility:hidden', True), ('display:none', False)])
+def test_both_link_syntaxes_follow_the_visibility_of_their_label(link, hidden, expected):
+    answer = 'Prefix <span style="' + hidden + '">' + link + '</span>.'
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert bool(citations) is expected
+    if expected:
+        assert citations[0]['claim_context'] == 'Prefix Paris.'
+        start, end = citations[0]['span']
+        assert citations[0]['marker'] == answer[start:end]
+
+
+def test_html_code_text_stays_visible_without_interpreting_its_example_marker():
+    answer = '<p>Example <code>[引用:1]</code>. Claim.[引用:2]</p>'
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1'),
+        dict(url='https://source.test/b', citation_id='2')])
+    assert [c['marker'] for c in citations] == ['[引用:2]']
+    assert citations[0]['claim_context'] == 'Claim.'

@@ -374,3 +374,14 @@ def test_report_gate_rejects_changed_reference_verification_coverage(tmp_path, d
     path.write_text(str(doc), encoding='utf-8')
     with pytest.raises(ValueError, match='Dataset definitions'):
         check(output)
+
+
+def test_mixed_reference_audits_do_not_declare_unavailable_panel_metrics():
+    selected = view(n=2)
+    selected['profile']['cases'][0].update(reference_verification_coverage=dict(verified=1),
+                                          capture_failed_reference_urls=[])
+    selected['benchmarks'] = level_benchmarks(selected)
+    keys = {metric['key'] for metric in selected['benchmarks']['factual']['metrics']}
+    assert not keys.intersection({'publisher_rr', 'publisher_hit', 'capture_failed'})
+    assert all('capture_failed' not in score for score in selected['benchmarks']['factual']['scores'])
+    assert check_presentation(render_level_summary(selected))
