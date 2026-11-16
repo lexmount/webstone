@@ -146,6 +146,18 @@ def _https(value: Any) -> bool:
         return False
 
 
+def _public_evidence(value: Any) -> bool:
+    if not _https(value):
+        return False
+    host = urlsplit(value).hostname.lower().rstrip(".")
+    return (
+        "." in host
+        and ":" not in host
+        and not re.fullmatch(r"\d+\.\d+\.\d+\.\d+", host)
+        and not re.search(r"(^|\.)(localhost|local|internal|test|invalid)$", host)
+    )
+
+
 def _read_json_file(record: dict) -> Any:
     if record.get("type") != "file" or record.get("encoding") != "base64":
         raise SubmissionError("Expected a regular JSON file in the website repository.")
@@ -167,7 +179,7 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
     if re.search(
         r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
         r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b",
-        encoded,
+        _json({"report": report, "providerUrls": provider_urls or {}}),
     ):
         raise SubmissionError("Remove credential-like values before submitting public results.")
     if (
@@ -184,8 +196,12 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
         raise SubmissionError(
             "Provide an English datasetDifference explaining the evaluated scope."
         )
-    if not isinstance(report.get("source"), dict) or not _https(report["source"].get("url")):
-        raise SubmissionError("Provide a public HTTPS evidence URL in source.url.")
+    if not isinstance(report.get("source"), dict) or not _public_evidence(
+        report["source"].get("url")
+    ):
+        raise SubmissionError(
+            "Provide a public HTTPS evidence URL with a DNS hostname in source.url."
+        )
     result = report["benchmarks"][0]
     if not isinstance(result, dict):
         raise SubmissionError("The benchmark result must be an object.")

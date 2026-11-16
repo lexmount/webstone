@@ -11,7 +11,7 @@ pip install "git+https://github.com/lexmount/webstone.git"
 gh auth login
 webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
 # Fill actual measurements and public evidence; templates intentionally contain placeholders.
-webstone results validate report.json
+webstone results validate report.json --provider-url your-method=https://example.com/project
 webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
 webstone results submit report.json --provider-url your-method=https://example.com/project
 webstone results status 123 --verify-published

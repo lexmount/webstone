@@ -57,6 +57,18 @@ def encoded(value):
     }
 
 
+def test_preflight_rejects_private_evidence_and_project_credentials():
+    from harness.results.client import preflight
+
+    for host in ["localhost", "127.0.0.1", "192.168.1.1", "[::1]", "[fd00::1]", "reports.local"]:
+        report = copy.deepcopy(REPORT)
+        report["source"]["url"] = f"https://{host}/report"
+        with pytest.raises(SubmissionError, match="public HTTPS"):
+            preflight(report, CATALOG)
+    with pytest.raises(SubmissionError, match="credential-like"):
+        preflight(REPORT, CATALOG, {"fixture": "https://example.com/?token=ghp_" + "x" * 36})
+
+
 class FakeGitHub:
     repository = "fixture-owner/fixture-site"
     fork = "fixture-user/fixture-site"
