@@ -48,10 +48,12 @@ tasks. It is the active v3.0.0 edition. The 550-task catalog also counted two
   100-task dynamic-content suite. Counting both would count those targets twice.
   Their acceptance contracts differ; the dynamic-content contracts are the ones
   selected.
-- The 10 challenge examples (Amazon, JD, Xiaohongshu, Zhihu, Douban, Dianping,
-  Reddit, IMDb, Anthropologie and JustWatch list pages) are an example group.
-  They stay available as a separate challenge set and are not counted in the
-  edition. Only three share a URL with another selected task.
+- The 10 challenge examples are list pages. Six of them (JD, Xiaohongshu, Zhihu,
+  Douban, Dianping and JustWatch) are older versions of popular-sites tasks with
+  the same IDs; the popular-sites contracts, three with updated URLs, are the
+  ones selected. The other four (Anthropologie, Amazon, Reddit and IMDb) lack
+  main/full content-scope annotations and popular-sites qualification, so they
+  are not counted. All ten remain in the frozen definitions; the viewer omits them.
 
 The selection file records this policy. This selection was documented after outcomes were available; it is a rule-based cohort boundary, not a pre-outcome selection protocol or a representative sample. Historical editions are unchanged.
 
@@ -78,8 +80,6 @@ The plain webfetch export remains unchanged.
 The earlier 430-task edition has seven categories: general web content, dynamic websites, popular websites, access-restricted websites, embedded documents, media information and direct media files. The v3.0.0 edition adds article tasks for 530 tasks in eight viewer groups. Categories describe the task and its required output.
 
 {{dataset_summary}}
-
-The `challenge-examples` viewer group (10 `webfetch` access-challenge list pages) is a separate challenge set. It is **not counted** in the 530-task edition; report its results separately.
 
 The 100 general-web tasks are the baseline called “static websites” in the published comparison; that name does not mean every target is independent of JavaScript. Media-information tasks request links or page metadata; direct-media tasks require original file bytes. Images and videos can appear in either category. An access-restriction task tests delivery of its target content; a past restriction does not guarantee a challenge on every later request.
 
