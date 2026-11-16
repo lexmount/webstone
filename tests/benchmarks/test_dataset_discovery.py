@@ -51,9 +51,8 @@ def test_fetch_viewer_exposes_original_hierarchy_without_changing_execution_inpu
     source = release("webfetch", cases, identity="webfetch")
     manifest = source.build(tmp_path)
     assert {item["config_name"] for item in metadata(tmp_path)["configs"]} == set(names)
-    # Mixed-suite dynamic examples share IDs and URLs with dynamic-content tasks; six
-    # challenge examples are older popular-sites tasks and the other four are uncounted.
-    # Both stay in the archive but not in the viewer.
+    # Mixed-suite dynamic examples share IDs and URLs with dynamic-content tasks, and
+    # challenge examples are not counted; both stay in the archive but not in the viewer.
     assert not (tmp_path / "data/dynamic-examples.jsonl").exists()
     assert not (tmp_path / "data/challenge-examples.jsonl").exists()
     for track, name, case in zip(tracks, names, cases[:-2], strict=True):

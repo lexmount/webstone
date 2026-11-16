@@ -48,12 +48,14 @@ tasks. It is the active v3.0.0 edition. The 550-task catalog also counted two
   100-task dynamic-content suite. Counting both would count those targets twice.
   Their acceptance contracts differ; the dynamic-content contracts are the ones
   selected.
-- The 10 challenge examples are list pages. Six of them (JD, Xiaohongshu, Zhihu,
-  Douban, Dianping and JustWatch) are older versions of popular-sites tasks with
-  the same IDs; the popular-sites contracts, three with updated URLs, are the
-  ones selected. The other four (Anthropologie, Amazon, Reddit and IMDb) lack
-  main/full content-scope annotations and popular-sites qualification, so they
-  are not counted. All ten remain in the frozen definitions; the viewer omits them.
+- The 10 challenge examples are list pages from the mixed suite. Six IDs reappear
+  in the popular-sites suite with revised contracts: Xiaohongshu, Douban and
+  JustWatch keep the same URL; JD and Zhihu use another page on the same site;
+  `challenge-06` replaces Dianping with a MICHELIN Guide Shanghai list. The
+  popular-sites versions are the ones selected. The other four (Anthropologie,
+  Amazon, Reddit and IMDb) lack main/full content-scope annotations and
+  popular-sites qualification. None of the ten is counted; all remain in the
+  frozen definitions, and the viewer omits them.
 
 The selection file records this policy. This selection was documented after outcomes were available; it is a rule-based cohort boundary, not a pre-outcome selection protocol or a representative sample. Historical editions are unchanged.
 
