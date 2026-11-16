@@ -4453,18 +4453,14 @@
         },
         {
           "modules": [
-            "answers.py",
             "relevance.py"
           ],
-          "root_cause": "HTML anchor tokens were omitted from citation inventories and review selection did not share the scorer document mapping or level-prefixed candidate identities.",
+          "root_cause": "Failure-only review selection omitted the scorer document mapping and level-prefixed candidate identities.",
           "regression_ids": [
-            "visible-html-citation-links",
             "relevance-document-dedup"
           ],
           "tests": [
-            "tests/benchmarks/websearch/test_answers.py",
-            "tests/web_search/test_review.py",
-            "tests/web_search/test_answer_judge.py"
+            "tests/web_search/test_review.py"
           ]
         }
       ]
