@@ -156,6 +156,40 @@ def build(tmp_path, spec, name='report'):
     return build_saved_matrix(path, tmp_path / name)
 
 
+def test_public_result_diagnostics_preserve_measurements_and_original_authority(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    record['metrics']['resource_candidate_urls'] = ['https://example.test/image?token=synthetic-secret']
+    record['metrics']['body_region_results'] = [{'passed':True,'coverage':0.75,
+        'matched_output_passages':[{'start':0,'end':34,'text':'Authorization: Bearer synthetic-secret'}]}]
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    assert (source/'results.jsonl').read_bytes() == raw
+    path = output/'evidence/first/method/same/record.json'
+    public = json.loads(path.read_bytes())
+    assert public['metrics']['body_region_results'][0]['coverage'] == 0.75
+    assert public['metrics']['content_pass'] is True and public['elapsed_ms'] == record['elapsed_ms']
+    assert 'synthetic-secret' not in path.read_text(encoding='utf-8')
+    receipt = json.loads((path.parent/'result-diagnostics-view.json').read_bytes())
+    assert receipt['original_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert receipt['published_sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert receipt['measurements_unchanged'] is True
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    assert projected[0]['provider_metadata']['public_result_diagnostics_receipt'].endswith('/result-diagnostics-view.json')
+    page = output/'attempts'/(projected[0]['attempt_id']+'.html')
+    assert 'result-diagnostics-view.json' in page.read_text(encoding='utf-8')
+    public['metrics']['body_region_results'][0]['coverage'] = 1.0
+    audit_path = output/'saved-matrix-audit.json'
+    audit = json.loads(audit_path.read_bytes())
+    audit['files'][path.relative_to(output).as_posix()] = write(path,public)['sha256']
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='Saved record differs from validated source selection'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+
+
 def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True
@@ -1862,7 +1896,8 @@ def test_saved_records_reject_private_metadata_before_publication(tmp_path, extr
 
 def test_site_entry_paths_are_contract_rules_while_local_paths_stay_private():
     from harness.web_fetch.report_saved_matrix import _require_public_json
-    for rule in [{'kind':'named_link'}, {'kind':'linked_table'}, {'schema':'named_link'}]:
+    for rule in [{'kind':'named_link'}, {'kind':'linked_table'}, {'schema':'named_link'},
+                 {'mode':'dynamic_list_structure'}, {'version':1,'minimum_posts':3}]:
         _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/weibo'})
         with pytest.raises(ValueError,match='private content'):
             _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/Users/private/data'})

@@ -1132,6 +1132,44 @@ def _project_json(name, data):
         'original_bytes': len(data), 'published_bytes': len(projected)}
 
 
+def project_result_diagnostics(name, data):
+    """Redact quoted output diagnostics without changing result authority.
+
+    Only passage quotations and resource-URL diagnostics may differ. Original
+    records stay at source; callers must bind this separate presentation receipt
+    and verify its projection against those originals at the report boundary.
+    """
+    public, receipt = project_file(name, data)
+    if receipt is None:
+        return data, None
+    before, after = json.loads(data), json.loads(public)
+    changed = []
+
+    def compare(left, right, path=()):
+        if left == right:
+            return
+        if isinstance(left, dict) and isinstance(right, dict) and left.keys() == right.keys():
+            for key in left:
+                compare(left[key], right[key], (*path, key))
+        elif isinstance(left, list) and isinstance(right, list) and len(left) == len(right):
+            for index, (old, new) in enumerate(zip(left, right, strict=True)):
+                compare(old, new, (*path, index))
+        elif isinstance(left, str) and isinstance(right, str) and tuple(
+                '*' if isinstance(part, int) else part for part in path) in {
+                    ('metrics', 'body_region_results', '*', 'matched_output_passages', '*', 'text'),
+                    ('metrics', 'resource_candidate_urls', '*'),
+                    ('metrics', 'resource_candidates', '*', 'url'),
+                    ('metrics', 'unexpected_resource_urls', '*')}:
+            changed.append('/'.join(map(str, path)))
+        else:
+            raise ValueError('Public result diagnostics would change non-diagnostic authority')
+
+    compare(before, after)
+    return public, {**receipt, 'kind': 'post_score_result_diagnostics_view',
+        'changed_fields': changed, 'measurements_unchanged': True,
+        'original_retained_privately': True, 'provider_calls_added': 0}
+
+
 def publication_file_risk(name, data):
     """Scan JSONL records independently; malformed records keep the full scan.
 

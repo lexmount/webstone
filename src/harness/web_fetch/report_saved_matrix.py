@@ -88,12 +88,11 @@ def _require_public_json(receipt, *, label="Missing receipt"):
 
     def local_path(value):
         if isinstance(value, dict):
-            # Composite task groups use entry_path for an origin-relative web
-            # route. It is not an evidence-file location; the shared privacy
+            # Task rules and their provenance pair entry_path with hosts to
+            # describe a web route. It is not an evidence-file location; the shared privacy
             # scan above still rejects actual home paths and secrets there.
-            web_route = ((value.get('kind') in {'named_link', 'linked_table'}
-                          or value.get('schema') == 'named_link')
-                         and isinstance(value.get('hosts'), list) and bool(value['hosts']))
+            web_route = (isinstance(value.get('hosts'), list) and bool(value['hosts'])
+                         and all(isinstance(host, str) and host for host in value['hosts']))
             return any((key.endswith('path') and not (key == 'entry_path' and web_route) and isinstance(item, str)
                         and (item.startswith(('/', '~', '\\')) or re.match(r'^[A-Za-z]:', item)))
                        or local_path(item) for key, item in value.items())
@@ -1655,7 +1654,14 @@ def _record_public_views(source, record, case):
     return views
 
 
-def _materialize_record_public_views(source, destination, record, case):
+def _display_record_bytes(settings, name, raw):
+    if not settings.get('public_evidence_views'):
+        return raw
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    return project_result_diagnostics(name, raw)[0]
+
+
+def _materialize_record_public_views(source, destination, record, case, original_record, record_name):
     files = []
     for binding, public, receipt in _record_public_views(source, record, case):
         _write_bytes(destination / receipt['path'], public)
@@ -1674,6 +1680,14 @@ def _materialize_record_public_views(source, destination, record, case):
                    'provider_calls_added': 0, 'files': files})
     _write(destination / 'presentation-binding.json',
            {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    if receipt:
+        target = destination/record_name
+        if target.read_bytes() != original_record:
+            raise ValueError('Result diagnostics alias differs from original source')
+        target.write_bytes(public_record)
+        _write(destination/'result-diagnostics-view.json', receipt)
 
 
 def _public_view_sources(inputs, keys):
@@ -1683,10 +1697,10 @@ def _public_view_sources(inputs, keys):
         prefix = 'evidence/'+'/'.join(key)
         source = (inputs['selected'][key][0] if relative == prefix+'/record.json'
                   else inputs['continuations'][key][1][0])
-        yield relative, source, json.loads(raw), inputs['cases'][key[0]][key[2]]
+        yield relative, source, json.loads(raw), inputs['cases'][key[0]][key[2]], raw
 
 
-def _validate_record_public_views(source, destination, record, case):
+def _validate_record_public_views(source, destination, record, case, original_record, record_name):
     """Reproduce every public byte from the verified original source."""
     from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
     profile = _json(destination/'presentation-binding.json')
@@ -1704,6 +1718,13 @@ def _validate_record_public_views(source, destination, record, case):
                          'view_receipt': {'path': name, 'sha256': _sha(destination/name)}})
     if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
         raise ValueError('Public evidence view inventory differs from original sources')
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    path = destination/'result-diagnostics-view.json'
+    if ((destination/record_name).read_bytes() != public_record
+            or bool(receipt) != path.is_file()
+            or receipt and _json(path) != receipt):
+        raise ValueError('Result diagnostics differ from original-source projection')
 
 
 def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
@@ -1997,8 +2018,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
             raise ValueError('Public evidence views require a fixed saved selection without revisions')
         model['public_evidence_views'] = True
         keys = [(row['suite'], row['provider'], row['case_id']) for row in model_rows]
-        for relative, source, record, case in _public_view_sources(inputs, keys):
-            _materialize_record_public_views(source, (output/relative).parent, record, case)
+        for relative, source, record, case, raw in _public_view_sources(inputs, keys):
+            _materialize_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
     _write(output / 'matrix.json', model)
     with _source_validated_render(output, model):
         entry = generate_saved_matrix(output, model)
@@ -2211,7 +2232,8 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
             **({'score_revision': score} if revised else {})}
         if (row.get('receipt_path') != prefix+'/receipt.json'
                 or _json(output/row['receipt_path']) != json.loads(json.dumps(expected_receipt))
-                or _sha(output/row['record_path']) != expected_receipt['record_sha256']):
+                or (output/row['record_path']).read_bytes() != _display_record_bytes(
+                    inputs['spec'], Path(row['record_path']).name, raw)):
             raise ValueError('Saved result receipt differs from validated source')
 
     if key in inputs['historical']:
@@ -2537,7 +2559,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             if identity in adoptions:
                 expected_record = adoptions[identity]['selected'][1]
             if expected_record is not None:
-                if not row.get('record_path') or record != expected_record:
+                if not row.get('record_path') or record != json.loads(_display_record_bytes(
+                        model, Path(row['record_path']).name, json_bytes(expected_record))):
                     raise ValueError('Saved record differs from validated source selection')
             elif (row.get('record_path') or row['status'] != inputs['missing'][identity][0]['status']
                     or receipt != _json(inputs['missing'][identity][1])
@@ -2572,11 +2595,11 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 raise ValueError('Superseded evidence identity differs')
     if inputs is not None:
         if model.get('public_evidence_views'):
-            for relative, source, record, case in _public_view_sources(inputs, keys):
-                _validate_record_public_views(source, (output/relative).parent, record, case)
+            for relative, source, record, case, raw in _public_view_sources(inputs, keys):
+                _validate_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
-            if not path.is_file() or path.read_bytes() != expected_record:
+            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):
                 raise ValueError('Published provenance record differs from validated source: '+relative)
             _validate_record_artifacts(path)
     with _source_validated_render(output, model):
@@ -2707,6 +2730,9 @@ def _saved_renderer_projection(output, model):
                 view['receipt'] = prefix+'/'+view['receipt']
             metadata = record.setdefault('provider_metadata', {})
             metadata['publication_views'] = views
+            diagnostics_receipt = local_root/'result-diagnostics-view.json'
+            if diagnostics_receipt.is_file():
+                metadata['public_result_diagnostics_receipt'] = prefix+'/'+diagnostics_receipt.name
             native = views.get('native_response')
             native_text = None
             if native:

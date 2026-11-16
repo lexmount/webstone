@@ -1,5 +1,7 @@
 {
   "zh": {
+    "result_diagnostics_redacted_note": "此展示副本遮蔽了引用文字和资源网址中的敏感值。分数、数量、耗时和通过判定保持不变，原始结果另行保留。",
+    "result_diagnostics_view_receipt": "原始结果与诊断展示副本的核对记录",
     "failed_without_detailed_diagnosis": "未通过，尚无细分诊断",
     "complete_failure_distribution": "未通过结果的完整分布",
     "model_input_limit_exceeded": "模型输入容量限制",

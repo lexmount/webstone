@@ -61,6 +61,15 @@ def test_multiline_debug_views_redact_decoded_nested_responses():
     assert receipt['provider_calls_added'] == 0
 
 
+def test_result_diagnostic_views_reject_changes_outside_quoted_output():
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    raw = json.dumps({'metrics':{'content_pass':True,'authorization':'Bearer synthetic-secret'}}).encode()
+    with pytest.raises(ValueError,match='non-diagnostic authority'):
+        project_result_diagnostics('record.json',raw)
+    with pytest.raises(ValueError,match='non-diagnostic authority'):
+        project_result_diagnostics('record.json',json.dumps({'error_message':'Authorization: Bearer synthetic-secret'}).encode())
+
+
 @pytest.mark.parametrize('scheme', ['https', 'http', 'wss', 'ws'])
 def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme):
     from harness.web_fetch.publication_privacy import project_evidence_view

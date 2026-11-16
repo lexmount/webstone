@@ -2518,6 +2518,9 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
    if continuation.get('prior_answer_path'):evidence+=' · '+link('../'+continuation['prior_answer_path'],saved_matrix_text('answer_link'))
    body+=section(saved_matrix_text('continuation_title'),'<p>'+saved_matrix_text('continuation_note')+'</p><p>'+saved_matrix_text('continuation_cost')+esc(cost)+'</p>'+evidence,'retry-continuation')
   body+=section((t('report_target_coverage_and_additional_content_e66c3d', 'Target coverage and additional content')),render_quality_observations(r,c,output,esc=esc),'quality-diagnostics')
+  diagnostic_view=r.get('provider_metadata',{}).get('public_result_diagnostics_receipt')
+  if diagnostic_view:
+   body+='<p class="source-note">'+t('result_diagnostics_redacted_note', 'Quoted output and resource-URL diagnostics are redacted in this public copy. Scores, counts, timings and verdicts are unchanged; original records remain private.')+' '+link('../'+diagnostic_view,t('result_diagnostics_view_receipt', 'Original/public diagnostic verification record'))+'</p>'
   reviewed=audited_attempts.get(r['attempt_id'])
   if reviewed:
    independent={'pass':t('pass_2', 'Pass'),'fail':t('fail_2', 'Fail'),'insufficient':t('insufficient_evidence', 'Insufficient evidence')}.get(reviewed.get('agent_verdict'),t('not_recorded', 'Not recorded'))

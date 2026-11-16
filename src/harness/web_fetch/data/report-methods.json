@@ -6645,8 +6645,8 @@
         },
         "file": {
           "status": {
-            "zh": "依原生接口而定",
-            "en": "Depends on the native interface"
+            "zh": "有限支持",
+            "en": "Limited support"
           },
           "detail": {
             "zh": "直接文件任务要求可核验的原始字节，文字或网址不能替代；是否交付原始文件按接口返回与证据判断。",
