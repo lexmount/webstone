@@ -64,7 +64,10 @@ def check_distribution(root: Path, *, uv: str = "uv", run: Callable = subprocess
         call(str(venv / "bin/webstone"), "results", "--help")
         call(pip_python, "-m", "pip", "install", "--force-reinstall", "--no-deps", str(wheel))
         call(pip_python, "-m", "pip", "check")
-        call(pip_python, "-c", "from harness.results import ResultsClient; assert callable(ResultsClient.submit)")
+        call(
+            pip_python, "-c",
+            "from harness.results import ResultsClient; assert callable(ResultsClient.submit)",
+        )
         call(str(venv / "bin/webstone"), "results", "--help")
         call(pip_python, *smoke)
         for extra, flag in OPTIONAL_PROFILES:
