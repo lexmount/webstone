@@ -117,8 +117,11 @@ class GitHubTransport:
     """SDK transport using an explicitly supplied token, sent only to GitHub."""
 
     def __init__(self, token: str):
+        token = token.strip()
         if not token.strip():
             raise SubmissionError("An explicit GitHub token is required for SDK writes.")
+        if any(ord(character) < 33 or ord(character) > 126 for character in token):
+            raise SubmissionError("The GitHub token contains invalid header characters.")
         self._token = token
         self._opener = build_opener(_GitHubRedirect())
 
@@ -144,7 +147,7 @@ class GitHubTransport:
                 return json.loads(raw) if raw else None
         except HTTPError as error:
             raise GitHubError(error.code) from error
-        except URLError as error:
+        except (URLError, TimeoutError) as error:
             raise SubmissionError(
                 "Unable to contact GitHub. Check your network connection."
             ) from error
@@ -655,7 +658,9 @@ class ResultsClient:
             raise SubmissionError(
                 "The result branch must belong to your personal fork of the target."
             )
-        changes = self._request("GET", f"pulls/{number}/files?per_page=100")
+        changes = self._pages(f"pulls/{number}/files")
+        if pr.get("changed_files", len(changes)) != len(changes):
+            raise SubmissionError("The complete submission file list could not be inspected.")
         reports = [
             item
             for item in changes

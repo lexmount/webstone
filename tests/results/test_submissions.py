@@ -398,6 +398,49 @@ def test_catalog_uses_github_default_branch_without_assuming_main(setup_client):
     assert api.calls[-1][1].endswith("contents/benchmarks/catalog.json")
 
 
+def test_rebase_rejects_incomplete_file_listing_before_writes(setup_client):
+    api, client = setup_client
+    client.submit(REPORT)
+    api.prs[0]["changed_files"] = 101
+    writes = sum(method != "GET" for method, _, _ in api.calls)
+    with pytest.raises(SubmissionError, match="complete submission file list"):
+        client.rebase(7)
+    assert sum(method != "GET" for method, _, _ in api.calls) == writes
+
+
+def test_sdk_normalizes_token_and_rejects_invalid_header_without_disclosure():
+    import traceback
+
+    assert GitHubTransport(" synthetic-token\n")._token == "synthetic-token"
+    for token in ["synthetic-token\nInjected: value", "synthetic-token\x00", "synthetic-tokené"]:
+        with pytest.raises(SubmissionError) as error:
+            GitHubTransport(token)
+        rendered = "".join(traceback.format_exception(error.type, error.value, error.tb))
+        assert token not in rendered
+        assert "invalid header characters" in str(error.value)
+
+
+def test_sdk_response_read_timeout_is_a_controlled_error():
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            raise TimeoutError("Timed out during response body")
+
+    class Opener:
+        def open(self, *args, **kwargs):
+            return Response()
+
+    transport = GitHubTransport("synthetic-token")
+    transport._opener = Opener()
+    with pytest.raises(SubmissionError, match="Unable to contact GitHub"):
+        transport.request("GET", "/user")
+
+
 def test_transport_errors_never_repeat_credentials_and_sdk_rejects_other_hosts(monkeypatch):
     class Failure:
         returncode, stdout, stderr = 1, "", "secret-fixture-value (HTTP 403)"
