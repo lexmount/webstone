@@ -596,3 +596,14 @@ def test_repeated_source_identifier_uses_first_ranked_evidence_for_every_syntax(
     for answer in ['Claim [引用:1]', 'Claim [source](https://source.test/a)', 'Claim <a href="https://source.test/a">source</a>']:
         citation, = answers.citation_inventory(answer, results)
         assert citation['source']['snippet'] == 'First evidence'
+
+
+@pytest.mark.parametrize('depth', [1, 1500])
+@pytest.mark.parametrize('hidden', [False, True])
+def test_deep_answers_keep_the_same_citations_and_visibility_as_shallow_answers(depth, hidden):
+    body = '<div>' * depth + 'Claim [引用:1]' + '</div>' * depth
+    answer = '<section' + (' hidden' if hidden else '') + '>' + body + '</section>'
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert [c['claim_context'] for c in citations] == ([] if hidden else ['Claim'])
+    if citations:
+        assert citations[0]['marker'] == '[引用:1]'

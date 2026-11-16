@@ -387,13 +387,31 @@ def citation_inventory(answer, results):
             text(' ')
         block_breaks.append(length)
 
-    def visit(node, blocked=False, visibility=False, literal=False, inside_link=False):
+    pending = [('visit', (tree, False, False, False, False))]
+    while pending:
+        event, payload = pending.pop()
+        if event == 'text':
+            text(payload)
+            continue
+        if event == 'exit':
+            records, identity, start, separate = payload
+            if records and ''.join(parts)[start:length].strip():
+                if identity in linked:
+                    linked[identity]['local_end'] = length
+                else:
+                    record = dict(records[0], local_start=start, local_end=length)
+                    linked[identity] = record
+                    local.append(record)
+            if separate:
+                boundary()
+            continue
+        node, blocked, visibility, literal, inside_link = payload
         if not isinstance(node.tag, str):
-            return
+            continue
         tag = node.tag.rpartition('}')[2].lower()
         blocked, visibility = _visibility(tag, node.attrib, blocked, visibility)
         if blocked:
-            return
+            continue
         literal = literal or tag in literal_tags
         closed = tag == 'details' and 'open' not in node.attrib
         if tag in block_tags and not visibility:
@@ -407,7 +425,7 @@ def citation_inventory(answer, results):
                 else:
                     local.extend(dict(record, local_start=length, local_end=length,
                                       block_floor=block_breaks[-1]) for record in records)
-            return
+            continue
         if records:
             item, valid = link_item(node.attrib.get('href') or '')
             records = [dict(record, item=item) for record in records] if valid else []
@@ -421,21 +439,11 @@ def citation_inventory(answer, results):
             if not closed:
                 text(node.text)
         children = [child for child in node if child.tag == 'summary'][:1] if closed else node
-        for child in children:
-            visit(child, blocked, visibility, literal, inside_link)
+        pending.append(('exit', (records, identity, start, tag in block_tags and not visibility)))
+        for child in reversed(children):
             if not visibility and not closed:
-                text(child.tail)
-        if records and ''.join(parts)[start:length].strip():
-            if identity in linked:
-                linked[identity]['local_end'] = length
-            else:
-                record = dict(records[0], local_start=start, local_end=length)
-                linked[identity] = record
-                local.append(record)
-        if tag in block_tags and not visibility:
-            boundary()
-
-    visit(tree)
+                pending.append(('text', child.tail))
+            pending.append(('visit', (child, blocked, visibility, literal, inside_link)))
     references = []
     plain = "".join(parts)
     # Sentences are local to this rendered inline block. Every link in one
