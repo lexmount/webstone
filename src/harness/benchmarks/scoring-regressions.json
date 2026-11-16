@@ -88348,6 +88348,34 @@
           "Claim"
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><img style=\"\" alt=\"Supported claim\"></a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "Supported claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><img style=\"display:contents\" alt=\"Supported claim\"></a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Supported claim"
+          }
+        ],
+        "claims": [
+          "Supported claim"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

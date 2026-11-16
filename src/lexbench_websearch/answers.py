@@ -117,6 +117,7 @@ def _visibility(tag, attributes, blocked, visibility):
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
                                  'audio', 'video', 'canvas', 'progress', 'meter'}
                or display == 'none' or default_hidden and display in {None, 'revert', 'revert-layer'}
+               or display == 'contents' and tag in {'img', 'object', 'embed', 'input', 'select', 'textarea', 'br', 'wbr'}
                or content_visibility == 'hidden' or until_found and content_visibility in {None, 'revert', 'revert-layer'})
     if declarations.get('visibility') in {'visible', 'hidden', 'collapse', 'initial'}:
         visibility = declarations['visibility'] in {'hidden', 'collapse'}

@@ -647,3 +647,22 @@ def test_semantic_block_siblings_do_not_share_native_claims(tag):
     answer = '<' + tag + '>Claim.</' + tag + '><' + tag + '>[引用:1]</' + tag + '>'
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
     assert citation['claim_context'] == ''
+
+
+@pytest.mark.parametrize('style,claims', [('', ['Supported claim']), ('display:contents', [])])
+def test_display_contents_cannot_supply_an_image_only_citation(style, claims):
+    answer = '<a href="https://source.test/a"><img style="' + style + '" alt="Supported claim"></a>'
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert [c['claim_context'] for c in citations] == claims
+
+
+@pytest.mark.parametrize('tag', ['object', 'textarea', 'select'])
+def test_display_contents_suppresses_replaced_element_content(tag):
+    answer = '<a href="https://source.test/a"><' + tag + ' style="display:contents">Claim</' + tag + '></a>'
+    assert answers.citation_inventory(answer, [dict(url='https://source.test/a')]) == []
+
+
+def test_display_contents_keeps_ordinary_container_children_visible():
+    answer = '<a href="https://source.test/a"><span style="display:contents">Claim</span></a>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert citation['claim_context'] == 'Claim'
