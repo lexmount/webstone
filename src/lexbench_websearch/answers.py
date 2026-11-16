@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import re
+from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
@@ -18,6 +19,59 @@ SIMPLEQA_UPSTREAM = {
 GRADES = {"A": "CORRECT", "B": "INCORRECT", "C": "NOT_ATTEMPTED"}
 
 
+def _html_tokens(source):
+    """Project an HTML block through the same visible-text and citation pipeline."""
+    from markdown_it.token import Token
+
+    offsets = [0, *(match.end() for match in re.finditer('\n', source))]
+    class Tokens(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.tokens = []
+
+        def position(self):
+            line, column = self.getpos()
+            return offsets[line - 1] + column
+
+        def emit(self, kind, text, start=None, end=None):
+            token = Token(kind, '', 0)
+            token.content = text
+            if start is not None:
+                token.meta['span'] = (start, end)
+            self.tokens.append(token)
+
+        def handle_starttag(self, tag, attrs):
+            text, start = self.get_starttag_text(), self.position()
+            self.emit('html_inline', text, start, start + len(text))
+
+        handle_startendtag = handle_starttag
+
+        def handle_endtag(self, tag):
+            start = self.position()
+            end = source.find('>', start) + 1
+            self.emit('html_inline', source[start:end], start, end)
+
+        def handle_data(self, data):
+            offset, position = 0, self.position()
+            for match in re.finditer(r'\[引用[:：]\s*([0-9]+(?:\s*[,，、]\s*[0-9]+)*)\s*\]', data):
+                self.emit('text', data[offset:match.start()])
+                self.emit('native_citation', match[0], position + match.start(), position + match.end())
+                self.tokens[-1].meta['identities'] = re.split(r'\s*[,，、]\s*', match[1])
+                offset = match.end()
+            self.emit('text', data[offset:])
+
+        def handle_entityref(self, name):
+            self.emit('text', unescape('&' + name + ';'))
+
+        def handle_charref(self, name):
+            self.emit('text', unescape('&#' + name + ';'))
+
+    tokenizer = Tokens()
+    tokenizer.feed(source)
+    tokenizer.close()
+    return tokenizer.tokens
+
+
 class _InlineVisibility(HTMLParser):
     """Track hidden HTML subtrees without loading or executing answer content."""
 
@@ -29,6 +83,8 @@ class _InlineVisibility(HTMLParser):
         super().__init__()
         self.stack = []
         self.separator = False
+        self.anchor_events = []
+        self.block_break = False
 
     @property
     def hidden(self):
@@ -36,6 +92,8 @@ class _InlineVisibility(HTMLParser):
 
     def feed(self, data):
         self.separator = False
+        self.anchor_events = []
+        self.block_break = False
         super().feed(data)
 
     def handle_starttag(self, tag, attrs):
@@ -61,12 +119,22 @@ class _InlineVisibility(HTMLParser):
             self.separator = True
         if tag not in self._void:
             self.stack.append((tag, blocked, visibility))
+        if tag == 'a':
+            self.anchor_events.append(('open', attributes.get('href') or '', not self.hidden))
+        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote', 'hr',
+                   'h1', 'h2', 'h3', 'h4', 'h5', 'h6'} and not self.hidden:
+            self.block_break = True
 
     def handle_startendtag(self, tag, attrs):
         # HTML ignores a self-closing slash on non-void elements.
         self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag == 'a':
+            self.anchor_events.append(('close', '', False))
+        if tag in {'p', 'div', 'section', 'article', 'li', 'blockquote',
+                   'h1', 'h2', 'h3', 'h4', 'h5', 'h6'} and not self.hidden:
+            self.block_break = True
         if tag == 'br' and not self.hidden:
             self.separator = True
         for index in range(len(self.stack) - 1, -1, -1):
@@ -181,8 +249,9 @@ def citation_inventory(answer, results):
                 ):
                     raise ValueError("One citation identifier refers to different documents")
                 by_id[identity] = item
-    from markdown_it.rules_inline.link import link
     from markdown_it.rules_inline.autolink import autolink
+    from markdown_it.rules_inline.html_inline import html_inline
+    from markdown_it.rules_inline.link import link
 
     def positioned(rule):
         def parse(state, silent):
@@ -199,6 +268,15 @@ def citation_inventory(answer, results):
     parser = MarkdownIt()
     parser.inline.ruler.at("link", positioned(link))
     parser.inline.ruler.at("autolink", positioned(autolink))
+    def positioned_html(state, silent):
+        start, count = state.pos, len(state.tokens)
+        accepted = html_inline(state, silent)
+        if accepted and not silent:
+            for token in state.tokens[count:]:
+                token.meta['span'] = (start, state.pos)
+        return accepted
+
+    parser.inline.ruler.at('html_inline', positioned_html)
     def native_citation(state, silent):
         marker = re.match(r"\[引用[:：]\s*([0-9]+(?:\s*[,，、]\s*[0-9]+)*)\s*\]", state.src[state.pos:])
         if not marker:
@@ -219,8 +297,8 @@ def citation_inventory(answer, results):
     line_offsets = [0, *(match.end() for match in re.finditer(r"\r\n|\r|\n", answer)), len(answer)]
     for block in parser.parse(answer):
         if block.type == 'html_block':
-            visibility.feed(block.content)
-        if block.type != "inline":
+            block.children = _html_tokens(block.content)
+        if block.type not in ('inline', 'html_block'):
             continue
         block_start, block_end = (line_offsets[line] for line in block.map)
         start = search_source.find(block.content, block_start, block_end)
@@ -243,10 +321,26 @@ def citation_inventory(answer, results):
                     positions.append(offset + newline.start())
                     offset += newline.end()
 
-        parts, length, pending, local = [], 0, [], []
+        parts, length, pending, local, html_pending, block_breaks = [], 0, [], [], [], []
         for token in block.children or []:
             if token.type == 'html_inline':
                 visibility.feed(token.content)
+                begin, end = token.meta['span']
+                for action, href, visible in visibility.anchor_events:
+                    if action == 'open':
+                        try:
+                            key = canonical_url(href, policy='document-url/2')
+                            eligible = visible
+                        except ValueError:
+                            key, eligible = '', False
+                        html_pending.append(dict(begin=positions[begin], local_start=length,
+                                                 item=by_url.get(key), eligible=eligible, native=False))
+                    elif html_pending:
+                        reference = html_pending.pop()
+                        if reference.pop('eligible') and ''.join(parts)[reference['local_start']:].strip():
+                            local.append(dict(reference, end=positions[end - 1] + 1, local_end=length))
+                if visibility.block_break:
+                    block_breaks.append(length)
                 if visibility.separator:
                     parts.append(' ')
                     length += 1
@@ -269,7 +363,7 @@ def citation_inventory(answer, results):
                 continue
             if visibility.hidden:
                 continue
-            if token.type == "native_citation" and not pending:
+            if token.type == "native_citation" and not pending and not html_pending:
                 begin, end = token.meta["span"]
                 for identity in token.meta["identities"]:
                     local.append(dict(begin=positions[begin], end=positions[end - 1] + 1,
@@ -286,10 +380,13 @@ def citation_inventory(answer, results):
                 continue
             parts.append(text)
             length += len(text)
+        for reference in html_pending:
+            if reference.pop('eligible') and ''.join(parts)[reference['local_start']:].strip():
+                local.append(dict(reference, end=positions[-1] + 1, local_end=length))
         plain = "".join(parts)
         # Sentences are local to this rendered inline block. Every link in one
         # sentence sees the complete assertion, including the other link labels.
-        boundaries = [0]
+        boundaries = [0, *block_breaks]
         closers = r'''["'”’»）)\]}」』】]*'''
         native_offsets = {reference['local_start'] for reference in local if reference['native']}
         for match in re.finditer(rf"(?P<stop>[。！？]+|[.!?]+){closers}", plain):
@@ -304,8 +401,7 @@ def citation_inventory(answer, results):
                                       {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "fig", "no"}):
                 continue
             boundaries.append(match.end())
-        if boundaries[-1] != len(plain):
-            boundaries.append(len(plain))
+        boundaries = sorted({*boundaries, len(plain)})
         for reference in local:
             anchor = reference["local_start"]
             if reference["native"]:

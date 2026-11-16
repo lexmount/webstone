@@ -4334,7 +4334,7 @@
         },
         "relevance.py": {
           "before_sha256": "9379e0c98ac4106065588d93f41a48de9022f94c9f0dae99bd02778a496c9127",
-          "after_sha256": "27ebf7ffc441ffc529144172d6c978e589d677084fb50ded05b6428383e249ad"
+          "after_sha256": "10077998be6b69916e8ff57f9124b2f53e143cc09cd9cb196bb6fb93429dc661"
         },
         "scoring.py": {
           "before_sha256": "e2d7ef42b8d56bbf6a72596e2d60e40bf339b305f936302d5a23ea430efce47a",
@@ -4449,6 +4449,22 @@
           "tests": [
             "tests/web_search/test_native_revisions.py",
             "tests/benchmarks/websearch/test_simpleqa.py"
+          ]
+        },
+        {
+          "modules": [
+            "answers.py",
+            "relevance.py"
+          ],
+          "root_cause": "HTML anchor tokens were omitted from citation inventories and review selection did not share the scorer document mapping or level-prefixed candidate identities.",
+          "regression_ids": [
+            "visible-html-citation-links",
+            "relevance-document-dedup"
+          ],
+          "tests": [
+            "tests/benchmarks/websearch/test_answers.py",
+            "tests/web_search/test_review.py",
+            "tests/web_search/test_answer_judge.py"
           ]
         }
       ]

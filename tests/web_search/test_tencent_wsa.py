@@ -49,12 +49,9 @@ class YuanbaoSearchTests(unittest.TestCase):
 
         failures = [
             (0, 28, b"", "operation timed out"),
-            (200, 0, b"", ""),
-            (200, 0, b"<html>bad response</html>", ""),
             (502, 0, b"<html>bad gateway</html>", ""),
             (200, 18, b'{"Response":', "partial transfer"),
-            (200, 0, b'{"Response": null}', ''),
-            (200, 0, b'{"unexpected": {}}', ''),
+            (200, 0, b'{"Response": {"Error": {"Code": "InternalError"}}}', ''),
             (200, 0, b'{"Response": {"Version": "standard", "Pages": "broken"}}', ''),
         ]
         for status, exit_code, raw, error in failures:
@@ -415,3 +412,36 @@ def test_missing_success_envelope_stops_collection_with_unknown_cost():
         assert adapter.account_error(payload) == 'MissingNativeEnvelope'
         assert adapter.account_error(payload, http_status=502) is None
     assert adapter.account_error({'Response': {'Pages': []}}, method).startswith('ResponseVersionMismatch')
+
+
+def test_missing_or_malformed_http_200_native_envelope_stops_runner_before_more_spending(tmp_path):
+    from harness.web_search.adapters import adapter_for
+    from harness.web_search.example import synthetic_profile
+    from harness.web_search.runner import run
+
+    bodies = [b'', b'<html>bad response</html>', b'{}', b'{"Response":null}', b'{"Response":[]}',
+              b'{"Response":"wrong"}', b'{"unexpected":{}}']
+    for index, raw in enumerate(bodies):
+        root = tmp_path/str(index)
+        root.mkdir()
+        profile = synthetic_profile()
+        profile['methods'] = [dict(id='tencent-wsa', label='Yuanbao', adapter='tencent-wsa',
+            endpoint='https://fixture.invalid', key_env='TENCENT_WSA_API_KEY', currency='CNY',
+            billing='http-200', price_per_1000=3, expected_response_version='standard')]
+        profile['protocol']['retry'] = True
+        path = root/'profile.json'
+        path.write_text(json.dumps(profile), encoding='utf-8')
+        calls = []
+        def send(url, body=None, *args, raw=raw, calls=calls, **kwargs):
+            receipt = dict(http_status=200, elapsed_ms=1, transport_exit=0, transport_error='')
+            if body is None:
+                return receipt, b'reference ' * 20
+            calls.append(body)
+            return receipt, raw
+        with patch('harness.web_search.runner.http_call', side_effect=send), patch('harness.web_search.runner.load_runtime_env'), patch.dict(os.environ,TENCENT_WSA_API_KEY='fixture'):
+            with unittest.TestCase().assertRaisesRegex(ValueError, 'Provider account error'):
+                run(path, root/'run', certified=True)
+        assert len(calls) == 1 and not (root/'run/receipt.json').exists()
+        interruption = json.loads((root/'run/interruption.json').read_bytes())
+        assert interruption['account_error'] == 'MissingNativeEnvelope'
+        assert adapter_for('tencent-wsa').cost(profile['methods'][0], 200, 0, {}) is None

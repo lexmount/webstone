@@ -379,3 +379,30 @@ def test_citation_support_uses_visible_inline_html_text(markup, claim):
     else:
         with pytest.raises(ValueError, match='source references'):
             answers.citation_grades(packet, response)
+
+
+@pytest.mark.parametrize('answer,claims', [
+    ('Claim <a href="https://source.test/a">source</a>.', ['Claim source.']),
+    ('<div><p>First <a href="https://source.test/a">source</a>.</p><p>Second <a href="https://source.test/a">link</a>.</p></div>', ['First source.', 'Second link.']),
+    ('Claim <a href="https://source.test/a">a <em>formatted</em> source</a>.', ['Claim a formatted source.']),
+    ('Claim <a href="https://source.test/a">source', ['Claim source']),
+    ('Claim <a hidden href="https://source.test/a">source</a>.', []),
+    ('<div hidden>Claim <a href="https://source.test/a">source</a>.</div>', []),
+    ('Claim <span style="display:none"><a href="https://source.test/a">source</a></span>.', []),
+])
+def test_visible_html_links_keep_original_spans_and_rendered_local_claims(answer, claims):
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a', snippet='Source text')])
+    assert [c['claim_context'] for c in citations] == claims
+    for citation in citations:
+        begin, end = citation['span']
+        assert answer[begin:end] == citation['marker']
+        assert citation['marker'].startswith('<a ')
+        if '</a>' in answer:
+            assert citation['marker'].endswith('</a>')
+        assert citation['in_results']
+
+
+def test_html_links_outside_results_still_count_in_the_support_denominator():
+    citation, = answers.citation_inventory('Claim <a href="https://missing.test/a">source</a>.', [])
+    assert citation['claim_context'] == 'Claim source.'
+    assert not citation['in_results'] and citation['source'] is None

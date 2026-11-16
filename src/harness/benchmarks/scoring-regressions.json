@@ -87424,6 +87424,64 @@
         ],
         "expected": true
       }
+    ],
+    "visible-html-citation-links": [
+      {
+        "kind": "citation",
+        "answer": "Claim <a href=\"https://source.test/a\">source</a>.",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Claim source."
+          }
+        ],
+        "claims": [
+          "Claim source."
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<div>Claim <a href=\"https://source.test/a\">source</a>.</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Claim source."
+          }
+        ],
+        "claims": [
+          "Claim source."
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "Claim <a hidden href=\"https://source.test/a\">source</a>.",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Claim source."
+          }
+        ],
+        "claims": [
+          "Claim source."
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div hidden>Claim <a href=\"https://source.test/a\">source</a>.</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Claim source."
+          }
+        ],
+        "claims": [
+          "Claim source."
+        ],
+        "expected": false
+      }
     ]
   },
   "web_search_normalization": {

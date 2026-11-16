@@ -10,10 +10,9 @@ from harness.reporting.privacy import WEB_SEARCH_PREVIEW
 from harness.web_search.messages import report_text, zh_text
 from harness.web_search.relevance import parse_judgments
 from lexbench_websearch.evidence_quality import is_benchmark_page
-from lexbench_websearch.relevance import query_metrics
+from lexbench_websearch.relevance import candidate_documents, query_metrics
 from lexbench_websearch.scoring import (
     answer_evidence_key,
-    canonical_url,
     evaluate,
     factual_evidence,
     in_domain,
@@ -90,10 +89,8 @@ def comparison_data(profile, selected_rows, zh=False, detail_link=None, relevanc
     for call in (relevance or {}).get("judge", {}).get("calls", []):
         packet = packets[call["case_id"]]
         judgments[call["case_id"]] = {x["candidate_id"]: x for x in parse_judgments(packet, call["response"])}
-    documents = ({p['case_id']: {c['candidate_id']: canonical_url(c['url'], policy=profile['protocol'].get('relevance_document_policy', 'literal/1')) for c in p['candidates']}
-                  for p in (relevance or {}).get('blind_candidate_packets', [])}
-                 if (profile.get('protocol', {}).get('relevance_input') == 'delivered-previews/1'
-                     or profile.get('protocol', {}).get('relevance_document_policy') == 'document-url/2') else {})
+    documents = {p['case_id']: candidate_documents(profile, p['candidates'])
+                 for p in (relevance or {}).get('blind_candidate_packets', [])}
     cases = []
     exclusions = set(profile.get("factual_quality_exclusions", []))
     for case in profile["cases"]:

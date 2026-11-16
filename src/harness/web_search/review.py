@@ -25,7 +25,7 @@ from harness.web_search.diagnostics import error_evidence
 from harness.web_search.messages import report_text
 from harness.web_search.relevance import legacy_evidence_allowed
 from lexbench_webfetch.paths import contained_path
-from lexbench_websearch.relevance import candidate_packet, query_metrics
+from lexbench_websearch.relevance import candidate_documents, candidate_packet, query_metrics
 from lexbench_websearch.scoring import classify, ranking_ids
 
 
@@ -310,8 +310,14 @@ def row_state(profile, row, relevance=None):
         # Preserve API/empty failures without substituting another quality metric.
         return classify({}, row, cutoff=cutoff)
     ranking = ranking_ids(case['id'], row.get('results', [])[:cutoff],
-                          preview=profile['protocol'].get('relevance_input') == 'delivered-previews/1')
-    grades = None if labels is None else query_metrics(ranking, labels, cutoff)['ranked_grades']
+                          preview=profile['protocol'].get('relevance_input') == 'delivered-previews/1',
+                          level=profile['protocol'].get('relevance_level'))
+    packet = next((p for p in (relevance or {}).get('blind_candidate_packets', [])
+                   if p['case_id'] == case['id']), None)
+    if labels is not None and packet is None and profile['protocol'].get('relevance_document_policy') == 'document-url/2':
+        raise ValueError('Document-level review requires the complete candidate pool')
+    documents = candidate_documents(profile, packet['candidates']) if packet else None
+    grades = None if labels is None else query_metrics(ranking, labels, cutoff, documents=documents)['ranked_grades']
     return classify(case, row, cutoff=profile["protocol"]["top_k"],
                     quality_excluded=case["id"] in profile.get("factual_quality_exclusions", []),
                     relevance_grades=grades)

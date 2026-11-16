@@ -34,9 +34,9 @@ class Adapter:
         code = error.get("Code") if isinstance(error, dict) else None
         if isinstance(code, str) and code.split(".")[0] in self.account_error_codes:
             return code
-        if (self.version_path and http_status == 200 and isinstance(response, dict)
-                and not error and not isinstance(response.get('Pages'), list)
-                and not response.get('Version')):
+        if (self.version_path and http_status == 200 and not error
+                and (not isinstance(response, dict)
+                     or not isinstance(response.get('Pages'), list) and not response.get('Version'))):
             return 'MissingNativeEnvelope'
         expected = (method or {}).get("expected_response_version")
         if (expected is not None and isinstance(response, dict) and not error

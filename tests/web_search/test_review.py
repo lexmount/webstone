@@ -717,3 +717,46 @@ def test_job_error_before_the_wait_kills_the_reviewer_and_records_it(tmp_path, f
     state = json.loads((root / "jobs/0001/status.json").read_bytes())
     assert state["status"] == "failed" and state["returncode"] == -9 and state["finished_at"]
     assert state["error"] == ("disk full" if not raised else "Reviewer job ended unexpectedly")
+
+
+@pytest.mark.parametrize('level', ['l1', 'l2'])
+@pytest.mark.parametrize('second_url,expected', [('http://www.example.org/page', False), ('https://example.org/other', True)])
+def test_failure_review_and_report_share_document_deduplication(tmp_path, level, second_url, expected):
+    from harness.web_search.comparison import comparison_data
+    from lexbench_websearch.relevance import candidate_packet, score
+
+    case = dict(id='q', query='Find documentation', family='web')
+    profile = dict(cases=[case], methods=[dict(id='a', label='A', adapter='lexmount')], protocol=dict(top_k=5,
+        relevance_input='delivered-previews/1', relevance_level=level, relevance_document_policy='document-url/2'))
+    row = dict(id='q-a-r0', case_id='q', method='a', http_status=200, error='', results=[
+        dict(url='https://example.org/page', title='Document', snippet='Unhelpful'),
+        dict(url=second_url, title='Document', snippet='Useful')])
+    packet, rankings = candidate_packet(profile, [row])
+    labels = {'q': {c['candidate_id']: (3 if c['previews'][0]['snippet']=='Useful' else 0)
+                    for c in packet['blind_candidate_packets'][0]['candidates']}}
+    evidence = dict(packet, labels=labels, provider_rankings=rankings, judge=dict(kind='human', name='Synthetic control'))
+    metrics, = score(profile, [row], packet['plan'], labels)
+    shown = comparison_data(profile, [row], relevance=evidence)['cases'][0]['outputs']['a']
+    assert (review.row_state(profile, row, evidence)[0] == 'pass') == expected
+    assert shown['quality'] == expected and shown['score']['ranked_grades'] == metrics['ranked_grades']
+    # The public review consumes native report rows; level-isolated rows above
+    # separately exercise the level-prefixed candidate identities.
+    native_profile = dict(profile, protocol={k:v for k,v in profile['protocol'].items() if k != 'relevance_level'})
+    row = dict(row, results=normalize_response(dict(results=row['results']), profile['methods'][0], native_profile['protocol']))
+    packet, rankings = candidate_packet(native_profile, [row])
+    evidence = dict(packet, labels={'q':{c['candidate_id']:(3 if c['previews'][0]['snippet']=='Useful' else 0)
+                                       for c in packet['blind_candidate_packets'][0]['candidates']}}, provider_rankings=rankings)
+    report = tmp_path/'report'
+    report.mkdir()
+    raw = json.dumps(dict(results=row['results'])).encode()
+    (report/'native.json').write_bytes(raw)
+    row['evidence'] = dict(path='native.json', sha256=bytes_sha256(raw))
+    (report/'manifest.json').write_text('{}', encoding='utf-8')
+    (report/'relevance-judgments.json').write_text(json.dumps(evidence), encoding='utf-8')
+    with patch('harness.web_search.report.check', return_value=(native_profile, [row])):
+        contract = review.freeze(report, tmp_path/'frozen', model='fixture', scope='failures')
+    assert contract['output_count'] == (0 if expected else 1)
+    assert contract['accepted_unreviewed_passes'] == int(expected)
+    del evidence['blind_candidate_packets']
+    with pytest.raises(ValueError, match='complete candidate pool'):
+        review.row_state(native_profile, row, evidence)

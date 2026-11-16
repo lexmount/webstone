@@ -11,11 +11,19 @@ def _gain(grade, rank):
     return (2**grade - 1) / math.log2(rank + 2)
 
 
+def candidate_documents(profile, candidates):
+    """Share document identities across scoring, presentation and review selection."""
+    protocol = profile['protocol']
+    policy = protocol.get('relevance_document_policy', 'literal/1')
+    if protocol.get('relevance_input') != 'delivered-previews/1' and policy == 'literal/1':
+        return None
+    return {c['candidate_id']: canonical_url(c['url'], policy=policy) for c in candidates}
+
+
 def score(profile, rows, plan, labels):
     """Return per-query/provider nDCG and precision after exact coverage checks."""
     cutoff = plan["cutoff"]
     level = profile['protocol'].get('relevance_level')
-    document_policy = profile['protocol'].get('relevance_document_policy', 'literal/1')
     if cutoff != profile["protocol"]["top_k"] or cutoff < 1:
         raise ValueError("Relevance cutoff differs from the measured result count")
     cases = {case["id"]: case for case in profile["cases"]}
@@ -36,7 +44,7 @@ def score(profile, rows, plan, labels):
         rankings = {}
         candidate_ids = set()
         preview = profile['protocol'].get('relevance_input') == 'delivered-previews/1'
-        documents = {} if preview or document_policy == 'document-url/2' else None
+        pooled = {}
         for method in methods:
             result = indexed[case_id, method]
             ids = ranking_ids(case_id, result['results'][:cutoff], preview=preview, level=level)
@@ -44,9 +52,9 @@ def score(profile, rows, plan, labels):
                 candidate_id = ranking_identity(case_id, item, preview=preview, level=level)
                 if candidate_id is not None:
                     candidate_ids.add(candidate_id)
-                    if documents is not None:
-                        documents[candidate_id] = canonical_url(item['url'], policy=document_policy)
+                    pooled[candidate_id] = dict(candidate_id=candidate_id, url=item['url'])
             rankings[method] = ids
+        documents = candidate_documents(profile, pooled.values())
         grades = labels[case_id]
         if set(grades) != candidate_ids or any(
             type(v) is not int or v not in range(4) for v in grades.values()
