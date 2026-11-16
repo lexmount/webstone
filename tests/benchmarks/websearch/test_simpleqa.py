@@ -98,7 +98,7 @@ def test_article_observations_exclude_navigation_tables_and_later_sections():
 
 def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_document():
     from copy import deepcopy
-    from lexbench_websearch.simpleqa import extend_reference_urls
+    from lexbench_websearch.simpleqa import extend_reference_urls, mirror_candidates
     reference = dict(url='https://en.wikipedia.org/wiki/Article',title='Article',
                      lead='A reference paragraph identifying the subject and its independently documented history. '*6,
                      body_sha256='a'*64,status=200,verified_at='2026-11-13T00:00:00Z')
@@ -116,6 +116,10 @@ def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_docu
         assert case['equivalent_reference_urls'] == [mirror['url']]
         assert case['equivalent_reference_provenance'][0]['reference_url'] == reference['url']
     assert not extend_reference_urls(dataset,[mirror])['cases'][0]['equivalent_reference_urls']
+    audit = extended['reference_equivalence_audit']
+    assert len(audit) == 7
+    assert {entry['outcome'] for entry in audit} == {'qualified', 'fetch_failed'}
+    assert {entry['url'] for entry in audit} == set(mirror_candidates(reference['url']))
     with pytest.raises(ValueError,match='independently derived'):
         extend_reference_urls(dataset,[dict(mirror,url='https://provider-result.test/document')])
     for key,value in [('equivalent_reference_provenance',[]),('equivalent_reference_urls',[mirror['url'],mirror['url']])]:
@@ -127,3 +131,20 @@ def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_docu
     modified[0]['equivalent_reference_provenance'][0]['title_matches']=False
     with pytest.raises(ValueError,match='proof'):
         validate_cases(modified)
+
+
+def test_mirror_rejections_and_failed_fetches_remain_auditable():
+    from lexbench_websearch.simpleqa import extend_reference_urls, mirror_candidates
+
+    reference = dict(url='https://en.wikipedia.org/wiki/Article', title='Article',
+                     lead='A documented subject with independently published history. ' * 10,
+                     body_sha256='a' * 64, status=200, verified_at='2026-11-16T00:00:00Z')
+    urls = mirror_candidates(reference['url'])
+    observations = [reference, dict(reference, url=urls[0], title='Other'),
+                    dict(reference, url=urls[1], lead='Different material concerning another topic. ' * 20),
+                    dict(reference, url=urls[2], status=503)]
+    data = dict(cases=[dict(id='q', query='Question', reference_answer='Answer', reference_urls=[reference['url']])])
+    extended = extend_reference_urls(data, observations)
+    assert not extended['cases'][0]['equivalent_reference_urls']
+    assert [item['outcome'] for item in extended['reference_equivalence_audit'][:3]] == [
+        'title_mismatch', 'overlap_below_threshold', 'fetch_failed']

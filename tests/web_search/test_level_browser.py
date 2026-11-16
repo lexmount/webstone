@@ -12,6 +12,39 @@ from harness.web_search.report import SCRIPT, STYLE
 from tests.web_search.test_level_scores import complete_levels
 
 
+@pytest.mark.parametrize('width', [480, 1280])
+def test_home_explanation_remains_visible_while_switching_outputs(tmp_path, width):
+    from harness.web_search.comparison import render_level_guide, render_level_tabs
+    from tests.web_search.test_level_presentation import guide_views
+
+    playwright = pytest.importorskip('playwright.sync_api')
+    views = guide_views()
+    panels = ''.join('<section data-level-panel="'+level+'">'+level+'</section>' for level in views)
+    path = tmp_path / 'home.html'
+    path.write_text('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>'+STYLE+'</style><main>'
+                    +render_level_guide(views)+render_level_tabs(views)+panels+'</main><script>'+SCRIPT+'</script></html>', encoding='utf-8')
+    with playwright.sync_playwright() as engine:
+        browser = engine.chromium.launch(executable_path=browser_executable(), headless=True)
+        try:
+            page = browser.new_page(viewport=dict(width=width, height=850))
+            page.goto(path.as_uri())
+            guide = page.locator('[data-level-guide]')
+            for level in views:
+                page.locator('[data-level-select="'+level+'"]').click()
+                assert guide.is_visible()
+                assert page.locator('[data-level-panel="'+level+'"]').is_visible()
+            methods = guide.locator('[data-level-participants="l2"]')
+            methods.locator('summary').focus()
+            page.keyboard.press('Enter')
+            assert methods.locator('li').first.is_visible()
+            assert 'Method A' in methods.inner_text()
+            assert page.evaluate('document.documentElement.scrollWidth-innerWidth') <= 2
+            if width == 480:
+                assert guide.locator('.scroll').evaluate('(node)=>node.scrollWidth>node.clientWidth')
+        finally:
+            browser.close()
+
+
 @pytest.mark.parametrize("width", [480, 1280])
 def test_level_tabs_and_independent_filters_in_real_browser(tmp_path, width):
     playwright = pytest.importorskip("playwright.sync_api")

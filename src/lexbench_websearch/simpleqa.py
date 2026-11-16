@@ -31,8 +31,12 @@ def mirror_candidates(reference_url):
         return []
     path = quote(title, safe='()_,:-')
     return ['https://www.wikiwand.com/en/articles/' + path,
+            'https://www.wikiwand.com/en/' + path,
             'https://wiki2.org/en/' + path,
-            'https://en.wikipedia-on-ipfs.org/wiki/' + path + '.html']
+            *[gateway + path + suffix for gateway in (
+                'https://en.wikipedia-on-ipfs.org/wiki/',
+                'https://ipfs.io/ipns/en.wikipedia-on-ipfs.org/wiki/',
+            ) for suffix in ('', '.html')]]
 
 
 def qualify_mirror(reference, candidate):
@@ -70,18 +74,23 @@ def extend_reference_urls(dataset, observations):
     indexed = {item['url']: item for item in observations}
     if len(indexed) != len(observations) or set(indexed) - references - candidates:
         raise ValueError('Reference observations must be unique and independently derived')
-    qualified = {}
+    qualified, audit = {}, []
     for reference in sorted(references):
-        if reference not in indexed:
-            continue
         for candidate in mirror_candidates(reference):
-            if candidate not in indexed:
-                continue
+            record = dict(reference_url=reference, url=candidate)
+            left, right = indexed.get(reference), indexed.get(candidate)
             try:
-                proof = qualify_mirror(indexed[reference], indexed[candidate])
+                proof = qualify_mirror(left or {}, right or dict(url=candidate))
             except ValueError:
-                # Failed requests and short pages establish no equivalence.
+                failed = not left or not right or left.get('status') != 200 or right.get('status') != 200
+                audit.append(dict(record, outcome='fetch_failed' if failed else 'overlap_below_threshold',
+                                  reason='Missing successful article evidence' if failed else 'Insufficient article lead text',
+                                  reference_observation_sha256=(left or {}).get('body_sha256'),
+                                  observation_sha256=(right or {}).get('body_sha256')))
                 continue
+            outcome = ('qualified' if proof['qualified'] else
+                       'title_mismatch' if not proof['title_matches'] else 'overlap_below_threshold')
+            audit.append(dict(proof, outcome=outcome))
             if proof['qualified']:
                 qualified[reference, candidate] = proof
     extended = deepcopy(dataset)
@@ -95,6 +104,10 @@ def extend_reference_urls(dataset, observations):
         minimum_lead_characters=MIRROR_MINIMUM_CHARACTERS,
         maximum_lead_characters=MIRROR_LEAD_CHARACTERS, minimum_block_overlap=MIRROR_OVERLAP,
         candidate_scope='Publisher reference URLs only', url_policy='document-url/2')
+    extended['reference_equivalence_audit'] = audit
+    extended['reference_equivalence']['case_coverage'] = [
+        dict(case_id=case['id'], candidate_count=sum(len(mirror_candidates(url)) for url in case['reference_urls']),
+             qualified_count=len(case['equivalent_reference_urls'])) for case in extended['cases']]
     return extended
 
 

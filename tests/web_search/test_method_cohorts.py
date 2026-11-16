@@ -300,21 +300,19 @@ def _update_profile(source, **changes):
     write_json(source/'receipt.json', receipt)
 
 
-def test_matrix_reference_assessments_do_not_depend_on_source_order(tmp_path):
+def test_matrix_primary_source_owns_quality_exclusions(tmp_path):
     old, new = split_runs(tmp_path)
     cid = json.loads((new/'profile.json').read_bytes())['cases'][0]['id']
     decision = dict(case_id=cid, reason='Defective reference', quality_excluded=True)
     _update_profile(new, factual_quality_exclusions=[cid], reference_adjudications=[decision])
-    profiles = []
-    for first, second in [(old, new), (new, old)]:
-        methods = {name: [json.loads((path/'profile.json').read_bytes())['methods'][0]['id']]
-                   for name, path in [('primary', first), ('second', second)]}
-        profile, _, _, _ = load_report_runs(first, [('second', second)], {},
-                                           composition='matrix', source_methods=methods)
-        profiles.append(profile)
-    for profile in profiles:
-        assert profile['factual_quality_exclusions'] == [cid]
-        assert profile['reference_adjudications'] == [decision]
+    methods = {name: [json.loads((path/'profile.json').read_bytes())['methods'][0]['id']]
+               for name, path in [('primary', old), ('second', new)]}
+    with pytest.raises(ValueError, match='cannot shrink the primary quality population'):
+        load_report_runs(old, [('second', new)], {}, composition='matrix', source_methods=methods)
+    methods = {'primary': methods['second'], 'second': methods['primary']}
+    profile, _, _, _ = load_report_runs(new, [('second', old)], {}, composition='matrix', source_methods=methods)
+    assert profile['factual_quality_exclusions'] == [cid]
+    assert profile['reference_adjudications'] == [decision]
     _update_profile(old, reference_adjudications=[dict(decision, reason='Conflicting assessment')])
     with pytest.raises(ValueError, match='conflicting reference adjudications'):
         load_report_runs(new, [('second', old)], {}, composition='matrix', source_methods=methods)

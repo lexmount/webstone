@@ -105,6 +105,11 @@ to every configuration. `answers.json` can be replayed through
 
 The model relevance command accepts `--level l1` or `--level l2`. Adapters select
 the native fields; no text is truncated. L1 needs no source-page retrieval.
+The home introduction maps each level to its scored fields, benchmark task,
+primary metric and actual participants. Scores are independent. L2 capability
+tables show the verified character overlap, accessible sample and unavailable
+page count. Locale disclosures count saved requests rather than copying a
+method's default parameters across mixed collection batches.
 L2 also requires `--field-admissions /absolute/admissions.json`, an explicitly
 bound bundle of native-output candidates and live-capture bytes. Up to 200
 distinct URLs are ordered by hash before capture. The first 50 independently

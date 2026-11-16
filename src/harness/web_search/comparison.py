@@ -13,6 +13,7 @@ from lexbench_websearch.evidence_quality import is_benchmark_page
 from lexbench_websearch.relevance import query_metrics
 from lexbench_websearch.scoring import (
     answer_evidence_key,
+    canonical_url,
     evaluate,
     factual_evidence,
     in_domain,
@@ -89,9 +90,10 @@ def comparison_data(profile, selected_rows, zh=False, detail_link=None, relevanc
     for call in (relevance or {}).get("judge", {}).get("calls", []):
         packet = packets[call["case_id"]]
         judgments[call["case_id"]] = {x["candidate_id"]: x for x in parse_judgments(packet, call["response"])}
-    documents = ({p['case_id']: {c['candidate_id']: c['url'] for c in p['candidates']}
+    documents = ({p['case_id']: {c['candidate_id']: canonical_url(c['url'], policy=profile['protocol'].get('relevance_document_policy', 'literal/1')) for c in p['candidates']}
                   for p in (relevance or {}).get('blind_candidate_packets', [])}
-                 if profile.get('protocol', {}).get('relevance_input') == 'delivered-previews/1' else {})
+                 if (profile.get('protocol', {}).get('relevance_input') == 'delivered-previews/1'
+                     or profile.get('protocol', {}).get('relevance_document_policy') == 'document-url/2') else {})
     cases = []
     exclusions = set(profile.get("factual_quality_exclusions", []))
     for case in profile["cases"]:
@@ -297,6 +299,85 @@ def render_comparison(profile, selected_rows, zh, detail_link=None, relevance=No
         + '<script type="application/json" data-comparison-data>' + json.dumps(data, ensure_ascii=False).replace('<', '\\u003c').replace('&', '\\u0026') + '</script></section><script>' + SCRIPT + '</script>')
 
 
+def render_level_guide(views, zh=False):
+    """Explain scored fields, task contracts and actual participation together."""
+    t = partial(report_text, zh=zh)
+    first = next(iter(views.values()))
+    panels = first['benchmarks']
+    scope = {name: len(panel['case_ids']) for name, panel in panels.items()}
+    inputs = {'l1': (t('Search result lists'), t('URLs, titles and primary previews, when returned. Previews keep their original length.')), 'l2': (t('Additional source text'), t('Titles and additional original excerpts. Primary previews, full page bodies and generated answers are excluded. This is a separate score, not an improvement over L1.')), 'l3': (t('Generated answers'), t('The complete answer returned by the API. Answer quality is judged independently of the result list and excerpts.'))}
+    tasks = {'l1': [(t('Are the first five results useful, and are the best ones ranked first?'),), (t('How highly is an annotated reference page ranked in the first five results?'), t('Answer-text match is a secondary check on titles and primary previews; it is not answer correctness.'))], 'l2': [(t('Do the titles and additional excerpts satisfy the search intent, in the returned order?'),), (t('Does any of the first five additional excerpts contain the reference answer text?'), t('This text-match check excludes titles and primary previews; it does not judge a generated answer.'))], 'l3': [(t('Does the generated answer directly satisfy the request?'),), (t('Is the generated answer correct against the reference answer?'), t('The official SimpleQA rubric classifies answers as correct, incorrect or not attempted.'))]}
+    metric_labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
+                         source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
+                         answer_match=t('Extra-text Answer Match@5'),
+                         answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'))
+    body = '<section class="level-guide" data-level-guide aria-labelledby="level-guide-heading">'
+    body += '<h2 id="level-guide-heading">' + t('What each output evaluation measures') + '</h2>'
+    body += '<p>' + t('One API response can contain several output types. Each is scored separately; L1, L2 and L3 scores are not added together.') + '</p>'
+    benchmarks = [name for name in ('scenario', 'factual') if name in panels]
+    column_titles = {
+        'scenario': t('Scenario benchmark · {count} queries', count=scope.get('scenario', 0))
+                    + '<p class="metric-caption">' + t('Practical searches for official sites, resources and information.') + '</p>',
+        'factual': t('SimpleQA Verified · {count} valid queries', count=scope.get('factual', 0))
+                   + '<p class="metric-caption">' + t('Factual questions with reference answers and source pages.') + '</p>',
+    }
+    headers = [t('Output and scored fields')] + [column_titles[name] for name in benchmarks]
+    body += '<div class="scroll" tabindex="0" role="region" aria-label="' + t('Output evaluation matrix') + '"><table class="level-guide-table"><thead><tr>'
+    body += ''.join('<th scope="col">' + h + '</th>' for h in headers) + '</tr></thead><tbody>'
+    for level, view in views.items():
+        label, description = inputs[level]
+        methods = view['profile']['methods']
+        body += '<tr data-level-guide-row="' + level + '"><th scope="row" data-level-input><strong>' + level.upper() + ' · ' + label + '</strong><p>' + description + '</p>'
+        body += '<details data-level-participants="' + level + '"><summary>' + t('{count} participating methods', count=len(methods)) + '</summary><ul>'
+        body += ''.join('<li data-guide-method="' + esc(method['id']) + '">' + esc(method['label']) + '</li>' for method in methods) + '</ul></details></th>'
+        for name in benchmarks:
+            definition = tasks[level][0 if name == 'scenario' else 1]
+            question, *extra = definition
+            panel = view['benchmarks'][name]
+            metric = next(m for m in panel['metrics'] if m['key'] == panel['primary_metric'])
+            body += '<td data-level-test="' + name + '"><p>' + question + '</p><p><strong data-guide-primary="' + esc(metric['key']) + '">' + t('Primary metric: {metric}', metric=metric_labels[metric['key']]) + '</strong></p>'
+            body += '<p class="metric-caption">' + (t('Model grading') if name == 'scenario' or level == 'l3' else t('Rule-based scoring')) + '</p>'
+            body += ''.join('<p class="metric-caption">' + text + '</p>' for text in extra) + '</td>'
+        body += '</tr>'
+    body += '</tbody></table></div>'
+    if set(views) == {'l1', 'l2', 'l3'}:
+        shared = set.intersection(*({m['id'] for m in v['profile']['methods']} for v in views.values()))
+        if shared:
+            names = ', '.join(m['label'] for m in first['profile']['methods'] if m['id'] in shared)
+            body += '<p data-shared-level-methods>' + t('Methods evaluated in all three outputs: {methods}.', methods=esc(names)) + '</p>'
+    if 'l3' in views:
+        body += '<p data-citation-scope>' + t('L3 citation support is a separate check: it compares each cited claim with the returned source title, primary preview and additional excerpt. It does not use full page bodies or add L1/L2 scores to the answer score.') + '</p>'
+    if 'factual' in panels:
+        calls = len(panels['factual']['timing_case_ids'])
+        if calls != scope['factual']:
+            body += '<p class="metric-caption" data-guide-population>' + t('Factual quality uses {quality} valid queries; timing retains all {calls} factual calls.', quality=scope['factual'], calls=calls) + '</p>'
+    return body + '</section>'
+
+
+def locale_context(rows, method_id, zh=False):
+    """Describe locale settings from saved requests, including mixed batches."""
+    from collections import Counter
+    from urllib.parse import parse_qs, urlsplit
+
+    groups = Counter()
+    for row in rows:
+        if row['method'] != method_id:
+            continue
+        request = row.get('request') or {}
+        if 'q' in request and any(k in request for k in ('gl', 'hl', 'num')):
+            locale = {k: request[k] for k in ('gl', 'hl') if k in request}
+        elif urlsplit(request.get('url', '')).hostname in ('google.com', 'www.google.com'):
+            query = parse_qs(urlsplit(request['url']).query)
+            locale = {k: query[k][0] for k in ('gl', 'hl') if k in query}
+        else:
+            continue
+        groups[tuple(sorted(locale.items()))] += 1
+    t = partial(report_text, zh=zh)
+    return '; '.join(t('{count} calls: {settings}', count=count,
+                        settings=', '.join(k + '=' + str(v) for k, v in settings) or t('No locale parameters'))
+                     for settings, count in sorted(groups.items()))
+
+
 def render_level_summary(view, zh=False, *, content=None):
     """Use one comparison renderer for a verified level, with its own main metric."""
     from harness.web_search.core import aggregate
@@ -378,6 +459,7 @@ def render_level_summary(view, zh=False, *, content=None):
         rendered = []
         for method, values in sorted(records, key=lambda row: (row[1][panel['primary_metric']] is None,
                                                                -(row[1][panel['primary_metric']] or 0))):
+            mid = method['id']
             cells = ['<td>' + esc(method['label']) + '</td>']
             for index, metric in enumerate(definitions):
                 key, value = metric['key'], values[metric['key']]
@@ -391,7 +473,11 @@ def render_level_summary(view, zh=False, *, content=None):
                         dates = str(batch.get('started_at') or batch.get('as_of') or '')[:10]
                         concurrency = batch.get('protocol', {}).get('concurrency')
                         contexts.append(dates + (', ' + t('concurrency {count}', count=concurrency) if concurrency else ''))
-                    modes = ', '.join(k + '=' + str(v).lower() for k,v in (method.get('output_options') or {}).items())
+                    locale = locale_context(view.get('timing_rows', rows), mid, zh)
+                    modes = ', '.join(k + '=' + str(v).lower() for k,v in (method.get('output_options') or {}).items()
+                                      if not locale or k not in ('gl', 'hl'))
+                    if locale:
+                        contexts.append(locale)
                     context = ' · '.join(dict.fromkeys([*contexts, modes]))
                     if context.strip(' ·'):
                         label += '<details class="measurement-context"><summary>' + t('Collection') + '</summary><p>' + esc(context) + '</p></details>'
@@ -471,13 +557,28 @@ def render_level_capabilities(views, zh=False):
     from harness.web_search.report import cells, table
 
     t = partial(report_text, zh=zh)
-    meanings = dict(l1=t('Title and primary preview'), l2=t('Title and extra original text'),
+    meanings = dict(l1=t('URL, title and primary preview'), l2=t('Title and extra original text'),
                     l3=t('Generated answer and its citations'))
     body = '<section data-level-capabilities>'
     for level, view in views.items():
         body += '<article data-capability-level="' + level + '"><h2>' + level.upper() + '</h2>'
-        rows = [cells([esc(method['label']), meanings[level]]) for method in view['profile']['methods']]
-        body += table([t('Method'), t('Scored input')], rows) + '</article>'
+        headers = [t('Method'), t('Scored input')]
+        rows = []
+        if level == 'l2':
+            headers += [t('Matched characters'), t('Accessible sample'), t('Unavailable pages')]
+        for method in view['profile']['methods']:
+            values = [esc(method['label']), meanings[level]]
+            if level == 'l2':
+                admission = view.get('field_admissions', {}).get(method['id'])
+                if admission is None:
+                    raise ValueError('L2 presentation requires verified field admission statistics')
+                values[1] += ' (' + esc(', '.join(admission['fields'])) + ')'
+                values += [f'{admission["matched_fraction"]:.1%}', str(admission['sample_size']),
+                           str(admission['unavailable_source_pages'])]
+            rows.append(cells(values))
+        if level == 'l2':
+            body += '<p data-field-admission-rule>' + t('L2 admission checks 50 accessible pages per field. At least 80% of its characters must match the source page; unavailable pages are counted separately.') + '</p>'
+        body += table(headers, rows) + '</article>'
     return body + '</section>'
 
 

@@ -88,6 +88,69 @@ def view(n=40, single=False):
     return output
 
 
+def guide_views():
+    from copy import deepcopy
+
+    output = {}
+    base = view(n=2)
+    scene = dict(base['profile']['cases'][0], id='scene')
+    del scene['reference_answer']
+    base['profile']['cases'].append(scene)
+    base['rows'] += [dict(deepcopy(row), case_id='scene') for row in base['rows'][:2]]
+    base['relevance_scores'] = [dict(case_id='scene', method=m['id'], ndcg=.5, precision=.2, success=1)
+                                for m in base['profile']['methods']]
+    for level in ('l1', 'l2', 'l3'):
+        selected = deepcopy(base)
+        selected['profile']['protocol']['relevance_level'] = level
+        for case in selected['profile']['cases']:
+            case['evaluation_level'] = level
+        if level == 'l2':
+            for row in selected['rows']:
+                case = next(c for c in selected['profile']['cases'] if c['id'] == row['case_id'])
+                row['metrics'] = evaluate(case, row['results'])
+        if level == 'l3':
+            selected['profile']['methods'] = [m for m in selected['profile']['methods'] if m['id'] == 'a']
+            selected['rows'] = [r for r in selected['rows'] if r['method'] == 'a']
+            selected['answer_scores'] = [dict(case_id=r['case_id'], method='a', factual_grade='CORRECT', answer_grade=2,
+                citation_count=0, supported_citations=0, citations_in_results=0) for r in selected['rows']]
+        selected['benchmarks'] = level_benchmarks(selected)
+        output[level] = selected
+    return output
+
+
+@pytest.mark.parametrize('zh', [False, True])
+def test_output_guide_distinguishes_fields_tasks_and_actual_participants(zh):
+    from harness.web_search.comparison import render_level_guide
+
+    views = guide_views()
+    doc = BeautifulSoup(render_level_guide(views, zh), 'html.parser')
+    assert [r['data-level-guide-row'] for r in doc.select('tbody tr')] == ['l1', 'l2', 'l3']
+    assert len(doc.select('thead th')) == 3
+    assert [len(doc.select(f'[data-level-participants="{level}"] li')) for level in views] == [2, 2, 1]
+    expected = {'l1': ('ndcg', 'source_rr'), 'l2': ('ndcg', 'answer_match'), 'l3': ('answer_grade', 'correct')}
+    for level, metrics in expected.items():
+        row = doc.select_one(f'[data-level-guide-row="{level}"]')
+        assert [n['data-guide-primary'] for n in row.select('[data-guide-primary]')] == list(metrics)
+    assert 'Method A' in doc.select_one('[data-shared-level-methods]').get_text()
+    assert 'Method B' not in doc.select_one('[data-shared-level-methods]').get_text()
+    assert doc.select_one('[data-citation-scope]')
+    l2 = doc.select_one('[data-level-guide-row="l2"]')
+    assert ('不查标题' if zh else 'excludes titles') in l2.select_one('[data-level-test="factual"]').get_text()
+    assert ('标题' if zh else 'Titles') in l2.select_one('[data-level-input]').get_text()
+
+
+def test_output_guide_uses_the_selected_primary_metric_and_available_levels():
+    from harness.web_search.comparison import render_level_guide
+
+    views = guide_views()
+    views['l1']['benchmarks']['factual']['primary_metric'] = 'source_hit'
+    doc = BeautifulSoup(render_level_guide(views), 'html.parser')
+    assert doc.select_one('[data-level-guide-row="l1"] [data-level-test="factual"] [data-guide-primary]')['data-guide-primary'] == 'source_hit'
+    del views['l3']
+    doc = BeautifulSoup(render_level_guide(views), 'html.parser')
+    assert not doc.select('[data-shared-level-methods], [data-citation-scope], [data-level-guide-row="l3"]')
+
+
 @pytest.mark.parametrize("zh", [False, True])
 def test_layer_table_has_correct_sort_order_raw_highlights_and_supported_stars(zh):
     doc = check_presentation(render_level_summary(view(), zh))
@@ -215,3 +278,34 @@ def test_legacy_paired_table_cannot_claim_significance_for_two_queries():
     assert table['data-significance'] == 'paired-query-bootstrap/1'
     assert not table.select('.comparison-winner')
     assert table.select('.comparison-extremum')
+
+
+def test_locale_disclosure_counts_saved_requests_instead_of_one_method_default():
+    from harness.web_search.comparison import locale_context
+
+    rows = [dict(method='serper', request=dict(q='Question', num=5, gl='us', hl='en')) for _ in range(3)]
+    rows += [dict(method='serper', request=dict(q='问题', num=5))]
+    rows += [dict(method='bright', request={'url':'https://www.google.com/search?q=Question&gl=us&hl=en'}),
+             dict(method='bright', request={'url':'https://www.google.com/search?q=Question'})]
+    assert locale_context(rows, 'serper') == '1 calls: No locale parameters; 3 calls: gl=us, hl=en'
+    assert locale_context(rows, 'bright', True) == '1 次调用：未设置地区、语言参数; 1 次调用：gl=us, hl=en'
+    assert not locale_context(rows, 'other')
+
+
+def test_l2_capabilities_show_verified_admission_and_count_unavailable_pages():
+    from harness.web_search.comparison import render_level_capabilities
+    from harness.web_search.output_levels import assessed_levels
+    from tests.web_search.test_level_scores import complete_levels
+
+    profile, rows, admissions, artifacts, evidence = complete_levels()
+    for method in profile['methods']:
+        method['label'] = method['id']
+    views = assessed_levels(profile, rows, relevance=evidence, admissions=admissions, artifacts=artifacts)
+    proof = next(iter(views['l2']['field_admissions'].values()))
+    doc = BeautifulSoup(render_level_capabilities(views), 'html.parser')
+    text = doc.select_one('[data-capability-level="l2"]').get_text(' ', strip=True)
+    assert f'{proof["matched_fraction"]:.1%}' in text and str(proof['sample_size']) in text
+    assert 'Unavailable pages' in text and '80%' in text and '50 accessible pages' in text
+    views['l2']['field_admissions'].clear()
+    with pytest.raises(ValueError, match='verified field admission'):
+        render_level_capabilities(views)

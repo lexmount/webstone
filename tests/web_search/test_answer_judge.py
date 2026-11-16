@@ -218,3 +218,32 @@ def test_second_format_limit_requires_the_answer_judging_entry(answer_run):
     with pytest.raises(SystemExit):
         answer_run['run'](['--level', 'l1', '--format-repair-limit', '2'])
     assert answer_run['requests'] == []
+
+
+def test_reference_only_rebinding_replays_identical_answer_requests(answer_run):
+    from harness.web_search.answers import rebind_answer_evidence, verify_answer_evidence
+    from harness.web_search.output_levels import level_inputs
+
+    answer_run['run']()
+    evidence = json.loads((answer_run['output']/'answers.json').read_bytes())
+    profile, rows = level_inputs(answer_run['profile'], answer_run['rows'], 'l3')
+    updated = deepcopy(profile)
+    updated['protocol']['relevance_document_policy'] = 'document-url/2'
+    updated['cases'][1]['equivalent_reference_urls'] = ['https://reference.test/alias']
+    revision = dict(root_cause='Reference URL variants and document deduplication', provider_calls=0,
+                    regression_ids=['relevance-document-dedup', 'reference-mirror-path-variants'])
+    result = rebind_answer_evidence(profile, rows, updated, rows, evidence, answer_run['source'], revision)
+    assert result['calls'] == evidence['calls'] and result['results'] == evidence['results']
+    assert verify_answer_evidence(updated, rows, result, answer_run['source']) == evidence['results']
+    assert len(answer_run['requests']) == 4
+    changed = deepcopy(rows)
+    changed[0]['answer'] = 'Another answer'
+    with pytest.raises(ValueError, match='require new judgments'):
+        rebind_answer_evidence(profile, rows, updated, changed, evidence, answer_run['source'], revision)
+    changed_profile = deepcopy(updated)
+    changed_profile['cases'][1]['reference_answer'] = 'Someone else'
+    with pytest.raises(ValueError, match='require new judgments'):
+        rebind_answer_evidence(profile, rows, changed_profile, rows, evidence, answer_run['source'], revision)
+    result['calls'][next(iter(result['calls']))]['request']['model'] = 'other'
+    with pytest.raises(ValueError, match='rebinding changed'):
+        verify_answer_evidence(updated, rows, result, answer_run['source'])

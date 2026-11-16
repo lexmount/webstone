@@ -170,6 +170,13 @@ def verify_answer_evidence(profile, rows, evidence, upstream_source):
     validate_revision_controls(CITATION_VALIDATION)
     packets, jobs = _jobs(profile, rows, upstream_source)
     configuration = evidence['configuration']
+    rebinding = evidence.get('input_rebinding')
+    if rebinding:
+        validate_revision_controls(rebinding)
+        if (rebinding.get('provider_calls') != 0
+                or rebinding.get('after_inputs_sha256') != _inputs_digest(profile, rows)
+                or rebinding.get('calls_sha256') != _digest(evidence['calls'])):
+            raise ValueError('Answer input rebinding changed frozen calls or inputs')
     if (configuration.get('inputs_sha256') != _inputs_digest(profile, rows)
             or configuration.get('jobs_sha256') != _digest(jobs)
             or configuration.get('maximum_calls') != len(jobs)
@@ -210,6 +217,25 @@ def verify_answer_evidence(profile, rows, evidence, upstream_source):
     if 'results' in evidence and evidence['results'] != values:
         raise ValueError('Saved answer grades differ from replayed judgments')
     return values
+
+
+def rebind_answer_evidence(before_profile, before_rows, profile, rows, evidence, upstream_source, revision):
+    """Reuse judgments only after proving that every packet and request is identical."""
+    from harness.web_search.revisions import validate_revision_controls
+
+    validate_revision_controls(revision)
+    if revision.get('provider_calls') != 0:
+        raise ValueError('Answer input rebinding cannot contain new provider calls')
+    verify_answer_evidence(before_profile, before_rows, evidence, upstream_source)
+    if _jobs(before_profile, before_rows, upstream_source) != _jobs(profile, rows, upstream_source):
+        raise ValueError('Changed answer packets require new judgments')
+    value = deepcopy(evidence)
+    value['configuration']['inputs_sha256'] = _inputs_digest(profile, rows)
+    value['input_rebinding'] = dict(revision, before_evidence_sha256=_digest(evidence),
+        before_inputs_sha256=_inputs_digest(before_profile, before_rows),
+        after_inputs_sha256=_inputs_digest(profile, rows), calls_sha256=_digest(evidence['calls']))
+    verify_answer_evidence(profile, rows, value, upstream_source)
+    return value
 
 
 def judge_answers(profile, rows, args, token):

@@ -54,8 +54,6 @@ class YuanbaoSearchTests(unittest.TestCase):
             (502, 0, b"<html>bad gateway</html>", ""),
             (200, 18, b'{"Response":', "partial transfer"),
             (200, 0, b'{"Response": null}', ''),
-            (200, 0, b'{"Response": {}}', ''),
-            (200, 0, b'{"Response": {"Pages": null}}', ''),
             (200, 0, b'{"unexpected": {}}', ''),
             (200, 0, b'{"Response": {"Version": "standard", "Pages": "broken"}}', ''),
         ]
@@ -177,6 +175,7 @@ class YuanbaoSearchTests(unittest.TestCase):
             "ResponseVersionMismatch: expected standard, received None",
         ]
         responses = [(code, None) for code in errors]
+        responses.extend(('MissingNativeEnvelope', response) for response in ({}, {'RequestId': 'r1'}, {'Pages': None}))
         responses.extend((
             f"ResponseVersionMismatch: expected standard, received {response.get('Version')}",
             response,
@@ -405,12 +404,14 @@ def test_missing_edition_in_a_native_envelope_has_unknown_billing():
         normalize_response(payload,method,{'top_k':5})
 
 
-def test_malformed_native_envelope_is_retryable_but_valid_missing_version_stops():
+def test_missing_success_envelope_stops_collection_with_unknown_cost():
     from harness.web_search.adapters import adapter_for
     method = dict(adapter='tencent-wsa', expected_response_version='standard', price_per_1000=3, billing='http-200')
     adapter = adapter_for('tencent-wsa')
-    for response in ({}, {'Pages': None}, {'Pages': 'broken'}, {'Pages': {}}):
+    for response in ({}, {'RequestId': 'r1'}, {'Pages': None}, {'Pages': 'broken'}, {'Pages': {}}):
         payload = {'Response': response}
-        assert adapter.account_error(payload, method) is None
+        assert adapter.account_error(payload, method) == 'MissingNativeEnvelope'
         assert adapter.cost(method, 200, 0, payload) is None
+        assert adapter.account_error(payload) == 'MissingNativeEnvelope'
+        assert adapter.account_error(payload, http_status=502) is None
     assert adapter.account_error({'Response': {'Pages': []}}, method).startswith('ResponseVersionMismatch')

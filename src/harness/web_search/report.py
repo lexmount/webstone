@@ -442,7 +442,7 @@ def load_report_runs(source, cohorts, labels, method_ids=None, *, composition="c
 
 
 def _merge_matrix_references(profile, current):
-    """Keep all source assessments, rejecting contradictory reference contracts."""
+    """Keep the primary quality population and reject contradictory references."""
     for key in ("reference_checks", "reference_artifacts"):
         merged = profile.setdefault(key, {})
         for identity, value in current.get(key, {}).items():
@@ -450,8 +450,8 @@ def _merge_matrix_references(profile, current):
                 raise ValueError("Matrix collections contain conflicting reference contracts: " + key)
             merged[identity] = copy.deepcopy(value)
     exclusions = set(profile.get("factual_quality_exclusions", []))
-    exclusions.update(current.get("factual_quality_exclusions", []))
-    profile["factual_quality_exclusions"] = sorted(exclusions)
+    if set(current.get("factual_quality_exclusions", [])) - exclusions:
+        raise ValueError('Supplementary exclusions cannot shrink the primary quality population')
     decisions = {item["case_id"]: item for item in profile.get("reference_adjudications", [])}
     for item in current.get("reference_adjudications", []):
         cid = item["case_id"]
@@ -1234,8 +1234,13 @@ def _comparison_home_body(inputs: ReportInputs, edition: ReportEdition) -> str:
     lang, zh = edition.lang, edition.zh
     body = authored_sections(authored, "lead", lang, rows=selected)
     if inputs.level_views:
-        from harness.web_search.comparison import render_level_summary, render_level_tabs
+        from harness.web_search.comparison import (
+            render_level_guide,
+            render_level_summary,
+            render_level_tabs,
+        )
 
+        body += render_level_guide(inputs.level_views, zh)
         body += render_level_tabs(inputs.level_views, zh)
         body += ''.join(render_level_summary(view, zh, content=authored) for view in inputs.level_views.values())
         return body + authored_sections(authored, 'summary', lang, rows=selected)
@@ -2338,12 +2343,20 @@ def check(output, *, return_data=False, evidence_only=False):
             from harness.web_search.comparison import (
                 render_level_capabilities,
                 render_level_findings,
+                render_level_guide,
                 render_level_results,
                 render_level_summary,
             )
 
             zh = soup.html['lang'] == 'zh'
             if route.endswith('index.html'):
+                guide = BeautifulSoup(render_level_guide(level_views, zh), 'html.parser').select_one('[data-level-guide]')
+                order = soup.select('[data-level-guide], [data-level-tabs], [data-output-level]')
+                if (len(soup.select('[data-level-guide]')) != 1
+                        or str(soup.select_one('[data-level-guide]')) != str(guide)
+                        or len(order) < 2 or not order[0].has_attr('data-level-guide')
+                        or not order[1].has_attr('data-level-tabs')):
+                    raise ValueError('Output evaluation guide differs from scored fields and participants')
                 selector = '[data-output-level]'
                 expected = ''.join(render_level_summary(view, zh, content=authored) for view in level_views.values())
             elif route.endswith('quality.html'):

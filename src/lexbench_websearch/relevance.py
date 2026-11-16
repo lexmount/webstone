@@ -15,6 +15,7 @@ def score(profile, rows, plan, labels):
     """Return per-query/provider nDCG and precision after exact coverage checks."""
     cutoff = plan["cutoff"]
     level = profile['protocol'].get('relevance_level')
+    document_policy = profile['protocol'].get('relevance_document_policy', 'literal/1')
     if cutoff != profile["protocol"]["top_k"] or cutoff < 1:
         raise ValueError("Relevance cutoff differs from the measured result count")
     cases = {case["id"]: case for case in profile["cases"]}
@@ -34,16 +35,17 @@ def score(profile, rows, plan, labels):
         case = cases[case_id]
         rankings = {}
         candidate_ids = set()
-        documents = {} if profile['protocol'].get('relevance_input') == 'delivered-previews/1' else None
+        preview = profile['protocol'].get('relevance_input') == 'delivered-previews/1'
+        documents = {} if preview or document_policy == 'document-url/2' else None
         for method in methods:
             result = indexed[case_id, method]
-            ids = ranking_ids(case_id, result['results'][:cutoff], preview=profile['protocol'].get('relevance_input') == 'delivered-previews/1', level=level)
+            ids = ranking_ids(case_id, result['results'][:cutoff], preview=preview, level=level)
             for item in result['results'][:cutoff]:
-                candidate_id = ranking_identity(case_id, item, preview=documents is not None, level=level)
+                candidate_id = ranking_identity(case_id, item, preview=preview, level=level)
                 if candidate_id is not None:
                     candidate_ids.add(candidate_id)
                     if documents is not None:
-                        documents[candidate_id] = canonical_url(item['url'])
+                        documents[candidate_id] = canonical_url(item['url'], policy=document_policy)
             rankings[method] = ids
         grades = labels[case_id]
         if set(grades) != candidate_ids or any(
@@ -75,10 +77,11 @@ def query_metrics(ranking, grades, cutoff=5, *, documents=None):
         raise ValueError("Relevance grades must be integers 0..3")
     seen, ranked_grades, duplicates = set(), [], []
     for candidate_id in ranking[:cutoff]:
-        duplicate = candidate_id is not None and candidate_id in seen
+        document = documents.get(candidate_id, candidate_id) if documents is not None else candidate_id
+        duplicate = candidate_id is not None and document in seen
         ranked_grades.append(0 if duplicate or candidate_id is None else grades[candidate_id])
         duplicates.append(duplicate)
-        seen.add(candidate_id)
+        seen.add(document)
     ideal_values = grades.values()
     if documents is not None:
         if set(documents) != set(grades):

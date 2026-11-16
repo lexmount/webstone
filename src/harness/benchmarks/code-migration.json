@@ -4334,7 +4334,7 @@
         },
         "relevance.py": {
           "before_sha256": "9379e0c98ac4106065588d93f41a48de9022f94c9f0dae99bd02778a496c9127",
-          "after_sha256": "e5565b3dbf9bf0d12330ae5ee414e2afb31ecc40902cdde27fccd89943a1b03b"
+          "after_sha256": "27ebf7ffc441ffc529144172d6c978e589d677084fb50ded05b6428383e249ad"
         },
         "scoring.py": {
           "before_sha256": "e2d7ef42b8d56bbf6a72596e2d60e40bf339b305f936302d5a23ea430efce47a",
@@ -4342,7 +4342,7 @@
         },
         "simpleqa.py": {
           "before_sha256": "39cd02fa1b65b10a0bc38cdf9ab245878b8ef7d07705203d10f9f4c2fa5eef0d",
-          "after_sha256": "4b87cd67bd6b417269b699417b2d4d8bdef31ca33dcf1f14de0efab959127580"
+          "after_sha256": "67ff4b4c2390ce7c8884f0df43edbef1140e693d93e1ad3c4c8f013fe58d1414"
         },
         "versions.py": {
           "before_sha256": "27c10a5f86b4a8ac7841cc9dfbe77c2f724ea675a938bda3719ae05084c058e0",
@@ -4434,6 +4434,21 @@
           "tests": [
             "tests/benchmarks/websearch/test_versions.py",
             "tests/web_search/test_legacy_resume_datasets.py"
+          ]
+        },
+        {
+          "modules": [
+            "relevance.py",
+            "simpleqa.py"
+          ],
+          "root_cause": "Literal document keys credited equivalent URLs twice and mirror candidates omitted established path variants; missing and rejected captures lacked a complete audit.",
+          "regression_ids": [
+            "relevance-document-dedup",
+            "reference-mirror-path-variants"
+          ],
+          "tests": [
+            "tests/web_search/test_native_revisions.py",
+            "tests/benchmarks/websearch/test_simpleqa.py"
           ]
         }
       ]

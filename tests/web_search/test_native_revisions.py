@@ -663,6 +663,13 @@ def reference_dataset_revision():
                                        sha256=selected['datasets']['factual-v1']['sha256']))
 
 
+def test_document_dedup_and_reference_path_controls_execute_current_public_scorers():
+    from harness.web_search.revisions import validate_revision_controls
+
+    validate_revision_controls(dict(root_cause='Aliases must neither duplicate credit nor miss verified sources',
+        provider_calls=0, regression_ids=['relevance-document-dedup', 'reference-mirror-path-variants']))
+
+
 def test_locked_reference_extensions_rescore_all_methods_without_replacing_original_gold():
     from lexbench_websearch.inputs import load_dataset
     from harness.web_search.revisions import apply_report_revision
@@ -722,3 +729,34 @@ def test_assessment_replay_keeps_each_source_protocol_unless_explicitly_revised(
     assert actual['normalize_top_k'] is False
     assert actual['result_url_resolution'] == (revision or {}).get('normalization', 'request-url/1')
     assert source['result_url_resolution'] == 'request-url/1'
+
+
+def test_reference_capture_freezes_attempts_and_resumes_without_repeating_requests(tmp_path, monkeypatch):
+    from copy import deepcopy
+    from harness.web_search.revisions import capture_mirror_observations
+    from lexbench_websearch.simpleqa import mirror_candidates
+
+    reference = 'https://en.wikipedia.org/wiki/Example'
+    dataset = dict(cases=[dict(id='q', reference_urls=[reference])])
+    previous = [dict(url=reference, status=200)]
+    requested = []
+    def capture(url, body, header, timeout):
+        requested.append(body)
+        payload = dict(statuses=[dict(id=u, status='error') for u in body['urls']], results=[])
+        return dict(http_status=200, transport_exit=0), json.dumps(payload).encode()
+    monkeypatch.setattr('harness.web_search.runner.http_call', capture)
+    capture_mirror_observations(dataset, previous, tmp_path/'capture', 'fixture')
+    first = capture_mirror_observations(dataset, previous, tmp_path/'capture', 'fixture', collect=True)
+    assert len(requested) == 1  # Full capture reuses the preflight's saved request.
+    assert {o['url'] for o in first} == {reference, *mirror_candidates(reference)}
+    assert all(o.get('fetch_attempts') == 1 for o in first if o['status'] != 200)
+    capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture')
+    second = capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', collect=True)
+    assert len(requested) == 2
+    assert all(o['fetch_attempts'] == 2 for o in second if o['status'] != 200)
+    assert capture_mirror_observations(dataset, first, tmp_path/'retry', 'fixture', collect=True) == second
+    assert len(requested) == 2
+    broken = deepcopy(dataset)
+    broken['cases'][0]['reference_urls'] = ['https://en.wikipedia.org/wiki/Other']
+    with pytest.raises(ValueError, match='reference-derived'):
+        capture_mirror_observations(broken, previous, tmp_path/'capture', 'fixture', collect=True)

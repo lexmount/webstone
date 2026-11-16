@@ -237,6 +237,9 @@ def assessed_levels(profile, rows, *, relevance=None, relevance_revisions=None,
         view = dict(profile=selected, rows=projected,
                     timing_rows=[row for row in (rows if timing_rows is None else timing_rows)
                                  if row['method'] in participants])
+        if level == 'l2':
+            view['field_admissions'] = {mid: verify_field_admission(profile, rows, admissions[mid], artifacts or {})
+                                        for mid in sorted(participants)}
         if level in ('l1', 'l2'):
             evidence = relevance[level]
             if evidence.get('evaluation_level') != level:

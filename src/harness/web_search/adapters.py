@@ -28,12 +28,16 @@ class Adapter:
         value = self.output_fields(method or {}) if callable(self.output_fields) else self.output_fields
         return validate_fields(deepcopy(value))
 
-    def account_error(self, payload, method=None):
+    def account_error(self, payload, method=None, *, http_status=200):
         response = payload.get("Response") if isinstance(payload, dict) else None
         error = response.get("Error") if isinstance(response, dict) else None
         code = error.get("Code") if isinstance(error, dict) else None
         if isinstance(code, str) and code.split(".")[0] in self.account_error_codes:
             return code
+        if (self.version_path and http_status == 200 and isinstance(response, dict)
+                and not error and not isinstance(response.get('Pages'), list)
+                and not response.get('Version')):
+            return 'MissingNativeEnvelope'
         expected = (method or {}).get("expected_response_version")
         if (expected is not None and isinstance(response, dict) and not error
                 and (isinstance(response.get('Version'), str) and bool(response['Version'])
@@ -55,7 +59,8 @@ class Adapter:
             return None
         if status != 200:
             return 0.0
-        if (self.account_error(payload, method) or "").startswith("ResponseVersionMismatch:"):
+        account_error = self.account_error(payload, method) or ''
+        if account_error == 'MissingNativeEnvelope' or account_error.startswith("ResponseVersionMismatch:"):
             return None
         if method.get('expected_response_version') is not None and self.version_path:
             response = payload.get('Response') if isinstance(payload, dict) else None

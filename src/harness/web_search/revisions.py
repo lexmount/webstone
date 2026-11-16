@@ -25,6 +25,110 @@ def _rescore(profile, rows):
 NATIVE_CONTROLS = Path(__file__).with_name("data") / "native-normalization-regressions.json"
 
 
+def capture_mirror_observations(dataset, previous, output, token, *, collect=False):
+    """Capture reference-derived pages once, retrying prior fetch failures once.
+
+    Native responses, request reservations and the execution contract are retained;
+    a resumed capture never repeats an already completed physical request.
+    """
+    import time
+    from datetime import UTC, datetime
+
+    from harness.benchmark_execution import ExecutionPolicy, Job, assess_execution, run_jobs
+    from harness.web_search.core import write_json
+    from harness.web_search.runner import http_call
+    from lexbench_websearch.simpleqa import mirror_candidates
+
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    references = {u for case in dataset['cases'] for u in case['reference_urls'] if mirror_candidates(u)}
+    required = references | {u for ref in references for u in mirror_candidates(ref)}
+    indexed = {item['url']: item for item in previous}
+    if len(indexed) != len(previous) or set(indexed) - required:
+        raise ValueError('Capture observations must be unique reference-derived URLs')
+    urls = sorted(u for u in required if indexed.get(u, {}).get('status') != 200
+                  and indexed.get(u, {}).get('fetch_attempts', int(u in indexed)) < 2)
+    batches = [urls[i:i + 12] for i in range(0, len(urls), 12)]
+    policy = dict(purpose='quality', max_in_flight=4, resources={'reference-pages': {'capacity': 4}})
+    options = dict(text={'verbosity': 'full'}, maxAgeHours=0, livecrawlTimeout=20000)
+    contract = dict(schema='reference-page-capture/2', dataset_sha256=digest(json.dumps(dataset, sort_keys=True).encode()),
+                    previous_sha256=digest(json.dumps(previous, sort_keys=True).encode()), urls=urls,
+                    execution_policy=policy, maximum_calls=len(batches), timeout_s=45,
+                    retries=1, request=options, maximum_url_charge_usd=len(urls) * .001)
+    path = output / 'contract.json'
+    if path.exists() and json.loads(path.read_bytes()) != contract:
+        raise ValueError('Reference capture contract changed after preparation')
+    write_json(path, contract)
+    def execute(payload):
+        key, batch = payload
+        receipt_path, raw_path = output / (key + '.json'), output / (key + '-response.json')
+        request = dict(options, urls=batch)
+        if receipt_path.exists():
+            receipt, raw = json.loads(receipt_path.read_bytes()), raw_path.read_bytes()
+            if receipt['sha256'] != digest(raw) or receipt['request'] != request:
+                raise ValueError('Saved reference capture changed')
+            return receipt, raw
+        with (output / (key + '-reservation.json')).open('x') as stream:
+            json.dump(dict(request=request, started_at=datetime.now(UTC).isoformat()), stream)
+        receipt, raw = http_call('https://api.exa.ai/contents', request, 'x-api-key: ' + token, 45)
+        receipt.update(request=request, sha256=digest(raw), completed_at=datetime.now(UTC).isoformat())
+        raw_path.write_bytes(raw)
+        write_json(receipt_path, receipt)
+        return receipt, raw
+    completed = []
+    def commit(job, result, error):
+        if error:
+            raise error
+        receipt, raw = result
+        if receipt['http_status'] in (401, 402, 403, 429):
+            raise ValueError('Reference capture account/rate limit; response preserved')
+        completed.append(job.key)
+    jobs = [Job(f'batch-{i:04d}', ('reference-pages',), (f'batch-{i:04d}', batch))
+            for i, batch in enumerate(batches)]
+    start = time.monotonic()
+    if collect:
+        assess_execution(json.loads((output / 'execution-plan.json').read_bytes()), evidence_root=output)
+    run_jobs(jobs if collect else jobs[:4], execute, commit, ExecutionPolicy.from_dict(policy))
+    if not collect:
+        preflight = dict(completed_calls=len(completed), wall_seconds=time.monotonic() - start, max_in_flight=4)
+        write_json(output / 'preflight.json', preflight)
+        plan = dict(execution_policy=policy, planned_calls=len(jobs), setup_seconds=0,
+                    wall_time_budget_seconds=7200, preflight=dict(preflight, evidence_path='preflight.json',
+                    evidence_sha256=digest((output / 'preflight.json').read_bytes())))
+        write_json(output / 'execution-plan.json', plan)
+        return assess_execution(plan, evidence_root=output)
+    bodies = output / 'bodies'
+    bodies.mkdir(exist_ok=True)
+    for i, batch in enumerate(batches):
+        key = f'batch-{i:04d}'
+        receipt = json.loads((output / (key + '.json')).read_bytes())
+        raw = (output / (key + '-response.json')).read_bytes()
+        try:
+            payload = json.loads(raw) if receipt['http_status'] == 200 and not receipt['transport_exit'] else {}
+        except ValueError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        for url in batch:
+            matches = [item for item in payload.get('results', []) if item.get('id') == url]
+            statuses = [item for item in payload.get('statuses', []) if item.get('id') == url]
+            item, status = (matches[0] if len(matches) == 1 else {}), (statuses[0] if len(statuses) == 1 else {})
+            successful = (status.get('status') == 'success' and status.get('source') == 'crawled'
+                          and isinstance(item.get('text'), str) and bool(item['text'].strip()))
+            body = item['text'].encode() if successful else b''
+            observation = article_observation(body, url, status=200 if successful else 0,
+                verified_at=receipt['completed_at'], media_type='text/markdown', source_title=item.get('title'))
+            observation.update(source_status=status, native_evidence=dict(path=key + '-response.json', sha256=digest(raw)),
+                               capture=dict(path=key + '.json', sha256=digest((output / (key + '.json')).read_bytes())),
+                               fetch_attempts=indexed.get(url, {}).get('fetch_attempts', int(url in indexed)) + 1)
+            if body:
+                (bodies / (digest(body) + '.md')).write_bytes(body)
+            indexed[url] = observation
+    observations = [indexed[url] for url in sorted(required)]
+    write_json(output / 'observations.json', observations)
+    return observations
+
+
 def article_observation(raw, url, *, status, verified_at, media_type='text/html', source_title=None):
     """Extract a bounded article lead from frozen HTML for mirror verification."""
     from bs4 import BeautifulSoup
@@ -324,6 +428,19 @@ def validate_revision_controls(revision, normalizer=None):
                 if task_acceptance(case, row, relevance_grades=metrics['ranked_grades']) != control['expected']:
                     raise ValueError('Output-level regression failed: ' + identity)
                 continue
+            if control.get('kind') == 'document_dedup':
+                from lexbench_websearch.relevance import candidate_packet, score
+
+                profile, rows = control['profile'], control['rows']
+                packet, _ = candidate_packet(profile, rows)
+                labels = {p['case_id']: {c['candidate_id']: 3 for c in p['candidates']}
+                          for p in packet['blind_candidate_packets']}
+                metrics = score(profile, rows, packet['plan'], labels)[0]
+                if (metrics['duplicates'] != control['duplicates']
+                        or any(metrics['duplicates']) != control['expected']
+                        or not task_acceptance(profile['cases'][0], rows[0], relevance_grades=metrics['ranked_grades'])):
+                    raise ValueError('Document-level relevance deduplication regression failed')
+                continue
             if control.get('kind') == 'reference_mirror':
                 from lexbench_websearch.simpleqa import qualify_mirror
 
@@ -455,6 +572,11 @@ def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer
     if revision.get("provider_calls") != 0:
         raise ValueError("An annotation revision cannot introduce provider calls")
     revised = deepcopy(profile)
+    document_policy = revision.get('relevance_document_policy')
+    if document_policy:
+        if document_policy != 'document-url/2' or 'relevance-document-dedup' not in revision['regression_ids']:
+            raise ValueError('Document relevance correction requires paired controls')
+        revised['protocol']['relevance_document_policy'] = document_policy
     preview_rule = revision.get('relevance_input')
     if preview_rule:
         if preview_rule != 'delivered-previews/1' or 'delivered-preview-isolation' not in revision['regression_ids']:

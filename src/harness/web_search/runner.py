@@ -716,7 +716,8 @@ def run(profile_path, output, diagnostic=False, resume=False, execution_revision
                 except (ValueError, AttributeError, TypeError) as exc:
                     error = error or str(exc)
                 version_contract = method if receipt["http_status"] == 200 and not receipt["transport_exit"] else None
-                native_account_error = adapter_for(method["adapter"]).account_error(decoded, version_contract)
+                native_account_error = adapter_for(method["adapter"]).account_error(
+                    decoded, version_contract, http_status=0 if receipt['transport_exit'] else receipt['http_status'])
                 if native_account_error:
                     receipt["account_error"] = native_account_error
                     stopped.set()

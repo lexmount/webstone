@@ -46,6 +46,11 @@ def test_public_example_builds_level_tables_findings_and_bound_assessments(tmp_p
             "factual",
         }
         assert not home.select("[data-executive], [data-discovery]")
+        guide, = home.select('[data-level-guide]')
+        assert [r['data-level-guide-row'] for r in guide.select('[data-level-guide-row]')] == ['l1']
+        assert len(guide.select('[data-guide-method]')) == 1
+        assert guide.select_one('[data-level-test="scenario"] [data-guide-primary]')['data-guide-primary'] == 'ndcg'
+        assert guide.select_one('[data-level-test="factual"] [data-guide-primary]')['data-guide-primary'] == 'source_rr'
         dataset = BeautifulSoup((root / (prefix + 'dataset.html')).read_bytes(), 'html.parser')
         assert len(dataset.select('[data-dataset-context] tbody tr')) == 2
         assert {o['value'] for o in dataset.select('[data-cohort-filter] option')} == {'all', 'scenario', 'factual'}
@@ -91,6 +96,31 @@ def test_public_check_rejects_missing_or_incorrect_level_presentation(tmp_path, 
         soup.select_one("[data-output-level] tbody tr td").string = "An unsupported provider"
     path.write_text(str(soup), encoding="utf-8")
     with pytest.raises(ValueError):
+        check(root)
+
+
+@pytest.mark.parametrize('damage', ['missing', 'duplicate', 'misplaced', 'fields', 'population', 'participant'])
+def test_public_release_check_rejects_wrong_or_missing_output_explanation(tmp_path, damage):
+    example(tmp_path, levels=True)
+    root = tmp_path / 'report'
+    path = root / 'index.html'
+    soup = BeautifulSoup(path.read_bytes(), 'html.parser')
+    guide = soup.select_one('[data-level-guide]')
+    if damage == 'missing':
+        guide.decompose()
+    elif damage == 'duplicate':
+        from copy import deepcopy
+        guide.insert_after(deepcopy(guide))
+    elif damage == 'misplaced':
+        soup.select_one('[data-output-level]').insert_after(guide.extract())
+    elif damage == 'fields':
+        guide.select_one('[data-level-input]').string = 'Score the entire page body'
+    elif damage == 'population':
+        guide.select_one('thead th:nth-child(3)').string = '999 factual queries'
+    else:
+        guide.select_one('[data-guide-method]').string = 'Unsupported method'
+    path.write_text(str(soup), encoding='utf-8')
+    with pytest.raises(ValueError, match='Output evaluation guide'):
         check(root)
 
 
@@ -236,3 +266,13 @@ def test_english_primary_level_report_keeps_edition_local_detail_links(tmp_path,
     monkeypatch.setattr(module, 'build', lambda output, **kwargs: original(output, **dict(kwargs, language='en')))
     module.example(tmp_path, levels=True)
     check(tmp_path / 'report')
+
+
+def test_release_check_rejects_capability_text_that_disagrees_with_verified_views(tmp_path):
+    example(tmp_path, levels=True)
+    path = tmp_path/'report/capabilities.html'
+    doc = BeautifulSoup(path.read_text(), 'html.parser')
+    doc.select_one('[data-level-capabilities] tbody tr td').string = 'A fabricated capability'
+    path.write_text(str(doc))
+    with pytest.raises(ValueError, match='presentation'):
+        check(tmp_path/'report')
