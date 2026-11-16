@@ -79,16 +79,38 @@ def _html_tokens(source):
 
 def _visibility(tag, attributes, blocked, visibility):
     """Resolve supported inline visibility rules on the browser-compatible tree."""
+    import tinycss2
+
     declarations, priorities = {}, {}
-    for declaration in (attributes.get('style') or '').split(';'):
-        key, colon, value = declaration.partition(':')
-        if colon:
-            key = key.strip().lower()
-            important = bool(re.search(r'!\s*important\s*$', value, re.I))
-            if priorities.get(key) and not important:
-                continue
-            declarations[key] = value.split('!', 1)[0].strip().lower()
-            priorities[key] = important
+    globals_ = {'initial', 'inherit', 'unset', 'revert', 'revert-layer'}
+    supported = {
+        'display': globals_ | {'none', 'contents', 'block', 'inline', 'run-in', 'flow', 'flow-root',
+            'table', 'flex', 'grid', 'ruby', 'list-item', 'inline-block', 'inline-table', 'inline-flex',
+            'inline-grid', 'table-row-group', 'table-header-group', 'table-footer-group', 'table-row',
+            'table-cell', 'table-column-group', 'table-column', 'table-caption', 'ruby-base', 'ruby-text',
+            'ruby-base-container', 'ruby-text-container'},
+        'visibility': globals_ | {'visible', 'hidden', 'collapse'},
+        'content-visibility': globals_ | {'visible', 'hidden', 'auto'},
+    }
+    for declaration in tinycss2.parse_declaration_list(attributes.get('style') or '', skip_comments=True, skip_whitespace=True):
+        if declaration.type != 'declaration' or declaration.lower_name not in supported:
+            continue
+        key, important = declaration.lower_name, declaration.important
+        tokens = [t for t in declaration.value if t.type not in {'whitespace', 'comment'}]
+        if not tokens or any(t.type != 'ident' for t in tokens):
+            continue
+        values = [t.lower_value for t in tokens]
+        valid = len(values) == 1 and values[0] in supported[key]
+        if key == 'display' and len(values) == len(set(values)):
+            outer, inner = {'block', 'inline', 'run-in'}, {'flow', 'flow-root', 'table', 'flex', 'grid', 'ruby'}
+            valid = valid or len(values) == 2 and any(a in outer and b in inner for a, b in (values, values[::-1]))
+            if 'list-item' in values:
+                rest = set(values) - {'list-item'}
+                valid = rest <= outer | {'flow', 'flow-root'} and len(rest & outer) <= 1 and len(rest & {'flow', 'flow-root'}) <= 1
+        if not valid or priorities.get(key) and not important:
+            continue
+        declarations[key] = ' '.join(values)
+        priorities[key] = important
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes'}
                or 'hidden' in attributes or declarations.get('display') == 'none'
                or declarations.get('content-visibility') == 'hidden')
@@ -261,7 +283,7 @@ def citation_inventory(answer, results):
             self.feed(source)
 
         def handle_starttag(self, name, attrs):
-            self.attributes = dict(attrs)
+            self.attributes = dict(reversed(attrs))
 
     def occurrence(begin, end, items, native):
         identity = str(len(occurrences))
@@ -362,7 +384,7 @@ def citation_inventory(answer, results):
     tree = html5lib.parseFragment(rendered, treebuilder='etree', namespaceHTMLElements=False)
     parts, length, local, block_breaks, linked = [], 0, [], [0], {}
     block_tags = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
-                  'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr'}
+                  'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary'}
     literal_tags = {'pre', 'code', 'kbd', 'samp', 'textarea', 'xmp', 'plaintext'}
 
     def text(value):
@@ -384,6 +406,7 @@ def citation_inventory(answer, results):
         if blocked:
             return
         literal = literal or tag in literal_tags
+        closed = tag == 'details' and 'open' not in node.attrib
         if tag in block_tags and not visibility:
             boundary()
         identity = node.attrib.get(attribute)
@@ -403,10 +426,12 @@ def citation_inventory(answer, results):
                 text(node.attrib.get('alt') or '')
             elif tag == 'br':
                 text(' ')
-            text(node.text)
-        for child in node:
+            if not closed:
+                text(node.text)
+        children = [child for child in node if child.tag == 'summary'][:1] if closed else node
+        for child in children:
             visit(child, blocked, visibility, literal, inside_link)
-            if not visibility:
+            if not visibility and not closed:
                 text(child.tail)
         if records and ''.join(parts)[start:length].strip():
             if identity in linked:

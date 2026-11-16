@@ -87830,6 +87830,109 @@
           "Second."
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<span style=\"display:none;display:invalid\">Claim [引用:1]</span>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<span style=\"display:/*comment*/none\">Claim [引用:1]</span>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<span style=\"display:none;display:inline\">Claim [引用:1]</span>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<details><summary>Sources</summary><p>Claim [引用:1]</p></details>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<details open><summary>Sources</summary><p>Claim [引用:1]</p></details>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\" href=\"https://source.test/b\">Claim</a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\" href=\"https://source.test/b\">Claim</a>",
+        "results": [
+          {
+            "url": "https://source.test/b",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

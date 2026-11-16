@@ -4205,6 +4205,18 @@ wheels = [
 ]
 
 [[package]]
+name = "tinycss2"
+version = "1.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/fd/7a5ee21fd08ff70d3d33a5781c255cbe779659bd03278feb98b19ee550f4/tinycss2-1.4.0.tar.gz", hash = "sha256:10c0972f6fc0fbee87c3edb76549357415e94548c1ae10ebccdea16fb404a9b7", size = 87085, upload-time = "2024-10-24T14:58:29.895Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e6/34/ebdc18bae6aa14fbee1a08b63c015c72b64868ff7dae68808ab500c492e2/tinycss2-1.4.0-py3-none-any.whl", hash = "sha256:3a49cf47b7675da0b15d0c6e1df8df4ebd96e9394bb905a5775adb0d884c5289", size = 26610, upload-time = "2024-10-24T14:58:28.029Z" },
+]
+
+[[package]]
 name = "tokenizers"
 version = "0.23.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4644,6 +4656,7 @@ dependencies = [
     { name = "markdown-it-py" },
     { name = "python-dotenv" },
     { name = "soupsieve" },
+    { name = "tinycss2" },
 ]
 
 [package.optional-dependencies]
@@ -4757,6 +4770,7 @@ requires-dist = [
     { name = "requests", marker = "extra == 'web-extract-eval'", specifier = ">=2.32,<3" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.9,<1" },
     { name = "soupsieve", specifier = "==2.9.2" },
+    { name = "tinycss2", specifier = "==1.4.0" },
     { name = "soupsieve", marker = "extra == 'reference-audit'", specifier = "==2.9.2" },
     { name = "tiktoken", marker = "extra == 'browser-use-eval'", specifier = ">=0.7,<1" },
     { name = "uvicorn", marker = "extra == 'test'", specifier = "==0.54.0" },

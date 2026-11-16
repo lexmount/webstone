@@ -537,3 +537,41 @@ def test_markdown_link_also_closes_an_open_html_anchor():
     citations = answers.citation_inventory(first + second + ' Third.', [dict(url='https://a.example'), dict(url='https://b.example')])
     assert [c['marker'] for c in citations] == [first, second]
     assert [c['claim_context'] for c in citations] == ['First.', 'Second.']
+
+
+@pytest.mark.parametrize('style,visible', [
+    ('display:none;display:invalid', False),
+    ('display:/*comment*/none', False),
+    ('display:none;display:inline', True),
+    ('visibility:hidden;visibility:invalid', False),
+    ('visibility:/*comment*/hidden', False),
+    ('content-visibility:hidden;content-visibility:invalid', False),
+    ('display:none!important;display:block', False),
+    ('display:none;display:inline flow-root', True),
+    (r'display:n\6f ne', False),
+])
+def test_inline_visibility_obeys_css_declarations(style, visible):
+    answer = '<div><span style="' + style + '">Claim [引用:1]</span></div>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+def test_duplicate_href_uses_the_first_browser_target_and_its_evidence():
+    answer = '<a href="https://a.example" href="https://b.example">Claim</a>'
+    first, second = dict(url='https://a.example', snippet='First evidence'), dict(url='https://b.example', snippet='Second evidence')
+    citation, = answers.citation_inventory(answer, [first, second])
+    assert citation['source']['url'] == first['url']
+    assert citation['source']['snippet'] == first['snippet']
+
+
+@pytest.mark.parametrize('attributes,markers', [('', ['[引用:1]']), ('open', ['[引用:1]', '[引用:2]'])])
+def test_disclosure_citations_follow_the_initial_open_state(attributes, markers):
+    answer = '<details ' + attributes + '><summary>Sources [引用:1]</summary><p>Hidden claim [引用:2]</p></details>'
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1'), dict(url='https://source.test/b', citation_id='2')])
+    assert [c['marker'] for c in citations] == markers
+
+
+def test_closed_disclosure_exposes_only_its_first_summary_link():
+    answer = '<details>Hidden <a href="https://source.test/a">before</a><summary><a href="https://source.test/a">Visible</a></summary><summary><a href="https://source.test/a">Second</a></summary><a href="https://source.test/a">After</a></details>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert citation['marker'] == '<a href="https://source.test/a">Visible</a>'
+    assert citation['claim_context'] == 'Visible'
