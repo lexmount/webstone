@@ -329,7 +329,7 @@ def test_inline_html_line_break_is_a_visible_separator(separator):
     ('script', 'script'), ('style', 'style'), ('template', 'template'),
     ('span hidden', 'span'), ('span style="display:none"', 'span'),
     ('span style="visibility:hidden"', 'span'),
-    ('span style="content-visibility:hidden"', 'span'),
+    ('span style="display:inline-block;content-visibility:hidden"', 'span'),
     ('noscript', 'noscript'), ('title', 'title'),
     ('span style="display:none!important;display:block"', 'span'),
 ])
@@ -545,7 +545,7 @@ def test_markdown_link_also_closes_an_open_html_anchor():
     ('display:none;display:inline', True),
     ('visibility:hidden;visibility:invalid', False),
     ('visibility:/*comment*/hidden', False),
-    ('content-visibility:hidden;content-visibility:invalid', False),
+    ('content-visibility:hidden;content-visibility:invalid', True),
     ('display:none!important;display:block', False),
     ('display:none;display:inline flow-root', True),
     (r'display:n\6f ne', False),
@@ -680,3 +680,43 @@ def test_distinct_native_ids_keep_distinct_excerpts_when_the_document_url_repeat
     for answer in ['[Later event.](https://source.test/a)', '<a href="https://source.test/a">Later event.</a>']:
         citation, = answers.citation_inventory(answer, results)
         assert citation['source']['snippet'] == 'Early event.'
+
+
+@pytest.mark.parametrize('tag,style,visible', [
+    ('span', '', True), ('div', '', False), ('span', 'display:inline-block;', False),
+    ('span', 'display:block;', False), ('div', 'display:inline;', True),
+    ('span', 'float:left;', False), ('span', 'position:absolute;', False),
+    ('span', 'display:contents;', True), ('span', 'display:table;', True),
+    ('span', 'display:inline-table;', True), ('span', 'display:table-row;', True),
+    ('span', 'display:table-cell;', False), ('span', 'display:table-caption;', True),
+    ('span', 'display:ruby;', True), ('span', 'display:ruby-text;', True),
+    ('span', 'display:table-column;', False), ('span', 'display:table-column-group;', False),
+    ('span', 'display:flow;', False), ('span', 'display:inline flow-root;', False),
+])
+def test_content_visibility_applies_only_to_eligible_containers(tag, style, visible):
+    answer = '<' + tag + ' style="' + style + 'content-visibility:hidden">Claim [引用:1]</' + tag + '>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+@pytest.mark.parametrize('outer_style,inner_style,visible', [
+    ('display:block', 'display:inherit;content-visibility:hidden', False),
+    ('display:inline', 'display:inherit;content-visibility:hidden', True),
+    ('content-visibility:hidden', 'display:block;content-visibility:inherit', False),
+    ('content-visibility:hidden', 'display:inline;content-visibility:inherit', True),
+    ('position:absolute', 'position:inherit;content-visibility:hidden', False),
+    ('float:left', 'float:inherit;content-visibility:hidden', False),
+])
+def test_content_visibility_uses_computed_inherited_box_properties(outer_style, inner_style, visible):
+    answer = '<span style="' + outer_style + '"><span style="' + inner_style + '">Claim [引用:1]</span></span>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+def test_inapplicable_content_visibility_does_not_remove_part_of_a_claim():
+    answer = 'Prefix <span style="content-visibility:hidden">other assertion</span> [引用:1]'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == 'Prefix other assertion'
+
+
+def test_content_visibility_does_not_erase_a_replaced_image_alternative():
+    citation, = answers.citation_inventory('<a href="https://source.test/a"><img style="content-visibility:hidden" alt="Claim"></a>', [dict(url='https://source.test/a')])
+    assert citation['claim_context'] == 'Claim'

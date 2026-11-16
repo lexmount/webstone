@@ -10,6 +10,13 @@ from urllib.parse import urlsplit
 
 from .scoring import canonical_url
 
+_BLOCK_TAGS = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
+               'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary', 'dialog',
+               'address', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hgroup',
+               'main', 'menu', 'nav', 'ol', 'ul'}
+_REPLACED_TAGS = {'img', 'object', 'embed', 'input', 'select', 'textarea', 'br', 'wbr',
+                  'iframe', 'audio', 'video', 'canvas', 'progress', 'meter'}
+
 SIMPLEQA_UPSTREAM = {
     "repository": "https://github.com/openai/simple-evals",
     "revision": "652c89d0ca9df547706735883097e9537d40dc47",
@@ -77,7 +84,7 @@ def _html_tokens(source):
     return tokenizer.tokens
 
 
-def _visibility(tag, attributes, blocked, visibility):
+def _visibility(tag, attributes, blocked, visibility, parent_box):
     """Resolve supported inline visibility rules on the browser-compatible tree."""
     import tinycss2
 
@@ -90,6 +97,8 @@ def _visibility(tag, attributes, blocked, visibility):
             'table-cell', 'table-column-group', 'table-column', 'table-caption', 'ruby-text'},
         'visibility': globals_ | {'visible', 'hidden', 'collapse'},
         'content-visibility': globals_ | {'visible', 'hidden', 'auto'},
+        'position': globals_ | {'static', 'relative', 'absolute', 'fixed', 'sticky'},
+        'float': globals_ | {'none', 'left', 'right', 'inline-start', 'inline-end'},
     }
     for declaration in tinycss2.parse_declaration_list(attributes.get('style') or '', skip_comments=True, skip_whitespace=True):
         if declaration.type != 'declaration' or declaration.lower_name not in supported:
@@ -110,18 +119,52 @@ def _visibility(tag, attributes, blocked, visibility):
             continue
         declarations[key] = ' '.join(values)
         priorities[key] = important
-    display, content_visibility = declarations.get('display'), declarations.get('content-visibility')
     until_found = (attributes.get('hidden') or '').casefold() == 'until-found'
     default_hidden = (tag in {'datalist', 'rp'} or tag == 'dialog' and 'open' not in attributes
                       or 'hidden' in attributes and not until_found)
+    default_display = {'table': 'table', 'tr': 'table-row', 'td': 'table-cell', 'th': 'table-cell',
+                       'thead': 'table-header-group', 'tbody': 'table-row-group', 'tfoot': 'table-footer-group',
+                       'col': 'table-column', 'colgroup': 'table-column-group', 'caption': 'table-caption',
+                       'rt': 'ruby-text', 'ruby': 'ruby', 'button': 'inline-block'}.get(
+                           tag, 'block' if tag in _BLOCK_TAGS or tag == 'document_fragment' else 'inline')
+    defaults = {'display': 'none' if default_hidden else default_display,
+                'position': 'absolute' if tag == 'dialog' else 'static', 'float': 'none',
+                'content-visibility': 'hidden' if until_found else 'visible'}
+    initial = {'display': 'inline', 'position': 'static', 'float': 'none', 'content-visibility': 'visible'}
+    box = {}
+    for key, default in defaults.items():
+        value = declarations.get(key, default)
+        box[key] = (parent_box.get(key, initial[key]) if value == 'inherit' else initial[key]
+                    if value in {'initial', 'unset'} else default if value in {'revert', 'revert-layer'} else value)
+    values = set(box['display'].split())
+    if len(values) > 1:
+        outer = 'inline' if 'inline' in values else 'block'
+        inner = next((v for v in ('table', 'flex', 'grid', 'ruby', 'flow-root') if v in values), 'flow')
+        if 'list-item' in values:
+            box['display'] = 'inline-list-item' if outer == 'inline' and inner == 'flow' else 'list-item'
+        elif outer == 'inline':
+            box['display'] = {'flow': 'inline', 'flow-root': 'inline-block'}.get(inner, 'inline-' + inner)
+        else:
+            box['display'] = 'block' if inner == 'flow' else inner
+    elif box['display'] == 'flow':
+        box['display'] = 'block'
+    if box['position'] in {'absolute', 'fixed'} or box['float'] != 'none':
+        box['display'] = {'inline': 'block', 'inline-block': 'block', 'inline-table': 'table',
+                          'inline-flex': 'flex', 'inline-grid': 'grid', 'table-row': 'block',
+                          'table-cell': 'block', 'table-column': 'block', 'table-column-group': 'block',
+                          'table-row-group': 'block', 'table-header-group': 'block', 'table-footer-group': 'block',
+                          'table-caption': 'block', 'ruby-text': 'block', 'inline-list-item': 'list-item'}.get(box['display'], box['display'])
+    display = box['display']
+    content_hidden = (box['content-visibility'] == 'hidden' and tag not in _REPLACED_TAGS
+                      and display in {'block', 'flow-root', 'inline-block', 'flex', 'inline-flex', 'grid',
+                                      'inline-grid', 'table-cell', 'list-item'})
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
                                  'audio', 'video', 'canvas', 'progress', 'meter'}
-               or display == 'none' or default_hidden and display in {None, 'revert', 'revert-layer'}
-               or display == 'contents' and tag in {'img', 'object', 'embed', 'input', 'select', 'textarea', 'br', 'wbr'}
-               or content_visibility == 'hidden' or until_found and content_visibility in {None, 'revert', 'revert-layer'})
+               or display in {'none', 'table-column', 'table-column-group'}
+               or display == 'contents' and tag in _REPLACED_TAGS or content_hidden)
     if declarations.get('visibility') in {'visible', 'hidden', 'collapse', 'initial'}:
         visibility = declarations['visibility'] in {'hidden', 'collapse'}
-    return blocked, visibility
+    return blocked, visibility, box
 
 
 CITATION_RULE = "native-source-citations/7"
@@ -378,10 +421,7 @@ def citation_inventory(answer, results):
     rendered = parser.renderer.render(tokens, parser.options, {})
     tree = html5lib.parseFragment(rendered, treebuilder='etree', namespaceHTMLElements=False)
     parts, length, local, block_breaks, linked = [], 0, [], [0], {}
-    block_tags = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
-                  'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary', 'dialog',
-                  'address', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hgroup',
-                  'main', 'menu', 'nav', 'ol', 'ul'}
+    block_tags = _BLOCK_TAGS
     literal_tags = {'pre', 'code', 'kbd', 'samp', 'textarea', 'xmp', 'plaintext'}
 
     def text(value):
@@ -395,7 +435,7 @@ def citation_inventory(answer, results):
             text(' ')
         block_breaks.append(length)
 
-    pending = [('visit', (tree, False, False, False, False))]
+    pending = [('visit', (tree, False, False, False, False, {}))]
     while pending:
         event, payload = pending.pop()
         if event == 'text':
@@ -413,11 +453,11 @@ def citation_inventory(answer, results):
             if separate:
                 boundary()
             continue
-        node, blocked, visibility, literal, inside_link = payload
+        node, blocked, visibility, literal, inside_link, parent_box = payload
         if not isinstance(node.tag, str):
             continue
         tag = node.tag.rpartition('}')[2].lower()
-        blocked, visibility = _visibility(tag, node.attrib, blocked, visibility)
+        blocked, visibility, box = _visibility(tag, node.attrib, blocked, visibility, parent_box)
         if blocked:
             continue
         literal = literal or tag in literal_tags
@@ -451,7 +491,7 @@ def citation_inventory(answer, results):
         for child in reversed(children):
             if not visibility and not closed:
                 pending.append(('text', child.tail))
-            pending.append(('visit', (child, blocked, visibility, literal, inside_link)))
+            pending.append(('visit', (child, blocked, visibility, literal, inside_link, box)))
     references = []
     plain = "".join(parts)
     # Sentences are local to this rendered inline block. Every link in one
