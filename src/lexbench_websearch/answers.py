@@ -576,9 +576,11 @@ def citation_inventory(answer, results):
                 text(' ')
             elif tag == 'input':
                 text(' ' + _input_text(node.attrib) + ' ')
+            elif tag == 'textarea':
+                text(' ' + (node.text or node.attrib.get('placeholder', '')) + ' ')
             elif tag == 'select':
                 text(' ' + _select_text(node, visibility, box) + ' ')
-            if not closed and tag != 'select':
+            if not closed and tag not in {'select', 'textarea'}:
                 text(node.text)
         children = [] if tag == 'select' else [child for child in node if child.tag == 'summary'][:1] if closed else node
         pending.append(('exit', (records, identity, start, separate)))

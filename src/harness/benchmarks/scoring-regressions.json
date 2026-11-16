@@ -89083,6 +89083,58 @@
           "The claim is"
         ],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><textarea placeholder=\"Paris\"></textarea></a>",
+        "results": [
+          {
+            "url": "https://source.test/a"
+          }
+        ],
+        "claims": [
+          "Paris"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><textarea placeholder=\"Paris\"></textarea></a>",
+        "results": [
+          {
+            "url": "https://source.test/a"
+          }
+        ],
+        "claims": [
+          "London"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><textarea placeholder=\"Paris\">London</textarea></a>",
+        "results": [
+          {
+            "url": "https://source.test/a"
+          }
+        ],
+        "claims": [
+          "London"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><textarea placeholder=\"Paris\">London</textarea></a>",
+        "results": [
+          {
+            "url": "https://source.test/a"
+          }
+        ],
+        "claims": [
+          "Paris"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

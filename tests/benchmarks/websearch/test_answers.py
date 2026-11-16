@@ -849,3 +849,22 @@ def test_input_labels_are_retained_in_citation_links_and_sentence_claims(attribu
     assert [item['claim_context'] for item in citations] == ([label] if label else [])
     citation, = answers.citation_inventory('The claim is ' + control + ' [引用:1]', results)
     assert citation['claim_context'] == ('The claim is ' + label).strip()
+
+
+@pytest.mark.parametrize('attributes,value,label', [
+    ('placeholder="Paris"', '', 'Paris'),
+    ('placeholder="Paris"', 'London', 'London'),
+    ('placeholder="Paris"', '\n', 'Paris'),
+    ('placeholder="Paris"', ' ', ''),
+    ('placeholder="Paris" hidden', '', ''),
+    ('placeholder="Paris" style="visibility:hidden"', '', ''),
+    ('placeholder="Paris" style="display:none"', '', ''),
+    ('placeholder="&lt;b&gt;Paris&lt;/b&gt; [引用:2]"', '', '<b>Paris</b> [引用:2]'),
+])
+def test_textarea_initial_text_and_placeholder_are_literal_citation_labels(attributes, value, label):
+    results = [dict(url='https://source.test/a', citation_id='1')]
+    control = '<textarea ' + attributes + '>' + value + '</textarea>'
+    citations = answers.citation_inventory('<a href="https://source.test/a">' + control + '</a>', results)
+    assert [item['claim_context'] for item in citations] == ([label] if label else [])
+    citation, = answers.citation_inventory('The city is ' + control + ' [引用:1]', results)
+    assert citation['claim_context'] == ('The city is ' + label).strip()
