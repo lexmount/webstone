@@ -279,6 +279,25 @@ def test_private_repository_and_invalid_public_payloads_fail_before_writes(setup
             client.submit(data)
 
 
+def test_incomplete_directory_and_normalized_size_fail_before_git_writes(setup_client):
+    from harness.results.client import MAX_REPORT_BYTES, _json
+
+    api, client = setup_client
+    api.versions = list(range(1, 1001))
+    with pytest.raises(SubmissionError, match="listing limit"):
+        client.submit(REPORT)
+    api.versions = [1]
+    report = copy.deepcopy(REPORT)
+    report["benchmarks"][0]["notes"] = [""]
+    report["benchmarks"][0]["notes"][0] = "x" * (
+        MAX_REPORT_BYTES - len(_json(report).encode("utf-8")) - 1
+    )
+    assert len(_json(report).encode("utf-8")) < MAX_REPORT_BYTES
+    with pytest.raises(SubmissionError, match="versioned report exceeds"):
+        client.submit(report)
+    assert all(method == "GET" for method, _, _ in api.calls)
+
+
 def test_new_provider_url_and_version_collision_rebase_preserve_measured_values(setup_client):
     api, client = setup_client
     source = copy.deepcopy(REPORT)

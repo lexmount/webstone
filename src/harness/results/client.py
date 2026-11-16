@@ -407,6 +407,11 @@ class ResultsClient:
             if error.status != 404:
                 raise
             files = []
+        if len(files) >= 1000:
+            raise SubmissionError(
+                "The benchmark directory reached GitHub's listing limit. "
+                "Submit a reviewed result PR manually; no version was allocated."
+            )
         versions = [
             int(match[1])
             for file in files
@@ -419,8 +424,11 @@ class ResultsClient:
         version = f"v{max(versions, default=0) + 1}"
         normalized = copy.deepcopy(report)
         normalized.update(id=f"{benchmark}-{version}", version=version)
+        content = _json(normalized)
+        if len(content.encode("utf-8")) > MAX_REPORT_BYTES:
+            raise SubmissionError("The versioned report exceeds 1 MiB. Reduce its public notes.")
         file = f"results/{benchmark}/{benchmark}-{version}-report.json"
-        entries = [{"path": file, "mode": "100644", "type": "blob", "content": _json(normalized)}]
+        entries = [{"path": file, "mode": "100644", "type": "blob", "content": content}]
         additions = {
             key: value
             for key, value in (provider_urls or {}).items()
