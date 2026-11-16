@@ -68,7 +68,7 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
             if receipt['sha256'] != digest(raw) or receipt['request'] != request:
                 raise ValueError('Saved reference capture changed')
             return receipt, raw
-        with (output / (key + '-reservation.json')).open('x') as stream:
+        with (output / (key + '-reservation.json')).open('x', encoding='utf-8') as stream:
             json.dump(dict(request=request, started_at=datetime.now(UTC).isoformat()), stream)
         receipt, raw = http_call('https://api.exa.ai/contents', request, 'x-api-key: ' + token, 45)
         receipt.update(request=request, sha256=digest(raw), completed_at=datetime.now(UTC).isoformat())

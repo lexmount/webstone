@@ -117,7 +117,7 @@ def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_docu
         assert case['equivalent_reference_provenance'][0]['reference_url'] == reference['url']
     assert not extend_reference_urls(dataset,[mirror])['cases'][0]['equivalent_reference_urls']
     audit = extended['reference_equivalence_audit']
-    assert len(audit) == 7
+    assert len(audit) == 9
     assert {entry['outcome'] for entry in audit} == {'qualified', 'fetch_failed'}
     assert {entry['url'] for entry in audit} == set(mirror_candidates(reference['url']))
     with pytest.raises(ValueError,match='independently derived'):

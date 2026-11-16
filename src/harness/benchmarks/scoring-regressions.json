@@ -87357,6 +87357,72 @@
           }
         ],
         "expected": false
+      },
+      {
+        "kind": "reference_mirror",
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Example",
+          "title": "Example",
+          "lead": "An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. ",
+          "status": 200,
+          "verified_at": "2026-01-01T00:00:00Z",
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "candidate": {
+          "url": "https://en-wikipedia--on--ipfs-org.ipns.dweb.link/wiki/Example",
+          "title": "Example",
+          "lead": "An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. ",
+          "status": 200,
+          "verified_at": "2026-01-01T00:00:00Z",
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "case": {
+          "id": "mirror",
+          "reference_answer": "answer",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Example"
+          ],
+          "url_equivalence": "document-url/2"
+        },
+        "results": [
+          {
+            "url": "https://en-wikipedia--on--ipfs-org.ipns.dweb.link/wiki/Example"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Example",
+          "title": "Example",
+          "lead": "An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. ",
+          "status": 200,
+          "verified_at": "2026-01-01T00:00:00Z",
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "candidate": {
+          "url": "https://en-wikipedia--on--ipfs-org.ipns.dweb.link/wiki/Example.html",
+          "title": "Example",
+          "lead": "An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. An independently published paragraph about this encyclopedia subject and its history. ",
+          "status": 200,
+          "verified_at": "2026-01-01T00:00:00Z",
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "case": {
+          "id": "mirror",
+          "reference_answer": "answer",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Example"
+          ],
+          "url_equivalence": "document-url/2"
+        },
+        "results": [
+          {
+            "url": "https://en-wikipedia--on--ipfs-org.ipns.dweb.link/wiki/Example.html"
+          }
+        ],
+        "expected": true
       }
     ]
   },

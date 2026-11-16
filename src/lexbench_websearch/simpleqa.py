@@ -36,6 +36,7 @@ def mirror_candidates(reference_url):
             *[gateway + path + suffix for gateway in (
                 'https://en.wikipedia-on-ipfs.org/wiki/',
                 'https://ipfs.io/ipns/en.wikipedia-on-ipfs.org/wiki/',
+                'https://en-wikipedia--on--ipfs-org.ipns.dweb.link/wiki/',
             ) for suffix in ('', '.html')]]
 
 

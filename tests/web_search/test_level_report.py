@@ -271,8 +271,8 @@ def test_english_primary_level_report_keeps_edition_local_detail_links(tmp_path,
 def test_release_check_rejects_capability_text_that_disagrees_with_verified_views(tmp_path):
     example(tmp_path, levels=True)
     path = tmp_path/'report/capabilities.html'
-    doc = BeautifulSoup(path.read_text(), 'html.parser')
+    doc = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
     doc.select_one('[data-level-capabilities] tbody tr td').string = 'A fabricated capability'
-    path.write_text(str(doc))
+    path.write_text(str(doc), encoding='utf-8')
     with pytest.raises(ValueError, match='presentation'):
         check(tmp_path/'report')
