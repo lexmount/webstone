@@ -13,7 +13,7 @@ from .scoring import canonical_url
 _BLOCK_TAGS = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
                'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary', 'dialog',
                'address', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hgroup',
-               'main', 'menu', 'nav', 'ol', 'ul'}
+               'main', 'menu', 'nav', 'ol', 'ul', 'legend', 'center', 'dir', 'search'}
 _REPLACED_TAGS = {'img', 'object', 'embed', 'input', 'select', 'textarea', 'br', 'wbr',
                   'iframe', 'audio', 'video', 'canvas', 'progress', 'meter'}
 

@@ -683,7 +683,8 @@ def test_distinct_native_ids_keep_distinct_excerpts_when_the_document_url_repeat
 
 
 @pytest.mark.parametrize('tag,style,visible', [
-    ('span', '', True), ('div', '', False), ('span', 'display:inline-block;', False),
+    ('span', '', True), ('div', '', False), ('legend', '', False), ('center', '', False),
+    ('dir', '', False), ('search', '', False), ('span', 'display:inline-block;', False),
     ('span', 'display:block;', False), ('div', 'display:inline;', True),
     ('span', 'float:left;', False), ('span', 'position:absolute;', False),
     ('span', 'display:contents;', True), ('span', 'display:table;', True),
