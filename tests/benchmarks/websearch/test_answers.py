@@ -666,3 +666,17 @@ def test_display_contents_keeps_ordinary_container_children_visible():
     answer = '<a href="https://source.test/a"><span style="display:contents">Claim</span></a>'
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
     assert citation['claim_context'] == 'Claim'
+
+
+def test_distinct_native_ids_keep_distinct_excerpts_when_the_document_url_repeats():
+    results = [dict(url='https://source.test/a', citation_id=str(i), snippet=text)
+               for i, text in [(1, 'Early event.'), (2, 'Later event.')]]
+    packet = answers.answer_packet(dict(id='q', query='What happened?'), dict(
+        answer='Early event. [引用:1] Later event. [引用:2]', results=results))
+    assert [c['source']['snippet'] for c in packet['citations']] == ['Early event.', 'Later event.']
+    grades = answers.citation_grades(packet, json.dumps(dict(judgments=[
+        dict(citation_index=i, supported=True, source_refs=[str(i)+':snippet']) for i in [0, 1]])))
+    assert [g['evidence'][0]['quote'] for g in grades] == ['Early event.', 'Later event.']
+    for answer in ['[Later event.](https://source.test/a)', '<a href="https://source.test/a">Later event.</a>']:
+        citation, = answers.citation_inventory(answer, results)
+        assert citation['source']['snippet'] == 'Early event.'

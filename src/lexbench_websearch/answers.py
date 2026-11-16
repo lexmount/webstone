@@ -206,7 +206,7 @@ def factual_grade(response):
 
 
 def citation_inventory(answer, results):
-    """Resolve supplied citation IDs and links against the delivered result list."""
+    """Bind explicit IDs to native records; URL-only links use the first URL match."""
     from markdown_it import MarkdownIt
 
     by_id, by_url = {}, {}
@@ -229,6 +229,7 @@ def citation_inventory(answer, results):
                     and canonical_url(by_id[identity]["url"], policy="document-url/2") != url
                 ):
                     raise ValueError("One citation identifier refers to different documents")
+                # Distinct IDs can carry different excerpts of the same document.
                 by_id.setdefault(identity, item)
     from markdown_it.rules_inline.autolink import autolink
     from markdown_it.rules_inline.html_inline import html_inline

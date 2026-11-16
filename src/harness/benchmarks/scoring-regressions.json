@@ -85742,6 +85742,106 @@
           }
         ],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "Claim [引用:2]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "First evidence"
+          },
+          {
+            "url": "https://source.test/a",
+            "citation_id": "2",
+            "snippet": "Later evidence"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://source.test/a",
+            "title": "",
+            "snippet": "Later evidence",
+            "summary": ""
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "Claim [引用:2]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "First evidence"
+          },
+          {
+            "url": "https://source.test/a",
+            "citation_id": "2",
+            "snippet": "Later evidence"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://source.test/a",
+            "title": "",
+            "snippet": "First evidence",
+            "summary": ""
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "Claim [source](https://source.test/a)",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "First evidence"
+          },
+          {
+            "url": "https://source.test/a",
+            "citation_id": "2",
+            "snippet": "Later evidence"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://source.test/a",
+            "title": "",
+            "snippet": "First evidence",
+            "summary": ""
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "Claim <a href=\"https://source.test/a\">source</a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "First evidence"
+          },
+          {
+            "url": "https://source.test/a",
+            "citation_id": "2",
+            "snippet": "Later evidence"
+          }
+        ],
+        "sources": [
+          {
+            "url": "https://source.test/a",
+            "title": "",
+            "snippet": "First evidence",
+            "summary": ""
+          }
+        ],
+        "expected": true
       }
     ],
     "citation-field-references": [

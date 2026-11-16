@@ -96,6 +96,11 @@ it reads the official template without executing upstream Python. Scenario
 usefulness, factual correctness and citation support use separate requests.
 Citation support is checked against delivered titles, previews and extra text;
 full page bodies are excluded. Missing citations leave support unavailable.
+An explicit citation ID selects that delivered source record, including its own
+title and excerpts. Different IDs may refer to the same URL with different
+excerpts; those records remain distinct. Repeated copies of one ID retain its
+first-ranked record. A URL-only link has no record ID and uses the first matching
+URL. It must not overwrite an explicitly identified record's fields.
 The command preserves physical response bytes, uses temperature zero with
 thinking disabled, and permits one physical attempt per judgment. Resuming
 replays saved judgments and never retries a failed or invalid answer. The
