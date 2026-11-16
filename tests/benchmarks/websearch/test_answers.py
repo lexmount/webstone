@@ -755,3 +755,23 @@ def test_layout_blockification_retains_the_inner_display_type(display, visible):
 def test_native_marker_projection_does_not_create_a_separate_layout_item_claim():
     citation, = answers.citation_inventory('<div style="display:flex">Claim [引用:1]</div>', [dict(url='https://source.test/a', citation_id='1')])
     assert citation['claim_context'] == 'Claim'
+
+
+@pytest.mark.parametrize('container', ['tr', 'tbody', 'thead', 'tfoot'])
+@pytest.mark.parametrize('visibility,visible', [('collapse', False), ('hidden', True)])
+def test_collapsed_table_rows_cannot_be_restored_by_visible_descendants(container, visibility, visible):
+    cell = '<td style="visibility:visible">Claim [引用:1]</td>'
+    body = cell if container == 'tr' else '<tr style="visibility:visible">' + cell + '</tr>'
+    answer = '<table><' + container + ' style="visibility:' + visibility + '">' + body + '</' + container + '></table>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+@pytest.mark.parametrize('cell_display,visible', [('table-cell', False), ('block', True)])
+def test_collapse_on_anonymous_table_rows_uses_the_parent_visibility(cell_display, visible):
+    answer = '<div style="visibility:collapse"><span style="display:' + cell_display + ';visibility:visible">Claim [引用:1]</span></div>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+def test_collapse_on_an_ordinary_container_keeps_overridable_visibility():
+    citation, = answers.citation_inventory('<div style="visibility:collapse"><span style="visibility:visible">Claim [引用:1]</span></div>', [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == 'Claim'

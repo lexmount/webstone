@@ -88851,6 +88851,126 @@
           "Claim"
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tr style=\"visibility:collapse\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tr style=\"visibility:hidden\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tbody style=\"visibility:collapse\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></tbody></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tbody style=\"visibility:hidden\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></tbody></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><thead style=\"visibility:collapse\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></thead></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><thead style=\"visibility:hidden\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></thead></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tfoot style=\"visibility:collapse\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></tfoot></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tfoot style=\"visibility:hidden\"><tr style=\"visibility:visible\"><td style=\"visibility:visible\">Claim [引用:1]</td></tr></tfoot></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
       }
     ],
     "reference-question-evidence": [

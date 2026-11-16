@@ -163,12 +163,19 @@ def _visibility(tag, attributes, blocked, visibility, parent_box):
                       and display in {'block', 'flow-root', 'inline-block', 'flex', 'inline-flex', 'grid',
                                       'inline-grid', 'table-cell', 'list-item', 'block ruby', 'flow-root list-item',
                                       'inline-flow-root-list-item'})
+    inherited_visibility = parent_box.get('visibility', 'hidden' if visibility else 'visible')
+    own_visibility = declarations.get('visibility', 'inherit')
+    box['visibility'] = ('visible' if own_visibility == 'initial' else inherited_visibility
+                         if own_visibility in {'inherit', 'unset', 'revert', 'revert-layer'} else own_visibility)
+    row_boxes = {'table-row', 'table-row-group', 'table-header-group', 'table-footer-group'}
+    collapsed_row = (box['visibility'] == 'collapse' and display in row_boxes
+                     or display == 'table-cell' and inherited_visibility == 'collapse'
+                     and parent_box.get('display') not in row_boxes)
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
                                  'audio', 'video', 'canvas', 'progress', 'meter'}
                or display in {'none', 'table-column', 'table-column-group'}
-               or display == 'contents' and tag in _REPLACED_TAGS or content_hidden)
-    if declarations.get('visibility') in {'visible', 'hidden', 'collapse', 'initial'}:
-        visibility = declarations['visibility'] in {'hidden', 'collapse'}
+               or display == 'contents' and tag in _REPLACED_TAGS or content_hidden or collapsed_row)
+    visibility = box['visibility'] != 'visible'
     return blocked, visibility, box
 
 
