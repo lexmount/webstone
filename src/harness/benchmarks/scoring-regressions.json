@@ -88686,6 +88686,171 @@
           "Supported claim"
         ],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:block\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:block\"><span style=\"display:contents\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:flex\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:flex\"><span style=\"display:contents\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:grid\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:grid\"><span style=\"display:contents\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:inline-flex\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:inline-flex\"><span style=\"display:contents\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:inline-grid\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:inline-grid\"><span style=\"display:contents\"><span style=\"content-visibility:hidden\">Claim [引用:1]</span></span></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div style=\"display:flex\">Claim [引用:1]</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
       }
     ],
     "reference-question-evidence": [

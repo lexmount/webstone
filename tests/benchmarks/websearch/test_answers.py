@@ -732,3 +732,26 @@ def test_claims_follow_resolved_block_boundaries(tag, style, claim):
     answer = '<section><' + tag + ' style="' + style + '">Unrelated</' + tag + '><' + tag + ' style="' + style + '">Supported claim [引用:1]</' + tag + '></section>'
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
     assert citation['claim_context'] == claim
+
+
+@pytest.mark.parametrize('layout', ['block', 'flex', 'grid', 'inline-flex', 'inline-grid'])
+@pytest.mark.parametrize('transparent', [False, True])
+def test_layout_items_are_blockified_before_content_visibility(layout, transparent):
+    child = '<span style="content-visibility:hidden">Claim [引用:1]</span>'
+    if transparent:
+        child = '<span style="display:contents">' + child + '</span>'
+    answer = '<div style="display:' + layout + '">' + child + '</div>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is (layout == 'block')
+
+
+@pytest.mark.parametrize('display,visible', [('ruby', False), ('ruby-text', False), ('table-cell', False),
+    ('table-row', False), ('inline list-item', False), ('inline flow-root list-item', False),
+    ('table', True), ('inline-table', True), ('contents', True)])
+def test_layout_blockification_retains_the_inner_display_type(display, visible):
+    answer = '<div style="display:flex"><span style="display:' + display + ';content-visibility:hidden">Claim [引用:1]</span></div>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+def test_native_marker_projection_does_not_create_a_separate_layout_item_claim():
+    citation, = answers.citation_inventory('<div style="display:flex">Claim [引用:1]</div>', [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == 'Claim'

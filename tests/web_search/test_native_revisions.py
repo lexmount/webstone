@@ -825,3 +825,39 @@ def test_full_capture_rejects_missing_previous_bodies_before_any_request(tmp_pat
     previous = [dict(url=dataset['cases'][0]['reference_urls'][0], status=200)]
     with pytest.raises(ValueError, match='body artifacts'):
         capture_mirror_observations(dataset, previous, tmp_path/'capture', 'fixture', full=True)
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_lead_capture_survives_a_lead_transfer_then_full_upgrade(tmp_path, monkeypatch, legacy):
+    from harness.web_search.revisions import capture_mirror_observations
+    from lexbench_websearch.simpleqa import extend_reference_urls, validate_reference_evidence
+
+    dataset = dict(cases=[dict(id='q', query='Which stone?', reference_answer='sapphire', reference_urls=['https://en.wikipedia.org/wiki/Example'])])
+    calls = []
+    def capture(_url, request, _header, _timeout):
+        calls.append(request['urls'])
+        payload = dict(statuses=[dict(id=u, status='success', source='crawled') for u in request['urls']],
+                       results=[dict(id=u, url=u, title='Example', text='# Example\n\n' + 'Documented article. '*40 + 'sapphire') for u in request['urls']])
+        return dict(http_status=200, transport_exit=0), json.dumps(payload).encode()
+    monkeypatch.setattr('harness.web_search.runner.http_call', capture)
+    first, middle, final = [tmp_path/name for name in ('first', 'middle', 'final')]
+    capture_mirror_observations(dataset, [], first, 'fixture')
+    before = capture_mirror_observations(dataset, [], first, 'fixture', collect=True)
+    if legacy:
+        for observation in before:
+            for field in ('body_artifact', 'media_type', 'source_title'):
+                observation.pop(field, None)
+    transferred = capture_mirror_observations(dataset, before, middle, 'fixture', previous_root=first)
+    if legacy:
+        bodies = {middle/o['body_artifact']['path'] for o in transferred}
+        for path in bodies:
+            path.unlink()
+        for observation in transferred:
+            for field in ('body_artifact', 'media_type', 'source_title'):
+                observation.pop(field, None)
+    first.rename(tmp_path/'archived')
+    upgraded = capture_mirror_observations(dataset, transferred, final, 'fixture', full=True, previous_root=middle)
+    assert len(calls) == 1
+    assert all(o.get('body_artifact') for o in upgraded)
+    revised = extend_reference_urls(dataset, upgraded, artifacts=lambda path: (final/path).read_bytes())
+    validate_reference_evidence(revised, lambda path: (final/path).read_bytes())

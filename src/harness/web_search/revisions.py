@@ -32,6 +32,7 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
     a resumed capture never repeats an already completed physical request.
     Use previous_root to carry evidence into a new output directory. Full mode
     upgrades retained complete bodies without another HTTP request.
+    Successful fetches retain their body bindings in both modes.
     """
     import time
     from datetime import UTC, datetime
@@ -68,19 +69,34 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
             raise ValueError('Previous capture artifact changed')
         return retained[target], target
     for observation in indexed.values():
-        if full and observation.get('status') == 200 and not observation.get('body_artifact'):
-            body_hash = observation.get('body_sha256', '')
-            if not isinstance(body_hash, str) or len(body_hash) != 64:
-                raise ValueError('Full capture requires retained body artifacts')
+        body_hash = observation.get('body_sha256', '')
+        needs_body = observation.get('status') == 200 and not observation.get('body_artifact')
+        valid_hash = isinstance(body_hash, str) and len(body_hash) == 64
+        if full and needs_body and not valid_hash:
+            raise ValueError('Full capture requires retained body artifacts')
+        if needs_body and valid_hash:
             candidate = 'bodies/' + body_hash + '.md'
-            raw, _ = retain(candidate, body_hash)
-            title, text = article_text(raw, media_type='text/markdown', source_title=observation.get('title'))
-            if not title or len(text) < 200:
-                raise ValueError('Previous lead-only observation has no complete retained article')
-            observation.update(body_artifact=dict(path=candidate, sha256=body_hash),
-                               media_type='text/markdown', source_title=observation.get('title'))
+            available = (contained_path(output, inherited + '/' + candidate, reject_symlinks=True).is_file()
+                         or contained_path(source_root, candidate, reject_symlinks=True).is_file())
+            source_title = observation.get('title')
+            if not available and observation.get('native_evidence'):
+                native = observation['native_evidence']
+                raw, _ = retain(native['path'], native['sha256'])
+                try:
+                    matches = response_entries(json.loads(raw), 'results', observation['url'])
+                except ValueError:
+                    matches = []
+                if len(matches) == 1 and isinstance(matches[0].get('text'), str):
+                    body = matches[0]['text'].encode()
+                    if digest(body) == body_hash:
+                        retained[inherited + '/' + candidate] = body
+                        retained_hashes[inherited + '/' + candidate] = body_hash
+                        source_title, available = matches[0].get('title'), True
+            if available:
+                observation.update(body_artifact=dict(path=candidate, sha256=body_hash),
+                                   media_type='text/markdown', source_title=source_title)
         if full and observation.get('status') == 200 and (
-                observation.get('media_type') not in {'text/html', 'text/markdown'}
+                not observation.get('body_artifact') or observation.get('media_type') not in {'text/html', 'text/markdown'}
                 or observation['body_artifact'].get('sha256') != observation.get('body_sha256')):
             raise ValueError('Previous full capture metadata is incomplete')
         for field in ('body_artifact', 'native_evidence', 'capture'):
@@ -89,6 +105,11 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
                 continue
             _, relative = retain(binding['path'], binding['sha256'])
             binding['path'] = relative
+        if full and observation.get('status') == 200:
+            title, text = article_text(retained[observation['body_artifact']['path']],
+                                       media_type=observation['media_type'], source_title=observation.get('source_title'))
+            if not title or len(text) < 200:
+                raise ValueError('Previous observation has no complete retained article')
     batches = [urls[i:i + 12] for i in range(0, len(urls), 12)]
     policy = dict(purpose='quality', max_in_flight=4, resources={'reference-pages': {'capacity': 4}})
     options = dict(text={'verbosity': 'full'}, maxAgeHours=0, livecrawlTimeout=20000)
@@ -172,11 +193,13 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
             body = item['text'].encode() if successful else b''
             observation = article_observation(body, url, status=200 if successful else 0,
                 verified_at=receipt['completed_at'], media_type='text/markdown', source_title=item.get('title'))
+            if body:
+                observation.update(media_type='text/markdown', source_title=item.get('title'),
+                                   body_artifact=dict(path='bodies/' + digest(body) + '.md', sha256=digest(body)))
             if full and body:
                 title, text = article_text(body, media_type='text/markdown', source_title=item.get('title'))
                 if title and len(text) >= 200:
-                    observation.update(title=title, media_type='text/markdown', source_title=item.get('title'),
-                        body_artifact=dict(path='bodies/' + digest(body) + '.md', sha256=digest(body)))
+                    observation['title'] = title
                 else:
                     observation['status'] = 0
             observation.update(source_status=status, native_evidence=dict(path=key + '-response.json', sha256=digest(raw)),

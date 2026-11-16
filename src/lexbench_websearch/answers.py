@@ -141,23 +141,28 @@ def _visibility(tag, attributes, blocked, visibility, parent_box):
         outer = 'inline' if 'inline' in values else 'block'
         inner = next((v for v in ('table', 'flex', 'grid', 'ruby', 'flow-root') if v in values), 'flow')
         if 'list-item' in values:
-            box['display'] = 'inline-list-item' if outer == 'inline' and inner == 'flow' else 'list-item'
+            box['display'] = ('inline-list-item' if inner == 'flow' else 'inline-flow-root-list-item') if outer == 'inline' else (
+                'list-item' if inner == 'flow' else 'flow-root list-item')
         elif outer == 'inline':
-            box['display'] = {'flow': 'inline', 'flow-root': 'inline-block'}.get(inner, 'inline-' + inner)
+            box['display'] = {'flow': 'inline', 'flow-root': 'inline-block', 'ruby': 'ruby'}.get(inner, 'inline-' + inner)
         else:
-            box['display'] = 'block' if inner == 'flow' else inner
+            box['display'] = {'flow': 'block', 'ruby': 'block ruby'}.get(inner, inner)
     elif box['display'] == 'flow':
         box['display'] = 'block'
-    if box['position'] in {'absolute', 'fixed'} or box['float'] != 'none':
+    item_layout = parent_box.get('child_layout', parent_box.get('display'))
+    if box['position'] in {'absolute', 'fixed'} or box['float'] != 'none' or item_layout in {'flex', 'inline-flex', 'grid', 'inline-grid'}:
         box['display'] = {'inline': 'block', 'inline-block': 'block', 'inline-table': 'table',
                           'inline-flex': 'flex', 'inline-grid': 'grid', 'table-row': 'block',
                           'table-cell': 'block', 'table-column': 'block', 'table-column-group': 'block',
                           'table-row-group': 'block', 'table-header-group': 'block', 'table-footer-group': 'block',
-                          'table-caption': 'block', 'ruby-text': 'block', 'inline-list-item': 'list-item'}.get(box['display'], box['display'])
+                          'table-caption': 'block', 'ruby-text': 'block', 'ruby': 'block ruby',
+                          'inline-list-item': 'list-item', 'inline-flow-root-list-item': 'flow-root list-item'}.get(box['display'], box['display'])
     display = box['display']
+    box['child_layout'] = item_layout if display == 'contents' else display
     content_hidden = (box['content-visibility'] == 'hidden' and tag not in _REPLACED_TAGS
                       and display in {'block', 'flow-root', 'inline-block', 'flex', 'inline-flex', 'grid',
-                                      'inline-grid', 'table-cell', 'list-item'})
+                                      'inline-grid', 'table-cell', 'list-item', 'block ruby', 'flow-root list-item',
+                                      'inline-flow-root-list-item'})
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
                                  'audio', 'video', 'canvas', 'progress', 'meter'}
                or display in {'none', 'table-column', 'table-column-group'}
@@ -472,7 +477,7 @@ def citation_inventory(answer, results):
                                       block_floor=block_breaks[-1]) for record in records)
             continue
         separate = not visibility and box['display'] in {
-            'block', 'flow-root', 'flex', 'grid', 'list-item', 'table', 'table-row',
+            'block', 'flow-root', 'flex', 'grid', 'list-item', 'block ruby', 'flow-root list-item', 'table', 'table-row',
             'table-row-group', 'table-header-group', 'table-footer-group', 'table-caption'}
         if separate:
             boundary()
