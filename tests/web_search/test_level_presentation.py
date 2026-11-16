@@ -338,3 +338,39 @@ def test_request_failures_are_visible_beside_the_affected_method():
     doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
     affected = doc.select_one('[data-summary-method="' + selected['rows'][0]['method'] + '"]')
     assert affected.select_one('[data-delivery-limited]').get_text() == 'Delivery limited: 1/2 failed calls'
+
+
+@pytest.mark.parametrize('damage', ['missing', 'count', 'audit-link'])
+def test_report_gate_rejects_changed_reference_verification_coverage(tmp_path, damage):
+    import json
+    from harness.record_io import bytes_sha256
+    from harness.web_search.example import example
+    from harness.web_search.report import build, check
+
+    example(tmp_path, comparison=True)
+    source = tmp_path / 'fixture'
+    profile = json.loads((source / 'profile.json').read_bytes())
+    case = next(case for case in profile['cases'] if 'reference_answer' in case)
+    case.update(reference_verification_coverage=dict(candidate_count=2, verified=1, title_mismatch=0,
+        evidence_mismatch=0, capture_failed=1), reference_verification_audit_url='https://dataset.test/audit.json')
+    (source / 'profile.json').write_text(json.dumps(profile), encoding='utf-8')
+    receipt = json.loads((source / 'receipt.json').read_bytes())
+    receipt['profile_sha256'] = bytes_sha256((source / 'profile.json').read_bytes())
+    (source / 'receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
+    output = tmp_path / 'updated'
+    content = tmp_path / 'verification-content.json'
+    content.write_text(json.dumps({'presentation': 'comparison-report', 'sections': []}), encoding='utf-8')
+    build(output, source=source, content=content, language='zh')
+    assert check(output)
+    path = output / 'dataset.html'
+    doc = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
+    section = doc.select_one('[data-reference-verification]')
+    if damage == 'missing':
+        section.decompose()
+    elif damage == 'count':
+        section.select_one('tbody td').string = '9999'
+    else:
+        section.select_one('a')['href'] = 'https://wrong.test/audit.json'
+    path.write_text(str(doc), encoding='utf-8')
+    with pytest.raises(ValueError, match='Dataset definitions'):
+        check(output)

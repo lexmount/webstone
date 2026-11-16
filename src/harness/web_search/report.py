@@ -1365,7 +1365,7 @@ def _write_dataset_page(inputs: ReportInputs, edition: ReportEdition) -> None:
     page(
         "dataset.html",
         t("Tests and sources"),
-        dataset_context(dataset_profile, dataset_content, zh)
+        dataset_context(dataset_profile, dataset_content, zh, reference_profile=profile)
         + '<p><a href="https://huggingface.co/datasets/Lexmount/LexBench-Web-Search">'
         + t("LexBench Web Search: dataset and sources")
         + '</a> · <a href="https://github.com/lexmount/webstone/tree/main/src/lexbench_websearch">'
@@ -2165,13 +2165,14 @@ def check(output, *, return_data=False, evidence_only=False):
         if revision["contract"].get("normalization"):
             artifacts = {r["evidence"]["path"]: (output / r["evidence"]["path"]).read_bytes() for r in manifest["rows"]}
             collected = collected_projection(manifest["collection_profile"], manifest["rows"], artifacts, normalize_response)
-            _, corrected, changes = apply_report_revision(manifest["collection_profile"], collected, revision["contract"], artifacts=artifacts, normalizer=normalize_response)
+            revised, corrected, changes = apply_report_revision(manifest["collection_profile"], collected, revision["contract"], artifacts=artifacts, normalizer=normalize_response)
             if changes != revision["changes"] or any(
                 any(a.get(k) != b.get(k) for k in ("results", "metrics", "error"))
                 for a, b in zip(corrected, manifest["rows"], strict=True)
             ):
                 raise ValueError("Native normalization correction provenance mismatch")
-        revised, _, _ = apply_report_revision(manifest["collection_profile"], [], manifest["assessment_revision"]["contract"], normalizer=normalize_response)
+        else:
+            revised, _, _ = apply_report_revision(manifest["collection_profile"], [], manifest["assessment_revision"]["contract"], normalizer=normalize_response)
         revised, _ = project_comparison(revised, [], manifest.get("authored") or {})
         if manifest.get("report_assessment"):
             revised = assessment_profile(revised, relevance_data, review_data)
@@ -2188,11 +2189,12 @@ def check(output, *, return_data=False, evidence_only=False):
         soup = BeautifulSoup(path.read_bytes().decode("utf-8"), "html.parser")
         check_presentation(soup)
         authored = manifest.get("authored") or {}
-        if level_views and route.endswith('dataset.html'):
+        if route.endswith('dataset.html'):
             dataset_profile, dataset_content = quality_dataset(manifest['profile'], authored)
-            expected_dataset = BeautifulSoup(dataset_context(dataset_profile, dataset_content, soup.html['lang'] == 'zh'), 'html.parser')
-            if str(soup.select_one('[data-dataset-context]')) != str(expected_dataset.select_one('[data-dataset-context]')):
-                raise ValueError('Dataset definitions differ from the two scored benchmarks')
+            expected_dataset = BeautifulSoup(dataset_context(dataset_profile, dataset_content, soup.html['lang'] == 'zh', reference_profile=manifest['profile']), 'html.parser')
+            for selector in ('[data-dataset-context]', '[data-reference-verification]'):
+                if str(soup.select_one(selector)) != str(expected_dataset.select_one(selector)):
+                    raise ValueError('Dataset definitions differ from the two scored benchmarks')
         if "details/" not in route:
             lang = soup.html["lang"]
             name = Path(route).name
@@ -4251,7 +4253,7 @@ def annotation_detail(annotation, zh):
     return body + '</section>'
 
 
-def dataset_context(profile, content, zh):
+def dataset_context(profile, content, zh, *, reference_profile=None):
     if content.get("presentation") != "comparison-report":
         return ''
     populations = [p for p in metric_populations(profile, content) if p.get("benchmark_root")]
@@ -4277,7 +4279,7 @@ def dataset_context(profile, content, zh):
         note += report_text(". ", zh)
     note += report_text("Original queries, source URLs and derivations are listed below.", zh)
     result = '<section data-dataset-context><h2>' + report_text("Datasets and evaluation scope", zh) + '</h2>' + table([report_text("Dataset", zh), report_text("Queries", zh), report_text("Purpose", zh)], rows) + '<p>' + note + '</p></section>'
-    verified = [case for case in profile['cases'] if 'reference_verification_coverage' in case]
+    verified = [case for case in (reference_profile or profile)['cases'] if 'reference_verification_coverage' in case]
     if verified:
         coverage = [cells([esc(case['id']), *[str(case['reference_verification_coverage'][key]) for key in
                     ('candidate_count', 'verified', 'title_mismatch', 'evidence_mismatch', 'capture_failed')]]) for case in verified]

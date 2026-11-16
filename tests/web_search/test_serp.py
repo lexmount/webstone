@@ -283,7 +283,11 @@ class SerpContracts(unittest.TestCase):
             instance = revision_instance(root, revision)
             with patch("harness.web_search.runner.http_call") as network:
                 build(root / "report", source=root / "run", content=content, profile_path=instance)
-                _, corrected_rows = check(root / "report", return_data=True)
+                from harness.web_search.revisions import apply_report_revision
+
+                with patch('harness.web_search.report.apply_report_revision', wraps=apply_report_revision) as replay:
+                    _, corrected_rows = check(root / "report", return_data=True)
+                    self.assertEqual(replay.call_count, 1)
                 network.assert_not_called()
             manifest = json.loads((root / "report/manifest.json").read_text(encoding="utf-8"))
             for row in (r for r in rows if r["method"] == "brightdata"):

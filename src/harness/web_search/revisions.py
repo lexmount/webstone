@@ -551,9 +551,9 @@ def validate_revision_controls(revision, normalizer=None):
     normalization_regressions(revision.get("regressions_sha256"), normalizer)
 
 
-def apply_reference_dataset(cases, selected):
+def apply_reference_dataset(cases, selected, *, regression_ids=None):
     """Apply only validated reference extensions from a locked dataset revision."""
-    from harness.benchmarks.data import binding, definition_path
+    from harness.benchmarks.data import binding, definition_path, safe_path
     from lexbench_websearch.contracts import validate_cases
 
     if (not isinstance(selected, dict) or set(selected) != {'track', 'revision', 'path', 'sha256'}
@@ -564,14 +564,16 @@ def apply_reference_dataset(cases, selected):
     descriptor = source['files']['definitions/' + selected['path']]
     if selected['sha256'] != descriptor['sha256']:
         raise ValueError('Reference dataset hash differs from the locked snapshot')
-    raw = definition_path(selected['track'], selected['path'], selected['revision']).read_bytes()
+    dataset_path = definition_path(selected['track'], selected['path'], selected['revision'])
+    raw = dataset_path.read_bytes()
     dataset = json.loads(raw)
     validate_cases(dataset['cases'])
     from lexbench_websearch.simpleqa import validate_reference_evidence
 
-    validate_reference_evidence(dataset, lambda path: definition_path(selected['track'], path, selected['revision']).read_bytes())
     indexed = {case['id']: case for case in dataset['cases']}
-    coverage = {item['case_id']: item for item in dataset.get('reference_equivalence', {}).get('case_coverage', [])}
+    full = dataset.get('reference_equivalence', {}).get('method') == 'reference-question-evidence/1'
+    if full and regression_ids is not None and 'reference-question-evidence' not in regression_ids:
+        raise ValueError('Full reference revision requires question-evidence regression controls')
     for case in cases.values():
         if 'reference_answer' not in case:
             continue
@@ -579,11 +581,27 @@ def apply_reference_dataset(cases, selected):
         if reference is None or any(case.get(key) != reference.get(key)
                                     for key in ('id', 'query', 'reference_answer', 'reference_urls')):
             raise ValueError('Reference revision changes a frozen question, answer or original URL')
+
+    def captured(path):
+        expected = source['files'].get('definitions/' + path)
+        if expected is None:
+            raise ValueError('Reference capture is outside the locked snapshot')
+        raw = safe_path(dataset_path.parent.parent, path).read_bytes()
+        if len(raw) != expected['size'] or digest(raw) != expected['sha256']:
+            raise ValueError('Reference capture differs from the locked snapshot')
+        return raw
+
+    validate_reference_evidence(dataset, captured)
+    coverage = {item['case_id']: item for item in dataset.get('reference_equivalence', {}).get('case_coverage', [])}
+    for case in cases.values():
+        if 'reference_answer' not in case:
+            continue
+        reference = indexed.get(case['id'])
         for key in ('equivalent_reference_urls', 'equivalent_reference_provenance', 'url_equivalence'):
             if key not in reference:
                 raise ValueError('Selected dataset has no qualified reference extension')
             case[key] = deepcopy(reference[key])
-        if dataset.get('reference_equivalence', {}).get('method') == 'reference-question-evidence/1':
+        if full:
             case['reference_verification_coverage'] = coverage[case['id']]
             case['capture_failed_reference_urls'] = [item['url'] for item in dataset['reference_equivalence_audit']
                 if item['case_id'] == case['id'] and item['outcome'] == 'capture_failed']
@@ -635,10 +653,7 @@ def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer
             raise ValueError('A canonical reference revision cannot add a second URL authority')
         if not {'generic-document-urls', 'reference-mirror-title-and-lead'}.issubset(revision['regression_ids']):
             raise ValueError('Reference dataset revision requires URL and mirror regression controls')
-        apply_reference_dataset(cases, revision['reference_dataset'])
-        if (any('reference_verification_coverage' in case for case in cases.values())
-                and 'reference-question-evidence' not in revision['regression_ids']):
-            raise ValueError('Full reference revision requires question-evidence regression controls')
+        apply_reference_dataset(cases, revision['reference_dataset'], regression_ids=revision['regression_ids'])
     identities = set()
     for item in revision.get('factual_source_identities', []):
         cid, alias = item.get('case_id'), item.get('alias')

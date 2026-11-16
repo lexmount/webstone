@@ -657,7 +657,7 @@ def reference_dataset_revision():
     selected = binding('simpleqa-verified')
     return dict(schema='web-search-assessment-revision/1', provider_calls=0,
                 root_cause='Reference-only source verification supplies missing same-document URLs',
-                regression_ids=['generic-document-urls', 'reference-mirror-title-and-lead'],
+                regression_ids=['generic-document-urls', 'reference-mirror-title-and-lead', 'reference-question-evidence'],
                 reference_dataset=dict(track='simpleqa-verified', revision=selected['revision'],
                                        path='datasets/factual-v1.json',
                                        sha256=selected['datasets']['factual-v1']['sha256']))
