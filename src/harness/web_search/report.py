@@ -2631,9 +2631,8 @@ def main(argv=None):
             release_check(args.output, args.release_check, publication_plan=args.publication_plan)
         else:
             check(args.output)
-        from harness.web_search.delivery import export, verify
+        from harness.web_search.delivery import export
         export(args.output, args.export_delivery)
-        verify(args.output, args.export_delivery)
         print(args.export_delivery)
         return
     if args.release_check:

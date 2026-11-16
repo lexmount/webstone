@@ -174,9 +174,14 @@ def verify_field_admission(profile, rows, receipt, artifacts):
 
 def level_inputs(profile, rows, level, *, admissions=None, artifacts=None):
     """Derive participation from adapters and verified field evidence."""
+    projected, _ = _project_level(profile, output_profile(profile), rows, level,
+                                  admissions=admissions, artifacts=artifacts)
+    return projected
+
+
+def _project_level(profile, declared, rows, level, *, admissions, artifacts):
     if profile.get('protocol', {}).get('top_k') != 5:
         raise ValueError('Output-level assessments require top_k=5')
-    declared = output_profile(profile)
     qualified = None
     if level == "l2":
         qualified = {}
@@ -189,7 +194,7 @@ def level_inputs(profile, rows, level, *, admissions=None, artifacts=None):
             qualified[method["id"]] = verify_field_admission(
                 profile, rows, receipt, artifacts or {}
             )
-    return project_rows(declared, rows, level, qualified_fields=qualified)
+    return project_rows(declared, rows, level, qualified_fields=qualified), qualified
 
 
 def assessed_levels(profile, rows, *, relevance=None, relevance_revisions=None,
@@ -204,8 +209,9 @@ def assessed_levels(profile, rows, *, relevance=None, relevance_revisions=None,
     declared = output_profile(profile)
     available = {level for method in declared['methods']
                  for level in levels(method['output_fields'])}
-    projected_levels = {level: level_inputs(profile, rows, level, admissions=admissions, artifacts=artifacts)
+    projections = {level: _project_level(profile, declared, rows, level, admissions=admissions, artifacts=artifacts)
                         for level in available}
+    projected_levels = {level: value[0] for level, value in projections.items()}
     projected_levels = {level: value for level, value in projected_levels.items() if value[0]['methods']}
     available = set(projected_levels)
     if set(relevance or {}) != available.intersection({'l1', 'l2'}):
@@ -238,7 +244,7 @@ def assessed_levels(profile, rows, *, relevance=None, relevance_revisions=None,
                     timing_rows=[row for row in (rows if timing_rows is None else timing_rows)
                                  if row['method'] in participants])
         if level == 'l2':
-            view['field_admissions'] = {mid: verify_field_admission(profile, rows, admissions[mid], artifacts or {})
+            view['field_admissions'] = {mid: projections[level][1][mid]
                                         for mid in sorted(participants)}
         if level in ('l1', 'l2'):
             evidence = relevance[level]

@@ -214,7 +214,8 @@ def test_combined_release_export_keeps_the_explicit_publication_plan(tmp_path, m
         )
     verify_plan.assert_called_once_with(output, plan.parent)
     export.assert_called_once_with(output, delivery)
-    verify.assert_called_once_with(output, delivery)
+    # export owns its verification; the CLI must not repeat it.
+    verify.assert_not_called()
 
 
 @pytest.mark.parametrize("boundary", ["send", "response", "save"])

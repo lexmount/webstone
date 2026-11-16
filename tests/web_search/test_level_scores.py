@@ -34,6 +34,31 @@ def complete_levels():
     return profile, rows, admissions, artifacts, evidence
 
 
+def test_source_sample_is_read_once_per_assessment_and_changes_are_rechecked(monkeypatch):
+    from harness.web_search import output_levels
+
+    profile, rows, admissions, artifacts, evidence = complete_levels()
+    read = output_levels.source_page_text
+    visited = []
+
+    def observe(page, inputs):
+        visited.append(page['url'])
+        return read(page, inputs)
+
+    monkeypatch.setattr(output_levels, 'source_page_text', observe)
+    views = assessed_levels(profile, rows, relevance=evidence, admissions=admissions,
+                            artifacts=artifacts)
+    assert len(visited) == len(set(visited)) == 50
+    assert views['l2']['field_admissions']['web']['qualified']
+    # A second assessment must read the current bytes, even in the same process.
+    artifacts[next(iter(artifacts))] = b'changed source capture'
+    visited.clear()
+    with pytest.raises(ValueError):
+        assessed_levels(profile, rows, relevance=evidence, admissions=admissions,
+                        artifacts=artifacts)
+    assert visited
+
+
 def test_unsupported_cutoff_is_rejected_before_any_level_judgments():
     profile, rows, *_ = complete_levels()
     profile['protocol']['top_k'] = 10

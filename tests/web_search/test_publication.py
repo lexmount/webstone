@@ -7,6 +7,15 @@ from harness.record_io import bytes_sha256
 from harness.web_search import publication, profiles
 
 
+def test_prepare_only_cannot_resume_or_upload(tmp_path, monkeypatch):
+    monkeypatch.setattr(publication, 'prepare', lambda *a, **kw: pytest.fail('Invalid options prepared a release'))
+    monkeypatch.setattr(publication, 'publish', lambda *a, **kw: pytest.fail('Invalid options uploaded a release'))
+    with pytest.raises(SystemExit) as stopped:
+        publication.main(['--report', str(tmp_path / 'report'), '--output', str(tmp_path / 'release'),
+                          '--prepare-only', '--resume'])
+    assert stopped.value.code == 2
+
+
 def publication_files(tmp_path, monkeypatch):
     monkeypatch.setenv("WEBSTONE_DATA_HOME", str(tmp_path))
     monkeypatch.setattr(publication, "ROOT", tmp_path)
@@ -218,13 +227,19 @@ def test_prepare_freezes_new_counts_and_keeps_correction_provenance(tmp_path, mo
             manifest[field] = None
     (report / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     proof = tmp_path / 'visual.json'; proof.write_text(json.dumps({'manifest_sha256': bytes_sha256((report/'manifest.json').read_bytes())}), encoding='utf-8')
-    monkeypatch.setattr(reports, 'check', lambda *a: True)
-    monkeypatch.setattr(visual, 'verify', lambda *a: True)
+    checks = []
+    monkeypatch.setattr(reports, 'check', lambda *a: checks.append('report'))
+    monkeypatch.setattr(visual, 'verify', lambda *a: checks.append('visual'))
     def export(*args):
         dest = args[1]; dest.mkdir(); (dest/'index.html').write_text('<html>Verified fixture</html>', encoding='utf-8'); (dest/'delivery-index.json').write_text('{}', encoding='utf-8')
     monkeypatch.setattr(delivery, 'export', export)
-    monkeypatch.setattr(delivery, 'verify', lambda *a: True)
-    publication.prepare(report, proof, content, {'primary': source}, work, profile=repo/'instance.json')
+    monkeypatch.setattr(delivery, 'verify', lambda *a: pytest.fail('Export already verifies its delivery'))
+    monkeypatch.setattr(publication, 'publish', lambda *a: pytest.fail('Preparation must not upload'))
+    publication.main(['--report', str(report), '--visual-receipt', str(proof),
+                      '--content', str(content), '--source', 'primary=' + str(source),
+                      '--output', str(work), '--profile', str(repo / 'instance.json'),
+                      '--prepare-only'])
+    assert checks == ['report', 'visual']
     plan = publication.verify_plan(report, work)
     assert plan['title'] == '接口评测'
     assert plan['target']['physical_calls'] == 2

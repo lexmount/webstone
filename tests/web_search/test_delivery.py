@@ -64,10 +64,13 @@ class DeliveryScenarios(unittest.TestCase):
                 self.assertFalse(doc.find("img"))
 
     def test_public_export_command_requires_valid_existing_evidence(self):
+        from unittest.mock import patch
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             example(root)
-            main(["--output", str(root / "report"), "--export-delivery", str(root / "delivery")])
+            with patch('harness.web_search.delivery.verify', wraps=verify) as checked:
+                main(["--output", str(root / "report"), "--export-delivery", str(root / "delivery")])
+                checked.assert_called_once_with(root / 'report', root / 'delivery')
             self.assertTrue(verify(root / "report", root / "delivery"))
             proof = root / "incomplete-visual.json"
             proof.write_text(json.dumps({"manifest_sha256": bytes_sha256((root / "report/manifest.json").read_bytes()), "captures": []}), encoding="utf-8")

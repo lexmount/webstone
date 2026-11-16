@@ -69,16 +69,20 @@ def export(source, destination):
     destination.mkdir(parents=True, exist_ok=False)
     manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     shards, mapping, hashes = {}, {}, {}
+    details = {}
+    for route in manifest['routes']:
+        if route.startswith('details/') or '/details/' in route:
+            details.setdefault(Path(route).stem, []).append(route)
     for row in manifest["rows"]:
         shard = shards.setdefault(row["case_id"], {})
         paths = [row["evidence"]["path"], *[a["evidence"]["path"] for a in row.get("attempts", [])]]
-        paths += [route for route in manifest["routes"] if route.endswith("details/" + row["id"] + ".html")]
+        paths += details.get(row['id'], [])
         for path in paths:
             raw = (source / path).read_bytes()
             # JSON transport must not normalize CRLF or decode arbitrary provider bytes.
             shard[path] = {"base64": base64.b64encode(raw).decode("ascii")}
             mapping[path] = "case-data/" + row["case_id"] + ".json.gz"
-            hashes[path] = bytes_sha256((source / path).read_bytes())
+            hashes[path] = bytes_sha256(raw)
     for cid, data in shards.items():
         target = destination / "case-data" / (cid + ".json.gz")
         target.parent.mkdir(parents=True, exist_ok=True)

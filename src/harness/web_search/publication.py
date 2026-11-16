@@ -28,6 +28,7 @@ from lexbench_webfetch.paths import contained_path
 
 
 def prepare(report, visual, content, sources, work, *, profile):
+    """Validate the release once and freeze a locally publishable package."""
     search_report.check(report)
     report_visual.verify(report, visual)
     manifest = json.loads((report / "manifest.json").read_bytes())
@@ -79,7 +80,6 @@ def prepare(report, visual, content, sources, work, *, profile):
         bind(cohort + "_receipt", source / "receipt.json", cohort + "-receipt.json")
         bind(cohort + "_frozen_profile", source / "profile.json", cohort + "-profile.json")
     report_delivery.export(report, work / "delivery")
-    report_delivery.verify(report, work / "delivery")
     bind("delivery_index", work / "delivery/delivery-index.json", "delivery-index.json")
     archive = work / "report.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
@@ -193,9 +193,16 @@ def main(argv=None):
     parser.add_argument("--source", action="append", default=[], metavar="COHORT=RUN")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="Validate and freeze the release without uploading; publish later with --resume")
     args = parser.parse_args(argv)
+    if args.resume and args.prepare_only:
+        parser.error("--prepare-only and --resume are mutually exclusive")
     if not args.resume:
         if not args.visual_receipt or not args.content or not args.profile:
             parser.error("A new publication requires --profile, --visual-receipt and --content")
         prepare(args.report, args.visual_receipt, args.content, {v.split("=", 1)[0]: Path(v.split("=", 1)[1]) for v in args.source}, args.output, profile=args.profile)
+    if args.prepare_only:
+        print(args.output / "publication-plan.json")
+        return
     print(publish(args.report, args.output))

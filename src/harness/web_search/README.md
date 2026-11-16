@@ -186,6 +186,16 @@ HTML inspection. Packaging and uploading verify the accepted files rather than
 repeating the full report check. Combine `--release-check RECEIPT` with
 `--export-delivery DESTINATION` to validate and export in one pass.
 
+For a maintained measured release, use `publish --prepare-only` with the report,
+visual receipt, content, cohort sources, instance profile and output directory.
+This runs the report and visual checks once, exports and verifies the delivery,
+and freezes the publication plan without uploading. It replaces a separate
+`report --check`, delivery export and `report --release-check` sequence.
+Then use `publish --resume --report /absolute/report --output /absolute/release`
+to upload the frozen package. Resume verifies the archive and bound inputs again
+so edits after preparation still fail before upload. Standalone checks remain
+available for diagnosing an existing report.
+
 Large comparison data is exported as content-addressed compressed JSON beside the compact
 HTML page. The comparison loads that file before enabling its filters. Delivery
 verification checks the exact transformed data as well as the page; missing or
