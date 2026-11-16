@@ -84,11 +84,10 @@ def _visibility(tag, attributes, blocked, visibility):
     declarations, priorities = {}, {}
     globals_ = {'initial', 'inherit', 'unset', 'revert', 'revert-layer'}
     supported = {
-        'display': globals_ | {'none', 'contents', 'block', 'inline', 'run-in', 'flow', 'flow-root',
+        'display': globals_ | {'none', 'contents', 'block', 'inline', 'flow', 'flow-root',
             'table', 'flex', 'grid', 'ruby', 'list-item', 'inline-block', 'inline-table', 'inline-flex',
             'inline-grid', 'table-row-group', 'table-header-group', 'table-footer-group', 'table-row',
-            'table-cell', 'table-column-group', 'table-column', 'table-caption', 'ruby-base', 'ruby-text',
-            'ruby-base-container', 'ruby-text-container'},
+            'table-cell', 'table-column-group', 'table-column', 'table-caption', 'ruby-text'},
         'visibility': globals_ | {'visible', 'hidden', 'collapse'},
         'content-visibility': globals_ | {'visible', 'hidden', 'auto'},
     }
@@ -102,7 +101,7 @@ def _visibility(tag, attributes, blocked, visibility):
         values = [t.lower_value for t in tokens]
         valid = len(values) == 1 and values[0] in supported[key]
         if key == 'display' and len(values) == len(set(values)):
-            outer, inner = {'block', 'inline', 'run-in'}, {'flow', 'flow-root', 'table', 'flex', 'grid', 'ruby'}
+            outer, inner = {'block', 'inline'}, {'flow', 'flow-root', 'table', 'flex', 'grid', 'ruby'}
             valid = valid or len(values) == 2 and any(a in outer and b in inner for a, b in (values, values[::-1]))
             if 'list-item' in values:
                 rest = set(values) - {'list-item'}
@@ -111,9 +110,14 @@ def _visibility(tag, attributes, blocked, visibility):
             continue
         declarations[key] = ' '.join(values)
         priorities[key] = important
-    blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes'}
-               or 'hidden' in attributes or declarations.get('display') == 'none'
-               or declarations.get('content-visibility') == 'hidden')
+    display, content_visibility = declarations.get('display'), declarations.get('content-visibility')
+    until_found = (attributes.get('hidden') or '').casefold() == 'until-found'
+    default_hidden = (tag in {'datalist', 'rp'} or tag == 'dialog' and 'open' not in attributes
+                      or 'hidden' in attributes and not until_found)
+    blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
+                                 'audio', 'video', 'canvas', 'progress', 'meter'}
+               or display == 'none' or default_hidden and display in {None, 'revert', 'revert-layer'}
+               or content_visibility == 'hidden' or until_found and content_visibility in {None, 'revert', 'revert-layer'})
     if declarations.get('visibility') in {'visible', 'hidden', 'collapse', 'initial'}:
         visibility = declarations['visibility'] in {'hidden', 'collapse'}
     return blocked, visibility
@@ -373,7 +377,9 @@ def citation_inventory(answer, results):
     tree = html5lib.parseFragment(rendered, treebuilder='etree', namespaceHTMLElements=False)
     parts, length, local, block_breaks, linked = [], 0, [], [0], {}
     block_tags = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
-                  'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary'}
+                  'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary', 'dialog',
+                  'address', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hgroup',
+                  'main', 'menu', 'nav', 'ol', 'ul'}
     literal_tags = {'pre', 'code', 'kbd', 'samp', 'textarea', 'xmp', 'plaintext'}
 
     def text(value):

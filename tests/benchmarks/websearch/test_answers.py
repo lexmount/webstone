@@ -549,6 +549,8 @@ def test_markdown_link_also_closes_an_open_html_anchor():
     ('display:none!important;display:block', False),
     ('display:none;display:inline flow-root', True),
     (r'display:n\6f ne', False),
+    ('display:none;display:run-in', False),
+    ('display:none;display:ruby-base', False),
 ])
 def test_inline_visibility_obeys_css_declarations(style, visible):
     answer = '<div><span style="' + style + '">Claim [引用:1]</span></div>'
@@ -607,3 +609,41 @@ def test_deep_answers_keep_the_same_citations_and_visibility_as_shallow_answers(
     assert [c['claim_context'] for c in citations] == ([] if hidden else ['Claim'])
     if citations:
         assert citations[0]['marker'] == '[引用:1]'
+
+
+@pytest.mark.parametrize('tag', ['dialog', 'datalist', 'rp'])
+@pytest.mark.parametrize('attributes,visible', [
+    ('', False), ('style="display:block"', True), ('style="display:initial"', True),
+    ('style="display:invalid"', False), ('style="display:revert"', False),
+])
+def test_default_hidden_elements_follow_supported_display_overrides(tag, attributes, visible):
+    answer = '<' + tag + ' ' + attributes + '>Claim [引用:1] <a href="https://source.test/a">source</a></' + tag + '>'
+    assert bool(answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+@pytest.mark.parametrize('attributes,visible', [('open', True), ('open style="display:none"', False)])
+def test_open_dialogs_follow_their_display_state(attributes, visible):
+    assert bool(answers.citation_inventory('<dialog ' + attributes + '>Claim [引用:1]</dialog>', [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+@pytest.mark.parametrize('tag', ['audio', 'video', 'canvas', 'progress', 'meter'])
+@pytest.mark.parametrize('attributes', ['', 'style="display:block"'])
+def test_supported_browser_controls_do_not_expose_their_fallback_children(tag, attributes):
+    answer = '<' + tag + ' ' + attributes + '>Fallback [引用:1] <a href="https://source.test/a">source</a></' + tag + '>'
+    assert answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')]) == []
+
+
+@pytest.mark.parametrize('attributes,visible', [
+    ('hidden', False), ('hidden style="display:block"', True),
+    ('hidden="until-found" style="display:block"', False),
+    ('hidden="until-found" style="content-visibility:visible"', True),
+])
+def test_hidden_attributes_follow_their_browser_style_rules(attributes, visible):
+    assert bool(answers.citation_inventory('<div ' + attributes + '>Claim [引用:1]</div>', [dict(url='https://source.test/a', citation_id='1')])) is visible
+
+
+@pytest.mark.parametrize('tag', ['main', 'figure', 'figcaption', 'footer', 'header', 'address', 'nav', 'fieldset'])
+def test_semantic_block_siblings_do_not_share_native_claims(tag):
+    answer = '<' + tag + '>Claim.</' + tag + '><' + tag + '>[引用:1]</' + tag + '>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == ''

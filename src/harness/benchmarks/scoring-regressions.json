@@ -88093,6 +88093,261 @@
           "Claim"
         ],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<dialog>Claim [引用:1]</dialog>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<dialog style=\"display:block\">Claim [引用:1]</dialog>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<datalist>Claim [引用:1]</datalist>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<datalist style=\"display:block\">Claim [引用:1]</datalist>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<rp>Claim [引用:1]</rp>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<rp style=\"display:block\">Claim [引用:1]</rp>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<audio>Claim [引用:1]</audio>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<audio style=\"display:block\">Claim [引用:1]</audio>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<video>Claim [引用:1]</video>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<video style=\"display:block\">Claim [引用:1]</video>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<canvas>Claim [引用:1]</canvas>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<canvas style=\"display:block\">Claim [引用:1]</canvas>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<progress>Claim [引用:1]</progress>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<progress style=\"display:block\">Claim [引用:1]</progress>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<meter>Claim [引用:1]</meter>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<meter style=\"display:block\">Claim [引用:1]</meter>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<dialog open>Claim [引用:1]</dialog>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
       }
     ],
     "reference-question-evidence": [
