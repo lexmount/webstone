@@ -173,6 +173,7 @@ def _visibility(tag, attributes, blocked, visibility, parent_box):
                      and parent_box.get('display') not in row_boxes)
     blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
                                  'audio', 'video', 'canvas', 'progress', 'meter'}
+               or tag == 'input' and attributes.get('type', '').lower() == 'hidden'
                or display in {'none', 'table-column', 'table-column-group'}
                or display == 'contents' and tag in _REPLACED_TAGS or content_hidden or collapsed_row)
     visibility = box['visibility'] != 'visible'
@@ -194,6 +195,31 @@ def _option_label(option):
         for child in reversed(node):
             pending.extend((child.tail or '', child))
     return re.sub(r'[\t\n\f\r ]+', ' ', ''.join(parts)).strip(' ')
+
+
+def _input_text(attributes):
+    """Read initial text painted by text fields and labeled input buttons."""
+    kind = attributes.get('type', 'text').lower()
+    if kind in {'hidden', 'checkbox', 'radio', 'range', 'color', 'file',
+                'date', 'datetime-local', 'month', 'week', 'time'}:
+        return ''
+    if kind == 'image':
+        return attributes.get('alt', '')
+    if kind in {'submit', 'reset'}:
+        return attributes.get('value', 'Submit' if kind == 'submit' else 'Reset')
+    value = attributes.get('value', '')
+    if kind == 'button':
+        return value
+    value = value.replace('\r', '').replace('\n', '')
+    if kind in {'email', 'url'}:
+        value = value.strip(' \t\n\r\f')
+    if kind == 'number' and (not re.fullmatch(
+            r'-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', value)
+            or abs(float(value)) == float('inf')):
+        value = ''
+    if kind == 'password' and value:
+        return '•' * (len(value.encode('utf-16-le', errors='surrogatepass')) // 2)
+    return value or attributes.get('placeholder', '').replace('\r', '').replace('\n', '')
 
 
 def _select_text(select, visibility, box):
@@ -548,6 +574,8 @@ def citation_inventory(answer, results):
                 text(node.attrib.get('alt') or '')
             elif tag == 'br':
                 text(' ')
+            elif tag == 'input':
+                text(' ' + _input_text(node.attrib) + ' ')
             elif tag == 'select':
                 text(' ' + _select_text(node, visibility, box) + ' ')
             if not closed and tag != 'select':

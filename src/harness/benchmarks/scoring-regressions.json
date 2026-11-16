@@ -89027,6 +89027,62 @@
           "True claim"
         ],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><input type=\"button\" value=\"Supported claim\"></a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "Supported claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\"><input type=\"button\" value=\"Supported claim\"></a>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "The claim is"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "The claim is <input type=\"button\" value=\"false\"> [引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "The claim is false"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "The claim is <input type=\"button\" value=\"false\"> [引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "The claim is"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

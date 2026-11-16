@@ -820,3 +820,32 @@ def test_hidden_select_does_not_expose_option_labels(attributes):
     answer = '<select ' + attributes + ' style="visibility:hidden"><option selected style="visibility:visible">Hidden</option></select>Claim [引用:1]'
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
     assert citation['claim_context'] == 'Claim'
+
+
+@pytest.mark.parametrize('attributes,label', [
+    ('type="button" value="Supported claim"', 'Supported claim'),
+    ('type="submit" value="Supported claim"', 'Supported claim'),
+    ('type="reset" value="Supported claim"', 'Supported claim'),
+    ('type="submit"', 'Submit'), ('type="reset"', 'Reset'),
+    ('type="button" placeholder="Hidden"', ''), ('type="submit" value=""', ''),
+    ('value="Supported claim"', 'Supported claim'),
+    ('type="invalid" value="Supported claim"', 'Supported claim'),
+    ('type="text" placeholder="Supported claim"', 'Supported claim'),
+    ('type="email" value="  a@example.com  "', 'a@example.com'),
+    ('type="number" value="1e3"', '1e3'), ('type="number" value="false"', ''),
+    ('type="number" value="1e9999"', ''),
+    ('type="password" value="secret"', '••••••'),
+    ('type="image" alt="Supported claim"', 'Supported claim'),
+    ('type="hidden" value="Hidden" style="display:block"', ''),
+    ('type="checkbox" value="Hidden"', ''), ('type="radio" value="Hidden"', ''),
+    ('type="button" value="Hidden" hidden', ''),
+    ('type="button" value="Hidden" style="visibility:hidden"', ''),
+    ('type="button" value="Hidden" style="display:none"', ''),
+])
+def test_input_labels_are_retained_in_citation_links_and_sentence_claims(attributes, label):
+    results = [dict(url='https://source.test/a', citation_id='1')]
+    control = '<input ' + attributes + '>'
+    citations = answers.citation_inventory('<a href="https://source.test/a">' + control + '</a>', results)
+    assert [item['claim_context'] for item in citations] == ([label] if label else [])
+    citation, = answers.citation_inventory('The claim is ' + control + ' [引用:1]', results)
+    assert citation['claim_context'] == ('The claim is ' + label).strip()
