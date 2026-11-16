@@ -87636,6 +87636,92 @@
         ],
         "claims": [],
         "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<textarea><a href=\"https://source.test/a\">Claim [引用:1]</a></textarea><p>Real <a href=\"https://source.test/a\">source</a>.</p>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [
+          "Real source."
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<textarea><a href=\"https://source.test/a\">Claim [引用:1]</a></textarea>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<p hidden>Hidden<p>Visible claim [引用:1]</p>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [
+          "Visible claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<ul><li hidden>Hidden<li>Visible claim [引用:1]</ul>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [
+          "Visible claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<ul hidden><li hidden>Hidden<li>Still hidden [引用:1]</ul>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div><a href=\"https://source.test/a\"><p>Paris is</p><p>in France.</p></a></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Visible claim"
+          }
+        ],
+        "claims": [
+          "Paris is in France."
+        ],
+        "expected": true
       }
     ],
     "reference-question-evidence": [

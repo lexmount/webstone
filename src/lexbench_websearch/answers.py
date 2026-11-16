@@ -25,6 +25,8 @@ def _html_tokens(source):
 
     offsets = [0, *(match.end() for match in re.finditer('\n', source))]
     class Tokens(HTMLParser):
+        CDATA_CONTENT_ELEMENTS = (*HTMLParser.CDATA_CONTENT_ELEMENTS, 'textarea', 'title', 'xmp')
+
         def __init__(self):
             super().__init__(convert_charrefs=False)
             self.tokens = []
@@ -52,6 +54,9 @@ def _html_tokens(source):
             self.emit('html_inline', source[start:end], start, end)
 
         def handle_data(self, data):
+            if self.cdata_elem in {'textarea', 'title', 'xmp'}:
+                self.emit('text', unescape(data))
+                return
             offset, position = 0, self.position()
             for match in re.finditer(r'\[引用[:：]\s*([0-9]+(?:\s*[,，、]\s*[0-9]+)*)\s*\]', data):
                 self.emit('text', data[offset:match.start()])
@@ -86,6 +91,7 @@ class _InlineVisibility(HTMLParser):
         self.anchor_events = []
         self.block_break = False
         self.image_text = ''
+        self.literal_text = ''
 
     @property
     def hidden(self):
@@ -93,16 +99,53 @@ class _InlineVisibility(HTMLParser):
 
     @property
     def literal(self):
-        return any(tag in {'pre', 'code', 'kbd', 'samp'} for tag, _, _ in self.stack)
+        return bool(self.rcdata) or any(tag in {'pre', 'code', 'kbd', 'samp'} for tag, _, _ in self.stack)
+
+    @property
+    def rcdata(self):
+        return next((tag for tag, _, _ in reversed(self.stack) if tag in {'textarea', 'title', 'xmp'}), None)
+
+    def _close_implied(self, tags, scope):
+        for index in range(len(self.stack) - 1, -1, -1):
+            name = self.stack[index][0]
+            if name in tags:
+                del self.stack[index:]
+                return
+            if name in scope:
+                return
 
     def feed(self, data):
         self.separator = False
         self.anchor_events = []
         self.block_break = False
         self.image_text = ''
+        self.literal_text = ''
+        literal = self.rcdata
+        if literal and not re.fullmatch(r'</\s*' + literal + r'\s*>', data, re.I):
+            if not self.hidden:
+                self.literal_text = unescape(data)
+            return
         super().feed(data)
 
     def handle_starttag(self, tag, attrs):
+        if tag in {'p', 'div', 'section', 'article', 'aside', 'blockquote', 'dl', 'fieldset',
+                   'footer', 'form', 'header', 'hgroup', 'hr', 'main', 'menu', 'nav', 'ol',
+                   'pre', 'search', 'table', 'ul', 'li', 'dt', 'dd',
+                   'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:
+            self._close_implied({'p'}, {'applet', 'button', 'html', 'table', 'td', 'th', 'marquee', 'object', 'template'})
+        siblings = {
+            'li': ({'li'}, {'ul', 'ol', 'menu'}),
+            'dt': ({'dt', 'dd'}, {'dl'}), 'dd': ({'dt', 'dd'}, {'dl'}),
+            'rt': ({'rt', 'rp'}, {'ruby'}), 'rp': ({'rt', 'rp'}, {'ruby'}),
+            'option': ({'option'}, {'select', 'datalist'}),
+            'optgroup': ({'optgroup'}, {'select'}),
+            'tr': ({'tr'}, {'table', 'tbody', 'thead', 'tfoot'}),
+            'td': ({'td', 'th'}, {'table', 'tr'}), 'th': ({'td', 'th'}, {'table', 'tr'}),
+        }
+        if tag == 'optgroup':
+            self._close_implied({'option'}, {'select', 'optgroup'})
+        if tag in siblings:
+            self._close_implied(*siblings[tag])
         attributes = dict(attrs)
         declarations = {}
         priorities = {}
@@ -352,6 +395,9 @@ def citation_inventory(answer, results):
                         if reference.pop('eligible') and ''.join(parts)[reference['local_start']:].strip():
                             local.append(dict(reference, end=positions[end - 1] + 1, local_end=length))
                 if visibility.block_break:
+                    if parts and not parts[-1].endswith((' ', '\n', '\t')):
+                        parts.append(' ')
+                        length += 1
                     block_breaks.append(length)
                 if visibility.separator:
                     parts.append(' ')
@@ -359,13 +405,16 @@ def citation_inventory(answer, results):
                 if visibility.image_text:
                     parts.append(visibility.image_text)
                     length += len(visibility.image_text)
+                if visibility.literal_text:
+                    parts.append(visibility.literal_text)
+                    length += len(visibility.literal_text)
                 continue
             if token.type == "link_open":
                 begin, end = token.meta["span"]
                 try:
                     key = canonical_url(token.attrGet("href") or "", policy="document-url/2")
                     item = by_url.get(key)
-                    eligible = True
+                    eligible = not visibility.rcdata
                 except ValueError:
                     item, eligible = None, False
                 pending.append(dict(begin=positions[begin], end=positions[end - 1] + 1,

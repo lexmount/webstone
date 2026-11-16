@@ -456,3 +456,37 @@ def test_html_code_text_stays_visible_without_interpreting_its_example_marker():
         dict(url='https://source.test/b', citation_id='2')])
     assert [c['marker'] for c in citations] == ['[引用:2]']
     assert citations[0]['claim_context'] == 'Claim.'
+
+
+@pytest.mark.parametrize('wrapper', ['textarea', 'xmp'])
+def test_html_text_containers_keep_literal_markup_without_inventing_links(wrapper):
+    answer = f'<{wrapper}><a href="https://source.test/a">Claim [引用:1]</a></{wrapper}><p>Real <a href="https://source.test/a">source</a>.</p>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['marker'] == '<a href="https://source.test/a">source</a>'
+    assert citation['claim_context'] == 'Real source.'
+
+
+@pytest.mark.parametrize('answer,expected', [
+    ('<p hidden>Hidden<p>Visible claim [引用:1]</p>', ['Visible claim']),
+    ('<ul><li hidden>Hidden<li>Visible claim [引用:1]</ul>', ['Visible claim']),
+    ('<ul hidden><li hidden>Hidden<li>Still hidden [引用:1]</ul>', []),
+    ('<ul><li hidden>Hidden<ul><li>Still hidden [引用:1]</li></ul></li></ul>', []),
+    ('<dl><dt hidden>Hidden<dd>Visible claim [引用:1]</dl>', ['Visible claim']),
+])
+def test_omitted_html_end_tags_respect_sibling_and_container_scopes(answer, expected):
+    citations = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert [c['claim_context'] for c in citations] == expected
+
+
+def test_adjacent_html_blocks_inside_one_link_keep_word_boundaries():
+    answer = '<div><a href="https://source.test/a"><p>Paris is</p><p>in France.</p></a></div>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert citation['claim_context'] == 'Paris is in France.'
+    assert citation['marker'] == '<a href="https://source.test/a"><p>Paris is</p><p>in France.</p></a>'
+
+
+def test_inline_textarea_markup_is_literal_while_an_outside_markdown_link_is_real():
+    answer = 'Example <textarea><a href="https://source.test/a">Claim [引用:1]</a></textarea>. Real [source](https://source.test/a).'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['marker'] == '[source](https://source.test/a)'
+    assert citation['claim_context'] == 'Real source.'
