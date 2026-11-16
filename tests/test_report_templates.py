@@ -2,12 +2,13 @@
 import copy
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from harness.reporting.templates import ROOT, resolve_template
+from harness.reporting.templates import ROOT, discover_template, resolve_template
 from harness.web_fetch.report_build import build_diagnostic_cohorts
 from harness.web_fetch.report_diagnostic import check_diagnostic_report
 
@@ -20,7 +21,7 @@ def diagnostic_example(root):
         bindings={}
         for kind,text in [('reference','Required article body'),('first_answer',answer),('source','Required article body'),('log','HTTP 200; '+answer)]:
             relative=f'evidence/{cid}-{kind}.txt'
-            path=root/relative;path.parent.mkdir(exist_ok=True);path.write_text(text)
+            path=root/relative;path.parent.mkdir(exist_ok=True);path.write_text(text, encoding='utf-8')
             bindings[kind]={'path':relative,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'scope':'declared task'}
         rows.append({'id':cid,'cohort':'articles','initial_pass':passed,'run_id':'call-'+cid,
                      'url':'https://example.com/'+cid,'task':'Read required article body',
@@ -33,24 +34,372 @@ def diagnostic_example(root):
            'cause_labels':{'passed':'Passed','challenge':'Challenge'},'source_labels':{},
            'metrics':{'articles':[1,2],'overall':[1,2]},'rows':rows,
            'success_audit':{'audited_passes':0,'source_state_counts':{}},'pages':{}}
-    (root/'report.json').write_text(json.dumps(model))
+    (root/'report.json').write_text(json.dumps(model), encoding='utf-8')
     return model
 
 
 class ReportTemplateTests(unittest.TestCase):
+    def test_saved_document_resource_and_file_failures_keep_exact_checks(self):
+        from harness.web_fetch.report_diagnostic import diagnostic_findings
+        row=dict(initial_pass=False,log=dict(path='log.json'),reference=dict(path='reference.json'))
+        metrics=dict(document_structure_pass=False,document_heading_coverage=0,
+                     document_heading_results=[dict(id='section-1',**{'pass':False})],
+                     article_title_pass=False,raw_file_pass=False,
+                     resource_results=[dict(id='video',expected_urls=['https://example.com/real.mp4'],
+                                            matched_urls=[],**{'pass':False})])
+        files={'log.json':json.dumps(dict(metrics=metrics)).encode(),
+               'reference.json':json.dumps(dict(document_structure=dict(headings=[dict(text='Installation')]))).encode()}
+        findings=diagnostic_findings(row,files)
+        self.assertEqual({f['kind'] for f in findings},{'pattern','text','file','resource'})
+        self.assertTrue(any('Installation' in f['expected'] for f in findings))
+        self.assertTrue(any('https://example.com/real.mp4' in f['expected'] for f in findings))
+        self.assertEqual(diagnostic_findings({**row,'initial_pass':True},files),[])
+        metrics.update(document_structure_pass=True,article_title_pass=True,raw_file_pass=True)
+        metrics['resource_results'][0]['pass']=True
+        files['log.json']=json.dumps(dict(metrics=metrics)).encode()
+        self.assertEqual([f['kind']for f in diagnostic_findings(row,files)],['other'])
+
+    def test_issue_guide_binds_case_diagnosis_figure_and_exact_evidence(self):
+        import base64
+        from bs4 import BeautifulSoup
+        from harness.web_fetch.report_diagnostic import load_diagnostic
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            figure=source/'issue.png'
+            figure.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg=='))
+            example=dict(case_id='challenge',expected='Read article body',actual='Challenge returned',
+                         cause='Target body was not reached',fix='Detect challenge before extraction',
+                         verify='A challenge must fail even with HTTP 200',
+                         evidence=[dict(field='first_answer',quote='Verify you are human')])
+            block=dict(id='access',title='Access failure',paragraphs=['A concrete diagnosis'],
+                       figure=dict(path='issue.png',sha256=hashlib.sha256(figure.read_bytes()).hexdigest(),
+                                   alt='Challenge blocks target content',scope='Synthetic observed response'),
+                       examples=[example],table=dict(headers=['Repair'],rows=[[
+                           dict(url='https://example.test/issues/7',label='Repair issue')]]))
+            model.update(problem_focus=True,comparison_mode=True,interpretation_lead="One of two tasks passed")
+            model['pages']={'overview':[dict(title='Issue index',paragraphs=[],table=dict(
+                headers=['Issue','Case'],rows=[[dict(issue_id='access',label='Access'),
+                                              dict(case_id='challenge',label='Challenge case')]]))],
+                            'guide':[block]}
+            def save(value): (source/'report.json').write_text(json.dumps(value),encoding='utf-8')
+            save(model);output=root/'output';build_diagnostic_cohorts(source,output)
+            check_diagnostic_report(output)
+            rendered_guide=BeautifulSoup((output/'guide/index.html').read_text(encoding='utf-8'),'html.parser')
+            section=rendered_guide.find(id='access')
+            self.assertEqual(section.find('h2').find_next_sibling().name,'figure')
+            self.assertIsNone(section.select_one('.diagnosis-figure').find_parent('details'))
+            self.assertEqual(section.find('a',string='Repair issue')['href'],'https://example.test/issues/7')
+            for field in ('expected','actual','cause','fix','verify'):
+                broken=copy.deepcopy(model);del broken['pages']['guide'][0]['examples'][0][field];save(broken)
+                with self.subTest(field=field), self.assertRaises(ValueError):load_diagnostic(source)
+            for change in ('quote','case','hash','issue'):
+                broken=copy.deepcopy(model)
+                if change=='quote':broken['pages']['guide'][0]['examples'][0]['evidence'][0]['quote']='Invented failure'
+                elif change=='case':broken['pages']['guide'][0]['examples'][0]['case_id']='absent'
+                elif change=='hash':broken['pages']['guide'][0]['figure']['sha256']='0'*64
+                else:broken['pages']['overview'][0]['table']['rows'][0][0]['issue_id']='absent'
+                save(broken)
+                with self.subTest(change=change),self.assertRaises(ValueError):load_diagnostic(source)
+            save(model)
+            guide=output/'guide/index.html';original=guide.read_text(encoding="utf-8")
+            for change in ('fold','late'):
+                changed=BeautifulSoup(original,'html.parser');visual=changed.find(id='access').select_one('figure')
+                if change=='fold':visual.wrap(changed.new_tag('details'))
+                else:changed.find(id='access').find('p').insert_after(visual.extract())
+                guide.write_text(str(changed),encoding='utf-8')
+                with self.subTest(figure=change),self.assertRaisesRegex(ValueError,'must lead'):
+                    check_diagnostic_report(output)
+            for url in ('javascript:alert(1)','https://user:secret@example.test/issues/7'):
+                changed=copy.deepcopy(model)
+                changed['pages']['guide'][0]['table']['rows'][0][0]['url']=url;save(changed)
+                with self.subTest(url=url),self.assertRaises(ValueError):load_diagnostic(source)
+            save(model)
+            for old,new in [('data-diagnosis-field="fix"','data-omitted-field="fix"'),
+                            ('src="issue.png"','src="absent.png"'),
+                            ('https://example.test/issues/7','https://example.test/issues/8'),
+                            ('attempts/challenge.html','attempts/complete.html')]:
+                guide.write_text(original.replace(old,new), encoding="utf-8")
+                with self.subTest(rendered=old),self.assertRaises(ValueError):check_diagnostic_report(output)
+            guide.write_text(original, encoding="utf-8")
+            home=output/'index.html';original_home=home.read_text(encoding='utf-8')
+            for old,new in [('href="attempts/challenge.html"','href="attempts/complete.html"'),
+                            ('href="guide/index.html#access"','href="guide/index.html#wrong"'),
+                            ('href="guide/index.html#access"','data-no-link="access"')]:
+                home.write_text(original_home.replace(old,new),encoding='utf-8')
+                with self.subTest(index=old),self.assertRaises(ValueError):check_diagnostic_report(output)
+            home.write_text(original_home,encoding='utf-8')
+
+    def test_illustrated_report_rejects_corrupt_png_even_with_matching_hash(self):
+        import base64
+        valid=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg==')
+        corrupt=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEUlEQVRub3QgYSB6bGliIHN0cmVhbUUA3FEAAAAASUVORK5CYII=')
+        for name,raw in [('signature',valid[:8]),('truncated',valid[:33]),
+                         ('checksum',base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')),('pixel-data',corrupt)]:
+            with self.subTest(image=name), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);source=root/'source';model=diagnostic_example(source)
+                (source/'broken.png').write_bytes(raw)
+                model['pages']={'guide':[dict(id='diagram',title='Content path',paragraphs=[],
+                    figure=dict(path='broken.png',sha256=hashlib.sha256(raw).hexdigest(),
+                                alt='Target content path',scope='Synthetic evidence'))]}
+                (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'PNG'):
+                    build_diagnostic_cohorts(source,root/'report')
+
+    def test_illustrated_report_accepts_numeric_and_dotted_section_ids(self):
+        import base64
+        from bs4 import BeautifulSoup
+        for anchor in ('1-introduction', 'diagnosis.v1'):
+            with self.subTest(anchor=anchor), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);source=root/'source';model=diagnostic_example(source)
+                image=source/'diagram.png'
+                image.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg=='))
+                model['pages']={'guide':[dict(id=anchor,title='Content path',paragraphs=['Required body'],
+                    figure=dict(path='diagram.png',sha256=hashlib.sha256(image.read_bytes()).hexdigest(),
+                                alt='Target content path',scope='Synthetic evidence'))]}
+                (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+                output=root/'report';build_diagnostic_cohorts(source,output)
+                page=output/'guide/index.html';markup=page.read_text(encoding='utf-8')
+                soup=BeautifulSoup(markup,'html.parser')
+                self.assertEqual(soup.find(id=anchor).select_one('figure img')['src'],'diagram.png')
+                check_diagnostic_report(output)
+                soup.find(id=anchor)['id']='different-section'
+                page.write_text(str(soup),encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,'illustration is missing'):
+                    check_diagnostic_report(output)
+
+    def test_present_heading_with_insufficient_section_is_a_body_failure(self):
+        from harness.web_fetch.report_diagnostic import diagnostic_findings
+        row=dict(initial_pass=False,log=dict(path='log.json'),reference=dict(path='reference.json'))
+        from lexbench_webfetch.scoring import score_attempt
+        case=dict(id='sections',url='https://example.test/sections',expected_any=[],min_content_chars=1,
+            document_structure=dict(version=1,minimum_heading_coverage=1,minimum_section_chars=20,
+                minimum_body_chars=100,headings=[dict(text='Installation',level=2)]))
+        metrics=score_attempt(case,('<p>'+('introduction '*100)+'</p><h2>Installation</h2><p>x</p>').encode(),ok=True)
+        self.assertTrue(metrics['document_heading_results'][0]['present'])
+        self.assertGreaterEqual(metrics['document_body_chars'],100)
+        files={'log.json':json.dumps(dict(metrics=metrics)).encode(),'reference.json':json.dumps(case).encode()}
+        findings=diagnostic_findings(row,files)
+        self.assertEqual([f['kind']for f in findings],['body'])
+        self.assertIn('Installation',findings[0]['expected'])
+        self.assertIn('标题存在',findings[0]['label'])
+
+    def test_problem_focus_requires_guide_cases_even_when_pages_are_absent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            model.update(problem_focus=True,interpretation_lead='Explicit lead')
+            for pages in (None,{}, {'overview':[]}):
+                if pages is None:model.pop('pages',None)
+                else:model['pages']=pages
+                (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+                with self.subTest(pages=pages),self.assertRaisesRegex(ValueError,'concrete case'):
+                    build_diagnostic_cohorts(source,root/'invalid')
+
+    def test_problem_focus_without_custom_lead_uses_measured_numeric_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            model['problem_focus']=True
+            model['pages']={'guide':[dict(title='Diagnosis',paragraphs=[],examples=[dict(
+                case_id='challenge',expected='Body',actual='Challenge',cause='Access barrier',
+                fix='Return blocked status',verify='Challenge fails',
+                evidence=[dict(field='first_answer',quote='Verify you are human')])])]}
+            (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+            output=root/'output';build_diagnostic_cohorts(source,output);check_diagnostic_report(output)
+
+    def test_authored_diagnoses_preserve_measured_distributions_and_examples(self):
+        from bs4 import BeautifulSoup
+        for comparison in (False, True):
+            with self.subTest(comparison=comparison), tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);source=root/'source';model=diagnostic_example(source)
+                model.update(problem_focus=True,comparison_mode=comparison,interpretation_case_ids=[],
+                             guide_title='Why the outputs differ',guide_conclusions=['Keep target body complete'])
+                model['pages']={'guide':[dict(id='diagnosis',title='Access diagnosis',paragraphs=[],
+                    examples=[dict(case_id='challenge',expected='Article body',actual='Challenge returned',
+                        cause='Access barrier',fix='Detect challenge',verify='Challenge must fail',
+                        evidence=[dict(field='first_answer',quote='Verify you are human')])])]}
+                (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+                output=root/'report';build_diagnostic_cohorts(source,output)
+                home=BeautifulSoup((output/'index.html').read_text(encoding='utf-8'),'html.parser')
+                guide=BeautifulSoup((output/'guide/index.html').read_text(encoding='utf-8'),'html.parser')
+                self.assertIsNotNone(guide.select_one('#guide-reviewed-causes'))
+                self.assertIsNotNone(guide.select_one('#guide-output-defects'))
+                self.assertEqual(len(guide.select('[data-interpretation-case]')),2)
+                self.assertEqual(len(guide.select('[data-diagnosis-case]')),1)
+                self.assertEqual(guide.select_one('.hero h1').get_text(),'Why the outputs differ')
+                self.assertIn('Keep target body complete',guide.select_one('#guide-conclusions').get_text())
+                self.assertIsNotNone(home.select_one('.guide-grid'))
+                self.assertEqual(len(home.select('#cohort-results .editorial-bar-row')),1)
+                for route,selector in [('guide/index.html','#guide-reviewed-causes'),
+                        ('guide/index.html','#guide-output-defects'),('guide/index.html','#overall-summary'),
+                        ('guide/index.html','[data-interpretation-case]'),('index.html','#overall-summary'),
+                        ('index.html','#cohort-results .editorial-figure')]:
+                    page=output/route;original=page.read_text(encoding='utf-8')
+                    changed=BeautifulSoup(original,'html.parser');changed.select_one(selector).decompose()
+                    page.write_text(str(changed),encoding='utf-8')
+                    with self.subTest(missing=selector),self.assertRaises(ValueError):
+                        check_diagnostic_report(output)
+                    page.write_text(original,encoding='utf-8')
+                page=output/'guide/index.html';original=page.read_text(encoding='utf-8')
+                changed=BeautifulSoup(original,'html.parser')
+                changed.select_one('#guide-output-defects [data-failure-type]')['data-count']='999'
+                page.write_text(str(changed),encoding='utf-8')
+                with self.assertRaises(ValueError):check_diagnostic_report(output)
+
+    def test_authored_labels_and_lead_are_literal_text(self):
+        from bs4 import BeautifulSoup
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            model.update(interpretation_lead='A literal <main> example',pass_label='<main>pass</main>',fail_label='<main>fail</main>')
+            (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+            output=root/'output';build_diagnostic_cohorts(source,output)
+            for cid,label in [('complete',model['pass_label']),('challenge',model['fail_label'])]:
+                page=BeautifulSoup((output/f'attempts/{cid}.html').read_text(encoding='utf-8'),'html.parser')
+                self.assertEqual(page.select_one('[data-result-summary] h2').get_text(),label)
+
+    def test_complete_headings_with_short_body_names_the_actual_failed_rule(self):
+        from harness.web_fetch.report_diagnostic import diagnostic_findings
+        row=dict(initial_pass=False,log=dict(path='log.json'))
+        metrics=dict(document_structure_pass=False,document_heading_coverage=1,
+                     document_heading_results=[dict(id='a',**{'pass':True})],
+                     document_body_chars=20,document_minimum_body_chars=100)
+        findings=diagnostic_findings(row,{'log.json':json.dumps(dict(metrics=metrics)).encode()})
+        self.assertEqual([f['kind']for f in findings],['body'])
+        self.assertIn('100',findings[0]['expected']);self.assertIn('20',findings[0]['actual'])
+        row['reference']={'path':'reference.json'};metrics['document_heading_coverage']=.9
+        findings=diagnostic_findings(row,{'log.json':json.dumps(dict(metrics=metrics)).encode(),
+            'reference.json':json.dumps(dict(document_structure=dict(minimum_heading_coverage=.8))).encode()})
+        self.assertEqual([f['kind']for f in findings],['body'])
+
+    def test_normal_guides_also_require_authored_case_diagnoses(self):
+        from bs4 import BeautifulSoup
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            model['pages']={'guide':[dict(title='Diagnosis',paragraphs=[],examples=[dict(
+                case_id='challenge',expected='Body',actual='Challenge',cause='Access barrier',
+                fix='Return explicit blocked status',verify='Challenge stays failed',
+                evidence=[dict(field='first_answer',quote='Verify you are human')])])]}
+            (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+            output=root/'output';build_diagnostic_cohorts(source,output)
+            guide=output/'guide/index.html';soup=BeautifulSoup(guide.read_text(encoding='utf-8'),'html.parser')
+            soup.select_one('[data-diagnosis-case]').decompose();guide.write_text(str(soup),encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'diagnos'):check_diagnostic_report(output)
+
+    def test_comparison_highlights_rates_with_unequal_populations(self):
+        from bs4 import BeautifulSoup
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            original=model['rows'];model['rows']=[]
+            for method,total,passed in [('larger',10,8),('smaller',7,7)]:
+                for i in range(total):
+                    row=copy.deepcopy(original[0 if i<passed else 1]);row.update(id=f'{method}-{i}',cohort=method)
+                    model['rows'].append(row)
+            model.update(comparison_mode=True,cohorts=[dict(id='larger',label='Larger',case_count=10),dict(id='smaller',label='Smaller',case_count=7)],metrics=dict(larger=[8,10],smaller=[7,7],overall=[15,17]))
+            (source/'report.json').write_text(json.dumps(model),encoding='utf-8')
+            output=root/'output';build_diagnostic_cohorts(source,output)
+            page=BeautifulSoup((output/'index.html').read_text(encoding='utf-8'),'html.parser')
+            winner=page.select_one('[data-metric="acceptance"] .comparison-winner')
+            self.assertEqual(winner.get_text(' ',strip=True),'100.0% (7 / 7)')
+
+    def test_comparison_rates_tables_and_highlights(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp); source=root/'source';model=diagnostic_example(source)
+            model.update(comparison_mode=True,content_scope='full')
+            model['pages']={'guide':[dict(title='Measured comparison',paragraphs=['Two retained calls.'],
+                table=dict(headers=['Method','Passes'],rows=[['Articles',1]]))]}
+            (source/'report.json').write_text(json.dumps(model), encoding="utf-8")
+            output=root/'output';build_diagnostic_cohorts(source,output)
+            (output/'source-snapshot.html').write_text('<header><a href="en/index.html" hreflang="en">English</a></header>', encoding='utf-8')
+            check_diagnostic_report(output)
+            home=output/'index.html';original=home.read_text(encoding="utf-8")
+            self.assertNotIn('hreflang="en"', original)
+            for bad in [original.replace('</nav>', '<a href="en/index.html" hreflang="en">English</a></nav>', 1),
+                        original.replace('50.0%', '49.0%'),
+                        original.replace('50.0%', ''),
+                        original.replace('comparison-winner good','unmarked')]:
+                home.write_text(bad, encoding="utf-8")
+                with self.assertRaises(ValueError):check_diagnostic_report(output)
+            home.write_text(original, encoding="utf-8")
+            guide=output/'guide/index.html';text=guide.read_text(encoding="utf-8")
+            guide.write_text(text.replace('>Articles</td>','>Wrong method</td>'), encoding="utf-8")
+            with self.assertRaises(ValueError):check_diagnostic_report(output)
+
+    def test_paired_scope_requires_shared_scorer_and_keeps_verdicts_independent(self):
+        from harness.web_fetch.report_diagnostic import load_diagnostic
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'source';model=diagnostic_example(source)
+            model['paired_content_scope']=True
+            for row in model['rows']:
+                data=dict(metrics=dict(evaluation_content_scope='main',scoring_source_sha256='a'*64,content_sha256=row['first_answer']['sha256']),
+                          uniform_full_content=dict(passed=row['initial_pass'],metrics=dict(
+                              evaluation_content_scope='full',scoring_source_sha256='a'*64,content_sha256=row['first_answer']['sha256'])))
+                target=source/row['log']['path'];target.write_text(json.dumps(data), encoding="utf-8")
+                row['log']['sha256']=hashlib.sha256(target.read_bytes()).hexdigest()
+            (source/'report.json').write_text(json.dumps(model), encoding="utf-8");load_diagnostic(source)
+            row=model['rows'][1];target=source/row['log']['path'];data=json.loads(target.read_text(encoding="utf-8"))
+            data['uniform_full_content']['passed']=True;target.write_text(json.dumps(data), encoding="utf-8")
+            row['log']['sha256']=hashlib.sha256(target.read_bytes()).hexdigest()
+            (source/'report.json').write_text(json.dumps(model), encoding="utf-8")
+            load_diagnostic(source)
+            data['uniform_full_content']['metrics']['scoring_source_sha256']='b'*64
+            target.write_text(json.dumps(data), encoding='utf-8')
+            row['log']['sha256']=hashlib.sha256(target.read_bytes()).hexdigest()
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError,'Paired content scopes'):load_diagnostic(source)
+
+    def test_new_track_requires_an_execution_owner_and_behavior_checks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'configs').mkdir()
+            for name in ('renderer.py', 'execute.py', 'test_execution.py'):
+                (root / name).write_text('# synthetic owner', encoding='utf-8')
+            row = {'renderer': 'renderer.py', 'entrypoint': 'renderer.py',
+                   'tests': 'test_execution.py', 'example': 'synthetic example'}
+            path = root / 'configs/report-templates.json'
+            def save():
+                path.write_text(json.dumps({'schema_version': 1, 'tracks': {'future': row}}), encoding='utf-8')
+            save()
+            with self.assertRaisesRegex(ValueError, 'execution_owner'):
+                resolve_template('future', root=root)
+            row['execution_owner'] = 'execute.py'
+            save()
+            with self.assertRaisesRegex(ValueError, 'execution_tests'):
+                resolve_template('future', root=root)
+            row['execution_tests'] = 'test_execution.py'
+            save()
+            template = discover_template('future', root=root)
+            self.assertEqual(template['execution_contract']['spec'], 'docs/benchmark-execution.md')
+            row['execution_contract'] = {}
+            save()
+            with self.assertRaisesRegex(ValueError, 'cannot replace'):
+                resolve_template('future', root=root)
+
+    def test_future_tracks_inherit_cost_latency_and_resource_decisions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);(root/'configs').mkdir()
+            for name in ('renderer.py','entry.py','test.py'):(root/name).write_text('# synthetic owner', encoding="utf-8")
+            registry={'schema_version':1,'tracks':{'future-type':{'renderer':'renderer.py','entrypoint':'entry.py','tests':'test.py','execution_owner':'entry.py','execution_tests':'test.py','example':'synthetic example'}}}
+            path=root/'configs/report-templates.json';path.write_text(json.dumps(registry), encoding="utf-8")
+            contract=discover_template('future-type',root=root)['metric_contract']
+            self.assertEqual(set(contract['required']),{'latency','cost'})
+            self.assertEqual(contract['required']['latency']['summaries'],['mean','p50','p95'])
+            self.assertEqual(set(contract['contextual']),{'cpu','memory'})
+            registry['tracks']['future-type']['metric_contract']={'required':{}}
+            path.write_text(json.dumps(registry), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError,'cannot replace'):
+                resolve_template('future-type',root=root)
+
     def test_explicit_examples_do_not_load_an_unrelated_measurement_profile(self):
         for track in ('webfetch', 'browser-use', 'trajectory-replay'):
             with self.subTest(track=track), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 (root/'configs').mkdir()
                 for name in ('renderer.py', 'build.py', 'test.py'):
-                    (root/name).write_text('# maintained owner')
-                (root/'default-profile.json').write_text('unavailable historical profile')
+                    (root/name).write_text('# maintained owner', encoding='utf-8')
+                (root/'default-profile.json').write_text('unavailable historical profile', encoding='utf-8')
                 (root/'configs/report-templates.json').write_text(json.dumps({
                     'schema_version': 1, 'tracks': {track: {
                         'renderer': 'renderer.py', 'entrypoint': 'build.py',
-                        'tests': 'test.py', 'profile': 'default-profile.json',
-                        'example': 'https://example.test/s/demo?version=frozen'}}}))
+                        'tests': 'test.py', 'execution_owner': 'build.py', 'execution_tests': 'test.py', 'profile': 'default-profile.json',
+                        'example': 'https://example.test/s/demo?version=frozen'}}}), encoding='utf-8')
                 self.assertEqual(resolve_template(track, root=root)['track'], track)
 
     def test_whole_dataset_summary_pools_calls_and_is_required_on_home_and_guide(self):
@@ -61,24 +410,24 @@ class ReportTemplateTests(unittest.TestCase):
                               dict(id='challenges',label='Challenges',case_count=1)]
             model['rows'][1]['cohort']='challenges'
             model['metrics']={'articles':[1,1],'challenges':[0,1],'overall':[1,2]}
-            for row,elapsed in zip(model['rows'],(1000,9000)):
+            for row,elapsed in zip(model['rows'],(1000,9000),strict=True):
                 raw=json.dumps({'ok':row['initial_pass'],'elapsed_ms':elapsed}).encode()
                 (source/row['log']['path']).write_bytes(raw)
                 row['log']['sha256']=hashlib.sha256(raw).hexdigest()
-            (source/'report.json').write_text(json.dumps(model))
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
             output=root/'report';build_diagnostic_cohorts(source,output)
             for route in ('index.html','guide/index.html'):
-                page=BeautifulSoup((output/route).read_text(),'html.parser')
+                page=BeautifulSoup((output/route).read_text(encoding='utf-8'),'html.parser')
                 overall=page.select('[data-summary-overall]')
                 self.assertEqual(len(overall),1)
                 cells=overall[0].select('td')[3:]
                 self.assertEqual([float(c['data-sort']) for c in cells],[2,1,1,5000,5000,9000])
                 self.assertIn('50.0%',overall[0].get_text())
                 target=output/route
-                target.write_text(str(page).replace('data-summary-overall','data-missing-overall'))
+                target.write_text(str(page).replace('data-summary-overall','data-missing-overall'), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError,'Overall summary'):
                     check_diagnostic_report(output)
-                target.write_text(str(page))
+                target.write_text(str(page), encoding='utf-8')
 
     def test_body_failure_quotes_frozen_reference_not_matching_fragments(self):
         from harness.web_fetch.report_diagnostic import diagnostic_findings
@@ -114,7 +463,7 @@ class ReportTemplateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);diagnostic_example(root/'source')
             output=root/'output';build_diagnostic_cohorts(root/'source',output)
-            (output/'extra.txt').write_text('token=canary-private-value')
+            (output/'extra.txt').write_text('token=canary-private-value', encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'privacy scan'):
                 check_diagnostic_report(output)
 
@@ -137,17 +486,17 @@ class ReportTemplateTests(unittest.TestCase):
                     plan.append(dict(id=key,case_count=2,case_ids_sha256=hashlib.sha256(
                         ('\n'.join(ids)+'\n').encode()).hexdigest()))
                 model['metrics']['overall']=[size,size*2]
-                (source/'report.json').write_text(json.dumps(model))
+                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                 profile=root/f'profile-{size}.json';profile.write_text(json.dumps(
-                    dict(variant='diagnostic-cohorts',cohort_plan=plan)))
+                    dict(variant='diagnostic-cohorts',cohort_plan=plan)), encoding='utf-8')
                 output=root/f'output-{size}'
                 build_diagnostic_cohorts(source,output,profile=profile)
                 check_diagnostic_report(output,profile=profile)
-                home=BeautifulSoup((output/'index.html').read_text(),'html.parser')
+                home=BeautifulSoup((output/'index.html').read_text(encoding='utf-8'),'html.parser')
                 self.assertEqual(len(home.select('[data-summary-group]')),size)
                 self.assertIn(model['title'],home.get_text())
                 self.assertIn('OtherFetch 9',home.get_text())
-                guide=(output/'guide/index.html').read_text()
+                guide=(output/'guide/index.html').read_text(encoding='utf-8')
                 self.assertIn(f'该实例包含 {size} 个任务组。',guide)
                 self.assertNotIn('Moli',home.get_text()+guide)
 
@@ -158,7 +507,7 @@ class ReportTemplateTests(unittest.TestCase):
             plan={'variant':'diagnostic-cohorts','cohort_plan':[
                 dict(id='articles',case_count=2,case_ids_sha256=hashlib.sha256(
                     b'challenge\ncomplete\n').hexdigest())]}
-            profile=root/'profile.json';profile.write_text(json.dumps(plan))
+            profile=root/'profile.json';profile.write_text(json.dumps(plan), encoding='utf-8')
             output=root/'valid';build_diagnostic_cohorts(root/'example',output,profile=profile)
             check_diagnostic_report(output,profile=profile)
             complete=copy.deepcopy(base)
@@ -179,7 +528,7 @@ class ReportTemplateTests(unittest.TestCase):
             bad=copy.deepcopy(complete);bad['rows'][-1]['id']='same-count-wrong-case'
             with self.assertRaisesRegex(ValueError,'case scope'):
                 require_diagnostic_scope(bad,plan)
-            profile.write_text(json.dumps(plan))
+            profile.write_text(json.dumps(plan), encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'planned matrix'):
                 build_diagnostic_cohorts(root/'example',root/'incomplete',profile=profile)
             self.assertFalse((root/'incomplete').exists())
@@ -245,22 +594,32 @@ class ReportTemplateTests(unittest.TestCase):
                     checked_at='2026-10-08T00:00:00Z',outer_html='<body>Private DOM</body>')
                 reviews.append(dict(case_id=cid,reviewed=True,cause=row['cause'],cause_detail=row['cause_detail'],
                     followup_status=row['followup_status'],source_state='rubric_visible'))
-            (run/'dataset.json').write_text(json.dumps({'cases':cases}))
-            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records))
+            (run/'dataset.json').write_text(json.dumps({'cases':cases}), encoding='utf-8')
+            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records), encoding='utf-8')
             (run/'execution.json').write_text(json.dumps({'aggregate':{'case_ids':[c['id'] for c in cases],
-                'completed_at':'2026-10-08T00:00:00Z'},'batches':[{'attempt_ids':[r['attempt_id'] for r in records]}]}))
-            observation_path=root/'observations.json';observation_path.write_text(json.dumps(observations))
+                'completed_at':'2026-10-08T00:00:00Z'},'batches':[{'attempt_ids':[r['attempt_id'] for r in records]}]}), encoding='utf-8')
+            observation_path=root/'observations.json';observation_path.write_text(json.dumps(observations), encoding='utf-8')
             review=dict(bindings={k:hashlib.sha256(p.read_bytes()).hexdigest() for k,p in
                 [('dataset_sha256',run/'dataset.json'),('results_sha256',run/'results.jsonl'),('observations_sha256',observation_path)]},rows=reviews)
-            review_path=root/'review.json';review_path.write_text(json.dumps(review))
+            review_path=root/'review.json';review_path.write_text(json.dumps(review), encoding='utf-8')
             base['source_labels']={'rubric_visible':'参考要求可见'}
+            import base64
+            png=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAE0lEQVR4nGP8//8/AwMDEwMYAAAkBgMBXaJOiAAAAABJRU5ErkJggg==')
+            (root/'diagram.png').write_bytes(png)
+            base['pages']={'guide':[dict(id='mechanism',title='Mechanism',paragraphs=[],figure=dict(
+                path='diagram.png',sha256=hashlib.sha256(png).hexdigest(),alt='Synthetic content path',scope='Synthetic diagram'))]}
             spec=root/'input.json';spec.write_text(json.dumps(dict(schema='webfetch_diagnostic_inputs/1',report=base,
-                cohorts=[dict(id='articles',label='Articles',run='run',observations='observations.json',review='review.json')])) )
+                cohorts=[dict(id='articles',label='Articles',run='run',observations='observations.json',review='review.json')])), encoding='utf-8' )
             output=root/'report';build_diagnostic_cohorts(spec,output)
             from harness.web_fetch.report_diagnostic import load_diagnostic
             model,files=load_diagnostic(output)
             self.assertEqual(model['metrics']['overall'],[1,2])
             self.assertEqual(model['cohorts'][0]['version'],'moli 1.1.15')
+            self.assertEqual((output/'diagram.png').read_bytes(),png)
+            (root/'diagram.png').write_bytes(png+b'changed')
+            with self.assertRaisesRegex(ValueError,'illustration differs'):
+                build_diagnostic_cohorts(spec,root/'bad-figure')
+            (root/'diagram.png').write_bytes(png)
             self.assertEqual(files[model['rows'][0]['first_answer']['path']],b'Required article body')
             self.assertNotIn('Private DOM',files[model['rows'][0]['source']['path']].decode())
             # One instance profile supplies the input, scope and implementation;
@@ -269,12 +628,12 @@ class ReportTemplateTests(unittest.TestCase):
             profile.write_text(json.dumps(dict(variant='diagnostic-cohorts',
                 diagnostic_input=dict(path='input.json',sha256=hashlib.sha256(spec.read_bytes()).hexdigest()),
                 cohort_plan=[dict(id='articles',case_count=2,case_ids_sha256=hashlib.sha256(
-                    ('\n'.join(sorted(c['id'] for c in cases))+'\n').encode()).hexdigest())])))
-            with patch.dict('os.environ',{'BROWSER_EVAL_DATA_HOME':str(root)}):
+                    ('\n'.join(sorted(c['id'] for c in cases))+'\n').encode()).hexdigest())])), encoding='utf-8')
+            with patch.dict('os.environ',{'WEBSTONE_DATA_HOME':str(root)}):
                 bound_output=root/'profiled-output'
                 build_diagnostic_cohorts(None,bound_output,profile=profile)
                 check_diagnostic_report(bound_output,profile=profile)
-                original_spec=spec.read_bytes();spec.write_text(spec.read_text()+'\n')
+                original_spec=spec.read_bytes();spec.write_text(spec.read_text(encoding='utf-8')+'\n', encoding='utf-8')
                 with self.assertRaisesRegex(ValueError,'input differs'):
                     build_diagnostic_cohorts(None,root/'stale-input',profile=profile)
                 self.assertFalse((root/'stale-input').exists())
@@ -285,9 +644,9 @@ class ReportTemplateTests(unittest.TestCase):
             private=original+b' https://example.com/download?token=private-synthetic-value'
             answer_path.write_bytes(private)
             records[0]['metrics']['content_sha256']=hashlib.sha256(private).hexdigest()
-            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records))
+            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records), encoding='utf-8')
             review['bindings']['results_sha256']=hashlib.sha256((run/'results.jsonl').read_bytes()).hexdigest()
-            review_path.write_text(json.dumps(review))
+            review_path.write_text(json.dumps(review), encoding='utf-8')
             public_output=root/'redacted-report';build_diagnostic_cohorts(spec,public_output)
             public_model,public_files=load_diagnostic(public_output)
             binding=public_model['rows'][0]['first_answer']
@@ -295,21 +654,21 @@ class ReportTemplateTests(unittest.TestCase):
             self.assertEqual(answer_path.read_bytes(),private)
             self.assertEqual(binding['publication_projection']['original_sha256'],records[0]['metrics']['content_sha256'])
             binding['publication_projection']['original_sha256']='0'*64
-            (public_output/'report.json').write_text(json.dumps(public_model))
+            (public_output/'report.json').write_text(json.dumps(public_model), encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'scored original'):load_diagnostic(public_output)
             answer_path.write_bytes(original)
             records[0]['metrics']['content_sha256']=hashlib.sha256(original).hexdigest()
-            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records))
+            (run/'results.jsonl').write_text('\n'.join(json.dumps(r) for r in records), encoding='utf-8')
             review['bindings']['results_sha256']=hashlib.sha256((run/'results.jsonl').read_bytes()).hexdigest()
-            review_path.write_text(json.dumps(review))
+            review_path.write_text(json.dumps(review), encoding='utf-8')
             for mode in ('review_missing','review_stale','answer_changed','incomplete_run'):
                 with self.subTest(mode=mode):
                     original_review=review_path.read_bytes();original_execution=(run/'execution.json').read_bytes()
                     answer_path=run/records[0]['artifact_path'];original_answer=answer_path.read_bytes()
-                    if mode=='review_missing':review_path.write_text(json.dumps({**review,'rows':reviews[:1]}))
-                    elif mode=='review_stale':review_path.write_text(json.dumps({**review,'bindings':{}}))
-                    elif mode=='answer_changed':answer_path.write_text('Invented answer')
-                    else:(run/'execution.json').write_text(json.dumps({'aggregate':{},'batches':[]}))
+                    if mode=='review_missing':review_path.write_text(json.dumps({**review,'rows':reviews[:1]}), encoding='utf-8')
+                    elif mode=='review_stale':review_path.write_text(json.dumps({**review,'bindings':{}}), encoding='utf-8')
+                    elif mode=='answer_changed':answer_path.write_text('Invented answer', encoding='utf-8')
+                    else:(run/'execution.json').write_text(json.dumps({'aggregate':{},'batches':[]}), encoding='utf-8')
                     with self.assertRaises(ValueError):build_diagnostic_cohorts(spec,root/mode)
                     self.assertFalse((root/mode).exists())
                     review_path.write_bytes(original_review);(run/'execution.json').write_bytes(original_execution);answer_path.write_bytes(original_answer)
@@ -340,22 +699,22 @@ class ReportTemplateTests(unittest.TestCase):
         for missing in (False, True):
             with self.subTest(missing=missing), tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);source=root/'source';model=diagnostic_example(source)
-                for row,elapsed in zip(model['rows'],(1000,9000)):
+                for row,elapsed in zip(model['rows'],(1000,9000),strict=True):
                     log={'ok':row['initial_pass'],'elapsed_ms':elapsed}
                     if missing and not row['initial_pass']:log.pop('elapsed_ms')
                     raw=json.dumps(log).encode();binding=row['log']
                     (source/binding['path']).write_bytes(raw)
                     binding['sha256']=hashlib.sha256(raw).hexdigest()
-                (source/'report.json').write_text(json.dumps(model))
+                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                 output=root/'report';build_diagnostic_cohorts(source,output)
-                home=BeautifulSoup((output/'index.html').read_text(),'html.parser')
+                home=BeautifulSoup((output/'index.html').read_text(encoding='utf-8'),'html.parser')
                 cells=home.select_one('[data-summary-group]').select('td')
-                self.assertEqual([c['data-sort'] for c in cells[3:6]],['2','1','1'])
+                self.assertEqual([c['data-sort'] for c in cells[3:6]],['2','0.5','0.5'])
                 self.assertEqual([float(c['data-sort']) for c in cells[6:]],
                                  [-1,-1,-1] if missing else [5000,5000,9000])
                 target=output/'index.html'
                 cells[6]['data-sort']='1000'
-                target.write_text(str(home))
+                target.write_text(str(home), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError,'Summary'):check_diagnostic_report(output)
 
     def test_diagnostic_explains_failed_checks_and_keeps_review_separate(self):
@@ -372,9 +731,9 @@ class ReportTemplateTests(unittest.TestCase):
             binding=row['log'];raw=json.dumps(log).encode()
             (source/binding['path']).write_bytes(raw)
             binding['sha256']=hashlib.sha256(raw).hexdigest()
-            (source/'report.json').write_text(json.dumps(model))
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
             output=root/'report';build_diagnostic_cohorts(source,output)
-            detail=BeautifulSoup((output/'attempts/challenge.html').read_text(),'html.parser')
+            detail=BeautifulSoup((output/'attempts/challenge.html').read_text(encoding='utf-8'),'html.parser')
             checks=detail.select_one('#failed-requirements')
             self.assertIsNotNone(checks)
             self.assertIn('Images',checks.get_text())
@@ -382,17 +741,17 @@ class ReportTemplateTests(unittest.TestCase):
             self.assertIn('2',checks.get_text())
             self.assertIn('Verify you are human',checks.get_text())
             self.assertNotIn(row['cause_detail'],checks.get_text())
-            analysis=BeautifulSoup((output/'analysis/index.html').read_text(),'html.parser')
+            analysis=BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'),'html.parser')
             for kind in ('blocked','text','records'):
                 count=analysis.select_one('[data-failure-type="'+kind+'"]')
                 self.assertIsNotNone(count)
                 self.assertEqual(count['data-count'],'1')
             for path,old,new in [('analysis/index.html','data-count="1"','data-count="9"'),
                                  ('attempts/challenge.html','Images','Bogus requirement')]:
-                target=output/path;original=target.read_text()
-                target.write_text(original.replace(old,new,1))
+                target=output/path;original=target.read_text(encoding='utf-8')
+                target.write_text(original.replace(old,new,1), encoding='utf-8')
                 with self.assertRaises(ValueError):check_diagnostic_report(output)
-                target.write_text(original)
+                target.write_text(original, encoding='utf-8')
 
     def test_template_commands_select_external_instance_profiles(self):
         import shlex
@@ -403,27 +762,56 @@ class ReportTemplateTests(unittest.TestCase):
             self.assertIn('/absolute/instance-profile.json',template[key])
         command=shlex.split(template['build'])
         self.assertEqual(command[command.index('--output')+1],'reports/webfetch')
-        self.assertIn('?version=ver_',template['example'])
+        self.assertEqual(template['example_env'],'WEBFETCH_REPORT_EXAMPLE_URL')
+        self.assertTrue(template['example_version'].startswith('ver_'))
+
+    def test_private_example_link_comes_only_from_local_configuration(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ):
+            root=Path(temp);(root/'configs').mkdir();(root/'renderer.py').write_text('', encoding='utf-8')
+            os.environ.pop('DEMO_EXAMPLE_URL',None)
+            (root/'configs/report-templates.json').write_text(json.dumps({'schema_version':1,'tracks':{'demo':{
+                'renderer':'renderer.py','entrypoint':'renderer.py','tests':'renderer.py',
+                'execution_owner':'renderer.py','execution_tests':'renderer.py',
+                'example_env':'DEMO_EXAMPLE_URL','example_version':'ver_1'}}}), encoding='utf-8')
+            self.assertIsNone(discover_template('demo',root=root)['example'])
+            (root/'.env').write_text('DEMO_EXAMPLE_URL=https://example.test/s/demo?version=ver_1\n', encoding='utf-8')
+            self.assertEqual(discover_template('demo',root=root)['example'],'https://example.test/s/demo?version=ver_1')
+            self.assertNotIn('example',resolve_template('demo',root=root))
+            (root/'real.env').write_text('DEMO_EXAMPLE_URL=https://example.test/s/demo?version=ver_1\n', encoding='utf-8')
+            (root/'.env').unlink();(root/'.env').symlink_to(root/'real.env')
+            self.assertEqual(discover_template('demo',root=root)['example'],'https://example.test/s/demo?version=ver_1')
+            (root/'.env').unlink();os.mkfifo(root/'.env')
+            self.assertIsNone(discover_template('demo',root=root)['example'])
+            (root/'.env').unlink()
+            os.environ['DEMO_EXAMPLE_URL']='https://example.test/s/demo?version=ver_2'
+            with self.assertRaisesRegex(ValueError,'DEMO_EXAMPLE_URL does not pin'):
+                discover_template('demo',root=root)
 
     def test_discovery_works_without_measured_instance_files(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);(root/'configs').mkdir()
-            registry=json.loads((ROOT/'configs/report-templates.json').read_text())
+            registry=json.loads((ROOT/'configs/report-templates.json').read_text(encoding='utf-8'))
             row=registry['tracks']['webfetch']
-            for key in ('renderer','entrypoint','tests'):
-                path=root/row[key];path.parent.mkdir(parents=True,exist_ok=True);path.write_text('')
-            (root/'configs/report-templates.json').write_text(json.dumps(registry))
+            for key in ('renderer','entrypoint','tests','execution_owner','execution_tests'):
+                path=root/row[key];path.parent.mkdir(parents=True,exist_ok=True);path.write_text('', encoding='utf-8')
+            (root/'configs/report-templates.json').write_text(json.dumps(registry), encoding='utf-8')
             self.assertEqual(resolve_template('webfetch',root=root)['renderer'],row['renderer'])
             row['renderer']='../outside.py'
-            (root/'configs/report-templates.json').write_text(json.dumps(registry))
+            (root/'configs/report-templates.json').write_text(json.dumps(registry), encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'renderer'):
                 resolve_template('webfetch',root=root)
 
     def test_all_supported_tracks_resolve_existing_owners_and_pinned_examples(self):
-        for track in ('webfetch','trajectory-replay','browser-use'):
+        for track in ('webfetch','trajectory-replay','browser-use','web-search','web-extract'):
             with self.subTest(track=track):
                 template=resolve_template(track)
-                self.assertIn('?version=ver_',template['example'])
+                if template.get('example_env'):
+                    self.assertTrue(template['example_env'].endswith('_REPORT_EXAMPLE_URL'))
+                    self.assertTrue(template['example_version'].startswith('ver_'))
+                else:
+                    self.assertTrue((ROOT/template['example']).is_file())
+                    self.assertIsInstance(template['example_version'],int)
+                    self.assertIn('example_build',template)
                 self.assertTrue((ROOT/template['entrypoint']).is_file())
                 self.assertTrue(template['check'])
 
@@ -440,10 +828,10 @@ class ReportTemplateTests(unittest.TestCase):
                 binding=row['first_answer'];raw=('Saved full output\n'*3000).encode()
                 (source/binding['path']).write_bytes(raw)
                 binding['sha256']=hashlib.sha256(raw).hexdigest()
-            (source/'report.json').write_text(json.dumps(model))
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
             output=root/'report';build_diagnostic_cohorts(source,output)
             for route in ('attempts/complete.html','attempts/challenge.html','datasets/complete.html'):
-                soup=BeautifulSoup((output/route).read_text(),'html.parser')
+                soup=BeautifulSoup((output/route).read_text(encoding='utf-8'),'html.parser')
                 document='https://local.test/reports/'+route
                 base=soup.select_one('base[href]')
                 base_url=urljoin(document,base['href']) if base else document
@@ -465,13 +853,13 @@ class ReportTemplateTests(unittest.TestCase):
             model['rows'].append(extra)
             model['cohorts']=[{'id':'small','label':'Small','case_count':1},{'id':'large','label':'Large','case_count':2}]
             model['metrics']={'small':[1,1],'large':[0,2],'overall':[1,3]}
-            (source/'report.json').write_text(json.dumps(model))
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
             output=root/'report';build_diagnostic_cohorts(source,output)
-            page=output/'index.html';soup=BeautifulSoup(page.read_text(),'html.parser')
+            page=output/'index.html';soup=BeautifulSoup(page.read_text(encoding='utf-8'),'html.parser')
             bars=soup.select('#cohort-results .editorial-bar-row')
             self.assertEqual([b.select_one('b').get_text() for b in bars],['1 / 1','0 / 2'])
             self.assertIn('100',bars[0].select_one('i')['style'])
-            bars[0].select_one('b').string='1 / 2';page.write_text(str(soup))
+            bars[0].select_one('b').string='1 / 2';page.write_text(str(soup), encoding='utf-8')
             with self.assertRaises(ValueError):check_diagnostic_report(output)
 
     def test_release_rejects_wrong_document_base_even_when_root_targets_exist(self):
@@ -480,11 +868,11 @@ class ReportTemplateTests(unittest.TestCase):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);source=root/'source';diagnostic_example(source)
                 output=root/'report';build_diagnostic_cohorts(source,output)
-                page=output/'attempts/challenge.html';soup=BeautifulSoup(page.read_text(),'html.parser')
+                page=output/'attempts/challenge.html';soup=BeautifulSoup(page.read_text(encoding='utf-8'),'html.parser')
                 base=soup.select_one('base[href]')
                 if mode=='missing':base.decompose()
                 else:base['href']='./' if mode=='wrong' else 'https://wrong.test/'
-                page.write_text(str(soup))
+                page.write_text(str(soup), encoding='utf-8')
                 with self.assertRaises(ValueError):check_diagnostic_report(output)
 
     def test_reference_scope_is_required_before_rendering_or_writing(self):
@@ -494,7 +882,7 @@ class ReportTemplateTests(unittest.TestCase):
                 binding=model['rows'][0]['reference']
                 if value is None:binding.pop('scope')
                 else:binding['scope']=value
-                (source/'report.json').write_text(json.dumps(model))
+                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                 with self.assertRaisesRegex(ValueError,'reference.*scope'):
                     build_diagnostic_cohorts(source,root/'report')
                 self.assertFalse((root/'report').exists())
@@ -505,7 +893,7 @@ class ReportTemplateTests(unittest.TestCase):
                 with self.subTest(field=field,value=value),tempfile.TemporaryDirectory() as temp:
                     root=Path(temp);source=root/'source';model=diagnostic_example(source)
                     model['rows'][0][field]=value
-                    (source/'report.json').write_text(json.dumps(model))
+                    (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                     with self.assertRaisesRegex(ValueError,field):
                         build_diagnostic_cohorts(source,root/'report')
                     self.assertFalse((root/'report').exists())
@@ -517,11 +905,11 @@ class ReportTemplateTests(unittest.TestCase):
             raw=('Required article body\n'*3000).encode()
             (source/binding['path']).write_bytes(raw)
             binding['sha256']=hashlib.sha256(raw).hexdigest()
-            (source/'report.json').write_text(json.dumps(model))
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
             output=root/'report';build_diagnostic_cohorts(source,output)
             self.assertEqual((output/binding['path']).read_bytes(),raw)
             from bs4 import BeautifulSoup
-            soup=BeautifulSoup((output/'attempts/complete.html').read_text(),'html.parser')
+            soup=BeautifulSoup((output/'attempts/complete.html').read_text(encoding='utf-8'),'html.parser')
             panel=soup.select_one('[data-evidence-kind="first_answer"] pre')
             self.assertEqual(panel['data-evidence-file'],binding['path'])
 
@@ -534,16 +922,16 @@ class ReportTemplateTests(unittest.TestCase):
                 raw=b'Required article body from supplemental call'
                 (source/relative).write_bytes(raw)
                 model['rows'][0]['answer']={'path':relative,'sha256':hashlib.sha256(raw).hexdigest(),'scope':'supplemental call'}
-                (source/'report.json').write_text(json.dumps(model))
+                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                 output=root/'report';build_diagnostic_cohorts(source,output)
                 self.assertEqual(check_diagnostic_report(output)['cases'],2)
                 page=output/'attempts/complete.html'
-                soup=BeautifulSoup(page.read_text(),'html.parser')
+                soup=BeautifulSoup(page.read_text(encoding='utf-8'),'html.parser')
                 panel=soup.select_one('[data-evidence-kind="answer"]')
                 if mode=='missing':panel.decompose()
                 elif mode=='wrong-file':panel.select_one('pre')['data-evidence-file']=model['rows'][0]['first_answer']['path']
                 else:panel.select_one('pre').string='Wrong supplemental output'
-                page.write_text(str(soup))
+                page.write_text(str(soup), encoding='utf-8')
                 with self.assertRaises(ValueError):check_diagnostic_report(output)
 
     def test_build_preserves_outputs_and_separates_dataset_from_verdicts(self):
@@ -555,12 +943,12 @@ class ReportTemplateTests(unittest.TestCase):
             for relative,raw in before.items():
                 self.assertEqual((source/relative).read_bytes(),raw)
                 self.assertEqual((root/'report'/relative).read_bytes(),raw)
-            dataset=(root/'report/datasets/complete.html').read_text()
+            dataset=(root/'report/datasets/complete.html').read_text(encoding='utf-8')
             self.assertNotIn('首轮通过',dataset)
-            failed=(root/'report/attempts/challenge.html').read_text()
+            failed=(root/'report/attempts/challenge.html').read_text(encoding='utf-8')
             self.assertIn('Required body missing',failed)
             self.assertIn('Verify you are human',failed)
-            manifest=json.loads((root/'report/report-manifest.json').read_text())
+            manifest=json.loads((root/'report/report-manifest.json').read_text(encoding='utf-8'))
             self.assertEqual(manifest['provider_calls_added'],0)
             self.assertFalse(manifest['certified'])
 
@@ -568,14 +956,14 @@ class ReportTemplateTests(unittest.TestCase):
         for mode in ('output','summary','duplicate','symlink'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);source=root/'source';model=diagnostic_example(source)
-                if mode=='output':(source/model['rows'][0]['answer']['path']).write_text('tampered')
+                if mode=='output':(source/model['rows'][0]['answer']['path']).write_text('tampered', encoding='utf-8')
                 elif mode=='summary':model['metrics']['overall']=[2,2]
                 elif mode=='duplicate':model['rows'].append(copy.deepcopy(model['rows'][0]))
                 else:
                     original=source/model['rows'][0]['answer']['path']
                     original.rename(source/'retained.txt')
                     original.symlink_to(source/'retained.txt')
-                (source/'report.json').write_text(json.dumps(model))
+                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
                 with self.assertRaises(ValueError):build_diagnostic_cohorts(source,root/'report')
                 self.assertFalse((root/'report').exists())
 
@@ -586,23 +974,23 @@ class ReportTemplateTests(unittest.TestCase):
                 output=root/'report';build_diagnostic_cohorts(source,output)
                 if mode=='dialog':
                     path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text().replace('id="result-logs"','id="missing-log"'))
+                    path.write_text(path.read_text(encoding='utf-8').replace('id="result-logs"','id="missing-log"'), encoding='utf-8')
                 elif mode=='evidence':
                     path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text().replace('Verify you are human','Different output'))
+                    path.write_text(path.read_text(encoding='utf-8').replace('Verify you are human','Different output'), encoding='utf-8')
                 elif mode=='verdict':
                     path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text().replace('data-report-detail="failed"','data-report-detail="success"'))
+                    path.write_text(path.read_text(encoding='utf-8').replace('data-report-detail="failed"','data-report-detail="success"'), encoding='utf-8')
                 elif mode.startswith('guide'):
-                    path=output/'guide/index.html';text=path.read_text()
+                    path=output/'guide/index.html';text=path.read_text(encoding='utf-8')
                     if mode=='guide':text=text.replace('id="guide-results"','id="missing-outcome"')
                     elif mode=='guide_evidence':text=text.replace('Verify you are human','Invented output')
                     elif mode=='guide_causes':text=text.replace('id="guide-reviewed-causes"','id="missing-causes"')
                     else:text=text.replace('1 / 2','2 / 2',1)
-                    path.write_text(text)
+                    path.write_text(text, encoding='utf-8')
                 else:
-                    path=output/'report-manifest.json';manifest=json.loads(path.read_text())
+                    path=output/'report-manifest.json';manifest=json.loads(path.read_text(encoding='utf-8'))
                     if mode=='renderer':manifest['template']['renderer']='work/copied.py'
                     else:manifest['certified']=True
-                    path.write_text(json.dumps(manifest))
+                    path.write_text(json.dumps(manifest), encoding='utf-8')
                 with self.assertRaises(ValueError):check_diagnostic_report(output)

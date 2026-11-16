@@ -26,12 +26,12 @@ class ReportChangesTests(unittest.TestCase):
                     'changes': [['Scope', 'Old', 'New', 'No score change']],
                 }],
             }
-            source.write_text(json.dumps(data))
+            source.write_text(json.dumps(data), encoding='utf-8')
             render_changes(
                 out, {}, [{'provider': 'p', 'provider_type': 'headless_markdown'}],
                 {'comparison': {'kind': 'headless_markdown'}},
             )
-            public = json.loads((out / 'report-changes.json').read_text())
+            public = json.loads((out / 'report-changes.json').read_text(encoding='utf-8'))
             self.assertEqual([row['id'] for row in public['releases']], ['bound-release'])
 
     def test_unpublished_corrections_are_not_public_history_or_revision_bindings(self):
@@ -128,7 +128,7 @@ class ReportChangesTests(unittest.TestCase):
 
     def test_fixed_native_history_does_not_leak_into_other_cohorts(self):
         from harness.web_fetch.report_changes import ROOT, select_cohort_history
-        data = json.loads((ROOT / 'research/report-changes.json').read_text())
+        data = json.loads((ROOT / 'research/report-changes.json').read_text(encoding='utf-8'))
         release_id = '2026-10-09-dynamic-1000-native-presentation'
         for kind in ('uniform_native_local_measurement', 'generic',
                      'single_provider_dynamic_native_fetch', 'risk_control_100_moli',
@@ -151,7 +151,7 @@ class ReportChangesTests(unittest.TestCase):
     def test_current_web_fetch_release_binds_score_revision_and_exact_rerun_scope(self):
         from harness.web_fetch.report_changes import ROOT, select_cohort_history
         from harness.web_fetch.report_i18n import release_translations, translate_text
-        history = json.loads((ROOT/'research/report-changes.json').read_text())
+        history = json.loads((ROOT/'research/report-changes.json').read_text(encoding='utf-8'))
         selected = select_cohort_history(
             history, {'comparison': {'kind': 'web_fetch_methods'}}, []
         )
@@ -172,23 +172,12 @@ class ReportChangesTests(unittest.TestCase):
                       *(field for row in current['changes'] for field in row)]:
             self.assertNotRegex(translate_text(value, translations), r'[\u4e00-\u9fff]')
 
-    def test_first_correction_is_identity_bound_not_latest(self):
-        from harness.web_fetch.report_changes import first_correction
-        releases=[{'id':'2026-09-03-fairness-correction','scoring_revision_input_sha256':'first'}]
-        original={'input_results_sha256':'first','records':[]}
-        later={'input_results_sha256':'later','records':[1]}
-        self.assertEqual(first_correction([later,original],releases),original)
-        self.assertEqual(first_correction([original,later],releases),original)
-        with self.assertRaises(ValueError):first_correction([later],releases)
-        with self.assertRaisesRegex(ValueError, 'fairness-correction'):
-            first_correction([original],[])
-
     def test_file_rerun_sources_are_all_preflighted_before_report_writes(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             out=root/'out';out.mkdir()
             evidence=root/'evidence';evidence.mkdir()
-            (out/'file-rerun-selection.json').write_text('{"records": []}')
+            (out/'file-rerun-selection.json').write_text('{"records": []}', encoding='utf-8')
             (evidence/'file-provider-rerun').mkdir()
             with patch('harness.web_fetch.storage.research_evidence_dir',
                        return_value=evidence):
@@ -210,7 +199,7 @@ class ReportChangesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory)
             render_changes(out,{},[])
-            page=(out/'changes/index.html').read_text()
+            page=(out/'changes/index.html').read_text(encoding='utf-8')
             self.assertIn('报告版本说明',page)
             self.assertIn('当前版本',page)
             self.assertIn('36 次文件任务全部实际调用并判定',page)
@@ -218,13 +207,13 @@ class ReportChangesTests(unittest.TestCase):
             self.assertIn('<details><summary>',page)
             self.assertNotIn('<details open',page)
             self.assertNotIn('这两列怎么读',page)
-            data=json.loads((out/'report-changes.json').read_text())
+            data=json.loads((out/'report-changes.json').read_text(encoding='utf-8'))
             self.assertEqual(len(data['releases']),len({r['id'] for r in data['releases']}))
             self.assertEqual(data['review_rounds'],[])
             release_ids={row['id'] for row in data['releases']}
             self.assertIn('2026-09-04-complete-file-evaluation',release_ids)
             self.assertNotIn('2026-09-04-five-browser-fastest-markdown',release_ids)
-            self.assertNotIn('github.com/lexmount/browser-eval/pull/6', page)
+            self.assertNotIn('github.com/lexmount/webstone/pull/6', page)
 
     def test_review_round_log_is_required_and_structured(self):
         from harness.web_fetch.report_changes import require_review_rounds
@@ -281,7 +270,7 @@ class ReportChangesTests(unittest.TestCase):
     def test_overview_names_all_highest_scoring_methods(self):
         cases={'a':{'id':'a','track':'web','task_kind':'body'}}
         records=[
-            {'case_id':'a','provider':name,'ok':True,'metrics':{'content_pass':True}}
+            {'case_id':'a','provider':name,'ok':True,'metrics':{'content_pass':True,'scoring_source_sha256':'a'*64}}
             for name in ['first','second']
         ]
         page=overview_card(records,cases,'web','网站正文',['first','second'])

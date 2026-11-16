@@ -60,11 +60,12 @@ def test_frozen_definitions_have_one_installed_owner():
     import hashlib
     import json
 
-    binding = json.loads((ROOT / "evaluation/lexbench-webfetch.json").read_text())
+    binding = json.loads((ROOT / "evaluation/lexbench-webfetch.json").read_text(encoding="utf-8"))
     import tomllib
-    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["dependencies"]
-    dependency = next(value for value in dependencies if value.startswith("lexbench-webfetch @"))
-    assert dependency.endswith("@" + binding["revision"]), "Definition binding and installed dependency must name the same revision"
+    dependencies = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["dependencies"]
+    assert not any(value.startswith("lexbench-webfetch @") for value in dependencies)
+    from harness.benchmarks.pinning import validate_binding
+    assert validate_binding(ROOT) == binding["revision"]
     for relative, expected in binding["definition_files"].items():
         assert not (ROOT / relative).exists(), relative
         assert hashlib.sha256(definition_path(relative).read_bytes()).hexdigest() == expected
@@ -74,7 +75,7 @@ def test_historical_read_uses_the_original_frozen_bytes(historical_dataset):
     import hashlib
     import json
 
-    manifest = json.loads(definition_path("evaluation/source-inputs.json").read_text())
+    manifest = json.loads(definition_path("evaluation/source-inputs.json").read_text(encoding="utf-8"))
     assert hashlib.sha256(read_dataset_bytes(ROOT / "evaluation/dataset.json")).hexdigest() == manifest["dataset_sha256"]
 
 
@@ -90,17 +91,17 @@ def test_equivalent_historical_paths_cannot_read_or_modify_shadow_inputs(
     (checkout / "evaluation/risk-control").mkdir(parents=True)
     (checkout / "evaluation/lexbench-webfetch.json").write_bytes(
         (ROOT / "evaluation/lexbench-webfetch.json").read_bytes())
-    (checkout / "evaluation/dataset.json").write_text('{"id":"shadow","cases":[]}')
+    (checkout / "evaluation/dataset.json").write_text('{"id":"shadow","cases":[]}', encoding="utf-8")
     if linked_checkout:
         alias = tmp_path / "linked-checkout"
         alias.symlink_to(checkout, target_is_directory=True)
         checkout = alias
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BROWSER_EVAL_DATA_HOME", str(tmp_path / "missing-inputs"))
+    monkeypatch.setenv("WEBSTONE_DATA_HOME", str(tmp_path / "missing-inputs"))
     logical = checkout / spelling
     installed = definition_path("evaluation/source-inputs.json")
     assert benchmark_input_path(logical) == installed.parent / "dataset.json"
-    assert load_manifest(logical.parent / "source-inputs.json") == json.loads(installed.read_text())
+    assert load_manifest(logical.parent / "source-inputs.json") == json.loads(installed.read_text(encoding="utf-8"))
     with pytest.raises(ValueError, match="immutable"):
         require_mutable_inputs(logical)
     with pytest.raises(FileNotFoundError, match="Reference inputs are not installed"):
@@ -116,7 +117,7 @@ def test_equivalent_historical_paths_still_reject_a_symlinked_input(tmp_path, sp
     (checkout / "evaluation/lexbench-webfetch.json").write_bytes(
         (ROOT / "evaluation/lexbench-webfetch.json").read_bytes())
     source = tmp_path / "candidate.json"
-    source.write_text('{"cases":[]}')
+    source.write_text('{"cases":[]}', encoding="utf-8")
     (checkout / "evaluation/dataset.json").symlink_to(source)
     if linked_checkout:
         alias = tmp_path / "linked-checkout"
@@ -133,10 +134,10 @@ def test_linked_input_directory_cannot_hide_its_checkout_binding(tmp_path, monke
         (ROOT / "evaluation/lexbench-webfetch.json").read_bytes())
     candidate = tmp_path / "candidate"
     candidate.mkdir()
-    (candidate / "dataset.json").write_text('{"id":"shadow","cases":[]}')
+    (candidate / "dataset.json").write_text('{"id":"shadow","cases":[]}', encoding="utf-8")
     (checkout / "evaluation/popular-sites").symlink_to(candidate, target_is_directory=True)
     logical = checkout / "evaluation/popular-sites/dataset.json"
-    monkeypatch.setenv("BROWSER_EVAL_DATA_HOME", str(tmp_path / "missing-inputs"))
+    monkeypatch.setenv("WEBSTONE_DATA_HOME", str(tmp_path / "missing-inputs"))
     assert benchmark_input_path(logical) == definition_path("evaluation/popular-sites/source-inputs.json").parent / "dataset.json"
     with pytest.raises(ValueError, match="immutable"):
         require_mutable_inputs(logical)

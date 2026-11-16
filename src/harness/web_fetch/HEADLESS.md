@@ -1,0 +1,428 @@
+# Compare live-URL browser methods
+
+For a first local run, use the [HTTP/Moli/Chromium example](../../../examples/web_fetch/README.md). This guide covers the maintained live-URL benchmark and its resource measurements.
+
+[Methods](#runtime-and-route) · [Comparison limits](#what-is-and-is-not-fair) · [Setup](#credentials-and-binaries) · [Run](#run-and-preserve-evidence) · [Release checks](#release-checks)
+
+The separate frozen-HTML public-data comparison is documented in
+[WEBMAINBENCH.md](WEBMAINBENCH.md); its fidelity scores are not mixed with
+the live-URL task acceptance or resource profile below.
+
+The original published cohort contained 150 registered Web Fetch task IDs: 100 web
+cases and 10 each for document, image, video, challenge and dynamic delivery.
+A new cohort takes its participants, task families and counts from its frozen
+dataset and current-report profile; it does not inherit the original matrix. Every method
+receives the same URL, task rule and end-to-end deadline and is judged by the
+shared `score_attempt` path. Implementations are deliberately not forced through
+one extractor: the benchmark asks each method to use its fastest documented or
+built-in route to the task's final deliverable. Web and document-body tasks end
+in readable text; direct-file tasks end in verified original bytes.
+
+## Runtime and route
+
+| Method | Deployment | Task-native route |
+|---|---|---|
+| Kitesurf | Cloudflare account Browser Run | page text: `/markdown?browser=kitesurf`; resource URLs: Kitesurf CDP DOM reads; document text: native `/markdown`; original files: the Kitesurf CDP endpoint |
+| Lightpanda | local browser | page text: `fetch --dump markdown --json`; original files and shared DOM projections: native CDP |
+| Obscura | local browser, standard mode | page text: pinned upstream Markdown expression with the final URL; original files: `fetch --dump original`; synchronous DOM projections: `--eval`; asynchronous embedded documents: native CDP |
+| Moli | local CLI | webpage text, document text, structured tasks and webpage media information: native Markdown; final URL comes only from unambiguous same-call official diagnostics; direct media files: native CDP response bytes or the same pinned CLI attachment interface |
+| Chromium | local Playwright/CDP | page text: rendered DOM → `node-html-markdown`; original files: navigation response or native download; resource URLs, metadata and embedded documents: shared DOM expressions |
+
+Choose the route from the input URL and declared deliverable before calling the
+browser. Ordinary, dynamic, popular-site and risk-control text remain page tasks.
+Image/video cases distinguish resource URLs, original file bytes and page metadata;
+a Markdown response cannot substitute for a required original file.
+
+Document text must be returned by the selected browser's native content interface.
+Direct PDF/DOCX uses that browser's native body interface; when it is unsupported,
+save the real failure and do not hand the file to external pypdf, DOCX XML or OCR to
+fill in text. An embedded-document page can read the text of an already loaded PDF
+viewer through that browser's CDP or script interface, or read the page's visible
+text; do not additionally download the embedded PDF and parse it.
+
+Image and video original files keep the browser-response or download route. A Moli
+attachment event can call the raw attachment interface of the same pinned binary,
+still under the same deadline. Original-file delivery accepts bytes only: it does not
+stand in for body extraction, and the bytes are not converted externally into a body
+score. Resource addresses read the already loaded DOM and same-origin subpages;
+do not additionally fetch module source to mine links. The final URL is auxiliary
+information only; body acceptance rests on target content, required fields and
+blocked-page rules.
+
+Local HTTP downloading and Workers AI conversion are separate methods, not
+Kitesurf results. Every Kitesurf Quick Action and CDP connection must explicitly
+select `browser=kitesurf`; omitting it selects Cloudflare's Chromium backend.
+The current report's native-task route gate rejects these substitutions and stale
+one-provider projections while retaining genuine native failures.
+
+
+Chromium and CDP do not expose a native Markdown result. Chromium Reader Mode
+produces simplified HTML and does not cover this benchmark's full output
+contract. The selected fallback therefore captures the complete rendered DOM
+and converts it with the maintained MIT-licensed `node-html-markdown` package.
+The measured wrapper also preserves literal preformatted text with a safe fence
+and language label; it is not described as an unmodified package default. The
+package version, wrapper hash, Node version, source HTML hash and conversion time
+are retained per call. Conversion is inside the 45-second deadline.
+
+Kitesurf is not treated as a local open-source engine. As tested, it is a
+Cloudflare-hosted preview selected by `browser=kitesurf`; Cloudflare has stated
+an intention to open source it, which is not the same as released source code.
+The public report must describe the currently available account API, not a
+hypothetical local deployment.
+
+The routes have different completion controls because those controls belong to
+the tested interfaces: Kitesurf uses `networkidle2`, Chromium uses Playwright
+`load` by default, and each CLI uses its own documented completion behavior.
+Explicit completion contracts retain their selected navigation condition; Chromium
+records `navigation_wait_until` in each call rather than inferring it from the
+current adapter. Native execution does not select task-specific readiness hints.
+No method receives task answers, task-specific selectors, clicks, scrolling,
+personal sessions, stealth fallback or model post-processing. The original
+published matrix used one provider call per task and did not retry; later
+documented corrections may supersede affected logical results while preserving
+the earlier physical evidence.
+The shared [retry policy](README.md#retries) applies to every method.
+
+## What is and is not fair
+
+The comparison aligns inputs, outputs, task set, acceptance rules and the
+client-observed end-to-end deadline. It does not claim identical internals.
+Forcing native Markdown methods through HTML conversion would replace their
+product advantage with benchmark code and answer a less useful question.
+
+Kitesurf is remote while the registered local browser configurations run locally. Its latency includes network
+round trips, Cloudflare queueing and remote execution; local measurements
+include local process startup and machine contention. This is a cold-call
+client latency comparison, not an engine-only CPU/RSS benchmark. The original
+matrix's single observation per method and URL does not establish variance,
+sustained throughput or SLA. Documented correction calls remain visible and do
+not turn that matrix into a repeated-measures performance study.
+Pairwise browser tables use only URLs passed by both methods and keep each
+pair's denominator visible. A wider heterogeneous-method same-window cohort
+must not be reselected after observing results merely to manufacture a common
+success intersection. It retains every predeclared call and reports the
+same-denominator all-call latency beside success counts and separately labeled
+per-method successful-call latency.
+
+CPU, resident memory and network are a required, separate performance profile,
+not optional decorations on one release. The resource profile uses a
+provider-blind 20-page ordinary-web cohort, one provider call at a time, and a
+fresh disposable Linux container with a dedicated bridge network for every task.
+The host controller and container startup/teardown are excluded. The container
+is limited to two logical CPUs, 2 GiB memory and 512 PIDs. CPU and network totals
+come from cumulative cgroup/container counters; memory and rate percentiles are
+sampled every 50 ms. The published local-engine comparison uses only the
+intersection of tasks passed by all four local configurations. A missing CPU,
+memory, network or Docker/cgroup-v2 environment field blocks packaging and publication.
+
+This scope is client-side. For four local configurations it includes the browser,
+worker and conversion processes in the container. Kitesurf runs remotely, so its
+client-only measurements cannot enter the local-engine table; Cloudflare-side
+CPU, memory and upstream traffic are unavailable and must never be inferred as zero. Host-process
+sampling and whole-machine interface deltas are diagnostic-only and cannot enter
+the published resource comparison. Shorter-than-sample memory and sampled-rate
+peaks remain a disclosed limit; cumulative CPU and network totals do not depend
+on catching a sampling instant.
+
+Method-specific readiness behavior can change delivered content. Equal option
+names would still not prove equal implementation, so the report records the
+actual condition instead of calling it normalized. Documents and media also
+have different delivery contracts. A document-body case measures URL to readable
+text: a provider's direct text is accepted, while a provider that returns raw
+PDF/DOCX bytes has not delivered document text and fails that body task. A
+direct-file case stops at verified bytes and never performs an irrelevant
+Markdown conversion. The run does not add an external PDF/DOCX parser, OCR,
+media understanding or a generic downloader that bypasses the selected method.
+
+Public report families follow the deliverable rather than the media MIME type.
+The frozen `image` and `video` source tracks remain unchanged for provenance,
+but the report combines their 16 resource-URL cases and one video-page text
+case as **media information from webpages**, and groups their three direct
+binary inputs as **original media files**. A webpage resource case succeeds by
+returning the declared media URL; it does not need to download that resource.
+A direct-file case must return and validate the bytes. This produces seven
+reader-facing families without pretending that URL discovery and file delivery
+are the same operation.
+
+Moli uses native Markdown with frame inclusion for every webpage-media case.
+The shared scorer only reads URLs already present in that output; it never
+derives a playback URL from a site-specific identifier. A missing URL remains
+a failure and cannot trigger an HTML, JSON or network-trace fallback.
+
+## Credentials and binaries
+
+Evaluation credentials load only from this repository's ignored `.env`.
+Kitesurf needs a Cloudflare account ID and API token with Browser Rendering /
+Browser Run access (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`). The report
+lists official registration and token pages and variable names only. It never
+copies a real key into HTML, source control or examples.
+
+Local binary paths use `MOLI_BINARY`, `LIGHTPANDA_BINARY`,
+`OBSCURA_BINARY` and `CHROMIUM_BINARY`. Set `CHROMIUM_BINARY` explicitly: an
+empty value is rejected so a later partial rerun cannot silently switch from
+the report's browser to Playwright's bundled Chromium. Binaries are not committed; measured binary hashes and
+versions are retained in call evidence. Install JavaScript dependencies with
+`npm ci` and the Python benchmark dependencies in a repository-local
+environment.
+
+Every local call is bound to the batch executable SHA-256. The runner captures
+that identity before and after the timed calls, writes it into the execution
+manifest and rejects any binary or reported-version change. Identity probing
+is outside the latency boundary. A mutable release label or
+configured path is never treated as an identity. If a CLI exposes no version
+or immutable commit (for example a moving nightly asset), the SHA-256 remains
+the exact executable identity and the missing source revision stays explicit.
+A version recovered later by matching a retained executable to an official
+archive is labelled post-hoc; it is not rewritten as run-time provenance.
+
+## Run and preserve evidence
+
+### Import historical inputs
+
+The historical `evaluation/dataset.json` input is resolved through
+`evaluation/source-inputs.json`; its full text and captured sources are outside
+Git. Import the approved frozen copy before using the historical commands below,
+as described in [reference inputs](../../../docs/reference-inputs.md).
+`evaluation/dataset-catalog.json` is a public task directory, not an execution
+dataset. An explicitly supplied custom dataset remains a normal JSON file.
+
+### Select a cohort and methods
+
+`src/harness/web_fetch/headless_runner.py` owns cohort selection, execution and
+implementation checks. `uv run --frozen python -m harness.web_fetch headless-run` runs it.
+`configs/providers.headless.json` declares the method registry and the `main`
+and `resources` cohorts. A new browser release changes this configuration,
+without adding a runner or a browser-name branch. Historical evidence keeps
+its original configuration hash.
+
+Each cohort declares an ordered `providers` list and may supply
+`provider_overrides`. The resource cohort declares its container image and
+container binary paths; its Moli 1.1.1 pin is independent of the main cohort's
+Moli 1.1.5 pin. `expected_version` matches the first numeric version in the
+observed version output. A missing or different pinned version fails before
+provider calls. Both cohorts retain executable hashes and reject changes
+during execution.
+
+Use `--cohort NAME` to select a declared cohort and `--providers NAME1,NAME2`
+to select registered methods explicitly. A configuration without cohorts uses
+all its registered methods. Custom configurations supply their own resource
+image and binary paths; the runner does not infer them from method names.
+Unknown or duplicate methods, task IDs and task families are rejected before
+calls. The execution receipt records the selected cohort and actual input
+filenames rather than claiming the repository's default inputs.
+
+### Capture, freeze and check references
+
+Use the certified wrapper below. Existing frozen task and answer bytes remain
+unchanged. Only cases declaring `source_verification.reference_mode: live_exact` need
+the live reference lifecycle in [README.md](README.md). Old source records and a
+missing newer acceptance contract are not that declaration, and an ordinary rerun must
+not refetch or update answers because of them.
+
+For those live-reference cases, acquisition follows `source_verification.observation_route` (`http`
+or `browser`). Existing frozen inputs that name independent visible/rendered
+browser DOM acquisition retain that browser requirement. Task identifiers do
+not select the acquisition route. A browser-bound reference needs independent
+browser observations for both freeze and postcheck; an HTTP response cannot
+silently replace them.
+
+Postcheck and per-case certification use the same fresh-reference population
+across `web`, `dynamic` and `challenge`, and the case's declared provider cohort.
+They wait for missing logical results and reject duplicate or undeclared
+providers. Certificate sidecars retain the physical run's records and original
+manifest; response artifacts remain in the physical run for assembly. A failed
+reference check remains failed when the command resumes.
+
+```sh
+uv run --frozen python scripts/run_certified_benchmark.py --dataset DATASET --output RUN --work-root WORK --providers METHODS --case-ids IDS --provider-config PROVIDERS --workers 1 --browser-binary /absolute/path/to/chromium
+```
+
+A cohort outside certification runs through
+`uv run --frozen python -m harness.web_fetch headless-run --output RUN --config PROVIDERS`;
+its output is diagnostic evidence only.
+
+### Certify a new run
+
+An unchanged compiled acceptance-contract dataset is the execution authority.
+Freeze its task and rule bytes; do not recover historical qualification files or
+repeat admission checks. Live exact-reference cases retain pre-call capture,
+freeze and post-call verification under [README.md](README.md). Source
+qualification belongs to new tasks or changes to references/acceptance rules.
+Use bounded cohorts when a complete serial run would exceed the live-reference
+window. The wrapper verifies worker manifests before finalizing the aggregate.
+
+Select the resource tasks through the existing provider-blind selector before
+resource calls. Set the dataset comparison kind to
+`headless_client_resource_profile`; its provider configuration binds each local
+engine, image, executable, 50 ms sample interval, two CPUs and 2 GiB memory.
+Run it through the same certified wrapper with one worker, then package:
+
+```sh
+make resource-image
+uv run --frozen python scripts/run_certified_benchmark.py --dataset RESOURCE/dataset.json --output RESOURCE_RUN --work-root RESOURCE_WORK --providers LOCAL_METHODS --case-ids IDS --provider-config RESOURCE/providers.json --workers 1
+uv run --frozen python -m harness.web_fetch headless-resources --run RESOURCE_RUN
+```
+
+The image recipe accepts version-bound build arguments. Set `MOLI_VERSION`
+and `MOLI_SHA_ARM64` / `MOLI_SHA_AMD64` together; its executable is installed as
+`/usr/local/bin/moli-VERSION`. Lightpanda uses the existing per-architecture
+`LIGHTPANDA_URL_*` / `LIGHTPANDA_SHA_*` arguments, and Obscura uses
+`OBSCURA_VERSION` with its per-architecture digests. For official Chrome for
+Testing, supply `CHROMIUM_URL_ARM64` / `CHROMIUM_SHA_ARM64` or
+`CHROMIUM_URL_AMD64` / `CHROMIUM_SHA_AMD64`; a URL without a digest fails the
+build. Select the archive's executable under `/opt/chrome-for-testing/` through
+`resource_binary`. Omitting these Chrome arguments keeps Debian Chromium.
+The recipe defaults preserve the original image configuration; a new cohort
+must supply its selected release inputs and verify actual versions and hashes
+inside the built image before any measured call.
+
+Independent result review is opt-in for both matrices. Preserve the declared
+review policy; start failure review only after an explicit user request, and
+review passes or the complete matrix only after a separate full-review request.
+Packaging retains the exact reviewed/total scope. Do not use missing independent
+review as an execution blocker when the frozen protocol does not require it.
+
+Build the resource image once per declared image definition or browser-version
+change. Benchmark runs reuse `lex-web-fetch-resource:local` by image ID and do
+not rebuild it; repeated `make resource-image` calls reuse Docker layers. A
+publication run records the image ID and executable hashes, so an unavailable
+or changed image fails closed instead of triggering an implicit download.
+Validation also compares the packaged worker hash with the worker inside the
+declared image before calls. Rebuild the image after worker changes; an older
+worker cannot be reported as the selected host runtime.
+
+The resource cohort dataset and package bind its size, providers, concurrency,
+sample interval, cgroup-v2 backend, CPU/memory limits, network isolation,
+required metrics, image ID and executable hashes. Do not substitute the
+general Web Fetch report profile for this separate cohort.
+Headless resource packaging fails if CPU, memory or network evidence is missing;
+the report release check requires grouped winners whenever the cohort is present.
+
+The resource cohort uses the four local browser families: Lightpanda, Obscura,
+Moli and Chromium. Each new run pins its actual versions and image identity. Kitesurf remains in the correctness and latency report but
+is excluded from the resource table because its remote browser CPU, memory, and
+upstream network traffic are not observable from the client.
+
+Correct a proven wrong command, implementation version, scorer or reference
+by explicitly superseding the affected logical results, rerunning the complete
+declared comparison scope and recording the score impact.
+
+A failed or incomplete evidence directory is immutable. A reference failure
+suspends that case's new body measurement; it is not a provider failure. A
+replacement cohort must be independently prefrozen and must cover every method
+in the affected comparison unless a method-specific implementation change is
+the declared replacement reason. Historical calls are never retroactively
+certified. Equivalent independent captures may be assembled only when reference
+bytes, normalized hash, URL, task contract, reference scope and rendered scope
+are identical; each physical batch retains its exact capture selector and
+postcheck.
+
+Do not rerun the whole matrix merely because code changed. Use the smallest
+scope that preserves a valid comparison: presentation-only changes rebuild the
+report; scoring-only changes rescore immutable outputs; one changed reference
+reruns that case for every method; one implementation change reruns all cases
+for that method; a timing-boundary change reruns the all-method speed cohort.
+A full matrix rerun is required only when a global task input, call boundary or
+shared implementation dependency changes. The assembly manifest must retain
+which physical calls were replaced and why.
+
+To assemble certified evidence or retain a declared subset of browsers, use the
+same command. Exclusion changes the publication matrix; source calls remain in
+the original evidence directory.
+
+```sh
+uv run --frozen python -m harness.web_fetch headless-assemble --run-dir RUN --certificates CERTIFICATES --output ASSEMBLED
+uv run --frozen python -m harness.web_fetch headless-assemble --run-dir RUN --certificates CERTIFICATES --exclude-providers METHOD1 METHOD2 --output SUBSET
+```
+
+Assembly verifies and copies declared call artifacts and reference observations,
+then exposes the new directory only after validation. An existing independent
+review can follow unchanged retained attempts; changed evidence needs a separate
+review. Historical timing corrections keep their original measurement protocol
+and get a derived receipt bound to the retained records. No browser calls or
+independent reviews run as part of assembly. Supply `--speed-cohort SPEED` to
+apply the same browser exclusion to a packaged same-window speed cohort.
+
+Result verification is an opt-in stage after assembly: do not start it until the
+user explicitly requests review. The default scope is machine failures; use
+`--scope all --confirm-full-review` only after an explicit full-review request.
+A strong agent compares every selected output with the task, frozen standard
+answer or stable contract without trusting the machine verdict. Disagreements require
+an explicit adjudication; unresolved rows block report generation. The review
+file is cryptographically bound to the exact dataset and results files, so a
+new session cannot silently reuse an audit after outputs or rules change.
+
+Measured outputs live outside Git under `~/.webstone/evidence/`. The [HF dataset](https://huggingface.co/datasets/Lexmount/LexBench-Web-Fetch) owns current task definitions. Git retains source annotations, input/hash bindings, adapters and report implementation; historical cohorts retain their original task identities.
+Build from an explicit immutable evidence directory:
+
+```sh
+make setup
+uv run --frozen python -m harness.web_fetch headless-check EVIDENCE --rescore --report-profile PROFILE
+make report PROFILE=/absolute/path/to/profile.json EVIDENCE=/absolute/path/to/evidence
+make report-check PROFILE=/absolute/path/to/profile.json
+```
+
+`--report-profile` is always required; the checker rejects a run without it.
+For another declared cohort, also pass `--canonical-dataset`, `--provider-config`
+and `--provenance`. The checker uses those inputs for task rules, method coverage,
+executable identities and the report matrix; their defaults reproduce the
+historical headless comparison. It verifies saved
+outputs without making provider calls or changing verdicts. Explicit diagnostic
+evidence remains ineligible for this formal evidence check.
+
+`.python-version`, `uv.lock`, the Makefile and CI pin Python 3.11 and dependency versions.
+Formal commands must not fall back to system `python` / `python3`; an unmet runtime contract must fail before execution.
+
+## Native-worker caller audit
+
+For a local URL-only comparison, verify the product's supported inner timeout and byte/character limits, not only the outer runner deadline or configuration JSON. Record the effective limits. For a fixed-native cohort, the common wall-clock budget belongs to the caller only: omit product timeout overrides and retain native internal timers. Supported capacity and extraction options may be fixed before the run; never patch product globals or supply per-case retrieval hints. A caller-created cap that truncates the fetched HTML before conversion is a measurement defect; retain the old calls and correct the affected complete method scope, rather than changing individual failed cases.
+
+Run `harness.web_fetch.network_preflight.inspect_system_dns` before comparing local guarded fetchers with hosted products. Synthetic addresses in `198.18.0.0/15` make the environment unsuitable for this comparison: stop before product calls and restore a real-public-address DNS environment. Do not weaken product safety guards or replace individual case URLs to work around it. Retain the complete final worker response envelope as private evidence, alongside the normalized answer and public call log. Verify positive controls through the actual product entry point; existing scored outputs alone cannot prove that no response fields were dropped.
+
+
+An explicitly frozen `public_doh` environment is a valid process-scoped DNS
+correction when system DNS returns synthetic addresses. Apply one mode to all
+supported native callers in the cohort, resolve every hostname with the same
+rule, include DNS time in the shared call budget, bind resolver source files,
+and verify both public retrieval and native rejection of private DNS answers.
+Do not silently fall back to another resolver or disable a product guard. Record
+unsupported methods and the local/hosted network asymmetry; do not imply the
+machine's global DNS was changed.
+
+Audit the declared structured output separately from model/UI presentation.
+When a public schema exposes a complete HTML/text body, preserve it as the answer
+rather than keeping only a lossy display projection. Preserve both fields in
+private evidence. Never rescue an empty declared body from a nonempty display
+message. Reproject retained full responses without new product calls when only
+this selection changed; missing historical envelopes require fresh calls across
+the full declared correction scope before claiming revised benchmark scores.
+
+## Native browser routes
+
+For native-content browser comparisons, preselect by task type the officially supported body, resource or original-file interface and score the returned deliverable. A final URL or HTML language tag is diagnostic unless the benchmark explicitly evaluates that metadata. Native Markdown inside a JSON wrapper may be unwrapped, but JSON DOM, HTML or a downloaded PDF/DOCX must not be converted separately into a method's body score, and missing text must not be repaired using JSON DOM conversion or external PDF/DOCX parsers. The declared Chromium exception, a pinned version of `node-html-markdown` for webpage HTML because Chromium has no native Markdown, covers only standard HTML-to-Markdown conversion and does not authorize document parsers.
+
+Lightpanda uses the native body from `--dump markdown --json`. Obscura uses its pinned official `HTML_TO_MARKDOWN_JS`, whose script hash must be bound to the tested version. Kitesurf uses the official `/markdown` or CDP interface with that browser explicitly selected. Moli uses native Markdown for webpage text, document text, structure and webpage-embedded media; webpage media checks only the target addresses in the same output, and only direct media files use the raw response. After a failure, do not switch to HTML, JSON, network traces or viewer scripts to fill in a result.
+
+`output_mode_for_case` owns route selection, and `browser_task_interface_matrix` uses the same selector to generate the interface table for every task type and browser. `require_native_task_routes` checks measured routes and external-conversion markers; the current report profile must enable this gate, and a failed check blocks aggregation and publication. Bind native script versions. Changing a call interface means freezing the complete affected scope, retaining the old calls and rerunning through the certified entry; changing only shared scoring recomputes every method offline without requesting sites again. Keep synthetic negative controls for wrong content alongside positive controls for correct content with missing metadata, including correct body text with no URL.
+
+Keep browser engines distinct from execution configurations. Register method names and browser engines separately in `configs/providers.headless.json`. Released and source-build variants of one browser use separate method identities in the execution registry, are scored separately and share the engine's native route constraints. Native route checks, the interface table and official capability descriptions all use that registered engine; an unknown method cannot skip the checks. Reports count browser engines and execution configurations separately, and several versions of one engine do not count as several browsers. Derive interface columns and participant counts from that registry. A strict native-mode marker selects default completion; it supplies no per-case selector or wait and must survive both dataset conversion and runner validation. Resource projection must keep a single URL in a resource attribute whole and tokenize only `srcset`, by candidate and descriptor, without splitting a literal comma inside a URL. Protect these boundaries with runner, report and actual-browser controls.
+
+A source build pins its source commit, base commit, build environment and binary SHA-256 before calls. A new configuration calls only the complete frozen task set, and earlier configurations' raw results stay unchanged. Batches from different dates show their own task completion; a timing change caused by code must be measured separately under the same-window paired protocol.
+
+## Release checks
+
+The headless report remains a separately published reference cohort. Its
+evidence bundle fixes the dataset ID, task count, provider set, timeout and
+route description; `uv run --frozen python -m harness.web_fetch headless-check EVIDENCE --report-profile PROFILE` rejects a different
+cohort. The repository's current publication profile now points at the
+10-method Web Fetch report and must not be inferred from this headless cohort.
+Review requirements are bound to the declared evidence scope: unresolved
+judgments block publication, and a failure-only review discloses both reviewed
+attempts and accepted unreviewed machine passes. Assembly retains inherited
+review history only when its scope and judgments match the final results. These checks are
+covered by the repository test suite. Fix invalid evidence or implementation
+before release.
+
+The selected external report profile binds its publication target and expected
+version. Each comparison keeps its own receipt and evidence bundle.

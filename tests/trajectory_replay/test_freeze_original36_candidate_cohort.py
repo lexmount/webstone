@@ -294,7 +294,7 @@ def test_product_save_revision_uses_the_visible_form_control() -> None:
 def _lineage_fixture(tmp_path):
     import copy
 
-    from harness.trajectory_replay.remote_runtime import input_digest
+    from harness.record_io import canonical_json_sha256
 
     index, site_map, roles = _fixture(tmp_path)
     parent = {
@@ -303,13 +303,13 @@ def _lineage_fixture(tmp_path):
             {"action": "press", "key": "Tab"}, {"action": "snapshot"},
         ],
     }
-    parent["canonical_calls_sha256"] = input_digest(parent["tool_calls"])
+    parent["canonical_calls_sha256"] = canonical_json_sha256(parent["tool_calls"])
     parent_sha = hashlib.sha256(
         (json.dumps(parent, ensure_ascii=False, indent=2) + "\n").encode()
     ).hexdigest()
     candidate = copy.deepcopy(parent)
     candidate["tool_calls"][0] = {"action": "evaluate", "script": "document.title"}
-    candidate["canonical_calls_sha256"] = input_digest(candidate["tool_calls"])
+    candidate["canonical_calls_sha256"] = canonical_json_sha256(candidate["tool_calls"])
     path = tmp_path / "candidate.json"
     path.write_text(json.dumps(candidate), encoding="utf-8")
     override = {
@@ -355,11 +355,11 @@ def test_declared_parent_proof_works_for_any_task_and_reference_root(tmp_path, m
 
 
 def test_undeclared_candidate_change_cannot_borrow_parent_qualification(tmp_path):
-    from harness.trajectory_replay.remote_runtime import input_digest
+    from harness.record_io import canonical_json_sha256
 
     index, site_map, roles, candidate = _lineage_fixture(tmp_path)
     candidate["tool_calls"][1] = {"action": "press", "key": "Enter"}
-    candidate["canonical_calls_sha256"] = input_digest(candidate["tool_calls"])
+    candidate["canonical_calls_sha256"] = canonical_json_sha256(candidate["tool_calls"])
     path = tmp_path / "candidate.json"
     path.write_text(json.dumps(candidate), encoding="utf-8")
     roles["candidate_overrides"][0]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -395,11 +395,11 @@ def test_current_stabilization_retains_exact_qualified_parent():
     root = Path(__file__).resolve().parents[2]
     roles = json.loads((root / (
         "evaluation/trajectory-replay/webarena-verified/cohort-step-roles.json"
-    )).read_text())
+    )).read_text(encoding="utf-8"))
     override = next(row for row in roles["candidate_overrides"] if row["task_id"] == 108)
     path = root / override["path"]
     assert hashlib.sha256(path.read_bytes()).hexdigest() == override["sha256"]
-    assert validate_candidate_lineage(json.loads(path.read_text()), override) == (
+    assert validate_candidate_lineage(json.loads(path.read_text(encoding="utf-8")), override) == (
         override["stabilization_parent_sha256"]
     )
 
@@ -425,8 +425,8 @@ def test_freeze_command_preserves_umask_and_existing_output(tmp_path):
 
     index, site_map, roles = _fixture(tmp_path)
     index_path, roles_path = tmp_path / "index.json", tmp_path / "roles.json"
-    index_path.write_text(json.dumps(index))
-    roles_path.write_text(json.dumps(roles))
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    roles_path.write_text(json.dumps(roles), encoding="utf-8")
     output = tmp_path / "inputs.json"
     args = ["--index", str(index_path), "--roles", str(roles_path),
             "--site-map", str(site_map), "--output", str(output)]
@@ -451,11 +451,11 @@ def test_scope_change_requires_both_named_qualification_receipts(tmp_path):
         "evaluation/trajectory-replay/webarena-verified/"
         "retrieval-candidates/qualification-matrix.json"
     )
-    matrix = json.loads(matrix_path.read_text())
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
     qualification = matrix["rows"][0]["affected_task_qualification"]
     del qualification["chromium_receipt_sha256"]
     del qualification["moli_receipt_sha256"]
-    matrix_path.write_text(json.dumps(matrix))
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
     with pytest.raises(ValueError, match="paired proof"):
         freeze_original_failure_inputs(
             index, site_map_path=site_map, step_roles=roles, reference_root=tmp_path,
@@ -467,14 +467,14 @@ def test_freeze_command_rejects_input_drift_before_writing(tmp_path, monkeypatch
 
     index, site_map, roles = _fixture(tmp_path)
     index_path, roles_path = tmp_path / "index.json", tmp_path / "roles.json"
-    index_path.write_text(json.dumps(index))
-    roles_path.write_text(json.dumps(roles))
+    index_path.write_text(json.dumps(index), encoding="utf-8")
+    roles_path.write_text(json.dumps(roles), encoding="utf-8")
     output = tmp_path / "inputs.json"
     original = remote_runtime.freeze_original_failure_inputs
 
     def changing_input(*args, **kwargs):
         result = original(*args, **kwargs)
-        roles_path.write_text(roles_path.read_text() + "\n")
+        roles_path.write_text(roles_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         return result
 
     monkeypatch.setattr(remote_runtime, "freeze_original_failure_inputs", changing_input)

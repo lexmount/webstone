@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harness.trajectory_replay.public_webarena.qualification import build_native_scope
+from harness.trajectory_replay.report_inputs import replay_input_path
 
 
 @pytest.fixture
@@ -14,10 +15,10 @@ def native_inputs(tmp_path):
     suite, images = tmp_path / "suite.json", tmp_path / "images.json"
     suite.write_text(json.dumps({"tasks": [
         {"id": f"custom-{n}", "environment": {"sites": ["one"]}} for n in range(3)
-    ] + [{"id": "other", "environment": {"sites": ["two"]}}]}))
+    ] + [{"id": "other", "environment": {"sites": ["two"]}}]}), encoding="utf-8")
     images.write_text(json.dumps({"images": {
         "one": {"architecture": "arm64"}, "two": {"architecture": "amd64"}
-    }}))
+    }}), encoding="utf-8")
     return suite, images
 
 
@@ -42,14 +43,14 @@ def test_invalid_scope_is_rejected(native_inputs, damage, tmp_path):
         alias.symlink_to(images)
         images = alias
     elif damage == "invalid-architecture":
-        images.write_text(json.dumps({"images": {"one": {"architecture": None}}}))
+        images.write_text(json.dumps({"images": {"one": {"architecture": None}}}), encoding="utf-8")
     else:
         data = json.loads(suite.read_bytes())
         if damage == "duplicates":
             data["tasks"].append(data["tasks"][0])
         else:
             data["tasks"][0]["environment"]["sites"] = ["unbound"]
-        suite.write_text(json.dumps(data))
+        suite.write_text(json.dumps(data), encoding="utf-8")
     with pytest.raises(ValueError):
         build_native_scope(suite, images, "arm64", None)
 
@@ -61,7 +62,7 @@ def test_scope_rejects_source_change_during_selection(native_inputs, monkeypatch
     original = q.safe_identifier
 
     def validate(value):
-        images.write_text("{}")
+        images.write_text("{}", encoding="utf-8")
         return original(value)
 
     monkeypatch.setattr(q, "safe_identifier", validate)
@@ -81,7 +82,7 @@ def test_scope_command_preserves_existing_output_before_inspecting_inputs(tmp_pa
 
 def test_amd64_scope_excludes_non_native_and_unscoreable_tasks():
     result = build_native_scope(
-        Path("evaluation/browser-use-public/webarena-human-suite.json"),
+        replay_input_path(current="human-candidates"),
         Path("evaluation/browser-use-public/webarena-environment-images.json"),
         "amd64",
     )

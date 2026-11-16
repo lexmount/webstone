@@ -26,7 +26,7 @@ They must never be added to `metadata`, content, manifest or logs.
 
 ## Add an adapter
 
-1. Implement `Provider` and register its type in `harness/web_fetch/providers/base.py`.
+1. Implement `Provider` and add its type to `PROVIDER_TYPES` in `src/harness/web_fetch/providers/base.py`.
 2. Add an example configuration and tests using local fixtures.
 3. Assign its output contract in `methods.py`.
 
@@ -34,7 +34,7 @@ Use the existing scorer and report renderer.
 
 ### Hosted Markdown fetch services
 
-Five methods share `providers/hosted_fetch.py` and the existing HTTP client,
+Five methods share `src/harness/web_fetch/providers/hosted_fetch.py` and the existing HTTP client,
 runner and scorer. Their credentials and fixed options are declared in
 `configs/providers.example.json`; credentials come from the repository `.env`.
 
@@ -61,10 +61,26 @@ is distinct from target-site status. `log_level: debug` saves redacted caller
 requests, response headers/body and errors; it cannot expose undisclosed service
 internals. Only Bright Data receives the native debug option.
 
-`dns_mode: system` uses the local resolver for API hosts; target-site DNS belongs
-to the service. No automatic DNS fallback is added. All five services retain their
-native internal timeout defaults within the caller's deadline. Historical runs
-keep their recorded configuration.
+Historical native selectors require independent caller approval. A saved-matrix
+specification can select `native_policy_registry: {"path": "...", "sha256": "..."}`.
+The external JSON has `schema_version: 1` and a `sources` list; each entry contains
+`source_sha256`, a supported `version` (1, 2 or 3), and a nonempty review `reason`.
+Keep this report-specific registry beside evidence, not in source code. The builder
+verifies its binding and copies it into the portable report; source-aware checking
+also requires it to match the caller's original approval. A saved receipt cannot
+authorize its own implementation. Unknown sources fail closed, retained source
+bytes are hash-checked, and saved code is never executed. Lower-level evidence
+tools must enter `approved_native_policies(registry)` only after independently
+verifying the selected registry binding; approval ends when that context exits.
+
+All hosted API adapters honor `dns_mode` at the shared HTTP boundary:
+`system` uses the local resolver and `public_doh` uses the declared DoH resolver
+for API hosts, including redirects. DoH failure does not fall back to system DNS
+or add a retry. Results and diagnostic logs retain the selected mode and observed
+resolutions. This controls the caller-to-API connection; target-site DNS belongs
+to the service. Moli keeps its separately declared native-process DNS mode.
+Services retain their native internal timeout defaults within the caller's
+deadline. Historical runs keep their recorded configuration and evidence.
 
 API references: [Bright Data](https://docs.brightdata.com/api-reference/rest-api/unlocker/unlock-website),
 [fetch-use](https://browser-use.com/posts/fetch-use),
@@ -86,6 +102,18 @@ so these adapters also run from an installed wheel outside the checkout.
 Native Markdown routes do not require Docker. Resource measurement requires the
 Docker extra and a declared image containing the same worker bytes as the host.
 
+`ENGINES` in `src/harness/web_fetch/providers/headless.py` holds one definition per
+engine: its command-line templates, native CDP server arguments, completion
+semantics, task routes and recorded metadata.
+`tests/golden/headless-engine-routes.jsonl` pins each resulting command line.
+
+Until [#183](https://github.com/lexmount/webstone/issues/183) lands, `ENGINES` does
+not own every engine decision. A new engine also needs matching changes in
+`providers/headless_worker.py`, which selects routes by engine name, in
+`task_outputs.py`, which rejects any other engine, and in `network_preflight.py`, which
+tests `kitesurf` by name. Editing the worker changes its hash, so every declared resource
+image must be rebuilt with the same bytes.
+
 HTML conversion requires Node.js and `node-html-markdown` 2.0.0. A checkout uses
 the package installed by `npm ci`. Installed-wheel users must install that npm
 package separately and set `node_html_markdown_path` to its absolute package
@@ -95,7 +123,7 @@ different version before calls; the converter itself ships in the wheel.
 ## Third-party tools and library workers
 
 Repository-native third-party workers ship under
-`harness/web_fetch/workers/` in both source and wheel distributions. Commands
+`src/harness/web_fetch/workers/` in both source and wheel distributions. Commands
 and `required_paths` use `{harness_root}/harness/web_fetch/workers/<worker>`;
 the same configuration resolves package assets outside a checkout. Python
 library workers require the `oss-eval` extra and an explicit interpreter from

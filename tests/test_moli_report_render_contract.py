@@ -1,5 +1,7 @@
 """Exercise the report's public fixed-layout comparison components."""
 
+from harness.distribution import source_path
+
 import json
 import re
 import shutil
@@ -14,9 +16,9 @@ class MoliReportRenderContractTests(unittest.TestCase):
         if node is None:
             self.skipTest("Node.js is required for report component checks")
         root = Path(__file__).resolve().parents[1]
-        script = root / "harness/lexbench/assets/render_contract.cjs"
+        script = source_path("harness/lexbench/assets/render_contract.cjs", root=root)
         subprocess.run(
-            [node, str(script), "--app", str(root / "scripts/moli_report/app.js")],
+            [node, str(script), "--app", str(root / "src/harness/lexbench/template/app.js")],
             check=True,
             capture_output=True,
             text=True,
@@ -25,7 +27,7 @@ class MoliReportRenderContractTests(unittest.TestCase):
 
 def test_catalog_editions_have_matching_keys_and_parameters():
     root = Path(__file__).resolve().parents[1]
-    catalog = json.loads((root / "scripts/moli_report/messages.json").read_text())
+    catalog = json.loads((root / "src/harness/lexbench/template/messages.json").read_text(encoding="utf-8"))
     english = catalog["en"]["messages"]
     chinese = catalog["zh"]["messages"]
     assert english.keys() == chinese.keys()

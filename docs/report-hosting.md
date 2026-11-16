@@ -1,8 +1,16 @@
 # Create and share a report
 
-Open Artifact Site ([Mainland China](https://yours.lexmount.cn/artifact-site) · [Global](https://yours.lexmount.com/artifact-site)) and install the skill provided on the site. Follow it to create and publish a report, then set sharing permissions there.
+Report generation is optional. When you need a report, build it locally from saved results. Local builds need no Artifact Site account or publication token.
 
-For a local build, publish the generated `report/` directory. Keep the rest of the run locally for rebuilding and auditing.
+The Web Fetch CLI builds a local report after `run` and `rescore` by default. Add `--no-report` to either command to save the evaluation or scoring outputs without generating HTML. `rescore --no-report` leaves any existing report unchanged; rebuild it to inspect the updated scores.
+
+To build a report later from a saved Web Fetch CLI run:
+
+```sh
+uv run --frozen python -m harness.web_fetch report /absolute/run
+```
+
+The generated pages are saved in `<run>/report/`. Other tracks have their own [report builders](../README.md#evaluation-tracks). Keep the run's saved results and evidence locally so you can inspect and rebuild the report.
 
 ## Report instances
 
@@ -22,28 +30,40 @@ an older report.
 
 ## Report languages
 
-The Web Fetch CLI falls back to English. `BROWSER_EVAL_REPORT_LANGUAGE=zh` changes the environment default, and `--language` overrides it. A rebuild without `--language` keeps the saved choice.
+The Web Fetch CLI falls back to English. `WEBSTONE_REPORT_LANGUAGE=zh` changes the environment default, and `--language` overrides it. A rebuild without `--language` keeps the saved choice.
 
 | Builder | Language selection |
 | --- | --- |
-| `browser-harness-eval run`, `report`, `rescore` | `--language en` or `--language zh`; fallback English, environment configurable |
+| `webstone run`, `report`, `rescore` | `--language en` or `--language zh`; fallback English, environment configurable |
 | `scripts/build_report.py`: standard Web Fetch, local audit, WCXB, WebMainBench sample, research companion | `--language en` or `--language zh`; fallback English, environment configurable |
-| `scripts/build_browser_use_report.py` | `--language en` or `--language zh`; fallback English, environment configurable |
-| `scripts/build_webarena_replay_report.py` | `--language en` or `--language zh`; fallback English, environment configurable |
+| `uv run --frozen python -m harness.browser_use report` | `--language en` or `--language zh`; fallback English, environment configurable |
+| `uv run --frozen python -m harness.trajectory_replay report` | `--language en` or `--language zh`; fallback English, environment configurable |
 | Complete 545-case WebMainBench and diagnostic-cohort reports | Chinese-only content; omitted language keeps the historical Chinese default; explicit `en` is rejected |
 | Curated replay example, public WebArena recording report and catalog | Chinese-only renderers; no language option |
+| `uv run --frozen python -m harness.web_extract.cli report` | Product reports support `--language en|zh`; record reports currently support Chinese only and reject explicit `en`. Chinese-only builds provide an English not-generated notice |
+| `uv run --frozen python -m harness.lexbench report` | Declared historical adapter: Chinese by default, `--include-english` adds English; no `--language` option |
 
 Builders keep the saved language when rebuilding without `--language`. Make follows the same rule; set an explicit override through `REPORT_LANGUAGE=en` or `REPORT_LANGUAGE=zh`.
 
 English builds retain a Chinese edition so readers can switch languages. Chinese-only builds show a notice at the English entry. These choices affect report text and navigation, not scores, timings or saved evidence. Task names, source quotations, responses and logs stay in their original language.
 
-Upload the entire report directory, including the English notice or explicitly generated edition, assets and evidence. The report root opens the selected language. Serve the directory over HTTP for evidence that loads on demand.
+Serve the local report directory over HTTP to use evidence that loads on demand. The report root opens the selected language. When sharing, include the generated editions or English notice, assets and declared public evidence in the report bundle.
+
+An agent-driven new build uses the current conversation language instead of guessing from the host locale. A Chinese selection generates no English translation unless explicitly requested. Historical Chinese-only renderers must state their limitation and reject unsupported requests. Record generated editions and the selected entry in report metadata. Navigation lists generated editions only. An old direct English entry may retain a not-generated notice with a return link; it is not advertised as an available edition. Remove stale English pages and unused assets. Validate each generated edition; require route, value and evidence-link parity only when both editions were explicitly generated.
+
+For the current trajectory report, `make trajectory-replay-report EVIDENCE=/absolute/path/results.json` uses the shared language resolution. Set `REPORT_LANGUAGE=zh|en`, `WEBSTONE_REPORT_LANGUAGE=zh|en`, or the build script's `--language` when selecting a different entry. Report, visual and packaging checks use the generated manifest, so they do not regenerate an absent edition.
 
 Only `en` and `zh` are supported. Unsupported codes fail before a run starts or an existing report is replaced. Browser or operating-system language does not silently change a report. To add a language, extend the owning renderer's translation catalog and route, value and evidence-link checks; see [contributing](../CONTRIBUTING.md).
 
+## Optional sharing
+
+Upload to Artifact Site only when the user has authorized publication to the selected target. Until then, keep the report local.
+
+To share a report, open Artifact Site ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)) and install the skill provided there. Use it to publish the report bundle and set access permissions. Keep the remaining run files local for rebuilding and auditing.
+
 ## Maintained benchmark releases
 
-Formal releases use the selected track's package/publish commands after certification, required review and release checks. See [architecture](architecture.md#reports-and-publication) and the [track guides](../README.md#evaluation-tracks).
+For an authorized formal release, use the selected track's package/publish commands after certification, required review and release checks. See [architecture](architecture.md#reports-and-publication) and the [track guides](../README.md#evaluation-tracks).
 
 | Requirement | Why it matters |
 | --- | --- |
@@ -51,4 +71,10 @@ Formal releases use the selected track's package/publish commands after certific
 | Create your own profile and target for a new experiment | Historical publication targets belong to their original reports |
 | Keep publication authorization separate from evaluation credentials | Repository publishers never read `.env` for publishing |
 
-The repository publisher reads `ARTIFACT_SITE_TOKEN`, then the selected host's token under `~/.config/artifact-site/tokens/<host>`. Previous Artifact Hub locations are read-only migration fallbacks. Save authorizations per host without overwriting another deployment's token.
+The repository publisher reads `ARTIFACT_SITE_TOKEN`, then the selected host's token under `~/.config/artifact-site/tokens/<host>`. The previous `~/.config/artifact-hub/tokens/<host>` and then `ARTIFACT_HUB_TOKEN` follow as read-only migration fallbacks, so a stale host-agnostic variable cannot replace a host-scoped token; a token file not scoped to the selected host is never used. `scripts/authorize_artifact_site.py` has no default host, so pass the target's service URL with `--base-url`. Save authorizations per host without overwriting another deployment's token.
+
+A Web Extract publication target can set `inline_limit_bytes` after verifying the
+host's advertised request limit, leaving room for multipart overhead. This lets a
+larger ZIP use one request rather than per-file staging. Without an explicit limit,
+the publisher keeps its conservative default; already staged operations retain
+their original transport and recovery identity.

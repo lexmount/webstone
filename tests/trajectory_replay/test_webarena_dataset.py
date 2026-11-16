@@ -23,7 +23,7 @@ from harness.trajectory_replay.webarena_plan import (
 def test_committed_trajectories_match_their_task_contract() -> None:
     root = Path(__file__).resolve().parents[2]
     selection = json.loads(
-        (root / "evaluation/browser-use/webarena-verified-pilot.json").read_text()
+        (root / "evaluation/browser-use/webarena-verified-pilot.json").read_text(encoding="utf-8")
     )
     dataset = json.loads(
         (root / "evaluation/trajectory-replay/webarena-verified/trajectories.json").read_text(
@@ -345,7 +345,7 @@ def _receipt(
         "task_ids": task_ids,
         "engines": ["chromium"],
         "runtime": {
-            "browser_eval_commit": "browser-eval-commit",
+            "webstone_commit": "webstone-commit",
             "cowagent_commit": "cowagent-commit",
             "resources": {"cpus": 2.0, "memory": "2g", "sample_interval_ms": 100},
             "browser_images": {"chromium": {"id": "chromium-image"}},

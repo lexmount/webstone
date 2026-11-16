@@ -5,11 +5,11 @@ from urllib.parse import urlencode
 
 import pytest
 
+from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.public_webarena.evaluators import (
     TaskEvidence,
     WebArenaVerifiedEvaluator,
 )
-from harness.trajectory_replay.public_webarena.suite import BrowserTask
 
 
 def test_official_webarena_verified_evaluator_accepts_programmatic_evidence(tmp_path):
@@ -20,7 +20,7 @@ def test_official_webarena_verified_evaluator_accepts_programmatic_evidence(tmp_
                 "environments": {
                     "__SHOPPING_ADMIN__": {
                         "urls": ["http://shopping-admin.test/admin"],
-                        "credentials": {"username": "admin", "password": "admin1234"},
+                        "credentials": {"username": "fixture-admin", "password": "fixture-secret"},
                     }
                 }
             }
@@ -642,3 +642,85 @@ def test_official_task_611_requires_one_post_id_in_comment_url_and_form_key(
     )
 
     assert result.status == expected_status
+
+
+
+def test_evaluator_registry_follows_runtime_config_rewritten_by_slice_reset(tmp_path):
+    from harness.trajectory_replay.public_webarena.evaluators import EvaluatorRegistry
+
+    config = tmp_path / "config.json"
+    task = BrowserTask(
+        task_id="webarena-514",
+        title="Add a white desk to my wish list",
+        tool_calls=(),
+        assertions=(),
+        tags=(),
+        difficulty="simple",
+        ground_truth={"expected_actions": []},
+        source={"url": "https://example.test/514.trace.zip"},
+        evaluator={"kind": "webarena_verified", "task_id": 514, "revision": 2},
+        environment={"kind": "webarena_verified"},
+    )
+    registry = EvaluatorRegistry(webarena_config_path=config)
+
+    # A Rainbond slice reset recreates the sites under new domains and rewrites the config.
+    for generation in (1, 2):
+        site = f"http://slice-generation-{generation}.test"
+        config.write_text(
+            json.dumps({"environments": {"__SHOPPING__": {"urls": [site]}}}),
+            encoding="utf-8",
+        )
+        har = tmp_path / f"network-{generation}.har"
+        har.write_text(
+            json.dumps(
+                {
+                    "log": {
+                        "version": "1.2",
+                        "creator": {"name": "test", "version": "1"},
+                        "entries": [
+                            {
+                                "request": {
+                                    "method": "POST",
+                                    "url": f"{site}/wishlist/index/add/",
+                                    "headers": [],
+                                    "postData": {
+                                        "mimeType": "application/x-www-form-urlencoded",
+                                        "text": "product=123",
+                                    },
+                                },
+                                "response": {
+                                    "status": 302,
+                                    "redirectURL": f"{site}/wishlist/",
+                                    "headers": [],
+                                    "cookies": [
+                                        {
+                                            "name": "mage-messages",
+                                            "value": (
+                                                "White%20desk%20has%20been%20added%20to%20"
+                                                "your%20wish%20list."
+                                            ),
+                                        }
+                                    ],
+                                    "content": {"mimeType": "text/html", "text": ""},
+                                },
+                            }
+                        ],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        result = registry.evaluate(
+            task,
+            TaskEvidence(
+                outputs={},
+                process_passed=True,
+                agent_response={
+                    "task_type": "mutate",
+                    "status": "SUCCESS",
+                    "retrieved_data": None,
+                },
+                network_har_path=har,
+            ),
+        )
+        assert (generation, result.status) == (generation, "pass"), result.error

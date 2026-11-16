@@ -18,7 +18,7 @@ Document formats do not universally need Markdown. If the task is file retrieval
 
 ## Fairness means equivalent opportunity
 
-Give each method the best supported route that satisfies the same external contract: native Markdown, structured endpoint, browser protocol, CLI, or a declared converter. Do not handicap a method to mimic another method's implementation.
+Give each method the best supported route that satisfies the same external contract: native Markdown, structured endpoint, browser protocol, CLI, or a declared converter. Do not handicap a method to mimic another method's implementation. Equalize the task, inputs, output contract, call budget and scoring; do not require identical internals.
 
 Record, and where useful split, these sources of difference:
 
@@ -32,9 +32,25 @@ Record, and where useful split, these sources of difference:
 
 If these cannot be normalized, disclose them and avoid causal claims the design cannot support. A matched-task latency comparison may still be useful when labeled as end-to-end user-observed latency.
 
-When comparing builds of one implementation, do not infer a code-induced latency change from two complete but time-separated batches. Predeclare the full input scope and selected round, alternate build order within every task, run serially without competing benchmark/build jobs, and retain every call with binary and input hashes. A subset is diagnostic only. If this experiment corrects the authoritative table, supersede the complete declared timing scope, preserve prior physical calls, and make report values and per-task details derive from the same selected calls. Enforce these checks in the release gate.
+A report claiming a before/after build speed difference must use a predeclared paired protocol; otherwise do not claim a difference. Two complete but time-separated batches cannot supply the authoritative difference. Predeclare the full input scope and select the round before seeing results, alternate build order within every task, run serially on a quiet host without competing benchmark/build jobs, and retain every call with binary and input hashes. A subset is diagnostic only. If this experiment corrects the authoritative table, retain the earlier timing privately, supersede the complete declared timing scope, preserve prior physical calls, and make report values and per-task details derive from the same selected calls. That report's release check must reject an absent or partial timing receipt.
 
 ## References and volatile sources
+
+Select tasks by independently verified page and reference validity, never by a
+participant's accessibility or score. A checker timeout, rate limit, security
+block, or HTTP error leaves validity unresolved; it is not proof that the page
+has disappeared. Retain that candidate for independent verification rather than
+silently replacing it with an easier page. Exclude or correct a task only with
+source evidence of removal, wrong content, or erroneous/stale annotations, and
+apply that decision to every participant. A provider's failure on a valid task
+remains a measured failure.
+
+For a live cohort, an independently captured reference observation may remain
+authoritative during a predeclared, bounded freshness window. Freeze its original
+URL, observation time and input/reference hashes before calls. If a later source
+check is blocked, retain the task and record the failed check and the age of the
+reference observation. A successful check showing changed answers overrides this
+fallback; expired or unsupported observations cannot qualify the task.
 
 Prefer invariant contracts for changing pages: stable labels, required fields, record shape, types, count bounds, uniqueness, and independently observed explanatory text. Do not freeze ranks, prices, member counts, or current titles unless the benchmark is explicitly a time-bound snapshot.
 
@@ -42,8 +58,28 @@ Ground truth must be independent of the provider under test. Retain source locat
 
 ## Machine-readable current profile
 
+The [shared execution contract](../../../../docs/benchmark-execution.md) owns
+resource admission, parallelism, preflight estimates, startup cost and resumable
+execution for every track. Freeze those decisions before the full matrix. Keep
+quality collection, isolated latency and loaded throughput explicitly scoped.
+
 Keep one current profile that a fresh session can validate before running, scoring, rebuilding, or publishing. Include exact case IDs or their canonical digest, the ordered method/version set, run count, timeout, concurrency policy, output contract, reference state, review requirement, and release target. Fail closed on drift instead of reconstructing intent from old reports.
 
-For native-content browser comparisons, use task-appropriate official interfaces and score the returned deliverable. A final URL or HTML language tag is diagnostic unless the benchmark explicitly evaluates that metadata. Do not repair missing text using JSON DOM conversion or external PDF/DOCX parsers. The declared Chromium HTML-to-Markdown exception does not authorize document parsers. Bind native script versions, generate the interface matrix from the runner route selector, and require route validation at aggregation and publication. Keep negative controls for wrong content alongside positive controls for correct content with missing metadata.
+The [live-URL guide](../../../../src/harness/web_fetch/HEADLESS.md#native-browser-routes) owns native browser route rules.
 
-Keep browser engines distinct from execution configurations. Released and source-build variants use separate method identities in the execution registry and share the engine's native route constraints. Derive interface columns and participant counts from that registry. A strict native-mode marker selects default completion; it supplies no per-case selector or wait and must survive both dataset conversion and runner validation. Resource projection must preserve single URL values and tokenize only srcset candidates, including literal commas inside URLs. Protect these boundaries with runner, report and actual-browser controls.
+## Hosted copies of frozen inputs
+
+For Web Extract snapshot hosting, use the selected HF edition as the input
+authority. Resolve the requested tag or latest once, freeze its full commit, and
+keep historical runs pinned. Default to Cloudflare but accept other public origins.
+Public HTML hosting is optional: reuse each dataset's independent service or
+verify a caller-supplied origin. A navigation page is optional and owns no inputs.
+Managed snapshots declare their HF repository, full source commit and dataset/file
+inventory hashes in one public manifest. Identify and recheck the dataset through
+that manifest; do not download every HTML page to determine a snapshot version.
+Keep an explicit byte audit separate from normal version checks. An unversioned
+copy needs an approved replacement deployment. A mismatch
+must produce a target- and version-bound proposal without remote writes. Deploy
+only after explicit approval, reject a proposal if its HF commit or target has
+changed, and retain previous deployment URLs. Hosting metadata may accompany HF
+originals, but it must never replace them or silently advance an active cohort.

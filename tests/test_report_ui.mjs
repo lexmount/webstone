@@ -2,8 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source = fs.readFileSync(new URL('../harness/web_fetch/report.py', import.meta.url), 'utf8');
-const js = source.match(/JS=r'''([\s\S]*?)'''/)[1];
+const js = fs.readFileSync(new URL('../src/harness/web_fetch/assets/report.js', import.meta.url), 'utf8');
 const filters = [{dataset:{filter:'track'},value:'image'}, {dataset:{filter:'result'},value:'pass'}, {dataset:{filter:'query'},value:'CAT'}];
 const rows = [
   {dataset:{track:'image',result:'pass'},textContent:'Cat photo'},
@@ -52,6 +51,10 @@ const methodNames=new Map(body.rows.map(row=>[row,row.cells[0].textContent]));
 vm.runInContext("sortTable('test',1)",context);
 assert.ok(body.rows.every(row=>row.cells[0].textContent===methodNames.get(row)));
 delete table.dataset.rowIndex;
+body.rows.forEach((row,i)=>{row.cells[0].dataset={rank:String(i<2?1:i+1)};row.cells[0].textContent=row.cells[0].dataset.rank});
+const scoreRanks=new Map(body.rows.map(row=>[row,row.cells[0].textContent]));
+vm.runInContext("sortTable('test',1)",context);
+assert.ok(body.rows.every(row=>row.cells[0].textContent===scoreRanks.get(row)));
 table.dataset.col='0';table.dataset.dir='desc';
 vm.runInContext('paintSort(document.getElementById("test"))',context);
 assert.ok(headCells[0].classList.contains('sorted')&&!headCells[1].classList.contains('sorted'));

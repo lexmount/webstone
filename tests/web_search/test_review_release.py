@@ -5,6 +5,7 @@ import json
 import pytest
 from bs4 import BeautifulSoup
 
+from harness.record_io import bytes_sha256
 from harness.web_search import review
 from harness.web_search.example import example
 from harness.web_search.report import build, check
@@ -17,13 +18,13 @@ def audited_fixture(tmp_path, source_mode="frozen", packet_bound=False, scope="a
         profile = json.loads((source / "profile.json").read_bytes())
         profile["protocol"].update(rounds=rounds, score_round=score_round)
         review.save(source / "profile.json", profile)
-        original = [json.loads(line) for line in (source / "results.jsonl").read_text().splitlines()]
+        original = [json.loads(line) for line in (source / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         rows = [dict(row, id=row["id"].removesuffix("r0") + f"r{number}", round=number)
                 for number in range(rounds) for row in original]
-        (source / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+        (source / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         receipt = json.loads((source / "receipt.json").read_bytes())
-        receipt.update(call_count=len(rows), profile_sha256=review.sha((source / "profile.json").read_bytes()),
-                       results_sha256=review.sha((source / "results.jsonl").read_bytes()))
+        receipt.update(call_count=len(rows), profile_sha256=bytes_sha256((source / "profile.json").read_bytes()),
+                       results_sha256=bytes_sha256((source / "results.jsonl").read_bytes()))
         review.save(source / "receipt.json", receipt)
         build(tmp_path / "report", source=source)
     report = tmp_path / "report"
@@ -70,15 +71,15 @@ def audited_fixture(tmp_path, source_mode="frozen", packet_bound=False, scope="a
         text = review._input_text(contract, packet, entry["sha256"])
         attempt = job / "attempt-001"
         attempt.mkdir()
-        (attempt / "input.txt").write_text(text)
+        (attempt / "input.txt").write_text(text, encoding="utf-8")
         (attempt / "result.json").write_bytes(submission.read_bytes())
         schema_path = root / "schema.json"
         schema_receipt = {}
         if packet_bound:
             schema_path = attempt / "schema.json"
             review.save(schema_path, review._packet_schema(review.SCHEMA, packet, entry["sha256"]))
-            schema_receipt = {"schema_protocol": "packet-identities/1", "schema_sha256": review.sha(schema_path.read_bytes())}
-        review.save(job / "status.json", {"status":"completed","backend":"codex-cli","returncode":0,"attempt":attempt.name,"command":review._review_command("codex", contract["model"], attempt, schema_path.resolve(), (attempt / "result.json").resolve(), source_mode=review._source_mode(contract)),"packet_sha256":entry["sha256"],"contract_sha256":review.sha(review.encoded(contract)),"input_sha256":review.sha(text.encode()),"result_sha256":review.sha(submission.read_bytes()), **schema_receipt})
+            schema_receipt = {"schema_protocol": "packet-identities/1", "schema_sha256": bytes_sha256(schema_path.read_bytes())}
+        review.save(job / "status.json", {"status":"completed","backend":"codex-cli","returncode":0,"attempt":attempt.name,"command":review._review_command("codex", contract["model"], attempt, schema_path.resolve(), (attempt / "result.json").resolve(), source_mode=review._source_mode(contract)),"packet_sha256":entry["sha256"],"contract_sha256":bytes_sha256(review.encoded(contract)),"input_sha256":bytes_sha256(text.encode()),"result_sha256":bytes_sha256(submission.read_bytes()), **schema_receipt})
     evidence = review.collect(root, require_complete=True)
     evidence["adjudications"] = {}
     return report, evidence
@@ -94,7 +95,7 @@ def test_scoring_input_check_validates_evidence_without_rechecking_html(tmp_path
         raise AssertionError("Evidence-only scoring must not parse report pages")
     monkeypatch.setattr("harness.web_search.report.BeautifulSoup", unexpected_html)
     assert check(out, evidence_only=True)
-    (out / "independent-review.json").write_text("{}")
+    (out / "independent-review.json").write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="hash mismatch|SHA|Hash"):
         check(out, evidence_only=True)
 
@@ -106,15 +107,15 @@ def test_review_release_counts_failures_and_retains_opinions(tmp_path, layout):
     review.save(path, evidence)
     out = tmp_path / "released"
     content = tmp_path / "content.json"
-    content.write_text(json.dumps({"presentation": layout}))
+    content.write_text(json.dumps({"presentation": layout}), encoding="utf-8")
     build(out, source=tmp_path / "fixture", review=path, content=content)
     assert check(out)
-    soup = BeautifulSoup((out / "index.html").read_text(), "html.parser")
+    soup = BeautifulSoup((out / "index.html").read_text(encoding="utf-8"), "html.parser")
     coverage = soup.select_one("[data-review-coverage]")
     assert coverage is not None
     assert coverage['data-review-percent'] == "100"
     assert "100%" in coverage.get_text()
-    summary = BeautifulSoup((out / "review.html").read_text(), "html.parser").select_one("[data-independent-review]")
+    summary = BeautifulSoup((out / "review.html").read_text(encoding="utf-8"), "html.parser").select_one("[data-independent-review]")
     assert "100%" in summary.get_text()
     if layout == 'comparison-report':
         assert coverage['data-reviewed-queries'] == f"{evidence['case_reviewed']}/{evidence['case_total']}"
@@ -130,11 +131,11 @@ def test_review_release_counts_failures_and_retains_opinions(tmp_path, layout):
         != manifest["profile"]["protocol"]["review"]
     )
     assert all(
-        "data-independent-opinion" in (out / route).read_text()
+        "data-independent-opinion" in (out / route).read_text(encoding="utf-8")
         for route in manifest["routes"]
         if route.startswith("details/")
     )
-    (out / "independent-review.json").write_text("{}")
+    (out / "independent-review.json").write_text("{}", encoding="utf-8")
     with pytest.raises(ValueError, match="hash mismatch"):
         check(out)
 
@@ -178,9 +179,9 @@ def test_review_opinion_cannot_be_removed_or_changed_in_rendered_details(tmp_pat
     out = tmp_path / "released"
     build(out, source=tmp_path / "fixture", review=path)
     detail = next((out / "details").glob("*.html"))
-    soup = BeautifulSoup(detail.read_text(), "html.parser")
+    soup = BeautifulSoup(detail.read_text(encoding="utf-8"), "html.parser")
     soup.select_one("[data-independent-opinion]").decompose()
-    detail.write_text(str(soup))
+    detail.write_text(str(soup), encoding="utf-8")
     with pytest.raises(ValueError, match="review detail"):
         check(out)
 
@@ -192,9 +193,9 @@ def test_current_review_metadata_must_agree_with_bound_evidence(tmp_path):
     out = tmp_path / "released"
     build(out, source=tmp_path / "fixture", review=path)
     manifest_path = out / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["profile"]["protocol"]["review"] = "No independent review"
-    manifest_path.write_text(json.dumps(manifest))
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(ValueError, match="metadata contradicts"):
         check(out)
 
@@ -207,9 +208,9 @@ def test_reference_exclusion_cannot_target_a_provider_output(tmp_path):
     # Rebind the fixture opinion exactly as a completed independent submission.
     run = next(r for r in evidence["review_runs"] if case["case_id"] in r["case_ids"])
     original_cases = [{**c, "output_reviews": [{k: v for k, v in o.items() if k not in ("row_id", "method", "raw_sha256")} for o in c["output_reviews"]]} for c in evidence["cases"] if c["case_id"] in run["case_ids"]]
-    run["opinion_sha256"] = review.sha(review.encoded({"packet_sha256": run["packet_sha256"], "cases": original_cases}))
+    run["opinion_sha256"] = bytes_sha256(review.encoded({"packet_sha256": run["packet_sha256"], "cases": original_cases}))
     key = case["case_id"] + ":dataset"
-    evidence["adjudications"][key] = {"opinion_sha256": review.sha(review.encoded(case["dataset_review"])), "resolution": "quarantined", "quality_excluded": True, "reason": "Defect", "evidence": "Source"}
+    evidence["adjudications"][key] = {"opinion_sha256": bytes_sha256(review.encoded(case["dataset_review"])), "resolution": "quarantined", "quality_excluded": True, "reason": "Defect", "evidence": "Source"}
     with pytest.raises(ValueError, match="factual reference defect|receipt differs"):
         review.validate_public_review(profile, rows, evidence)
 
@@ -232,10 +233,10 @@ def test_summary_rejects_tampered_review_scope(tmp_path, defect):
     review.save(path, evidence)
     output = tmp_path / "released"
     content = tmp_path / "content.json"
-    content.write_text(json.dumps({"presentation": "comparison-report"}))
+    content.write_text(json.dumps({"presentation": "comparison-report"}), encoding="utf-8")
     build(output, source=tmp_path / "fixture", review=path, content=content)
     homepage = output / "index.html"
-    doc = BeautifulSoup(homepage.read_text(), "html.parser")
+    doc = BeautifulSoup(homepage.read_text(encoding="utf-8"), "html.parser")
     coverage = doc.select_one("[data-review-coverage]")
     if defect == "outputs":
         coverage["data-reviewed-outputs"] = "999/999"
@@ -245,8 +246,8 @@ def test_summary_rejects_tampered_review_scope(tmp_path, defect):
         coverage.string = coverage.get_text().replace("100%", "99%")
     else:
         summary = output / "review.html"
-        summary.write_text(summary.read_text().replace("100%", "99%"))
-    homepage.write_text(str(doc))
+        summary.write_text(summary.read_text(encoding="utf-8").replace("100%", "99%"), encoding="utf-8")
+    homepage.write_text(str(doc), encoding="utf-8")
     with pytest.raises(ValueError, match="coverage|summary"):
         check(output)
 
@@ -280,7 +281,7 @@ def test_failure_only_audit_cannot_change_quality_denominator(tmp_path):
     ((0, 0, 0, 0, 0, 0), 0),
 ])
 def test_review_percentage_requires_all_three_populations(counts, expected):
-    evidence = dict(zip(("case_reviewed", "case_total", "output_reviewed", "output_total", "candidate_reviewed", "candidate_total"), counts))
+    evidence = dict(zip(("case_reviewed", "case_total", "output_reviewed", "output_total", "candidate_reviewed", "candidate_total"), counts, strict=True))
     assert review.coverage_percent(evidence) == expected
 
 
@@ -301,7 +302,7 @@ def test_public_provenance_rejects_altered_execution_and_source_identity(tmp_pat
         evidence["cases"][0]["output_reviews"][0]["raw_sha256"] = "0" * 64
     else:
         proof["contract"]["source_bindings"][0]["path"] = "/Users/private-home/manifest.json"
-        proof["public_contract_sha256"] = review.sha(review.encoded(proof["contract"]))
+        proof["public_contract_sha256"] = bytes_sha256(review.encoded(proof["contract"]))
     with pytest.raises(ValueError):
         review.validate_public_review(profile, rows, evidence)
 
@@ -315,7 +316,7 @@ def test_public_review_keeps_exact_readable_opinion_bytes_without_local_paths(tm
     assert '"command"' not in text and '"output_bytes_hex"' not in text
     for execution in evidence["provenance"]["executions"]:
         raw = execution["output_utf8"].encode("utf-8")
-        assert review.sha(raw) == execution["result_sha256"]
+        assert bytes_sha256(raw) == execution["result_sha256"]
         assert execution["verified_command_policy"]["web_search"] == "disabled"
 
 
@@ -324,7 +325,7 @@ def test_source_modes_bind_complete_execution_and_public_review(tmp_path, source
     report, evidence = audited_fixture(tmp_path, source_mode=source_mode)
     contract = review.load_frozen(tmp_path / "review")
     assert contract["source_mode"] == source_mode
-    assert contract["prompt_sha256"] == review.sha(review.REVIEW_PROMPTS[source_mode].encode())
+    assert contract["prompt_sha256"] == bytes_sha256(review.REVIEW_PROMPTS[source_mode].encode())
     for entry in contract["packets"]:
         assert review._successful(tmp_path / "review", entry, contract)
     assert all(e["verified_command_policy"]["web_search"] == web_search
@@ -347,7 +348,7 @@ def test_known_historical_prompt_hash_selects_mode_without_rewriting_inputs(tmp_
     for entry in contract["packets"]:
         job = root / "jobs" / entry["id"]
         state = json.loads((job / "status.json").read_bytes())
-        state["contract_sha256"] = review.sha(review.encoded(contract))
+        state["contract_sha256"] = bytes_sha256(review.encoded(contract))
         review.save(job / "status.json", state)
         original_inputs[entry["id"]] = (job / state["attempt"] / "input.txt").read_bytes()
     assert review._source_mode(review.load_frozen(root)) == source_mode

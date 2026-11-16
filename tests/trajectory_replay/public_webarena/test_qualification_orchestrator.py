@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
 from harness.trajectory_replay.public_webarena.qualification import (
     _write_immutable,
     build_scoped_repair_queue,
@@ -14,17 +15,14 @@ from harness.trajectory_replay.public_webarena.qualification import (
     task_contract_sha256,
     validate_completed_shard,
 )
-from harness.trajectory_replay.public_webarena.suite import BrowserTask, TaskSuite
-
-
-def _write_json(path, payload):
-    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+from harness.trajectory_replay.report_inputs import replay_input_path
+from tests.helpers import write_json
 
 
 def test_canonical_qualification_plan_is_an_exact_eighteen_shard_partition():
     shards = qualification_shards(
         Path("evaluation/browser-use-public/webarena-amd64-scope.json"),
-        Path("evaluation/browser-use-public/webarena-human-suite.json"),
+        replay_input_path(current="human-candidates"),
     )
 
     assert len(shards) == 18
@@ -33,10 +31,12 @@ def test_canonical_qualification_plan_is_an_exact_eighteen_shard_partition():
 
 
 def test_parallel_qualification_waves_never_share_a_site():
-    scope = json.loads(Path("evaluation/browser-use-public/webarena-amd64-scope.json").read_text())
+    scope = json.loads(
+        Path("evaluation/browser-use-public/webarena-amd64-scope.json").read_text(encoding="utf-8")
+    )
     shards = qualification_shards(
         Path("evaluation/browser-use-public/webarena-amd64-scope.json"),
-        Path("evaluation/browser-use-public/webarena-human-suite.json"),
+        replay_input_path(current="human-candidates"),
     )
 
     waves = qualification_waves(shards, scope, max_workers=3)
@@ -106,22 +106,22 @@ def test_completed_shard_validation_binds_manifest_hashes_scope_and_attempts(tmp
         evidence = output / "tasks" / row["task_id"] / "chromium" / "attempt-1"
         evidence.mkdir(parents=True)
         row["evidence_directory"] = str(evidence)
-        _write_json(evidence / "attempt.json", row)
-        _write_json(
+        write_json(evidence / "attempt.json", row)
+        write_json(
             evidence / "network.har",
             {
                 "log": {
-                    "creator": {"name": "browser-eval-cdp", "version": "3"},
+                    "creator": {"name": "webstone-cdp", "version": "3"},
                     "entries": [],
                 }
             },
         )
     attempts_path = output / "attempts.jsonl"
-    attempts_path.write_text("".join(json.dumps(row) + "\n" for row in attempts))
-    _write_json(output / "summary.json", {"ok": True})
+    attempts_path.write_text("".join(json.dumps(row) + "\n" for row in attempts), encoding="utf-8")
+    write_json(output / "summary.json", {"ok": True})
     suite_sha256 = "a" * 64
     scope_sha256 = "b" * 64
-    _write_json(
+    write_json(
         output / "manifest.json",
         {
             "suite_sha256": suite_sha256,
@@ -160,12 +160,12 @@ def test_completed_shard_validation_binds_manifest_hashes_scope_and_attempts(tmp
     )
 
     attempts[0]["is_retry"] = True
-    attempts_path.write_text("".join(json.dumps(row) + "\n" for row in attempts))
-    manifest = json.loads((output / "manifest.json").read_text())
+    attempts_path.write_text("".join(json.dumps(row) + "\n" for row in attempts), encoding="utf-8")
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     manifest["artifact_provenance"]["attempts_sha256"] = hashlib.sha256(
         attempts_path.read_bytes()
     ).hexdigest()
-    _write_json(output / "manifest.json", manifest)
+    write_json(output / "manifest.json", manifest)
     with pytest.raises(ValueError, match="primary-run policy"):
         validate_completed_shard(
             output,
@@ -194,15 +194,16 @@ def test_completed_shard_validation_rejects_old_har_creator(tmp_path):
                 "evidence_directory": str(evidence),
             }
         )
-        + "\n"
+        + "\n",
+        encoding="utf-8"
     )
-    _write_json(evidence / "attempt.json", json.loads(attempts_path.read_text()))
-    _write_json(output / "summary.json", {"ok": True})
-    _write_json(
+    write_json(evidence / "attempt.json", json.loads(attempts_path.read_text(encoding="utf-8")))
+    write_json(output / "summary.json", {"ok": True})
+    write_json(
         evidence / "network.har",
-        {"log": {"creator": {"name": "browser-eval-cdp", "version": "1"}}},
+        {"log": {"creator": {"name": "webstone-cdp", "version": "1"}}},
     )
-    _write_json(
+    write_json(
         output / "manifest.json",
         {
             "suite_sha256": "a" * 64,

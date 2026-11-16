@@ -38,3 +38,23 @@ class SharedRankingPresentationTests(unittest.TestCase):
         self.assertIn('comparison-winner good">0 ms',rendered)
         with self.assertRaises(ValueError):
             check_presentation(rendered.replace('comparison-winner good','good'))
+
+    def test_each_track_keeps_its_escaping_of_an_absent_value(self):
+        from harness.reporting.presentation import esc as fetch_esc
+        from harness.web_search.report import esc as search_esc
+        for esc in (fetch_esc, search_esc):
+            self.assertEqual(esc('<a href="x">\'&'), '&lt;a href=&quot;x&quot;&gt;&#x27;&amp;')
+            self.assertEqual(esc(0), '0')
+        self.assertEqual(fetch_esc(None), '')
+        self.assertEqual(search_esc(None), 'None')
+
+
+def test_explicit_all_ties_policy_requires_every_extremum_without_extra_labels():
+    from harness.reporting.presentation import check_presentation
+    html = '<table data-highlight-ties="all"><tr>' + ''.join('<td data-metric="f1" data-metric-direction="max" data-sort="0.5"><span class="comparison-winner">0.5</span></td>' for _ in range(2)) + '</tr></table>'
+    check_presentation(html)
+    import pytest
+    with pytest.raises(ValueError, match="highlight"):
+        check_presentation(html.replace('<span class="comparison-winner">0.5</span>', '0.5', 1))
+    with pytest.raises(ValueError, match="highlight"):
+        check_presentation(html.replace(' data-highlight-ties="all"', ''))

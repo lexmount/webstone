@@ -4,7 +4,7 @@ The dashboard reading page and standalone HTML are two presentations of the same
 
 Treat report home and interpretation pages as reusable presentation material. Each section should communicate one conclusion through a chart, meaningful diagram, image, or inspectable evidence specimen, with concise supporting text and exact values available to copy. Do not use decorative background art or repeat the same dense table across summary, interpretation, and analysis. Result analysis owns filterable inventories and detailed distributions; result pages own logs and complete evidence.
 
-Public build entries default to English, with an explicit language or BROWSER_EVAL_REPORT_LANGUAGE override. For agent-authored delivery, select the conversation language unless the user specifies another edition. Rebuilds preserve the saved primary language; additional translations require an explicit request. An absent English edition gets a not-generated notice and a return link, not stale translated pages. Preserve translation sources without distributing unused English assets. Apply cross-language parity checks only when both editions are generated; always test the notice in a Chinese-only release.
+Public build entries default to English, with an explicit language or WEBSTONE_REPORT_LANGUAGE override. A rebuild keeps the saved primary language unless the user asks otherwise; a new agent-authored delivery uses the conversation language. Additional translations require an explicit request. An absent English edition gets a not-generated notice and a return link, not stale translated pages. Preserve translation sources without distributing unused English assets. Apply cross-language parity checks only when both editions are generated; always test the notice in a Chinese-only release.
 
 ## Reading layout
 
@@ -28,4 +28,4 @@ For localization, translate authored prose, formatted rule explanations and acce
 
 Run project tests and report checks appropriate to the changes, including route, link and bilingual consistency checks. Those establish artifact integrity, not editorial quality. Complete the reader review on the final artifact separately.
 
-Publishing uses the target and expected remote version bound by `evaluation/current-report.json`, only when authorized. Verify deployed bytes and the article after publishing. A local writing task does not authorize a new site, provider migration or publication.
+Publishing uses the target and expected remote version bound by the selected external instance profile's publication binding, only when authorized. Verify deployed bytes and the article after publishing. A local writing task does not authorize a new site, provider migration or publication.

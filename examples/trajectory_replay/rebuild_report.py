@@ -7,17 +7,21 @@ import hashlib
 import json
 from pathlib import Path
 
-from harness.trajectory_replay.diagnostics import diagnose_summary
+from harness.trajectory_replay.core.diagnostics import diagnose_summary
+from harness.trajectory_replay.core.suite import validate_ground_truth_evidence
 from harness.trajectory_replay.metrics import summarize_attempts
+from harness.trajectory_replay.participants import attempt_engines
 from harness.trajectory_replay.report import write_latest_report
-from harness.trajectory_replay.suite import load_suite, validate_ground_truth_evidence
+from harness.trajectory_replay.suite import load_suite
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts", required=True)
     parser.add_argument("--reports", help="Defaults to the selected run's report directory")
-    parser.add_argument("--suite", default="examples/trajectory_replay/tasks.v4.json")
+    parser.add_argument(
+        "--suite", help="Explicit historical suite; otherwise recover the manifest-bound HF input"
+    )
     parser.add_argument(
         "--ground-truth-evidence",
         default="examples/trajectory_replay/ground_truth_validation.json",
@@ -25,13 +29,16 @@ def main() -> None:
     args = parser.parse_args()
 
     artifact_dir = Path(args.artifacts)
-    suite_path = Path(args.suite)
     rows = [
         json.loads(line)
         for line in (artifact_dir / "attempts.jsonl").read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
     manifest = json.loads((artifact_dir / "manifest.json").read_text(encoding="utf-8"))
+    from harness.trajectory_replay.report_inputs import replay_suite_for_hash
+    suite_path = Path(args.suite) if args.suite else replay_suite_for_hash(
+        manifest.get('suite_sha256'), family='curated', dataset=manifest.get('suite_dataset')
+    )
     suite = load_suite(suite_path)
     suite_sha256 = hashlib.sha256(suite_path.read_bytes()).hexdigest()
     if manifest.get("suite_sha256") != suite_sha256:
@@ -43,10 +50,11 @@ def main() -> None:
         raise SystemExit("artifact task set does not match the requested suite")
     try:
         evidence = validate_ground_truth_evidence(suite_path, suite, args.ground_truth_evidence)
+        engines = attempt_engines(manifest, rows)
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
 
-    summary = summarize_attempts(rows, engines=("chromium", "moli"))
+    summary = summarize_attempts(rows, engines=engines)
     diagnose_summary(summary, use_llm=False)
     manifest["ground_truth_validation"] = {
         key: evidence.get(key)

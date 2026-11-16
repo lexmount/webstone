@@ -5,11 +5,11 @@ from harness.web_fetch.network_preflight import inspect_system_dns, require_usab
 
 class NetworkPreflightTests(unittest.TestCase):
     def test_non_public_dns_is_not_a_fair_public_comparison(self):
-        for addresses,accepted in ((['43.162.217.19'],True),(['2606:4700:4700::1111'],True),
-            (['10.2.0.11'],False),(['127.0.0.1'],False),(['169.254.1.1'],False),
-            (['fd00::1'],False),(['43.162.217.19','10.2.0.11'],False)):
+        for addresses,accepted in ((['185.199.108.153'],True),(['2606:4700:4700::1111'],True),
+            (['10.0.0.11'],False),(['127.0.0.1'],False),(['169.254.1.1'],False),
+            (['fd00::1'],False),(['185.199.108.153','10.0.0.11'],False)):
             with self.subTest(addresses=addresses):
-                def resolve(host,port,**kwargs):
+                def resolve(host,port,addresses=addresses,**kwargs):
                     return [(socket.AF_INET6 if ':' in a else socket.AF_INET,socket.SOCK_STREAM,6,'',(a,port)) for a in addresses]
                 audit=inspect_system_dns(['https://public.example/page'],resolver=resolve)
                 self.assertEqual(audit['usable_for_guarded_local_comparison'],accepted)
@@ -20,11 +20,11 @@ class NetworkPreflightTests(unittest.TestCase):
     def test_synthetic_dns_fails_before_calls_but_public_dns_passes(self):
         for address, accepted in [
             ('198.19.93.254', False),
-            ('10.2.0.11', False),
+            ('10.0.0.11', False),
             ('185.199.108.153', True),
         ]:
             with self.subTest(address=address):
-                def resolve(host, port, **kwargs):
+                def resolve(host, port, address=address, **kwargs):
                     return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (address, port))]
                 audit = inspect_system_dns(['https://public.example/page'], resolver=resolve)
                 self.assertEqual(audit['usable_for_guarded_local_comparison'], accepted)
@@ -85,7 +85,7 @@ class NetworkPreflightTests(unittest.TestCase):
                 calls.append(case.id)
                 raise AssertionError("No provider calls allowed in invalid DNS environment")
         provider = GuardedFixture('guarded', {'type': 'openclaw_builtin'})
-        fake = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('10.2.0.11', 443))]
+        fake = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('10.0.0.11', 443))]
         with TemporaryDirectory() as directory, patch('socket.getaddrinfo', return_value=fake):
             output = Path(directory) / 'measurement'
             with self.assertRaisesRegex(ValueError, 'non-public'):
@@ -141,7 +141,7 @@ class NetworkPreflightTests(unittest.TestCase):
         from harness.web_fetch.network_preflight import preflight_guarded_providers
         for mode in ('system','public_doh'):
             provider = SimpleNamespace(type='cowagent_builtin', config={'dns_mode':mode})
-            def resolve(host, *args, **kwargs):
+            def resolve(host, *args, mode=mode, **kwargs):
                 if host == 'unresolved.example':raise socket.gaierror('failure')
                 return ([(socket.AF_INET,socket.SOCK_STREAM,6,'',('185.199.108.153',443))]
                         if mode=='system' else [('185.199.108.153',4)])
@@ -176,14 +176,14 @@ class NetworkPreflightTests(unittest.TestCase):
         for mode in ('system','public_doh'):
             calls=[]
             class GuardedFixture(Provider):
-                def fetch(self, case, timeout):
+                def fetch(self, case, timeout, calls=calls):
                     calls.append(case.id)
                     return ProviderResult(ok=case.id=='resolved',
                         content='public body' if case.id=='resolved' else '',
                         error_type=None if case.id=='resolved' else 'dns',
                         error_message=None if case.id=='resolved' else 'name resolution failed',metadata={})
             provider=GuardedFixture('guarded',{'type':'openclaw_builtin','dns_mode':mode})
-            def resolve(host,*args,**kwargs):
+            def resolve(host,*args,mode=mode,**kwargs):
                 if host=='unresolved.example':raise socket.gaierror('failure')
                 return ([(socket.AF_INET,socket.SOCK_STREAM,6,'',('185.199.108.153',443))]
                         if mode=='system' else [('185.199.108.153',4)])
@@ -195,7 +195,7 @@ class NetworkPreflightTests(unittest.TestCase):
                            EvalCase('unresolved','unresolved','https://unresolved.example/','control',[])],
                     providers=[provider],provider_config_path=Path('fixture-providers.json'),
                     runs=1,timeout=45,delay=0,max_failure_retries=0)
-                audit=__import__('json').loads((output/'network-preflight.json').read_text())
+                audit=__import__('json').loads((output/'network-preflight.json').read_text(encoding='utf-8'))
                 self.assertEqual(calls,['resolved','unresolved'])
                 self.assertEqual([row['error_type'] for row in rows],[None,'dns'])
                 self.assertEqual(audit['unresolved_hosts'],['unresolved.example'])
@@ -207,7 +207,7 @@ class NetworkPreflightTests(unittest.TestCase):
         for mode in ('system','public_doh'):
             provider=SimpleNamespace(type='cowagent_builtin',config={'dns_mode':mode})
             for unsafe in ('198.18.0.1','10.0.0.1'):
-                def resolve(host,*args,**kwargs):
+                def resolve(host,*args,mode=mode,unsafe=unsafe,**kwargs):
                     if host=='unresolved.example':raise socket.gaierror('failure')
                     return ([(socket.AF_INET,socket.SOCK_STREAM,6,'',(unsafe,443))]
                             if mode=='system' else [(unsafe,4)])

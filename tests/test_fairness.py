@@ -7,16 +7,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 from lexbench_webfetch.body_coverage import body_requirements, compact_ngrams, evaluate_body_requirements
-from harness.web_fetch.call_boundary import fetch_with_deadline, prepare_answer
+from harness.web_fetch.call_boundary import fetch_with_deadline, prepare_answer, worker_unresolved
 from lexbench_webfetch.metrics import evaluate_content, task_measured, task_passed
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.providers.base import Provider
+from harness.web_fetch.providers.base import ProcessCleanupError, Provider
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 from harness.web_fetch.report import case_attrs, ranking, result_label
 from lexbench_webfetch.response_input import apply_request_status
 from lexbench_webfetch.scoring import score_attempt
 from lexbench_webfetch.stable_tasks import evaluate_stable_task
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -176,7 +177,7 @@ class FairnessTests(unittest.TestCase):
         from harness.web_fetch.providers.http_client import HttpResponse
         from harness.web_fetch.runner import run_evaluation
         raw=b'\x89PNG\r\n\x1a\n'+b'payload'*10
-        c=EvalCase('file','file','https://example.com/file','image',[],task_kind='file',
+        c=EvalCase('file','file','https://example.com/file','image',[],task_kind='file',content_score_applicable=False,
                    source_verification={'file_sha256':hashlib.sha256(raw).hexdigest()})
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
             relative=Path(directory).relative_to(Path.cwd())/'output'
@@ -214,18 +215,21 @@ class FairnessTests(unittest.TestCase):
         softbreak = markdown.replace('Product ', 'Product\n')
         self.assertEqual(score_attempt(c, softbreak.encode(), ok=True)['stable_records'], a['stable_records'])
 
-    def test_api_status_normalization_does_not_depend_on_provider_name(self):
+    def test_explicit_raw_api_normalization_does_not_depend_on_provider_name(self):
         for name in ('a', 'b', 'cloudflare-markdown'):
             raw = b'{"success":true,"result":""}'
-            m = score_attempt({'url': 'https://example.com'}, raw, ok=False, status_code=200)
-            r = {'provider': name, 'ok': False, 'error_type': 'api_error', 'provider_metadata': {}, 'metrics': m}
+            metadata = {'raw_response_sha256': hashlib.sha256(raw).hexdigest(),
+                        'native_answer_projection': {'schema_version': 2, 'content_pointer': ['result'], 'content_format': 'text'}}
+            m = score_attempt({'url': 'https://example.com'}, raw, ok=True, metadata=metadata, status_code=200)
+            r = {'provider': name, 'ok': True, 'error_type': None, 'provider_metadata': metadata, 'metrics': m}
             apply_request_status(r)
             self.assertTrue(r['ok'])
-            self.assertFalse(r['raw_request_status']['ok'])
+            self.assertNotIn('raw_request_status', r)
             self.assertFalse(task_passed(r['ok'], m))
-            self.assertEqual(m['content_chars'], 0)
+            self.assertEqual(m['content_chars'], len(raw.decode()))
             self.assertEqual(m['content_sha256'], hashlib.sha256(raw).hexdigest())
 
+    @pytest.mark.slow
     def test_real_full_reference_passes_and_small_prefix_is_rejected(self):
         cases = self.historical_dataset()['cases']
         for c in cases:
@@ -340,6 +344,36 @@ class FairnessTests(unittest.TestCase):
         self.assertEqual(result.content,'')
         self.assertFalse(task_passed(True,{'content_pass':True,'deadline_overrun':True}))
 
+    def test_cleanup_failure_after_the_deadline_still_quarantines(self):
+        class Unkillable(Provider):
+            delay = 0
+
+            def fetch(self, case, timeout):
+                time.sleep(self.delay)
+                raise ProcessCleanupError('Worker process 1 is still running after a best-effort kill')
+
+        c = EvalCase('x','x','https://example.com','test',[])
+        # The failure arrives after fetch_with_deadline returned (no cleanup
+        # grace), and when its late result is consumed as a plain timeout.
+        for delay in (.1, 0):
+            with self.subTest(delay=delay):
+                provider = Unkillable('unkillable', {})
+                provider.delay = delay
+                result, worker = fetch_with_deadline(provider, c, .05 if delay else 0)
+                self.assertEqual(result.error_type, 'timeout')
+                worker.join(1)
+                self.assertFalse(worker.is_alive())
+                self.assertTrue(worker_unresolved(worker, timed_out=True))
+                self.assertTrue(worker_unresolved(worker, timed_out=False))
+
+        class Finished(Provider):
+            def fetch(self, case, timeout):
+                return ProviderResult(True, 'finished')
+
+        result, worker = fetch_with_deadline(Finished('finished', {}), c, 1)
+        worker.join(1)
+        self.assertFalse(worker_unresolved(worker, timed_out=False))
+
     def test_historical_file_missing_is_unmeasured_not_failed(self):
         c = {'id':'x','name':'x','url':'https://example.com','task_kind':'file','track':'image','category':'image'}
         m = score_attempt(c,b'link only',ok=True)
@@ -351,7 +385,7 @@ class FairnessTests(unittest.TestCase):
 
     def test_file_bytes_are_typed_hashed_and_target_bound(self):
         raw = b'\x89PNG\r\n\x1a\n' + b'payload'*10
-        c = EvalCase('x','x','https://example.com/image','image',[],task_kind='file',
+        c = EvalCase('x','x','https://example.com/image','image',[],task_kind='file',content_score_applicable=False,
                      source_verification={'file_sha256':hashlib.sha256(raw).hexdigest()})
         good = prepare_answer(ProviderResult(True,'',files=[{'data':raw}]),c)
         self.assertTrue(good.metadata['file_evaluation']['pass'])

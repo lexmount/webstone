@@ -1,8 +1,91 @@
 """Optional historical source-input checks; portable tests do not require downloads."""
 
+import importlib
+import importlib.util
+import hashlib
+import os
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
+
+from harness import env_file
+
+# Hermetic values: local credentials must not reach tests, and nothing here is real.
+os.environ["WEBARENA_RECORDING_GATEWAYS"] = "192.0.2.5"
+_credentials_directory = tempfile.TemporaryDirectory(prefix="webstone-test-credentials-")
+env_file._repository_credentials_file = Path(_credentials_directory.name) / ".env"
+env_file._repository_credentials_file.write_text(
+    "".join(
+        f"WEBARENA_{site}_USERNAME=synthetic-{site.lower()}-user\n"
+        f"WEBARENA_{site}_PASSWORD=synthetic-{site.lower()}-secret\n"
+        for site in ("SHOPPING", "SHOPPING_ADMIN", "REDDIT", "GITLAB")
+    ),
+    encoding="utf-8",
+)
+
+
+def guard_browser_launches(patch):
+    """Fail before macOS application registration crashes a restricted browser."""
+    if sys.platform != "darwin" or os.environ.get("CODEX_SANDBOX") != "seatbelt":
+        return
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError(
+            "macOS browser tests require an unrestricted process; "
+            "rerun this test command outside the restricted execution environment"
+        )
+
+    for name in ("playwright.sync_api", "playwright.async_api"):
+        try:
+            api = importlib.import_module(name)
+        except ImportError:
+            continue
+        for method in ("launch", "launch_persistent_context"):
+            patch.setattr(api.BrowserType, method, unavailable)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def browser_launch_policy():
+    with pytest.MonkeyPatch.context() as patch:
+        guard_browser_launches(patch)
+        yield
+
+
+def _private_report_check():
+    """Execute a private copy of the release checker against the current registry."""
+    from harness.browser_use import report_check
+
+    spec = importlib.util.spec_from_file_location(
+        "report_check_registry_probe", report_check.__file__
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def report_check_with_site_password(monkeypatch):
+    """Load a private copy of the release checker against a registry holding one more password."""
+
+    def load(password):
+        from harness.environments.webarena import topology
+
+        resolved = topology.known_site_secrets()
+        monkeypatch.setattr(topology, "known_site_secrets", lambda: (*resolved, password))
+        return _private_report_check()
+
+    return load
+
+
+@pytest.fixture
+def report_check_without_site_passwords(monkeypatch):
+    """Load a private copy of the release checker against a registry holding no passwords."""
+    from harness.environments.webarena import topology
+
+    monkeypatch.setattr(topology, "known_site_secrets", tuple)
+    return _private_report_check()
 
 
 def read_frozen_dataset_bytes(path):
@@ -27,10 +110,32 @@ def historical_dataset():
 
 def pytest_addoption(parser):
     parser.addoption(
+        "--ci-shard", default=None,
+        help="Run one deterministic, disjoint Python test shard (INDEX/COUNT, starting at 1)",
+    )
+    parser.addoption(
         "--require-reference-inputs",
         action="store_true",
         help="Fail unless the complete hash-bound historical source inputs are installed",
     )
+
+
+def pytest_collection_modifyitems(config, items):
+    selected = config.getoption("--ci-shard")
+    if selected is None:
+        return
+    try:
+        index, count = map(int, selected.split("/"))
+        if not 1 <= index <= count:
+            raise ValueError
+    except ValueError:
+        raise pytest.UsageError("--ci-shard requires INDEX/COUNT with 1 <= INDEX <= COUNT") from None
+    retained, excluded = [], []
+    for item in items:
+        bucket = int.from_bytes(hashlib.sha256(item.nodeid.encode("utf-8")).digest(), "big") % count
+        (retained if bucket == index - 1 else excluded).append(item)
+    config.hook.pytest_deselected(items=excluded)
+    items[:] = retained
 
 
 def pytest_sessionstart(session):

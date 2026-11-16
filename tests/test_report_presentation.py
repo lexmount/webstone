@@ -13,7 +13,7 @@ class ReportRevisionTests(unittest.TestCase):
   providers=['moli','chromium','lightpanda','obscura','kitesurf','moli-1.0.6','moli-1.1.3']
   records=[]
   for provider in providers:
-   for cid,value in zip(cases,[1000,3000,99000]):
+   for cid,value in zip(cases,[1000,3000,99000],strict=True):
     passed=not(provider=='moli-1.0.6' and cid=='c')
     records.append({'provider':provider,'case_id':cid,'ok':passed,
                     'metrics':{'content_pass':passed},'elapsed_ms':value,
@@ -55,26 +55,27 @@ class ReportRevisionTests(unittest.TestCase):
   rendered=overall_ranking(records,cases,call_budget_seconds=45)
   from bs4 import BeautifulSoup
   headers=[cell.get_text(' ',strip=True) for cell in BeautifulSoup(rendered,'html.parser').select('#ranking-overall thead th')]
-  self.assertEqual(headers[-3:],['总耗时均值 ↕','总耗时 P50 ↕','总耗时 P95 ↕'])
+  self.assertEqual(headers[-3:],['最终调用耗时均值 ↕','最终调用耗时 P50 ↕','最终调用耗时 P95 ↕'])
+  self.assertNotIn('累计执行耗时均值', ' '.join(headers))
   self.assertNotIn('全调用', ' '.join(headers))
-  self.assertIn('总耗时均值 / P50 / P95',rendered)
-  self.assertIn('包含失败重试和重试等待',rendered)
+  self.assertIn('最终调用耗时均值 / P50 / P95',rendered)
+  self.assertIn('不是包含此前重试和等待的累计耗时',rendered)
   self.assertIn('每次物理调用预算为 45 秒',rendered)
   from harness.web_fetch.report_i18n import translate_text
   self.assertEqual([translate_text(label) for label in ('均值','P50','P95')],['Mean','P50','P95'])
   self.assertIn('包含通过与失败',rendered)
   self.assertLess(rendered.index('slow-high-pass'),rendered.index('fast-low-pass'))
   self.assertIn('150 ms',rendered)
- def test_comparison_defaults_to_pass_rate_including_saved_snapshots(self):
+ def test_comparison_ranks_only_when_enabled(self):
   from bs4 import BeautifulSoup
   from harness.web_fetch.report import ranking
   cases={key:{'id':key,'track':'web','task_kind':'body'} for key in ('a','b')}
   records=[{'provider':name,'case_id':key,'ok':True,'elapsed_ms':10,
-            'metrics':{'content_pass':key=='a' or name=='z-high'}}
+            'metrics':{'content_pass':key=='a' or name=='z-high','scoring_source_sha256':'a'*64}}
            for name in ('a-low','z-high','b-low') for key in cases]
   for diagnostic in (False,True):
-   for render in (lambda:overall_ranking(records,cases,diagnostic=diagnostic),
-                  lambda:ranking(records,cases,'web',diagnostic=diagnostic)):
+   for render in (lambda diagnostic=diagnostic:overall_ranking(records,cases,diagnostic=diagnostic),
+                  lambda diagnostic=diagnostic:ranking(records,cases,'web',diagnostic=diagnostic)):
     with self.subTest(diagnostic=diagnostic,render=render):
      doc=BeautifulSoup(render(),'html.parser');table=doc.select_one('table.ranking')
      column=2 if diagnostic else 3
@@ -82,8 +83,10 @@ class ReportRevisionTests(unittest.TestCase):
      self.assertEqual(table.get('data-dir'),'desc')
      rows=table.select('tbody tr')
      self.assertIn('z-high',rows[0].get_text())
-     self.assertEqual([row.select('td')[column].get_text() for row in rows],['100.0%','50.0%','50.0%'])
-     self.assertIsNotNone(rows[0].select('td')[column].select_one('.comparison-winner'))
+     expected=['100.0%','50.0%','50.0%']
+     self.assertEqual([row.select('td')[column].get_text() for row in rows],expected)
+     self.assertEqual(table.get('data-row-index'), 'false' if diagnostic else None)
+     self.assertEqual(bool(rows[0].select('td')[column].select_one('.comparison-winner')), not diagnostic)
      self.assertFalse(any(row.select('td')[column].select_one('.comparison-winner') for row in rows[1:]))
   # A shared maximum has no winner; unavailable metrics remain neutral.
   for row in records:row['metrics']['content_pass']=True
@@ -163,7 +166,7 @@ class ReportRevisionTests(unittest.TestCase):
    write(root,'index.html','中文','<p>正文</p>')
    from harness.web_fetch.report_i18n import write_english_report
    write_english_report(root)
-   zh=(root/'index.html').read_text();en=(root/'en/index.html').read_text()
+   zh=(root/'index.html').read_text(encoding='utf-8');en=(root/'en/index.html').read_text(encoding='utf-8')
    self.assertIn('href="en/index.html" hreflang="en">English</a>',zh)
    self.assertIn('lang="en"',en)
    self.assertIn('href="../index.html" hreflang="zh-CN">中文</a>',en)
@@ -253,18 +256,18 @@ class ReportRevisionTests(unittest.TestCase):
   from harness.web_fetch.report_i18n import write_english_report
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'guide').mkdir()
-   (root/'guide/article.html').write_text('<html lang="zh-CN"><body><p>漏译的解释</p></body></html>')
+   (root/'guide/article.html').write_text('<html lang="zh-CN"><body><p>漏译的解释</p></body></html>', encoding='utf-8')
    with self.assertRaisesRegex(ValueError,'Untranslated English article'):
     write_english_report(root)
  def test_english_article_gate_keeps_source_evidence(self):
   from harness.web_fetch.report_i18n import write_english_report
   with tempfile.TemporaryDirectory() as directory:
    root=Path(directory);(root/'guide').mkdir()
-   (root/'dataset.json').write_text('{"cases":[{"name":"中文任务名"}]}')
+   (root/'dataset.json').write_text('{"cases":[{"name":"中文任务名"}]}', encoding='utf-8')
    (root/'guide/article.html').write_text(
-       '<html lang="zh-CN"><body><p>中文任务名</p><pre>标准答案与实际输出原文</pre></body></html>')
+       '<html lang="zh-CN"><body><p>中文任务名</p><pre>标准答案与实际输出原文</pre></body></html>', encoding='utf-8')
    write_english_report(root)
-   rendered=(root/'en/guide/article.html').read_text()
+   rendered=(root/'en/guide/article.html').read_text(encoding='utf-8')
    self.assertIn('中文任务名',rendered)
    self.assertIn('标准答案与实际输出原文',rendered)
  def test_visible_accessibility_attributes_are_localized(self):
@@ -337,10 +340,10 @@ class MeasuredInterfaceIdentityTests(unittest.TestCase):
   import json
   from harness.web_fetch.report_interfaces import render_interfaces
   with tempfile.TemporaryDirectory() as directory:
-   out=Path(directory);(out/'adoption').mkdir();(out/'answer.md').write_text('Body')
+   out=Path(directory);(out/'adoption').mkdir();(out/'answer.md').write_text('Body', encoding='utf-8')
    rows=[{'case_id':'static-simple','attempt_id':str(i),'artifact_path':'answer.md',**r} for i,r in enumerate(records)]
    render_interfaces(out,rows)
-   return json.loads((out/'adoption/interfaces'/f'{name}.json').read_text())
+   return json.loads((out/'adoption/interfaces'/f'{name}.json').read_text(encoding='utf-8'))
  def test_generic_moli_uses_observed_release_and_task_adapter(self):
   record={'provider':'moli','provider_type':'moli_webfetch','provider_metadata':{'reported_version':'moli 1.1.15'}}
   output=self.render([record]);access=output['access']
@@ -378,7 +381,7 @@ def test_measurement_display_policy_does_not_grant_certification():
  assert policy.local_matrix
  assert policy.native_outputs and policy.all_call_latency and policy.explain_unjudged
  assert 'data-evidence-state="local_measurement"' in local_audit_banner(local)
- assert '不可用于排名' in local_audit_banner(local)
+ assert '本地未认证诊断结果' in local_audit_banner(local)
  local['comparison']['presentation']={'ranking':'saved_task_pass_rate'}
  assert 'data-ranking-scope="saved-task-pass-rate"' in local_audit_banner(local)
 

@@ -159,7 +159,7 @@ def test_symlinked_checkpoints_rejected(checkpoint_setup, tmp_path, target):
 
 def test_cli_preserves_output_created_during_capture(tmp_path, monkeypatch):
     dataset = tmp_path / "dataset.json"
-    dataset.write_text(json.dumps({"cases": [case_with()]}))
+    dataset.write_text(json.dumps({"cases": [case_with()]}), encoding='utf-8')
     output = tmp_path / "observations.json"
 
     def observe(*args, **kwargs):
@@ -181,7 +181,7 @@ def test_cli_preserves_output_created_during_capture(tmp_path, monkeypatch):
 def test_cli_duplicate_scope_fails_before_capture(tmp_path, monkeypatch, duplicate):
     dataset = tmp_path / "dataset.json"
     cases = [case_with()] * (2 if duplicate == "dataset" else 1)
-    dataset.write_text(json.dumps({"cases": cases}))
+    dataset.write_text(json.dumps({"cases": cases}), encoding='utf-8')
     output = tmp_path / "observations.json"
     selected = "new-task,new-task" if duplicate == "selection" else "new-task"
 
@@ -237,7 +237,7 @@ def rendered_page():
 
 
 @pytest.mark.skipif(
-    not os.getenv("BROWSER_EVAL_TEST_BROWSER_BINARY"), reason="explicit Chromium required"
+    not os.getenv("WEBSTONE_TEST_BROWSER_BINARY"), reason="explicit Chromium required"
 )
 @pytest.mark.parametrize("mode", ["visible", "dom", "reference"])
 def test_live_multielement_completion_preserves_declared_content_scope(rendered_page, mode):
@@ -245,7 +245,7 @@ def test_live_multielement_completion_preserves_declared_content_scope(rendered_
         {"selector": ".quote", "minimum": 10, "content_selector": "main", "text_mode": mode}
     )
     case["url"] = rendered_page
-    row = capture.capture(case, 10000, os.environ["BROWSER_EVAL_TEST_BROWSER_BINARY"])
+    row = capture.capture(case, 10000, os.environ["WEBSTONE_TEST_BROWSER_BINARY"])
     assert row["completion"]["satisfied"] is True
     assert row["observed_records"] == 10
     assert all(f"Card {i}" in row["content_text"] for i in range(10))
@@ -265,13 +265,13 @@ def test_live_multielement_completion_preserves_declared_content_scope(rendered_
 
 
 @pytest.mark.skipif(
-    not os.getenv("BROWSER_EVAL_TEST_BROWSER_BINARY"), reason="explicit Chromium required"
+    not os.getenv("WEBSTONE_TEST_BROWSER_BINARY"), reason="explicit Chromium required"
 )
 def test_live_ambiguous_content_scope_is_rejected_instead_of_truncated(rendered_page):
     task = case_with({"selector": ".quote", "minimum": 10, "content_selector": ".quote"})
     task["url"] = rendered_page
     with pytest.raises(ValueError, match="exactly one element"):
-        capture.capture(task, 10000, os.environ["BROWSER_EVAL_TEST_BROWSER_BINARY"])
+        capture.capture(task, 10000, os.environ["WEBSTONE_TEST_BROWSER_BINARY"])
 
 
 def test_stuck_capture_worker_is_bounded_and_remains_an_unqualified_observation(monkeypatch):
@@ -295,12 +295,12 @@ def test_crashed_capture_worker_does_not_erase_other_case_results(monkeypatch):
     assert 'controlled worker failure' in row['attempt_errors'][0]['message']
 
 
-@pytest.mark.skipif(not os.getenv('BROWSER_EVAL_TEST_BROWSER_BINARY'), reason='explicit Chromium required')
+@pytest.mark.skipif(not os.getenv('WEBSTONE_TEST_BROWSER_BINARY'), reason='explicit Chromium required')
 def test_batch_preserves_browser_path_relative_to_external_caller(tmp_path, monkeypatch, rendered_page):
     from pathlib import Path
 
     (tmp_path / 'browser').mkdir()
-    (tmp_path / 'browser/chrome').symlink_to(Path(os.environ['BROWSER_EVAL_TEST_BROWSER_BINARY']).resolve())
+    (tmp_path / 'browser/chrome').symlink_to(Path(os.environ['WEBSTONE_TEST_BROWSER_BINARY']).resolve())
     monkeypatch.chdir(tmp_path)
     # Only the loopback fixture bypasses public DNS qualification.
     monkeypatch.setattr(capture, '_CAPTURE_PROGRAM',
@@ -315,7 +315,7 @@ def test_batch_preserves_browser_path_relative_to_external_caller(tmp_path, monk
     assert 'Inline formatting preserved' in result['new-task']['content_text']
 
 
-@pytest.mark.skipif(os.name != 'posix' or not os.getenv('BROWSER_EVAL_TEST_BROWSER_BINARY'),
+@pytest.mark.skipif(os.name != 'posix' or not os.getenv('WEBSTONE_TEST_BROWSER_BINARY'),
                     reason='POSIX and explicit Chromium required')
 @pytest.mark.parametrize('discovery_failure', [None, 'missing', 'exit', 'timeout'])
 @pytest.mark.parametrize('stalled_process', ['driver', 'browser', 'driver-exit'])
@@ -325,7 +325,7 @@ def test_hung_driver_cleanup_removes_owned_chrome_and_preserves_another_browser(
 
     monkeypatch.setenv('DEBUG_COLORS', '1')
     pid_file = tmp_path / 'owned-browser.json'
-    binary = os.environ['BROWSER_EVAL_TEST_BROWSER_BINARY']
+    binary = os.environ['WEBSTONE_TEST_BROWSER_BINARY']
     program = f'''
 import json, os, signal, subprocess, time
 from pathlib import Path
@@ -363,7 +363,7 @@ with sync_playwright() as p:
         try:
             result = capture._capture_in_process(case_with(), 4000, 1, binary)
             assert result['status'] == 'failure'
-            owned = json.loads(pid_file.read_text())
+            owned = json.loads(pid_file.read_text(encoding='utf-8'))
             assert owned
             import time
             deadline = time.monotonic() + 2
@@ -380,7 +380,7 @@ with sync_playwright() as p:
             unrelated.close()
             if pid_file.exists():
                 import signal
-                for pid in json.loads(pid_file.read_text()):
+                for pid in json.loads(pid_file.read_text(encoding='utf-8')):
                     try:
                         os.kill(pid, signal.SIGKILL)
                     except ProcessLookupError:
@@ -538,7 +538,7 @@ else:
     finally:
         if pid_file.exists():
             try:
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                os.kill(int(pid_file.read_text(encoding='utf-8')), signal.SIGKILL)
             except ProcessLookupError:
                 pass
 
@@ -584,7 +584,7 @@ time.sleep(30)
     try:
         result = capture._capture_in_process(case_with(), 20, 1)
         assert result['status'] == 'failure'
-        browser_pid = int(pid_file.read_text())
+        browser_pid = int(pid_file.read_text(encoding='utf-8'))
         assert browser_pid in signals
         assert len(signals) == len(set(signals))
         deadline = time.monotonic() + 2
@@ -598,7 +598,7 @@ time.sleep(30)
     finally:
         if pid_file.exists():
             try:
-                os.kill(int(pid_file.read_text()), signal.SIGKILL)
+                os.kill(int(pid_file.read_text(encoding='utf-8')), signal.SIGKILL)
             except ProcessLookupError:
                 pass
 
@@ -655,7 +655,7 @@ def test_unrelated_live_pid_in_stale_receipt_survives_failed_discovery(monkeypat
     with subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
                           start_new_session=True) as unrelated:
         log = ('2026-10-26T00:00:00Z pw:browser <launching> chrome '
-               '--user-data-dir=/tmp/browser-eval-expired-profile --remote-debugging-pipe\n'
+               '--user-data-dir=/tmp/webstone-expired-profile --remote-debugging-pipe\n'
                f'2026-10-26T00:00:00Z pw:browser <launched> pid={unrelated.pid}\n')
         monkeypatch.setattr(capture, '_CAPTURE_PROGRAM',
             f'import sys,time; sys.stderr.write({log!r}); sys.stderr.flush(); time.sleep(30)')
@@ -712,7 +712,7 @@ time.sleep(30)
     try:
         result = capture._capture_in_process(case_with(), 20, 1)
         assert result['status'] == 'failure'
-        pid = int(child_pid.read_text())
+        pid = int(child_pid.read_text(encoding='utf-8'))
         deadline = time.monotonic() + 2
         while True:
             state = subprocess.run(['ps', '-o', 'stat=', '-p', str(pid)],
@@ -725,7 +725,7 @@ time.sleep(30)
         for path in (child_pid, browser_pid):
             if path.exists():
                 try:
-                    os.kill(int(path.read_text()), signal.SIGKILL)
+                    os.kill(int(path.read_text(encoding='utf-8')), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
 
@@ -747,7 +747,7 @@ def test_batch_requires_working_process_discovery_before_launch(monkeypatch, pgr
         assert not launches
 
 
-@pytest.mark.skipif(not os.getenv('BROWSER_EVAL_TEST_BROWSER_BINARY'), reason='explicit Chromium required')
+@pytest.mark.skipif(not os.getenv('WEBSTONE_TEST_BROWSER_BINARY'), reason='explicit Chromium required')
 def test_missing_process_tools_reject_real_browser_before_acquisition(monkeypatch):
     launches = []
     def unavailable(*args, **kwargs):
@@ -757,5 +757,5 @@ def test_missing_process_tools_reject_real_browser_before_acquisition(monkeypatc
     monkeypatch.setattr(capture.subprocess, 'Popen', lambda *a, **kw: launches.append(a))
     with pytest.raises(ValueError, match='process discovery'):
         capture.capture_batch([case_with()], timeout_ms=20, attempts=1,
-                              browser_binary=os.environ['BROWSER_EVAL_TEST_BROWSER_BINARY'])
+                              browser_binary=os.environ['WEBSTONE_TEST_BROWSER_BINARY'])
     assert launches == []

@@ -6,8 +6,10 @@ import sys
 
 import pytest
 
+from harness.record_io import file_sha256
 from harness.web_fetch import webmainbench_case_correction as correction
-from tests.webmainbench_case_fixture import correction_fixture, write_json, write_rows
+from tests.webmainbench_case_fixture import correction_fixture, write_rows
+from tests.helpers import write_json
 
 
 def apply_fixture(fixture):
@@ -17,7 +19,7 @@ def apply_fixture(fixture):
 @pytest.fixture
 def retained(tmp_path, monkeypatch):
     fixture = correction_fixture(tmp_path / "fixture")
-    monkeypatch.setattr(correction, "DATASET_SHA256", correction.digest(fixture[5]))
+    monkeypatch.setattr(correction, "DATASET_SHA256", file_sha256(fixture[5]))
     return fixture
 
 
@@ -28,7 +30,7 @@ def test_revision_materializes_every_retry_and_excludes_unbound_files(retained):
     shard = output / provider
     assert receipt["effects"][provider]["new_physical_calls"] == 2
     for call in correction.read_jsonl(shard / "physical-attempts.jsonl"):
-        assert correction.digest(shard / call["physical_artifact_path"]) == call["output_sha256"]
+        assert file_sha256(shard / call["physical_artifact_path"]) == call["output_sha256"]
     assert not list(output.rglob("private-worker.txt"))
     assert not list(output.rglob("unbound.txt"))
     assert (source / provider / "private-worker.txt").is_file()
@@ -41,7 +43,7 @@ def test_revision_materializes_every_retry_and_excludes_unbound_files(retained):
 
 def test_profile_can_declare_an_additional_method(tmp_path, monkeypatch):
     fixture = correction_fixture(tmp_path / "six", providers=("moli", "chromium", "new-engine"))
-    monkeypatch.setattr(correction, "DATASET_SHA256", correction.digest(fixture[5]))
+    monkeypatch.setattr(correction, "DATASET_SHA256", file_sha256(fixture[5]))
     apply_fixture(fixture)
     assert {p.name for p in fixture[2].iterdir() if p.is_dir()} == {"moli", "chromium", "new-engine"}
 
@@ -55,7 +57,7 @@ def test_invalid_revision_leaves_no_partial_output(retained, damage):
         del rows[0]["metrics"]["text_edit"]
         write_rows(replacement / "scored-results.jsonl", rows)
     elif damage == "physical":
-        (replacement / f"artifacts/{providers[0]}/case-0-p01.txt").write_text("corrupt")
+        (replacement / f"artifacts/{providers[0]}/case-0-p01.txt").write_text("corrupt", encoding="utf-8")
     elif damage == "retry":
         calls = correction.read_jsonl(replacement / "physical-attempts.jsonl")
         calls[0]["physical_attempt"] = 2
@@ -67,7 +69,7 @@ def test_invalid_revision_leaves_no_partial_output(retained, damage):
         old[-1] = copy.deepcopy(old[0])
         write_rows(source / "moli/scored-results.jsonl", old)
     elif damage == "identity":
-        execution = json.loads((replacement / "execution.json").read_text())
+        execution = json.loads((replacement / "execution.json").read_text(encoding="utf-8"))
         execution["implementation_identity"]["converter"] = "changed"
         write_json(replacement / "execution.json", execution)
     else:
@@ -96,11 +98,11 @@ def test_symlinked_retry_is_rejected(retained):
 def test_frozen_input_changes_are_rejected(retained, document):
     path = retained[{"dataset": 5, "sample": 6, "profile": 7}[document]]
     if document == "profile":
-        value = json.loads(path.read_text())
+        value = json.loads(path.read_text(encoding="utf-8"))
         value["providers"].append("missing")
         write_json(path, value)
     else:
-        path.write_text(path.read_text() + " ")
+        path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
     with pytest.raises((ValueError, FileNotFoundError)):
         apply_fixture(retained)
     assert not retained[2].exists()
@@ -119,7 +121,7 @@ def test_mid_revision_input_change_leaves_no_output(retained, monkeypatch, chang
             path = (retained[0] / "moli/private-worker.txt" if changed == "source"
                     else next(iter(retained[1].values())) / "private-worker.txt" if changed == "replacement"
                     else retained[7])
-            path.write_text(path.read_text() + " ")
+            path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
 
     monkeypatch.setattr(correction, "copy_alias_artifacts", mutate)
     with pytest.raises(ValueError, match="changed during revision"):
@@ -130,16 +132,16 @@ def test_mid_revision_input_change_leaves_no_output(retained, monkeypatch, chang
 def test_replacement_fixture_certificate_is_retained_and_bound(retained):
     replacement = next(iter(retained[1].values()))
     certificate = replacement / "fixture-ca.pem"
-    certificate.write_text("synthetic fixture CA")
-    expected = correction.digest(certificate)
-    execution = json.loads((replacement / "execution.json").read_text())
+    certificate.write_text("synthetic fixture CA", encoding="utf-8")
+    expected = file_sha256(certificate)
+    execution = json.loads((replacement / "execution.json").read_text(encoding="utf-8"))
     execution.update(fixture_ca_artifact=certificate.name,
                      network_isolation_probe={"fixture_ca_sha256": expected})
     write_json(replacement / "execution.json", execution)
     apply_fixture(retained)
     target = retained[2] / retained[4][0]
-    run = json.loads((target / "execution.json").read_text())["correction_runs"][-1]
-    assert correction.digest(target / run["fixture_ca_artifact"]) == expected
+    run = json.loads((target / "execution.json").read_text(encoding="utf-8"))["correction_runs"][-1]
+    assert file_sha256(target / run["fixture_ca_artifact"]) == expected
     assert run["fixture_ca_sha256"] == expected
 
 
@@ -163,18 +165,18 @@ def test_command_accepts_repeated_bindings_and_infers_exact_scope(retained, tmp_
     monkeypatch.setattr(sys, "argv", argv)
     correction.main()
     assert set(json.loads(capsys.readouterr().out)["providers"]) == {"chromium", "moli"}
-    receipt = json.loads((output / "fixture-correction.json").read_text())
+    receipt = json.loads((output / "fixture-correction.json").read_text(encoding="utf-8"))
     assert set(receipt["effects"]) == {"chromium", "moli"}
 
 
 def test_existing_output_is_never_modified(retained):
     output = retained[2]
     output.mkdir()
-    (output / "marker").write_text("preserve")
+    (output / "marker").write_text("preserve", encoding="utf-8")
     with pytest.raises(ValueError, match="already exists"):
         apply_fixture(retained)
     assert [p.name for p in output.iterdir()] == ["marker"]
-    assert (output / "marker").read_text() == "preserve"
+    assert (output / "marker").read_text(encoding="utf-8") == "preserve"
 
 
 def test_attempt_identity_cannot_collide_across_methods(retained):

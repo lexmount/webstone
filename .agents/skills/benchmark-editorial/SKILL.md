@@ -19,7 +19,7 @@ Treat feedback as editorial input, not publishable copy. Identify the reader pro
 
 Read the supplied reports and relevant reference articles, including their charts, cases and methodology. Track material that could not be inspected privately; do not claim full coverage from a landing page. Study how reference articles develop their reasoning as well as how they look. Their facts are not evidence for this benchmark. When reproducing a supplied reference, compare its actual opening, result charts, specimen interactions and conclusion with the delivered page. Reuse the owning presentation components where available; matching headings and factual claims alone does not establish presentation parity.
 
-For this repository, use `evaluation/current-report.json`, the normalized persisted results and the current scoring implementation. Read [benchmark-report](../benchmark-report/SKILL.md) when building or auditing them. Keep a private ledger for consequential claims: evidence, calculation, interpretation and limits. Do not rerun providers, alter scores or select better attempts to improve a narrative.
+For this repository, use the selected external instance profile (`--profile`), the normalized persisted results and the current scoring implementation. Read [benchmark-report](../benchmark-report/SKILL.md) when building or auditing them. Keep a private ledger for consequential claims: evidence, calculation, interpretation and limits. Do not rerun providers, alter scores or select better attempts to improve a narrative.
 
 Choose an argument that the evidence supports, including exceptions that change its meaning. Comparative claims need nearby magnitudes, units and a defined comparison set, including when they appear in a heading or summary card. A correct ranking alone does not tell the reader the size of a difference. See the publication standard for interpreting distributions, task acceptance and quality metrics.
 
@@ -27,11 +27,11 @@ Choose an argument that the evidence supports, including exceptions that change 
 
 Develop the reader's understanding through concrete results, necessary background and inspectable examples. Explain unfamiliar concepts through their purpose and operation; a sentence excluding them from the benchmark is not an explanation. Use charts and specimens to carry data so prose can explain the result instead of repeating it. There is no fixed chapter count, case count, headline formula or required hero image.
 
-For report interpretation and summary pages, use a presentation-ready reading sequence: one finding per section, a data-bearing visual or evidence specimen as the main element, and short prose that explains it. Remove images that merely fill space. Keep full inventories and raw evidence on their functional report pages. When several methods fail for materially different reasons, give each method its own chapter with the complete reviewed distribution, mechanism, representative evidence, and cross-method distinction.
+For report interpretation and summary pages, follow [reader-facing structure](../benchmark-report/references/presentation-quality.md#reader-facing-structure).
 
 When revising, check the whole article for the same underlying problem, then make the smallest coherent repair. Review any removed material for lost explanations, evidence, limitations or transitions. Broader restructuring is justified when the argument or organization is defective, not simply because a paragraph received criticism. If a needed fact is absent, investigate it or narrow the claim; do not replace it with confidence or invented precision.
 
-Run both Humanizer and Humanizer Chinese on Chinese headings, prose and captions; run Humanizer on English. This is a prose edit, not a substitute for evidence or editorial judgment. Preserve technical meaning, natural language conventions and original measured text. Do not manufacture casual language or personal experience.
+Run the [language passes](../benchmark-report/references/presentation-quality.md#reader-facing-structure). They are a prose edit, not a substitute for evidence or editorial judgment. Preserve natural language conventions. Do not manufacture casual language or personal experience.
 
 ## Review and delivery
 
@@ -39,4 +39,4 @@ Use separate evidence and reader reviews for substantial articles. The evidence 
 
 Use the existing renderer and authored template for HTML, not a parallel implementation. Inspect the actual delivered page at desktop and phone sizes, including all interactive states needed to inspect evidence. Keep localized facts and original evidence aligned. Run the repository validation gates when rebuilding a report.
 
-Publishing and benchmark changes require their own authorization. When publication is authorized, use the target and expected version bound by `evaluation/current-report.json`. Otherwise deliver the requested local artifact and any material unresolved limitation. Do not present a draft as approved or promise that a skill makes editorial failures impossible.
+Publishing and benchmark changes require their own authorization. When publication is authorized, use the target and expected version bound by that instance profile's publication binding. Otherwise deliver the requested local artifact and any material unresolved limitation. Do not present a draft as approved or promise that a skill makes editorial failures impossible.

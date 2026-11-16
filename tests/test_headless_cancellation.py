@@ -13,8 +13,9 @@ from unittest.mock import patch
 
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.models import ProviderResult
+from harness.web_fetch.providers.base import ProcessCleanupError, await_owned_process_exit
 from harness.web_fetch.providers.headless import HeadlessProvider
-from harness.web_fetch.runner import run_evaluation
+from harness.web_fetch.runner import IncompleteEvaluationError, run_evaluation
 
 
 @unittest.skipUnless(os.name == 'posix', 'process-group worker contract')
@@ -34,14 +35,14 @@ if request['url'].endswith('/slow'):
     time.sleep(10)
 else:
     print(json.dumps({'content': 'on-time answer'}), flush=True)
-''')
+''', encoding='utf-8')
         return worker
 
     def cleanup(self, pid_file):
         for owned in (pid_file, Path(str(pid_file) + '.child')):
             if owned.exists():
                 try:
-                    os.killpg(int(owned.read_text()), signal.SIGKILL)
+                    os.killpg(int(owned.read_text(encoding='utf-8')), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
 
@@ -77,8 +78,8 @@ else:
                 self.assertLess(records[0]['elapsed_ms'], 500)
                 self.assertIn('browser still waiting', records[0]['provider_metadata']['stderr'])
                 self.assertLess(records[0]['provider_metadata']['exit_code'], 0)
-                self.assertEqual((root / 'run' / records[0]['artifact_path']).read_text(), '')
-                self.assertEqual((root / 'run' / records[1]['artifact_path']).read_text(), 'on-time answer')
+                self.assertEqual((root / 'run' / records[0]['artifact_path']).read_text(encoding='utf-8'), '')
+                self.assertEqual((root / 'run' / records[1]['artifact_path']).read_text(encoding='utf-8'), 'on-time answer')
                 time.sleep(2.1)
                 self.assertFalse(marker.exists(), 'timed-out browser child continued physical work')
             finally:
@@ -194,6 +195,70 @@ else:
             server.shutdown()
             server.server_close()
             server_thread.join(1)
+
+    def test_unconfirmed_kill_raises_instead_of_waiting_forever(self):
+        with tempfile.TemporaryDirectory() as directory:
+            worker = Path(directory) / 'worker.py'
+            worker.write_text('import time\ntime.sleep(20)\n', encoding='utf-8')
+            provider = HeadlessProvider('local', {'type': 'headless_markdown', 'engine': 'lightpanda'})
+            real_popen = subprocess.Popen
+            children = []
+
+            def launch(*args, **kwargs):
+                children.append(real_popen(*args, **kwargs))
+                return children[-1]
+
+            provider.begin_call()
+            begin = time.monotonic()
+            try:
+                # The process tree cannot be observed, so the kill is skipped.
+                with patch('harness.web_fetch.providers.headless.terminate_owned_process_tree',
+                           return_value=False), \
+                        patch('harness.web_fetch.providers.headless.subprocess.Popen', side_effect=launch), \
+                        patch('harness.web_fetch.providers.headless.await_owned_process_exit',
+                              wraps=await_owned_process_exit) as reap:
+                    with self.assertRaises(ProcessCleanupError) as raised:
+                        provider._run_local_worker(worker, {'url': 'https://example.test/slow'}, .2, 100_000)
+                self.assertLess(time.monotonic() - begin, 5)
+                # One bounded grace, one error: cleanup does not wait again.
+                self.assertEqual(reap.call_count, 1)
+                self.assertNotIsInstance(raised.exception.__context__, ProcessCleanupError)
+                self.assertIsNone(children[0].poll(), 'the unkilled worker is reported, not reaped')
+            finally:
+                for child in children:
+                    child.kill()
+                    child.wait()
+
+    def test_surviving_worker_quarantines_the_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = []
+
+            class Unkillable(HeadlessProvider):
+                def fetch(self, case, timeout):
+                    calls.append(case.id)
+                    raise ProcessCleanupError('Worker process 1 is still running after a best-effort kill')
+
+            provider = Unkillable('local', {'type': 'headless_markdown', 'engine': 'obscura', 'binary': sys.executable})
+            cases = [EvalCase(name, name, 'https://example.test/' + name, 'web', [])
+                     for name in ('first', 'second')]
+            with patch('socket.getaddrinfo', return_value=[(2,1,6,'',('93.184.216.34',443))]), \
+                    self.assertRaises(IncompleteEvaluationError):
+                run_evaluation(output_dir=root / 'run',
+                    dataset_meta={'id': 'cleanup', 'cases': []},
+                    dataset_path=root / 'dataset.json', cases=cases,
+                    providers=[provider], provider_config_path=root / 'providers.json',
+                    runs=1, timeout=5, delay=0)
+            # Neither a retry nor the next case may overlap a live worker.
+            self.assertEqual(calls, ['first'])
+            records = [json.loads(line) for line in (root / 'run' / 'results.jsonl').read_text(encoding='utf-8').splitlines()]
+            self.assertEqual([row['case_id'] for row in records], ['first'])
+            self.assertIn('ProcessCleanupError', records[0]['error_message'])
+            manifest = json.loads((root / 'run' / 'manifest.json').read_text(encoding='utf-8'))
+            reasons = [item['reason'] for item in manifest['unexecuted']]
+            self.assertIn('failure_retry_pending_previous_call_still_running', reasons)
+            self.assertTrue(any('non_cancellable_call_still_running' in reason for reason in reasons))
+            self.assertEqual(records[0]['provider_metadata']['retry_pending']['remaining_physical_calls'], 1)
 
     def test_cleanup_grace_requires_an_actively_cancellable_local_route(self):
         for config in ({'engine': 'kitesurf'}, {'engine': 'chromium', 'resource_sample_interval_ms': 50}):

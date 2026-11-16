@@ -6,18 +6,12 @@ import json
 
 import pytest
 
+from harness.record_io import file_sha256
 from harness.web_fetch.webmainbench_assembly import assemble
 from harness.web_fetch.webmainbench_certification import verify_shard
-from harness.web_fetch.webmainbench_evidence import (
-    digest,
-    read_jsonl,
-    read_method_binding,
-)
+from harness.web_fetch.webmainbench_evidence import read_jsonl, read_method_binding
 from harness.web_fetch.webmainbench_scoring import CORE_METRICS, aggregate, verify_score
-
-
-def write_json(path, value):
-    path.write_text(json.dumps(value), encoding="utf-8")
+from tests.helpers import write_json
 
 
 def write_rows(path, rows):
@@ -26,7 +20,7 @@ def write_rows(path, rows):
 
 def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
     root.mkdir()
-    profile = json.loads(profile_path.read_text())
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
     records = read_jsonl(source)
     ids = {row["track_id"] for row in records}
     measured, scored = [], []
@@ -39,14 +33,14 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
             attempts = 2 if retry and index == 0 else 1
             body = f"{root.name}: {provider} {case}"
             relative = f"artifacts/{provider}/{case}.md"
-            (shard / relative).write_text(body)
+            (shard / relative).write_text(body, encoding="utf-8")
             row = {
                 "provider": provider,
                 "track_id": case,
                 "ok": True,
                 "attempt_id": f"{provider}__{case}__r001",
                 "artifact_path": relative,
-                "output_sha256": digest(shard / relative),
+                "output_sha256": file_sha256(shard / relative),
                 "physical_attempt_count": attempts,
                 "elapsed_ms": 20,
                 "total_elapsed_ms": 20 + 10 * (attempts - 1),
@@ -55,7 +49,8 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
             for physical in range(1, attempts + 1):
                 physical_path = f"artifacts/{provider}/{case}-p{physical:02d}.txt"
                 (shard / physical_path).write_text(
-                    body if physical == attempts else "first call failed"
+                    body if physical == attempts else "first call failed",
+                    encoding="utf-8"
                 )
                 calls.append(
                     {
@@ -63,7 +58,7 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
                         "track_id": case,
                         "attempt_id": f"{provider}__{case}__p{physical:02d}",
                         "physical_artifact_path": physical_path,
-                        "output_sha256": digest(shard / physical_path),
+                        "output_sha256": file_sha256(shard / physical_path),
                     }
                 )
         write_rows(shard / "results.jsonl", rows)
@@ -73,18 +68,18 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
             {"case_count": len(records), "case_ids": sorted(ids)},
         )
         ca_path = shard / "fixture-ca.pem"
-        ca_path.write_text(root.name + "-ca")
+        ca_path.write_text(root.name + "-ca", encoding="utf-8")
         write_json(
             shard / "execution.json",
             {
                 "provider": provider,
                 "case_count": len(records),
-                "source_dataset_sha256": digest(source),
+                "source_dataset_sha256": file_sha256(source),
                 "implementation_identity": {
                     "binary_sha256": profile.get("binary_sha256")
                 },
                 "fixture_ca_artifact": "fixture-ca.pem",
-                "network_isolation_probe": {"fixture_ca_sha256": digest(ca_path)},
+                "network_isolation_probe": {"fixture_ca_sha256": file_sha256(ca_path)},
             },
         )
         metrics = {name: {"score": 0.5, "success": True} for name in CORE_METRICS}
@@ -99,18 +94,18 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
                 "scorer": {
                     "commit": profile["official_scorer_commit"],
                     "metric_config": profile["metric_config"],
-                    "metric_source_sha256": {"metric.py": digest(scorer / "metric.py")},
+                    "metric_source_sha256": {"metric.py": file_sha256(scorer / "metric.py")},
                 },
             },
         )
         measured.append(verify_shard(shard, provider, ids, profile))
         scored.append(verify_score(shard, provider, ids, scorer, profile))
-    source_binding = {"source_sha256": digest(source)}
+    source_binding = {"source_sha256": file_sha256(source)}
     write_json(
         root / "cohort-certificate.json",
         {
             "kind": "certified_webmainbench_545_full_v1",
-            "profile_sha256": digest(profile_path),
+            "profile_sha256": file_sha256(profile_path),
             "preflight": source_binding,
             "postflight": source_binding,
             "providers": measured,
@@ -123,14 +118,14 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
         {
             "kind": "certified_webmainbench_scoring_v1",
             "providers": scored,
-            "cohort_certificate_sha256": digest(root / "cohort-certificate.json"),
+            "cohort_certificate_sha256": file_sha256(root / "cohort-certificate.json"),
             "source_binding": source_binding,
-            "scorer_source_sha256": {"metric.py": digest(scorer / "metric.py")},
+            "scorer_source_sha256": {"metric.py": file_sha256(scorer / "metric.py")},
         },
     )
-    (root / "private-review.json").write_text("never export this unbound file")
+    (root / "private-review.json").write_text("never export this unbound file", encoding="utf-8")
     (root / "worker-queue").mkdir()
-    (root / "worker-queue/log.txt").write_text("internal diagnostics")
+    (root / "worker-queue/log.txt").write_text("internal diagnostics", encoding="utf-8")
 
 
 @pytest.fixture
@@ -151,11 +146,11 @@ def evidence(tmp_path):
     )
     scorer = tmp_path / "scorer"
     scorer.mkdir()
-    (scorer / "metric.py").write_text("# synthetic pinned scorer source\n")
+    (scorer / "metric.py").write_text("# synthetic pinned scorer source\n", encoding="utf-8")
     profile = {
         "dataset_id": "synthetic-full",
         "case_count": 545,
-        "source_dataset_sha256": digest(source),
+        "source_dataset_sha256": file_sha256(source),
         "case_ids_sha256": hashlib.sha256(b"synthetic cases").hexdigest(),
         "providers": ["engine-a", "engine-b"],
         "official_scorer_commit": "synthetic",
@@ -170,7 +165,7 @@ def evidence(tmp_path):
 
 def variants(evidence, count):
     directory, _, source, scorer, baseline_profile = evidence
-    profile = json.loads(baseline_profile.read_text())
+    profile = json.loads(baseline_profile.read_text(encoding="utf-8"))
     entries, cohorts = [], {}
     for index in range(count):
         provider = f"variant-{index}"
@@ -194,6 +189,7 @@ def variants(evidence, count):
     return registry, cohorts
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("count", [0, 1, 3])
 def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
     evidence, count
@@ -202,7 +198,7 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
     registry, cohorts = variants(evidence, count) if count else (None, {})
     output = directory / "package"
     before = {
-        path: digest(path)
+        path: file_sha256(path)
         for root in (baseline, *cohorts.values())
         for path in root.rglob("*")
         if path.is_file()
@@ -224,22 +220,22 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
     assert len(calls) == len(rows) + count
     assert {row["provider"] for row in rows} == {"engine-a", "engine-b", *cohorts}
     for row in rows:
-        assert digest(output / row["artifact_path"]) == row["output_sha256"]
+        assert file_sha256(output / row["artifact_path"]) == row["output_sha256"]
     for row in calls:
-        assert digest(output / row["physical_artifact_path"]) == row["output_sha256"]
+        assert file_sha256(output / row["physical_artifact_path"]) == row["output_sha256"]
     assert (
         output / "fixture-certificates/engine-a-ca.pem"
-    ).read_text() == "baseline-ca"
+    ).read_text(encoding="utf-8") == "baseline-ca"
     assert not list(output.rglob("private-review.json"))
     assert not list(output.rglob("worker-queue"))
     assert not list(output.glob("six-method*"))
-    assert all(digest(path) == expected for path, expected in before.items())
+    assert all(file_sha256(path) == expected for path, expected in before.items())
     if count:
         name, binding = read_method_binding(output)
         assert name == "method-binding.json"
         assert binding["logical_results"] == len(rows)
         assert binding["physical_calls"] == len(calls)
-        assert binding["results_sha256"] == digest(output / "results.jsonl")
+        assert binding["results_sha256"] == file_sha256(output / "results.jsonl")
         assert [item["provider"] for item in binding["variants"]] == list(cohorts)
         for provider in cohorts:
             row = next(
@@ -250,7 +246,7 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
             assert row["elapsed_ms"] == 20 and row["total_elapsed_ms"] == 30
             assert (
                 output / f"fixture-certificates/{provider}-ca.pem"
-            ).read_text() == provider + "-ca"
+            ).read_text(encoding="utf-8") == provider + "-ca"
 
 
 @pytest.mark.parametrize(
@@ -271,19 +267,19 @@ def test_invalid_evidence_cannot_leave_a_publishable_partial_package(evidence, d
     if damage == "missing_cohort":
         cohorts.clear()
     elif damage == "changed_output":
-        (candidate / "engine-a/artifacts/engine-a/case-0.md").write_text("changed")
+        (candidate / "engine-a/artifacts/engine-a/case-0.md").write_text("changed", encoding="utf-8")
     elif damage == "wrong_profile":
         variant_profile = directory / "variant-0.json"
-        value = json.loads(variant_profile.read_text())
+        value = json.loads(variant_profile.read_text(encoding="utf-8"))
         value["source_commit"] = "different"
         write_json(variant_profile, value)
     elif damage == "missing_call":
         path = candidate / "engine-a/physical-attempts.jsonl"
         write_rows(path, read_jsonl(path)[1:])
     elif damage == "wrong_source":
-        source.write_text(source.read_text() + " ")
+        source.write_text(source.read_text(encoding="utf-8") + " ", encoding="utf-8")
     else:
-        (scorer / "metric.py").write_text("changed scorer")
+        (scorer / "metric.py").write_text("changed scorer", encoding="utf-8")
     output = directory / "package"
     with pytest.raises(ValueError):
         assemble(
@@ -345,7 +341,7 @@ def test_input_changed_after_materialization_cannot_commit_package(
 
     def collect_then_change(*args, **kwargs):
         original(*args, **kwargs)
-        source.write_text(source.read_text() + " ")
+        source.write_text(source.read_text(encoding="utf-8") + " ", encoding="utf-8")
 
     monkeypatch.setattr(assembly, "_assemble_cohort", collect_then_change)
     output = directory / "package"
@@ -355,6 +351,7 @@ def test_input_changed_after_materialization_cannot_commit_package(
     assert not list(directory.glob(".webmainbench-assemble-*"))
 
 
+@pytest.mark.slow
 def test_new_certified_variant_replaces_only_its_method_and_preserves_previous_package(
     evidence,
 ):
@@ -370,15 +367,15 @@ def test_new_certified_variant_replaces_only_its_method_and_preserves_previous_p
         cohorts=cohorts,
         scorer=scorer,
     )
-    frozen = {path: digest(path) for path in previous.rglob("*") if path.is_file()}
+    frozen = {path: file_sha256(path) for path in previous.rglob("*") if path.is_file()}
     previous_rows = read_jsonl(previous / "results.jsonl")
     replacement_profile = directory / "variant-0-v2.json"
-    value = json.loads((directory / "variant-0.json").read_text())
+    value = json.loads((directory / "variant-0.json").read_text(encoding="utf-8"))
     value.update(binary_sha256="replacement-binary", source_commit="replacement-commit")
     write_json(replacement_profile, value)
     replacement = directory / "replacement"
     freeze_cohort(replacement, replacement_profile, source, scorer, retry=True)
-    plan = json.loads(registry.read_text())
+    plan = json.loads(registry.read_text(encoding="utf-8"))
     plan["variants"][0]["profile"] = replacement_profile.name
     replacement_registry = directory / "replacement-registry.json"
     write_json(replacement_registry, plan)
@@ -402,7 +399,7 @@ def test_new_certified_variant_replaces_only_its_method_and_preserves_previous_p
             "output_sha256"
         ]
     )
-    assert all(digest(path) == expected for path, expected in frozen.items())
+    assert all(file_sha256(path) == expected for path, expected in frozen.items())
 
 
 def test_correction_fixture_ca_is_bound_and_cannot_change_after_copy(evidence, monkeypatch):
@@ -411,9 +408,9 @@ def test_correction_fixture_ca_is_bound_and_cannot_change_after_copy(evidence, m
     directory, baseline, source, scorer, profile = evidence
     shard = baseline / 'engine-a'
     ca = shard / 'correction-fixture-ca.pem'
-    ca.write_text('frozen correction CA')
+    ca.write_text('frozen correction CA', encoding="utf-8")
     execution = json.loads((shard / 'execution.json').read_bytes())
-    execution['correction_runs'] = [{'fixture_ca_sha256': digest(ca)}]
+    execution['correction_runs'] = [{'fixture_ca_sha256': file_sha256(ca)}]
     write_json(shard / 'execution.json', execution)
     certificate = json.loads((baseline / 'cohort-certificate.json').read_bytes())
     certificate['providers'][0] = verify_shard(shard, 'engine-a',
@@ -421,7 +418,7 @@ def test_correction_fixture_ca_is_bound_and_cannot_change_after_copy(evidence, m
                                               json.loads(profile.read_bytes()))
     write_json(baseline / 'cohort-certificate.json', certificate)
     scored = json.loads((baseline / 'scoring-certificate.json').read_bytes())
-    scored['cohort_certificate_sha256'] = digest(baseline / 'cohort-certificate.json')
+    scored['cohort_certificate_sha256'] = file_sha256(baseline / 'cohort-certificate.json')
     write_json(baseline / 'scoring-certificate.json', scored)
     output = directory / 'complete-correction-package'
     assemble(baseline, output, source, profile, scorer=scorer)
@@ -430,7 +427,7 @@ def test_correction_fixture_ca_is_bound_and_cannot_change_after_copy(evidence, m
 
     def collect_then_change(*args, **kwargs):
         original(*args, **kwargs)
-        ca.write_text('changed after copy')
+        ca.write_text('changed after copy', encoding="utf-8")
 
     monkeypatch.setattr(assembly, '_assemble_cohort', collect_then_change)
     refused = directory / 'changed-correction-package'

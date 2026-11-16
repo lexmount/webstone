@@ -116,6 +116,8 @@ def test_plan_binds_all_tasks_and_serial_methods(tmp_path: Path) -> None:
     profile, seeds = _profile(tmp_path)
 
     plan = load_replay_plan(profile, seeds)
+    assert plan['execution_policy']['max_in_flight'] == 1
+    assert plan['execution_policy']['serial_reason']
 
     assert plan["task_ids"] == [1, 2]
     assert plan["engines"] == ["chromium", "moli"]
@@ -167,7 +169,7 @@ def test_plan_state_opt_in_requires_exact_legacy_supersession(tmp_path, monkeypa
             records={1: {"correction_id": "old-rule"}}, record_sha256s={1: "old-hash"}
         ),
     )
-    payload = json.loads(profile.read_text())
+    payload = json.loads(profile.read_text(encoding="utf-8"))
     payload["scoring"]["observed_state"] = {"explicit_opt_in": True}
     _write(profile, payload)
     if supersession == "correct":

@@ -13,13 +13,17 @@ Requirements:
 
 - Linux with Docker Engine and cgroup v2, or Docker Desktop/Colima backed by a
   Linux VM
-- Python 3.11+ with venv support, at least 4 CPU cores, 6 GiB available memory,
+- Python 3.11 with venv support, at least 4 CPU cores, 6 GiB available memory,
   and Internet access for dependencies, images, and measured public websites
 - Docker access for the current user
 
 Run:
 
     ./examples/trajectory_replay/run.sh
+
+The default tasks come from [LexBench-Trajectory-Replay on Hugging Face](https://huggingface.co/datasets/Lexmount/LexBench-Trajectory-Replay), at the immutable revision in the code's data lock. The verified local cache works offline after the first download. An explicit `--suite` remains available on the Python CLI for historical inputs.
+
+Use `./examples/trajectory_replay/run.sh --no-report` to save scores and evidence without generating local HTML. Build the report later with `uv run --frozen python examples/trajectory_replay/rebuild_report.py --artifacts <evidence-directory>`; it selects the exact suite bound by the saved manifest. Publishing a report requires a separate explicit request and authorization.
 
 Run the small real-container smoke test before a release (requires the two
 evaluation images, which the command above builds):
@@ -42,11 +46,11 @@ content remain external variables rather than being silently treated as fixed.
 Outputs:
 
 - raw attempts, manifest, and summary in a new directory under
-  `~/.browser-eval/trajectory-replay/runs/`
+  `~/.webstone/trajectory-replay/runs/`
 - Markdown, HTML, and audit data in that run's `report/` directory
 
-`BROWSER_EVAL_DATA_HOME` changes the data root. The command prints the selected
-evidence directory. `BROWSER_USE_EVAL_OUTPUT_DIR` selects an explicit new directory;
+`WEBSTONE_DATA_HOME` changes the data root. The command prints the selected
+evidence directory. `TRAJECTORY_REPLAY_OUTPUT_DIR` selects an explicit new directory;
 an existing directory, file, or symlink is rejected without deleting evidence.
 Repeated invocations create separate runs. This runner does not resume an old run.
 
@@ -116,15 +120,17 @@ statistics.
   retained-memory and MiB-second metrics keep this visible.
 
 Failures retry once by default. Override defaults with
-BROWSER_USE_EVAL_FAILURE_RETRIES, BROWSER_USE_EVAL_SAMPLE_INTERVAL_MS,
-BROWSER_USE_EVAL_SETTLE_MS, BROWSER_USE_EVAL_CPUS, BROWSER_USE_EVAL_MEMORY, and
-BROWSER_USE_EVAL_OUTPUT_DIR.
+TRAJECTORY_REPLAY_FAILURE_RETRIES, TRAJECTORY_REPLAY_SAMPLE_INTERVAL_MS,
+TRAJECTORY_REPLAY_SETTLE_MS, TRAJECTORY_REPLAY_CPUS, TRAJECTORY_REPLAY_MEMORY, and
+TRAJECTORY_REPLAY_OUTPUT_DIR.
 
 Rule-based failure classification is always enabled. Optional LLM root-cause
-analysis is enabled with `BROWSER_USE_EVAL_LLM_DIAGNOSTICS=1`; it uses
+analysis is enabled with `TRAJECTORY_REPLAY_LLM_DIAGNOSTICS=1`; it uses
 `gpt-5.6-sol` with low reasoning by default and requires `OPENAI_API_KEY` plus
-`OPENAI_BASE_URL`. The LLM receives only failed-task evidence, produces a
-traceable hypothesis, and never changes pass/fail scoring.
+`OPENAI_BASE_URL` in the repository `.env`. Exported values are ignored; without
+both `.env` values the run records a missing-credentials error instead of a
+diagnosis. The LLM receives only failed-task evidence, produces a traceable
+hypothesis, and never changes pass/fail scoring.
 
 ## Browser-tool call count
 
@@ -140,7 +146,9 @@ complex. Twenty-five retain the previous public suite's task definitions;
 five add cascading search, infinite scrolling, site search, version/language
 switching, and repository file search. Capability designs may come from
 [Lexbench-Headless-Browser](https://github.com/lexmount/Lexbench-Headless-Browser)
-and [Moli](https://github.com/lexmount/moli). Lexbench's local-fixture scenarios
+and [Moli](https://github.com/lexmount/moli). The original Headless task inputs are
+preserved in [LexBench-Headless-Browser](https://huggingface.co/datasets/Lexmount/LexBench-Headless-Browser).
+Lexbench's local-fixture scenarios
 are design references, not measured public targets. Every task
 declares a fixed reference action sequence, exact expected
 outputs, derivation, and source attribution. Expected outputs are unique; the

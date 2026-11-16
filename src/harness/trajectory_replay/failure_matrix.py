@@ -1,0 +1,280 @@
+"""Disjoint, evidence-derived failure counts for the replay result inventory."""
+
+from collections import Counter
+from html import escape
+from urllib.parse import urlencode
+
+from harness.trajectory_replay.messages import report_text
+
+# These are diagnostic families, not assertions that the browser owns the fault.
+FAMILIES = (
+    ("geometry", (
+        "zero_area_target_geometry", "zero_width_forum_link",
+        "zero_width_candidate_changes_visible_ordinal",
+        "visible_locator_timeout_without_geometry",
+        "suggestion_dom_selection",
+        "configuration_wizard_readiness_predicate",
+    )),
+    ("interaction", (
+        "input_navigation_lifecycle", "disabled_control_readiness_race",
+        "implicit_search_submission_absent",
+    )),
+    ("network", (
+        "fetch_transport_timeout", "recorded_referer_mismatch",
+    )),
+    ("document", (
+        "json_document_dom_contract",
+    )),
+)
+
+
+def _reviewed_failures(rows: list[dict], participant: str) -> list[dict]:
+    selected = [
+        row
+        for row in rows
+        if row["participant_id"] == participant and row["status"] != "pass"
+    ]
+    if any(not row.get("cause_code") for row in selected):
+        raise ValueError(f"failure profile has an unreviewed result: {participant}")
+    return selected
+
+
+def _cause_groups(rows: list[dict]) -> list[tuple[str, list[dict]]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["cause_code"]), []).append(row)
+    return sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0]))
+
+
+def failure_signature_cards(
+    methods: dict, rows: list[dict], lang: str, *, participants: tuple[str, ...]
+) -> str:
+    """Render a compact, data-bearing failure signature for summary pages."""
+    zh = lang == "zh"
+    t = report_text(lang)
+    cards = []
+    for participant in participants:
+        if participant not in methods:
+            raise ValueError(f"failure signature participant is not registered: {participant}")
+        failures = _reviewed_failures(rows, participant)
+        population = sum(row["participant_id"] == participant for row in rows)
+        groups = _cause_groups(failures)
+        dominant = groups[:3]
+        items = []
+        for _code, members in dominant:
+            sample = members[0]
+            label = sample.get("cause_zh" if zh else "cause_en") or sample["cause_code"]
+            share = len(members) / len(failures) * 100 if failures else 0
+            query = urlencode(
+                {
+                    "participant": participant,
+                    "status": "fail",
+                    "cause": sample.get("cause_zh") or sample["cause_code"],
+                }
+            )
+            items.append(
+                '<li><div><span>'
+                + escape(str(label))
+                + f'</span><strong>{len(members)}</strong></div>'
+                + f'<div class="failure-mini-track"><i style="width:{share:.2f}%"></i></div>'
+                + f'<a href="results.html?{escape(query, quote=True)}#result-inventory">'
+                + t("failure.signature.inspect_tasks", "Inspect tasks")
+                + "</a></li>"
+            )
+        remainder = len(failures) - sum(len(members) for _, members in dominant)
+        if remainder:
+            items.append(
+                f'<li class="failure-remainder"><span>'
+                f"{t('failure.signature.other_subtypes', 'Other subtypes')}</span>"
+                f"<strong>{remainder}</strong></li>"
+            )
+        cards.append(
+            f'<article data-method="{escape(participant)}"><header><div><span>'
+            f"{t('failure.signature.official_failures', 'Official failures')}</span>"
+            f'<strong>{len(failures)} / {population}</strong></div><b>'
+            f"{escape(methods[participant]['label'])}</b></header>"
+            f"<ul>{''.join(items)}</ul></article>"
+        )
+    total = len(participants)
+    heading = (
+        t("failure.signature.heading.one", "Dominant failures in {count} browser", count=total)
+        if total == 1
+        else t(
+            "failure.signature.heading.other",
+            "Dominant failures in {count} browsers",
+            count=total,
+        )
+    )
+    note = t(
+        "failure.signature.note",
+        'Each failure belongs to one reviewed subtype. These '
+        'are the three largest for each method; Interpretation '
+        'contains every subtype, explanation, and case evidence.',
+    )
+    return (
+        f'<section class="summary-slide" data-failure-signatures>'
+        f'<div class="section-heading"><div><h2>{heading}</h2>'
+        f'<p>{note}</p></div><a href="interpretation.html#browser-diagnoses">'
+        + (
+            t("failure.signature.read_chapters.one", "Read {count} browser chapter", count=total)
+            if total == 1
+            else t(
+                "failure.signature.read_chapters.other",
+                "Read {count} browser chapters",
+                count=total,
+            )
+        )
+        + f'</a></div><div class="failure-signature-grid">{"".join(cards)}</div></section>'
+    )
+
+
+def browser_failure_profile(methods: dict, rows: list[dict], lang: str, participant: str) -> str:
+    """Render one browser's complete reviewed subtype distribution and evidence links."""
+    if participant not in methods:
+        raise ValueError(f"failure profile participant is not registered: {participant}")
+    zh = lang == "zh"
+    t = report_text(lang)
+    selected = [row for row in rows if row["participant_id"] == participant]
+    failures = _reviewed_failures(rows, participant)
+    groups = _cause_groups(failures)
+    if not selected or not failures:
+        raise ValueError(f"failure profile requires a failing population: {participant}")
+    maximum = max(len(members) for _, members in groups)
+    bars = []
+    explanations = []
+    for code, members in groups:
+        sample = min(members, key=lambda row: int(row["task_id"]))
+        count = len(members)
+        label = sample.get("cause_zh" if zh else "cause_en") or code
+        reason = sample.get("reason_zh" if zh else "reason_en") or label
+        share = count / len(failures) * 100
+        width = count / maximum * 100
+        bars.append(
+            f'<li data-cause="{escape(code)}"><span>{escape(str(label))}</span>'
+            f'<div class="failure-bar-track"><i style="width:{width:.2f}%"></i></div>'
+            f'<strong>{count}</strong><small>{share:.1f}%</small></li>'
+        )
+        detail = f'result/{escape(str(sample["key"]), quote=True)}.html'
+        explanations.append(
+            f'<article data-cause-detail="{escape(code)}"><header><h3>{escape(str(label))}</h3>'
+            f"<strong>{count} {t('failure.profile.tasks', 'tasks')}</strong></header><p>"
+            f'{escape(str(reason))}</p>'
+            f'<a href="{detail}">'
+            f"{t('failure.profile.representative_task', 'Representative task')} #"
+            f"{int(sample['task_id'])} →</a></article>"
+        )
+    passed = sum(row["status"] == "pass" for row in selected)
+    label = methods[participant]["label"]
+    return (
+        f'<div class="browser-failure-profile" data-browser-failure-profile="'
+        f'{escape(participant)}">'
+        f'<div class="browser-profile-overview"><div class="browser-score"><span>'
+        f'{escape(label)}</span>'
+        f'<strong>{passed}/{len(selected)}</strong><small>'
+        f"{t('failure.profile.official_passes', 'official passes')}</small></div>"
+        f'<div class="browser-failure-total"><strong>{len(failures)}</strong><span>'
+        f"{t('failure.profile.failures_reviewed', 'failures, all reviewed')}</span></div></div>"
+        f'<ol class="failure-bars">{"".join(bars)}</ol>'
+        f'<div class="failure-explanations">{"".join(explanations)}</div></div>'
+    )
+
+
+def failure_category_matrix(
+    methods: dict, rows: list[dict], lang: str, *, embedded: bool = False
+) -> str:
+    """Count each failed method-task once, including unreviewed failures."""
+    zh = lang == "zh"
+    t = report_text(lang)
+    family_labels = {
+        "geometry": t("failure.family.geometry", "Layout and visibility"),
+        "interaction": t("failure.family.interaction", "Input and action effects"),
+        "network": t("failure.family.network", "Network transport and recording"),
+        "document": t("failure.family.document", "Document representation"),
+    }
+    labels = {}
+    counts = Counter()
+    totals = Counter()
+    population = Counter()
+    seen = set()
+    for row in rows:
+        method = row["participant_id"]
+        identity = (method, row["task_id"])
+        if identity in seen:
+            raise ValueError("duplicate method-task result in failure matrix")
+        if method not in methods:
+            raise ValueError("unregistered method in failure matrix")
+        seen.add(identity)
+        population[method] += 1
+        if row["status"] == "pass":
+            continue
+        code = row.get("cause_code") or "unreviewed"
+        # Both editions read the Chinese label: it is the inventory's filter value.
+        labels[code] = (
+            row.get("cause_zh") or report_text("zh")("failure.unreviewed", "Unreviewed"),
+            row.get("cause_en") or report_text("en")("failure.unreviewed", "Unreviewed"),
+        )
+        counts[method, code] += 1
+        totals[method] += 1
+
+    families = []
+    assigned = set()
+    for family, codes in FAMILIES:
+        present = [code for code in codes if code in labels]
+        if present:
+            families.append((family, family_labels[family], present))
+            assigned.update(present)
+    remaining = sorted(set(labels) - assigned)
+    if remaining:
+        families.append(("other", t("failure.family.other", "Other / unreviewed"), remaining))
+    columns = [code for _, _, codes in families for code in codes]
+    groups = "".join(
+        f'<th scope="colgroup" colspan="{len(codes)}" data-family="{family}">{escape(label)}</th>'
+        for family, label, codes in families
+    )
+    headers = "".join(
+        f'<th scope="col" data-category="{escape(code)}">'
+        f'{escape(labels[code][0 if zh else 1])}</th>'
+        for code in columns
+    )
+    body = []
+    for method, entry in methods.items():
+        cells = []
+        for code in columns:
+            count = counts[method, code]
+            query = {"participant": method, "status": "fail"}
+            # The existing inventory uses the Chinese review label as a stable
+            # filter value in both localizations.
+            if code != "unreviewed":
+                query["cause"] = labels[code][0]
+            url = "results.html?" + urlencode(query) + "#result-inventory"
+            value = (
+                f'<a href="{escape(url, quote=True)}">{count}</a>'
+                if count and code != "unreviewed"
+                else str(count)
+            )
+            cells.append(f'<td data-category="{escape(code)}" data-count="{count}">{value}</td>')
+        body.append(
+            f'<tr data-method="{escape(method)}"><th scope="row">{escape(entry["label"])}</th>'
+            f'<td data-failure-total="{totals[method]}">{totals[method]} / '
+            f'{population[method]}</td>'
+            + "".join(cells)
+            + "</tr>"
+        )
+    title = t("failure.matrix.title", "Failures by family and subtype")
+    note = t(
+        "failure.matrix.note",
+        'The denominator is all tasks for each method. Each '
+        'failure belongs to one subtype. Scroll horizontally '
+        'for all categories and select a count to inspect its '
+        'cases; fault ownership and root-cause evidence are in each diagnosis.',
+    )
+    tag = "div" if embedded else "section"
+    heading = "" if embedded else f"<h2>{title}</h2>"
+    return (
+        f"<{tag} data-failure-matrix>{heading}<p>{note}</p>"
+        f'<div class="table-scroll failure-category-matrix" '
+        f'tabindex="0" role="region" aria-label="{title}"><table><thead><tr>'
+        f'<th scope="col" rowspan="2">{t("common.method", "Method")}</th>'
+        f'<th scope="col" rowspan="2">{t("failure.matrix.failures_tasks", "Failures / tasks")}</th>'
+        f"{groups}</tr><tr>{headers}</tr></thead><tbody>{''.join(body)}</tbody></table></div></{tag}>"
+    )

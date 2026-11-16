@@ -14,6 +14,167 @@ from harness.web_fetch.providers.firecrawl import FirecrawlProvider
 
 
 class BenchmarkSelectionTests(unittest.TestCase):
+    def test_provider_batches_share_the_declared_account_limit(self):
+        import threading
+        import time
+
+        active = peak = 0
+        lock = threading.Lock()
+
+        def fetch(*args, **kwargs):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(.03)
+            with lock:
+                active -= 1
+            return ProviderResult(True, 'content'), None
+
+        config = self.root / 'configs/providers.example.json'
+        data = json.loads(config.read_text(encoding="utf-8"))
+        for provider in data['providers'].values():
+            provider['execution_resources'] = {
+                'account': {'capacity': 1, 'reason': 'One shared account'}}
+        config.write_text(json.dumps(data), encoding="utf-8")
+        with patch('harness.web_fetch.runner.fetch_with_deadline', side_effect=fetch):
+            self.run_main([
+                '--dataset', str(self.root / 'evaluation/dataset.json'),
+                '--provider-config', str(config), '--track', 'web',
+                '--providers', 'fixture-one,fixture-two', '--workers', '2', '--measure-only',
+            ])
+        self.assertEqual(peak, 1)
+        rows = [json.loads(row) for row in (self.output / 'results.jsonl').read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row['ok'] for row in rows))
+        execution = json.loads((self.output / 'execution.json').read_text(encoding="utf-8"))
+        self.assertEqual(execution['aggregate']['execution_policy']['purpose'], 'quality')
+        for batch in execution['batches']:
+            self.assertEqual(batch['execution_context']['purpose'], 'quality')
+            self.assertEqual(batch['execution_policy']['purpose'], 'quality')
+
+    def test_final_call_quarantine_stops_other_scopes_and_shared_variants(self):
+        from harness.web_fetch.providers.base import ProcessCleanupError
+        from harness.web_fetch.runner import IncompleteEvaluationError
+
+        config = self.root / 'configs/providers.example.json'
+        data = json.loads(config.read_text(encoding='utf-8'))
+        for provider in data['providers'].values():
+            provider['execution_resources'] = {
+                'account': {'capacity': 1, 'reason': 'Shared unresolved worker'}}
+        config.write_text(json.dumps(data), encoding='utf-8')
+        with patch('harness.web_fetch.runner.fetch_with_deadline',
+                   side_effect=ProcessCleanupError('Worker remains alive')) as call:
+            with self.assertRaises(IncompleteEvaluationError):
+                self.run_main([
+                    '--dataset', str(self.root / 'evaluation/dataset.json'),
+                    '--provider-config', str(config), '--providers', 'fixture-one,fixture-two',
+                    '--workers', '2', '--measure-only',
+                ])
+        self.assertEqual(call.call_count, 1)
+        manifests = list(self.output.glob('workers/*/*/manifest.json'))
+        self.assertEqual(len(manifests), 1)
+        manifest = json.loads(manifests[0].read_text(encoding='utf-8'))
+        self.assertEqual(len(manifest['quarantined_providers']), 1)
+        self.assertEqual(manifest['attempt_count'], 1)
+        self.assertFalse((self.output / 'execution.json').exists())
+
+    def test_quarantine_reaches_other_outer_workers_before_persistence_finishes(self):
+        import threading
+        import time
+        from types import SimpleNamespace
+
+        from harness.web_fetch import runner
+        from harness.web_fetch.providers.base import ProcessCleanupError
+        from harness.web_fetch.runner import IncompleteEvaluationError
+
+        held, release = threading.Event(), threading.Event()
+        started = threading.Barrier(2, timeout=3)
+        owner = threading.local()
+        events, observed, calls = {}, [], []
+        actual = run_benchmark.run_evaluation
+
+        def evaluate(**kwargs):
+            events[kwargs['providers'][0].name] = kwargs.get('stop_event')
+            return actual(**kwargs)
+
+        def sleep(seconds):
+            if getattr(owner, 'name', None) == 'fixture-one':
+                held.set()
+                self.assertTrue(release.wait(3))
+
+        def fetch(provider, case, *args, **kwargs):
+            owner.name = provider.name
+            calls.append((provider.name, case.id))
+            started.wait()
+            if provider.name == 'fixture-one':
+                raise ProcessCleanupError('Worker remains alive')
+            try:
+                self.assertTrue(held.wait(3))
+                event = events[provider.name]
+                observed.append(event is not None and event.is_set())
+            finally:
+                release.set()
+            return ProviderResult(True, 'content'), None
+
+        clock = SimpleNamespace(monotonic=time.monotonic, perf_counter=time.perf_counter,
+                                sleep=sleep, time=time.time)
+        with patch.object(run_benchmark, 'run_evaluation', side_effect=evaluate), \
+                patch.object(runner, 'fetch_with_deadline', side_effect=fetch), \
+                patch.object(runner, 'time', clock):
+            with self.assertRaises((IncompleteEvaluationError, KeyboardInterrupt)):
+                self.run_main([
+                    '--dataset', str(self.root / 'evaluation/dataset.json'),
+                    '--provider-config', str(self.root / 'configs/providers.example.json'),
+                    '--providers', 'fixture-one,fixture-two', '--workers', '2', '--measure-only',
+                ])
+        self.assertEqual(observed, [True])
+        self.assertEqual(sorted(calls), [('fixture-one', 'web-a'), ('fixture-two', 'web-a')])
+
+    def test_mixed_worker_runtime_identities_never_form_an_aggregate(self):
+        from harness.web_fetch.runner import IncompleteEvaluationError
+
+        actual = run_benchmark.run_evaluation
+
+        def collect(**kwargs):
+            result = actual(**kwargs)
+            if kwargs['providers'][0].name == 'fixture-two':
+                path = kwargs['output_dir'] / 'manifest.json'
+                manifest = json.loads(path.read_text(encoding='utf-8'))
+                manifest['runtime_source_sha256'] = 'f' * 64
+                path.write_text(json.dumps(manifest), encoding='utf-8')
+            return result
+
+        with patch.object(run_benchmark, 'run_evaluation', side_effect=collect):
+            with self.assertRaisesRegex(IncompleteEvaluationError, 'Runtime changed'):
+                self.run_main(['--track', 'web', '--providers', 'fixture-one,fixture-two',
+                               '--workers', '2', '--measure-only'])
+        self.assertFalse((self.output / 'execution.json').exists())
+        self.assertEqual(len(list(self.output.glob('workers/*/web/results.jsonl'))), 2)
+
+    def test_runtime_change_during_the_last_call_preserves_evidence_without_certifying_it(self):
+        from harness.web_fetch import runner
+        from harness.web_fetch.runner import IncompleteEvaluationError
+
+        folder = self.root / 'runtime/harness/web_fetch'
+        folder.mkdir(parents=True)
+        source = folder / 'runner.py'
+        source.write_text('# before call', encoding='utf-8')
+        (folder.parent / 'benchmark_execution.py').write_text('# scheduler', encoding='utf-8')
+
+        def fetch(*args, **kwargs):
+            source.write_text('# changed during call', encoding='utf-8')
+            return ProviderResult(True, 'content'), None
+
+        with patch.object(runner, '__file__', str(source)), \
+                patch.object(runner, 'fetch_with_deadline', side_effect=fetch):
+            with self.assertRaisesRegex(IncompleteEvaluationError, 'Runtime changed'):
+                self.run_main(['--track', 'web', '--providers', 'fixture-one',
+                               '--workers', '1', '--measure-only'])
+        self.assertFalse((self.output / 'execution.json').exists())
+        saved = self.output / 'workers/fixture-one/web/results.jsonl'
+        self.assertEqual(len(saved.read_text(encoding='utf-8').splitlines()), 1)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -31,14 +192,14 @@ class BenchmarkSelectionTests(unittest.TestCase):
         self.dataset = {'id': 'test', 'tool': 'web_fetch', 'cases': cases}
         (self.root/'evaluation').mkdir()
         (self.root/'configs').mkdir()
-        (self.root/'evaluation/dataset.json').write_text(json.dumps(self.dataset))
+        (self.root/'evaluation/dataset.json').write_text(json.dumps(self.dataset), encoding='utf-8')
         for case in cases:
             source = self.root/'evaluation/sources'/case['id']
             source.mkdir(parents=True)
-            (source/'reference.txt').write_text('content')
+            (source/'reference.txt').write_text('content', encoding='utf-8')
         for filename in ['providers.example.json', 'providers.resources.json']:
             (self.root/'configs'/filename).write_text(json.dumps({'providers': {
-                'fixture-one': {'type': 'fixture'}, 'fixture-two': {'type': 'fixture'}}}))
+                'fixture-one': {'type': 'fixture'}, 'fixture-two': {'type': 'fixture'}}}), encoding='utf-8')
 
     def run_main(self, args):
         with patch.object(run_benchmark, 'ROOT', self.root), \
@@ -70,20 +231,20 @@ class BenchmarkSelectionTests(unittest.TestCase):
             ('fixture-two', 'dynamic-a'), ('fixture-one', 'dynamic-a'),
             ('fixture-one', 'dynamic-b'), ('fixture-two', 'dynamic-b'),
         ])
-        records = [json.loads(line) for line in (self.output / 'results.jsonl').read_text().splitlines()]
+        records = [json.loads(line) for line in (self.output / 'results.jsonl').read_text(encoding='utf-8').splitlines()]
         self.assertEqual(len(records), 6)
         for record in records:
             expected = f"content {record['provider']} {record['case_id']}"
-            self.assertEqual((self.output / record['artifact_path']).read_text(), expected)
-        execution = json.loads((self.output / 'execution.json').read_text())
+            self.assertEqual((self.output / record['artifact_path']).read_text(encoding='utf-8'), expected)
+        execution = json.loads((self.output / 'execution.json').read_text(encoding='utf-8'))
         self.assertEqual(execution['aggregate']['call_order'], 'case-alternating')
         self.assertEqual(execution['batches'][0]['parameters']['provider_concurrency'], 1)
         self.assertEqual(execution['batches'][0]['parameters']['timeout'], 30)
         observations = self.root / 'observations.json'
-        observations.write_text('[]\n')
+        observations.write_text('[]\n', encoding='utf-8')
         from harness.web_fetch.evidence import finalize_aggregate
         finalize_aggregate(self.output, observations)
-        finalized = json.loads((self.output / 'execution.json').read_text())
+        finalized = json.loads((self.output / 'execution.json').read_text(encoding='utf-8'))
         self.assertEqual(finalized['batches'][0]['attempt_ids'],
                          execution['batches'][0]['attempt_ids'])
 
@@ -131,20 +292,20 @@ class BenchmarkSelectionTests(unittest.TestCase):
             release.set()
             self.assertTrue(finished.wait(2))
         self.assertEqual(calls, [('blocked', 'web-a')])
-        manifest = json.loads((self.output / 'manifest.json').read_text())
+        manifest = json.loads((self.output / 'manifest.json').read_text(encoding='utf-8'))
         self.assertEqual(manifest['attempt_count'], 1)
         self.assertTrue(manifest['unexecuted'])
 
     def test_dynamic_subset_real_fixture_calls_and_exact_coverage(self):
         self.run_main(['--track', 'dynamic', '--providers', 'fixture-one,fixture-two'])
-        data = json.loads((self.output/'dataset.json').read_text())
+        data = json.loads((self.output/'dataset.json').read_text(encoding='utf-8'))
         self.assertEqual(data['cases'], self.dataset['cases'][1:])
         self.assertEqual(data['coverage_plan'], {'dynamic': ['fixture-one', 'fixture-two']})
-        records = [json.loads(s) for s in (self.output/'results.jsonl').read_text().splitlines()]
+        records = [json.loads(s) for s in (self.output/'results.jsonl').read_text(encoding='utf-8').splitlines()]
         self.assertEqual(len(records), 4)
         self.assertEqual({(r['provider'],r['case_id']) for r in records},
                          {(p,c) for p in ['fixture-one','fixture-two'] for c in ['dynamic-a','dynamic-b']})
-        batches = json.loads((self.output/'execution.json').read_text())['batches']
+        batches = json.loads((self.output/'execution.json').read_text(encoding='utf-8'))['batches']
         self.assertEqual(len(batches), 2)
         self.assertTrue(all(b['dataset']['case_count']==2 for b in batches))
         self.assertTrue(all(b['provider_config_source'].endswith('providers.resources.json') for b in batches))
@@ -167,12 +328,12 @@ class BenchmarkSelectionTests(unittest.TestCase):
         defaults={p:p.read_bytes() for p in (self.root/'configs').iterdir()}
         config=self.root/'instance-provider.json'
         config.write_text(json.dumps({'providers':{'instance-only':{
-            'type':'fixture','fail_cases':['dynamic-b']}}}))
+            'type':'fixture','fail_cases':['dynamic-b']}}}), encoding='utf-8')
         self.run_main(['--providers','instance-only','--provider-config',str(config),'--measure-only'])
-        rows=[json.loads(s) for s in (self.output/'results.jsonl').read_text().splitlines()]
+        rows=[json.loads(s) for s in (self.output/'results.jsonl').read_text(encoding='utf-8').splitlines()]
         self.assertEqual({r['case_id']:r['ok'] for r in rows},
             {'web-a':True,'dynamic-a':True,'dynamic-b':False})
-        batches=json.loads((self.output/'execution.json').read_text())['batches']
+        batches=json.loads((self.output/'execution.json').read_text(encoding='utf-8'))['batches']
         self.assertEqual({attempt for batch in batches for attempt in batch['attempt_ids']},
                          {row['attempt_id'] for row in rows})
         self.assertTrue(all(b['provider_config_source']==str(config.resolve()) for b in batches))
@@ -189,15 +350,15 @@ class BenchmarkSelectionTests(unittest.TestCase):
     def test_explicit_provider_config_does_not_use_repository_scope_files(self):
         import shutil
         custom = self.root / 'custom-providers.json'
-        custom.write_text(json.dumps({'providers': {'custom': {'type': 'fixture'}}}))
+        custom.write_text(json.dumps({'providers': {'custom': {'type': 'fixture'}}}), encoding='utf-8')
         shutil.rmtree(self.root / 'configs')
         self.run_main(['--track', 'dynamic', '--providers', 'custom',
                        '--provider-config', str(custom)])
         records = [json.loads(line) for line in
-                   (self.output / 'results.jsonl').read_text().splitlines()]
+                   (self.output / 'results.jsonl').read_text(encoding='utf-8').splitlines()]
         self.assertEqual({(row['provider'], row['case_id']) for row in records},
                          {('custom', 'dynamic-a'), ('custom', 'dynamic-b')})
-        batches = json.loads((self.output / 'execution.json').read_text())['batches']
+        batches = json.loads((self.output / 'execution.json').read_text(encoding='utf-8'))['batches']
         self.assertTrue(all(batch['provider_config_source'] == str(custom.resolve()) for batch in batches))
 
     def test_capacity_preflight_receives_whole_worst_case_before_output_or_fetch(self):
@@ -216,7 +377,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
         for filename in ['providers.example.json', 'providers.resources.json']:
             (self.root/'configs'/filename).write_text(json.dumps({'providers': {
                 'capacity': {'type': 'fixture'},
-            }}))
+            }}), encoding='utf-8')
         with patch.object(
             run_benchmark, 'build_provider',
             side_effect=lambda name, config: CapacityProvider(name, config),
@@ -242,7 +403,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
 
         (self.root/'configs/providers.resources.json').write_text(json.dumps({
             'providers': {'capacity': {'type': 'fixture'}},
-        }))
+        }), encoding='utf-8')
         with patch.object(
             run_benchmark, 'build_provider',
             side_effect=lambda name, config: CapacityProvider(name, config),
@@ -258,11 +419,11 @@ class BenchmarkSelectionTests(unittest.TestCase):
         build = self.run_main(['--case-ids','dynamic-b,web-a',
                                '--providers','fixture-one','--measure-only'])
         build.assert_not_called()
-        data = json.loads((self.output/'dataset.json').read_text())
+        data = json.loads((self.output/'dataset.json').read_text(encoding='utf-8'))
         self.assertEqual([case['id'] for case in data['cases']], ['web-a','dynamic-b'])
-        records = [json.loads(line) for line in (self.output/'results.jsonl').read_text().splitlines()]
+        records = [json.loads(line) for line in (self.output/'results.jsonl').read_text(encoding='utf-8').splitlines()]
         self.assertEqual({row['case_id'] for row in records}, {'web-a','dynamic-b'})
-        execution = json.loads((self.output/'execution.json').read_text())
+        execution = json.loads((self.output/'execution.json').read_text(encoding='utf-8'))
         self.assertEqual(execution['aggregate']['providers'], ['fixture-one'])
         self.assertEqual(execution['aggregate']['case_ids'], ['web-a','dynamic-b'])
         self.assertEqual(execution['aggregate']['batch_count'], 2)
@@ -276,7 +437,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
                                 '--providers', 'fixture-one'])
         report = self.output/'report'
         self.assertTrue((report/'index.html').is_file())
-        data = json.loads((report/'dataset.json').read_text())
+        data = json.loads((report/'dataset.json').read_text(encoding='utf-8'))
         self.assertEqual({c['id'] for c in data['cases']}, {'dynamic-a','dynamic-b'})
         self.assertFalse((report/'sources/web-a').exists())
 
@@ -299,7 +460,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
         configs = {'providers': {'firecrawl': {'type':'firecrawl'},
                                 'tavily': {'type':'tavily_extract'},
                                 'exa': {'type':'exa_contents'}}}
-        (self.root/'configs/providers.resources.json').write_text(json.dumps(configs))
+        (self.root/'configs/providers.resources.json').write_text(json.dumps(configs), encoding='utf-8')
         stderr = io.StringIO()
         with redirect_stderr(stderr), patch.object(run_benchmark, 'run_evaluation') as run:
             with self.assertRaises(SystemExit):

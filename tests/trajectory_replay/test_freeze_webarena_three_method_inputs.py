@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from harness.record_io import canonical_json_sha256
 from harness.trajectory_replay.remote_runtime import (
     checked_file_sha256 as _sha256,
 )
@@ -10,9 +11,6 @@ from harness.trajectory_replay.remote_runtime import (
     freeze_method_inputs,
     load_remote_sites,
     rebind_remote_calls,
-)
-from harness.trajectory_replay.remote_runtime import (
-    input_digest as _digest,
 )
 
 
@@ -62,8 +60,8 @@ def test_freeze_requires_all_90_tasks_and_current_retrieval_contracts(
             {
                 "task_id": task_id,
                 "actions": bound,
-                "bound_calls_sha256": _digest(bound),
-                "source_calls_sha256": _digest(calls),
+                "bound_calls_sha256": canonical_json_sha256(bound),
+                "source_calls_sha256": canonical_json_sha256(calls),
                 "readiness": [],
             }
             for task_id in range(36)
@@ -90,7 +88,7 @@ def test_freeze_requires_all_90_tasks_and_current_retrieval_contracts(
     authority.mkdir()
     revision = authority / "task-0.json"
     _write(revision, {"tool_calls": calls})
-    affected_value = json.loads(affected.read_text())
+    affected_value = json.loads(affected.read_text(encoding="utf-8"))
     affected_value["candidates"][0]["source_revision"] = {
         "path": "task-0.json", "sha256": _sha256(revision),
     }
@@ -102,7 +100,7 @@ def test_freeze_requires_all_90_tasks_and_current_retrieval_contracts(
     assert frozen_elsewhere["tasks"][0]["source_actions"] == calls
     assert frozen_elsewhere["tasks"][0]["actions"] == result["tasks"][0]["actions"]
     assert frozen_elsewhere["tasks"][1:] == result["tasks"][1:]
-    revision.write_text('{"tool_calls": []}')
+    revision.write_text('{"tool_calls": []}', encoding="utf-8")
     with pytest.raises(ValueError, match="revised source actions changed"):
         freeze_method_inputs(**kwargs, reference_root=authority)
     _write(revision, {"tool_calls": calls})

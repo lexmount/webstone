@@ -33,6 +33,7 @@ def experiment(tmp_path):
     url = f'http://127.0.0.1:{server.server_port}'
     cases = [{'id': key, 'name': key, 'category': 'synthetic', 'expected_any': [],
               'url': url + '/' + key, 'task_kind': kind, 'track': 'web',
+              'content_score_applicable': kind == 'body',
               'source_verification': {'mime': 'image/png', 'file_sha256': digest}}
              for key, kind, digest in [
                  ('good', 'file', hashlib.sha256(png).hexdigest()),
@@ -43,12 +44,12 @@ def experiment(tmp_path):
     dataset.write_text(json.dumps({'id': 'parent', 'name': 'Parent', 'tool': 'web_fetch',
         'cases': cases, 'coverage_plan': {'web': ['historical-browser']},
         'comparison': {'kind': 'risk_control_100_moli',
-                       'require_independent_result_review': True}}))
+                       'require_independent_result_review': True}}), encoding='utf-8')
     config = tmp_path / 'providers.json'
     config.write_text(json.dumps({'providers': {'bytes': {'type': 'http'},
-                                              'unused': {'type': 'fixture'}}}))
+                                              'unused': {'type': 'fixture'}}}), encoding='utf-8')
     env = tmp_path / 'empty.env'
-    env.write_text('')
+    env.write_text('', encoding='utf-8')
 
     def run(*arguments):
         return subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'run',
@@ -71,27 +72,27 @@ def test_file_scope_checks_bytes_and_declares_its_actual_matrix(experiment):
     result = run('--providers', 'bytes', '--task-kind', 'file', '--fail-on-failure')
     assert result.returncode == 2, result.stdout + result.stderr
     assert paths == ['/good', '/wrong', '/wrong', '/invalid', '/invalid']
-    rows = [json.loads(line) for line in (root / 'run/results.jsonl').read_text().splitlines()]
+    rows = [json.loads(line) for line in (root / 'run/results.jsonl').read_text(encoding='utf-8').splitlines()]
     assert {row['case_id']: row['metrics']['raw_file_pass'] for row in rows} == {
         'good': True, 'wrong': False, 'invalid': False}
     assert all(row['ok'] for row in rows)
-    evidence = json.loads((root / 'run/dataset.json').read_text())
+    evidence = json.loads((root / 'run/dataset.json').read_text(encoding='utf-8'))
     assert evidence['coverage_plan'] == {'web': ['bytes']}
     assert evidence['comparison']['publication_state'] == 'diagnostic_not_for_release'
     assert 'require_independent_result_review' not in evidence['comparison']
     assert (root / 'dataset.json').read_bytes() == original_dataset
-    reliability = json.loads((root / 'run/report/reliability.json').read_text())
+    reliability = json.loads((root / 'run/report/reliability.json').read_text(encoding='utf-8'))
     assert reliability['complete'] and reliability['expected_calls'] == 3
     for row in rows[:2]:
         binary = row['provider_metadata']['file_evaluation']['files'][0]
         assert (root / 'run' / binary['artifact_path']).read_bytes() == png
         assert (root / 'run/report' / binary['artifact_path']).read_bytes() == png
     for route in ['index.html', 'attempts/bytes__wrong__r001.html']:
-        assert '诊断运行 · 非正式评测' in (root / 'run/report' / route).read_text()
-    home = (root / 'run/report/index.html').read_text()
+        assert '诊断运行 · 非正式评测' in (root / 'run/report' / route).read_text(encoding='utf-8')
+    home = (root / 'run/report/index.html').read_text(encoding='utf-8')
     assert '文件交付' in home and '文件取得率' in home
     assert '常见网页的正文提取' not in home
-    detail = (root / 'run/report/attempts/bytes__wrong__r001.html').read_text()
+    detail = (root / 'run/report/attempts/bytes__wrong__r001.html').read_text(encoding='utf-8')
     assert '文件校验未通过' in detail
     from harness.reporting.links import check
     check(root / 'run/report')
@@ -102,7 +103,7 @@ def test_case_ids_and_kind_intersect_before_calls(experiment):
     result = run('--providers', 'bytes', '--task-kind', 'file', '--case-ids', 'good,body')
     assert result.returncode == 0, result.stdout + result.stderr
     assert paths == ['/good']
-    assert len(json.loads((root / 'run/dataset.json').read_text())['cases']) == 1
+    assert len(json.loads((root / 'run/dataset.json').read_text(encoding='utf-8'))['cases']) == 1
 
 
 @pytest.mark.parametrize('arguments', [
@@ -138,26 +139,26 @@ def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment, resco
     from harness.web_fetch.reference_lifecycle import require_certifiable_evidence
 
     run, paths, root, _ = experiment
-    original = json.loads((root / 'dataset.json').read_text())
+    original = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
     original['comparison'] = {}
-    (root / 'dataset.json').write_text(json.dumps(original))
+    (root / 'dataset.json').write_text(json.dumps(original), encoding='utf-8')
     result = run('--providers', 'bytes', '--case-ids', 'good')
     assert result.returncode == 0, result.stdout + result.stderr
     evidence = root / 'run'
-    before = json.loads((evidence / 'dataset.json').read_text())
+    before = json.loads((evidence / 'dataset.json').read_text(encoding='utf-8'))
     calls = list(paths)
     if rescore:
         result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'rescore',
             str(evidence), '--dataset', str(root / 'dataset.json')],
             text=True, capture_output=True)
         assert result.returncode == 0, result.stdout + result.stderr
-    after = json.loads((evidence / 'dataset.json').read_text())
+    after = json.loads((evidence / 'dataset.json').read_text(encoding='utf-8'))
     assert after['comparison'] == before['comparison']
     assert after['coverage_plan'] == before['coverage_plan']
     assert [case['id'] for case in after['cases']] == ['good']
     assert paths == calls
-    assert '诊断运行 · 非正式评测' in (evidence / 'report/index.html').read_text()
-    manifest = json.loads((evidence / 'manifest.json').read_text())
+    assert '诊断运行 · 非正式评测' in (evidence / 'report/index.html').read_text(encoding='utf-8')
+    manifest = json.loads((evidence / 'manifest.json').read_text(encoding='utf-8'))
     for dataset in (after, {}):
         with pytest.raises(ValueError, match='Diagnostic'):
             require_certifiable_evidence(dataset, [manifest])
@@ -186,7 +187,7 @@ def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experi
     before = {name: (evidence / name).read_bytes()
               for name in ('dataset.json', 'manifest.json', 'results.jsonl', 'summary.json')}
     dataset_path = root / 'dataset.json'
-    dataset = json.loads(dataset_path.read_text())
+    dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
     good = next(case for case in dataset['cases'] if case['id'] == 'good')
     if damage == 'missing':
         dataset['cases'].remove(good)
@@ -195,7 +196,7 @@ def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experi
     else:
         good[damage] = {'url': 'https://different.invalid/', 'track': 'another',
                         'task_kind': 'body'}[damage]
-    dataset_path.write_text(json.dumps(dataset))
+    dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
     calls = list(paths)
     result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'rescore',
         str(evidence), '--dataset', str(dataset_path)], text=True, capture_output=True)
@@ -215,14 +216,14 @@ def test_invalid_language_rejected_before_provider_construction_or_execution(tmp
     monkeypatch.setattr(cli, "build_provider", unexpected)
     monkeypatch.setattr(cli, "run_evaluation", unexpected)
     # Track the original state even when load_runtime_env writes the key directly.
-    monkeypatch.setenv("BROWSER_EVAL_REPORT_LANGUAGE", "")
-    monkeypatch.delenv("BROWSER_EVAL_REPORT_LANGUAGE")
+    monkeypatch.setenv("WEBSTONE_REPORT_LANGUAGE", "")
+    monkeypatch.delenv("WEBSTONE_REPORT_LANGUAGE")
     env = tmp_path / "local.env"
-    env.write_text("BROWSER_EVAL_REPORT_LANGUAGE=fr\n" if source == "file" else "")
+    env.write_text("WEBSTONE_REPORT_LANGUAGE=fr\n" if source == "file" else "", encoding='utf-8')
     if source == "process":
-        monkeypatch.setenv("BROWSER_EVAL_REPORT_LANGUAGE", "fr")
+        monkeypatch.setenv("WEBSTONE_REPORT_LANGUAGE", "fr")
     args = cli.build_parser().parse_args(["run", "--output", str(tmp_path / "run"), "--env-file", str(env)])
-    with pytest.raises(ValueError, match="BROWSER_EVAL_REPORT_LANGUAGE"):
+    with pytest.raises(ValueError, match="WEBSTONE_REPORT_LANGUAGE"):
         cli.command_run(args)
     assert not args.output.exists()
 
@@ -230,24 +231,62 @@ def test_invalid_language_rejected_before_provider_construction_or_execution(tmp
 def test_rescore_rejects_invalid_language_before_rewriting_evidence(tmp_path, monkeypatch):
     from harness.web_fetch import cli
 
-    monkeypatch.setenv("BROWSER_EVAL_REPORT_LANGUAGE", "fr")
+    monkeypatch.setenv("WEBSTONE_REPORT_LANGUAGE", "fr")
     def unexpected(*args, **kwargs):
         pytest.fail("Invalid language must not rescore evidence")
     monkeypatch.setattr(cli, "rescore_evaluation", unexpected)
     args = cli.build_parser().parse_args(["rescore", str(tmp_path / "run"), "--dataset", str(tmp_path / "unused.json")])
-    with pytest.raises(ValueError, match="BROWSER_EVAL_REPORT_LANGUAGE"):
+    with pytest.raises(ValueError, match="WEBSTONE_REPORT_LANGUAGE"):
         cli.command_rescore(args)
 
 
 def test_cli_invalid_language_exits_with_configuration_error_before_calls(tmp_path, monkeypatch, capsys):
     from harness.web_fetch import cli
-    monkeypatch.setenv("BROWSER_EVAL_REPORT_LANGUAGE", "fr")
-    monkeypatch.setattr(sys, "argv", ["browser-harness-eval", "run", "--output", str(tmp_path / "unused")])
+    monkeypatch.setenv("WEBSTONE_REPORT_LANGUAGE", "fr")
+    monkeypatch.setattr(sys, "argv", ["webstone", "run", "--output", str(tmp_path / "unused")])
     def unexpected(*args, **kwargs):
         pytest.fail("Invalid language must not call providers")
     monkeypatch.setattr(cli, "run_evaluation", unexpected)
     with pytest.raises(SystemExit) as error:
         cli.main()
     assert error.value.code == 2
-    assert "BROWSER_EVAL_REPORT_LANGUAGE" in capsys.readouterr().err
+    assert "WEBSTONE_REPORT_LANGUAGE" in capsys.readouterr().err
     assert not (tmp_path / "unused").exists()
+
+
+@pytest.mark.parametrize('dataset_scope',[True,False])
+def test_rescore_defaults_to_the_saved_content_scope_and_rejects_switches(tmp_path,monkeypatch,dataset_scope):
+    from harness.web_fetch import cli
+    from tests.benchmarks.webfetch.test_content_scopes import annotated_case
+    run=tmp_path/'run';run.mkdir();dataset=tmp_path/'dataset.json'
+    task=annotated_case();dataset.write_text(json.dumps(dict(tool='web_fetch',cases=[task])),encoding='utf-8')
+    (run/'dataset.json').write_text(json.dumps(dict(content_scope='main') if dataset_scope else dict(cases=[dict(id=task['id'],content_scope='main')])),encoding='utf-8')
+    seen=[]
+    def rescore(**kwargs):
+        seen.append(kwargs['cases'][0].content_scope)
+        assert len(kwargs['cases'][0].required_facts)==1
+        return [],{}
+    monkeypatch.setattr(cli,'rescore_evaluation',rescore)
+    args=cli.build_parser().parse_args(['rescore',str(run),'--dataset',str(dataset),'--no-report'])
+    assert cli.command_rescore(args)==0 and seen==['main']
+    args.content_scope='full'
+    with pytest.raises(ValueError,match='saved content scope'):cli.command_rescore(args)
+    assert seen==['main']
+
+
+def test_filtered_rescore_does_not_apply_task_scope_to_unexecuted_legacy_tasks(tmp_path,monkeypatch):
+    from harness.web_fetch import cli
+    from tests.benchmarks.webfetch.test_content_scopes import annotated_case
+    task=annotated_case();legacy=dict(id='legacy',name='Legacy',category='synthetic',url='https://example.test/legacy',expected_any=['legacy'])
+    dataset=tmp_path/'dataset.json';dataset.write_text(json.dumps(dict(tool='web_fetch',cases=[task,legacy])),encoding='utf-8')
+    run=tmp_path/'run';run.mkdir();(run/'dataset.json').write_text(json.dumps(dict(cases=[dict(id=task['id'],content_scope='full')])),encoding='utf-8')
+    seen=[]
+    def rescore(**kwargs):
+        seen.append({case.id:case.content_scope for case in kwargs['cases']})
+        assert kwargs['dataset_meta'].get('content_scope') is None
+        return [],{}
+    monkeypatch.setattr(cli,'rescore_evaluation',rescore)
+    args=cli.build_parser().parse_args(['rescore',str(run),'--dataset',str(dataset),'--no-report'])
+    for explicit in (None,'full'):
+        args.content_scope=explicit;assert cli.command_rescore(args)==0
+    assert seen==[{'article':'full','legacy':None}]*2

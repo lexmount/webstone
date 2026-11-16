@@ -28,7 +28,7 @@ def _entry_facts(case_id, entries):
             if len(values)>2 and values[2].startswith('or '):entry_fields.append('financing')
             if values[-1]=='Free shipping':entry_fields.append('shipping')
         if len(values)!=len(entry_fields):raise ValueError(f'Incomplete or unexpected fields: {case_id} entry {i}')
-        for field,value in zip(entry_fields,values):
+        for field,value in zip(entry_fields,values,strict=True):
             if field=='author':value=value.removeprefix('by ')
             if field=='tags':value=value.removeprefix('Tags: ')
             alternatives=[value]
@@ -41,12 +41,12 @@ def _entry_facts(case_id, entries):
 
 class DynamicReferenceTests(unittest.TestCase):
     def test_all_observed_fields_are_required(self):
-        captures=json.loads((ROOT/'research/dynamic-browser-captures.json').read_text())
-        captures+=json.loads((ROOT/'research/dynamic-expansion-captures.json').read_text())
+        captures=json.loads((ROOT/'research/dynamic-browser-captures.json').read_text(encoding='utf-8'))
+        captures+=json.loads((ROOT/'research/dynamic-expansion-captures.json').read_text(encoding='utf-8'))
         for c in captures:
             facts=_entry_facts(c['id'],c['entries'])
             ref=c['rendered_text']
-            score=lambda text:evaluate_content(text,[],required_facts=facts,min_content_chars=1)
+            score=lambda text,facts=facts:evaluate_content(text,[],required_facts=facts,min_content_chars=1)
             self.assertTrue(score(ref)['content_pass'],c['id'])
             # Delete each occurrence: duplicated fields cannot mask missing field coverage.
             for fact in facts:
@@ -66,7 +66,7 @@ class DynamicReferenceTests(unittest.TestCase):
     def test_new_observed_values_replace_old_fact_values(self):
         # Snapshot diagnostics can describe a new independent sample, without
         # silently changing the separately reviewed stable acceptance contract.
-        captures = json.loads((ROOT/'research/dynamic-expansion-captures.json').read_text())
+        captures = json.loads((ROOT/'research/dynamic-expansion-captures.json').read_text(encoding='utf-8'))
         case = next(c for c in captures if c['id'] == 'dynamic-iframe')
         updated = copy.deepcopy(case['entries'])
         old = updated[0]

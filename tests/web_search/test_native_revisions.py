@@ -118,7 +118,7 @@ def test_native_correction_preserves_calls_and_checks_artifacts(tmp_path, monkey
         "expected_metrics": {"anchor_hit_5": 1},
     }
     controls = tmp_path / "controls.json"
-    controls.write_text(json.dumps({"regressions": [{"controls": [control]}]}))
+    controls.write_text(json.dumps({"regressions": [{"controls": [control]}]}), encoding="utf-8")
     monkeypatch.setattr(revisions, "NATIVE_CONTROLS", controls)
     revision = {
         "schema": "web-search-assessment-revision/1",
@@ -232,9 +232,9 @@ def revision_instance(root, revision):
     authority = root / "assessment-authority.json"
     authority.write_text(json.dumps({"assessment_revisions": {
         "schema": "search-assessment-authority/1", "approved_sha256": [identity],
-        "provenance": [{**{k: revision[k] for k in ("root_cause", "regression_ids", "provider_calls")}, "sha256": identity}]}}))
+        "provenance": [{**{k: revision[k] for k in ("root_cause", "regression_ids", "provider_calls")}, "sha256": identity}]}}), encoding="utf-8")
     instance = root / "instance.json"
-    instance.write_text(json.dumps({"assessment_authority": {"path": authority.name, "sha256": digest(authority.read_bytes())}}))
+    instance.write_text(json.dumps({"assessment_authority": {"path": authority.name, "sha256": digest(authority.read_bytes())}}), encoding="utf-8")
     return instance
 
 
@@ -247,7 +247,7 @@ def test_qualified_answer_derivations_are_scoped_and_preserve_calls():
     profile = {"cases": cases}
     rows = [{"id": c["id"], "case_id": c["id"], "results": [{"url": "https://source.test/", "snippet": text}],
              "metrics": evaluate(c, [{"url": "https://source.test/", "snippet": text}]),
-             "elapsed_ms": 17, "cost": 1} for c, text in zip(cases, ("42", "v[1]"))]
+             "elapsed_ms": 17, "cost": 1} for c, text in zip(cases, ("42", "v[1]"), strict=True)]
     original = deepcopy((profile, rows))
     item = {"case_id": "footnote", "query": "How many?", "reference": "42[7]", "derived_answer": "42",
             "kind": "terminal-citation-metadata", "qualification": "Independent source confirms 42 without footnote",
@@ -260,7 +260,7 @@ def test_qualified_answer_derivations_are_scoped_and_preserve_calls():
     revised, updated, _ = apply_report_revision(profile, rows, revision)
     assert task_acceptance(revised["cases"][0], updated[0], "answer") is True
     assert task_acceptance(revised["cases"][1], updated[1], "answer") is False
-    for before, after in zip(rows, updated):
+    for before, after in zip(rows, updated, strict=True):
         assert all(before[k] == after[k] for k in ("results", "elapsed_ms", "cost"))
     assert (profile, rows) == original
     for change in ({"query": "Other question"}, {"reference": "43[7]"}, {"sources": []}):

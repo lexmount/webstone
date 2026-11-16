@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
+from harness.record_io import canonical_json_sha256, file_sha256
 from harness.trajectory_replay import catalog_release
 from harness.trajectory_replay.catalog_action_audit import (
     scan_function_body_actions,
     validate_catalog_action_audit,
     validate_function_body_overrides,
 )
-from harness.trajectory_replay.catalog_contracts import file_sha256
-from harness.trajectory_replay.webarena_replay import _json_sha256
 
 
 def _write_inputs(tmp_path: Path, scripts: list[str]) -> tuple[Path, Path]:
@@ -24,13 +23,17 @@ def _write_inputs(tmp_path: Path, scripts: list[str]) -> tuple[Path, Path]:
                 "task_id": task_id,
                 "mode": "direct",
                 "source_actions": [action],
-                "bound_calls_sha256": _json_sha256([action]),
+                "bound_calls_sha256": canonical_json_sha256([action]),
             }
         )
     catalog = tmp_path / "catalog.json"
-    catalog.write_text(json.dumps({"task_ids": list(range(1, len(rows) + 1)), "rows": rows}))
+    catalog.write_text(
+        json.dumps({"task_ids": list(range(1, len(rows) + 1)), "rows": rows}), encoding="utf-8"
+    )
     suite = tmp_path / "suite.json"
-    suite.write_text(json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": []}))
+    suite.write_text(
+        json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": []}), encoding="utf-8"
+    )
     return catalog, suite
 
 
@@ -120,7 +123,7 @@ def test_release_validation_detects_new_unamended_top_level_return(tmp_path: Pat
             "task_id": 2,
             "mode": "direct",
             "source_actions": [action],
-            "bound_calls_sha256": _json_sha256([action]),
+            "bound_calls_sha256": canonical_json_sha256([action]),
         }
     )
     catalog.write_text(json.dumps(payload), encoding="utf-8")

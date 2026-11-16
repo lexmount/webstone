@@ -3,10 +3,12 @@ import json
 
 import pytest
 
+from harness.record_io import file_sha256
 from harness.web_fetch import webmainbench_assembly as assembly
 from harness.web_fetch.webmainbench_diagnostics import sample_review_main
-from harness.web_fetch.webmainbench_evidence import digest, read_jsonl, scored_shard_bindings
-from tests.webmainbench_sample_fixture import sample_fixture, write_json, write_rows
+from harness.web_fetch.webmainbench_evidence import read_jsonl, scored_shard_bindings
+from tests.webmainbench_sample_fixture import sample_fixture, write_rows
+from tests.helpers import write_json
 
 
 def assemble(fixture):
@@ -32,11 +34,11 @@ def test_declared_sample_preserves_all_bound_results_calls_and_source(tmp_path, 
         assert actual == [{**row, 'case_id': row['track_id']} for row in expected]
     for row in read_jsonl(output / 'results.jsonl') + read_jsonl(output / 'physical-attempts.jsonl'):
         relative = row.get('physical_artifact_path', row.get('artifact_path'))
-        assert digest(output / relative) == row['output_sha256']
+        assert file_sha256(output / relative) == row['output_sha256']
     assert not list(output.rglob('private-notes.txt'))
     assert scored_shard_bindings(fixture['root'], list(providers)) == bindings
     review = json.loads((output / 'result-review.json').read_bytes())
-    assert review['bindings']['results_jsonl_sha256'] == digest(output / 'results.jsonl')
+    assert review['bindings']['results_jsonl_sha256'] == file_sha256(output / 'results.jsonl')
 
 
 @pytest.mark.parametrize('damage', ['review-bindings', 'review-provider', 'review-check', 'profile', 'source',
@@ -58,13 +60,13 @@ def test_invalid_inputs_leave_no_partial_assembly(tmp_path, damage):
         profile['timeout_seconds'] = 900
         write_json(fixture['profile'], profile)
     elif damage == 'source':
-        fixture['source'].write_text('{}\n')
+        fixture['source'].write_text('{}\n', encoding='utf-8')
     elif damage in {'logical', 'physical'}:
         name = 'scored-results.jsonl' if damage == 'logical' else 'physical-attempts.jsonl'
         rows = read_jsonl(shard / name)
         write_rows(shard / name, rows[:-1])
     elif damage == 'artifact':
-        (shard / 'artifacts/engine-a/case-0.md').write_text('corrupt')
+        (shard / 'artifacts/engine-a/case-0.md').write_text('corrupt', encoding='utf-8')
     elif damage == 'symlink':
         path = shard / 'artifacts/engine-a/case-0.md'
         path.rename(path.with_suffix('.saved'))
@@ -83,7 +85,7 @@ def test_changed_inputs_during_materialization_do_not_commit(tmp_path, monkeypat
 
     def changed_after_collect(*args, **kwargs):
         collect(*args, **kwargs)
-        fixture['review'].write_text('{}')
+        fixture['review'].write_text('{}', encoding='utf-8')
 
     monkeypatch.setattr(assembly, '_assemble_cohort', changed_after_collect)
     with pytest.raises(ValueError, match='changed during aggregation'):
@@ -123,7 +125,7 @@ def test_audit_and_assembly_enforce_the_declared_retry_budget(tmp_path, budget, 
     else:
         with pytest.raises(SystemExit):
             sample_review_main(arguments)
-        review = json.loads(fixture['review'].read_text())
+        review = json.loads(fixture['review'].read_text(encoding='utf-8'))
         assert review['status'] == 'failed'
         assert 'custom/case-0: final retry selection' in review['failures']
         with pytest.raises(ValueError):
@@ -159,7 +161,7 @@ def test_audit_does_not_write_decision_for_inputs_changed_mid_audit(tmp_path, mo
     original = diagnostics.normalized_edit
 
     def changed_after_read(predicted, reference):
-        (fixture['root'] / 'custom/artifacts/custom/case-0.md').write_text('changed during audit')
+        (fixture['root'] / 'custom/artifacts/custom/case-0.md').write_text('changed during audit', encoding='utf-8')
         return original(predicted, reference)
 
     monkeypatch.setattr(diagnostics, 'normalized_edit', changed_after_read)

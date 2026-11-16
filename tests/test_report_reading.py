@@ -12,9 +12,9 @@ def test_historical_article_preserves_source_data_and_language(tmp_path):
     languages = {}
     for language, heading in [("zh", "旧文章"), ("en", "Older article")]:
         path = source / (language + ".txt")
-        path.write_text(f"<html><style>.essay {{color: black}}</style><main><h1>{heading}</h1><p>94/100</p></main></html>")
+        path.write_text(f"<html><style>.essay {{color: black}}</style><main><h1>{heading}</h1><p>94/100</p></main></html>", encoding='utf-8')
         languages[language] = {"path": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-    (source / "archived-reading.json").write_text(json.dumps({"languages": languages}))
+    (source / "archived-reading.json").write_text(json.dumps({"languages": languages}), encoding='utf-8')
     output = tmp_path / "report"
     output.mkdir()
     copy_archived_reading(source, output)
@@ -24,7 +24,7 @@ def test_historical_article_preserves_source_data_and_language(tmp_path):
         assert "94/100" in rendered
         assert "current benchmark results" in rendered if language == "en" else "本轮评测结果" in rendered
         assert "<style>" not in rendered
-    (output / "en.txt").write_text("changed")
+    (output / "en.txt").write_text("changed", encoding='utf-8')
     with pytest.raises(ValueError, match="hash mismatch"):
         render_archived_reading(output, "en")
 
@@ -52,11 +52,22 @@ def test_archived_html_cannot_import_active_content_or_global_styles():
     assert not rejected.img.get('src')
 
 
+def test_escaped_value_keeps_its_translated_prefix():
+    from pathlib import PurePosixPath
+    from harness.web_fetch.report import empty_output_reason
+    from harness.web_fetch.report_i18n import localize_html
+    from harness.reporting.presentation import esc
+    reason = empty_output_reason({'ok': False, 'error_message': "can't connect"}, {}, '')
+    english = localize_html('<p>' + esc(reason) + '</p>', PurePosixPath('attempts/example.html'))
+    assert 'The final output is genuinely empty' in english
+    assert 'can&#x27;t connect' in english
+
+
 def test_english_chrome_preserves_raw_evidence_and_filter_keys():
     from pathlib import PurePosixPath
-    from harness.web_fetch.report_i18n import localize_html
+    from harness.web_fetch.report_i18n import localize_html, t
     raw = '<pre data-original="true">验证码 &amp; 原始返回 26/26</pre>'
-    source = '<html lang="zh-CN"><body><input aria-label="搜索" placeholder="搜索案例、方法或原因"><p data-failure-category="规则不满足">任务规则未满足</p>' + raw + '</body></html>'
+    source = '<html lang="zh-CN"><body><input aria-label="搜索" placeholder="搜索案例、方法或原因"><p data-failure-category="规则不满足">' + t('task_requirements_not_met', 'Task requirements not met') + '</p>' + raw + '</body></html>'
     english = localize_html(source, PurePosixPath('analysis/index.html'))
     assert raw in english
     assert 'data-failure-category="规则不满足"' in english
@@ -69,15 +80,15 @@ def test_bound_report_translations_are_external_and_tamper_evident(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     translations = source / "translations.json"
-    translations.write_text(json.dumps({"text": {"核验说明": "Review notes"}}))
+    translations.write_text(json.dumps({"text": {"核验说明": "Review notes"}}), encoding='utf-8')
     manifest = {"languages": {}, "translations": {
         "path": "translations.json", "sha256": hashlib.sha256(translations.read_bytes()).hexdigest()}}
-    (source / "archived-reading.json").write_text(json.dumps(manifest))
+    (source / "archived-reading.json").write_text(json.dumps(manifest), encoding='utf-8')
     output = tmp_path / "output"
     output.mkdir()
     copy_archived_reading(source, output)
     assert archived_translations(output) == {"核验说明": "Review notes"}
-    (output / "translations.json").write_text("changed")
+    (output / "translations.json").write_text("changed", encoding='utf-8')
     with pytest.raises(ValueError, match="translations hash mismatch"):
         archived_translations(output)
 
@@ -88,23 +99,28 @@ def test_article_translation_cannot_override_other_routes_or_remove_status(tmp_p
     languages = {}
     for language in ('zh', 'en'):
         path = tmp_path / (language + '.txt')
-        path.write_text('<main><p>核验记录</p></main>')
+        path.write_text('<main><p>核验记录</p></main>', encoding='utf-8')
         languages[language] = {'path': path.name, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
     translation = tmp_path / 'translations.json'
-    translation.write_text(json.dumps({'text': {'核验记录': 'Archive-only label'}}))
+    translation.write_text(json.dumps({'text': {'核验记录': 'Archive-only label'}}), encoding='utf-8')
     (tmp_path / 'archived-reading.json').write_text(json.dumps({'languages': languages,
-        'translations': {'path': translation.name, 'sha256': hashlib.sha256(translation.read_bytes()).hexdigest()}}))
+        'translations': {'path': translation.name, 'sha256': hashlib.sha256(translation.read_bytes()).hexdigest()}}), encoding='utf-8')
     (tmp_path / 'guide').mkdir()
-    banner = '<div data-evidence-state="local_measurement">本地未认证诊断快照 · 不可用于排名</div>'
+    from harness.web_fetch.report import local_audit_banner
+    banner = local_audit_banner({'comparison': {
+        'kind': 'uniform_native_local_measurement',
+        'publication_state': 'local_audit_only_not_for_release'}})
     article = render_archived_reading(tmp_path)
-    (tmp_path / 'guide/index.html').write_text('<html lang="zh-CN"><main>'+banner+article+'</main></html>')
+    (tmp_path / 'guide/index.html').write_text('<html lang="zh-CN"><main>'+banner+article+'</main></html>', encoding='utf-8')
     root = '<html lang="zh-CN"><main><p>核验记录</p></main></html>'
-    (tmp_path / 'index.html').write_text(root)
+    (tmp_path / 'index.html').write_text(root, encoding='utf-8')
     write_english_report(tmp_path)
-    assert (tmp_path / 'en/index.html').read_text() == localize_html(root, PurePosixPath('index.html'))
-    guide = (tmp_path / 'en/guide/index.html').read_text()
+    assert (tmp_path / 'en/index.html').read_text(encoding='utf-8') == localize_html(root, PurePosixPath('index.html'))
+    guide = (tmp_path / 'en/guide/index.html').read_text(encoding='utf-8')
     assert 'data-evidence-state="local_measurement"' in guide
     assert 'Archive-only label' in guide
+    assert 'Local uncertified diagnostic results' in guide
+    assert 'data-ranking-scope="saved-task-pass-rate"' not in guide
 
 
 def test_model_translation_is_scoped_and_escaped():

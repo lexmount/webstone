@@ -1,5 +1,9 @@
 # Replay WebArena recordings
 
+Set the `WEBARENA_<SITE>_USERNAME` and `WEBARENA_<SITE>_PASSWORD` variables listed in [`.env.example`](../../../.env.example) in the repository `.env` before you run a replay; exported values and `--env-file` cannot change a login. They are the default accounts of the self-hosted WebArena images, listed as `ACCOUNTS` in [the upstream configuration](https://github.com/web-arena-x/webarena/blob/dce04686a56253aefba7b18a4fa0937cf1dc987b/browser_env/env_config.py). Benchmark inputs are published in [LexBench-WebArena-Replay on Hugging Face](https://huggingface.co/datasets/Lexmount/LexBench-WebArena-Replay). The data lock pins the current immutable revision. Formal measurement defaults to the eligible human-recording suite; qualification and diagnostics retain the complete candidate inventory. Explicit historical suite paths remain supported.
+
+Add `--no-report` to the replay CLI to retain scores and evidence without building local HTML. The report rebuild command reads the saved manifest and resolves its exact suite from the locked definitions; use `--suite` for other historical bundles. Report publication requires a separate explicit request and authorization.
+
 [Prepare a host](../../../docs/webarena-fixed-trajectory-reproduction.md) · [Run the suite](#run-the-qualified-suite) · [Rainbond workers](#disposable-rainbond-environments) · [Qualification protocol](../../../docs/trajectory-replay-protocol.md)
 
 This is a deterministic replay of qualified public WebArena human recordings. The runner
@@ -33,7 +37,6 @@ To reproduce the public suite on a prepared WebArena-Verified environment, follo
 
 ```text
 uv run --frozen python -m harness.trajectory_replay.public_webarena.cli \
-  --suite evaluation/browser-use-public/webarena-human-suite.json \
   --webarena-config <runtime-config> --env-file .env \
   --browser-docker-host unix:///var/run/docker.sock \
   --engines chromium,moli --failure-retries 1 \
@@ -41,12 +44,24 @@ uv run --frozen python -m harness.trajectory_replay.public_webarena.cli \
   --reports <evidence>/formal/webarena-public-trajectories/reports
 ```
 
+Each run needs a new `--output` directory; the runner refuses an existing one so saved evidence is never replaced. This suite measures Moli v1.0.6. The curated replay builds a newer Moli under the same `lex-webstone-moli:local` tag, so rebuild the image from this directory before a run; the runner refuses any other Moli version before it creates the output:
+
+```text
+docker build -f examples/trajectory_replay/public_webarena/docker/moli.Dockerfile -t lex-webstone-moli:local .
+```
+
+`--env-file` selects the file for ordinary settings, and an exported variable wins over it. Site logins, the Rainbond API token and the LLM diagnostics key ignore both and read only the repository `.env`. The variable names of a login come from `credentials_env` in the runtime config.
+
 ## Evidence and publication
+
+This human-recording replay is isolated under `src/harness/trajectory_replay/public_webarena/` with its own examples, tests, external report profile and release script. It must not change autonomous `src/harness/browser_use/` or share a report target or denominator with the repository-curated replay suite.
 
 Measured attempts, screenshots, HAR, and reports stay outside Git. The repository keeps
 the suite, qualification reasons, evaluator rules, source bindings, and a sanitized
 publication summary. Use `verify_metrics.py` to audit raw measurements and
 `rebuild_report.py` to render from existing attempts; neither reruns browsers.
+Rendering needs no site logins. Packaging and publishing stop while a registered site
+login is unset in the repository `.env`, so every package is checked for those passwords.
 
 Publishing uses the site and expected version in the external report profile
 selected with `--profile`. The package attestation binds
@@ -64,8 +79,9 @@ domains. Reset deletes and recreates the whole slice from the pinned baseline; d
 removes the application. Read-only Map and Wikipedia services may be shared when
 separately deployed; they are different services, not substitutes for each other.
 Set both shared URLs in `shared_environments` in the pool config. Every newly
-provisioned slice then receives its own four writable-site URLs plus the same
-Map and Wikipedia URLs in its generated runtime config. Scaling the pool does
+provisioned slice then receives its own four writable-site URLs and their login
+variable names plus the same Map and Wikipedia URLs in its generated runtime
+config, which never holds login values. Scaling the pool does
 not copy the large Map or Wikipedia volumes.
 
 The baseline also contains a small digest-pinned initializer component. It calls the
@@ -120,7 +136,7 @@ is not equivalent. The four seeded site images otherwise keep their data in the
 slice's disposable writable layers. Do not mount empty volumes over their preloaded
 database directories.
 
-Copy `rainbond-pool.example.json`, set `RAINBOND_API_TOKEN` in the process environment,
+Copy `rainbond-pool.example.json`, set `RAINBOND_API_TOKEN` in the repository `.env`,
 and reconcile the warm pool to the active task count plus at least one idle slice.
 Additional slices are created in bounded parallel and removed when demand falls:
 
@@ -185,7 +201,7 @@ WEBARENA_RAINBOND_SMOKE_URLS='{
   "reddit":"http://<reddit-domain>",
   "gitlab":"http://<gitlab-domain>"
 }' uv run --frozen python -m pytest \
-  tests/trajectory_replay/public_webarena/test_rainbond_live_smoke.py \
+  tests/environments/test_rainbond_live_smoke.py \
   -m real_smoke -q -s
 ```
 

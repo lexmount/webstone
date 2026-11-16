@@ -5,15 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from harness.distribution import source_path
+from harness.record_io import file_sha256
 from harness.trajectory_replay.catalog_contracts import (
     ACCEPTANCE_SCHEMAS,
     RUN_SCHEMAS,
-    file_sha256,
     repository_root,
+    resolved_deployment,
     validate_catalog_comparison_release,
     validate_catalog_report_profile,
     validate_environment_preparation,
 )
+from tests.helpers import write_json
 
 
 def test_current_contracts_keep_historical_run_and_acceptance_schemas_readable():
@@ -110,7 +113,9 @@ def test_environment_preparation_rejects_partial_component_restart(tmp_path):
 def test_repository_root_is_independent_of_current_working_directory():
     root = repository_root(Path(__file__))
     assert (root / "pyproject.toml").is_file()
-    assert (root / "harness/trajectory_replay/webarena_runtime_source.py").is_file()
+    assert source_path(
+        "harness/trajectory_replay/webarena_runtime_source.py", root=root
+    ).is_file()
 
 
 @pytest.mark.parametrize(
@@ -131,12 +136,6 @@ def test_environment_preparation_rejects_unbound_receipts(tmp_path, path, key, v
         validate_environment_preparation(receipt, profile)
 
 
-def _write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value), encoding="utf-8")
-    return path
-
-
 def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path):
     repository = tmp_path / "repository"
     (repository / "pyproject.toml").parent.mkdir(parents=True)
@@ -144,15 +143,17 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
     fork = "https://github.com/lexmount/webarena-verified.git"
     (repository / "pyproject.toml").write_text(
         f"[project]\nname='fixture'\n[project.optional-dependencies]\n"
-        f"browser-use-eval = ['webarena-verified @ git+{fork}@{revision}']\n"
+        f"browser-use-eval = ['webarena-verified @ git+{fork}@{revision}']\n",
+        encoding="utf-8"
     )
     (repository / "uv.lock").write_text(
         f"version = 1\n[[package]]\nname = 'webarena-verified'\n"
-        f"source = {{ git = '{fork}?rev={revision}#{revision}' }}\n"
+        f"source = {{ git = '{fork}?rev={revision}#{revision}' }}\n",
+        encoding="utf-8"
     )
     task_ids = [4, 11, 23]
     official_checksum = "official-data"
-    dataset = _write_json(
+    dataset = write_json(
         repository / "evaluation/full/dataset.json",
         {
             "schema": "lex_webarena_replay_dataset/1",
@@ -165,7 +166,7 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
             },
         },
     )
-    scope = _write_json(
+    scope = write_json(
         repository / "evaluation/full/scope.json",
         {
             "schema": "lex_webarena_replay_scope/1",
@@ -183,7 +184,7 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
         "physical_attempts": 854,
         "excluded_duplicate_attempts": 0,
     }
-    ledger = _write_json(
+    ledger = write_json(
         evidence / "ledger.json",
         {
             "schema": "lex_trajectory_replay_catalog_acceptance/1",
@@ -197,8 +198,8 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
         "suite.json": {"tasks": []},
     }
     for name, value in artifacts.items():
-        _write_json(evidence / name, value)
-    catalog = _write_json(
+        write_json(evidence / name, value)
+    catalog = write_json(
         evidence / "catalog.json",
         {
             "schema": "lex_webarena_replay_catalog/1",
@@ -206,7 +207,7 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
             "accepted_ledger_sha256": file_sha256(ledger),
         },
     )
-    profile = _write_json(
+    profile = write_json(
         repository / "evaluation/full/current-report.json",
         {
             "schema": "lex_webarena_replay_report_profile/1",
@@ -241,19 +242,19 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
 
     assert validate_catalog_report_profile(profile, data_home)["accepted_counts"] == counts
 
-    changed = json.loads(profile.read_text())
+    changed = json.loads(profile.read_text(encoding="utf-8"))
     changed["accepted_counts"]["physical_attempts"] += 1
-    profile.write_text(json.dumps(changed))
+    profile.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(ValueError, match="acceptance population changed"):
         validate_catalog_report_profile(profile, data_home)
 
-    changed = json.loads(dataset.read_text())
+    changed = json.loads(dataset.read_text(encoding="utf-8"))
     changed["evaluator_source"]["repository"] = "https://github.com/ServiceNow/webarena-verified.git"
-    dataset.write_text(json.dumps(changed))
-    changed_profile = json.loads(profile.read_text())
+    dataset.write_text(json.dumps(changed), encoding="utf-8")
+    changed_profile = json.loads(profile.read_text(encoding="utf-8"))
     changed_profile["accepted_counts"] = counts
     changed_profile["dataset_sha256"] = file_sha256(dataset)
-    profile.write_text(json.dumps(changed_profile))
+    profile.write_text(json.dumps(changed_profile), encoding="utf-8")
     with pytest.raises(ValueError, match="dataset definition is invalid"):
         validate_catalog_report_profile(profile, data_home)
 
@@ -261,7 +262,7 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
 def test_comparison_release_binds_population_review_and_publication(tmp_path):
     data_home = tmp_path / "data"
     evidence = data_home / "trajectory-replay/comparison"
-    profile = _write_json(
+    profile = write_json(
         evidence / "profile.json",
         {
             "schema": "lex_webarena_trajectory_replay_profile/1",
@@ -278,7 +279,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
             },
         },
     )
-    dataset = _write_json(
+    dataset = write_json(
         evidence / "dataset.json",
         {
             "schema": "lex_webarena_catalog_comparison_dataset/1",
@@ -286,14 +287,14 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
             "trajectories": [{"task_id": 1}, {"task_id": 2}],
         },
     )
-    review = _write_json(evidence / "review.json", {"reviewed": 1})
+    review = write_json(evidence / "review.json", {"reviewed": 1})
     attempts = [
         {"participant_id": "moli", "engine": "moli", "task_id": 1, "status": "pass"},
         {"participant_id": "moli", "engine": "moli", "task_id": 2, "status": "pass"},
         {"participant_id": "other", "engine": "other", "task_id": 1, "status": "pass"},
         {"participant_id": "other", "engine": "other", "task_id": 2, "status": "fail"},
     ]
-    results = _write_json(
+    results = write_json(
         evidence / "results.json",
         {
             "schema": "lex_webarena_catalog_comparison_results/1",
@@ -305,7 +306,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
             ],
         },
     )
-    manifest = _write_json(
+    manifest = write_json(
         evidence / "report/manifest.json",
         {
             "task_count": 2,
@@ -320,7 +321,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
     )
     archive = evidence / "report.zip"
     archive.write_bytes(b"archive")
-    receipt = _write_json(
+    receipt = write_json(
         evidence / "receipt.json",
         {
             "verified": True,
@@ -330,7 +331,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
             "archive_sha256": file_sha256(archive),
         },
     )
-    attestation = _write_json(
+    attestation = write_json(
         evidence / "attestation.json",
         {
             "archive_sha256": file_sha256(archive),
@@ -340,7 +341,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
             "evidence_sha256": file_sha256(results),
         },
     )
-    metadata_revision = _write_json(
+    metadata_revision = write_json(
         evidence / "execution-metadata-revision.json",
         {
             "schema": "lex_trajectory_replay_metadata_revision/1",
@@ -375,7 +376,7 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
         "publication_attestation": attestation,
         "publication_receipt": receipt,
     }
-    binding = _write_json(
+    binding = write_json(
         tmp_path / "current-comparison.json",
         {
             "schema": "lex_webarena_replay_comparison_release/1",
@@ -436,3 +437,21 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
     results.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(ValueError, match="results artifact changed"):
         validate_catalog_comparison_release(binding, data_home)
+
+
+def test_deployment_identity_resolves_named_variables_or_stops() -> None:
+    profile = {
+        "deployment": {
+            "acceptance_app_id_env": "DEMO_ACCEPTANCE",
+            "source_app_id_env": "DEMO_SOURCE",
+            "site_reset_between_tasks": False,
+        }
+    }
+
+    assert resolved_deployment(profile, {"DEMO_ACCEPTANCE": "12", "DEMO_SOURCE": "34"}.get) == {
+        "acceptance_app_id": 12,
+        "source_app_id": 34,
+        "site_reset_between_tasks": False,
+    }
+    with pytest.raises(ValueError, match="integer values for DEMO_ACCEPTANCE, DEMO_SOURCE"):
+        resolved_deployment(profile, {"DEMO_ACCEPTANCE": "not-a-number"}.get)

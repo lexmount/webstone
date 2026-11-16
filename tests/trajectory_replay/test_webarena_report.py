@@ -1,10 +1,16 @@
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 from bs4 import BeautifulSoup
 
+from harness.record_io import canonical_json_sha256
+from harness.reporting.mermaid import mermaid_script_attributes
+from harness.reporting.privacy import TRAJECTORY_REPLAY
+from harness.trajectory_replay.messages import report_text
 from harness.trajectory_replay.report_inputs import bound_dataset_path
 from harness.trajectory_replay.webarena_report import (
     LEGACY_REPLAY_VALIDITY_INPUTS,
@@ -13,13 +19,11 @@ from harness.trajectory_replay.webarena_report import (
     _copy_failure_screenshot,
     _detail_page,
     _historical_replay_validity_notice,
-    _json_sha256,
     _legacy_retrieval_provenance,
     _load_artifact,
     _measured_validity_identity,
     _metrics_table,
     _outcome_metrics,
-    _planned_actions_digest,
     _public_evidence,
     _reference_validity_by_task,
     _resource_table,
@@ -39,7 +43,6 @@ from harness.trajectory_replay.webarena_report_check import (
     _check_formal_execution_scope,
     _check_legacy_retrieval_audit,
     _check_result_detail_semantics,
-    _contains_local_path_outside_web_url,
     _semantic_page_inventory,
 )
 from harness.trajectory_replay.webarena_report_check import (
@@ -67,7 +70,18 @@ def test_report_build_requires_hash_bound_corrected_dataset(tmp_path: Path) -> N
         bound_dataset_path({"dataset": {"path": str(link), "sha256": profile["dataset"]["sha256"]}})
 
 
-def build_replay_fixture(tmp_path: Path, monkeypatch, extra_methods=0, *, failed=False):
+# One duration sample per fixture method: a measured zero, a missing key and a null.
+STEP_DURATION_SAMPLES = ({"duration_ms": 0}, {}, {"duration_ms": None})
+
+
+def build_replay_fixture(
+    tmp_path: Path, monkeypatch, extra_methods=0, *, failed=False, step_samples=None
+):
+    """Build the synthetic report.
+
+    ``step_samples`` holds one duration sample per method, in method order. Giving
+    it indexes each trace step so the result page aligns it with its planned action.
+    """
     methods = [
         {"id": "chromium", "engine": "chromium", "label": "Chromium"},
         {"id": "moli-old", "engine": "moli", "label": "Moli 1.1.3"},
@@ -98,7 +112,7 @@ def build_replay_fixture(tmp_path: Path, monkeypatch, extra_methods=0, *, failed
          "task_id": 29, "status": "pass", "process_status": "pass",
          "evaluator_status": "pass", "action_count": 1,
          "completed_action_count": 1, "duration_ms": 100,
-         "planned_actions": actions, "planned_actions_sha256": _planned_actions_digest(actions),
+         "planned_actions": actions, "planned_actions_sha256": canonical_json_sha256(actions),
          "reference_validity": {"status": "valid"},
          "resource": {}, "evidence": {}}
         for method in methods
@@ -106,11 +120,13 @@ def build_replay_fixture(tmp_path: Path, monkeypatch, extra_methods=0, *, failed
     if failed:
         attempts[1].update(status="fail", process_status="fail", evaluator_status="fail",
                            completed_action_count=0, error="Fixture action failed")
-    for attempt in attempts:
+    for position, attempt in enumerate(attempts):
         trace = tmp_path / (attempt["participant_id"] + "-trace.json")
-        trace.write_text(json.dumps([{"action": "snapshot", "status": attempt["status"],
-                                     "result": {"text": "Fixture snapshot"},
-                                     "error": attempt.get("error")}]))
+        step = {"action": "snapshot", "status": attempt["status"],
+                "result": {"text": "Fixture snapshot"}, "error": attempt.get("error")}
+        if step_samples is not None:
+            step |= {"index": 1, "arguments": {"action": "snapshot"}, **step_samples[position]}
+        trace.write_text(json.dumps([step]), encoding="utf-8")
         attempt["evidence"]["trace"] = {
             "path": str(trace), "sha256": hashlib.sha256(trace.read_bytes()).hexdigest(),
         }
@@ -142,8 +158,8 @@ def build_replay_fixture(tmp_path: Path, monkeypatch, extra_methods=0, *, failed
         path.write_text(json.dumps(value), encoding="utf-8")
         files[name] = path
     data["dataset_sha256"] = hashlib.sha256(files["dataset.json"].read_bytes()).hexdigest()
-    frozen_task = json.loads(files["dataset.json"].read_text())["trajectories"][0]
-    contract_sha256 = _json_sha256({
+    frozen_task = json.loads(files["dataset.json"].read_text(encoding="utf-8"))["trajectories"][0]
+    contract_sha256 = canonical_json_sha256({
         "task": frozen_task["task"], "evaluation_input": frozen_task["evaluation_input"],
     })
     for attempt in attempts:
@@ -158,6 +174,25 @@ def build_replay_fixture(tmp_path: Path, monkeypatch, extra_methods=0, *, failed
     return output, manifest, methods, profile, data, attempts, files
 
 
+@pytest.mark.parametrize(("change", "rejected"), [
+    ({"entrypoint": "scripts/build_webarena_replay_report.py"}, False),
+    ({"renderer": "src/other/report.py"}, True),
+    ({"track": "other"}, True),
+], ids=["entry-point-before-the-move", "other-renderer", "other-track"])
+def test_check_binds_the_renderer_not_the_entry_point(tmp_path, monkeypatch, change, rejected):
+    output, *_ = build_replay_fixture(tmp_path, monkeypatch)
+    path = output / "report-manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    assert manifest["profile_sha256"]
+    manifest["template"].update(change)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    if rejected:
+        with pytest.raises(ValueError, match="bypasses the maintained trajectory-replay template"):
+            check_report(output)
+    else:
+        assert check_report(output)["html_pages"]
+
+
 @pytest.mark.parametrize("extra_methods", [0, 2])
 def test_complete_three_method_report_builds_one_unified_matrix(
     tmp_path: Path, monkeypatch, extra_methods
@@ -167,7 +202,9 @@ def test_complete_three_method_report_builds_one_unified_matrix(
     )
     assert manifest["primary_language"] == "en"
     assert manifest["entrypoint"] == "en/index.html"
-    assert json.loads((output / "report-manifest.json").read_text())["languages"] == ["zh", "en"]
+    assert json.loads((output / "report-manifest.json").read_text(encoding="utf-8"))[
+        "languages"
+    ] == ["zh", "en"]
     invalid_profile = tmp_path / "reset-every-task-profile.json"
     invalid_profile.write_text(
         json.dumps(
@@ -194,42 +231,51 @@ def test_complete_three_method_report_builds_one_unified_matrix(
     assert manifest["method_count"] == len(methods)
     assert manifest["logical_results"] == len(methods)
     assert manifest["routes"] == 24 + 2 * extra_methods
-    assert "36/36" not in (output / "index.html").read_text()
-    assert "fixes.html" not in (output / "index.html").read_text()
-    chinese_home = (output / "index.html").read_text()
-    english_home = (output / "en/index.html").read_text()
+    assert "36/36" not in (output / "index.html").read_text(encoding="utf-8")
+    assert "fixes.html" not in (output / "index.html").read_text(encoding="utf-8")
+    chinese_home = (output / "index.html").read_text(encoding="utf-8")
+    english_home = (output / "en/index.html").read_text(encoding="utf-8")
     assert "历史配置没有声明执行后端" in chinese_home
     assert "historical profile does not declare an execution backend" in english_home
     assert "没有 Agent 决策或模型调用" in chinese_home
     assert "本轮没有记录进程级 CPU、内存和网络采样" in chinese_home
     assert "CPU 时间" not in chinese_home
     assert "平均内存" not in chinese_home
-    assert "参考答案均已核验" not in (output / "index.html").read_text()
-    assert "with verified references" not in (output / "en/index.html").read_text()
-    assert "独立复核范围见复核说明" in (output / "index.html").read_text()
-    assert "independent review scope" in (output / "en/index.html").read_text()
+    assert "参考答案均已核验" not in (output / "index.html").read_text(encoding="utf-8")
+    assert "with verified references" not in (output / "en/index.html").read_text(encoding="utf-8")
+    assert "独立复核范围见复核说明" in (output / "index.html").read_text(encoding="utf-8")
+    assert "independent review scope" in (output / "en/index.html").read_text(encoding="utf-8")
     for lang, prefix in (("zh", ""), ("en", "en/")):
         for name in ("index.html", "environment.html"):
-            assert profile["measurement_notes"][lang] in (output / (prefix + name)).read_text()
+            assert profile["measurement_notes"][lang] in (output / (prefix + name)).read_text(
+                encoding="utf-8"
+            )
     for route in ("index.html", "results.html", "dataset.html", "environment.html"):
-        assert "历史 90 题" not in (output / route).read_text()
-        assert "historical 90-task" not in (output / "en" / route).read_text()
-    assert "可核验题通过" not in (output / "index.html").read_text()
-    assert "Passes on verifiable tasks" not in (output / "en/index.html").read_text()
-    assert "每个方法开始前恢复站点基线" in (output / "environment.html").read_text()
-    assert "Colima" not in (output / "environment.html").read_text()
+        assert "历史 90 题" not in (output / route).read_text(encoding="utf-8")
+        assert "historical 90-task" not in (output / "en" / route).read_text(encoding="utf-8")
+    assert "可核验题通过" not in (output / "index.html").read_text(encoding="utf-8")
+    assert "Passes on verifiable tasks" not in (output / "en/index.html").read_text(
+        encoding="utf-8"
+    )
+    assert "每个方法开始前恢复站点基线" in (output / "environment.html").read_text(encoding="utf-8")
+    assert "Colima" not in (output / "environment.html").read_text(encoding="utf-8")
     for route in ("environment.html", "en/environment.html"):
-        environment = (output / route).read_text()
+        environment = (output / route).read_text(encoding="utf-8")
         assert 'data-topology-fallback' in environment and 'class="mermaid"' in environment
+        assert mermaid_script_attributes("loader") in environment
         assert 'Rainbond WebArena' in environment
-    assert "方法身份与修复序列" in (output / "environment.html").read_text()
-    assert "Method identity and repair sequence" in (output / "en/environment.html").read_text()
+    assert "方法身份与修复序列" in (output / "environment.html").read_text(encoding="utf-8")
+    assert "Method identity and repair sequence" in (output / "en/environment.html").read_text(
+        encoding="utf-8"
+    )
     environment_path = output / "environment.html"
-    original_environment = environment_path.read_text()
-    environment_path.write_text(original_environment.replace("方法身份与修复序列", ""))
+    original_environment = environment_path.read_text(encoding="utf-8")
+    environment_path.write_text(
+        original_environment.replace("方法身份与修复序列", ""), encoding="utf-8"
+    )
     with pytest.raises(ValueError, match="method identity"):
         check_report(output)
-    environment_path.write_text(original_environment)
+    environment_path.write_text(original_environment, encoding="utf-8")
     assert not (output / "diagnostics.html").exists()
     assert check_report(output)["html_pages"] == 24 + 2 * extra_methods
     # Byte-identical links must not bypass the publication boundary.
@@ -248,18 +294,18 @@ def test_complete_three_method_report_builds_one_unified_matrix(
         retained.rename(artifact)
     assert check_report(output)["html_pages"] == 24 + 2 * extra_methods
     home = output / "index.html"
-    original_home = home.read_text()
+    original_home = home.read_text(encoding="utf-8")
     for language_prefix in ("", "en/"):
         for route in ("index.html", "environment.html", "results.html"):
-            rendered = (output / language_prefix / route).read_text()
+            rendered = (output / language_prefix / route).read_text(encoding="utf-8")
             assert "All six methods" not in rendered
             assert "六种方法" not in rendered
             assert "Playwright" not in rendered
-    assert "execution backend" in (output / "en/index.html").read_text()
-    home.write_text(original_home.replace(profile["measurement_notes"]["zh"], ""))
+    assert "execution backend" in (output / "en/index.html").read_text(encoding="utf-8")
+    home.write_text(original_home.replace(profile["measurement_notes"]["zh"], ""), encoding="utf-8")
     with pytest.raises(ValueError, match="measurement context"):
         check_report(output)
-    home.write_text(original_home)
+    home.write_text(original_home, encoding="utf-8")
     manifest = build_webarena_replay_report(
         results_path=files["results.json"], dataset_path=files["dataset.json"],
         review_path=files["review.json"], profile_path=files["profile.json"],
@@ -268,26 +314,26 @@ def test_complete_three_method_report_builds_one_unified_matrix(
     assert manifest["languages"] == ["zh"]
     assert manifest["english_status"] == "not_generated"
     assert manifest["routes"] == 13 + extra_methods
-    english_notice = (output / "en/index.html").read_text()
+    english_notice = (output / "en/index.html").read_text(encoding="utf-8")
     assert '英文报告未生成' in english_notice
     assert 'new URL("en/",b.href)' in english_notice
     assert "location.origin+location.pathname" not in english_notice
     assert not (output / "en/results.html").exists()
     assert (
         'class="language" href="../en/index.html"'
-        in (output / "result/chromium-29.html").read_text()
+        in (output / "result/chromium-29.html").read_text(encoding="utf-8")
     )
     assert check_report(output)["html_pages"] == 13 + extra_methods
     manifest_path = output / "report-manifest.json"
-    changed = json.loads(manifest_path.read_text())
+    changed = json.loads(manifest_path.read_text(encoding="utf-8"))
     changed["browser_count"] += 1
-    manifest_path.write_text(json.dumps(changed))
+    manifest_path.write_text(json.dumps(changed), encoding="utf-8")
     with pytest.raises(ValueError, match="complete manifest-declared"):
         check_report(output)
     changed["browser_count"] -= 1
-    manifest_path.write_text(json.dumps(changed))
+    manifest_path.write_text(json.dumps(changed), encoding="utf-8")
     stale = output / "en/results.html"
-    stale.write_text("stale English report")
+    stale.write_text("stale English report", encoding="utf-8")
     with pytest.raises(ValueError, match="stale English"):
         check_report(output)
     stale.unlink()
@@ -306,7 +352,7 @@ def test_method_specific_planned_actions_are_hash_bound() -> None:
     attempt = {
         "participant_id": "moli-fixed", "task_id": 29, "action_count": 1,
         "planned_actions": actions,
-        "planned_actions_sha256": _planned_actions_digest(actions),
+        "planned_actions_sha256": canonical_json_sha256(actions),
     }
     assert _validated_planned_actions(attempt) == actions
     with pytest.raises(ValueError, match="planned actions"):
@@ -402,23 +448,28 @@ def test_core_three_method_comparison_rejects_wrong_score_and_tie_highlight(tmp_
         )
     for directory in (tmp_path, tmp_path / "en"):
         directory.mkdir(exist_ok=True)
-        (directory / "index.html").write_text("".join(row(method) for method in participants))
+        (directory / "index.html").write_text(
+            "".join(row(method) for method in participants), encoding="utf-8"
+        )
     _check_core_comparison(tmp_path, {"methods": methods}, results, participants)
     (tmp_path / "en/index.html").write_text(
         row(participants[0], marker='<strong class="winner">Best</strong>')
-        + "".join(row(method) for method in participants[1:])
+        + "".join(row(method) for method in participants[1:]),
+        encoding="utf-8"
     )
     with pytest.raises(ValueError, match="highlight"):
         _check_core_comparison(tmp_path, {"methods": methods}, results, participants)
     (tmp_path / "en/index.html").write_text(
-        row(participants[0], count=1) + "".join(row(method) for method in participants[1:])
+        row(participants[0], count=1) + "".join(row(method) for method in participants[1:]),
+        encoding="utf-8"
     )
     with pytest.raises(ValueError, match="core score"):
         _check_core_comparison(tmp_path, {"methods": methods}, results, participants)
     (tmp_path / "en/index.html").write_text(
         row(participants[0]).replace('</tr>',
                                     '<td data-metric="verifiable-pass">2/2</td></tr>')
-        + "".join(row(method) for method in participants[1:])
+        + "".join(row(method) for method in participants[1:]),
+        encoding="utf-8"
     )
     with pytest.raises(ValueError, match="one core score"):
         _check_core_comparison(tmp_path, {"methods": methods}, results, participants)
@@ -491,10 +542,13 @@ def test_affected36_comparison_rejects_wrong_score_and_tied_highlight(tmp_path: 
         )
     for directory, heading in ((tmp_path, "36 题"), (tmp_path / "en", "36 failures")):
         directory.mkdir(exist_ok=True)
-        (directory / "index.html").write_text(heading + "".join(row(item) for item in compare))
+        (directory / "index.html").write_text(
+            heading + "".join(row(item) for item in compare), encoding="utf-8"
+        )
     _check_affected36_comparison(tmp_path, compare, results, set(range(36)), ["old", "new"])
     (tmp_path / "en/index.html").write_text(
-        "36 failures" + row(compare[0], '<span class="winner">Best</span>') + row(compare[1])
+        "36 failures" + row(compare[0], '<span class="winner">Best</span>') + row(compare[1]),
+        encoding="utf-8"
     )
     with pytest.raises(ValueError, match="highlight"):
         _check_affected36_comparison(tmp_path, compare, results, set(range(36)), ["old", "new"])
@@ -566,7 +620,7 @@ def test_legacy_retrieval_provenance_binds_every_browser_to_saved_answer(tmp_pat
         "engines": ["chromium", "moli"],
         "attempts": [
             {"task_id": 243, "engine": browser,
-             "evaluation_input_sha256": _json_sha256(answer)}
+             "evaluation_input_sha256": canonical_json_sha256(answer)}
             for browser in ("chromium", "moli")
         ],
     }
@@ -581,7 +635,7 @@ def test_legacy_retrieval_provenance_binds_every_browser_to_saved_answer(tmp_pat
     results["attempts"][1]["evaluation_input_sha256"] = "0" * 64
     with pytest.raises(ValueError, match="differs from frozen Agent answer"):
         _legacy_retrieval_provenance(results, dataset)
-    results["attempts"][1]["evaluation_input_sha256"] = _json_sha256(answer)
+    results["attempts"][1]["evaluation_input_sha256"] = canonical_json_sha256(answer)
     results["attempts"].pop()
     with pytest.raises(ValueError, match="full browser-task matrix"):
         _legacy_retrieval_provenance(results, dataset)
@@ -602,7 +656,7 @@ def test_legacy_seed_requires_direct_absolute_evidence(tmp_path, monkeypatch, pa
     directory = root / "evidence"
     directory.mkdir()
     source = directory / "seed.json"
-    source.write_text('{"tasks": []}')
+    source.write_text('{"tasks": []}', encoding="utf-8")
     selected = source
     if path_kind == "relative":
         monkeypatch.chdir(root)
@@ -873,11 +927,11 @@ def test_validity_identity_uses_measured_profile_not_publication_profile(tmp_pat
     results_path = tmp_path / "results.json"
     dataset_path = tmp_path / "dataset.json"
     publication_path = tmp_path / "current-profile.json"
-    results_path.write_text(json.dumps(results))
-    dataset_path.write_text("{}")
-    publication_path.write_text('{"host":"old.example"}')
+    results_path.write_text(json.dumps(results), encoding="utf-8")
+    dataset_path.write_text("{}", encoding="utf-8")
+    publication_path.write_text('{"host":"old.example"}', encoding="utf-8")
     before = _measured_validity_identity(results, results_path, dataset_path)
-    publication_path.write_text('{"host":"new.example","version":"new"}')
+    publication_path.write_text('{"host":"new.example","version":"new"}', encoding="utf-8")
     assert _measured_validity_identity(results, results_path, dataset_path) == before
     assert before["profile_sha256"] == "a" * 64
     changed_run = _measured_validity_identity(
@@ -1045,6 +1099,181 @@ def test_detail_page_preserves_task_timeout_with_unknown_active_action() -> None
     assert 'id="step-1"' in detail
 
 
+@pytest.mark.parametrize("lang", ["en", "zh"])
+@pytest.mark.parametrize(
+    ("samples", "rendered_time", "rendered_cpu"),
+    [
+        ({}, None, None),
+        ({"resource": None}, None, None),
+        ({"duration_ms": None, "resource": {"cpu_ms": None}}, None, None),
+        ({"duration_ms": 0, "resource": {"cpu_ms": 0}}, "0.0", "0.0"),
+        ({"duration_ms": 1500, "resource": {"cpu_ms": 2500}}, "1.5", "2.5"),
+    ],
+)
+def test_detail_page_shows_absent_timing_as_dash_and_real_zero_as_zero(
+    lang, samples, rendered_time, rendered_cpu
+) -> None:
+    task = {
+        "task_id": 90,
+        "task": {"intent": "Open the route", "sites": ["map"]},
+        "tool_calls": [{"action": "navigate", "url": "https://example.test"}],
+    }
+    attempt = {
+        "engine": "chromium",
+        "participant_id": "chromium",
+        "task_id": 90,
+        "status": "pass",
+        "completed_action_count": 1,
+        "action_count": 1,
+        "planned_actions": task["tool_calls"],
+        **samples,
+    }
+    evidence = {
+        "programmatic_failure": {"stage": "pass", "step": None, "message": ""},
+        "trajectory": [],
+        "screenshot": None,
+    }
+
+    detail = _detail_page(lang, attempt, task, {"label": "Chromium"}, evidence, [])
+
+    t = report_text(lang)
+    unit = {"en": "s", "zh": "秒"}[lang]
+    for label, seconds in (
+        (t("metric.end_to_end_time", "End-to-end time"), rendered_time),
+        (t("metric.cpu_time", "CPU time"), rendered_cpu),
+    ):
+        value = "—" if seconds is None else f"{seconds} {unit}"
+        assert f"<div><span>{label}</span><strong>{value}</strong></div>" in detail
+
+
+def _step_duration(detail: str) -> str:
+    """Return the duration shown beside the step's actual execution."""
+    return BeautifulSoup(detail, "html.parser").select_one(
+        "#step-1 .aligned-actual-head span:last-child"
+    ).get_text()
+
+
+@pytest.mark.parametrize("lang", ["en", "zh"])
+@pytest.mark.parametrize(
+    ("trajectory", "rendered"),
+    [
+        ([{"index": 1}], "—"),
+        ([{"index": 1, "duration_ms": None}], "—"),
+        ([{"index": 1, "duration_ms": 0}], "0.00 s"),
+        ([{"index": 1, "duration_ms": 0.0}], "0.00 s"),
+        ([{"index": 1, "duration_ms": 1234}], "1.23 s"),
+        ([], "—"),
+    ],
+    ids=["missing", "null", "measured-zero", "measured-float-zero", "measured", "not-executed"],
+)
+def test_step_shows_absent_duration_as_dash_and_real_zero_as_zero(
+    lang, trajectory, rendered
+) -> None:
+    task = {
+        "task_id": 90,
+        "task": {"intent": "Open the route", "sites": ["map"]},
+        "tool_calls": [{"action": "navigate", "url": "https://example.test"}],
+    }
+    attempt = {
+        "engine": "chromium",
+        "participant_id": "chromium",
+        "task_id": 90,
+        "status": "pass",
+        "completed_action_count": 1,
+        "action_count": 1,
+        "duration_ms": 100,
+        "planned_actions": task["tool_calls"],
+    }
+    evidence = {
+        "programmatic_failure": {"stage": "pass", "step": None, "message": ""},
+        "trajectory": trajectory,
+        "screenshot": None,
+    }
+
+    detail = _detail_page(lang, attempt, task, {"label": "Chromium"}, evidence, [])
+
+    assert _step_duration(detail) == rendered
+
+
+def test_built_result_pages_keep_absent_and_zero_step_durations_apart(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output, *_ = build_replay_fixture(tmp_path, monkeypatch, step_samples=STEP_DURATION_SAMPLES)
+
+    for edition in (output, output / "en"):
+        rendered = {
+            method: _step_duration(
+                (edition / "result" / f"{method}-29.html").read_text(encoding="utf-8")
+            )
+            for method in ("chromium", "moli-old", "moli-fixed")
+        }
+        assert rendered == {"chromium": "0.00 s", "moli-old": "—", "moli-fixed": "—"}
+
+
+# Runs the report's own script against a minimal DOM and opens step 1's dialog.
+STEP_DIALOG_DRIVER = """
+const payload=PAYLOAD;
+const slots={};
+const dialog={
+  dataset:{evidenceUrl:'evidence',standardUrl:'standard'},open:false,
+  querySelector:selector=>slots[selector]??={textContent:'',hidden:false,addEventListener(){}},
+  addEventListener(){},showModal(){this.open=true},
+};
+let openStep;
+const elements={
+  '#step-dialog':dialog,
+  '#trajectory':{addEventListener:(_type,listener)=>{openStep=listener}},
+};
+global.document={
+  documentElement:{lang:payload.lang,dataset:{}},
+  querySelector:selector=>elements[selector]??null,
+  querySelectorAll:()=>[],
+};
+global.localStorage={getItem:()=>null};
+global.fetch=async name=>({ok:true,json:async()=>payload[name]});
+REPORT_SCRIPT
+openStep({target:{closest:()=>({dataset:{openStep:'1'}})}}).then(()=>{
+  console.log(slots['[data-step-status]'].textContent);
+}).catch(error=>{console.error(error);process.exitCode=1});
+"""
+
+
+def _step_dialog_status(output: Path, edition: Path, method: str) -> str:
+    """Open step 1's dialog with the built page's script and evidence; return its status."""
+    node = shutil.which("node")
+    assert node, "Node is required to execute the report's step dialog"
+    page = edition / "result" / f"{method}-29.html"
+    soup = BeautifulSoup(page.read_text(encoding="utf-8"), "html.parser")
+    dialog = soup.select_one("#step-dialog")
+    payload = {
+        "lang": soup.html["lang"],
+        "evidence": json.loads((page.parent / dialog["data-evidence-url"]).read_text("utf-8")),
+        "standard": json.loads((page.parent / dialog["data-standard-url"]).read_text("utf-8")),
+    }
+    script = (output / "assets" / "app.js").read_text(encoding="utf-8")
+    harness = STEP_DIALOG_DRIVER.replace("PAYLOAD", json.dumps(payload)).replace(
+        "REPORT_SCRIPT", script
+    )
+    result = subprocess.run([node, "-e", harness], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_step_dialog_keeps_absent_and_zero_durations_apart(tmp_path: Path, monkeypatch) -> None:
+    output, *_ = build_replay_fixture(tmp_path, monkeypatch, step_samples=STEP_DURATION_SAMPLES)
+
+    for edition, prefix in ((output, "实际状态："), (output / "en", "Actual status: ")):
+        rendered = {
+            method: _step_dialog_status(output, edition, method)
+            for method in ("chromium", "moli-old", "moli-fixed")
+        }
+        assert rendered == {
+            "chromium": f"{prefix}pass · 0.00 s",
+            "moli-old": f"{prefix}pass · —",
+            "moli-fixed": f"{prefix}pass · —",
+        }
+
+
 def test_unexecuted_qualified_step_stays_visible_and_is_not_called_an_action_error() -> None:
     task = {
         "task_id": 29,
@@ -1099,7 +1328,7 @@ def test_public_evidence_return_value_is_the_same_sanitized_value_written_to_dis
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     trace = tmp_path / "trace.json"
-    trace.write_text('[{"index": 1, "status": "fail"}]')
+    trace.write_text('[{"index": 1, "status": "fail"}]', encoding="utf-8")
     attempt = {
         "participant_id": "browser",
         "engine": "browser",
@@ -1147,7 +1376,7 @@ def test_report_preserves_web_routes_that_resemble_linux_paths() -> None:
         "task_id": 317,
         "action_count": 1,
         "planned_actions": actions,
-        "planned_actions_sha256": _planned_actions_digest(actions),
+        "planned_actions_sha256": canonical_json_sha256(actions),
     }
 
     assert _clean(actions) == actions
@@ -1155,10 +1384,10 @@ def test_report_preserves_web_routes_that_resemble_linux_paths() -> None:
 
 
 def test_release_path_gate_ignores_web_routes_but_detects_machine_paths() -> None:
-    assert not _contains_local_path_outside_web_url(
+    assert not TRAJECTORY_REPLAY.found(
         "https://gitlab.example.test/root/project/-/issues"
     )
-    assert _contains_local_path_outside_web_url(
+    assert TRAJECTORY_REPLAY.found(
         "opened /root/private/result.json from https://example.test/root/public"
     )
 
@@ -1272,7 +1501,7 @@ def test_report_authored_copy_does_not_claim_unconditional_current_qualification
 
 def test_task173_corrected_review_reaches_public_json_and_bilingual_detail(tmp_path: Path) -> None:
     review = json.loads(
-        Path("research/trajectory-replay-reviews/20260917-original-36.json").read_text()
+        Path("research/trajectory-replay-reviews/20260917-original-36.json").read_text(encoding="utf-8")
     )
     group, item = next(
         (group, item)
@@ -1340,7 +1569,9 @@ def test_site_reset_and_readiness_are_available_in_public_result_evidence(
         "new_pod": "new",
     }
     assert public["readiness"]["stable_http_status"] == 200
-    stored = json.loads((tmp_path / "report/data/evidence/chromium-29.json").read_text())
+    stored = json.loads(
+        (tmp_path / "report/data/evidence/chromium-29.json").read_text(encoding="utf-8")
+    )
     assert stored["site_reset"] == public["site_reset"]
 
 
@@ -1348,7 +1579,7 @@ def test_step_dialog_exposes_secondary_failure_state_without_replacing_error(
     tmp_path: Path,
 ) -> None:
     _assets(tmp_path)
-    script = (tmp_path / "assets/app.js").read_text()
+    script = (tmp_path / "assets/app.js").read_text(encoding="utf-8")
     assert "actual?.failure_ui_state||actual?.failure_ui_state_error" in script
     assert "observation_error:actual.failure_ui_state_error" in script
     assert "zh?'remediation_owner_zh':'remediation_owner_en'" in script
@@ -1439,3 +1670,34 @@ def test_supplemental_requests_keep_unavailable_url_and_observed_version():
     assert 'OtherBrowser 9' in html and 'Moli 1.1.8' not in html
     assert 'Not recorded' in html and '/observed-endpoint' in html
     assert 'Read failed before a URL was recorded' in html
+
+
+def test_environment_page_never_names_a_recording_gateway(tmp_path: Path, monkeypatch) -> None:
+    _, _, _, profile, _, _, files = build_replay_fixture(tmp_path, monkeypatch)
+    gateway = ".".join(("10", "77", "3", "9"))
+    monkeypatch.setenv("WEBARENA_RECORDING_GATEWAYS", gateway)
+
+    def environment_page(hosts: list[str], name: str, language: str) -> str:
+        execution = {
+            key: value for key, value in profile["execution"].items() if key != "site_stack"
+        }
+        files["profile.json"].write_text(
+            json.dumps({**profile, "execution": {**execution, "trusted_source_site_hosts": hosts}}),
+            encoding="utf-8",
+        )
+        output = tmp_path / name
+        build_webarena_replay_report(
+            results_path=files["results.json"], dataset_path=files["dataset.json"],
+            review_path=files["review.json"], profile_path=files["profile.json"],
+            output_dir=output, language=language,
+        )
+        route = "en/environment.html" if language == "en" else "environment.html"
+        return (output / route).read_text(encoding="utf-8")
+
+    page = environment_page([gateway, "host.docker.internal"], "english", "en")
+    assert gateway not in page
+    assert "Colima gateway|" in page
+    assert "The site gateway is the host gateway inside the Colima VM" in page
+    page = environment_page([gateway, "host.docker.internal"], "chinese", "zh")
+    assert gateway not in page
+    assert "所用网关是 Colima" in page

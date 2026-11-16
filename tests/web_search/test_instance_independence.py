@@ -3,10 +3,10 @@ import json
 import pytest
 from bs4 import BeautifulSoup
 
+from harness.record_io import bytes_sha256
 from harness.web_search.comparison import render_comparison
 from harness.web_search.review import row_state
 from harness.web_search.revisions import validate_revision_binding
-from harness.web_search.core import digest
 
 
 def test_unlabelled_custom_report_does_not_claim_public_or_graded_results():
@@ -33,7 +33,7 @@ def test_review_selection_agrees_with_relevance_and_quarantine():
 
 def test_revision_authority_is_explicit_and_binds_cause_and_controls():
     revision = {"root_cause": "A synthetic missing reference", "regression_ids": ["unqualified-reference-rejected"], "provider_calls": 0}
-    identity = digest(json.dumps(revision, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode())
+    identity = bytes_sha256(json.dumps(revision, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode())
     record = dict(revision, sha256=identity)
     authority = {'assessment_revisions': {'schema': 'search-assessment-authority/1', 'approved_sha256': [identity], 'provenance': [record]}}
     validate_revision_binding(revision, authority=authority)
@@ -51,7 +51,7 @@ def test_review_rejects_paths_outside_frozen_bundle(tmp_path, field, relative):
     from tests.web_search.test_review import example
     _, root, contract = example(tmp_path)
     contract[field][0]['path'] = relative
-    (root / 'contract.json').write_text(json.dumps(contract))
+    (root / 'contract.json').write_text(json.dumps(contract), encoding='utf-8')
     with pytest.raises(ValueError, match='inside its bundle'):
         review.load_frozen(root)
 
@@ -76,7 +76,7 @@ def test_new_adapter_envelope_survives_collection_report_and_review(tmp_path, mo
     profile['protocol']['top_k'] = 10
     profile['cases'][0]['reference_answer'] = 'needleanswer'
     profile['methods'][0].update(adapter='custom-envelope', key_env='CUSTOM_TEST_KEY')
-    path.write_text(json.dumps(profile))
+    path.write_text(json.dumps(profile), encoding='utf-8')
     monkeypatch.setitem(adapters.ADAPTERS, 'custom-envelope', adapters.Adapter(
         adapters.lexmount_request, response=lambda payload: {'results': payload['items']}))
     monkeypatch.setattr(runner, 'load_runtime_env', lambda: None)

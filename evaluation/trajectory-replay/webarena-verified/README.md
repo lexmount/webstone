@@ -1,7 +1,8 @@
 # WebArena-Verified verified trajectories
 
-`current-run.json.dataset.path` and its SHA-256 identify the authoritative trajectory
-input for a formal build; currently this is `trajectories-corrected.json`.
+A formal build selects an external run profile with `--profile`; run profiles are not committed
+to Git. The profile's `dataset.path` and SHA-256 identify the authoritative trajectory input. The
+last profile kept in Git bound `trajectories-corrected.json`.
 `trajectories.json` is the retained predecessor used by qualification and correction
 provenance. It is not a second current dataset. Each trajectory is one verified feasible
 BrowserTool path, not the task's only correct path.
@@ -14,12 +15,12 @@ are immutable inputs bound by retained cohorts, not copies of report output; rem
 them must not make historical contracts impossible to resolve.
 
 Authored report content and illustrations live outside Git. The report command takes
-`--content` (default `$BROWSER_EVAL_DATA_HOME/report-assets/trajectory-replay`, with the
-data home defaulting to `~/.browser-eval`). `research/trajectory-replay-content.json`
+`--content` (default `$WEBSTONE_DATA_HOME/report-assets/trajectory-replay`, with the
+data home defaulting to `~/.webstone`). `research/trajectory-replay-content.json`
 binds every consumed file. The prior Git revision retains migration recovery copies;
 published report versions and physical execution evidence remain unchanged.
 
-`current-run.json` is the run authority for the next formal replay. It freezes the same 90-task
+The external run profile is the authority for the next formal replay. It freezes the same 90-task
 selection used by the current Browser Use evaluation, the registered browser methods, resource
 limits, and the isolation schedule. The private ready-to-run seed manifest must contain exactly one
 canonical candidate for each of those 90 tasks. The current inventory is assembled from 60 clean
@@ -47,7 +48,7 @@ candidate evidence, not additional tasks.
   upstream contract defect, the qualification proof binds its correction ID, catalog hash and
   corrected task hash; historical Browser Use scores remain unchanged.
 - Full HAR, screenshots, traces, resource samples and replay receipts remain outside Git under
-  `BROWSER_EVAL_DATA_HOME`; this directory stores deterministic actions and provenance hashes.
+  `WEBSTONE_DATA_HOME`; this directory stores deterministic actions and provenance hashes.
 - The current self-hosted WebArena deployment has one fixed-port site stack, so a formal suite owns
   the physical environment exclusively. It runs every task for one browser before starting the next
   browser, restores the site stack once before each browser method, and tears down the browser and site
@@ -62,9 +63,9 @@ candidate evidence, not additional tasks.
 - More than one trajectory may be retained for a task when paths are materially different and
   independently satisfy the same promotion gate.
 
-Freeze each method's exact 90-task inputs with `scripts/freeze_webarena_three_method_inputs.py`,
+Freeze each method's exact 90-task inputs with `uv run --frozen python -m harness.trajectory_replay cohort-freeze`,
 run each complete method cohort with `scripts/run_remote_three_method_cohort.py`, and bind the
-certified cohorts with `scripts/aggregate_webarena_three_method_cohorts.py`. Each method
+certified cohorts with `uv run --frozen python -m harness.trajectory_replay cohort-aggregate`. Each method
 receives one site reset before its first task. The runner rejects a changed binary, task set,
 action sequence, or reset policy. Diagnostic subsets never enter the formal matrix. Never edit a
 verdict or verification claim by hand.

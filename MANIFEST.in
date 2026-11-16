@@ -1,0 +1,17 @@
+# Inputs of the bundled-data build step; keep equal to tool.webstone.bundled-data.
+include uv.lock
+include configs/providers.headless.json
+include evaluation/webmainbench-full/scoring-regressions.json
+include evaluation/browser-use-public/adoption-evidence.json
+include evaluation/browser-use-public/benchmark-catalog.json
+include evaluation/browser-use-public/report-changes.json
+# Report files that renderers load at build or import time. setuptools ships
+# these package files in the wheel as well; tests/package_smoke.py requires them.
+recursive-include src/harness/browser_use/assets *.css *.js *.png
+recursive-include src/harness/trajectory_replay/assets *.css *.js
+recursive-include src/harness/web_fetch/assets *.css
+recursive-include src/harness/web_fetch/templates *.css
+recursive-include src/harness/web_search/assets *.css *.js
+
+recursive-include src/harness/web_extract/assets *.css *.js
+recursive-include src/harness/web_extract *.mjs

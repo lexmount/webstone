@@ -9,11 +9,12 @@ class AdoptionTests(unittest.TestCase):
   import json,tempfile
   from pathlib import Path
   from harness.web_fetch.report_methods import render_methods
-  from harness.web_fetch.report import hero,section,table,cell,link,esc
+  from harness.reporting.presentation import esc
+  from harness.web_fetch.report import hero,section,table,cell,link
   with tempfile.TemporaryDirectory() as tmp:
    out=Path(tmp)
    (out/'dataset.json').write_text(json.dumps({
-       'comparison':{'kind':'uniform_native_local_measurement'}}))
+       'comparison':{'kind':'uniform_native_local_measurement'}}), encoding='utf-8')
    records=[{'provider':'renamed-moli','provider_type':'moli_webfetch',
              'provider_metadata':{}}]
    def render():
@@ -109,31 +110,54 @@ class AdoptionTests(unittest.TestCase):
    self.assertIn('up to 5 seconds',translated)
    self.assertNotIn('Real-time',translated)
  def test_failed_candidate_verification_preserves_snapshot(self):
-  import json,sys,tempfile
+  import json,tempfile
   from pathlib import Path
   from unittest.mock import patch
-  sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'research'))
-  import refresh_adoption_candidates as survey
+  from harness.web_fetch import provider_adoption as survey
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);(root/'research').mkdir()
    dest=root/'research/provider-adoption.json'
    original={'provider_signatures':{},'included':[]}
-   dest.write_text(json.dumps(original))
-   (root/'research/webfetch-adopters.json').write_text(json.dumps({'included':[]}))
+   dest.write_text(json.dumps(original), encoding='utf-8')
+   (root/'research/webfetch-adopters.json').write_text(json.dumps({'included':[]}), encoding='utf-8')
    before=dest.read_bytes()
-   with patch.object(survey,'ROOT',root),patch.object(survey,'metadata_batch',side_effect=RuntimeError('network failure')):
+   with patch.object(survey,'repository_root',lambda:root),patch.object(survey,'metadata_batch',side_effect=RuntimeError('network failure')):
     with self.assertRaises(RuntimeError):survey.refresh(discovered={'provider_signatures':{},'included':[]})
    self.assertEqual(dest.read_bytes(),before)
  def test_candidate_discovery_keeps_known_hits(self):
-  import sys
-  from pathlib import Path
-  sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'research'))
-  from refresh_adoption_candidates import candidate_union
+  from harness.web_fetch.provider_adoption import candidate_union
   current={'provider_signatures':{'langchain-webbase':['langchain-web-base-loader']},'included':[]}
   old={'included':[{'repo':'example/project','matches':[{'signature':'langchain-web-base-loader','path':'loader.py'},{'signature':'generic-web-fetch-tool','path':'other.py'}]}]}
   self.assertEqual(dict(candidate_union(current,old)),{('example/project','loader.py'):{'langchain-web-base-loader'}})
   current['candidate_catalog']=[{'repo':'inactive/project','path':'old.py','signatures':['langchain-web-base-loader']}]
   self.assertIn(('inactive/project','old.py'),candidate_union(current,{'included':[]}))
+ def test_search_checkpoint_stays_outside_the_checkout(self):
+  import json,os,tempfile
+  from pathlib import Path
+  from unittest.mock import patch
+  from harness.web_fetch import provider_adoption as survey
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp)/'checkout';(root/'research').mkdir(parents=True)
+   evidence=Path(tmp)/'evidence'
+   item={'repository':{'full_name':'a/b','private':False},'path':'x.py','html_url':'https://example.org','sha':'0'}
+   private={'repository':{'full_name':'c/d','private':True},'path':'y.py','html_url':'https://example.org','sha':'1'}
+   found={'total_count':2,'items':[item,private]}
+   with patch.dict(os.environ,{'WEB_FETCH_RESEARCH_EVIDENCE_DIR':str(evidence)}),patch.object(survey,'repository_root',lambda:root),patch.object(survey,'gh',return_value=found),patch.object(survey,'metadata_batch',return_value={}),patch.object(survey,'refresh') as refresh,patch.object(survey.time,'sleep'):
+    survey.search()
+   searches=json.loads((evidence/'adoption-searches.json').read_text(encoding='utf-8'))
+   self.assertEqual(searches,refresh.call_args.kwargs['discovered']['searches'])
+   self.assertEqual({x['repo'] for x in searches[0]['items']},{'a/b'})
+   self.assertEqual(list((root/'research').iterdir()),[])
+ def test_search_rejects_a_silent_known_positive_control(self):
+  import os,tempfile
+  from pathlib import Path
+  from unittest.mock import patch
+  from harness.web_fetch import provider_adoption as survey
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);(root/'research').mkdir()
+   with patch.dict(os.environ,{'WEB_FETCH_RESEARCH_EVIDENCE_DIR':tmp}),patch.object(survey,'repository_root',lambda:root),patch.object(survey,'gh',return_value={'total_count':0,'items':[]}),patch.object(survey,'refresh') as refresh:
+    with self.assertRaisesRegex(RuntimeError,'Known-positive'):survey.search()
+   refresh.assert_not_called()
  def test_counts_deduplicate_repository_and_file(self):
   row={'repo':'Owner/Repo','url':'https://example.org','matches':[{'signature':s,'path':p,'url':'https://example.org/code'} for s,p in [('firecrawl-v1','a.py'),('firecrawl-sdk','a.py'),('firecrawl-v2','b.py'),('generic-web-fetch-tool','c.py')]]}
   result=adoption_counts({'included':[row,row],'provider_signatures':{'firecrawl':['firecrawl-v1','firecrawl-sdk','firecrawl-v2'],'lexmount-global':['lexmount-global-extract'],'exa':['exa-contents']}},['firecrawl','lexmount-global','exa'])
@@ -160,7 +184,7 @@ def test_report_labels_distinguish_release_and_source_build_with_same_version(tm
         {'provider':'moli-release','binary_sha256':'stable','version':'1.1.15'},
         {'provider':'moli-candidate','binary_sha256':'branch',
          'version':'1.1.17 · candidate build (99a22382)'}]}
-    (tmp_path/'implementation-provenance.json').write_text(json.dumps(identities))
+    (tmp_path/'implementation-provenance.json').write_text(json.dumps(identities), encoding='utf-8')
     records=[{'provider':x['provider'],'provider_metadata':{'binary_sha256':x['binary_sha256']}}
              for x in identities['implementations']]
     original=provider_label('moli-release')
@@ -185,7 +209,8 @@ def test_report_labels_distinguish_release_and_source_build_with_same_version(tm
 
 def test_method_guide_discloses_retained_success_and_repaired_failure_builds(tmp_path):
     from harness.web_fetch.report_methods import render_methods
-    from harness.web_fetch.report import hero, section, table, cell, link, esc
+    from harness.reporting.presentation import esc
+    from harness.web_fetch.report import hero, section, table, cell, link
     records = [{'provider': 'sample', 'provider_type': 'fixture',
                 'provider_metadata': {'binary_sha256': build}}
                for build in ('retained-build', 'retained-build', 'repair-build')]
@@ -215,7 +240,7 @@ def test_bound_external_method_registry_is_scoped_to_its_report(tmp_path):
     dataset={'comparison':{'method_registry':{'external-build':{'engine':'moli','label':'External Moli build','source_url':'https://example.test/build'}}}}
     assert render(tmp_path,dataset,[]) == 'rendered'
     import json
-    (tmp_path/'dataset.json').write_text(json.dumps(dataset))
+    (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
     assert render(tmp_path,{'external-case':{'id':'external-case'}},[]) == 'rendered'
     assert native_browser_engine('external-build') is None
 
@@ -224,7 +249,7 @@ def test_new_participant_interface_and_access_are_bound_data(tmp_path):
     import json
     from harness.web_fetch.methods import with_measured_method_labels
     from harness.web_fetch.report_interfaces import render_interfaces
-    (tmp_path/'answer.txt').write_text('A complete saved answer')
+    (tmp_path/'answer.txt').write_text('A complete saved answer', encoding='utf-8')
     (tmp_path/'adoption').mkdir()
     contract={'entry':'Future CLI v9 fetch URL','auth':'No account',
               'params':[['url','string','Target page']],
@@ -245,7 +270,7 @@ def test_new_participant_interface_and_access_are_bound_data(tmp_path):
     def render(out, definition, records):
         return render_interfaces(out,records)
     html=render(tmp_path,dataset,rows)
-    output=json.loads((tmp_path/'adoption/interfaces/future-version.json').read_text())
+    output=json.loads((tmp_path/'adoption/interfaces/future-version.json').read_text(encoding='utf-8'))
     assert output['interface']==contract and output['access']==access
     assert 'Future CLI v9 fetch URL' in html
     assert 'MOLI_BINARY' not in json.dumps(output)

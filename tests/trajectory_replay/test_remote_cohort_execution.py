@@ -8,8 +8,9 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
+from harness.record_io import file_sha256
 from harness.trajectory_replay import remote_execution as execution
-from harness.trajectory_replay.remote_runtime import file_sha256, selected_task_ids
+from harness.trajectory_replay.remote_runtime import selected_task_ids
 from tests.trajectory_replay.test_remote_three_method_cohort import _fixture
 
 
@@ -22,10 +23,10 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
         authority / 'evaluation/trajectory-replay/webarena-verified/task-corrections.json'
     )
     correction_path.parent.mkdir(parents=True)
-    correction_path.write_text('{}')
+    correction_path.write_text('{}', encoding='utf-8')
     command = authority / 'scripts/run_remote_three_method_cohort.py'
     command.parent.mkdir()
-    command.write_text('# synthetic command entry\n')
+    command.write_text('# synthetic command entry\n', encoding='utf-8')
     monkeypatch.setattr(execution, 'ROOT', authority)
     monkeypatch.setattr(execution, 'load_corrections', lambda: SimpleNamespace(records={}))
     monkeypatch.setattr(execution, 'prepare_browser_viewport', lambda _: None)
@@ -34,7 +35,9 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
     def reset(*_):
         activity['resets'] += 1
         if reset_drift:
-            args.manifest.write_text(json.dumps({**manifest, 'changed_after_validation': True}))
+            args.manifest.write_text(
+                json.dumps({**manifest, "changed_after_validation": True}), encoding="utf-8"
+            )
         return 'reset-receipt-hash'
 
     monkeypatch.setattr(execution, 'reset_cohort', reset)
@@ -42,6 +45,9 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
     class Process:
         def __init__(self, *_args, **_kwargs):
             activity['starts'] += 1
+
+        def poll(self):
+            return None
 
         def terminate(self):
             activity['terminated'] += 1
@@ -51,6 +57,7 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
             return 0
 
     monkeypatch.setattr(execution.subprocess, 'Popen', Process)
+    monkeypatch.setattr(execution, '_kernel_assigned_port', lambda _: 9222)
     monkeypatch.setattr(execution, '_wait_cdp', lambda *_: None)
     page = SimpleNamespace(
         url='https://admin.example/admin',
@@ -79,10 +86,10 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
             ('evaluation', 'evaluation.json'),
         ):
             path = folder / filename
-            path.write_text('{}')
+            path.write_text('{}', encoding='utf-8')
             hashes[name] = file_sha256(path)
         if broken_evidence:
-            (folder / 'actual_response.json').write_text('{"changed": true}')
+            (folder / 'actual_response.json').write_text('{"changed": true}', encoding='utf-8')
         if call_drift:
             args.binary.write_bytes(b'changed browser after calls started')
         return {
@@ -91,7 +98,7 @@ def environment(tmp_path, monkeypatch, *, subset=None, reset_drift=False, call_d
             'status': 'fail', 'score': 0.0, 'error': '', 'evidence_sha256': hashes,
         }
 
-    monkeypatch.setattr(execution, '_run_task', task)
+    monkeypatch.setattr(execution, 'run_replay_task', task)
     return args, activity
 
 
@@ -110,7 +117,7 @@ def test_complete_calls_are_certified_even_when_tasks_fail(tmp_path, monkeypatch
     finally:
         os.umask(mask)
     assert sys.path == old_path
-    receipt = json.loads((args.output / 'receipt.json').read_text())
+    receipt = json.loads((args.output / 'receipt.json').read_text(encoding='utf-8'))
     assert receipt['certified'] is True and receipt['promotable'] is promotable
     assert receipt['declared_task_ids'] == [1, 2, 3]
     assert receipt['executed_task_ids'] == task_ids == activity['tasks']
@@ -132,7 +139,7 @@ def test_site_reset_cannot_change_previously_validated_inputs(tmp_path, monkeypa
 def test_changes_during_calls_keep_evidence_but_prevent_certification(tmp_path, monkeypatch):
     args, activity = environment(tmp_path, monkeypatch, call_drift=True)
     assert execution.run_cohort(args) == 1
-    receipt = json.loads((args.output / 'receipt.json').read_text())
+    receipt = json.loads((args.output / 'receipt.json').read_text(encoding='utf-8'))
     assert receipt['certified'] is receipt['promotable'] is False
     assert receipt['reference_sha256_before'] != receipt['reference_sha256_after']
     assert activity['tasks'] == [1, 2, 3]
@@ -162,7 +169,9 @@ def test_invalid_subset_is_rejected_before_reset_or_browser_start(tmp_path, monk
                                   [{'task_id': 1}, {'task_id': 1}], [{'task_id': 1}, None]])
 def test_malformed_selection_is_rejected_without_coercing_task_ids(tmp_path, rows):
     path = tmp_path / 'selection.json'
-    path.write_text(json.dumps({'schema': 'lex_webarena_verified_pilot/1', 'tasks': rows}))
+    path.write_text(
+        json.dumps({"schema": "lex_webarena_verified_pilot/1", "tasks": rows}), encoding="utf-8"
+    )
     with pytest.raises(ValueError, match='selected-task set'):
         selected_task_ids(path)
 

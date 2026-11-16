@@ -24,12 +24,12 @@ def display(request):
 
 @pytest.fixture(scope="module")
 def browser():
-    binary = os.environ.get("BROWSER_EVAL_TEST_BROWSER_BINARY")
+    binary = os.environ.get("WEBSTONE_TEST_BROWSER_BINARY")
     if not binary:
         try:
             binary = browser_executable()
         except ValueError:
-            pytest.skip("Install Chromium or set BROWSER_EVAL_TEST_BROWSER_BINARY")
+            pytest.skip("Install Chromium or set WEBSTONE_TEST_BROWSER_BINARY")
     with sync_playwright() as playwright:
         instance = playwright.chromium.launch(executable_path=binary, headless=True)
         yield instance
@@ -39,7 +39,7 @@ def browser():
 def test_browser_use_sort_filter_restore_and_keyboard_dialog(tmp_path, browser, display):
     from harness.browser_use.report import REPORT_JS
 
-    (tmp_path / "app.js").write_text(REPORT_JS)
+    (tmp_path / "app.js").write_text(REPORT_JS, encoding='utf-8')
     (tmp_path / "index.html").write_text('''<!doctype html><html><head><meta charset="utf-8">
     <script defer src="app.js"></script></head><body>
     <input data-search aria-label="Search"><select data-filter="result">
@@ -53,7 +53,7 @@ def test_browser_use_sort_filter_restore_and_keyboard_dialog(tmp_path, browser, 
     <tr data-tier="easy" data-result="pass"><td>N/A</td></tr>
     </tbody></table><button id="open" onclick="openDiagnosis('detail')">Evidence</button>
     <dialog id="detail" aria-label="Evidence"><button onclick="closeDiagnosis('detail')">Close</button>
-    <pre>Exact evaluator error</pre></dialog></body></html>''')
+    <pre>Exact evaluator error</pre></dialog></body></html>''', encoding='utf-8')
     with local_report_server(tmp_path) as origin:
         page = local_page(browser, origin, **display)
         try:
@@ -108,13 +108,13 @@ def test_replay_real_assets_evidence_dialog_and_private_nested_navigation(tmp_pa
     <strong data-dialog-title></strong><span data-dialog-stage></span><span data-dialog-step></span>
     <span data-dialog-category></span><pre data-dialog-error></pre><p data-dialog-cause></p>
     <p data-dialog-remediation></p><a data-dialog-link>Detail</a><a data-dialog-step-link>Step</a></dialog>'''
-    (tmp_path / 'index.html').write_text(_shell('zh', 'index', 'Home', '<h1>Home</h1>'))
-    (tmp_path / 'results.html').write_text(_shell('zh', 'results', 'Results', body))
+    (tmp_path / 'index.html').write_text(_shell('zh', 'index', 'Home', '<h1>Home</h1>'), encoding='utf-8')
+    (tmp_path / 'results.html').write_text(_shell('zh', 'results', 'Results', body), encoding='utf-8')
     (tmp_path / 'result').mkdir()
-    (tmp_path / 'result/fixture.html').write_text(_shell('zh', 'results', 'Detail', '<h1>Detail</h1>', depth=1, current_route='result/fixture.html'))
+    (tmp_path / 'result/fixture.html').write_text(_shell('zh', 'results', 'Detail', '<h1>Detail</h1>', depth=1, current_route='result/fixture.html'), encoding='utf-8')
     (tmp_path / 'data/evidence').mkdir(parents=True)
-    (tmp_path / 'data/results.json').write_text(json.dumps([{'key':'fixture','browser':'Synthetic','task_id':1,'failure_stage':'official_evaluation'}]))
-    (tmp_path / 'data/evidence/fixture.json').write_text(json.dumps({'official_evaluation':{'error':'Expected mutation was absent'}}))
+    (tmp_path / 'data/results.json').write_text(json.dumps([{'key':'fixture','browser':'Synthetic','task_id':1,'failure_stage':'official_evaluation'}]), encoding='utf-8')
+    (tmp_path / 'data/evidence/fixture.json').write_text(json.dumps({'official_evaluation':{'error':'Expected mutation was absent'}}), encoding='utf-8')
     with hosted_preview(tmp_path) as origin:
         page = local_page(browser, origin, **display)
         try:
@@ -170,17 +170,17 @@ def test_wcxb_generated_filter_and_diagnosis_keyboard_return(tmp_path, browser, 
 
 def test_moli_actual_result_evidence_loader_and_keyboard_return(tmp_path, browser, display):
     from pathlib import Path
-    source = Path(__file__).resolve().parents[1] / 'scripts/moli_report'
-    html = (source / 'index.html').read_text().replace('{{lang}}', 'zh').replace('{{base}}', '')
-    html = html.replace('{{messages}}', (source / 'messages.json').read_text())
+    source = Path(__file__).resolve().parents[1] / 'src/harness/lexbench/template'
+    html = (source / 'index.html').read_text(encoding='utf-8').replace('{{lang}}', 'zh').replace('{{base}}', '')
+    html = html.replace('{{messages}}', (source / 'messages.json').read_text(encoding='utf-8'))
     html = html.replace('<script defer src="mermaid.min.js"></script>', '')
-    (tmp_path / 'style.css').write_text((source / 'style.css').read_text())
-    (tmp_path / 'index.html').write_text(html)
-    (tmp_path / 'app.js').write_text((source / 'app.js').read_text())
+    (tmp_path / 'style.css').write_text((source / 'style.css').read_text(encoding='utf-8'), encoding='utf-8')
+    (tmp_path / 'index.html').write_text(html, encoding='utf-8')
+    (tmp_path / 'app.js').write_text((source / 'app.js').read_text(encoding='utf-8'), encoding='utf-8')
     (tmp_path / 'data/cases').mkdir(parents=True)
     model = {'cases': [{'id': 'fixture', 'title': 'Fixture result'}], 'functional_methods': [],
              'protocol': {'k_runs': 1}, 'runs': {key: {'run_id': key} for key in ('off_baseline', 'off_engine', 'on_baseline', 'on_engine')}}
-    (tmp_path / 'data/model.json').write_text(json.dumps(model))
+    (tmp_path / 'data/model.json').write_text(json.dumps(model), encoding='utf-8')
     modes = {}
     for mode, status in [('off', 'pass'), ('on', 'fail')]:
         modes[mode] = {'passes': int(status == 'pass'), 'attempts': [{
@@ -189,8 +189,8 @@ def test_moli_actual_result_evidence_loader_and_keyboard_return(tmp_path, browse
             'failure': {'class': 'fixture', 'detail': 'Expected mutation missing'} if status == 'fail' else None,
             'evidence': {'baseline': {'log': {'url': 'data/log.txt', 'sha256': ''}}},
         }]}
-    (tmp_path / 'data/cases/fixture.json').write_text(json.dumps({'id': 'fixture', 'title': 'Fixture result', 'subset': 'Fixture', 'modes': modes}))
-    (tmp_path / 'data/log.txt').write_text('Exact fixture error\nExpected mutation missing')
+    (tmp_path / 'data/cases/fixture.json').write_text(json.dumps({'id': 'fixture', 'title': 'Fixture result', 'subset': 'Fixture', 'modes': modes}), encoding='utf-8')
+    (tmp_path / 'data/log.txt').write_text('Exact fixture error\nExpected mutation missing', encoding='utf-8')
     with local_report_server(tmp_path) as origin:
         page = local_page(browser, origin, **display)
         errors = []
@@ -316,5 +316,210 @@ def test_generated_replay_success_failure_steps_and_viewer(tmp_path, monkeypatch
                 page.wait_for_function("document.querySelector('[data-evidence-viewer]').textContent.length > 10")
                 page.locator('[data-evidence-tab="trajectory"]').click()
                 assert 'Fixture action failed' in page.locator('main').inner_text() if method == 'moli-old' else 'Fixture snapshot' in page.locator('main').inner_text()
+        finally:
+            page.close()
+
+
+@pytest.mark.parametrize('language', ['zh', 'en'])
+def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
+    tmp_path, browser, display, language
+):
+    from harness.web_extract.example import create
+    from harness.web_extract.pipeline import digest, read_json, save_json
+    from harness.web_extract.report import build
+
+    home = create(tmp_path / 'fixture', mode='full-cohort-progress', language='en')
+    model = read_json(home / 'content.json')
+    method = 'synthetic-success'
+    evidence = home / 'cost-disclosure.json'
+    save_json(evidence, {
+        'schema': 'web-extract-cost-disclosure/1', 'method': method, 'case_count': 3,
+        'total_charge_receipts': 0, 'source_plan_sha256': model['cohort_plan']['sha256'],
+    })
+    model['prices'][method]['cost_unavailable'] = {
+        'population_cases': 3, 'missing_cases': 3,
+        'reason': {'en': 'Synthetic missing total bill.', 'zh': '合成的完整账单缺失场景。'},
+        'evidence': {'path': 'assets/cost-disclosure.json', 'sha256': digest(evidence.read_bytes())},
+    }
+    model.setdefault('assets', []).append({
+        'source': str(evidence), 'path': 'assets/cost-disclosure.json',
+        'sha256': digest(evidence.read_bytes()),
+    })
+    save_json(home / 'content.json', model)
+    profile = read_json(home / 'profile.json')
+    profile.setdefault('research_report', {}).setdefault('content', {})['sha256'] = digest(
+        (home / 'content.json').read_bytes()
+    )
+    save_json(home / 'profile.json', profile)
+    output = tmp_path / 'report'
+    build(output, home / 'content.json', home=home, profile=home / 'profile.json', language='en')
+    with hosted_preview(output) as origin:
+        page = local_page(browser, origin, **display)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        try:
+            page.goto(origin + language + '/results.html')
+            for method in ('synthetic-success', 'synthetic-blocked'):
+                if display['color_scheme'] == 'dark':
+                    if not page.locator('html').evaluate('(e)=>e.classList.contains("dark")'):
+                        page.locator('#theme').click()
+                page.locator('[data-result-filter="status"]').select_option('all')
+                row = page.locator(f'tr[data-method="{method}"]').first
+                row.locator('[data-call-log-open]').first.click()
+                diagnosis = page.locator('dialog:visible')
+                expect(diagnosis).to_be_visible()
+                link = diagnosis.locator('.case-links a').first
+                assert link.get_attribute('href').endswith('#' + method)
+                link.click()
+                panel = page.locator(f'details[data-result-panel][id="{method}"]')
+                expect(panel).to_have_attribute('open', '')
+                assert page.url.endswith('#' + method)
+                assert panel.locator('[data-result-summary]').count() == 1
+                trigger = panel.locator('[data-call-log-open]')
+                trigger.click()
+                dialog = panel.locator('dialog')
+                expect(dialog).to_be_visible()
+                expect(dialog.locator('pre')).to_contain_text('case_id')
+                expect(dialog.locator('pre')).to_contain_text(method)
+                if method == 'synthetic-blocked':
+                    expect(panel.locator('[data-result-logs]')).to_contain_text(
+                        'Synthetic route rejects archived HTML'
+                    )
+                page.keyboard.press('Escape')
+                expect(dialog).not_to_be_visible()
+                assert trigger.evaluate('(e)=>e===document.activeElement')
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
+                page.locator(f'nav a[href="{language}/results.html"]').click()
+                assert page.url == origin + language + '/results.html'
+            account_link = page.locator(f'nav a[href="{language}/accounts.html"]')
+            if not account_link.is_visible():
+                page.locator('nav details > summary').click()
+            account_link.click()
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
+            with page.expect_response(lambda r: r.url.endswith('/assets/cost-disclosure.json')) as receipt:
+                page.locator('[data-cost-evidence]').click()
+            assert receipt.value.json()['method'] == 'synthetic-success'
+            assert page.url == origin + 'assets/cost-disclosure.json'
+            page.go_back()
+            expect(page.locator('[data-price-table]')).to_be_visible()
+            assert errors == []
+        finally:
+            page.close()
+
+
+def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
+    from pathlib import Path
+    from harness.web_fetch import report
+    from tests.test_report_body_scope import case, record
+    c = case('sample', kind='body', track='web')
+    records = []
+    for provider, passed, elapsed in [('a', True, 90), ('b', True, 30), ('c', False, 10)]:
+        row = record(c, passed=passed, elapsed=elapsed)
+        row['provider'] = provider
+        records.append(row)
+    markup = report.overall_ranking(records, {c['id']: c})
+    js = Path(report.__file__).with_name('assets').joinpath('report.js').read_text(encoding='utf-8')
+    (tmp_path/'app.js').write_text(js, encoding='utf-8')
+    (tmp_path/'index.html').write_text(
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<script defer src="app.js"></script></head><body>'+markup+'</body></html>', encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        try:
+            page.goto(origin)
+            ranks = page.locator('#ranking-overall td[data-rank]')
+            assert ranks.all_text_contents() == ['1', '1', '3']
+            page.locator('#ranking-overall th button').last.click()
+            assert sorted(ranks.all_text_contents()) == ['1', '1', '3']
+            for row in page.locator('#ranking-overall tbody tr').all():
+                expected = '3' if 'providers/c.html' in row.inner_html() else '1'
+                assert row.locator('td').first.inner_text() == expected
+        finally:
+            page.close()
+
+
+@pytest.mark.parametrize('language', ['zh', 'en'])
+def test_webfetch_single_scope_report_keeps_contestants_and_evidence(tmp_path, browser, display, language):
+    from tests.benchmarks.webfetch.test_content_scopes import annotated_case
+    from tests.test_optional_reports import invoke
+    case = annotated_case()
+    case['name'] = 'Complete article body'
+    dataset = tmp_path/'dataset.json'
+    dataset.write_text(json.dumps({'tool': 'web_fetch', 'id': 'paired', 'content_scope': 'main', 'cases': [case]}), encoding='utf-8')
+    env = tmp_path/'empty.env'
+    env.write_text('', encoding='utf-8')
+    run = tmp_path/'run'
+    names = ['method-a', 'method-b', 'method-c', 'method-d']
+    config = tmp_path/'providers.json'
+    config.write_text(json.dumps({'providers': {name: {'type': 'fixture'} for name in names}}), encoding='utf-8')
+    result = invoke(tmp_path, 'run', '--dataset', dataset, '--output', run, '--env-file', env,
+                    '--provider-config', config, '--providers', ','.join(names),
+                    '--delay', '0', '--max-failure-retries', '0', language=language)
+    assert result.returncode == 0, result.stdout + result.stderr
+    row = json.loads((run/'results.jsonl').read_text(encoding='utf-8').splitlines()[0])
+    with local_report_server(run/'report') as origin:
+        page = local_page(browser, origin, **display)
+        try:
+            page.goto(origin)
+            expect(page.locator('[data-content-scope-switch], a[data-content-scope]')).to_have_count(0)
+            expect(page.locator('#ranking-web tbody tr')).to_have_count(4)
+            labels = page.locator('#ranking-web a[href*="providers/"]').all_text_contents()
+            assert len(set(labels)) == 4
+            page.goto(origin.rstrip('/')+'/attempts/'+row['attempt_id']+'.html')
+            expect(page.locator('#evidence-reference')).to_contain_text('Contact publisher')
+            expect(page.locator('[data-content-scope-switch], a[data-content-scope]')).to_have_count(0)
+        finally:
+            page.close()
+    assert len(list((run/'call-logs').rglob('*.json'))) == 4
+
+
+def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, browser, display):
+    """The summary works with evidence requests blocked; opening evidence still works."""
+    import zipfile
+    from pathlib import Path
+    from harness.web_fetch import report_package
+    from tests.test_webfetch_report_package import report_tree
+
+    source, archive = report_tree(tmp_path)
+    assets = Path(report_package.__file__).parent/'assets'
+    (source/'assets/report.js').write_bytes((assets/'report.js').read_bytes())
+    (source/'index.html').write_text(
+        '<html><body><main><h1>Summary 80.8%</h1><img src="assets/chart.svg">'
+        '<a href="detail.html">Details</a></main></body></html>', encoding='utf-8')
+    (source/'assets/chart.svg').write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+        '<rect width="20" height="20" fill="green"/></svg>', encoding='utf-8')
+    output = 'Exact evidence\n'*30000
+    (source/'large-answer.txt').write_text(output, encoding='utf-8')
+    (source/'detail.html').write_text(
+        '<html><body><main><h1>Detail</h1><a href="index.html">Back</a>'
+        '<pre data-file="large-answer.txt" data-readable="1"></pre></main></body></html>',
+        encoding='utf-8')
+    report_package.build(source, archive)
+    published = tmp_path/'published'
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(published)
+    with local_report_server(published) as origin:
+        page = local_page(browser, origin, **display)
+        requests = []
+        page.on('request', lambda request:requests.append(request.url))
+        try:
+            page.route('**/manifest.json', lambda route:route.abort())
+            page.route('**/data/**', lambda route:route.abort())
+            page.goto(origin)
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
+            page.wait_for_function('document.querySelector("img")?.naturalWidth>0')
+            assert not any('/manifest.json' in url or '/data/' in url for url in requests)
+            page.unroute('**/manifest.json')
+            page.unroute('**/data/**')
+            page.get_by_role('link', name='Details', exact=True).click()
+            expect(page.get_by_role('heading', name='Detail', exact=True)).to_be_visible()
+            assert any('/manifest.json' in url for url in requests)
+            expect(page.locator('pre')).to_have_attribute('role', 'button')
+            page.locator('pre').click()
+            expect(page.locator('textarea')).to_have_value(output)
+            assert any('/data/' in url for url in requests)
+            page.get_by_role('link', name='Back', exact=True).click()
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
         finally:
             page.close()

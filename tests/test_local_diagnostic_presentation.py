@@ -9,7 +9,7 @@ from harness.web_fetch.report import generate, local_audit_banner, overall_ranki
 from tests.test_report_body_scope import case, record
 
 
-def test_diagnostic_tables_sort_saved_pass_rates_without_assigning_ranks():
+def test_diagnostic_tables_do_not_rank_without_explicit_selection():
     c = case('body', kind='body', track='web')
     high = record(c)
     high['provider'] = 'z-high'
@@ -21,6 +21,8 @@ def test_diagnostic_tables_sort_saved_pass_rates_without_assigning_ranks():
         table = soup.select_one('table.ranking')
         assert table.get('data-col') == '2'
         assert table.get('data-dir') == 'desc'
+        assert table.get('data-row-index') == 'false'
+        assert not table.select('.comparison-winner')
         assert table.select_one('th').get_text(strip=True).startswith('方法')
         rows = table.select('tbody tr')
         assert ['z-high', 'a-low'] == [row.select_one('td a')['href'].split('/')[-1].removesuffix('.html') for row in rows]
@@ -35,7 +37,7 @@ def test_diagnostic_tables_sort_saved_pass_rates_without_assigning_ranks():
 def test_uncertified_status_cannot_be_suppressed(tmp_path):
     dataset = {'comparison': {'kind': 'uniform_native_local_measurement',
                              'publication_state': 'local_audit_only_not_for_release'}}
-    assert '不可用于排名' in local_audit_banner(dataset)
+    assert '本地未认证诊断结果' in local_audit_banner(dataset)
     with pytest.raises(ValueError, match='cannot be hidden'):
         generate(tmp_path / 'report', dataset, [], [], show_local_status_banners=False)
     assert not (tmp_path / 'report').exists()
@@ -66,7 +68,7 @@ def test_table_header_gate_accepts_explicit_unranked_methods_only_locally():
 
 def test_home_gate_requires_diagnostic_summary_and_rejects_winner_claims():
     from harness.web_fetch.report_check import require_home_comparison_layout
-    home = ('<h2>任务判定汇总（非排名）</h2><h2>7 类任务概览</h2>'
+    home = ('<h2>任务通过情况</h2><h2>7 类任务概览</h2>'
             '<h2>按任务类别查看诊断结果</h2><p>判分完整性</p>')
     require_home_comparison_layout(home, 7, diagnostic=True)
     with pytest.raises(ValueError, match='winner disclosure'):
@@ -75,19 +77,25 @@ def test_home_gate_requires_diagnostic_summary_and_rejects_winner_claims():
         require_home_comparison_layout(home, 7, diagnostic=False)
 
 
-def test_release_check_rejects_hidden_status_or_ranked_diagnostic(tmp_path):
+def test_release_check_requires_visible_status_and_rank_scope(tmp_path):
     from harness.web_fetch.report_check import check_local_diagnostic_presentation
     page = tmp_path / 'index.html'
-    prefix = '<meta name="browser-eval-report" content="1">'
-    page.write_text(prefix + '<p>Complete results</p>')
+    prefix = '<meta name="webstone-report" content="1">'
+    page.write_text(prefix + '<p>Complete results</p>', encoding='utf-8')
     with pytest.raises(ValueError, match='disclosure missing'):
         check_local_diagnostic_presentation(tmp_path)
     banner = '<div data-evidence-state="local_measurement">Uncertified</div>'
-    page.write_text(prefix + banner + '<table id="ranking-overall"><th>Rank</th></table>')
-    with pytest.raises(ValueError, match='assigns ranks'):
+    page.write_text(prefix + banner + '<table id="ranking-overall"><th>Rank</th></table>', encoding='utf-8')
+    with pytest.raises(ValueError, match='ranking scope missing|Unrequested diagnostic ranking'):
         check_local_diagnostic_presentation(tmp_path)
-    page.write_text(prefix + banner + '<table id="ranking-overall" data-col="0" data-dir="desc"><th>Method</th></table>')
+    page.write_text(prefix + banner + '<table id="ranking-overall" data-col="0" data-dir="desc"><th>Method</th></table>', encoding='utf-8')
     check_local_diagnostic_presentation(tmp_path)
+    scope = '<p data-ranking-scope="saved-task-pass-rate">Ranks on saved results only.</p>'
+    page.write_text(prefix + banner + scope + '<table id="ranking-overall"><th>Rank</th></table>', encoding='utf-8')
+    check_local_diagnostic_presentation(tmp_path, ranked=True)
+    page.write_text(prefix + banner + scope.replace('<p ', '<p hidden ') + '<table id="ranking-overall"><th>Rank</th></table>', encoding='utf-8')
+    with pytest.raises(ValueError, match='ranking scope missing|Unrequested diagnostic ranking'):
+        check_local_diagnostic_presentation(tmp_path)
 
 
 def test_frozen_download_summary_uses_current_scores_and_exclusions(tmp_path):
@@ -104,20 +112,20 @@ def test_frozen_download_summary_uses_current_scores_and_exclusions(tmp_path):
     rows = [included, excluded]
     dataset = {'cases': [c], 'coverage_plan': {'web': [row['provider'] for row in rows]}}
     saved = copy.deepcopy(rows)
-    (tmp_path / 'summary.json').write_text('{"stale":999}')
-    (tmp_path / 'reliability.json').write_text('{"stale":true}')
+    (tmp_path / 'summary.json').write_text('{"stale":999}', encoding='utf-8')
+    (tmp_path / 'reliability.json').write_text('{"stale":true}', encoding='utf-8')
     write_frozen_result_summary(tmp_path, dataset, rows)
-    summary = json.loads((tmp_path / 'summary.json').read_text())['web']
+    summary = json.loads((tmp_path / 'summary.json').read_text(encoding='utf-8'))['web']
     assert summary[included['provider']]['task_pass'] == 1
     assert summary['excluded-method']['task_pass'] == 0
     assert summary['excluded-method']['task_evaluated_attempts'] == 0
     assert summary['excluded-method']['task_excluded_attempts'] == 1
-    assert json.loads((tmp_path / 'reliability.json').read_text()) == assess_reliability(dataset, rows)
+    assert json.loads((tmp_path / 'reliability.json').read_text(encoding='utf-8')) == assess_reliability(dataset, rows)
     assert rows == saved
     from harness.web_fetch.report_check import check_saved_result_summary
     check_saved_result_summary(tmp_path, dataset, rows)
     summary['excluded-method']['task_pass'] = 1
-    (tmp_path / 'summary.json').write_text(json.dumps({'web': summary}))
+    (tmp_path / 'summary.json').write_text(json.dumps({'web': summary}), encoding='utf-8')
     with pytest.raises(ValueError, match='summary differs'):
         check_saved_result_summary(tmp_path, dataset, rows)
 
@@ -141,11 +149,11 @@ def test_explicit_sample_ranking_reuses_existing_ranked_table_and_keeps_scope(tm
     assert 'hidden' not in banner
     assert 'callout' not in banner
     page = tmp_path/'index.html'
-    page.write_text('<meta name="browser-eval-report" content="1">'+banner+markup)
+    page.write_text('<meta name="webstone-report" content="1">'+banner+markup, encoding='utf-8')
     check_local_diagnostic_presentation(tmp_path, ranked=True)
-    with pytest.raises(ValueError, match='assigns ranks'):
+    with pytest.raises(ValueError, match='Unrequested diagnostic ranking'):
         check_local_diagnostic_presentation(tmp_path)
-    page.write_text('<meta name="browser-eval-report" content="1"><div data-evidence-state="local_measurement">Uncertified</div>'+markup)
+    page.write_text('<meta name="webstone-report" content="1"><div data-evidence-state="local_measurement">Uncertified</div>'+markup, encoding='utf-8')
     with pytest.raises(ValueError, match='scope missing'):
         check_local_diagnostic_presentation(tmp_path, ranked=True)
 
@@ -184,7 +192,7 @@ def test_contract_prose_localizes_without_full_snapshot_or_fixed_field_counts(tr
 def test_sample_ranking_rejects_invisible_scope_disclosure(tmp_path, wrapper):
     from harness.web_fetch.report_check import check_local_diagnostic_presentation
     attrs = 'data-evidence-state="local_measurement" data-ranking-scope="saved-task-pass-rate"'
-    (tmp_path/'index.html').write_text('<meta name="browser-eval-report" content="1">'+wrapper.format(attrs=attrs))
+    (tmp_path/'index.html').write_text('<meta name="webstone-report" content="1">'+wrapper.format(attrs=attrs), encoding='utf-8')
     with pytest.raises(ValueError, match='disclosure missing'):
         check_local_diagnostic_presentation(tmp_path, ranked=True)
 
@@ -198,13 +206,13 @@ def test_review_display_distinguishes_fresh_reviews_from_retained_history(tmp_pa
              'retained_reviews': {'path': 'retention.json'},
              'supplemental_reviews': [{'path': 'supplement.json'}],
              'attempts': [{'review_origin': 'fresh', 'agent_verdict': 'fail', 'final_verdict': 'pass'}]}
-    (tmp_path/'result-review.json').write_text(json.dumps(audit))
+    (tmp_path/'result-review.json').write_text(json.dumps(audit), encoding='utf-8')
     summary = BeautifulSoup(review_summary(tmp_path, highlight=False), 'html.parser')
     assert '本次重新检查 10 条' in summary.get_text()
     assert '90 条沿用' in summary.get_text()
     assert not summary.select('.callout')
     receipt = tmp_path/'replacement.json'
-    receipt.write_text(json.dumps({'provider_calls_added': 1, 'inherited_results': 99}))
+    receipt.write_text(json.dumps({'provider_calls_added': 1, 'inherited_results': 99}), encoding='utf-8')
     dataset = {'comparison': {'task_replacement': {'path': receipt.name,
         'sha256': hashlib.sha256(receipt.read_bytes()).hexdigest()}}}
     c = case('body', kind='body', track='web')
@@ -225,7 +233,7 @@ def test_displayed_native_options_require_actual_configuration_and_call_scope(tm
     from harness.web_fetch.report import load_frozen_method_options
     config = {'providers': {'fixture': {'max_bytes': 100, 'block_private_networks': True}}}
     path = tmp_path/'config.json'
-    path.write_text(json.dumps(config))
+    path.write_text(json.dumps(config), encoding='utf-8')
     document = {'schema_version': 2, 'source_config': {'path': path.name,
                     'sha256': hashlib.sha256(path.read_bytes()).hexdigest()},
                 'case_ids': ['a'], 'result_count': 1,
@@ -242,7 +250,7 @@ def test_displayed_native_options_require_actual_configuration_and_call_scope(tm
     elif defect == 'unknown_option': document['providers']['fixture']['api_key'] = 'not-for-display'
     elif defect == 'missing_option': document['providers']['fixture']['wait_until'] = None
     elif defect == 'type': document['providers']['fixture']['block_private_networks'] = 1
-    (tmp_path/'frozen-method-options.json').write_text(json.dumps(document))
+    (tmp_path/'frozen-method-options.json').write_text(json.dumps(document), encoding='utf-8')
     rows = [{'provider': 'fixture', 'case_id': 'a'}]
     if defect:
         with pytest.raises(ValueError):
@@ -257,7 +265,7 @@ def test_public_method_option_projection_keeps_private_config_identity(tmp_path,
     import json
     from harness.web_fetch.report import load_frozen_method_options
     original_hash = 'a' * 64
-    (tmp_path/'local-run-contract.json').write_text(json.dumps({'provider_config_sha256': original_hash}))
+    (tmp_path/'local-run-contract.json').write_text(json.dumps({'provider_config_sha256': original_hash}), encoding='utf-8')
     config = {'providers': {'fixture': {'max_bytes': 100}},
               'projection': 'allowlisted_method_options',
               'original_provider_config_sha256': original_hash}
@@ -266,17 +274,45 @@ def test_public_method_option_projection_keeps_private_config_identity(tmp_path,
     elif defect == 'unknown_key': config['providers']['fixture']['api_key'] = 'private'
     elif defect == 'projection_kind': config['projection'] = 'unverified'
     path = tmp_path/'public-options.json'
-    path.write_text(json.dumps(config))
+    path.write_text(json.dumps(config), encoding='utf-8')
     document = {'schema_version': 2, 'source_config': {'path': path.name,
                 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()},
                 'provider_config_sha256': original_hash,
                 'case_ids': ['a'], 'result_count': 1, 'providers': config['providers'],
                 'scope_title': '选项', 'scope_title_en': 'Options',
                 'scope_description': '仅这次调用。', 'scope_description_en': 'Only this call.'}
-    (tmp_path/'frozen-method-options.json').write_text(json.dumps(document))
-    if defect == 'changed_bytes': path.write_text('{}')
+    (tmp_path/'frozen-method-options.json').write_text(json.dumps(document), encoding='utf-8')
+    if defect == 'changed_bytes': path.write_text('{}', encoding='utf-8')
     rows = [{'provider': 'fixture', 'case_id': 'a'}]
     if defect:
         with pytest.raises(ValueError): load_frozen_method_options(tmp_path, rows)
     else:
         assert load_frozen_method_options(tmp_path, rows)['providers'] == config['providers']
+
+
+@pytest.mark.parametrize('route', ['index.html', 'providers/method.html', 'attempts/call.html', 'en/providers/method.html'])
+def test_ordinary_report_cannot_remove_marker_and_disclosure(tmp_path, route):
+    from harness.web_fetch.report_check import check_local_diagnostic_presentation
+    page = tmp_path/route
+    page.parent.mkdir(parents=True, exist_ok=True)
+    banner = local_audit_banner({'comparison': {'kind': 'uniform_native_local_measurement',
+        'publication_state': 'local_audit_only_not_for_release'}})
+    page.write_text('<meta name="webstone-report" content="1">'+banner, encoding='utf-8')
+    check_local_diagnostic_presentation(tmp_path, ranked=False)
+    page.write_text('<p>Results without disclosure</p>', encoding='utf-8')
+    with pytest.raises(ValueError, match='disclosure missing'):
+        check_local_diagnostic_presentation(tmp_path, ranked=False)
+
+
+def test_ordinary_report_preserves_evidence_and_exact_language_notice(tmp_path):
+    from harness.report_languages import english_notice
+    from harness.web_fetch.report_check import check_local_diagnostic_presentation
+    (tmp_path/'evidence').mkdir()
+    (tmp_path/'evidence/source.html').write_text('<html>Original source</html>', encoding='utf-8')
+    (tmp_path/'en').mkdir()
+    notice = tmp_path/'en/index.html'
+    notice.write_text(english_notice(), encoding='utf-8')
+    check_local_diagnostic_presentation(tmp_path, ranked=True)
+    notice.write_text('<p>Results</p>', encoding='utf-8')
+    with pytest.raises(ValueError, match='disclosure missing'):
+        check_local_diagnostic_presentation(tmp_path, ranked=True)

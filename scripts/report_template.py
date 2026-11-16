@@ -5,8 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from harness.reporting.templates import resolve_template
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from harness.reporting.templates import discover_template
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
@@ -14,9 +14,9 @@ if __name__ == "__main__":
         "track",
         choices=tuple(
             json.loads(
-                (Path(__file__).resolve().parents[1] / "configs/report-templates.json").read_text()
+                (Path(__file__).resolve().parents[1] / "configs/report-templates.json").read_text(encoding="utf-8")
             )["tracks"]
         ),
     )
     args = parser.parse_args()
-    print(json.dumps(resolve_template(args.track), ensure_ascii=False, indent=2))
+    print(json.dumps(discover_template(args.track), ensure_ascii=False, indent=2))

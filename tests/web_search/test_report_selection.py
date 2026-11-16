@@ -86,19 +86,19 @@ def test_comparison_report_has_owned_chapters_and_bound_populations(tmp_path):
         ],
         'sections': [{'page': 'capabilities', 'title': {'en': 'Fields', 'zh': '字段'}, 'paragraphs': [{'en': 'Chapter-specific text.', 'zh': '章节专属说明。'}]}],
     }
-    source = tmp_path / 'content.json'; source.write_text(json.dumps(content))
+    source = tmp_path / 'content.json'; source.write_text(json.dumps(content), encoding='utf-8')
     output = tmp_path / 'comparison'
     build(output, source=tmp_path / 'fixture', content=source)
-    home = BeautifulSoup((output / 'index.html').read_text(), 'html.parser')
+    home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     assert len(home.select('[data-executive]')) == 1
     assert len(home.select('[data-discovery] tbody tr')) == 1
     assert [node['data-population'] for node in home.select('[data-population]')] == ['overall', 'scenario']
     assert not home.select('[data-modes]')
     assert 'Chapter-specific text.' not in home.get_text()
-    assert '章节专属说明。' in (output / 'capabilities.html').read_text()
+    assert '章节专属说明。' in (output / 'capabilities.html').read_text(encoding='utf-8')
     assert check(output)
     home.select_one('[data-executive] td').string = 'invented method'
-    (output / 'index.html').write_text(str(home))
+    (output / 'index.html').write_text(str(home), encoding='utf-8')
     with pytest.raises(ValueError, match='Population summary'):
         check(output)
 
@@ -141,10 +141,10 @@ def test_projection_only_publishes_metadata_for_materialized_calls(tmp_path, mon
         return rows, files, redactions, corrections
     monkeypatch.setattr(report, 'public_calls', with_audit_records)
     content = tmp_path / 'selection.json'
-    content.write_text(json.dumps({'comparison_methods': ['lexmount']}))
+    content.write_text(json.dumps({'comparison_methods': ['lexmount']}), encoding='utf-8')
     output = tmp_path / 'selected'
     build(output, source=tmp_path / 'fixture', content=content)
-    manifest = json.loads((output / 'manifest.json').read_text())
+    manifest = json.loads((output / 'manifest.json').read_text(encoding='utf-8'))
     retained = {r['evidence']['path'] for r in manifest['rows']}
     assert {r['path'] for r in manifest['evidence_redactions']} == retained
     assert {r['path'] for r in manifest['billing_corrections']} == retained
@@ -245,3 +245,44 @@ def test_collection_description_separates_retries_from_logical_results(tmp_path)
     budget = BeautifulSoup(fairness_table(profile, rows, True), "html.parser")
     assert "请求上限（条 × 任务数）" in budget.get_text()
     assert "调用次数" not in budget.get_text()
+
+
+def test_concurrent_three_method_collection_renders_two_selected_methods(tmp_path):
+    from harness.record_io import write_json, bytes_sha256
+    from harness.web_search.report import load_report_runs, execution_settings
+
+    example(tmp_path)
+    source = tmp_path / 'fixture'
+    profile, rows, _ = load_run(source)
+    third = dict(profile['methods'][0], id='third', key_env='THIRD_KEY', label='Fixture C')
+    profile['methods'].append(third)
+    profile['protocol'].update(concurrency=3, order='bounded calls')
+    profile['execution_policy'] = {
+        'purpose': 'quality', 'max_in_flight': 3,
+        'resources': {m['id']: {'capacity': 1, 'reason': 'One provider lane'}
+                      for m in profile['methods']},
+        'assignments': {m['id']: [m['id']] for m in profile['methods']}}
+    originals = [row for row in rows if row['method'] == profile['methods'][0]['id']]
+    for row in originals:
+        identity = row['id'].replace(row['method'], 'third')
+        relative = 'calls/' + identity + '.json'
+        (source / relative).write_bytes((source / row['evidence']['path']).read_bytes())
+        rows.append(dict(row, method='third', id=identity,
+                         evidence=dict(row['evidence'], path=relative)))
+    write_json(source / 'profile.json', profile)
+    (source / 'results.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
+    receipt = json.loads((source / 'receipt.json').read_text(encoding='utf-8'))
+    receipt.update(profile_sha256=bytes_sha256((source / 'profile.json').read_bytes()),
+                   results_sha256=bytes_sha256((source / 'results.jsonl').read_bytes()), call_count=len(rows))
+    write_json(source / 'receipt.json', receipt)
+    chosen = [profile['methods'][0]['id'], 'third']
+    projected, selected, _, _ = load_report_runs(source, [], {}, method_ids=chosen)
+    assert [m['id'] for m in projected['methods']] == chosen
+    assert len(projected['collection_methods']) == 3
+    assert len(selected) == 4
+    assert '3' in execution_settings(projected, False)
+    content = tmp_path / 'content.json'
+    write_json(content, {'comparison_methods': chosen})
+    output = tmp_path / 'selected'
+    build(output, source=source, content=content)
+    assert check(output)

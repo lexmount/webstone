@@ -2,20 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from harness.environments.webarena.topology import TRUSTED_RECORDED_HOSTS
+from harness.record_io import canonical_json_sha256, file_sha256
 from harness.trajectory_replay import catalog_runner
 from harness.trajectory_replay.catalog_binding import rebind_catalog
 from harness.trajectory_replay.catalog_contracts import (
-    TRUSTED_RECORDED_HOSTS,
     apply_action_overrides,
     catalog_action_overrides,
     completed_task_ids,
-    file_sha256,
     load_action_overrides,
     load_catalog_inputs,
     row_source_sites,
@@ -36,7 +38,6 @@ from harness.trajectory_replay.remote_execution import (
     sanitize_remote_text,
 )
 from harness.trajectory_replay.remote_runtime import rebind_remote_calls
-from harness.trajectory_replay.webarena_replay import _json_sha256
 
 _REMOTE_RUNTIME = {
     "protocolVersion": "1.3",
@@ -51,9 +52,37 @@ _REMOTE_ENDPOINT = (
 )
 
 
+def test_environment_profile_reads_named_routing_only_for_engines_that_use_it(tmp_path) -> None:
+    profile = tmp_path / "environment.json"
+    env_file = tmp_path / "local.env"
+    names = {"pattern": "DEMO_ROUTE_PATTERN", "address": "DEMO_ROUTE_ADDRESS"}
+    profile.write_text(json.dumps({"host_overrides_env": names}), encoding="utf-8")
+    with pytest.raises(ValueError, match="requires DEMO_ROUTE_ADDRESS, DEMO_ROUTE_PATTERN in the"):
+        catalog_runner._load_environment_profile(profile, "chromium", env_file)
+    env_file.write_text("DEMO_ROUTE_PATTERN=*.dev.example.test\n", encoding="utf-8")
+
+    assert "host_overrides" not in catalog_runner._load_environment_profile(
+        profile, "moli", env_file
+    )
+    with pytest.raises(ValueError, match="requires DEMO_ROUTE_ADDRESS in the environment or"):
+        catalog_runner._load_environment_profile(profile, "chromium", env_file)
+
+    env_file.write_text(
+        "DEMO_ROUTE_PATTERN=*.dev.example.test\nDEMO_ROUTE_ADDRESS=192.0.2.142\n",
+        encoding="utf-8"
+    )
+    resolved = catalog_runner._load_environment_profile(profile, "kitesurf", env_file)
+    assert resolved["host_overrides"] == [
+        {"pattern": "*.dev.example.test", "address": "192.0.2.142"}
+    ]
+    assert catalog_runner._chromium_host_resolver_rules(
+        catalog_runner._load_environment_profile(profile, "chromium", env_file), "chromium"
+    ) == "MAP *.dev.example.test 192.0.2.142"
+
+
 def test_catalog_runner_selects_profile_host_overrides_only_for_kitesurf() -> None:
     origins = {"http://shop.test"}
-    overrides = [{"pattern": "*.dev.lexmount.net", "address": "10.2.62.142"}]
+    overrides = [{"pattern": "*.dev.example.test", "address": "192.0.2.142"}]
     profile = {"host_overrides": overrides}
 
     assert _request_bridge_options(profile, "kitesurf", origins) == {
@@ -283,7 +312,7 @@ def test_remote_watchdog_commits_timeout_and_returns(tmp_path: Path) -> None:
     assert outcome["runtime_poisoned"] is True
     assert outcome["runtime_metadata"] == _REMOTE_RUNTIME
     assert outcome["error"].startswith("ExternalTaskTimeout:")
-    assert json.loads((task_dir / "result.json").read_text()) == outcome
+    assert json.loads((task_dir / "result.json").read_text(encoding="utf-8")) == outcome
     trace_text = (task_dir / "trace.json").read_text(encoding="utf-8")
     assert "private-account" not in trace_text
     assert "private-token" not in trace_text
@@ -444,8 +473,8 @@ def test_task_watchdog_kills_browser_commits_timeout_and_returns(tmp_path: Path)
     assert returned_process is process
     assert outcome["runtime_poisoned"] is True
     assert outcome["error"].startswith("ExternalTaskTimeout:")
-    assert json.loads((task_dir / "result.json").read_text()) == outcome
-    assert json.loads((task_dir / "trace.json").read_text())[-1]["status"] == "fail"
+    assert json.loads((task_dir / "result.json").read_text(encoding="utf-8")) == outcome
+    assert json.loads((task_dir / "trace.json").read_text(encoding="utf-8"))[-1]["status"] == "fail"
 
 
 def test_dead_browser_restarts_before_next_task_without_replaying_result(
@@ -557,7 +586,7 @@ def _amendment(task_id: int, action_index: int, action: dict, updates: dict) -> 
     return {
         "task_id": task_id,
         "action_index": action_index,
-        "precondition_action_sha256": _json_sha256(action),
+        "precondition_action_sha256": canonical_json_sha256(action),
         "set": updates,
     }
 
@@ -689,7 +718,7 @@ def test_row_action_overrides_require_valid_catalog_source_hash(
         "action_overrides": {
             "schema": "lex_webarena_replay_action_overrides/1",
             "source_sha256": row_source_sha256,
-            "amendments_sha256": _json_sha256(amendments),
+            "amendments_sha256": canonical_json_sha256(amendments),
             "amendments": amendments,
         },
     }
@@ -704,7 +733,7 @@ def test_row_action_overrides_reject_empty_amendment_binding() -> None:
         "action_overrides": {
             "schema": "lex_webarena_replay_action_overrides/1",
             "source_sha256": source_sha256,
-            "amendments_sha256": _json_sha256([]),
+            "amendments_sha256": canonical_json_sha256([]),
             "amendments": [],
         },
     }
@@ -772,7 +801,7 @@ def test_catalog_requires_one_hash_bound_row_in_declared_order(tmp_path: Path) -
         {
             "task_id": task_id,
             "mode": "portable" if task_id == 0 else "direct",
-            "bound_calls_sha256": _json_sha256([action]),
+            "bound_calls_sha256": canonical_json_sha256([action]),
             **({} if task_id == 0 else {"source_actions": [action]}),
         }
         for task_id in range(3)
@@ -853,13 +882,13 @@ def test_catalog_binding_embeds_override_provenance_and_hashes_amended_actions(
                 {
                     "task_id": 0,
                     "mode": "portable",
-                    "bound_calls_sha256": _json_sha256([portable_action]),
+                    "bound_calls_sha256": canonical_json_sha256([portable_action]),
                 },
                 {
                     "task_id": 1,
                     "mode": "direct",
                     "source_actions": [direct_action],
-                    "bound_calls_sha256": _json_sha256([direct_action]),
+                    "bound_calls_sha256": canonical_json_sha256([direct_action]),
                 },
             ],
         },
@@ -881,10 +910,10 @@ def test_catalog_binding_embeds_override_provenance_and_hashes_amended_actions(
     )
     rows = {row["task_id"]: row for row in rebound["rows"]}
     assert rebound["action_overrides_sha256"] == file_sha256(overrides_path)
-    assert rows[0]["bound_calls_sha256"] == _json_sha256(
+    assert rows[0]["bound_calls_sha256"] == canonical_json_sha256(
         [{**portable_action, "wait_for_selector_hidden": ".loading-mask"}]
     )
-    assert rows[1]["bound_calls_sha256"] == _json_sha256(
+    assert rows[1]["bound_calls_sha256"] == canonical_json_sha256(
         [{**direct_action, "script_mode": "function_body"}]
     )
     assert rows[0]["action_overrides"]["source_sha256"] == file_sha256(overrides_path)
@@ -1011,6 +1040,108 @@ def test_runner_rejects_row_overrides_without_external_version_binding(
         catalog_runner.main()
 
 
+@pytest.mark.parametrize(
+    ("restart_cause", "expected_calls"),
+    [
+        ("runtime_poisoned", [(1, 0), (2, 1)]),
+        ("browser_exited", [(1, 0), (2, 1)]),
+        ("setup_failure", [(1, 0), (1, 1), (2, 1)]),
+    ],
+)
+def test_local_catalog_restart_replays_on_the_new_browser_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    restart_cause: str,
+    expected_calls: list[tuple[int, int]],
+) -> None:
+    class Browser:
+        def __init__(self) -> None:
+            self.returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self) -> None:
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    browsers: list[Browser] = []
+    calls: list[tuple[int, str]] = []
+
+    def start_local_browser(_args, _profile):
+        browsers.append(Browser())
+        return browsers[-1], f"http://127.0.0.1:{9000 + len(browsers) - 1}"
+
+    def run_task(*, task_id, endpoint, **_kwargs):
+        first_call = not calls
+        calls.append((task_id, endpoint))
+        if first_call and restart_cause == "setup_failure":
+            raise RuntimeError("browser session did not start")
+        if first_call and restart_cause == "browser_exited":
+            browsers[-1].returncode = 1
+        return {
+            "task_id": task_id,
+            "status": "pass",
+            "runtime_poisoned": first_call and restart_cause == "runtime_poisoned",
+        }
+
+    catalog = {
+        "task_ids": [1, 2],
+        "rows": [{"task_id": 1, "mode": "recorded"}, {"task_id": 2, "mode": "recorded"}],
+    }
+    paths = {name: tmp_path / name for name in ("catalog", "suite", "sites", "receipt", "browser")}
+    for path in paths.values():
+        path.write_text("{}", encoding="utf-8")
+    environment = tmp_path / "environment"
+    environment.write_text("{}", encoding="utf-8")
+    for name, stub in {
+        "verify_webarena_runtime_source": lambda: SimpleNamespace(revision="a" * 40),
+        "load_catalog_inputs": lambda *args, **kwargs: (catalog, {}, {}),
+        "validate_environment_preparation": lambda *args: None,
+        "load_corrections": lambda: SimpleNamespace(source_sha256="b" * 64),
+        "remote_benchmark": lambda sites: None,
+        "_task_origins": lambda *args: set(),
+        "_bound_catalog_row": lambda _catalog, frozen, *args: frozen,
+        "start_local_browser": start_local_browser,
+        "run_replay_task": run_task,
+    }.items():
+        monkeypatch.setattr(catalog_runner, name, stub)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run",
+            "--catalog",
+            str(paths["catalog"]),
+            "--portable-suite",
+            str(paths["suite"]),
+            "--site-map",
+            str(paths["sites"]),
+            "--site-reset-receipt",
+            str(paths["receipt"]),
+            "--environment-profile",
+            str(environment),
+            "--binary",
+            str(paths["browser"]),
+            "--backend",
+            "playwright",
+            "--output",
+            str(tmp_path / "output"),
+        ],
+    )
+
+    prior_umask = os.umask(0o022)
+    try:
+        catalog_runner.main()
+    finally:
+        os.umask(prior_umask)
+
+    assert calls == [(task_id, f"http://127.0.0.1:{9000 + run}") for task_id, run in expected_calls]
+    assert len(browsers) == 2
+    assert all(browser.poll() is not None for browser in browsers)
+
+
 def test_rows_can_rebind_accepted_actions_from_distinct_source_deployments() -> None:
     from webarena_verified.types.task import WebArenaSite
 
@@ -1054,9 +1185,9 @@ def test_remote_task_passes_host_overrides_to_playwright_tool(
         records = {}
 
     monkeypatch.setattr(playwright_tool, "PlaywrightReplayTool", Tool)
-    overrides = [{"pattern": "*.dev.lexmount.net", "address": "10.2.62.142"}]
+    overrides = [{"pattern": "*.dev.example.test", "address": "192.0.2.142"}]
     with pytest.raises(StopConstruction):
-        remote_execution._run_task(
+        remote_execution.run_replay_task(
             task_id=281,
             row={},
             benchmark=Benchmark(),
@@ -1111,3 +1242,211 @@ def test_resume_rejects_partial_orphan_instead_of_rerunning(tmp_path: Path) -> N
     (tmp_path / "task-0").mkdir()
     with pytest.raises(ValueError, match="interrupted evidence"):
         _recover_completed_attempts(tmp_path, tmp_path / "progress.jsonl", [0])
+
+
+def _catalog_run_inputs(
+    monkeypatch, tmp_path: Path, output: str, engine: str, address: str
+) -> dict:
+    """Run the entry point up to its bound inputs; the empty catalog then has no pending task."""
+
+    monkeypatch.setattr(
+        catalog_runner,
+        "verify_webarena_runtime_source",
+        lambda: SimpleNamespace(revision="runtime"),
+    )
+    monkeypatch.setattr(
+        catalog_runner,
+        "load_catalog_inputs",
+        lambda *args, **kwargs: ({"task_ids": [9], "rows": []}, {}, {}),
+    )
+    monkeypatch.setattr(catalog_runner, "validate_environment_preparation", lambda *args: None)
+    monkeypatch.setattr(
+        catalog_runner, "load_corrections", lambda: SimpleNamespace(source_sha256="corrections")
+    )
+    monkeypatch.setattr(catalog_runner, "remote_benchmark", lambda sites: object())
+    monkeypatch.setattr(
+        "harness.trajectory_replay.report_inputs.replay_input_path",
+        lambda path, current: path,
+    )
+    for name in ("catalog.json", "suite.json", "sites.json", "receipt.json", "browser"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    (tmp_path / "environment.json").write_text(
+        json.dumps(
+            {
+                "host_overrides_env": {
+                    "pattern": "WEBARENA_HOST_OVERRIDE_PATTERN",
+                    "address": "WEBARENA_HOST_OVERRIDE_ADDRESS",
+                }
+            }
+        ),
+        encoding="utf-8"
+    )
+    env_file = tmp_path / "local.env"
+    env_file.write_text(
+        "WEBARENA_HOST_OVERRIDE_PATTERN=*.dev.example.test\n"
+        f"WEBARENA_HOST_OVERRIDE_ADDRESS={address}\n",
+        encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run",
+            "--catalog",
+            str(tmp_path / "catalog.json"),
+            "--portable-suite",
+            str(tmp_path / "suite.json"),
+            "--site-map",
+            str(tmp_path / "sites.json"),
+            "--site-reset-receipt",
+            str(tmp_path / "receipt.json"),
+            "--environment-profile",
+            str(tmp_path / "environment.json"),
+            "--binary",
+            str(tmp_path / "browser"),
+            "--engine",
+            engine,
+            "--backend",
+            "playwright",
+            "--credential-env-file",
+            str(env_file),
+            "--output",
+            str(tmp_path / output),
+        ],
+    )
+    catalog_runner.main()
+    return json.loads((tmp_path / output / "inputs.json").read_text(encoding="utf-8"))
+
+
+def test_run_inputs_bind_resolved_routing_and_stop_when_it_changes(monkeypatch, tmp_path) -> None:
+    first = _catalog_run_inputs(monkeypatch, tmp_path, "run", "chromium", "192.0.2.142")
+    overrides = [{"pattern": "*.dev.example.test", "address": "192.0.2.142"}]
+    assert first["environment_host_overrides_sha256"] == hashlib.sha256(
+        json.dumps(overrides, sort_keys=True).encode()
+    ).hexdigest()
+    assert "192.0.2.142" not in json.dumps(first)
+
+    assert _catalog_run_inputs(monkeypatch, tmp_path, "run", "chromium", "192.0.2.142") == first
+    with pytest.raises(ValueError, match="resumed run inputs changed"):
+        _catalog_run_inputs(monkeypatch, tmp_path, "run", "chromium", "192.0.2.143")
+
+
+def test_run_inputs_have_no_routing_binding_for_an_engine_without_overrides(
+    monkeypatch, tmp_path
+) -> None:
+    inputs = _catalog_run_inputs(monkeypatch, tmp_path, "run", "moli", "192.0.2.142")
+    assert "environment_host_overrides_sha256" not in inputs
+
+
+def test_run_entry_stops_before_a_browser_starts_without_site_accounts(
+    monkeypatch, tmp_path
+) -> None:
+    from webarena_verified.types.task import WebArenaSite
+
+    from harness import env_file
+
+    monkeypatch.setattr(env_file, "_repository_credentials_file", tmp_path / "absent.env")
+    sites = {WebArenaSite.SHOPPING: "https://shopping.remote.test"}
+    monkeypatch.setattr(
+        catalog_runner,
+        "load_catalog_inputs",
+        lambda *args, **kwargs: ({"task_ids": [9], "rows": []}, sites, {}),
+    )
+    monkeypatch.setattr(catalog_runner, "verify_webarena_runtime_source", lambda: SimpleNamespace())
+    monkeypatch.setattr(catalog_runner, "validate_environment_preparation", lambda *args: None)
+    monkeypatch.setattr(
+        "harness.trajectory_replay.report_inputs.replay_input_path",
+        lambda path, current: path,
+    )
+    (tmp_path / "environment.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "browser").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        catalog_runner.subprocess,
+        "Popen",
+        lambda *args, **kwargs: pytest.fail("a browser started"),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run",
+            "--catalog",
+            str(tmp_path / "catalog.json"),
+            "--portable-suite",
+            str(tmp_path / "suite.json"),
+            "--site-map",
+            str(tmp_path / "sites.json"),
+            "--site-reset-receipt",
+            str(tmp_path / "receipt.json"),
+            "--environment-profile",
+            str(tmp_path / "environment.json"),
+            "--binary",
+            str(tmp_path / "browser"),
+            "--backend",
+            "playwright",
+            "--output",
+            str(tmp_path / "run"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="WEBARENA_SHOPPING_PASSWORD"):
+        catalog_runner.main()
+    assert not (tmp_path / "run").exists()
+
+
+def test_kitesurf_probe_runs_after_account_and_environment_checks(monkeypatch, tmp_path) -> None:
+    from harness import env_file
+
+    monkeypatch.setattr(env_file, "_repository_credentials_file", tmp_path / "absent.env")
+    monkeypatch.setattr(catalog_runner, "verify_webarena_runtime_source", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        catalog_runner,
+        "_probe_kitesurf_runtime",
+        lambda *args: pytest.fail("the hosted browser was opened"),
+    )
+    local = tmp_path / "local.env"
+    local.write_text(
+        "CLOUDFLARE_ACCOUNT_ID=synthetic-account\nCLOUDFLARE_API_TOKEN=synthetic-token\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sites.json").write_text(
+        json.dumps(
+            {
+                "schema": "lex_webarena_remote_sites/1",
+                "sites": {
+                    "gitlab": "https://gitlab.remote.test",
+                    "map": "https://map.remote.test",
+                    "reddit": "https://reddit.remote.test",
+                    "shopping": "https://shopping.remote.test",
+                    "shopping_admin": "https://admin.remote.test/admin",
+                    "wikipedia": "https://wikipedia.remote.test",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "run",
+            "--catalog",
+            str(tmp_path / "catalog.json"),
+            "--portable-suite",
+            str(tmp_path / "suite.json"),
+            "--site-map",
+            str(tmp_path / "sites.json"),
+            "--site-reset-receipt",
+            str(tmp_path / "receipt.json"),
+            "--environment-profile",
+            str(tmp_path / "environment.json"),
+            "--engine",
+            "kitesurf",
+            "--backend",
+            "playwright",
+            "--credential-env-file",
+            str(local),
+            "--output",
+            str(tmp_path / "run"),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="WEBARENA_[A-Z_]+_PASSWORD"):
+        catalog_runner.main()

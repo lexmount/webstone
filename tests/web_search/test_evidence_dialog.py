@@ -13,9 +13,9 @@ playwright = pytest.importorskip("playwright.sync_api")
 @pytest.fixture(scope="module")
 def browser():
     try:
-        binary = os.environ.get("BROWSER_EVAL_TEST_BROWSER_BINARY") or browser_executable()
+        binary = os.environ.get("WEBSTONE_TEST_BROWSER_BINARY") or browser_executable()
     except ValueError:
-        pytest.skip("Install Chromium or set BROWSER_EVAL_TEST_BROWSER_BINARY")
+        pytest.skip("Install Chromium or set WEBSTONE_TEST_BROWSER_BINARY")
     with playwright.sync_playwright() as engine:
         instance = engine.chromium.launch(executable_path=binary, headless=True)
         yield instance
@@ -111,7 +111,7 @@ def test_exported_detail_and_raw_evidence_stay_on_selected_route(tmp_path, brows
     source = tmp_path / 'report'
     build(source, source=tmp_path / 'fixture', language=primary, include_english=True)
     export(source, tmp_path / 'delivery')
-    manifest = json.loads((source / 'manifest.json').read_text())
+    manifest = json.loads((source / 'manifest.json').read_text(encoding="utf-8"))
     with local_report_server(tmp_path / 'delivery') as origin:
         page = browser.new_page()
         try:
@@ -124,12 +124,12 @@ def test_exported_detail_and_raw_evidence_stay_on_selected_route(tmp_path, brows
                     assert page.locator('html').get_attribute('lang') == lang
                     page.locator('[data-evidence]:not([data-result])').first.click()
                     page.wait_for_function("document.querySelector('dialog pre').textContent !== '…'")
-                    assert json.loads(page.locator('dialog pre').inner_text()) == json.loads((source / row['evidence']['path']).read_text())
+                    assert json.loads(page.locator('dialog pre').inner_text()) == json.loads((source / row['evidence']['path']).read_text(encoding="utf-8"))
                     page.keyboard.press('Escape')
                     assert not page.locator('dialog').is_visible()
                     page.goto(origin + '/evidence.html#' + quote(row['evidence']['path'], safe=''))
                     page.locator('[data-evidence-download]').wait_for()
                     assert urlsplit(page.url).path == '/evidence.html'
-                    assert json.loads(page.locator('[data-delivery-target]').inner_text()) == json.loads((source / row['evidence']['path']).read_text())
+                    assert json.loads(page.locator('[data-delivery-target]').inner_text()) == json.loads((source / row['evidence']['path']).read_text(encoding="utf-8"))
         finally:
             page.close()

@@ -4,19 +4,40 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from harness.trajectory_replay.public_webarena.report import (
     METRICS,
-    _annotate_source_marks,
     _correctness_table,
     _failure_review,
     _method_page,
     _metric_tables,
+    _research_page,
     _results_page,
     _suite_page,
     _summary_page,
     _task_detail_body,
     write_latest_report,
 )
+from harness.trajectory_replay.public_webarena.result_audit import ResultAuditError
+
+PASSING_AUDIT = {
+    "schema": "lex_browser_use_result_audit/1",
+    "status": "pass",
+    "logical_results_reviewed": 0,
+    "final_passes": {},
+    "final_failures": {},
+    "checks": [],
+}
+
+
+@pytest.fixture
+def audited(monkeypatch):
+    """Render partial page fixtures as if the full result audit had passed."""
+    monkeypatch.setattr(
+        "harness.trajectory_replay.public_webarena.report.audit_result_set",
+        lambda _manifest, _summary: PASSING_AUDIT,
+    )
 
 
 def test_failure_review_separates_process_interruptions_from_final_evaluator_failures():
@@ -88,16 +109,6 @@ def test_comparisons_are_neutral_for_displayed_ties_and_missing_values():
         for engine in ("chromium", "moli")
     }
     assert 'class="better"' not in _correctness_table({"functional": tied})
-
-
-def test_source_permalink_character_is_annotated_not_removed():
-    from html import unescape
-
-    original = "The Python Tutorial¶"
-    rendered = _annotate_source_marks(original)
-    assert unescape(re.sub(r"<[^>]+>", "", rendered)) == original
-    assert 'title="原网页标题锚点字符 U+00B6"' in rendered
-    assert _annotate_source_marks("plain title") == "plain title"
 
 
 def test_each_provider_links_to_its_failure_filter_including_zero_failures():
@@ -172,7 +183,7 @@ def test_resource_tables_compare_all_engines_in_one_table():
     assert 'class="worse"' not in ratio_cpu_row
 
 
-def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path):
+def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path, audited):
     reports = tmp_path / "reports"
     reports.mkdir()
     (reports / "browser-use-evaluation-20260101.md").write_text("old", encoding="utf-8")
@@ -357,7 +368,9 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     assert 'data-search="任务01 任务 01 example' in suite
     for html_path in reports.glob("*.html"):
         assert "人工复核" not in html_path.read_text(encoding="utf-8")
-    audit = json.loads((reports / "webarena-trajectory-replay-latest-data.json").read_text())
+    audit = json.loads(
+        (reports / "webarena-trajectory-replay-latest-data.json").read_text(encoding="utf-8")
+    )
     assert "human_review" not in audit["ground_truth_validation"]
     assert "final_passes" not in audit["result_audit"]
     assert "final_failures" not in audit["result_audit"]
@@ -506,7 +519,7 @@ def test_summary_decisions_follow_reversed_results_and_resource_ratios():
             },
         },
     }
-    rendered = _summary_page(manifest, summary)
+    rendered = _summary_page(manifest, summary, PASSING_AUDIT)
     assert "Moli 通过数最多" in rendered
     assert "速度、CPU、内存和网络另列，不合成总分" in rendered
     assert "参评浏览器 / Moli" in rendered
@@ -514,7 +527,7 @@ def test_summary_decisions_follow_reversed_results_and_resource_ratios():
     assert "Chromium 的可用范围更广" not in rendered
 
 
-def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
+def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path, audited):
     reports = tmp_path / "reports"
     write_latest_report(
         reports,
@@ -620,7 +633,7 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert len(detail_files) == 1
     assert f'href="{detail_files[0].name}"' in results
     assert "webarena-trajectory-replay-latest-task-7461736b-6368726f6d69756d.html" not in results
-    detail = detail_files[0].read_text()
+    detail = detail_files[0].read_text(encoding="utf-8")
     assert "<details" not in detail
     assert 'href="#' not in detail
     assert f'href="{detail_files[0].name}#case-steps"' in detail
@@ -820,6 +833,20 @@ def test_detail_renders_webarena_evaluators_as_readable_rules():
     assert "逐条断言" in body
 
 
+@pytest.mark.parametrize(
+    ("engines", "compared"),
+    [
+        (("chromium", "moli"), "Chromium 和 Moli"),
+        (("chromium", "obscura", "lightpanda"), "Chromium、Obscura 和 Lightpanda"),
+        (("obscura",), "Obscura"),
+    ],
+)
+def test_research_page_names_the_participants_it_compares(engines, compared):
+    page = _research_page({}, {"functional": {engine: {} for engine in engines}})
+
+    assert f"不能真正比较 {compared}。</li>" in page
+
+
 def test_webarena_report_uses_self_hosted_trajectory_scope_language():
     manifest = {
         "run_id": "run",
@@ -860,7 +887,7 @@ def test_webarena_report_uses_self_hosted_trajectory_scope_language():
         },
     }
 
-    homepage = _summary_page(manifest, summary)
+    homepage = _summary_page(manifest, summary, PASSING_AUDIT)
     suite = _suite_page(manifest)
     method = _method_page(manifest, summary)
 
@@ -917,7 +944,7 @@ def test_method_page_derives_environment_and_prepare_counts_from_attempts():
     assert "其中 1 次在轨迹开始前的环境准备阶段失败" in method
 
 
-def test_all_published_suite_tasks_link_to_public_web_targets(tmp_path):
+def test_all_published_suite_tasks_link_to_public_web_targets(tmp_path, audited):
     suite_file = (
         Path(__file__).resolve().parents[3]
         / "examples/trajectory_replay/public_webarena/tasks.v4.json"
@@ -948,3 +975,17 @@ def test_all_published_suite_tasks_link_to_public_web_targets(tmp_path):
     for link in links:
         assert "localhost" not in link
         assert "127.0.0.1" not in link
+
+
+def test_report_fails_closed_when_result_audit_rejects_results(tmp_path):
+    reports = tmp_path / "reports"
+    manifest = {
+        "run_id": "inconsistent",
+        "protocol": {"engines": ["chromium"]},
+        "suite": [{"task_id": "task"}],
+    }
+
+    with pytest.raises(ResultAuditError, match="summary task scope mismatch"):
+        write_latest_report(reports, manifest=manifest, summary={"by_task": {}})
+
+    assert not reports.exists() or not list(reports.glob("*.html"))

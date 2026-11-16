@@ -1,4 +1,5 @@
 import json
+import pytest
 import tempfile
 import unittest
 import zipfile
@@ -6,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.error import HTTPError, URLError
 
-from harness.web_fetch.publication import put_file, updated_receipt, upload_large_archive
+from harness.reporting.publish import put_file, updated_receipt, upload_large_archive
 
 
 class ArtifactPublisherTests(unittest.TestCase):
@@ -21,14 +22,14 @@ class ArtifactPublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'versionId'):
             updated_receipt(receipt, {'slug': 'current'})
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_rate_limit_retries_identical_put(self, sleep):
         request = Mock(side_effect=[HTTPError('https://hub/file', 429, 'limited', {'Retry-After':'2'}, None), (200,b'ok')])
         self.assertEqual(put_file(request, '/file', b'bytes'), (200,b'ok'))
         self.assertEqual(request.call_args_list[0], request.call_args_list[1])
         sleep.assert_called_once_with(2)
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_rate_limit_retry_is_bounded(self, sleep):
         request = Mock(side_effect=HTTPError('https://hub/file', 429, 'limited', {}, None))
         with self.assertRaises(HTTPError):
@@ -36,7 +37,7 @@ class ArtifactPublisherTests(unittest.TestCase):
         self.assertEqual(request.call_count, 4)
         self.assertEqual(sleep.call_count, 3)
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_long_wait_and_non_retryable_errors_are_not_retried(self, sleep):
         for code, header in [(429,'300'), (429,'NaN'), (403,'1')]:
             request = Mock(side_effect=HTTPError('https://hub/file', code, 'error', {'Retry-After':header}, None))
@@ -45,14 +46,14 @@ class ArtifactPublisherTests(unittest.TestCase):
             self.assertEqual(request.call_count, 1)
         sleep.assert_not_called()
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_transient_server_error_retries_once(self, sleep):
         request=Mock(side_effect=[HTTPError('https://hub/file',500,'error',{},None),(200,b'ok')])
         self.assertEqual(put_file(request,'/file',b'bytes'),(200,b'ok'))
         self.assertEqual(request.call_args_list[0],request.call_args_list[1])
         sleep.assert_called_once_with(1.0)
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_timeout_retries_identical_put_with_bounded_backoff(self, sleep):
         request=Mock(side_effect=[TimeoutError('lost response'),URLError('network'),(200,b'ok')])
         self.assertEqual(put_file(request,'/file',b'bytes'),(200,b'ok'))
@@ -60,7 +61,7 @@ class ArtifactPublisherTests(unittest.TestCase):
         self.assertEqual(request.call_args_list[1],request.call_args_list[2])
         self.assertEqual([call.args[0] for call in sleep.call_args_list],[1,2])
 
-    @patch('harness.web_fetch.publication.time.sleep')
+    @patch('harness.reporting.publish.time.sleep')
     def test_closed_connection_retries_same_staged_file_without_restarting_upload(self, sleep):
         from http.client import RemoteDisconnected
         request = Mock(side_effect=[RemoteDisconnected('closed before response'), (200, b'ok')])
@@ -139,3 +140,60 @@ class ArtifactPublisherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unsafe bundle path'):
             upload_large_archive(self.request, self.archive, 'current', 'ver_old')
         self.assertEqual(len(self.calls), 1)
+
+
+class UploadResumeTests(unittest.TestCase):
+    @patch('harness.reporting.publish.time.sleep')
+    def test_verified_stage_is_reused_and_rate_limited_commit_is_retried(self, sleep):
+        import hashlib
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / 'report.zip'
+            contents = {'index.html': b'home', 'evidence.json': b'{"complete":true}'}
+            with zipfile.ZipFile(archive, 'w') as bundle:
+                for name, body in contents.items(): bundle.writestr(name, body)
+            calls = []
+            commits = 0
+            def request(path, data=None, content_type=None, **kwargs):
+                nonlocal commits
+                calls.append((path, data, content_type, kwargs))
+                if path == '/api/sites/current': result = {'version': {'id': 'ver_old'}}
+                elif path.startswith('/api/uploads?'): result = {'versionId': 'ver_stage'}
+                elif path == '/api/uploads/ver_stage':
+                    result = {'files': [{'relpath': name, 'bytes': len(body),
+                              'sha256': hashlib.sha256(body).hexdigest()}
+                              for name, body in contents.items()]}
+                elif '/commit?' in path:
+                    commits += 1
+                    if commits == 1:
+                        raise HTTPError('https://reports.example'+path, 429, 'limited',
+                                        {'Retry-After': '2'}, None)
+                    result = {'slug': 'current', 'versionId': 'ver_new'}
+                else: self.fail('Unexpected reupload: '+path)
+                return 200, json.dumps(result).encode()
+            result = upload_large_archive(request, archive, 'current', 'ver_old', resume=True)
+            self.assertEqual(json.loads(result)['versionId'], 'ver_new')
+            self.assertFalse(any(c[3].get('method') == 'PUT' for c in calls))
+            retries = [c for c in calls if '/commit?' in c[0]]
+            self.assertEqual(retries[0], retries[1])
+            sleep.assert_called_once_with(2)
+
+
+@patch('harness.reporting.publish.time.sleep')
+def test_remote_advance_during_rate_limit_wait_prevents_second_commit(sleep, tmp_path):
+    archive = tmp_path / 'site.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('index.html', 'checked')
+    versions = iter(['ver_old', 'ver_old', 'ver_advanced'])
+    commits = []
+
+    def request(path, data=None, content_type=None, **kwargs):
+        if path == '/api/sites/current':
+            return 200, json.dumps({'version': {'id': next(versions)}}).encode()
+        if '/commit?' in path:
+            commits.append(path)
+            raise HTTPError('https://reports.example' + path, 429, 'limited', {'Retry-After': '2'}, None)
+        return 200, b'{"versionId":"ver_stage"}'
+
+    with pytest.raises(RuntimeError, match='Remote version changed'):
+        upload_large_archive(request, archive, 'current', 'ver_old')
+    assert len(commits) == 1

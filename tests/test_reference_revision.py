@@ -61,16 +61,17 @@ def reference_fixture(tmp_path):
             source = root / "sources" / identifier
             source.mkdir(parents=True)
             (source / "source.html.txt").write_bytes(content)
-    (evidence / "dataset.json").write_text(json.dumps({"cases": cases}))
+    (evidence / "dataset.json").write_text(json.dumps({"cases": cases}), encoding="utf-8")
     revised = deepcopy(cases)
     for case in revised:
         case["ground_truth_main_content"] = "corrected independent answer reference"
-    (canonical / "dataset.json").write_text(json.dumps({"cases": revised}))
-    (canonical / "sources" / "unrelated.txt").write_text("not selected")
-    (evidence / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records))
-    (evidence / "summary.json").write_text("{}")
+    (canonical / "dataset.json").write_text(json.dumps({"cases": revised}), encoding="utf-8")
+    (canonical / "sources" / "unrelated.txt").write_text("not selected", encoding="utf-8")
+    (evidence / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    (evidence / "summary.json").write_text("{}", encoding="utf-8")
     (evidence / "manifest.json").write_text(
-        json.dumps({"attempt_ids": [r["attempt_id"] for r in records]})
+        json.dumps({"attempt_ids": [r["attempt_id"] for r in records]}),
+        encoding="utf-8"
     )
     return evidence, canonical / "dataset.json"
 
@@ -199,7 +200,7 @@ def test_changed_reference_copy_is_rejected_before_promotion(tmp_path):
     def corrupt_copy(src, dst, *args, **kwargs):
         result = copytree(src, dst, *args, **kwargs)
         if Path(src) == canonical.parent / "sources/one":
-            (Path(dst) / "source.html.txt").write_text("changed during copy")
+            (Path(dst) / "source.html.txt").write_text("changed during copy", encoding="utf-8")
         return result
 
     with (
@@ -227,7 +228,7 @@ def test_attribution_only_field_scope_keeps_sources_and_results_unchanged(tmp_pa
     evidence, canonical = reference_fixture(tmp_path)
     document = json.loads(canonical.read_bytes())
     document["cases"][0]["ground_truth_evidence"] = {"kind": "independent_annotation"}
-    canonical.write_text(json.dumps(document))
+    canonical.write_text(json.dumps(document), encoding="utf-8")
     before = snapshot(evidence)
     receipt = revise(
         evidence, canonical, case_ids={"one"}, fields={"ground_truth_evidence"}, **AUTHORITY
@@ -249,3 +250,28 @@ def test_empty_correction_does_not_create_an_unbound_history_receipt(tmp_path):
         revise(evidence, canonical, **AUTHORITY)
     assert snapshot(evidence) == before
     assert not list(tmp_path.glob(".evidence-reference-history-*"))
+
+
+def test_reference_revision_follows_scorer_revision_of_retired_forbidden_text_fields(tmp_path):
+    from harness.web_fetch.scoring_revision import revise as revise_scoring
+    evidence, canonical = reference_fixture(tmp_path)
+    rows = [json.loads(line) for line in (evidence / "results.jsonl").read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        row["metrics"].pop("forbidden_requirement_hits", None)
+        row["metrics"].update(forbidden_hits=[], blocked_page=False)
+    (evidence / "results.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    original = snapshot(evidence)
+    # A selected correction cannot leave other attempts on retired metrics.
+    with pytest.raises(ValueError, match="Historical scoring metrics"):
+        revise(evidence, canonical, case_ids={"one"}, **AUTHORITY)
+    assert snapshot(evidence) == original
+
+    scorer = revise_scoring(evidence, evidence / "dataset.json", **{
+        **AUTHORITY, "root_cause_category": "answer-surface",
+        "root_cause": "Saved outputs carry forbidden-text fields from a retired scorer.",
+        "regression_ids": ["body-only-word-boundary-answer-title-supplies-required-fact"]})
+    receipt = revise(evidence, canonical, case_ids={"one"}, **AUTHORITY)
+
+    assert scorer["task_decision_changes"] == receipt["task_decision_changes"] == []
+    scored = [json.loads(line) for line in (evidence / "results.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert all("forbidden_hits" not in row["metrics"] for row in scored)

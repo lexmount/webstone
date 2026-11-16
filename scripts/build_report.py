@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from harness.report_languages import (
     SUPPORTED_REPORT_LANGUAGES,
@@ -30,6 +30,9 @@ from harness.web_fetch.storage import (
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--evidence',type=Path)
+    parser.add_argument('--check-saved-matrix', type=Path, help='Verify a saved multi-suite report and its retained evidence')
+    parser.add_argument('--source-spec', type=Path, help='Verify original sources with --check-saved-matrix; resolve paths beside this specification')
+    parser.add_argument('--saved-matrix', type=Path, help='Hash-bound saved multi-suite results; no provider calls or rescoring')
     parser.add_argument('--authority-root', type=Path, help='External authority bundle for historical full-cohort reports')
     parser.add_argument('--profile',type=Path,
                         help='external report profile; requires an explicit output unless the profile declares report_output')
@@ -54,6 +57,22 @@ if __name__ == '__main__':
     parser.add_argument('--wcxb',action='store_true',help='Build the independently bound WCXB report')
     parser.add_argument('--webmainbench-full',action='store_true',help='Build the separately certified complete 545-case report')
     args=parser.parse_args()
+    if args.check_saved_matrix:
+        if any((args.saved_matrix, args.evidence, args.profile, args.output, args.local_audit, args.diagnostic_cohorts, args.wcxb, args.webmainbench_full, args.public_benchmark_research, args.refresh_review, args.refresh_presentation, args.presentation_binding, args.authority_root, args.include_english, args.language, args.wcxb_source, args.wcxb_sample)):
+            parser.error('--check-saved-matrix cannot be combined with build options')
+        from harness.web_fetch.report_saved_matrix import check_saved_matrix
+        print(json.dumps(check_saved_matrix(args.check_saved_matrix, spec_path=args.source_spec), ensure_ascii=False))
+        raise SystemExit(0)
+    if args.source_spec:
+        parser.error('--source-spec requires --check-saved-matrix')
+    if args.saved_matrix:
+        if not args.output or any((args.evidence, args.profile, args.authority_root, args.local_audit, args.diagnostic_cohorts, args.wcxb, args.wcxb_source, args.wcxb_sample, args.webmainbench_full, args.public_benchmark_research, args.include_english, args.refresh_review, args.refresh_presentation, args.presentation_binding)):
+            parser.error('--saved-matrix requires a new --output and cannot be combined with other build modes')
+        if args.language not in (None, 'zh'):
+            parser.error('--saved-matrix currently supports Chinese output only')
+        from harness.web_fetch.report_saved_matrix import build_saved_matrix
+        print(build_saved_matrix(args.saved_matrix, args.output))
+        raise SystemExit(0)
     if args.presentation_binding and not args.local_audit:
         parser.error('--presentation-binding requires --local-audit')
     from harness.reporting.templates import resolve_template
@@ -76,14 +95,14 @@ if __name__ == '__main__':
         parser.error('--local-audit cannot be combined with a release profile, WCXB, WebMainBench, or public benchmark research')
     if args.profile:
         args.profile=(ROOT/args.profile).resolve() if not args.profile.is_absolute() else args.profile.resolve()
-        if json.loads(args.profile.read_text()).get('variant') == 'published-snapshot-audit':
+        if json.loads(args.profile.read_text(encoding='utf-8')).get('variant') == 'published-snapshot-audit':
             if not args.evidence or not args.output or args.local_audit or args.wcxb or args.include_english:
                 parser.error('snapshot audit requires a separate --evidence, --output and bound --profile')
             requested_language(args.output, supported=('zh',))
             from harness.web_fetch.published_snapshot import build_snapshot_audit
             print(build_snapshot_audit(args.evidence, args.output, profile=args.profile))
             raise SystemExit(0)
-        if json.loads(args.profile.read_text()).get('variant') == 'diagnostic-cohorts':
+        if json.loads(args.profile.read_text(encoding='utf-8')).get('variant') == 'diagnostic-cohorts':
             args.diagnostic_cohorts=True
     if args.diagnostic_cohorts:
         if not args.output or (not args.evidence and not args.profile):
@@ -127,16 +146,16 @@ if __name__ == '__main__':
         profile_path=args.profile
     else:
         parser.error('Select an external report instance with --profile')
-    profile=json.loads(profile_path.read_text())
+    profile=json.loads(profile_path.read_text(encoding='utf-8'))
     if args.wcxb and profile.get('comparison_kind')!='wcxb_frozen_html_to_markdown':
         parser.error('The WCXB profile does not describe the WCXB matrix')
     if profile.get('comparison_kind')=='wcxb_frozen_html_to_markdown':
         if not args.evidence:
             parser.error('--evidence is required for the certified WCXB cohort')
-        corpus=args.wcxb_source or Path.home()/'.browser-eval/public-benchmarks/wcxb'
-        sample=args.wcxb_sample or ROOT/profile['sample_manifest']
+        from harness.web_fetch.webmainbench_runner import selected_wcxb_input
+        corpus, sample = selected_wcxb_input(args.wcxb_source, args.wcxb_sample, profile=profile_path)
         print(build_wcxb_report(args.evidence,corpus,sample,profile,args.output or ROOT/'reports/wcxb',
-                                content_binding=json.loads(profile_path.with_name('report-content-binding.json').read_text()),
+                                content_binding=json.loads(profile_path.with_name('report-content-binding.json').read_text(encoding='utf-8')),
                                 authority_root=ROOT, include_english=args.include_english,
                                 language=requested_language(args.output or ROOT/'reports/wcxb')))
         raise SystemExit(0)

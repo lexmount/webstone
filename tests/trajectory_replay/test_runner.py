@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -17,9 +19,11 @@ from harness.environments.browser import (
     external_websocket_url,
     published_endpoint,
 )
-from harness.trajectory_replay import diagnostics, runner
-from harness.trajectory_replay.runner import _http_origin, _prepare_page
-from harness.trajectory_replay.suite import BrowserTask, TaskSuite
+from harness.trajectory_replay import runner
+from harness.trajectory_replay.core import diagnostics, docker_runner
+from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
+from harness.trajectory_replay.runner import _prepare_page
+from harness.web_fetch import config as web_fetch_config
 
 
 def test_browser_engines_publish_their_external_cdp_ports():
@@ -33,7 +37,7 @@ def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):
     sampler = MagicMock()
     monkeypatch.setattr(runner, "ResourceSampler", lambda *args, **kwargs: sampler)
     monkeypatch.setattr(runner, "execute_steps", lambda *args, **kwargs: None)
-    monkeypatch.setattr(runner, "_resource_result", lambda *args: {})
+    monkeypatch.setattr(runner, "resource_result", lambda *args: {})
 
     result = runner._run_task("chromium", page, set(), resources, task, 1, 100)
 
@@ -41,14 +45,41 @@ def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):
     assert result["process_validation"]["all_calls_passed"] is False
 
 
+@pytest.mark.parametrize("generate_report", [False, True])
 @pytest.mark.parametrize("unexpected_diagnostic_error", [False, True])
+@pytest.mark.parametrize("with_smoke", [False, True])
 def test_run_saves_evidence_before_diagnostics_and_cleans_up(
-    tmp_path, monkeypatch, unexpected_diagnostic_error
+    tmp_path, monkeypatch, unexpected_diagnostic_error, generate_report, with_smoke
 ):
     suite_path = tmp_path / "suite.json"
-    suite_path.write_text("{}")
+    suite_path.write_text("{}", encoding="utf-8")
+    import shutil
+
+    from harness.trajectory_replay.report_inputs import replay_fixture_root
+    shutil.copytree(replay_fixture_root(), suite_path.parent / "fixtures")
+    (suite_path.parent / "fixtures/core.html").write_text(
+        "Original historical core", encoding="utf-8"
+    )
+    (suite_path.parent / "fixtures/nested").mkdir()
+    (suite_path.parent / "fixtures/nested/custom.js").write_text(
+        "window.historical = true;", encoding="utf-8"
+    )
+    smoke_path = tmp_path / "selected-smoke.json"
+    smoke_raw = b'{"results":[{"status":"fail"}],"executed_at":"2026-09-01"}'
+    smoke_path.write_bytes(smoke_raw)
+    # A neighboring success must not be selected instead of the explicit evidence.
+    (suite_path.parent / "agent_smoke.json").write_text(
+        '{"results":[{"status":"pass"}]}', encoding="utf-8"
+    )
     output = tmp_path / "artifacts"
-    task = BrowserTask("task", "Task", (), (), (), "simple", {}, {})
+    task = BrowserTask(
+        "task", "Task", ({"action": "navigate", "url": "{fixture_origin}/core.html"},),
+        (), (), "simple", {}, {},
+    )
+    monkeypatch.setattr(runner, "start_fixture_server", lambda root: (
+        MagicMock(), MagicMock(), "http://fixture.test",
+    ))
+    task.ground_truth["expected_outputs"] = {}
     monkeypatch.setattr(runner, "load_suite", lambda _: TaskSuite("test", (task,)))
     client = MagicMock()
     playwright = MagicMock()
@@ -56,13 +87,13 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     monkeypatch.setattr(
         runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
     )
-    monkeypatch.setattr(runner, "start_browser_container", lambda *a, **k: MagicMock())
-    monkeypatch.setattr(runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
-    monkeypatch.setattr(runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
-    monkeypatch.setattr(runner, "DockerStatsResources", lambda _: None)
+    monkeypatch.setattr(docker_runner, "start_browser_container", lambda *a, **k: MagicMock())
+    monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
+    monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
+    monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: None)
     monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
     monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
-    monkeypatch.setattr(runner, "_environment", lambda *a: {})
+    monkeypatch.setattr(runner, "docker_environment", lambda *a: {})
     monkeypatch.setattr(
         runner,
         "_run_task",
@@ -80,16 +111,37 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         "by_task": {"task": {"failures": {"moli": [{"error": "TimeoutError"}]}}},
     }
     monkeypatch.setattr(runner, "summarize_attempts", lambda *a, **k: dict(baseline))
-    report = MagicMock()
+    report_path = tmp_path / "report.html"
+    report = MagicMock(
+        side_effect=lambda *a, **k: report_path.write_text(
+            "<html>Saved results</html>", encoding="utf-8"
+        )
+    )
     monkeypatch.setattr(runner, "write_latest_report", report)
-    monkeypatch.setenv("OPENAI_API_KEY", "test")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://test.invalid")
+    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://test.invalid\n",
+        encoding="utf-8"
+    )
 
     def verify_artifacts():
         attempts = (output / "attempts.jsonl").read_bytes()
         summary_bytes = (output / "summary.json").read_bytes()
-        manifest = json.loads((output / "manifest.json").read_text())
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        if with_smoke:
+            assert manifest["agent_smoke"]["results"] == [{"status": "fail"}]
+            assert manifest["agent_smoke"]["provenance"]["source_sha256"] == (
+                hashlib.sha256(smoke_raw).hexdigest()
+            )
+        else:
+            assert "agent_smoke" not in manifest
+        fixture_root = suite_path.parent / "fixtures"
+        assert len(manifest["fixture_files"]) == 9
+        assert "nested/custom.js" in manifest["fixture_files"]
+        for name, digest in manifest["fixture_files"].items():
+            assert digest == hashlib.sha256((fixture_root / name).read_bytes()).hexdigest()
         assert len(attempts.splitlines()) == 2
+        assert manifest["protocol"]["engines"] == ["chromium", "moli"]
         assert (
             manifest["artifact_provenance"]["attempts_sha256"]
             == hashlib.sha256(attempts).hexdigest()
@@ -111,8 +163,10 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
                 suite_path=suite_path,
                 output_dir=output,
                 reports_dir=tmp_path,
+                agent_smoke_path=smoke_path if with_smoke else None,
                 max_retries=0,
                 llm_diagnostics=True,
+                generate_report=generate_report,
             )
         assert verify_artifacts() == baseline
     else:
@@ -121,14 +175,45 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
             suite_path=suite_path,
             output_dir=output,
             reports_dir=tmp_path,
+                agent_smoke_path=smoke_path if with_smoke else None,
             max_retries=0,
             llm_diagnostics=True,
+            generate_report=generate_report,
         )
         assert verify_artifacts() == result
         assert result["score"] == baseline["score"]
         assert result["failure_diagnostics"]["llm"]["error_type"] == "URLError"
         assert len(result["failure_diagnostics"]["rule_engine"]["groups"]) == 1
-        report.assert_called_once()
+        if generate_report:
+            report.assert_called_once()
+            assert report_path.is_file()
+        else:
+            report.assert_not_called()
+            assert not report_path.exists()
+            # Rebuild from the persisted attempts through the public command;
+            # browser/provider mocks are not called again.
+            import importlib.util
+            root = Path(__file__).resolve().parents[2]
+            script = root / 'examples/trajectory_replay/rebuild_report.py'
+            spec = importlib.util.spec_from_file_location('explicit_replay_report', script)
+            rebuild = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(rebuild)
+            monkeypatch.setattr(rebuild, 'load_suite', lambda _: TaskSuite('test', (task,)))
+            monkeypatch.setattr(rebuild, 'summarize_attempts', lambda *a, **k: result)
+            monkeypatch.setattr(rebuild, 'diagnose_summary', lambda *a, **k: None)
+            monkeypatch.setattr(rebuild, 'write_latest_report', report)
+            evidence = tmp_path / 'qualification.json'
+            evidence.write_text(json.dumps({
+                'dataset_sha256': hashlib.sha256(suite_path.read_bytes()).hexdigest(),
+                'results': [{'task_id': 'task', 'status': 'pass', 'observed': {}}],
+                'automatic_browser_replay': {'status': 'pass', 'passed': 1},
+            }), encoding="utf-8")
+            monkeypatch.setattr(sys, 'argv', ['rebuild_report', '--artifacts', str(output),
+                '--suite', str(suite_path), '--reports', str(tmp_path),
+                '--ground-truth-evidence', str(evidence)])
+            rebuild.main()
+            report.assert_called_once()
+            assert report_path.is_file()
     playwright.stop.assert_called_once()
     client.networks.create.return_value.remove.assert_called()
 
@@ -149,11 +234,6 @@ def test_external_websocket_url_rewrites_container_advertised_host():
         )
         == "ws://127.0.0.1:32776/devtools/browser/moli-browser"
     )
-
-
-def test_http_origin_keeps_only_scheme_and_authority():
-    assert _http_origin("https://example.com:8443/a?q=1") == "https://example.com:8443"
-    assert _http_origin("about:blank") is None
 
 
 def test_published_endpoint_handles_missing_port_binding():
@@ -288,3 +368,27 @@ def test_replay_accepts_system_alias_but_rejects_user_links(tmp_path, monkeypatc
         with pytest.raises(ValueError, match='symlink'):
             runner.run_evaluation(suite_path=dataset, output_dir=link / 'new',
                                   reports_dir=root / 'report')
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["harness.trajectory_replay.runner", "harness.trajectory_replay.public_webarena.runner"],
+)
+def test_runner_import_does_not_load_the_token_encoding(module):
+    # tiktoken may download its BPE file on first load; importing a runner
+    # (for example for CLI --help) must not need the network.
+    code = (
+        "import tiktoken\n"
+        "def offline(_name):\n"
+        "    raise RuntimeError('token encoding loaded at import time')\n"
+        "tiktoken.get_encoding = offline\n"
+        f"import {module}\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

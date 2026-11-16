@@ -14,16 +14,17 @@ Use the declared source for each benchmark and evaluator. The full commit in the
 
 | Dependency | Role | Version authority |
 | --- | --- | --- |
-| [LexBench Web Fetch](https://github.com/lexmount/lexbench-webfetch) | Task model, catalogs, deterministic acceptance scoring and frozen input validation | Immutable Git revision in `pyproject.toml` and `uv.lock`; [benchmark integration](benchmarks.md) |
-| [LexBench Web Search](https://github.com/lexmount/lexbench-websearch) | Query definitions, provenance, source qualifications and retrieval scoring | Git revision in [pyproject.toml](../pyproject.toml), [uv.lock](../uv.lock) and the [definition binding](../evaluation/lexbench-websearch.json); [Search guide](../harness/web_search/README.md) |
+| Web Fetch scoring (`src/lexbench_webfetch/`) | Task model, deterministic acceptance and frozen-input validation | Webstone source revision; [HF definitions](https://huggingface.co/datasets/Lexmount/LexBench-Web-Fetch) selected by the [data lock](../src/harness/benchmarks/data-lock.json) |
+| Search scoring (`src/lexbench_websearch/`) | Source qualifications and retrieval/relevance metrics | Webstone source revision; [Search](https://huggingface.co/datasets/Lexmount/LexBench-Web-Search) and [SimpleQA](https://huggingface.co/datasets/Lexmount/LexBench-SimpleQA-Verified) definitions selected by the [data lock](../src/harness/benchmarks/data-lock.json) |
 | [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) | HTML parsing | `pyproject.toml` and `uv.lock` |
 | [FastCDC](https://github.com/iscc/fastcdc-py) | Content chunking | `pyproject.toml` and `uv.lock` |
+| [Pillow](https://pillow.readthedocs.io/) | Decode and validate report PNG illustrations | `pyproject.toml` and `uv.lock` |
 
 ## Git-based runtime dependencies
 
 | Dependency | Repository and relevant branch | Required source |
 | --- | --- | --- |
-| WebArena-Verified evaluator | [lexmount/webarena-verified](https://github.com/lexmount/webarena-verified) | Git dependency in [pyproject.toml](../pyproject.toml) and [uv.lock](../uv.lock); [runtime source check](../harness/trajectory_replay/webarena_runtime_source.py) |
+| WebArena-Verified evaluator | [lexmount/webarena-verified](https://github.com/lexmount/webarena-verified) | Git dependency in [pyproject.toml](../pyproject.toml) and [uv.lock](../uv.lock); [runtime source check](../src/harness/trajectory_replay/webarena_runtime_source.py) |
 | CowAgent Web Fetch baseline | [zhayujie/CowAgent](https://github.com/zhayujie/CowAgent) | `cowagent_rev` in [bootstrap_oss_baselines.sh](../scripts/bootstrap_oss_baselines.sh); configured `expected_repo_revision` |
 | OpenClaw Web Fetch baseline | [openclaw/openclaw](https://github.com/openclaw/openclaw) | `openclaw_rev` in [bootstrap_oss_baselines.sh](../scripts/bootstrap_oss_baselines.sh); configured `expected_repo_revision` |
 | DeepSeek Harness Web Fetch baseline | [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) | `dsh_rev` in [bootstrap_oss_baselines.sh](../scripts/bootstrap_oss_baselines.sh); configured `expected_repo_revision` |
@@ -36,7 +37,7 @@ Node.js, pnpm and Python installation versions are declared in that script. The
 selected provider configuration checks them through its `expected_*_version`
 fields.
 
-Read the script before running it: it downloads and builds dependencies, and replaces the checkout's `.venv`. Use a separate clone if you need to keep another environment. The Python patch pin applies to these baselines; the base CLI supports a wider range.
+Read the script before running it: it downloads and builds dependencies, and replaces the checkout's `.venv`. Use a separate clone if you need to keep another environment. The Python patch pin applies to these baselines; the base CLI requires Python 3.11.
 
 For a new method version, copy the provider configuration and update its pins as well as the checkout. Changing just a branch or bootstrap override fails preflight. Full commits identify the source; branch tips can move.
 
@@ -53,26 +54,28 @@ Browser Use records its configured clean CowAgent checkout separately. It need n
 | HTML to Markdown | [node-html-markdown](https://github.com/crosstype/node-html-markdown) | [package-lock.json](../package-lock.json); install with `npm ci` |
 | LangChain loader / Crawl4AI | [LangChain Community](https://github.com/langchain-ai/langchain-community) · [Crawl4AI](https://github.com/unclecode/crawl4ai) | `oss-eval`, uv.lock and the selected method's interpreter/library pins |
 
-Prepare browser binaries, Docker images, site data, models and accounts separately. [`.env.example`](../.env.example) lists paths and credential names. `browser-harness-eval accounts` prints account setup links without making evaluation calls. Publishing uses separate [hosting credentials](report-hosting.md).
+Prepare browser binaries, Docker images, site data, models and accounts separately. [`.env.example`](../.env.example) lists paths and credential names. `webstone accounts` prints account setup links without making evaluation calls. Publishing uses separate [hosting credentials](report-hosting.md).
 
 ## Benchmark inputs and scorers
 
-[WebMainBench](https://github.com/opendatalab/WebMainBench) supplies the frozen-HTML dataset and official scorer. The maintained [fork](https://github.com/lexmount/WebMainBench/tree/lex-main) contains declared scoring corrections:
+The [corrected WebMainBench dataset](https://huggingface.co/datasets/Lexmount/LexBench-WebMainBench) supplies frozen HTML and references through the data lock. [OpenDataLab WebMainBench](https://github.com/opendatalab/WebMainBench) is the upstream source; its maintained [scorer fork](https://github.com/lexmount/WebMainBench/tree/lex-main) contains declared scoring corrections:
 
 | Scorer | Version authority |
 | --- | --- |
-| Official default | `SCORER_COMMIT` in [webmainbench_scoring.py](../harness/web_fetch/webmainbench_scoring.py) |
+| Official default | `SCORER_COMMIT` in [webmainbench_scoring.py](../src/harness/web_fetch/webmainbench_scoring.py) |
 | Selected correction | `scorer_commit` in the selected experiment's correction binding; [existing binding](../evaluation/webmainbench-full/scoring-correction-binding.json) |
 
-Choose the scorer named by the experiment's [profile and correction records](../evaluation/webmainbench-full/). See the [scoring guide](../harness/web_fetch/WEBMAINBENCH.md); switching to another branch tip changes the evaluation.
+Choose the scorer named by the experiment's external profile and its [correction records](../evaluation/webmainbench-full). See the [scoring guide](../src/harness/web_fetch/WEBMAINBENCH.md); switching to another branch tip changes the evaluation.
 
 | Other inputs | Setup and version record |
 | --- | --- |
-| [WCXB](https://github.com/Murrough-Foley/web-content-extraction-benchmark) | External run profile supplied with `--profile` |
-| WebArena sites and human recordings | [Deployment and replay guide](webarena-fixed-trajectory-reproduction.md) |
+| [Qualified WCXB inputs](https://huggingface.co/datasets/Lexmount/LexBench-WCXB) | Data lock and selected source manifest; runtime/scoring in Webstone |
+| [Curated replay definitions](https://huggingface.co/datasets/Lexmount/LexBench-Trajectory-Replay) | Data lock and selected task/trajectory hashes |
+| [WebArena replay tasks and recordings](https://huggingface.co/datasets/Lexmount/LexBench-WebArena-Replay) | Data lock and selected configuration; the pinned official evaluator remains a code dependency |
+| WebArena sites | [Deployment and replay guide](webarena-fixed-trajectory-reproduction.md) |
 | Historical source pages | Import approved copies using [reference-input validation](reference-inputs.md) |
 
-A Git clone contains the definitions and hashes, but not all historical input bytes.
+The Webstone checkout contains code and input bindings. Current public definitions are downloaded from the selected HF editions; complete historical input copies may require separate acquisition.
 
 ## Writing skills
 

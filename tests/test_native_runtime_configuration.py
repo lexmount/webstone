@@ -1,4 +1,6 @@
 """Native methods accept declared upgrades and reject mismatched installations."""
+from harness.distribution import source_path
+
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,10 +25,10 @@ def checkout(tmp_path):
     for name in paths:
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text('synthetic source\n')
+        path.write_text('synthetic source\n', encoding='utf-8')
     for name, version in [('node', 'v30.1.2'), ('pnpm', '15.2.3')]:
         path = repo / name
-        path.write_text('#!/bin/sh\nprintf "' + version + '\\n"\n')
+        path.write_text('#!/bin/sh\nprintf "' + version + '\\n"\n', encoding='utf-8')
         path.chmod(0o755)
     subprocess.run(['git', 'init', '-q', str(repo)], check=True)
     subprocess.run(['git', '-C', str(repo), 'add', '.'], check=True)
@@ -56,7 +58,7 @@ def test_declared_native_installation_is_authoritative(checkout, method, change)
                     'node_modules/.pnpm/.browser-harness-dsh-worker.mts']
         deployed = repo / required[-1]
         deployed.parent.mkdir(parents=True)
-        shutil.copyfile(ROOT / 'harness/web_fetch/workers/dsh_webfetch_worker.mts', deployed)
+        shutil.copyfile(source_path('harness/web_fetch/workers/dsh_webfetch_worker.mts', root=ROOT), deployed)
     config = {'repo_path': str(repo), 'expected_repo_revision': revision,
               'required_paths': ['{repo_path}/' + name for name in required]}
     if method != 'cowagent_builtin':
@@ -76,7 +78,7 @@ def test_declared_native_installation_is_authoritative(checkout, method, change)
     if change == 'wrong-revision':
         config['expected_repo_revision'] = '0' * 40
     elif change == 'dirty':
-        (repo / required[0]).write_text('dirty\n')
+        (repo / required[0]).write_text('dirty\n', encoding='utf-8')
     elif change == 'missing-source':
         (repo / required[0]).unlink()
     elif change == 'wrong-node':
@@ -86,7 +88,7 @@ def test_declared_native_installation_is_authoritative(checkout, method, change)
     elif change == 'wrong-python':
         config['expected_python_version'] = 'Python 0.0.0'
     elif change == 'stale-worker':
-        deployed.write_text('old worker\n')
+        deployed.write_text('old worker\n', encoding='utf-8')
     errors = provider.validate()
     if change == 'none':
         assert errors == []

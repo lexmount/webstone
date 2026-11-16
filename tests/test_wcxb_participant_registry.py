@@ -17,11 +17,11 @@ def test_wcxb_renderer_accepts_entirely_new_participant_ids(tmp_path):
         (root / 'artifacts' / name).rename(root / 'artifacts' / replacement)
     generate_wcxb(root, rows, summary, ground_truth, identities, profile, content, include_english=True)
     for prefix in ('', 'en/'):
-        home = (root / prefix / 'index.html').read_text()
+        home = (root / prefix / 'index.html').read_text(encoding='utf-8')
         assert all('providers/' + name + '.html' in home for name in names.values())
         assert 'data-baseline="' + names['moli'] + '"' in home
         assert 'data-candidate="' + names['moli-pr643'] + '"' in home
-        assert 'Only Kitesurf' not in (root / prefix / 'accounts/index.html').read_text()
+        assert 'Only Kitesurf' not in (root / prefix / 'accounts/index.html').read_text(encoding='utf-8')
 
 
 def test_public_wcxb_build_check_package_accept_external_nonhistorical_cohort(tmp_path):
@@ -31,7 +31,8 @@ def test_public_wcxb_build_check_package_accept_external_nonhistorical_cohort(tm
     import sys
     from pathlib import Path
     from harness.web_fetch.wcxb_scoring import score
-    from tests.wcxb_fixture import create_cohort, write_json
+    from tests.wcxb_fixture import create_cohort
+    from tests.helpers import write_json
 
     repository = Path(__file__).resolve().parents[1]
     cohort = create_cohort(tmp_path / 'cohort', providers=('alpha', 'beta', 'gamma'))
@@ -82,7 +83,7 @@ def test_public_wcxb_build_check_package_accept_external_nonhistorical_cohort(tm
          '--wcxb-source', str(cohort['source']), '--wcxb-sample', str(cohort['sample_manifest']),
          '--output', str(output), '--language', 'en'],
         ['scripts/check_report.py', str(output), '--profile', str(profile_path)],
-        ['scripts/publish_wcxb_artifact_site.py', '--package-only', '--source', str(output),
+        ['-m', 'harness.web_fetch', 'wcxb-publish', '--package-only', '--source', str(output),
          '--profile', str(profile_path), '--work', str(tmp_path / 'package')],
     ]
     for command in commands:

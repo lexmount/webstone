@@ -6,8 +6,6 @@ import argparse
 import asyncio
 import http.server
 import json
-import socket
-import subprocess
 import sys
 import threading
 import time
@@ -20,7 +18,7 @@ from harness.environments.webarena.runtime import (
     prepare_browser_viewport,
 )
 from harness.trajectory_replay.public_webarena.executor import execute_steps
-from harness.trajectory_replay.remote_execution import _browser_command, _wait_cdp
+from harness.trajectory_replay.remote_execution import start_local_browser
 from harness.trajectory_replay.webarena_replay import _execute_replay_call
 
 
@@ -28,7 +26,7 @@ def test_request_bridge_host_override_preserves_logical_http_identity() -> None:
     from harness.trajectory_replay.playwright_tool import _HostOverrideAdapter
 
     adapter = _HostOverrideAdapter(
-        (("*.dev.lexmount.net", "10.2.62.142"),)
+        (("*.dev.example.test", "192.0.2.142"),)
     )
     calls = []
 
@@ -41,17 +39,17 @@ def test_request_bridge_host_override_preserves_logical_http_identity() -> None:
     prepared = requests.Session().prepare_request(
         requests.Request(
             "POST",
-            "http://webarena-shopping.dev.lexmount.net:8080/graphql",
+            "http://webarena-shopping.dev.example.test:8080/graphql",
         )
     )
 
     assert adapter.get_connection_with_tls_context(prepared, True) == "pool"
-    assert prepared.url == "http://webarena-shopping.dev.lexmount.net:8080/graphql"
-    assert prepared.headers["Host"] == "webarena-shopping.dev.lexmount.net:8080"
-    assert calls == [{"scheme": "http", "host": "10.2.62.142", "port": 8080}]
+    assert prepared.url == "http://webarena-shopping.dev.example.test:8080/graphql"
+    assert prepared.headers["Host"] == "webarena-shopping.dev.example.test:8080"
+    assert calls == [{"scheme": "http", "host": "192.0.2.142", "port": 8080}]
 
     https = requests.Session().prepare_request(
-        requests.Request("GET", "https://webarena-shopping.dev.lexmount.net/")
+        requests.Request("GET", "https://webarena-shopping.dev.example.test/")
     )
     with pytest.raises(ValueError, match="HTTP origins only"):
         adapter.get_connection_with_tls_context(https, True)
@@ -140,27 +138,27 @@ def test_request_bridge_host_override_prefers_exact_then_specific_wildcard() -> 
     adapter = _HostOverrideAdapter(
         _validated_host_overrides(
             [
-                {"pattern": "*.dev.lexmount.net", "address": "10.0.0.1"},
-                {"pattern": "*.sub.dev.lexmount.net", "address": "10.0.0.2"},
-                {"pattern": "shop.sub.dev.lexmount.net", "address": "10.0.0.3"},
+                {"pattern": "*.dev.example.test", "address": "10.0.0.1"},
+                {"pattern": "*.sub.dev.example.test", "address": "10.0.0.2"},
+                {"pattern": "shop.sub.dev.example.test", "address": "10.0.0.3"},
             ]
         )
     )
 
-    assert adapter._address_for("shop.sub.dev.lexmount.net") == "10.0.0.3"
-    assert adapter._address_for("other.sub.dev.lexmount.net") == "10.0.0.2"
-    assert adapter._address_for("other.dev.lexmount.net") == "10.0.0.1"
+    assert adapter._address_for("shop.sub.dev.example.test") == "10.0.0.3"
+    assert adapter._address_for("other.sub.dev.example.test") == "10.0.0.2"
+    assert adapter._address_for("other.dev.example.test") == "10.0.0.1"
 
 
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        ([{"pattern": "shop.*.test", "address": "10.2.62.142"}], "pattern"),
-        ([{"pattern": "*.dev.lexmount.net", "address": "internal.test"}], "address"),
+        ([{"pattern": "shop.*.test", "address": "192.0.2.142"}], "pattern"),
+        ([{"pattern": "*.dev.example.test", "address": "internal.test"}], "address"),
         (
             [
-                {"pattern": "*.dev.lexmount.net", "address": "10.2.62.142"},
-                {"pattern": "*.dev.lexmount.net", "address": "10.2.62.143"},
+                {"pattern": "*.dev.example.test", "address": "192.0.2.142"},
+                {"pattern": "*.dev.example.test", "address": "192.0.2.143"},
             ],
             "duplicated",
         ),
@@ -406,7 +404,7 @@ def test_kitesurf_reuses_authenticated_default_target_without_second_cdp_attach(
     assert tool._supports_storage_cdp is False
     assert tool._native_login_form_submit is True
     binding_event = next(event for event in events if event[0] == "binding")
-    assert binding_event[1] == "__browserEvalCaptureRequestBody"
+    assert binding_event[1] == "__webstoneCaptureRequestBody"
     assert "globalThis.fetch = async function" in next(
         event[1] for event in events if event[0] == "init_script"
     )
@@ -433,7 +431,7 @@ def test_kitesurf_reuses_authenticated_default_target_without_second_cdp_attach(
                 "content-type": "application/json",
                 "content-length": "16",
                 "signature": "private-signature",
-                "x-browser-eval-request-body-id": self.capture_id,
+                "x-webstone-request-body-id": self.capture_id,
             }
 
     class Route:
@@ -472,7 +470,7 @@ def test_kitesurf_reuses_authenticated_default_target_without_second_cdp_attach(
         ),
         ("browser_cdp", "Browser.getVersion"),
         ("browser_cdp", "detach"),
-        ("binding", "__browserEvalCaptureRequestBody", binding_event[2]),
+        ("binding", "__webstoneCaptureRequestBody", binding_event[2]),
         ("init_script", next(event[1] for event in events if event[0] == "init_script")),
         ("route", predicate, handler),
         ("viewport", {"width": 1280, "height": 900}),
@@ -586,7 +584,7 @@ def test_kitesurf_request_bridge_rebuilds_captured_form_data(monkeypatch) -> Non
             return {
                 "content-type": "multipart/form-data; boundary=browser-boundary",
                 "x-csrf-token": "csrf",
-                "x-browser-eval-request-body-id": "form-1",
+                "x-webstone-request-body-id": "form-1",
             }
 
     class Route:
@@ -603,7 +601,7 @@ def test_kitesurf_request_bridge_rebuilds_captured_form_data(monkeypatch) -> Non
     assert call["url"] == "http://private.test/upload"
     assert call["headers"]["x-csrf-token"] == "csrf"
     assert call["headers"]["content-type"].startswith(
-        "multipart/form-data; boundary=browser-eval-"
+        "multipart/form-data; boundary=webstone-"
     )
     assert b'name="title"\r\n\r\nhello\r\n' in call["data"]
     assert (
@@ -701,7 +699,7 @@ def test_kitesurf_native_form_body_uses_capture_id(monkeypatch) -> None:
         def all_headers(self):
             return {
                 "content-type": "application/x-www-form-urlencoded",
-                "x-browser-eval-request-body-id": "native-form-1",
+                "x-webstone-request-body-id": "native-form-1",
             }
 
     class Route:
@@ -716,7 +714,7 @@ def test_kitesurf_native_form_body_uses_capture_id(monkeypatch) -> None:
     headers, body, response_headers = tool.transform_playwright_har_request(
         "POST",
         "http://private.test/issues",
-        {"x-browser-eval-request-body-id": "native-form-1"},
+        {"x-webstone-request-body-id": "native-form-1"},
     )
     assert headers == {}
     assert body == "issue%5Btitle%5D=hello"
@@ -819,7 +817,7 @@ def test_kitesurf_request_body_id_survives_post_redirect_as_bodyless_get(
             self.url = url
 
         def all_headers(self):
-            return {"x-browser-eval-request-body-id": "redirect-1"}
+            return {"x-webstone-request-body-id": "redirect-1"}
 
     class Route:
         def __init__(self, request):
@@ -843,7 +841,7 @@ def test_kitesurf_request_body_id_survives_post_redirect_as_bodyless_get(
 
     class KeptRequest(Request):
         def all_headers(self):
-            return {"x-browser-eval-request-body-id": "redirect-2"}
+            return {"x-webstone-request-body-id": "redirect-2"}
 
     context.bridge(Route(KeptRequest("POST", "http://private.test/keep")))
     context.bridge(Route(KeptRequest("POST", "http://private.test/kept")))
@@ -857,12 +855,12 @@ def test_kitesurf_request_body_id_survives_post_redirect_as_bodyless_get(
     original_headers, original_body, _ = tool.transform_playwright_har_request(
         "POST",
         "http://private.test/start",
-        {"x-browser-eval-request-body-id": "redirect-1"},
+        {"x-webstone-request-body-id": "redirect-1"},
     )
     redirect_headers, redirect_body, _ = tool.transform_playwright_har_request(
         "GET",
         "http://private.test/final",
-        {"x-browser-eval-request-body-id": "redirect-1"},
+        {"x-webstone-request-body-id": "redirect-1"},
     )
     assert original_headers == redirect_headers == {}
     assert original_body == "enabled=true"
@@ -870,7 +868,7 @@ def test_kitesurf_request_body_id_survives_post_redirect_as_bodyless_get(
     _, kept_body, _ = tool.transform_playwright_har_request(
         "POST",
         "http://private.test/kept",
-        {"x-browser-eval-request-body-id": "redirect-2"},
+        {"x-webstone-request-body-id": "redirect-2"},
     )
     assert kept_body == "kept=true"
 
@@ -1896,21 +1894,10 @@ def test_playwright_backend_executes_portable_and_snapshot_ref_calls(tmp_path: P
         <p id="hidden" hidden>must not be observed</p>""",
         encoding="utf-8",
     )
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        port = sock.getsockname()[1]
-    endpoint = f"http://127.0.0.1:{port}"
-    process = subprocess.Popen(
-        _browser_command(
-            argparse.Namespace(engine="chromium", binary=binary),
-            port,
-            str(tmp_path / "chrome-profile"),
-        ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    process, endpoint = start_local_browser(
+        argparse.Namespace(engine="chromium", binary=binary), str(tmp_path / "chrome-profile")
     )
     try:
-        _wait_cdp(endpoint, process)
         from harness.trajectory_replay.playwright_tool import PlaywrightReplayTool
 
         tool = PlaywrightReplayTool(endpoint)

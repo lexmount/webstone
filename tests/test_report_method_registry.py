@@ -1,4 +1,6 @@
 """New methods and executable versions must not require renderer changes."""
+from harness.distribution import source_path
+
 import copy
 import json
 
@@ -36,9 +38,10 @@ def custom_catalog(monkeypatch):
 
 def test_new_method_uses_one_registration_in_all_method_views(tmp_path, custom_catalog):
     from harness.web_fetch.report_methods import render_methods
-    from harness.web_fetch.report import hero, section, table, cell, link, esc
-    (tmp_path / 'answer.txt').write_text('Synthetic answer')
-    (tmp_path / 'dataset.json').write_text('{}')
+    from harness.reporting.presentation import esc
+    from harness.web_fetch.report import hero, section, table, cell, link
+    (tmp_path / 'answer.txt').write_text('Synthetic answer', encoding='utf-8')
+    (tmp_path / 'dataset.json').write_text('{}', encoding='utf-8')
     records = [{'provider': 'acme-fetch', 'provider_type': 'acme', 'case_id': 'new-task',
                 'artifact_path': 'answer.txt', 'attempt_id': 'acme-attempt',
                 'provider_metadata': {'reported_version': '7.8.9'}}]
@@ -55,19 +58,19 @@ def test_new_method_uses_one_registration_in_all_method_views(tmp_path, custom_c
     assert 'acme fetch URL' in body
     assert 'Acme Fetch 7.8.9' in body
     assert 'ACME_BINARY' in body
-    saved = json.loads((tmp_path / 'adoption/interfaces/acme-fetch.json').read_text())
+    saved = json.loads((tmp_path / 'adoption/interfaces/acme-fetch.json').read_text(encoding='utf-8'))
     assert saved['interface']['entry'] == 'acme fetch URL'
 
 
 def test_unknown_method_retains_output_and_discloses_missing_registration(tmp_path):
     (tmp_path / 'adoption').mkdir()
-    (tmp_path / 'answer.txt').write_text('Retained unknown output')
+    (tmp_path / 'answer.txt').write_text('Retained unknown output', encoding='utf-8')
     row = {'provider': 'unknown-vendor', 'provider_type': 'unknown', 'case_id': 'unknown-task',
            'artifact_path': 'answer.txt', 'attempt_id': 'unknown-attempt'}
     body = render_interfaces(tmp_path, [row])
     assert 'Not registered' in body
     assert 'Retained unknown output' in body
-    saved = json.loads((tmp_path / 'adoption/interfaces/unknown-vendor.json').read_text())
+    saved = json.loads((tmp_path / 'adoption/interfaces/unknown-vendor.json').read_text(encoding='utf-8'))
     assert saved['interface']['entry'] == '未登记'
     assert method_spec('unknown-vendor', row, language='en')['entry'] == 'Not registered'
     assert method_spec('unknown-vendor', row)['request'] == {}
@@ -83,7 +86,7 @@ def test_recorded_versions_win_over_provenance_and_never_leak_between_reports(
         'engine': engine, 'binary_sha256': 'a' * 64, 'reported_version': version}}
     provenance = {'a' * 64: {'version': 'older'}}
     (tmp_path / 'implementation-provenance.json').write_text(json.dumps({
-        'implementations': [{'binary_sha256': 'a' * 64, 'version': 'older'}]}))
+        'implementations': [{'binary_sha256': 'a' * 64, 'version': 'older'}]}), encoding='utf-8')
     assert method_version(row, provenance) == version
 
     @with_measured_method_labels
@@ -104,7 +107,8 @@ def test_native_compatibility_version_is_not_published_for_a_renamed_engine():
 
 def test_diagnostic_method_view_uses_executable_version_before_cdp_version(tmp_path):
     from harness.web_fetch.report_methods import render_methods
-    from harness.web_fetch.report import hero, section, table, cell, link, esc
+    from harness.reporting.presentation import esc
+    from harness.web_fetch.report import hero, section, table, cell, link
     row = {'provider': 'new-moli', 'provider_type': 'headless_markdown',
            'provider_metadata': {'engine': 'moli', 'reported_version': 'moli 9.9.9',
                                  'browser_version': '150.0.0.0'}}
@@ -258,12 +262,12 @@ def test_catalog_examples_do_not_assert_prior_run_settings():
                 yield from strings(item, (*path, str(index)))
         elif isinstance(value, str):
             yield '.'.join(path), value
-    root = Path(__file__).resolve().parents[1] / 'harness/web_fetch'
-    catalog = json.loads((root / 'data/report-methods.json').read_text())
+    root = source_path('harness/web_fetch', root=Path(__file__).resolve().parents[1])
+    catalog = json.loads((root / 'data/report-methods.json').read_text(encoding='utf-8'))
     violations = [(path, text) for path, text in strings(catalog)
                   if pattern.search(text) and not any(fnmatchcase(path, rule) for rule in allowed)]
     for name in ['report_interfaces', 'report_capabilities', 'methods', 'report_methods', 'report_explainer', 'report_resources', 'report_components']:
-        for node in ast.walk(ast.parse((root / (name+'.py')).read_text())):
+        for node in ast.walk(ast.parse((root / (name+'.py')).read_text(encoding='utf-8'))):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and pattern.search(node.value):
                 violations.append((f'{name}:{node.lineno}', node.value))
     assert not violations
@@ -281,7 +285,7 @@ def test_mixed_build_labels_have_explicit_english_and_scoped_lifetime(tmp_path):
     assert zh == 'Moli 多构建结果（1 例 9.9.8；2 例 9.9.9）'
     assert en == 'Moli mixed builds (1 case: 9.9.8; 2 cases: 9.9.9)'
     assert browser_method_label('moli-candidate', language='en') == 'Moli candidate build'
-    for row, version in zip(rows, ['9.9.9-a', '9.9.9-b', '9.9.9-b']):
+    for row, version in zip(rows, ['9.9.9-a', '9.9.9-b', '9.9.9-b'], strict=True):
         row['provider_metadata']['reported_version'] = version
     assert render(tmp_path, {}, rows) == ('Moli 9.9.9（候选版）', 'Moli 9.9.9 (candidate build)')
 
@@ -405,8 +409,7 @@ def test_catalog_descriptions_do_not_claim_measured_run_settings():
     import re
     from fnmatch import fnmatchcase
     from pathlib import Path
-    data = json.loads((Path(__file__).resolve().parents[1] /
-                       'harness/web_fetch/data/report-methods.json').read_text())
+    data = json.loads((source_path('harness/web_fetch/data/report-methods.json', root=Path(__file__).resolve().parents[1])).read_text(encoding='utf-8'))
     def violations(value, path=()):
         if isinstance(value, dict):
             return [item for key, child in value.items()
@@ -476,3 +479,18 @@ def test_method_message_languages_preserve_parameter_contracts():
         fields = [{name for _, name, _, _ in Formatter().parse(entries[language]) if name is not None}
                   for language in ('zh', 'en')]
         assert fields[0] == fields[1], key
+
+
+def test_multiple_configurations_of_the_same_engine_have_distinct_names(tmp_path, custom_catalog):
+    rows = [{'provider': name, 'provider_metadata': {'engine': engine, 'reported_version': version}}
+            for name, engine, version in [('moli-auto', 'moli', 'moli 9.9.9'),
+                                          ('moli-wait', 'moli', 'moli 9.9.9'),
+                                          ('other', 'acme-fetch', '7.8.9')]]
+    @with_measured_method_labels
+    def render(out, dataset, records):
+        return {row['provider']: browser_method_label(row['provider']) for row in records}
+    assert render(tmp_path, {}, rows) == {
+        'moli-auto': 'Moli 9.9.9 (moli-auto)',
+        'moli-wait': 'Moli 9.9.9 (moli-wait)',
+        'other': 'Acme Fetch 7.8.9',
+    }

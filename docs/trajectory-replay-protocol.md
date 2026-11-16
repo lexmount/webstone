@@ -22,6 +22,7 @@ flowchart LR
 | Repair a candidate | [Repair proposals](#public-webarena-repair-proposals) |
 | Investigate a missing site mutation | [Remote diagnostics](#remote-mutation-diagnostics) |
 | Run the measured comparison | [Formal measurement](#formal-measurement) |
+| Build and check a replay report | [Report rules](#report-rules) |
 | Commands for import, qualification and repair | [Operator sequence](#operator-sequence) |
 
 ## Common layers
@@ -57,6 +58,8 @@ This avoids turning a 5-second application navigation delay into a false traject
 Each task also has a 300-second wall-clock budget. An action receives the smaller of its declared
 timeout and the remaining task budget, so a broken multi-step path cannot accumulate independent
 action timeouts into an unbounded run. The same budget applies to both engines.
+
+Canonical inputs must not contain run-local snapshot refs. Compile each ref to a hash-bound stable selector while preserving the original ref action semantics; do not silently replace a DOM ref click/fill/select with BrowserTool's Playwright selector fallback because that adds different viewport, overlay and navigation-wait behavior.
 
 ## WebArena trajectory qualification
 
@@ -117,9 +120,29 @@ WebArena form selectors and runs before measured capture. The Verified container
 implement the legacy auto-login request headers, so those headers are not part of the runtime
 contract.
 Repository and published artifacts never contain runtime credentials or session values.
-Runtime JSON uses `credentials_env` to name the username and password environment variables; it
-does not contain their values. The runner resolves them only in memory and fails before login when
-a variable is absent or when both inline credentials and environment references are configured.
+The site registry in `src/harness/environments/webarena/topology.json` names the
+`WEBARENA_<SITE>_USERNAME` and `WEBARENA_<SITE>_PASSWORD` variables, and public redaction is built
+from the same passwords. Set them in the repository `.env`; exported values do not override it.
+Site login and redaction stop with the missing variable names while a value is empty.
+Runtime JSON uses `credentials_env` to name the username and password variables of the repository
+`.env`; it does not contain their values and rejects inline `credentials`. A Rainbond slice's
+runtime config always names the site registry's variables. The public WebArena
+runner resolves them only in memory and stops before starting a browser when a task's login site
+names no variables or a variable that is empty. `--env-file` and exported variables supply ordinary settings, with the
+exported value winning, and cannot change a login. Saved error text and evaluator output are
+scrubbed of the passwords that the runtime JSON names, and public reports of the passwords that the site registry names.
+Rebuilding a public WebArena report from saved evidence does not need them; a password that is
+unset on the rebuilding host is not redacted. Exporting, packaging and publishing that report stop
+with the missing variable names while a registered site login is unset, so every public bundle and
+package is checked for all of those passwords.
+
+Two limits of this redaction are deliberate. The report and package steps do not have the runtime
+config, so a password under a variable name outside the site registry is scrubbed only at run time,
+from the attempt's error text, its `evaluate_result` trace step and its validation. The frozen
+trajectory's trace steps and the HAR are not scrubbed, because they must stay what the trajectory
+executed. Login happens before capture, so only a recording that types a password itself could put
+one there.
+
 The unmodified official evaluator reads the same credential-free JSON for URL rendering.
 
 Before qualification, the optional runtime smoke starts each browser image without a CPU limit,
@@ -168,7 +191,7 @@ The first single-host amd64 run is pre-registered in
 the four mixed Map/Wikipedia tasks (97, 268, 426, and 741) plus the two independently reproduced
 GET-XHR evaluator defects and the independently reproduced array-schema defect in task 811. The
 defect evidence is pinned in
-`evaluation/browser-use-public/webarena-evaluator-exclusions.json`. This engine-independent scope is
+[the locked evaluator exclusions](https://huggingface.co/datasets/Lexmount/LexBench-WebArena-Replay/blob/main/definitions/annotations/human-evaluator-exclusions-v1.json). This engine-independent scope is
 fixed before qualification and browser measurement; failures cannot remove further tasks afterward.
 
 Stateful sites are reset by removing and recreating their container from the pinned image before
@@ -241,13 +264,13 @@ browser daemon. This daemon split is a storage and isolation choice, not a bench
 
 ### Candidate replay inputs
 
-Use `scripts/run_webarena_catalog.py` for declared task subsets and candidate action
+Use `uv run --frozen python -m harness.trajectory_replay catalog-run` for declared task subsets and candidate action
 revisions. Its catalog, action overrides, environment inputs and evidence validation
 use the same contracts as complete catalog runs. A diagnostic subset does not establish
 a formal complete-cohort score.
 
 The historical 36-task input protocol remains available through
-`scripts/freeze_original36_candidate_cohort.py`. `--reference-root` resolves its relative
+`uv run --frozen python -m harness.trajectory_replay cohort-freeze-original-failures`. `--reference-root` resolves its relative
 candidate paths without depending on the working directory. Overrides are hash-bound;
 when a stabilization names a different qualified parent, `stabilization_reversions`
 declares the one-based action index, current action type and exact parent call for each
@@ -258,7 +281,7 @@ one; it does not execute or score a browser.
 
 ### Qualification decisions and immutable outputs
 
-`scripts/build_revised_webarena_dataset.py` creates a pending dataset revision
+`uv run --frozen python -m harness.trajectory_replay dataset-revision` creates a pending dataset revision
 from `--base`, `--corrections` and repeated `--task-id` arguments, with an optional
 `--selection`. Declared counts must match the source population. Fork replacements
 use `--revision-bindings` (default: the repository's `dataset-revision-bindings.json`)
@@ -276,7 +299,7 @@ and `--evaluator-exclusions` inputs for a new experiment. The qualification
 shard size is configurable with `--max-tasks-per-shard`; task and browser counts
 are not encoded in the implementation. The command writes only a new output.
 
-`scripts/revise_webarena_method_inputs.py` freezes a reviewed trajectory revision
+`uv run --frozen python -m harness.trajectory_replay cohort-revise` freezes a reviewed trajectory revision
 from `--prior`, `--revisions` and `--site-map`. Each changed task must identify
 its predecessor action hash, candidate and cause. The compiler checks actual
 predecessor actions, candidate hashes and stable source files, then writes a new
@@ -284,7 +307,7 @@ manifest without modifying prior evidence. A revision that changes action count
 requires an explicit readiness migration when readiness rules are present.
 
 The public WebArena queue, revalidation, finalization and application commands share
-`public_webarena/qualification.py`. Every declared task and decision must occur exactly
+`src/harness/trajectory_replay/public_webarena/qualification.py`. Every declared task and decision must occur exactly
 once. A resumable shard must retain its raw `attempt.json` as well as its summary and HAR.
 A JSONL attempt projection must match that raw record, including scalar types; a passing summary
 cannot promote a failed attempt, and a failing summary cannot discard a passing attempt.
@@ -349,7 +372,7 @@ Two independent qualification passes remain required by the validation protocol.
 
 ### Remote mutation diagnostics
 
-`scripts/reevaluate_webarena_evaluator_transition.py` checks saved passing
+`uv run --frozen python -m harness.trajectory_replay evaluator-transition` checks saved passing
 evidence against the pinned evaluator after an explicitly requested transition.
 It reads declared `--run` directories and writes only a new `--output` receipt.
 Scope, site map, run inputs, progress and consumed evidence must remain unchanged
@@ -357,7 +380,7 @@ throughout the build. Explicit exclusions bind the task, old evaluation hash and
 run-input hash; an exclusion absent from the source passes is rejected. This
 command does not replace historical verdicts or execute browser actions.
 
-`scripts/rescore_saved_retrieval_attempt.py` evaluates a complete saved retrieval
+`uv run --frozen python -m harness.trajectory_replay rescore-saved-retrieval` evaluates a complete saved retrieval
 against an explicitly supplied dataset without browser calls. It reads the current
 task-local result, an agreeing cohort receipt, or the older standalone result
 layout; missing action counts and conflicting records are rejected. The saved
@@ -379,14 +402,14 @@ release gates; this command does not update historical publication bindings.
 
 Offline input and evidence audits use the maintained diagnostic modules:
 
-- `scripts/audit_replay_comparison_inputs.py` inventories the declared comparison
+- `uv run --frozen python -m harness.trajectory_replay audit-comparison-inputs` inventories the declared comparison
   matrix, contract changes and optional upstream-fork differences.
-- `scripts/audit_replay_readiness.py` locates adjacent disabled-button snapshots
+- `uv run --frozen python -m harness.trajectory_replay audit-readiness` locates adjacent disabled-button snapshots
   and clicks. It preserves historical verdicts; a snapshot does not establish
   the target's state when the click was dispatched.
-- `scripts/audit_saved_replay_correction.py` compares correction catalogs on saved
+- `uv run --frozen python -m harness.trajectory_replay audit-saved-correction` compares correction catalogs on saved
   evidence. An incomplete execution is never rescored with an invented response.
-- `scripts/audit_replay_cart_assertion.py` runs isolated DOM counterexamples with
+- `uv run --frozen python -m harness.trajectory_replay audit-cart-assertion` runs isolated DOM counterexamples with
   an explicit browser binary and blocked page requests. It requires Playwright;
   its results are assertion diagnostics rather than task scores.
 - The isolated public WebArena track uses
@@ -400,7 +423,7 @@ execution. They reject inputs that change during inspection. Keep generated
 diagnostics outside Git. Basic log and input audits do not import Playwright or
 WebArena; those dependencies are loaded only by the operations that need them.
 
-`scripts/run_remote_mutation_diagnostic.py` exposes the shared diagnostic pipeline. With
+`uv run --frozen python -m harness.trajectory_replay mutation-diagnostic` exposes the shared diagnostic pipeline. With
 `--emit-proposal` it appends a compiled completion observer to the unchanged canonical actions;
 `--check-proposal` verifies that proposal without opening a browser. Both modes require the frozen
 seed manifest and its matching qualified dataset under an explicit `--source-root`.
@@ -433,7 +456,9 @@ Run the frozen eligible subset against both engines. The loader admits only task
 denominator:
 
 ```text
-uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite evaluation/browser-use-public/webarena-human-suite.json --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --engines chromium,moli --failure-retries 1 --output <evidence>/formal/webarena-public-trajectories/run --reports <evidence>/formal/webarena-public-trajectories/reports
+HUMAN_CANDIDATES="$(uv run --frozen python -c 'from harness.trajectory_replay.report_inputs import replay_input_path; print(replay_input_path(current="human-candidates"))')"
+
+uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite "$HUMAN_CANDIDATES" --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --engines chromium,moli --failure-retries 1 --output <evidence>/formal/webarena-public-trajectories/run --reports <evidence>/formal/webarena-public-trajectories/reports
 ```
 
 After the run, audit the physical-attempt matrix and rebuild the current HTML from the immutable raw
@@ -442,8 +467,18 @@ the suite or differs from the manifest:
 
 ```text
 uv run --frozen python examples/trajectory_replay/public_webarena/verify_metrics.py --artifacts <evidence>/formal/webarena-public-trajectories/run
-uv run --frozen python examples/trajectory_replay/public_webarena/rebuild_report.py --suite evaluation/browser-use-public/webarena-human-suite.json --artifacts <evidence>/formal/webarena-public-trajectories/run --reports <evidence>/formal/webarena-public-trajectories/reports
+uv run --frozen python examples/trajectory_replay/public_webarena/rebuild_report.py --suite "$HUMAN_CANDIDATES" --artifacts <evidence>/formal/webarena-public-trajectories/run --reports <evidence>/formal/webarena-public-trajectories/reports
 ```
+
+## Report rules
+
+Reports keep the dataset separate from measured verdicts. Every task needs a contract-and-qualified-trajectory page; every result needs a same-task all-browser comparison, a reader-facing failure locator, the exact failed-action or evaluator error, reviewed cause, complete expandable tool responses, and on-demand public evidence. The result inventory stays compact, fixed-height, filterable and linked to a diagnosis dialog. The same-task explorer uses a registry-driven baseline, multi-select comparison browsers and explicit outcome relations; group pass/fail links instead of adding one result column per future browser. Keep Chinese and English task/result routes aligned.
+
+A BrowserTool call that returns success does not prove its intended site mutation occurred. When the official evaluator rejects a completed trajectory for an absent required network event, locate the last plausible trigger action and publish the exact missing-event assertion, but do not mark that action as failed or change the official verdict. Repair asynchronous or position-dependent trajectory inputs only through new qualification evidence and a frozen full-scope comparison rerun.
+
+Component tests exercise Sites-style tokenized preview navigation from a nested result back to the report root; plain relative-link validation alone does not prove that behavior.
+
+The replay build binds content only when `--content` or `--content-bindings` is given: it copies the assets named by the bindings file (`--content-bindings`, default: the repository's `research/trajectory-replay-content.json`) from the `--content` directory (default: the data home's `report-assets/trajectory-replay/`). With neither flag it builds without bound content. Restore missing content from the pinned Artifact Site version, not an unversioned latest report. Do not silently fall back to a repository copy.
 
 ## Operator sequence
 
@@ -452,14 +487,14 @@ Download and audit all public traces, then build the common suite:
 ```text
 uv run --frozen python -m scripts.fetch_webarena_traces --output <evidence>/traces --jobs 8
 uv run --frozen python -m scripts.audit_webarena_traces --trace-dir <evidence>/traces --output <evidence>/trace-audit.json
-uv run --frozen python -m scripts.build_webarena_suite --trace-dir <evidence>/traces --output evaluation/browser-use-public/webarena-human-suite.json
+uv run --frozen python -m scripts.build_webarena_suite --trace-dir <evidence>/traces --output <evidence>/qualification/qualified-suite.json
 ```
 
 Run qualification in site-compatible batches with Chromium only. `--task-ids` contains the
 pre-registered IDs for the active site group:
 
 ```text
-uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite evaluation/browser-use-public/webarena-human-suite.json --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --task-ids <ids> --output <evidence>/qualification/pass-<1-or-2>/<batch>
+uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite "$HUMAN_CANDIDATES" --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --task-ids <ids> --output <evidence>/qualification/pass-<1-or-2>/<batch>
 ```
 
 A trajectory author may first use a warm-site authoring run to inspect and repair pending retrieve-only
@@ -478,7 +513,7 @@ For the pre-registered single-host amd64 run, select an immutable batch directly
 that the scope is bound to the exact suite SHA before starting Docker:
 
 ```text
-uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite evaluation/browser-use-public/webarena-human-suite.json --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --batch-id shopping --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/pass-<1-or-2>/shopping
+uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite "$HUMAN_CANDIDATES" --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --batch-id shopping --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/pass-<1-or-2>/shopping
 ```
 
 The native scope pre-registers stable round-robin shards with at most 12 tasks each: 18 shards cover
@@ -487,7 +522,7 @@ rejects a different count, and each manifest records the scope hash, batch, shar
 index. Shards from one stateful site remain sequential because they share a resettable service state.
 
 ```text
-uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite evaluation/browser-use-public/webarena-human-suite.json --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --batch-id shopping --batch-shard-count 4 --batch-shard-index 0 --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/pass-<1-or-2>/shopping-0-of-4
+uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite "$HUMAN_CANDIDATES" --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --batch-id shopping --batch-shard-count 4 --batch-shard-index 0 --webarena-config <runtime-config> --qualification-run --qualification-pass-index <1-or-2> --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/pass-<1-or-2>/shopping-0-of-4
 ```
 
 The scope orchestrator keeps shards within each site batch sequential. One runtime configuration
@@ -506,7 +541,7 @@ are rejected. Derived qualification suites are validated
 before writing, and an existing different output is never replaced.
 
 ```text
-uv run --frozen python -m scripts.run_webarena_qualification --suite evaluation/browser-use-public/webarena-human-suite.json --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --max-site-workers 3 --evidence-root <evidence>/qualification
+uv run --frozen python -m scripts.run_webarena_qualification --suite "$HUMAN_CANDIDATES" --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --max-site-workers 3 --evidence-root <evidence>/qualification
 ```
 
 Merge the batch attempt files into one correction queue. A repaired or observation-annotated task
@@ -519,9 +554,9 @@ adjudication; do not validate a hand-edited suite whose normalized provenance di
 canonical result.
 
 ```text
-uv run --frozen python -m scripts.build_webarena_repair_queue --suite evaluation/browser-use-public/webarena-human-suite.json --attempts <batch-1>/attempts.jsonl <batch-2>/attempts.jsonl --output <evidence>/qualification/queue.json
-uv run --frozen python -m scripts.build_webarena_repair_validation_suite --suite evaluation/browser-use-public/webarena-human-suite.json --qualification <evidence>/qualification/proposed.json --output <evidence>/qualification/repair-suite.json
+uv run --frozen python -m scripts.build_webarena_repair_queue --suite "$HUMAN_CANDIDATES" --attempts <batch-1>/attempts.jsonl <batch-2>/attempts.jsonl --output <evidence>/qualification/queue.json
+uv run --frozen python -m scripts.build_webarena_repair_validation_suite --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/proposed.json --output <evidence>/qualification/repair-suite.json
 uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite <evidence>/qualification/repair-suite.json --webarena-config <runtime-config> --qualification-run --qualification-pass-index 1 --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/repairs/pass-1
 uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite <evidence>/qualification/repair-suite.json --webarena-config <runtime-config> --qualification-run --qualification-pass-index 2 --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/repairs/pass-2
-uv run --frozen python -m scripts.apply_webarena_qualification --suite evaluation/browser-use-public/webarena-human-suite.json --qualification <evidence>/qualification/adjudicated.json --output evaluation/browser-use-public/webarena-human-suite.json
+uv run --frozen python -m scripts.apply_webarena_qualification --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/adjudicated.json --output <evidence>/qualification/qualified-suite.json
 ```

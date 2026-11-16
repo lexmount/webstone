@@ -8,7 +8,7 @@ on:
     branches:
       - main
     tags:
-      - "v*"
+      - "**"
   pull_request:
 
 concurrency:
@@ -16,8 +16,26 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  scope:
+    name: Select check scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+      - id: scope
+        run: bash scripts/ci_scope.sh >> "$GITHUB_OUTPUT"
+
   checks:
-    name: Tests and static checks
+    name: Tests and static checks (${{ matrix.partition }})
+    needs: scope
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: ${{ fromJSON(needs.scope.outputs.docs_only == 'true' && '["primary"]' || '["primary","secondary"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -30,14 +48,25 @@ jobs:
           version: "0.7.8"
           enable-cache: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: needs.scope.outputs.docs_only == 'false'
         with:
           node-version: "22"
           cache: npm
+      - run: make docs-check
+        if: needs.scope.outputs.docs_only == 'true'
       - run: make setup-test
-      - run: make ci-tests PYTEST_ARGS='-n 2 --dist loadfile --durations=20'
+        if: needs.scope.outputs.docs_only == 'false'
+      - name: Check primary Python shard and static contracts
+        if: needs.scope.outputs.docs_only == 'false' && matrix.partition == 'primary'
+        run: make ci-tests PYTEST_ARGS='--ci-shard=1/2 -n 4 --dist worksteal --durations=20'
+      - name: Check secondary Python shard
+        if: needs.scope.outputs.docs_only == 'false' && matrix.partition == 'secondary'
+        run: make test-python PYTEST_ARGS='--ci-shard=2/2 -n 4 --dist worksteal --durations=20' BROWSER_TESTS=exclude
 
   package:
     name: Installation and packaging
+    needs: scope
+    if: needs.scope.outputs.docs_only == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -54,19 +83,26 @@ jobs:
           node-version: "22"
           cache: npm
       - run: make setup
+      - run: uv run --frozen python -m harness.benchmarks.data
       - run: npm ci
       - name: Verify base installation and fixture CLI
         run: |
-          uv sync --frozen
           uv run --frozen --no-sync python -m harness.web_fetch validate --providers fixture
           output="$(mktemp -d)/run"
-          BROWSER_EVAL_REPORT_LANGUAGE=zh uv run --frozen --no-sync python -m harness.web_fetch run --providers fixture --delay 0 --output "$output"
+          WEBSTONE_REPORT_LANGUAGE=zh uv run --frozen --no-sync python -m harness.web_fetch run --providers fixture --delay 0 --output "$output"
           uv run --frozen --no-sync python -c 'import json, sys; from pathlib import Path; root = Path(sys.argv[1]); contract = json.loads((root / "report-languages.json").read_text()); assert contract["primary_language"] == "zh"; assert contract["languages"] == ["zh"]; assert (root / "en/index.html").is_file()' "$output/report"
       - run: make package-check
+      - name: Verify the documented minimal Web Extract installation
+        run: |
+          extract_env="$(mktemp -d)/venv"
+          UV_PROJECT_ENVIRONMENT="$extract_env" uv sync --frozen --extra web-extract-eval --extra test
+          UV_PROJECT_ENVIRONMENT="$extract_env" uv run --frozen --no-sync python -m pytest tests/web_extract/test_swde.py -q
 
   browser:
     name: Rendered reference and report checks
-    runs-on: ubuntu-latest
+    needs: scope
+    if: needs.scope.outputs.docs_only == 'false'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -81,18 +117,23 @@ jobs:
         timeout-minutes: 5
         run: |
           uv sync --frozen --extra test --extra headless-eval --extra browser-use-eval
-          uv run --frozen --no-sync playwright install chromium
-          export BROWSER_EVAL_TEST_BROWSER_BINARY="$(uv run --frozen --no-sync python -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          uv run --frozen --no-sync python -m pytest tests/test_browser_observation_contracts.py tests/test_report_browser_interactions.py tests/web_search/test_visual.py -q
+          uv run --frozen --no-sync python -m harness.benchmarks.data
+          make browser-check PY='uv run --frozen --no-sync python' TEST_PY='uv run --frozen --no-sync python'
 
   test:
     name: Python 3.11
     if: ${{ always() }}
-    needs: [checks, package, browser]
+    needs: [scope, checks, package, browser]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Require every check to succeed
+      - name: Require every applicable check to succeed
         env:
-          CHECK_RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: test "$CHECK_RESULTS" = 'success success success'
+          DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
+          CHECK_RESULTS: ${{ needs.scope.result }} ${{ needs.checks.result }} ${{ needs.package.result }} ${{ needs.browser.result }}
+        run: |
+          case "$DOCS_ONLY" in
+            true) test "$CHECK_RESULTS" = 'success success skipped skipped' ;;
+            false) test "$CHECK_RESULTS" = 'success success success success' ;;
+            *) exit 1 ;;
+          esac

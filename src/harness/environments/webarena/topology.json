@@ -1,0 +1,81 @@
+{
+  "schema": "lex_webarena_topology/1",
+  "hosts": {
+    "container_host_alias": "host.docker.internal",
+    "host_loopback": "127.0.0.1",
+    "recording_gateways_env": "WEBARENA_RECORDING_GATEWAYS",
+    "recording_gateways_note": "Colima VM host gateway through which the frozen local catalogs and Browser Use evidence were recorded",
+    "public_recorded_hosts": [
+      "onestopmarket.example.com",
+      "gitlab.example.com",
+      "openstreetmap.example.com",
+      "wikipedia.example.com",
+      "ec2-3-133-227-75.us-east-2.compute.amazonaws.com",
+      "ec2-3-135-39-80.us-east-2.compute.amazonaws.com"
+    ]
+  },
+  "sites": {
+    "shopping": {
+      "mutable": true,
+      "port": 7770,
+      "control_port": 7771,
+      "container_port": 80,
+      "recorded_ports": [7770],
+      "official_trace_ports": [7770],
+      "credentials_env": {"username": "WEBARENA_SHOPPING_USERNAME", "password": "WEBARENA_SHOPPING_PASSWORD"}
+    },
+    "shopping_admin": {
+      "mutable": true,
+      "port": 7780,
+      "control_port": 7781,
+      "container_port": 80,
+      "url_suffix": "/admin",
+      "recorded_ports": [7780],
+      "official_trace_ports": [7780],
+      "credentials_env": {"username": "WEBARENA_SHOPPING_ADMIN_USERNAME", "password": "WEBARENA_SHOPPING_ADMIN_PASSWORD"}
+    },
+    "reddit": {
+      "mutable": true,
+      "port": 9999,
+      "control_port": 9998,
+      "container_port": 80,
+      "recorded_ports": [9999, 4399],
+      "official_trace_ports": [9999],
+      "credentials_env": {"username": "WEBARENA_REDDIT_USERNAME", "password": "WEBARENA_REDDIT_PASSWORD"}
+    },
+    "gitlab": {
+      "mutable": true,
+      "port": 8023,
+      "control_port": 8024,
+      "container_port": 8023,
+      "recorded_ports": [8023],
+      "official_trace_ports": [8023],
+      "credentials_env": {"username": "WEBARENA_GITLAB_USERNAME", "password": "WEBARENA_GITLAB_PASSWORD"}
+    },
+    "map": {
+      "mutable": false,
+      "port": 3000,
+      "control_port": 3001,
+      "container_port": 8080,
+      "recorded_ports": [3000],
+      "official_trace_ports": [3000]
+    },
+    "wikipedia": {
+      "mutable": false,
+      "port": 8888,
+      "control_port": 8889,
+      "recorded_ports": [8888],
+      "official_trace_ports": [8080, 8888]
+    }
+  },
+  "container_services": {
+    "env_ctrl_port": 8877,
+    "initializer_readiness_port": 8080,
+    "magento_elasticsearch_port": 9200,
+    "map_local_services": {
+      "rails_port": 3000,
+      "nominatim_port": 8085,
+      "detail_port": 8091
+    }
+  }
+}

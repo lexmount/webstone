@@ -10,6 +10,7 @@ from harness.web_fetch.reference_lifecycle import reference_revision_cases, vali
 from harness.web_fetch.refresh_assembly import assemble, expected_refresh_pairs
 from lexbench_webfetch.scoring_regressions import build_correction_provenance
 from harness.web_fetch.speed_cohort import build_summary as build_speed_summary
+from tests.helpers import write_json
 
 PROVIDERS = [
     "cloudflare-markdown",
@@ -105,7 +106,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         }
         self.canonical_path = self.root / "evaluation" / "dataset.json"
         self.canonical_path.parent.mkdir()
-        self.write_json(self.canonical_path, self.canonical)
+        write_json(self.canonical_path, self.canonical)
         (self.canonical_path.parent / "sources").mkdir()
         (self.canonical_path.parent / "list-references").mkdir()
 
@@ -183,7 +184,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "total_planned_new_calls": 422,
         }
         self.plan_path = self.root / "evaluation" / "current-rerun.json"
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
         expected = expected_refresh_pairs(self.plan, self.canonical)
         self.main = self.root / "main-rerun"
@@ -216,7 +217,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "case_ids": speed_case_order,
             "batch_count": len(speed_batches),
         }
-        self.write_json(self.speed / "execution.json", {
+        write_json(self.speed / "execution.json", {
             "schema_version": 1, "aggregate": aggregate, "batches": speed_batches,
         })
         review = {
@@ -236,13 +237,13 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 for row in speed_rows
             ],
         }
-        self.write_json(self.speed / "result-review.json", review)
+        write_json(self.speed / "result-review.json", review)
         speed_summary = build_speed_summary(speed_dataset, speed_rows, speed_batches, aggregate)
         speed_summary["bindings"] = {
             "dataset_sha256": sha((self.speed / "dataset.json").read_bytes()),
             "results_sha256": sha((self.speed / "results.jsonl").read_bytes()),
         }
-        self.write_json(self.speed / "speed-comparison.json", speed_summary)
+        write_json(self.speed / "speed-comparison.json", speed_summary)
         self.plan["same_window_speed_cohort"].update({
             "dataset_sha256": sha((self.speed / "dataset.json").read_bytes()),
             "results_sha256": sha((self.speed / "results.jsonl").read_bytes()),
@@ -254,15 +255,10 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 "result-review.json": sha((self.speed / "result-review.json").read_bytes())
             },
         })
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
-
-    @staticmethod
-    def write_json(path: Path, value: object) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     @staticmethod
     def rows(providers: list[str], cases: list[str]) -> list[dict]:
@@ -293,14 +289,14 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
     def write_bundle(self, root: Path, dataset: dict, rows: list[dict]) -> None:
         root.mkdir(parents=True)
-        self.write_json(root / "dataset.json", dataset)
+        write_json(root / "dataset.json", dataset)
         (root / "results.jsonl").write_text(
             "".join(json.dumps(row, ensure_ascii=True) + "\n" for row in rows), encoding="utf-8"
         )
         artifact = root / "artifacts" / "shared.txt"
         artifact.parent.mkdir(parents=True)
         artifact.write_bytes(b"artifact")
-        self.write_json(
+        write_json(
             root / "execution.json",
             {
                 "batches": [
@@ -341,7 +337,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
     def test_refresh_excludes_undeclared_reference_check_files(self) -> None:
         for root in (self.baseline, self.main):
             (root / 'reference-checks').mkdir(exist_ok=True)
-            (root / 'reference-checks/private-note.txt').write_text('synthetic private note')
+            (root / 'reference-checks/private-note.txt').write_text('synthetic private note', encoding="utf-8")
         output = self.root / 'assembled-reference-boundary'
         assemble(self.baseline, [self.main], self.speed, output,
                  canonical_dataset=self.canonical_path, plan=self.plan_path)
@@ -353,13 +349,13 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         for identifier in (selected, 'outside-task-scope'):
             folder = root / 'sources' / identifier
             folder.mkdir()
-            (folder / 'reference.txt').write_text(identifier)
-            (root / 'list-references' / (identifier + '.json')).write_text('{}')
-        (root / 'sources/private-note.txt').write_text('synthetic private note')
+            (folder / 'reference.txt').write_text(identifier, encoding="utf-8")
+            (root / 'list-references' / (identifier + '.json')).write_text('{}', encoding="utf-8")
+        (root / 'sources/private-note.txt').write_text('synthetic private note', encoding="utf-8")
         output = self.root / 'assembled-reference-scope'
         assemble(self.baseline, [self.main], self.speed, output,
                  canonical_dataset=self.canonical_path, plan=self.plan_path)
-        self.assertEqual((output / 'sources' / selected / 'reference.txt').read_text(), selected)
+        self.assertEqual((output / 'sources' / selected / 'reference.txt').read_text(encoding="utf-8"), selected)
         self.assertTrue((output / 'list-references' / (selected + '.json')).is_file())
         self.assertFalse((output / 'sources/outside-task-scope').exists())
         self.assertFalse((output / 'list-references/outside-task-scope.json').exists())
@@ -367,7 +363,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
     def test_refresh_rejects_reference_tree_symlinks(self) -> None:
         actual = self.root / 'same-reference.txt'
-        actual.write_text('synthetic source')
+        actual.write_text('synthetic source', encoding="utf-8")
         trees = [(root, folder) for root in (self.baseline, self.main)
                  for folder in ('sources', 'list-references', 'reference-checks')]
         trees += [(self.canonical_path.parent, folder)
@@ -494,23 +490,23 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             plan=self.plan_path,
         )
         main_rows = [
-            json.loads(line) for line in (output / "results.jsonl").read_text().splitlines()
+            json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         speed_rows = [
             json.loads(line)
-            for line in (output / "speed-cohort" / "results.jsonl").read_text().splitlines()
+            for line in (output / "speed-cohort" / "results.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(len(main_rows), 1800)
         self.assertEqual(len(speed_rows), 240)
-        execution = json.loads((output / "execution.json").read_text())
+        execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
         self.assertEqual(sum(batch["attempt_count"] for batch in execution["batches"]), 1800)
-        receipt = json.loads((output / "refresh-assembly.json").read_text())
+        receipt = json.loads((output / "refresh-assembly.json").read_text(encoding="utf-8"))
         self.assertEqual(receipt["selected_rerun_attempts"], 422)
         self.assertEqual(receipt["inherited_attempts"], 1378)
         self.assertTrue(receipt["speed_cohort"]["excluded_from_main_results"])
         self.assertTrue(receipt["speed_cohort"]["reused_existing"])
         self.assertEqual(receipt["speed_cohort"]["new_calls"], 0)
-        audit = json.loads((output / "selection-audit.json").read_text())
+        audit = json.loads((output / "selection-audit.json").read_text(encoding="utf-8"))
         self.assertEqual(len(audit), 422)
         overlap = next(
             row for row in audit
@@ -575,21 +571,21 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 ["reference-scope-excludes-site-chrome"], [],
             ),
         }]
-        self.write_json(self.main / "scoring-revisions.json", scoring)
-        self.write_json(self.main / "reference-revisions.json", references)
+        write_json(self.main / "scoring-revisions.json", scoring)
+        write_json(self.main / "reference-revisions.json", references)
         output = self.root / "revision-output"
         assemble(self.baseline, [self.main], self.speed, output,
                  canonical_dataset=self.canonical_path, plan=self.plan_path)
         self.assertTrue(valid_scoring_revision(output))
         self.assertEqual(reference_revision_cases(output), {changed_case: {"a" * 64}})
-        receipt = json.loads((output / "scoring-revisions.json").read_text())[0]
+        receipt = json.loads((output / "scoring-revisions.json").read_text(encoding="utf-8"))[0]
         source = receipt["source_receipts"][0]
         self.assertEqual(
             sha((output / source["receipt_path"]).read_bytes()), source["receipt_sha256"]
         )
 
     def test_assembly_rejects_invalid_selected_source_revision(self) -> None:
-        self.write_json(self.main / "scoring-revisions.json", [{
+        write_json(self.main / "scoring-revisions.json", [{
             "kind": "audited_scoring_rule_revision",
             "input_dataset_sha256": "a" * 64,
             "input_results_sha256": "b" * 64,
@@ -605,15 +601,15 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
 
     def test_duplicate_rerun_pair_fails_without_creating_output(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         rows.append(rows[0])
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["attempt_ids"].append(rows[0]["attempt_id"])
         execution["batches"][0]["attempt_count"] += 1
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
         output = self.root / "duplicate-output"
         with self.assertRaisesRegex(ValueError, "duplicate"):
             assemble(
@@ -627,15 +623,15 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_missing_rerun_pair_fails_without_creating_output(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         missing = rows.pop()
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["attempt_ids"].remove(missing["attempt_id"])
         execution["batches"][0]["attempt_count"] -= 1
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
 
         output = self.root / "missing-output"
         with self.assertRaisesRegex(ValueError, "missing=1, extra=0"):
@@ -650,7 +646,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_extra_rerun_pair_fails_without_creating_output(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         expected = expected_refresh_pairs(self.plan, self.canonical)
         extra_pair = next(
             (provider, case["id"])
@@ -663,10 +659,10 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["attempt_ids"].append(extra["attempt_id"])
         execution["batches"][0]["attempt_count"] += 1
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
 
         output = self.root / "extra-output"
         with self.assertRaisesRegex(ValueError, "missing=0, extra=1"):
@@ -681,16 +677,16 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_provider_shards_must_have_the_same_run_identity(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         moved = next(row for row in rows if row["provider"] == "crawl4ai")
         rows.remove(moved)
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["attempt_ids"].remove(moved["attempt_id"])
         execution["batches"][0]["attempt_count"] -= 1
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
 
         shard = self.root / "second-main-rerun"
         self.write_bundle(shard, self.canonical, [moved])
@@ -705,9 +701,9 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         )
         self.assertTrue((matching_output / "results.jsonl").is_file())
 
-        shard_execution = json.loads((shard / "execution.json").read_text())
+        shard_execution = json.loads((shard / "execution.json").read_text(encoding="utf-8"))
         shard_execution["batches"][0]["provider_config_sha256"] = sha(b"different-config")
-        self.write_json(shard / "execution.json", shard_execution)
+        write_json(shard / "execution.json", shard_execution)
 
         output = self.root / "mixed-provider-identity-output"
         with self.assertRaisesRegex(
@@ -724,7 +720,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
         shard_execution["batches"][0]["provider_config_source"] = "/repo/configs/providers.resources.json"
-        self.write_json(shard / "execution.json", shard_execution)
+        write_json(shard / "execution.json", shard_execution)
         route_output = self.root / "different-declared-config-route-output"
         assemble(
             self.baseline,
@@ -737,7 +733,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertTrue((route_output / "results.jsonl").is_file())
 
     def test_main_rerun_rejects_explicit_account_capacity_failure(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         rows[0].update(
             ok=False,
             error_type="account_capacity",
@@ -762,7 +758,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_main_rerun_rejects_legacy_firecrawl_402_only(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         firecrawl = next(row for row in rows if row["provider"] == "firecrawl")
         firecrawl.update(ok=False, status_code=402, error_type="api_error")
         (self.main / "results.jsonl").write_text(
@@ -807,8 +803,8 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "rendered_content_sha256": "e" * 64,
             "browser_observation_sha256": "f" * 64,
         }
-        self.write_json(self.canonical_path, self.canonical)
-        dataset = json.loads((self.main / "dataset.json").read_text())
+        write_json(self.canonical_path, self.canonical)
+        dataset = json.loads((self.main / "dataset.json").read_text(encoding="utf-8"))
         dataset["comparison"] = self.canonical["comparison"]
         dataset["cases"][0]["source_verification"] = {
             "state": "valid",
@@ -820,7 +816,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "rendered_content_sha256": "e" * 64,
             "browser_observation_sha256": "1" * 64,
         }
-        self.write_json(self.main / "dataset.json", dataset)
+        write_json(self.main / "dataset.json", dataset)
         assemble(
             self.baseline,
             [self.main],
@@ -831,7 +827,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         )
 
         dataset["cases"][0]["source_verification"]["reference_sha256"] = "b" * 64
-        self.write_json(self.main / "dataset.json", dataset)
+        write_json(self.main / "dataset.json", dataset)
         with self.assertRaisesRegex(ValueError, "differs from canonical"):
             assemble(
                 self.baseline,
@@ -873,16 +869,16 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
     def test_speed_schema_and_symlinks_fail_before_output(self) -> None:
-        comparison = json.loads((self.speed / "speed-comparison.json").read_text())
+        comparison = json.loads((self.speed / "speed-comparison.json").read_text(encoding="utf-8"))
         comparison["rows"][0]["planned_attempts"] -= 1
-        self.write_json(self.speed / "speed-comparison.json", comparison)
+        write_json(self.speed / "speed-comparison.json", comparison)
         with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
             assemble(self.baseline, [self.main], self.speed, self.root / "bad-speed",
                      canonical_dataset=self.canonical_path, plan=self.plan_path)
         self.assertFalse((self.root / "bad-speed").exists())
 
         comparison["rows"][0]["planned_attempts"] += 1
-        self.write_json(self.speed / "speed-comparison.json", comparison)
+        write_json(self.speed / "speed-comparison.json", comparison)
         (self.speed / "workers").mkdir()
         (self.speed / "workers/outside").symlink_to(self.canonical_path)
         with self.assertRaisesRegex(ValueError, "symlink"):
@@ -898,16 +894,16 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse((self.root / "root-symlink-speed").exists())
 
     def test_reused_speed_execution_mutation_fails_before_output(self) -> None:
-        execution = json.loads((self.speed / "execution.json").read_text())
+        execution = json.loads((self.speed / "execution.json").read_text(encoding="utf-8"))
         execution["schema_version"] = 99
-        self.write_json(self.speed / "execution.json", execution)
+        write_json(self.speed / "execution.json", execution)
         with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
             assemble(self.baseline, [self.main], self.speed, self.root / "execution-schema-speed",
                      canonical_dataset=self.canonical_path, plan=self.plan_path)
         self.assertFalse((self.root / "execution-schema-speed").exists())
 
     def test_equivalent_capture_rejects_invalid_observation_metadata(self) -> None:
-        dataset = json.loads((self.main / "dataset.json").read_text())
+        dataset = json.loads((self.main / "dataset.json").read_text(encoding="utf-8"))
         dataset["comparison"] = self.canonical["comparison"]
         dataset["cases"][0]["source_verification"] = {
             "state": "valid",
@@ -916,13 +912,13 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "reference_sha256": "a" * 64,
             "source_snapshot_sha256": "not-a-hash",
         }
-        self.write_json(self.main / "dataset.json", dataset)
+        write_json(self.main / "dataset.json", dataset)
         with self.assertRaisesRegex(ValueError, "malformed capture HTTP status"):
             assemble(self.baseline, [self.main], self.speed, self.root / "bad-capture",
                      canonical_dataset=self.canonical_path, plan=self.plan_path)
 
         dataset["cases"][0]["source_verification"]["http_status"] = 403
-        self.write_json(self.main / "dataset.json", dataset)
+        write_json(self.main / "dataset.json", dataset)
         with self.assertRaisesRegex(ValueError, "invalid capture hash"):
             assemble(self.baseline, [self.main], self.speed, self.root / "bad-capture-hash",
                      canonical_dataset=self.canonical_path, plan=self.plan_path)
@@ -937,16 +933,16 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         }
         self.canonical["cases"][0]["ground_truth_main_content"] = ""
         self.canonical["cases"][0]["source_verification"] = unavailable
-        self.write_json(self.canonical_path, self.canonical)
+        write_json(self.canonical_path, self.canonical)
         for root in (self.main, self.speed):
-            dataset = json.loads((root / "dataset.json").read_text())
+            dataset = json.loads((root / "dataset.json").read_text(encoding="utf-8"))
             case = next((row for row in dataset["cases"] if row["id"] == case_id), None)
             if case is not None:
                 case["ground_truth_main_content"] = ""
                 case["source_verification"] = {
                     **unavailable, "checked_at": "2026-09-10T00:10:00+00:00"
                 }
-                self.write_json(root / "dataset.json", dataset)
+                write_json(root / "dataset.json", dataset)
         assemble(self.baseline, [self.main], self.speed, self.root / "unavailable-output",
                  canonical_dataset=self.canonical_path, plan=self.plan_path)
 
@@ -958,19 +954,19 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "note": "Independent HTTP plus browser verification",
         }
         self.canonical["cases"][0]["source_verification"] = verification
-        self.write_json(self.canonical_path, self.canonical)
-        dataset = json.loads((self.main / "dataset.json").read_text())
+        write_json(self.canonical_path, self.canonical)
+        dataset = json.loads((self.main / "dataset.json").read_text(encoding="utf-8"))
         case = next(row for row in dataset["cases"] if row["id"] == case_id)
         case["source_verification"] = {
             **verification, "checked_at": "2026-09-10T00:10:00+00:00"
         }
-        self.write_json(self.main / "dataset.json", dataset)
+        write_json(self.main / "dataset.json", dataset)
         assemble(self.baseline, [self.main], self.speed, self.root / "valid-403-output",
                  canonical_dataset=self.canonical_path, plan=self.plan_path)
 
     def test_baseline_hash_mismatch_fails_closed(self) -> None:
         self.plan["baseline"]["results_sha256"] = "0" * 64
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
         output = self.root / "bad-baseline-output"
         with self.assertRaisesRegex(ValueError, "Baseline bytes"):
             assemble(
@@ -984,14 +980,14 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_inherited_baseline_case_must_match_canonical_contract(self) -> None:
-        dataset = json.loads((self.baseline / "dataset.json").read_text())
+        dataset = json.loads((self.baseline / "dataset.json").read_text(encoding="utf-8"))
         inherited = next(case for case in dataset["cases"] if case["id"] == "filler-001")
         inherited["url"] = "https://stale.example.test/filler-001"
-        self.write_json(self.baseline / "dataset.json", dataset)
+        write_json(self.baseline / "dataset.json", dataset)
         self.plan["baseline"]["dataset_sha256"] = sha(
             (self.baseline / "dataset.json").read_bytes()
         )
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
         output = self.root / "stale-inherited-baseline-output"
         with self.assertRaisesRegex(
@@ -1010,7 +1006,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
     def test_assembly_rejects_persisted_verdict_that_public_scorer_flips(self) -> None:
         rows = [
             json.loads(line)
-            for line in (self.baseline / "results.jsonl").read_text().splitlines()
+            for line in (self.baseline / "results.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         stale = next(
             row
@@ -1025,7 +1021,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.plan["baseline"]["results_sha256"] = sha(
             (self.baseline / "results.jsonl").read_bytes()
         )
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
         output = self.root / "stale-persisted-verdict-output"
         with self.assertRaisesRegex(
@@ -1043,7 +1039,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
     def test_reused_speed_hash_mismatch_fails_closed(self) -> None:
         self.plan["same_window_speed_cohort"]["results_sha256"] = "0" * 64
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
         output = self.root / "bad-speed-binding"
         with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
             assemble(
@@ -1054,13 +1050,13 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
     def test_reused_speed_bundle_allows_optional_review_and_keeps_revisions(self) -> None:
         (self.speed / "result-review.json").unlink()
-        self.write_json(self.speed / "scoring-revisions.json", {"schema_version": 1})
+        write_json(self.speed / "scoring-revisions.json", {"schema_version": 1})
         self.plan["same_window_speed_cohort"]["auxiliary_sha256"] = {
             "scoring-revisions.json": sha(
                 (self.speed / "scoring-revisions.json").read_bytes()
             )
         }
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
         output = self.root / "speed-optional-review"
         assemble(
             self.baseline, [self.main], self.speed, output,
@@ -1070,10 +1066,10 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertTrue((output / "speed-cohort/scoring-revisions.json").is_file())
 
     def test_speed_dataset_cannot_smuggle_an_extra_main_case(self) -> None:
-        dataset = json.loads((self.speed / "dataset.json").read_text())
+        dataset = json.loads((self.speed / "dataset.json").read_text(encoding="utf-8"))
         extra = next(case for case in self.canonical_cases if case["id"] not in SPEED_CASES)
         dataset["cases"].append(extra)
-        self.write_json(self.speed / "dataset.json", dataset)
+        write_json(self.speed / "dataset.json", dataset)
         output = self.root / "mixed-speed-output"
         with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
             assemble(
@@ -1098,7 +1094,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.canonical = self.dataset(self.FINAL_PROVIDERS)
         self.canonical_path = self.root / "evaluation" / "dataset.json"
-        self.write_json(self.canonical_path, self.canonical)
+        write_json(self.canonical_path, self.canonical)
         (self.canonical_path.parent / "sources").mkdir()
         (self.canonical_path.parent / "list-references").mkdir()
 
@@ -1107,13 +1103,13 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             self.BASELINE_PROVIDERS, self.CASES
         )
         self.write_bundle(self.baseline, self.dataset(self.BASELINE_PROVIDERS), baseline_rows)
-        baseline_execution = json.loads((self.baseline / "execution.json").read_text())
+        baseline_execution = json.loads((self.baseline / "execution.json").read_text(encoding="utf-8"))
         other_identity = next(
             provider for provider in baseline_execution["batches"][0]["providers"]
             if provider["name"] == "other"
         )
         other_identity.pop("implementation_identity")
-        self.write_json(self.baseline / "execution.json", baseline_execution)
+        write_json(self.baseline / "execution.json", baseline_execution)
 
         self.main = self.root / "main"
         rerun_rows = AssembleWebfetchRefreshTests.rows_for_pairs({
@@ -1130,7 +1126,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "cases": self.dataset(self.BASELINE_PROVIDERS)["cases"][:2],
         }
         self.write_bundle(self.speed, speed_dataset, speed_rows)
-        source_batch = json.loads((self.speed / "execution.json").read_text())["batches"][0]
+        source_batch = json.loads((self.speed / "execution.json").read_text(encoding="utf-8"))["batches"][0]
         batches = []
         for provider in self.BASELINE_PROVIDERS:
             attempt_ids = [
@@ -1151,7 +1147,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "case_ids": self.CASES[:2],
             "batch_count": len(batches),
         }
-        self.write_json(self.speed / "execution.json", {
+        write_json(self.speed / "execution.json", {
             "schema_version": 1, "aggregate": aggregate, "batches": batches,
         })
         speed_summary = build_speed_summary(speed_dataset, speed_rows, batches, aggregate)
@@ -1159,7 +1155,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "dataset_sha256": sha((self.speed / "dataset.json").read_bytes()),
             "results_sha256": sha((self.speed / "results.jsonl").read_bytes()),
         }
-        self.write_json(self.speed / "speed-comparison.json", speed_summary)
+        write_json(self.speed / "speed-comparison.json", speed_summary)
 
         self.baseline_identity = {"fixture_sha256": sha(b"moli")}
         self.rerun_identity = {"fixture_sha256": sha(b"moli-fixed")}
@@ -1175,7 +1171,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "rerun_implementation_identity": self.rerun_identity,
         }
         self.impact_path = self.root / "evaluation" / "impact.json"
-        self.write_json(self.impact_path, self.impact)
+        write_json(self.impact_path, self.impact)
         ids_hash = sha(json.dumps(
             sorted(self.AFFECTED), ensure_ascii=False, separators=(",", ":")
         ).encode())
@@ -1190,8 +1186,8 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             }],
         }
         self.scope_receipt_path = self.root / "evaluation" / "scope.json"
-        self.write_json(self.scope_receipt_path, self.scope_receipt)
-        main_execution = json.loads((self.main / "execution.json").read_text())
+        write_json(self.scope_receipt_path, self.scope_receipt)
+        main_execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         main_batch = main_execution["batches"][0]
         self.plan = {
             "schema_version": 3,
@@ -1267,7 +1263,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "total_planned_new_calls": 4,
         }
         self.plan_path = self.root / "evaluation" / "refresh-plan.json"
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -1288,13 +1284,9 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             "comparison": {"case_replacements": {}},
         }
 
-    @staticmethod
-    def write_json(path: Path, value: object) -> None:
-        AssembleWebfetchRefreshTests.write_json(path, value)
-
     def write_bundle(self, root: Path, dataset: dict, rows: list[dict]) -> None:
         AssembleWebfetchRefreshTests.write_bundle(self, root, dataset, rows)
-        loaded = [json.loads(line) for line in (root / "results.jsonl").read_text().splitlines()]
+        loaded = [json.loads(line) for line in (root / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         for row in loaded:
             relative = f"call-logs/{row['provider']}/{row['case_id']}.json"
             payload = self.call_log(row)
@@ -1369,7 +1361,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
         return output
 
     def rewrite_plan(self) -> None:
-        self.write_json(self.plan_path, self.plan)
+        write_json(self.plan_path, self.plan)
 
     def declare_speed_not_measured(self) -> None:
         self.plan["same_window_speed_cohort"] = {
@@ -1393,7 +1385,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
 
     def test_upgrade_projects_logical_provider_and_preserves_physical_evidence(self) -> None:
         output = self.assemble()
-        rows = [json.loads(line) for line in (output / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         fixed = [row for row in rows if row["provider"] == "moli-fixed"]
         self.assertEqual(len(fixed), 4)
         self.assertEqual(
@@ -1404,32 +1396,32 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             physical = row["physical_execution"]
             self.assertEqual(row["attempt_id"], physical["attempt_id"])
             self.assertTrue((output / row["provider_metadata"]["call_log"]["path"]).is_file())
-        execution = json.loads((output / "execution.json").read_text())
+        execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
         physical_providers = {
             provider["name"] for batch in execution["batches"]
             for provider in batch["providers"]
         }
         self.assertEqual(physical_providers, {"moli-fixed", "other"})
-        receipt = json.loads((output / "refresh-assembly.json").read_text())
+        receipt = json.loads((output / "refresh-assembly.json").read_text(encoding="utf-8"))
         upgrade = receipt["implementation_upgrades"][0]
         self.assertEqual((upgrade["inherited_attempts"], upgrade["rerun_attempts"]), (0, 4))
         self.assertEqual(upgrade["impact_receipt"]["sha256"], sha(self.impact_path.read_bytes()))
         stored_impact = output / upgrade["impact_receipt"]["stored_path"]
         self.assertEqual(stored_impact.read_bytes(), self.impact_path.read_bytes())
-        audit = json.loads((output / "selection-audit.json").read_text())
+        audit = json.loads((output / "selection-audit.json").read_text(encoding="utf-8"))
         self.assertEqual(len([row for row in audit if row["provider"] == "moli-fixed"]), 4)
 
     def test_equal_case_inventory_does_not_require_a_replacement_map(self) -> None:
         self.canonical["comparison"].pop("case_replacements")
-        self.write_json(self.canonical_path, self.canonical)
+        write_json(self.canonical_path, self.canonical)
         output = self.assemble(name="no-case-replacement-map")
         self.assertTrue((output / "refresh-assembly.json").is_file())
 
     def test_layer_can_bind_identity_recorded_on_each_result(self) -> None:
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["providers"][0].pop("implementation_identity")
-        self.write_json(self.main / "execution.json", execution)
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        write_json(self.main / "execution.json", execution)
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         for row in rows:
             row["provider_metadata"].update({
                 "reported_version": "moli fixture",
@@ -1444,7 +1436,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
         }
         self.plan["implementation_upgrades"][0]["rerun_implementation_identity"] = row_identity
         self.impact["rerun_implementation_identity"] = row_identity
-        self.write_json(self.impact_path, self.impact)
+        write_json(self.impact_path, self.impact)
         self.plan["implementation_upgrades"][0]["impact_receipt"]["sha256"] = sha(
             self.impact_path.read_bytes()
         )
@@ -1468,7 +1460,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
         )
 
         self.assertFalse((output / "speed-cohort").exists())
-        receipt = json.loads((output / "refresh-assembly.json").read_text())
+        receipt = json.loads((output / "refresh-assembly.json").read_text(encoding="utf-8"))
         self.assertEqual(receipt["speed_cohort"], {
             "evidence_state": "not_measured_same_window",
             "reason": "the fixed implementation was not measured in the shared time window",
@@ -1514,14 +1506,14 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
                     expected_refresh_pairs(self.plan, self.canonical)
 
     def test_upgrade_selection_is_independent_of_outcome(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         rows[0].update(ok=False, error_type="tool_error")
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )
         self.rebind_main_source()
         output = self.assemble("failed-rerun-output")
-        selected = [json.loads(line) for line in (output / "results.jsonl").read_text().splitlines()]
+        selected = [json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         failed = next(row for row in selected if row["case_id"] == rows[0]["case_id"]
                       and row["provider"] == "moli-fixed")
         self.assertFalse(failed["ok"])
@@ -1551,11 +1543,11 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             root = self.root / f"layer-{index}"
             rows = AssembleWebfetchRefreshTests.rows_for_pairs({("moli-fixed", case_id)})
             self.write_bundle(root, self.canonical, rows)
-            execution = json.loads((root / "execution.json").read_text())
+            execution = json.loads((root / "execution.json").read_text(encoding="utf-8"))
             execution["batches"][0]["runtime_source_sha256"] = sha(
                 f"runtime-{index}".encode()
             )
-            self.write_json(root / "execution.json", execution)
+            write_json(root / "execution.json", execution)
             layer_id = f"layer-{index}"
             scope = {
                 "schema_version": 1, "kind": "correction_layer_scope_bindings",
@@ -1565,7 +1557,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
                 }],
             }
             scope_path = self.root / "evaluation" / f"{layer_id}-scope.json"
-            self.write_json(scope_path, scope)
+            write_json(scope_path, scope)
             batch = execution["batches"][0]
             layers.append({
                 "id": layer_id, "provider": "moli-fixed", "case_ids": [case_id],
@@ -1604,14 +1596,14 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             (forward / "selection-audit.json").read_bytes(),
             (reverse / "selection-audit.json").read_bytes(),
         )
-        receipt = json.loads((forward / "refresh-assembly.json").read_text())
+        receipt = json.loads((forward / "refresh-assembly.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {layer["execution_contract"]["runtime_source_sha256"]
              for layer in receipt["correction_layers"]},
             {sha(f"runtime-{index}".encode()) for index in range(len(self.AFFECTED))},
         )
 
-        valid_plan = json.loads(self.plan_path.read_text())
+        valid_plan = json.loads(self.plan_path.read_text(encoding="utf-8"))
         for index, field in enumerate((
             "runtime_source_sha256", "provider_config_sha256", "parameters_sha256"
         )):
@@ -1644,7 +1636,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
 
         self.plan["correction_layers"] = self.plan["correction_layers"][:1]
         self.scope_receipt["provider_calls"] = 1
-        self.write_json(self.scope_receipt_path, self.scope_receipt)
+        write_json(self.scope_receipt_path, self.scope_receipt)
         self.plan["correction_layers"][0]["scope_receipt"]["sha256"] = sha(
             self.scope_receipt_path.read_bytes()
         )
@@ -1663,7 +1655,7 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
             self.assemble("unbound-extra-source", [self.main, self.speed])
 
     def test_upgrade_rejects_missing_extra_or_duplicate_rerun_pairs(self) -> None:
-        original = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        original = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         original_results = (self.main / "results.jsonl").read_bytes()
         original_execution = (self.main / "execution.json").read_bytes()
         for name, changed, pattern in (
@@ -1674,10 +1666,10 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
                 (self.main / "results.jsonl").write_text(
                     "".join(json.dumps(row) + "\n" for row in changed), encoding="utf-8"
                 )
-                execution = json.loads((self.main / "execution.json").read_text())
+                execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
                 execution["batches"][0]["attempt_ids"] = [row["attempt_id"] for row in changed]
                 execution["batches"][0]["attempt_count"] = len(changed)
-                self.write_json(self.main / "execution.json", execution)
+                write_json(self.main / "execution.json", execution)
                 self.rebind_main_source()
                 with self.assertRaisesRegex(ValueError, pattern):
                     self.assemble(f"{name}-output")
@@ -1691,35 +1683,35 @@ class AssembleImplementationUpgradeTests(unittest.TestCase):
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in extra), encoding="utf-8"
         )
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["attempt_ids"] = [row["attempt_id"] for row in extra]
         execution["batches"][0]["attempt_count"] = len(extra)
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
         self.rebind_main_source()
         output = self.assemble("extra-source-row-output")
         other_case_a = next(
-            row for row in map(json.loads, (output / "results.jsonl").read_text().splitlines())
+            row for row in map(json.loads, (output / "results.jsonl").read_text(encoding="utf-8").splitlines())
             if row["provider"] == "other" and row["case_id"] == "case-a"
         )
         self.assertEqual(other_case_a["attempt_id"], "other__case-a__r001")
 
     def test_upgrade_rejects_batch_or_call_log_physical_identity_drift(self) -> None:
         original_execution = (self.main / "execution.json").read_bytes()
-        execution = json.loads((self.main / "execution.json").read_text())
+        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
         execution["batches"][0]["providers"][0]["implementation_identity"] = {
             "fixture_sha256": "0" * 64
         }
-        self.write_json(self.main / "execution.json", execution)
+        write_json(self.main / "execution.json", execution)
         self.rebind_main_source()
         with self.assertRaisesRegex(ValueError, "Correction layer execution differs"):
             self.assemble("binary-drift")
 
         (self.main / "execution.json").write_bytes(original_execution)
         self.rebind_main_source()
-        result_rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text().splitlines()]
+        result_rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         binding = result_rows[0]["provider_metadata"]["call_log"]
         path = self.main / binding["path"]
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["identity"]["provider"] = "moli"
         binary = json.dumps(payload, sort_keys=True).encode()
         path.write_bytes(binary)

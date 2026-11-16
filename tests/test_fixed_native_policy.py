@@ -9,6 +9,23 @@ from harness.web_fetch.providers.base import build_provider
 from harness.web_fetch.providers.http_client import HttpResponse
 
 
+@pytest.mark.parametrize('value', [1, 15000, 90000, 0, -1, 90001, True, '15000', 1.5])
+def test_exa_explicit_native_timeout_is_validated_and_forwarded(value):
+    provider = build_provider('exa', {'type': 'exa_contents', 'api_key': 'fixture',
+        'uniform_native_parameters': True, 'livecrawl_timeout_ms': value})
+    case = EvalCase('one', 'one', 'https://example.com/', 'control', [])
+    valid = type(value) is int and 1 <= value <= 90000
+    assert bool(provider.validate()) is not valid
+    if not valid:
+        with pytest.raises(ValueError, match='livecrawl_timeout_ms'):
+            provider.native_http_arguments(case, 30)
+        return
+    _, arguments = provider.native_http_arguments(case, 30)
+    assert arguments['json_body']['livecrawlTimeout'] == value
+    assert arguments['timeout'] == 30
+    assert provider.native_configured_parameters()['livecrawl_timeout_ms'] == value
+
+
 @pytest.mark.parametrize("kind,module,payload", [
     ("tavily_extract", "tavily", {"results": [{"url": "https://example.com/", "raw_content": "complete answer"}]}),
     ("exa_contents", "exa", {"results": [{"url": "https://example.com/", "text": "complete answer"}], "statuses": [{"status": "success"}]}),
@@ -89,7 +106,7 @@ def test_fixed_native_rejects_undeclared_task_routes(track, task_kind):
 def test_runner_rejects_extra_attempts_before_preflight(tmp_path, runs, retries):
     from harness.web_fetch.runner import run_evaluation
     provider = build_provider("fixture", {"type": "fixture", "uniform_native_parameters": True})
-    with pytest.raises(ValueError, match="one run"):
+    with pytest.raises(ValueError, match="At most one" if retries > 1 else "one run"):
         run_evaluation(output_dir=tmp_path / "run", dataset_meta={}, dataset_path=tmp_path / "absent.json",
             cases=[EvalCase("one", "one", "https://example.com/", "control", [])], providers=[provider], provider_config_path=tmp_path / "absent-providers.json",
             runs=runs, timeout=45, delay=0, max_failure_retries=retries)
@@ -143,15 +160,19 @@ def test_native_cloudflare_media_has_no_answer_dependent_selectors_or_timers():
     assert "timeout" not in bodies[0]["gotoOptions"]
 
 
-def test_historical_430_cases_pass_native_hint_and_output_guard():
+def test_historical_430_cases_pass_native_hint_and_output_guard(tmp_path):
     from harness.web_fetch.config import load_dataset
+    from harness.web_fetch.retrieval_hints import native_fetch_dataset
     provider = build_provider("fixture", {"type": "fixture", "uniform_native_parameters": True})
     count = 0
     for filename in ("dataset.json", "dynamic-content-100-moli-webfetch/dataset.json",
                      "popular-sites/dataset.json", "risk-control/dataset.json"):
         path = Path(__file__).resolve().parents[1] / "evaluation" / filename
-        read_frozen_dataset_bytes(path)
-        _, cases = load_dataset(path)
+        # Native runs execute the normalized dataset, as certification does.
+        native = tmp_path / filename.replace("/", "-")
+        native.write_text(json.dumps(native_fetch_dataset(
+            json.loads(read_frozen_dataset_bytes(path)))), encoding="utf-8")
+        _, cases = load_dataset(native)
         for case in cases:
             if filename == "dataset.json" and case.track not in {"web", "document", "image", "video"}:
                 continue
@@ -186,11 +207,11 @@ def test_native_dataset_marker_reaches_real_runner_without_per_case_assistance(t
     dataset = native_fetch_dataset(source)
     assert native_fetch_dataset(dataset) == dataset
     path = tmp_path / "dataset.json"
-    path.write_text(json.dumps(dataset))
+    path.write_text(json.dumps(dataset), encoding="utf-8")
     _, cases = load_dataset(path)
     provider = build_provider("native", {"type": "fixture", "uniform_native_parameters": True})
     config = tmp_path / "providers.json"
-    config.write_text(json.dumps({"providers": {"native": {"type": "fixture", "uniform_native_parameters": True}}}))
+    config.write_text(json.dumps({"providers": {"native": {"type": "fixture", "uniform_native_parameters": True}}}), encoding="utf-8")
     rows, _ = run_evaluation(output_dir=tmp_path / "run", dataset_meta=dataset, dataset_path=path,
         cases=cases, providers=[provider], provider_config_path=config, runs=1, timeout=45, delay=0)
     assert len(rows) == 1 and rows[0]["ok"]

@@ -2,6 +2,7 @@
 
 import gzip
 import hashlib
+import io
 import json
 import shutil
 from copy import deepcopy
@@ -9,35 +10,12 @@ from pathlib import Path
 
 from harness.web_fetch.wcxb_dataset import validate_manifest
 from harness.web_fetch.webmainbench_runner import load_wcxb_source
-
-EVALUATOR = """import json
-import shutil
-from copy import deepcopy
-from pathlib import Path
-
-def load_ground_truth(split):
-    root = Path(__file__).parent / split / "ground-truth"
-    return {path.stem: json.loads(path.read_text())["ground_truth"] for path in root.glob("*.json")}
-
-def word_f1(predicted, reference):
-    left, right = set(predicted.split()), set(reference.split())
-    overlap = len(left & right)
-    precision = overlap / len(left) if left else 0.0
-    recall = overlap / len(right) if right else 0.0
-    return precision, recall, 2 * precision * recall / (precision + recall) if overlap else 0.0
-
-def snippet_check(text, snippets):
-    return sum(value in text for value in snippets) / len(snippets) if snippets else 1.0
-"""
+from harness.web_fetch.wcxb_scoring import UPSTREAM_EVALUATOR_SHA256
+from tests.helpers import write_json
 
 
 def sha(raw):
     return hashlib.sha256(raw).hexdigest()
-
-
-def write_json(path, value):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value) + "\n")
 
 
 def write_jsonl(path, rows):
@@ -48,7 +26,6 @@ def write_jsonl(path, rows):
 def create_cohort(root: Path, *, paired=False, providers=("alpha", "beta", "gamma")):
     source, evidence = root / "source", root / "evidence"
     (source / "test/html").mkdir(parents=True)
-    (source / "evaluate.py").write_text(EVALUATOR)
     for index in range(511):
         case_id = f"case-{index:03d}"
         text = f"Independent article {index}" if index < 2 else ""
@@ -65,9 +42,14 @@ def create_cohort(root: Path, *, paired=False, providers=("alpha", "beta", "gamm
                 "_internal": {"page_type": {"primary": "article"}},
             },
         )
-        (source / f"test/html/{case_id}.html.gz").write_bytes(
-            gzip.compress(f"<html><body><main>{text}</main></body></html>".encode(), mtime=0)
-        )
+        # The source hash covers these bytes, so they must match on every
+        # platform. gzip.compress takes its header OS byte from the zlib build;
+        # GzipFile always writes 255. Stored (level 0) blocks are identical
+        # across zlib implementations such as zlib-ng.
+        page = io.BytesIO()
+        with gzip.GzipFile(fileobj=page, mode="wb", compresslevel=0, mtime=0) as stream:
+            stream.write(f"<html><body><main>{text}</main></body></html>".encode())
+        (source / f"test/html/{case_id}.html.gz").write_bytes(page.getvalue())
     records, source_hash = load_wcxb_source(source)
     manifest = {
         "dataset_id": "synthetic-wcxb",
@@ -88,7 +70,7 @@ def create_cohort(root: Path, *, paired=False, providers=("alpha", "beta", "gamm
         "providers": list(providers),
         "source_dataset_sha256": source_hash,
         "sample_manifest_sha256": sample_hash,
-        "official_evaluator_sha256": sha((source / "evaluate.py").read_bytes()),
+        "official_evaluator_sha256": UPSTREAM_EVALUATOR_SHA256,
         "case_count": 2,
         "primary_quality_case_count": 2,
         "max_failure_retries": 1,
@@ -111,7 +93,7 @@ def create_cohort(root: Path, *, paired=False, providers=("alpha", "beta", "gamm
                 relative = f"artifacts/{cid}-p{number:02d}.txt"
                 path = run_dir / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(content)
+                path.write_text(content, encoding="utf-8")
                 call = {
                     "provider": provider,
                     "run_id": run_id,
@@ -143,7 +125,7 @@ def create_cohort(root: Path, *, paired=False, providers=("alpha", "beta", "gamm
                 total_elapsed_ms=sum(row["elapsed_ms"] for row in attempts),
                 retry_selection="final_physical_attempt_is_authoritative",
             )
-            (run_dir / final["artifact_path"]).write_text(content)
+            (run_dir / final["artifact_path"]).write_text(content, encoding="utf-8")
             logical.append(final)
         write_jsonl(run_dir / "results.jsonl", logical)
         write_jsonl(run_dir / "physical-attempts.jsonl", physical)
@@ -272,16 +254,16 @@ def create_report_inputs(tmp_path, *, english_source=True):
     shutil.copy2(Path(__file__).resolve().parents[1] / 'research/provider-adoption.json',
                  root / 'research/provider-adoption.json')
     (root / 'content').mkdir()
-    (root / 'content/wcxb-repair-zh.fragment').write_text('<section id="guide-repair">合成样例')
+    (root / 'content/wcxb-repair-zh.fragment').write_text('<section id="guide-repair">合成样例', encoding="utf-8")
     if english_source:
-        (root / 'content/wcxb-repair-en.fragment').write_text('<section id="guide-repair">Synthetic specimen')
+        (root / 'content/wcxb-repair-en.fragment').write_text('<section id="guide-repair">Synthetic specimen', encoding="utf-8")
     rows, ground_truth, calls = [], {}, []
     for case in CASES:
         ground_truth[case] = {'main_content': 'Independent article 0', 'page_type': 'article',
                               'with': ['Independent'], 'without': ['Forbidden']}
         target = root / f'inputs/{case}.txt'
         target.parent.mkdir(exist_ok=True)
-        target.write_text('<main>Independent article 0</main>')
+        target.write_text('<main>Independent article 0</main>', encoding="utf-8")
         for provider in PROVIDERS:
             row = deepcopy(next(row for row in original
                                 if row['provider'] == provider and row['case_id'] == 'case-000'))
@@ -290,7 +272,7 @@ def create_report_inputs(tmp_path, *, english_source=True):
             rows.append(row)
             artifact = root / f'artifacts/{provider}/{case}.txt'
             artifact.parent.mkdir(parents=True, exist_ok=True)
-            artifact.write_text('Independent article 0')
+            artifact.write_text('Independent article 0', encoding="utf-8")
     for round_number in (0, 1):
         for index, case in enumerate(CASES):
             methods = ('release', 'pr') if (index + round_number) % 2 == 0 else ('pr', 'release')

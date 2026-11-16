@@ -6,6 +6,7 @@ from pathlib import Path
 from harness.web_fetch.reference_inputs import input_tree
 from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 from tests.conftest import read_frozen_dataset_bytes
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TRACK = ROOT / "evaluation/popular-sites"
@@ -16,19 +17,14 @@ def sha256(path: Path) -> str:
 
 
 class PopularSitesCurrentTests(unittest.TestCase):
-    def test_current_dataset_registry_and_profile_are_one_complete_matrix(self):
+    def test_current_dataset_and_review_are_one_complete_matrix(self):
         dataset = json.loads(read_frozen_dataset_bytes(TRACK / "dataset.json"))
         review_path = TRACK / "review.json"
-        review = json.loads(review_path.read_text())
-        profile = json.loads((TRACK / "current-report.json").read_text())
+        review = json.loads(review_path.read_text(encoding="utf-8"))
 
         cases = dataset["cases"]
         self.assertEqual(len(cases), 100)
         self.assertEqual(len({case["id"] for case in cases}), 100)
-        self.assertEqual(profile["dataset_id"], dataset["id"])
-        self.assertEqual(profile["case_count"], 100)
-        self.assertEqual(profile["providers"], ["moli-webfetch"])
-        self.assertEqual(profile["artifact_site_base_url"], "https://artifact-site.lexmount.cn")
         self.assertEqual(
             dataset["comparison"]["rule_revision"]["review_sha256"], sha256(review_path)
         )
@@ -43,6 +39,7 @@ class PopularSitesCurrentTests(unittest.TestCase):
         self.assertNotIn("source_rule_registry", dataset["comparison"])
         self.assertNotIn("execution_contract", dataset["comparison"])
 
+    @pytest.mark.slow
     def test_every_case_has_hash_bound_current_source_and_valid_contract(self):
         dataset = json.loads(read_frozen_dataset_bytes(TRACK / "dataset.json"))
         for case in dataset["cases"]:
@@ -56,7 +53,7 @@ class PopularSitesCurrentTests(unittest.TestCase):
                 self.assertTrue(stable_page.is_file())
                 self.assertTrue(evidence.is_file())
                 self.assertEqual(annotation["anchor_evidence_sha256"], sha256(stable_page))
-                metadata = json.loads(evidence.read_text())
+                metadata = json.loads(evidence.read_text(encoding="utf-8"))
                 self.assertEqual(metadata["case_id"], case["id"])
                 self.assertEqual(metadata["url"], case["url"])
                 self.assertEqual(metadata["stable_page_sha256"], sha256(stable_page))

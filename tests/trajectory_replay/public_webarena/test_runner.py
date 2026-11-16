@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -9,6 +10,7 @@ from urllib.error import URLError
 
 import pytest
 
+from harness import env_file
 from harness.environments.browser import (
     ENGINE_PORTS,
     cleanup_browser_runtime,
@@ -16,16 +18,18 @@ from harness.environments.browser import (
     published_endpoint,
     start_browser_container,
 )
-from harness.trajectory_replay.public_webarena import diagnostics, runner
+from harness.trajectory_replay.core import diagnostics, docker_runner
+from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
+from harness.trajectory_replay.public_webarena import runner
+from harness.trajectory_replay.public_webarena.config import redact_site_passwords
 from harness.trajectory_replay.public_webarena.runner import (
     ENGINE_IMAGES,
     _capture_final_page_evidence,
     _environment,
     _environment_failure_row,
-    _http_origin,
     _prepare_page,
 )
-from harness.trajectory_replay.public_webarena.suite import BrowserTask, TaskSuite
+from harness.web_fetch import config as web_fetch_config
 
 
 def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, monkeypatch):
@@ -38,7 +42,7 @@ def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, mon
     session.on.side_effect = lambda event, callback: handlers.update({event: callback})
     session.send.return_value = {"body": "saved", "base64Encoded": False}
     monkeypatch.setattr(runner, "ResourceSampler", lambda *a, **kw: MagicMock())
-    monkeypatch.setattr(runner, "_resource_result", lambda *a: {})
+    monkeypatch.setattr(runner, "resource_result", lambda *a: {})
     monkeypatch.setattr(runner, "_capture_final_page_evidence", lambda *a: {"status": "complete"})
     monkeypatch.setattr(runner, "build_agent_response", lambda *a: None)
 
@@ -67,12 +71,73 @@ def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, mon
         "chromium", page, set(), MagicMock(), task, 1, 100, registry, tmp_path,
     )
     assert result["status"] == "pass", result["error"]
+    assert result["process_validation"] == {
+        "expected_actions": ["navigate"],
+        "actual_actions": ["navigate"],
+        "all_calls_passed": True,
+        "passed": True,
+    }
     assert result["network_har"]["entry_count"] == 1
-    raw = (tmp_path / "network.har").read_text()
+    raw = (tmp_path / "network.har").read_text(encoding="utf-8")
     assert "private-token" not in raw
     entry = json.loads(raw)["log"]["entries"][0]
     assert entry["request"]["url"] == "https://site.test/save"
     assert entry["request"]["headers"] == [{"name": "Authorization", "value": "[REDACTED]"}]
+
+
+@pytest.mark.parametrize(
+    ("password", "written"),
+    [
+        ("file-secret", "file-secret"),
+        ('a"&xtailx', 'a"&amp;xtailx'),
+        ('a"&xtailx', 'a\\"&amp;xtailx'),
+        ('a"&xtailx', "a\\&quot;&amp;xtailx"),
+    ],
+)
+@pytest.mark.parametrize("failure", ["execution", "evaluator_result", "evaluator_exception"])
+def test_failed_task_row_omits_the_login_password(
+    tmp_path, monkeypatch, failure, password, written
+):
+    from harness.trajectory_replay.public_webarena.evaluators import TaskEvaluation
+
+    page = MagicMock()
+    page.context.pages = [page]
+    monkeypatch.setattr(runner, "ResourceSampler", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(runner, "resource_result", lambda *a: {})
+    monkeypatch.setattr(runner, "_capture_final_page_evidence", lambda *a: {"status": "complete"})
+    monkeypatch.setattr(runner, "build_agent_response", lambda *a: None)
+
+    def execute(_page, _calls, *, trace, **kwargs):
+        if failure == "execution":
+            raise RuntimeError(f"login form echoed {written}")
+        trace.append({"action": "navigate", "status": "pass"})
+
+    monkeypatch.setattr(runner, "execute_steps", execute)
+    registry = MagicMock()
+    if failure == "evaluator_exception":
+        registry.evaluate.side_effect = RuntimeError(f"login form echoed {written}")
+    else:
+        registry.evaluate.return_value = TaskEvaluation(
+            "fail",
+            0.0,
+            ({"output": "page", "expected": "x", "actual": [written], "passed": False},),
+            "test",
+            error=f"login form echoed {written}",
+        )
+    task = BrowserTask(
+        "task", "Task", ({"action": "navigate"},), (), (), "simple",
+        {"expected_actions": ["navigate"]}, {},
+    )
+
+    row = runner._run_task(
+        "chromium", page, set(), MagicMock(), task, 1, 100, registry, tmp_path,
+        redact_text=lambda text: redact_site_passwords(text, [password]),
+    )
+
+    assert row["status"] == "fail"
+    assert "login form echoed [REDACTED]" in row["error"]
+    assert "login form echoed [REDACTED]" in row["trace"][-1]["output"]
+    assert password[-6:] not in json.dumps(row)
 
 
 def test_authoring_runtime_caps_ad_hoc_repair_target_waits():
@@ -322,14 +387,41 @@ def test_measured_run_rejects_missing_cgroup_controls_before_creating_output(tmp
     client.networks.create.assert_not_called()
 
 
+@pytest.mark.parametrize("generate_report", [False, True])
 @pytest.mark.parametrize("unexpected_diagnostic_error", [False, True])
+@pytest.mark.parametrize("with_smoke", [False, True])
 def test_run_saves_evidence_before_diagnostics_and_cleans_up(
-    tmp_path, monkeypatch, unexpected_diagnostic_error
+    tmp_path, monkeypatch, unexpected_diagnostic_error, generate_report, with_smoke
 ):
     suite_path = tmp_path / "suite.json"
-    suite_path.write_text("{}")
+    suite_path.write_text("{}", encoding="utf-8")
+    import shutil
+
+    from harness.trajectory_replay.report_inputs import replay_fixture_root
+    shutil.copytree(replay_fixture_root(), suite_path.parent / "fixtures")
+    (suite_path.parent / "fixtures/core.html").write_text(
+        "Original historical core", encoding="utf-8"
+    )
+    (suite_path.parent / "fixtures/nested").mkdir()
+    (suite_path.parent / "fixtures/nested/custom.js").write_text(
+        "window.historical = true;", encoding="utf-8"
+    )
+    smoke_path = tmp_path / "selected-smoke.json"
+    smoke_raw = b'{"results":[{"status":"fail"}],"executed_at":"2026-09-01"}'
+    smoke_path.write_bytes(smoke_raw)
+    # A neighboring success must not be selected instead of the explicit evidence.
+    (suite_path.parent / "agent_smoke.json").write_text(
+        '{"results":[{"status":"pass"}]}', encoding="utf-8"
+    )
     output = tmp_path / "artifacts"
-    task = BrowserTask("task", "Task", (), (), (), "simple", {}, {})
+    task = BrowserTask(
+        "task", "Task", ({"action": "navigate", "url": "{fixture_origin}/core.html"},),
+        (), (), "simple", {}, {},
+    )
+    monkeypatch.setattr(runner, "start_fixture_server", lambda root: (
+        MagicMock(), MagicMock(), "http://fixture.test",
+    ))
+    task.ground_truth["expected_outputs"] = {}
     monkeypatch.setattr(runner, "load_suite", lambda _: TaskSuite("test", (task,)))
     client = MagicMock()
     client.info.return_value = {"OSType": "linux", "CgroupVersion": "2"}
@@ -338,10 +430,17 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     monkeypatch.setattr(
         runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
     )
-    monkeypatch.setattr(runner, "start_browser_container", lambda *a, **k: MagicMock())
-    monkeypatch.setattr(runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
-    monkeypatch.setattr(runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
-    monkeypatch.setattr(runner, "DockerStatsResources", lambda _: None)
+    moli_version = {"output": b"moli 1.0.6\n"}
+    monkeypatch.setattr(
+        docker_runner,
+        "start_browser_container",
+        lambda *a, **k: MagicMock(
+            exec_run=lambda _command: SimpleNamespace(exit_code=0, **moli_version)
+        ),
+    )
+    monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
+    monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
+    monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: None)
     monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
     monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
     monkeypatch.setattr(runner, "_environment", lambda *a: {})
@@ -369,15 +468,35 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         "shard_index": 1,
     }
     monkeypatch.setattr(runner, "summarize_attempts", lambda *a, **k: dict(baseline))
-    report = MagicMock()
+    report_path = tmp_path / "report.html"
+    report = MagicMock(
+        side_effect=lambda *a, **k: report_path.write_text(
+            "<html>Saved results</html>", encoding="utf-8"
+        )
+    )
     monkeypatch.setattr(runner, "write_latest_report", report)
-    monkeypatch.setenv("OPENAI_API_KEY", "test")
-    monkeypatch.setenv("OPENAI_BASE_URL", "https://test.invalid")
+    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text(
+        "OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://test.invalid\n",
+        encoding="utf-8"
+    )
 
     def verify_artifacts():
         attempts = (output / "attempts.jsonl").read_bytes()
         summary_bytes = (output / "summary.json").read_bytes()
-        manifest = json.loads((output / "manifest.json").read_text())
+        manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+        if with_smoke:
+            assert manifest["agent_smoke"]["results"] == [{"status": "fail"}]
+            assert manifest["agent_smoke"]["provenance"]["source_sha256"] == (
+                hashlib.sha256(smoke_raw).hexdigest()
+            )
+        else:
+            assert "agent_smoke" not in manifest
+        fixture_root = suite_path.parent / "fixtures"
+        assert len(manifest["fixture_files"]) == 9
+        assert "nested/custom.js" in manifest["fixture_files"]
+        for name, digest in manifest["fixture_files"].items():
+            assert digest == hashlib.sha256((fixture_root / name).read_bytes()).hexdigest()
         assert len(attempts.splitlines()) == 2
         assert (
             manifest["artifact_provenance"]["attempts_sha256"]
@@ -401,8 +520,10 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
                 suite_path=suite_path,
                 output_dir=output,
                 reports_dir=tmp_path,
+                agent_smoke_path=smoke_path if with_smoke else None,
                 max_retries=0,
                 llm_diagnostics=True,
+                generate_report=generate_report,
                 task_selection=task_selection,
             )
         assert verify_artifacts() == baseline
@@ -412,17 +533,73 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
             suite_path=suite_path,
             output_dir=output,
             reports_dir=tmp_path,
+                agent_smoke_path=smoke_path if with_smoke else None,
             max_retries=0,
             llm_diagnostics=True,
+            generate_report=generate_report,
             task_selection=task_selection,
         )
         assert verify_artifacts() == result
         assert result["score"] == baseline["score"]
         assert result["failure_diagnostics"]["llm"]["error_type"] == "URLError"
         assert len(result["failure_diagnostics"]["rule_engine"]["groups"]) == 1
-        report.assert_called_once()
+        if generate_report:
+            report.assert_called_once()
+            assert report_path.is_file()
+        else:
+            report.assert_not_called()
+            assert not report_path.exists()
+            # Rebuild from the persisted attempts through the public command;
+            # browser/provider mocks are not called again.
+            import importlib.util
+            root = Path(__file__).resolve().parents[3]
+            script = root / 'examples/trajectory_replay/public_webarena/rebuild_report.py'
+            spec = importlib.util.spec_from_file_location('explicit_replay_report', script)
+            rebuild = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(rebuild)
+            monkeypatch.setattr(rebuild, 'load_suite', lambda _: TaskSuite('test', (task,)))
+            monkeypatch.setattr(rebuild, 'summarize_attempts', lambda *a, **k: result)
+            monkeypatch.setattr(rebuild, 'diagnose_summary', lambda *a, **k: None)
+            monkeypatch.setattr(rebuild, 'write_latest_report', report)
+            evidence = tmp_path / 'qualification.json'
+            evidence.write_text(json.dumps({
+                'dataset_sha256': hashlib.sha256(suite_path.read_bytes()).hexdigest(),
+                'results': [{'task_id': 'task', 'status': 'pass', 'observed': {}}],
+                'automatic_browser_replay': {'status': 'pass', 'passed': 1},
+            }), encoding="utf-8")
+            monkeypatch.setattr(sys, 'argv', ['rebuild_report', '--artifacts', str(output),
+                '--suite', str(suite_path), '--reports', str(tmp_path),
+                '--ground-truth-evidence', str(evidence)])
+            rebuild.main()
+            report.assert_called_once()
+            assert report_path.is_file()
     playwright.stop.assert_called_once()
     client.networks.create.return_value.remove.assert_called()
+    # Rerunning with the same --output must not replace the saved evidence.
+    attempts = (output / "attempts.jsonl").read_bytes()
+    with pytest.raises(ValueError, match="existing evidence is immutable"):
+        runner.run_evaluation(
+            suite_path=suite_path, output_dir=output, reports_dir=tmp_path, max_retries=0
+        )
+    assert (output / "attempts.jsonl").read_bytes() == attempts
+    # The curated replay tags a newer Moli build with the same image name.
+    moli_version["output"] = b"moli 1.1.3\n"
+    with pytest.raises(RuntimeError, match="public replay requires Moli 1.0.6"):
+        runner.run_evaluation(
+            suite_path=suite_path,
+            output_dir=tmp_path / "wrong-moli",
+            reports_dir=tmp_path,
+            max_retries=0,
+        )
+    assert not (tmp_path / "wrong-moli").exists()
+
+
+def test_public_moli_version_matches_its_image_recipe():
+    dockerfile = Path(
+        "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile"
+    ).read_text(encoding="utf-8")
+
+    assert f"ARG MOLI_VERSION=v{runner.MOLI_VERSION}\n" in dockerfile
 
 
 def test_moli_image_installs_its_verified_dynamic_font_dependency():
@@ -442,18 +619,18 @@ def test_browser_images_expose_auditable_debian_mirror_overrides():
         )
         assert "ARG DEBIAN_MIRROR=http://deb.debian.org/debian" in dockerfile
         assert "ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security" in dockerfile
-        assert "lex.browser-use-eval.debian-mirror" in dockerfile
-        assert "lex.browser-use-eval.debian-security-mirror" in dockerfile
+        assert "lex.webstone.debian-mirror" in dockerfile
+        assert "lex.webstone.debian-security-mirror" in dockerfile
 
 
 def test_environment_records_browser_image_build_source_labels():
     image = SimpleNamespace(
         id="sha256:image",
-        tags=["lex-browser-use-eval-chromium:local"],
+        tags=["lex-webstone-chromium:local"],
         attrs={
             "Config": {
                 "Labels": {
-                    "lex.browser-use-eval.debian-mirror": "http://mirror.example/debian",
+                    "lex.webstone.debian-mirror": "http://mirror.example/debian",
                     "unrelated": "excluded",
                 }
             }
@@ -477,7 +654,7 @@ def test_environment_records_browser_image_build_source_labels():
     result = _environment(client, {"chromium": container})
 
     assert result["images"]["chromium"]["build_source"] == {
-        "lex.browser-use-eval.debian-mirror": "http://mirror.example/debian"
+        "lex.webstone.debian-mirror": "http://mirror.example/debian"
     }
     assert result["browser_versions"]["chromium"] == "Chromium 152.0.7977.82"
 
@@ -527,7 +704,7 @@ def test_final_page_evidence_binds_screenshot_and_visible_page_state(tmp_path):
 
     assert result["status"] == "complete"
     assert result["screenshot"]["sha256"] == hashlib.sha256(screenshot).hexdigest()
-    assert json.loads((tmp_path / "final-page.json").read_text()) == {
+    assert json.loads((tmp_path / "final-page.json").read_text(encoding="utf-8")) == {
         "url": "https://example.test/result",
         "title": "Result",
         "visible_text": "Visible result",
@@ -571,7 +748,7 @@ def test_final_page_evidence_retries_navigation_races_and_writes_partial(tmp_pat
     assert result["status"] == "partial"
     assert result["screenshot"] is None
     assert result["page"]["path"] == "final-page.json"
-    payload = json.loads((tmp_path / "final-page.json").read_text())
+    payload = json.loads((tmp_path / "final-page.json").read_text(encoding="utf-8"))
     assert payload["url"] == "https://example.test/loading"
     assert payload["visible_text"] == ""
     assert payload["interactive_elements"] == []
@@ -615,7 +792,9 @@ def test_webarena_run_mode_fails_closed_on_qualification_state(
         "source": {"url": "https://example.com/source"},
     }
     path = tmp_path / "suite.json"
-    path.write_text(json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": [task]}))
+    path.write_text(
+        json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": [task]}), encoding="utf-8"
+    )
     docker_call = MagicMock()
     monkeypatch.setattr(runner.docker, "from_env", docker_call)
 
@@ -634,6 +813,122 @@ def test_webarena_run_mode_fails_closed_on_qualification_state(
     docker_call.assert_not_called()
 
 
+@pytest.mark.parametrize("password", ["file-secret", 'back\\slash"quote'])
+@pytest.mark.parametrize("failure", ["environment", "evaluator"])
+def test_failed_attempt_evidence_omits_the_login_password(
+    tmp_path, monkeypatch, failure, password
+):
+    from harness.trajectory_replay.public_webarena.evaluators import TaskEvaluation
+
+    task = {
+        "id": "webarena-1",
+        "title": "Qualified",
+        "difficulty": "simple",
+        "tags": ["webarena"],
+        "trajectory": {
+            "schema": "lex_browser_trajectory/1",
+            "actions": [{"action": "navigate", "url": "https://example.com", "save_as": "page"}],
+        },
+        "assertions": [],
+        "evaluator": {"kind": "webarena_verified", "task_id": 1, "revision": 1},
+        "environment": {
+            "kind": "webarena_verified",
+            "sites": ["reddit"],
+            "start_urls": ["__REDDIT__"],
+        },
+        "ground_truth": {
+            "expected_actions": ["navigate"],
+            "qualification": {"status": "eligible"},
+        },
+        "source": {"url": "https://example.com/source"},
+    }
+    suite = tmp_path / "suite.json"
+    suite.write_text(
+        json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": [task]}),
+        encoding="utf-8",
+    )
+    (tmp_path / "images.json").write_text(
+        json.dumps({"schema": "lex_webarena_environment_images/1", "images": {}}),
+        encoding="utf-8",
+    )
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "image_lock": "images.json",
+                "environments": {
+                    "__REDDIT__": {
+                        "urls": ["http://reddit.test"],
+                        "credentials_env": {"username": "TEST_USER", "password": "TEST_SECRET"},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    secrets = tmp_path / "repository.env"
+    secrets.write_text(f"TEST_USER=user\nTEST_SECRET={password}\n", encoding="utf-8")
+    monkeypatch.setattr(env_file, "_repository_credentials_file", secrets)
+    monkeypatch.setenv("TEST_SECRET", "exported-secret")
+
+    def failed_reset(self, *_args, **_kwargs):
+        raise RuntimeError(f"login form echoed {[self._credentials('reddit')['password']]!r}")
+
+    page = MagicMock()
+    page.context.pages = [page]
+    registry = MagicMock()
+    registry.evaluate.return_value = TaskEvaluation(
+        "fail", 0.0, (), "test", error=f"login form echoed {[password]!r}"
+    )
+    monkeypatch.setattr(runner, "EvaluatorRegistry", lambda **_: registry)
+    monkeypatch.setattr(runner, "ResourceSampler", lambda *a, **kw: MagicMock())
+    monkeypatch.setattr(runner, "resource_result", lambda *a: {})
+    monkeypatch.setattr(runner, "_capture_final_page_evidence", lambda *a: {"status": "complete"})
+    monkeypatch.setattr(runner, "build_agent_response", lambda *a: None)
+    monkeypatch.setattr(
+        runner,
+        "execute_steps",
+        lambda _page, _calls, *, trace, **_: trace.append({"action": "navigate", "status": "pass"}),
+    )
+    client = MagicMock()
+    client.info.return_value = {"OSType": "linux", "CgroupVersion": "2"}
+    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(
+        runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: MagicMock())
+    )
+    monkeypatch.setattr(docker_runner, "start_browser_container", lambda *a, **k: MagicMock())
+    monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
+    monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
+    monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: MagicMock())
+    monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
+    monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
+    monkeypatch.setattr(runner, "_environment", lambda *a: {})
+    monkeypatch.setattr(runner, "summarize_attempts", lambda *a, **k: {})
+    monkeypatch.setattr(runner.WebArenaEnvironment, "verify_runtime", lambda *a: {})
+    monkeypatch.setattr(runner.WebArenaEnvironment, "prepare", lambda *a, **k: page)
+    monkeypatch.setattr(
+        runner.WebArenaEnvironment,
+        "reset",
+        failed_reset if failure == "environment" else lambda *a, **k: {},
+    )
+    output = tmp_path / "output"
+
+    runner.run_evaluation(
+        suite_path=suite,
+        output_dir=output,
+        reports_dir=tmp_path / "reports",
+        webarena_config_path=config,
+        engines=("chromium",),
+        max_retries=0,
+        generate_report=False,
+    )
+
+    attempts = (output / "attempts.jsonl").read_text(encoding="utf-8")
+    assert "login form echoed ['[REDACTED]']" in json.loads(attempts.splitlines()[0])["error"]
+    for spelling in (password, repr(password)[1:-1], json.dumps(password)[1:-1]):
+        assert spelling not in attempts
+
+
 def test_external_websocket_url_rewrites_container_advertised_host():
     assert (
         external_websocket_url(
@@ -642,11 +937,6 @@ def test_external_websocket_url_rewrites_container_advertised_host():
         )
         == "ws://127.0.0.1:32776/devtools/browser/moli-browser"
     )
-
-
-def test_http_origin_keeps_only_scheme_and_authority():
-    assert _http_origin("https://example.com:8443/a?q=1") == "https://example.com:8443"
-    assert _http_origin("about:blank") is None
 
 
 def test_published_endpoint_handles_missing_port_binding():

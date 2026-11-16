@@ -4,6 +4,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
+
+def test_anchor_index_preserves_the_callers_decoding_contract(tmp_path):
+    from harness.reporting.links import LinkIndex
+
+    target = tmp_path / 'source.html'
+    target.write_bytes(b'<p id="source">Original encoding: \xff</p>')
+    assert 'source' in LinkIndex().page(target).ids
+    with pytest.raises(UnicodeDecodeError):
+        LinkIndex(errors='strict').page(target)
+
 
 class ReportLinkCheckTest(unittest.TestCase):
     def run_check(self, root: Path) -> subprocess.CompletedProcess[str]:
@@ -37,14 +49,14 @@ class ReportLinkCheckTest(unittest.TestCase):
             root = Path(directory)
             source = root / "local-evidence" / "capture" / "source.html"
             source.parent.mkdir(parents=True)
-            source.write_text('<a href="original-site-only.html">Source navigation</a>')
+            source.write_text('<a href="original-site-only.html">Source navigation</a>', encoding='utf-8')
             home = root / "index.html"
-            home.write_text('<a href="local-evidence/capture/source.html">Frozen source</a>')
+            home.write_text('<a href="local-evidence/capture/source.html">Frozen source</a>', encoding='utf-8')
             self.assertEqual(self.run_check(root).returncode, 0)
-            home.write_text('<a href="local-evidence/capture/missing.html">Missing evidence</a>')
+            home.write_text('<a href="local-evidence/capture/missing.html">Missing evidence</a>', encoding='utf-8')
             self.assertEqual(self.run_check(root).returncode, 1)
-            home.write_text('<a href="local-evidence/capture/source.html">Frozen source</a>')
-            source.write_text('<meta content="1" name="browser-eval-report"><a href="missing.html">Report navigation</a>')
+            home.write_text('<a href="local-evidence/capture/source.html">Frozen source</a>', encoding='utf-8')
+            source.write_text('<meta content="1" name="webstone-report"><a href="missing.html">Report navigation</a>', encoding='utf-8')
             self.assertEqual(self.run_check(root).returncode, 1)
 
     def test_rejects_missing_fragment(self) -> None:
@@ -61,12 +73,12 @@ class ReportLinkCheckTest(unittest.TestCase):
         for attribute in ('data-filter','data-wmb-filter'):
             with self.subTest(attribute=attribute), tempfile.TemporaryDirectory() as directory:
                 root=Path(directory)
-                (root/'index.html').write_text('<a href="analysis.html#inspect?query=case-a">结果</a>')
-                (root/'analysis.html').write_text('<input '+attribute+'="query"><select '+attribute+'="result"><option value="">全部</option><option value="fail">失败</option></select>')
+                (root/'index.html').write_text('<a href="analysis.html#inspect?query=case-a">结果</a>', encoding='utf-8')
+                (root/'analysis.html').write_text('<input '+attribute+'="query"><select '+attribute+'="result"><option value="">全部</option><option value="fail">失败</option></select>', encoding='utf-8')
                 self.assertEqual(self.run_check(root).returncode,0)
-                (root/'index.html').write_text('<a href="analysis.html#inspect?unknown=case-a">结果</a>')
+                (root/'index.html').write_text('<a href="analysis.html#inspect?unknown=case-a">结果</a>', encoding='utf-8')
                 self.assertEqual(self.run_check(root).returncode,1)
-                (root/'index.html').write_text('<a href="analysis.html#inspect?result=invalid">结果</a>')
+                (root/'index.html').write_text('<a href="analysis.html#inspect?result=invalid">结果</a>', encoding='utf-8')
                 self.assertEqual(self.run_check(root).returncode,1)
 
     def test_honors_document_base(self) -> None:
@@ -98,7 +110,7 @@ def test_virtual_capture_links_follow_same_frozen_evidence_boundary():
     with pytest.raises(ValueError,match='Invalid internal link'):
         validate_virtual_links(files,content.__getitem__)
     content['index.html'] = f'<a href="{capture}">Evidence</a>'
-    content[capture] = '<meta name="browser-eval-report" content="1">'+content[capture]
+    content[capture] = '<meta name="webstone-report" content="1">'+content[capture]
     with pytest.raises(ValueError,match='Invalid internal link'):
         validate_virtual_links(files,content.__getitem__)
 
@@ -115,3 +127,28 @@ def test_bilingual_lazy_log_dialogs_require_the_same_root_bound_source():
     del files['logs/actual.txt']
     with pytest.raises(ValueError, match='Invalid internal evidence'):
         validate_virtual_links(files, pages.__getitem__)
+
+
+def test_many_anchors_share_one_read_but_the_next_check_observes_edits(tmp_path, monkeypatch):
+    from harness.reporting.links import LinkIndex, check
+
+    target = tmp_path / 'detail.html'
+    target.write_text('<h1 id="price&amp;stock">Fields</h1>', encoding='utf-8')
+    (tmp_path / 'index.html').write_text(
+        '<a href="detail.html#price%26stock">Fields</a>' * 100, encoding='utf-8')
+    index = LinkIndex()
+    read = Path.read_text
+    reads = []
+
+    def counted(path, *args, **kwargs):
+        reads.append(path)
+        return read(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', counted)
+    for _ in range(100):
+        assert 'price&stock' in index.page(target).ids
+    assert reads == [target]
+    check(tmp_path)
+    target.write_text('<h1 id="other">Changed</h1>', encoding='utf-8')
+    with pytest.raises(ValueError, match='missing fragment'):
+        check(tmp_path)

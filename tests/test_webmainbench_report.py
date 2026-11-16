@@ -26,6 +26,70 @@ PROVIDERS = ("kitesurf", "lightpanda", "obscura", "moli", "chromium")
 METRICS = ("text_edit", "code_edit", "table_edit", "table_TEDS", "formula_edit")
 
 
+def sample_report_inputs(output: Path):
+    """Write one synthetic case and return the WebMainBench report inputs."""
+    case_id = "case-one"
+    dataset = {
+        "source_dataset_sha256": "a" * 64,
+        "sample_manifest_sha256": "e" * 64,
+        "coverage_plan": {"static_html": list(PROVIDERS)},
+        "cases": [{
+            "id": case_id,
+            "url": "https://example.test/article",
+            "meta": {"language": "en", "level": "simple", "table": [], "code": [], "equation": []},
+            "input_html_sha256": "b" * 64,
+            "reference_sha256": hashlib.sha256(b"# Reference").hexdigest(),
+        }],
+    }
+    (output / "references").mkdir()
+    (output / "references" / f"{case_id}.md").write_text("# Reference", encoding="utf-8")
+    (output / "sources").mkdir()
+    (output / "sources" / f"{case_id}.html.txt").write_text("<h1>Frozen input</h1>", encoding="utf-8")
+    records = []
+    summaries = {}
+    manifests = []
+    for index, provider in enumerate(PROVIDERS, 1):
+        score = index / 10
+        records.append({
+            "provider": provider,
+            "case_id": case_id,
+            "attempt_id": f"{provider}__{case_id}__r001",
+            "run_id": f"run-{provider}",
+            "ok": True,
+            "total_elapsed_ms": index * 100,
+            "elapsed_ms": index * 100,
+            "artifact_path": f"artifacts/{provider}/{case_id}.md",
+            "output_sha256": hashlib.sha256(f"output from {provider}".encode()).hexdigest(),
+            "physical_attempt_count": 1,
+            "metrics": {"overall": {"score": score}},
+        })
+        artifact = output / f"artifacts/{provider}/{case_id}.md"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(f"output from {provider}", encoding="utf-8")
+        summaries[provider] = {
+            "request_successes": 1,
+            "request_success_rate": 1.0,
+            "official_aggregate": {
+                "scores": {"overall": score, **{name: score for name in METRICS}},
+                "denominators": {name: 1 for name in METRICS},
+            },
+        }
+        manifests.append({
+            "provider": provider,
+            "started_at": "2026-09-14T00:00:00Z",
+            "completed_at": "2026-09-14T00:01:00Z",
+            "case_count": 1,
+            "timeout_seconds": 45,
+            "runner_sha256": "d" * 64,
+            "implementation_identity": {
+                "reported_version": "test",
+                "binary_sha256": "c" * 64,
+                "deployment": "fixture",
+            },
+        })
+    return dataset, records, summaries, manifests
+
+
 class WebMainBenchReportTests(unittest.TestCase):
     def test_table_population_separates_reference_presence_from_component_presence(self):
         rows=[]
@@ -173,68 +237,33 @@ class WebMainBenchReportTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 validate_webmainbench_correction({**receipt, **change}, dataset)
 
+    def test_anomaly_review_renders_in_both_languages(self):
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            dataset, records, summaries, manifests = sample_report_inputs(output)
+            anomaly_review = {
+                "scope": {"signal_triggered_results": 3, "distinct_cases": 1},
+                "cases": [{
+                    "case_id": "case-one",
+                    "affected_providers": ["moli"],
+                    "observed_zh": "观察",
+                    "observed_en": "observed",
+                    "cause_zh": "原因",
+                    "cause_en": "cause",
+                }],
+            }
+            generate_webmainbench(
+                output, dataset, records, summaries, manifests,
+                {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []},
+                anomaly_review=anomaly_review, include_english=True,
+            )
+            self.assertIn("Root-cause review of anomalous results", (output / "en/review/index.html").read_text(encoding="utf-8"))
+            self.assertIn("异常结果根因复核", (output / "review/index.html").read_text(encoding="utf-8"))
+
     def test_generates_matching_bilingual_route_inventory(self):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
-            case_id = "case-one"
-            dataset = {
-                "source_dataset_sha256": "a" * 64,
-                "sample_manifest_sha256": "e" * 64,
-                "coverage_plan": {"static_html": list(PROVIDERS)},
-                "cases": [{
-                    "id": case_id,
-                    "url": "https://example.test/article",
-                    "meta": {"language": "en", "level": "simple", "table": [], "code": [], "equation": []},
-                    "input_html_sha256": "b" * 64,
-                    "reference_sha256": hashlib.sha256(b"# Reference").hexdigest(),
-                }],
-            }
-            (output / "references").mkdir()
-            (output / "references" / f"{case_id}.md").write_text("# Reference", encoding="utf-8")
-            (output / "sources").mkdir()
-            (output / "sources" / f"{case_id}.html.txt").write_text("<h1>Frozen input</h1>", encoding="utf-8")
-            records = []
-            summaries = {}
-            manifests = []
-            for index, provider in enumerate(PROVIDERS, 1):
-                score = index / 10
-                records.append({
-                    "provider": provider,
-                    "case_id": case_id,
-                    "attempt_id": f"{provider}__{case_id}__r001",
-                    "run_id": f"run-{provider}",
-                    "ok": True,
-                    "total_elapsed_ms": index * 100,
-                    "elapsed_ms": index * 100,
-                    "artifact_path": f"artifacts/{provider}/{case_id}.md",
-                    "output_sha256": hashlib.sha256(f"output from {provider}".encode()).hexdigest(),
-                    "physical_attempt_count": 1,
-                    "metrics": {"overall": {"score": score}},
-                })
-                artifact = output / f"artifacts/{provider}/{case_id}.md"
-                artifact.parent.mkdir(parents=True, exist_ok=True)
-                artifact.write_text(f"output from {provider}", encoding="utf-8")
-                summaries[provider] = {
-                    "request_successes": 1,
-                    "request_success_rate": 1.0,
-                    "official_aggregate": {
-                        "scores": {"overall": score, **{name: score for name in METRICS}},
-                        "denominators": {name: 1 for name in METRICS},
-                    },
-                }
-                manifests.append({
-                    "provider": provider,
-                    "started_at": "2026-09-14T00:00:00Z",
-                    "completed_at": "2026-09-14T00:01:00Z",
-                    "case_count": 1,
-                    "timeout_seconds": 45,
-                    "runner_sha256": "d" * 64,
-                    "implementation_identity": {
-                        "reported_version": "test",
-                        "binary_sha256": "c" * 64,
-                        "deployment": "fixture",
-                    },
-                })
+            dataset, records, summaries, manifests = sample_report_inputs(output)
             generate_webmainbench(
                 output,
                 dataset,
@@ -305,7 +334,7 @@ class WebMainBenchReportTests(unittest.TestCase):
                                  {'status': 'passed'}, teds_revision=({}, revision_review),
                                  include_english=True)
             self.assertEqual(records, immutable_records)
-            home = (output / 'index.html').read_text()
+            home = (output / 'index.html').read_text(encoding='utf-8')
             self.assertIn('id="wmb-core-results" data-col="2" data-dir="desc"', home)
             home_soup = BeautifulSoup(home, 'html.parser')
             overall_values = [
@@ -313,33 +342,33 @@ class WebMainBenchReportTests(unittest.TestCase):
                 for cell in home_soup.select('#wmb-core-results tbody tr td:nth-of-type(3)')
             ]
             self.assertEqual(overall_values, sorted(overall_values, reverse=True))
-            self.assertNotIn('可能不计分', (output / 'methodology/index.html').read_text())
-            self.assertIn('wmb-guide-results', (output / 'guide/index.html').read_text())
+            self.assertNotIn('可能不计分', (output / 'methodology/index.html').read_text(encoding='utf-8'))
+            self.assertIn('wmb-guide-results', (output / 'guide/index.html').read_text(encoding='utf-8'))
             for prefix, label, original in (('', '修正后复算', '官方原始分'),
                                             ('en/', 'recomputed after correction', 'Original official score')):
                 for route in ('index.html', 'analysis/index.html', 'providers/kitesurf.html',
                               'attempts/kitesurf__case-one__r001.html'):
-                    page = (output / prefix / route).read_text()
+                    page = (output / prefix / route).read_text(encoding='utf-8')
                     self.assertIn(label, page)
                     if prefix == 'en/':
                         self.assertNotIn('overall（recomputed after correction）', page)
                         self.assertNotIn('table_TEDS（recomputed after correction）', page)
-                detail = (output / prefix / 'attempts/kitesurf__case-one__r001.html').read_text()
+                detail = (output / prefix / 'attempts/kitesurf__case-one__r001.html').read_text(encoding='utf-8')
                 self.assertIn(original, detail)
                 self.assertIn('0.000732234%', detail)
-                review_page = (output / prefix / 'review/index.html').read_text()
+                review_page = (output / prefix / 'review/index.html').read_text(encoding='utf-8')
                 self.assertIn('wmb-correction-effects', review_page)
                 self.assertIn('original-results.jsonl', review_page)
             # A successful API response containing an error page is not target body text.
-            (output / 'artifacts/chromium/case-one.md').write_text('ERR_ACCESS_DENIED')
+            (output / 'artifacts/chromium/case-one.md').write_text('ERR_ACCESS_DENIED', encoding='utf-8')
             generate_webmainbench(output, dataset, records, summaries, manifests,
                                  {'status': 'passed'}, teds_revision=({}, revision_review),
                                  include_english=True)
             self.assertEqual(records, immutable_records)
             for prefix, error_label in (('', '错误页，非目标正文'), ('en/', 'Error page, not target content')):
-                analysis = (output / prefix / 'analysis/index.html').read_text()
-                provider = (output / prefix / 'providers/chromium.html').read_text()
-                detail = (output / prefix / 'attempts/chromium__case-one__r001.html').read_text()
+                analysis = (output / prefix / 'analysis/index.html').read_text(encoding='utf-8')
+                provider = (output / prefix / 'providers/chromium.html').read_text(encoding='utf-8')
+                detail = (output / prefix / 'attempts/chromium__case-one__r001.html').read_text(encoding='utf-8')
                 self.assertIn('data-delivered="kitesurf lightpanda obscura moli" data-failed="chromium"', analysis)
                 for page in (analysis, provider):
                     self.assertIn('data-method="chromium" data-request="failed" data-failure="error_page"', page)
@@ -362,9 +391,9 @@ class WebMainBenchReportTests(unittest.TestCase):
             changed_manifests = [{**row, "provider": "fixture-browser" if row["provider"] == "chromium" else row["provider"]} for row in manifests]
             generate_webmainbench(other, selected, changed, changed_summaries, changed_manifests, include_english=True)
             import json
-            assert json.loads((other / "report-changes.json").read_text())["releases"] == []
+            assert json.loads((other / "report-changes.json").read_text(encoding='utf-8'))["releases"] == []
             for prefix in ("", "en/"):
-                methods = (other / prefix / "adoption/index.html").read_text()
+                methods = (other / prefix / "adoption/index.html").read_text(encoding='utf-8')
                 assert "Fixture Browser 204" in methods
                 assert "Chromium 152" not in methods
                 assert "Moli 1.1.5" not in methods and "Moli 1.1.7" not in methods
