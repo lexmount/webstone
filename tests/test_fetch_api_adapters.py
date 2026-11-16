@@ -43,6 +43,35 @@ def test_native_fields_and_no_envelope_scoring(kind, payload, expected):
                                      final_url=result.final_url, request_url=case().url)
 
 
+@pytest.mark.parametrize('kind', ['kimi_fetch', 'zai_reader'])
+@pytest.mark.parametrize('raw', [b'error code: 504\n', b'[]', b'null'])
+def test_malformed_api_envelope_remains_failure_evidence(kind, raw, tmp_path):
+    from dataclasses import asdict
+    from harness.web_fetch.artifacts import verify_record_artifacts
+    from harness.web_fetch.runner import run_evaluation
+    provider = build_provider(kind, {'type': kind, 'api_key': 'test',
+                                     'uniform_native_parameters': True})
+    dataset = {'tool': 'web_fetch', 'id': 'fixture', 'cases': [asdict(case())]}
+    source = tmp_path/'dataset.json'
+    source.write_text(json.dumps(dataset), encoding='utf-8')
+    with patch('harness.web_fetch.providers.hosted_fetch.request',
+               return_value=HttpResponse(504, '', {}, raw)):
+        records, _ = run_evaluation(output_dir=tmp_path/'run', dataset_meta=dataset,
+            dataset_path=source, cases=[case()], providers=[provider],
+            provider_config_path=tmp_path/'providers.json', runs=1, timeout=30,
+            delay=0, reference_policy='frozen_existing')
+    record = records[0]
+    assert not record['ok']
+    assert not record['provider_metadata'].get('native_answer_projection')
+    cases = {case().id: asdict(case())}
+    verify_record_artifacts(tmp_path/'run', record, native_cases=cases)
+    assert (tmp_path/'run'/record['artifact_path']).read_bytes() == b''
+    # An undeclared answer must still fail at the public aggregation boundary.
+    record['ok'] = True
+    with pytest.raises(ValueError, match='no projection declaration'):
+        verify_record_artifacts(tmp_path/'run', record, native_cases=cases)
+
+
 @pytest.mark.parametrize('track,kind,enabled', [('web', 'body', False), ('image', 'resource', True),
     ('video', 'resource', True), ('video', 'body', True), ('video', 'file', False)])
 def test_zai_embedded_media_configuration(track, kind, enabled):

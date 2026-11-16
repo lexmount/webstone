@@ -519,7 +519,7 @@ def native_cases_by_id(root):
 
 
 # Adapters that declare no answer for a malformed (non-object JSON) envelope.
-_MALFORMED_ENVELOPE_IS_EVIDENCE = frozenset({'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'crawl4ai_cloud',
+_MALFORMED_ENVELOPE_IS_EVIDENCE = frozenset({'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'kimi_fetch', 'zai_reader', 'crawl4ai_cloud',
                                     'lexmount', 'lexmount_cn'})
 
 
