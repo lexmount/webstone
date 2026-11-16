@@ -81,6 +81,11 @@ def render_methods(out,records,*,hero,section,table,cell,link,esc,authored=True)
     native=measurement_presentation(dataset).native_outputs
     if not authored and not native:
         body=hero('本轮方法与接口','以下内容来自本轮结果记录与适配器契约。')
+        if (out/'report-assets/provider-pricing.json').is_file():
+            names=sorted({row['provider'] for row in records})
+            body+=section('接口与示例',render_interfaces(out,records,only_measured=True),'method-guide-interfaces')
+            body+=section('价格与计费',render_pricing(out,names,table=table,cell=cell,link=link,esc=esc),'method-guide-pricing')
+            return body+_implementation_scope(records,section=section,table=table,cell=cell,esc=esc)
         anchors={'method-guide-pricing'}
         for name in sorted({row['provider'] for row in records}):
             selected=[row for row in records if row['provider']==name]

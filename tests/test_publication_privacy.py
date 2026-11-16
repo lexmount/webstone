@@ -70,6 +70,20 @@ def test_result_diagnostic_views_reject_changes_outside_quoted_output():
         project_result_diagnostics('record.json',json.dumps({'error_message':'Authorization: Bearer synthetic-secret'}).encode())
 
 
+def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
+    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    event = json.dumps({'event':'native_response','body':json.dumps({'token':'synthetic-secret',
+        'message':'first\u2028second'},ensure_ascii=False)},ensure_ascii=False)
+    raw = (event+'\n--- native file log ---\nActual native failure at /Users/sample/worker.py\n').encode()
+    public, receipt = project_evidence_view('public-evidence/debug.txt',raw,role='diagnostic_log')
+    first = json.loads(public.split(b'\n',1)[0])
+    assert json.loads(first['body'])['message'] == 'first\u2028second'
+    assert 'synthetic-secret' not in public.decode() and '/Users/sample' not in public.decode()
+    assert '--- native file log ---\nActual native failure' in public.decode()
+    assert publication_file_risk('debug.txt',public) is None
+    assert receipt['role'] == 'diagnostic_log'
+
+
 @pytest.mark.parametrize('scheme', ['https', 'http', 'wss', 'ws'])
 def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme):
     from harness.web_fetch.publication_privacy import project_evidence_view

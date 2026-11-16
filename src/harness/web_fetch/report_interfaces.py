@@ -209,7 +209,7 @@ def browser_task_interface_matrix(cases, providers, records=None, *, compact=Fal
  return {'providers':providers,'capabilities':selected_capabilities,'rows':rows}
 
 
-def render_interfaces(out,records):
+def render_interfaces(out,records,*,only_measured=False):
  messages=report_method_catalog()['messages']
  english_messages=report_method_catalog('en')['messages']
  dataset_path=out/"dataset.json"
@@ -222,7 +222,7 @@ def render_interfaces(out,records):
   return '<dl class="interface-fields">'+''.join('<div><dt><code>'+bilingual_text(k,ek)+'</code> <small>'+bilingual_text(t,et)+'</small></dt><dd>'+bilingual_text(d,ed)+'</dd></div>' for (k,t,d),(ek,et,ed) in zip(rows,english,strict=True))+'</dl>'
 
  measured={r['provider'] for r in records}
- names=sorted(set(SPECS)|measured,key=lambda name:(name not in measured,name))
+ names=sorted(measured if only_measured else set(SPECS)|measured,key=lambda name:(name not in measured,name))
  body=messages['interface_intro_html']
  if native_default:
   body=messages['interface_measured_intro_html']
@@ -247,7 +247,7 @@ def render_interfaces(out,records):
   else:sample={'measurement':None,'note':messages['interface_unmeasured_sample']}
   # Explicit whitelist: no local paths, request IDs, credentials or session metadata.
   meta=r.get('provider_metadata',{}) if r else {};sample['metadata']={k:meta[k] for k in ['engine','upstream_status','links_count','images_count','extractor','truncated','document_count'] if k in meta}
-  dest=out/'adoption'/'interfaces';dest.mkdir(exist_ok=True);(dest/(name+'.json')).write_text(json.dumps({'interface':s,'access':access,'sample':sample,'attempt_id':r['attempt_id'] if r else None},ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
+  dest=out/'adoption'/'interfaces';dest.mkdir(parents=True,exist_ok=True);(dest/(name+'.json')).write_text(json.dumps({'interface':s,'access':access,'sample':sample,'attempt_id':r['attempt_id'] if r else None},ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
   body+=f'<details class="interface-panel" id="interface-{name}"'+(' open' if i==0 else '')+'><summary>'+bilingual_text(browser_method_label(name),browser_method_label(name,language='en'))+'</summary>'
   body+='<p class="interface-endpoint"><code>'+bilingual_text(s['entry'],english['entry'])+'</code></p><p class="source-note">'+bilingual_text(s['auth'],english['auth'])+'</p>'
   if access:

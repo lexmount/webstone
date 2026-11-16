@@ -830,14 +830,19 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
         return text_view(value) if isinstance(value, str) else value
 
     text = data.decode('utf-8')
-    if role == 'diagnostic_log' and path.suffix == '.jsonl':
-        try:
-            documents = [json.loads(line) for line in io.BytesIO(data) if line.strip()]
-        except ValueError:
-            raise ValueError('Declared JSONL diagnostic evidence is not JSONL') from None
-        public = [node_view(document) for document in documents]
-        projected = (b''.join(json.dumps(document, ensure_ascii=False).encode('utf-8')+b'\n'
-                             for document in public) if public != documents else data)
+    if role == 'diagnostic_log':
+        lines = []
+        for raw_line in io.BytesIO(data):
+            line = raw_line.decode('utf-8')
+            try:
+                document = json.loads(line)
+            except ValueError:
+                lines.append(text_view(line))
+            else:
+                public = node_view(document)
+                ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
+                lines.append(json.dumps(public, ensure_ascii=False)+ending if public != document else line)
+        projected = ''.join(lines).encode('utf-8')
         encoding = 'utf-8-text'
     elif content_format == 'text':
         projected = text_view(text).encode('utf-8')

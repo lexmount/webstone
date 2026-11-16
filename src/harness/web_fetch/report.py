@@ -2842,7 +2842,11 @@ def write_review_page(out,records):
   return
  path=out/'result-review.json'
  if not path.is_file():
-  write(out,'review/index.html',t('review_record', 'Review record'),hero(t('review_record', 'Review record'),t('no_independent_review_record_is_bound_to', 'No independent review record is bound to this build.')))
+  dataset_path=out/'dataset.json'
+  cases={c['id']:c for c in json.loads(dataset_path.read_text(encoding='utf-8')).get('cases',[])} if dataset_path.is_file() else {}
+  accepted=sum(task_passed(r['ok'],r['metrics'],cases.get(r['case_id'],{}).get('task_kind','body')) for r in records)
+  coverage='<p data-review-scope="none">'+t('unreviewed_result_coverage', 'Independent review: 0/{total} results. {accepted} machine passes remain independently unreviewed.',total=len(records),accepted=accepted)+'</p>'
+  write(out,'review/index.html',t('review_record', 'Review record'),hero(t('review_record', 'Review record'),t('no_independent_review_record_is_bound_to', 'No independent review record is bound to this build.'))+section(t('review_scope', 'Review scope'),coverage))
   return
  audit=json.loads(path.read_text(encoding='utf-8'));reviewer=audit.get('reviewer',{})
  dataset_path=out/'dataset.json'
@@ -2958,6 +2962,8 @@ def render_account_requirements(records):
 
 def render_execution_contract(dataset,records,manifests):
  """Render recorded budgets and scheduling without inferring missing values."""
+ if not manifests and dataset.get('saved_matrix_scope',{}).get('execution_settings'):
+  return '<p><a href="#execution-settings">'+t('saved_settings_budget_link', 'Verified call budgets, retry limits and native parameters are listed below by method and task family.')+'</a></p>'
  def seconds(value):
   if not nonnegative_number(value):
    return model_text(*pair('not_recorded', 'Not recorded'))
@@ -3121,7 +3127,10 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
  if (out/'resource-cohort/resource-comparison.json').is_file():
   support+=section(t('isolated_resource_evidence', 'Isolated resource evidence'),'<p>'+link('../resource-cohort/resource-comparison.json',t('cpu_memory_and_network_summary_with_shared', 'CPU, memory, and network summary with shared-success cases'))+' · '+link('../resource-cohort/results.jsonl',t('per_call_resource_cohort_records', 'Per-call resource-cohort records'))+' · '+link('../resource-cohort/execution.json',t('container_environment_and_image_identity', 'Container environment and image identity'))+'</p>')
  conditions=(t('the_final_report_includes_calls_execution_began', 'The final report includes {count:,} calls. Execution began after tasks and references were frozen; calls were sequential within each method and did not reuse personal login state.', count=len(records)) if authored_interpretation else t('this_report_includes_logical_results_run_parameters', 'This report includes {count:,} logical results. Run parameters are listed below; each result detail contains its retained physical calls and outputs.', count=len(records)))
- support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+conditions+'</p>'+table([t('parameter', 'Parameter'),t('value', 'Value')],common,metrics=[]))
+ if not manifests and dataset.get('saved_matrix_scope'):
+  support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+t('saved_reproduction_settings_link', 'Execution settings and collection periods are verified from original call receipts; inspect them on the methodology page.')+' '+link('../methodology/index.html#execution-settings',t('runtime_configuration', 'Runtime configuration:'))+'</p>')
+ else:
+  support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+conditions+'</p>'+table([t('parameter', 'Parameter'),t('value', 'Value')],common,metrics=[]))
  if local_matrix:
   support+=section(t('method_versions', 'Method versions'),('<p>' + t('software_versions_or_source_commits_used_for', 'Software versions or source commits used for this run. Undisclosed cloud backend versions are stated explicitly; this does not mean the service has no version.') + f"</p>{table([t('method', 'Method'), t('version_source_commit_used_in_this_run', 'Version / source commit used in this run')], provider_rows, metrics=[])}"))
  else:

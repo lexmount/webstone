@@ -1146,17 +1146,19 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
     if dataset_path.is_file():
         scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
         if scope:
-            from harness.web_fetch.report import provider_label
+            from harness.web_fetch.report import provider_label, comparative_rows, cell as report_cell, table as report_table
             rows = []
             for name in dict.fromkeys(row['provider'] for row in records):
                 selected = [row for row in records if row['provider'] == name]
                 passed = sum(task_passed(row['ok'], row['metrics'],
                              cases[row['case_id']].get('task_kind', 'body')) for row in selected)
-                rows.append((escape(provider_label(name)), str(len(selected)),
-                             str(passed), f'{passed/len(selected):.1%}'))
-            context = _table([('方法', 'Method'), ('保存结果', 'Saved results'),
-                              ('通过', 'Passed'), ('通过率', 'Pass rate')], rows,
-                             t('method_comparison_for_this_round', 'Method comparison for this round'))
+                rows.append(('',report_cell(escape(provider_label(name)))+report_cell(str(len(selected)))
+                    +report_cell(str(passed))+report_cell(f'{passed/len(selected):.1%}',passed/len(selected))))
+            title=t('method_comparison_for_this_round', 'Method comparison for this round')
+            context = '<div role="region" aria-label="'+escape(title)+'">'+report_table(
+                [bilingual_text(*label) for label in [('方法','Method'),('保存结果','Saved results'),
+                 ('通过','Passed'),('通过率','Pass rate')]],
+                comparative_rows(rows,{3:('saved-guide-pass-rate','max')}),metrics=[])+'</div>'
             context += '<p>'+bilingual_text(
                 '通过要求该题适用的检查全部满足。接口返回了内容，仍可能缺少题目要求的段落、记录、资源或文件；完整的实际返回和冻结参考保存在结果详情中。',
                 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'

@@ -19,7 +19,8 @@ def test_saved_findings_keep_content_and_derive_counts(tmp_path):
         _REPORT_PROVIDER_LABELS.reset(token)
     assert 'Saved participant' in page
     assert '&lt;span' not in page
-    assert '<td>1</td><td>0</td><td>0.0%</td>' in page
+    from bs4 import BeautifulSoup
+    assert [cell.get_text() for cell in BeautifulSoup(page,'html.parser').select('table')[0].select('tbody td')][-3:] == ['1','0','0.0%']
     assert '<td>99</td>' not in page
     assert 'Saved body omitted the list. &lt;script&gt;bad&lt;/script&gt;' in page
     assert '<script>' not in page

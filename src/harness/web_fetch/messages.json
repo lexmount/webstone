@@ -1,5 +1,9 @@
 {
   "zh": {
+    "review_scope": "复核范围",
+    "saved_settings_budget_link": "实际调用预算、重试上限和原生参数按方法与任务类别列在下方，可展开核对。",
+    "saved_reproduction_settings_link": "执行设置和采集时间已根据原始调用记录核对，详见评测方法页。",
+    "unreviewed_result_coverage": "独立复核覆盖 0/{total} 条结果；其中 {accepted} 条程序判定通过的结果尚未独立复核。",
     "result_diagnostics_redacted_note": "此展示副本遮蔽了引用文字和资源网址中的敏感值。分数、数量、耗时和通过判定保持不变，原始结果另行保留。",
     "result_diagnostics_view_receipt": "原始结果与诊断展示副本的核对记录",
     "failed_without_detailed_diagnosis": "未通过，尚无细分诊断",

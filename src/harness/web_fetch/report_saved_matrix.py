@@ -507,6 +507,13 @@ def _load_saved_matrix(spec_path):
     bind(spec_path)
     if spec.get('native_policy_registry'):
         binding(spec['native_policy_registry'])
+    if spec.get('pricing'):
+        pricing = _json(binding(spec['pricing']))
+        _require_public_json(pricing, label='Pricing catalog')
+        priced = {item['id'] for item in pricing.get('providers', [])}
+        priced.update(name for item in pricing.get('other_methods', []) for name in item['ids'])
+        if not set(providers) <= priced:
+            raise ValueError('Pricing catalog omits selected participants')
     for suite in spec['suites']:
         dataset = _json(binding(suite['dataset']))
         cases[suite['id']] = _index_cases(dataset)
@@ -1623,9 +1630,12 @@ def _record_public_views(source, record, case):
     """Use the shared post-score projection, retaining every original identity."""
     from harness.web_fetch.publication_privacy import project_evidence_view
     from lexbench_webfetch.scoring import score_attempt
+    answers = {record['artifact_path']}
+    answers.update(attempt['artifact_path'] for attempt in
+                   record.get('provider_metadata', {}).get('retry', {}).get('attempts', []))
     bindings = [(dict(path=name, sha256=digest), 'scored_answer')
                 for name, digest in artifact_bindings(record)
-                if Path(name).parts[0] == 'artifacts']
+                if name in answers]
     bindings += [(binding, 'diagnostic_log' if binding['path'].endswith('.stderr.log')
                   else 'native_response') for binding in record_private_bindings(record)]
     views = []
@@ -1634,7 +1644,16 @@ def _record_public_views(source, record, case):
         if hashlib.sha256(raw).hexdigest() != binding['sha256']:
             raise ValueError('Public view original changed')
         identifier = hashlib.sha256(binding['path'].encode()).hexdigest()
-        extension = '.jsonl' if role == 'diagnostic_log' else '.txt'
+        extension = '.txt'
+        if role == 'diagnostic_log':
+            try:
+                for line in raw.splitlines():
+                    if line.strip():
+                        json.loads(line)
+            except (ValueError, UnicodeError):
+                pass  # Native stderr and appended native logs are plain/mixed text.
+            else:
+                extension = '.jsonl'
         name = 'public-evidence/' + identifier + extension
         try:
             public, receipt = project_evidence_view(name, raw, role=role,
@@ -1997,6 +2016,11 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         relative = 'native-policy-registry.json'
         copy(approved, relative)
         model['native_policy_registry'] = {'path': relative, 'sha256': _sha(approved)}
+    if spec.get('pricing'):
+        source = binding(spec['pricing'])
+        relative = 'report-assets/provider-pricing.json'
+        copy(source, relative)
+        model['pricing'] = {'path': relative, 'sha256': _sha(source)}
     if 'report_families' in spec:
         model['report_families'] = [deepcopy(group) for group in spec['report_families']
                                     if group['id'] not in spec.get('excluded_report_families', [])]
@@ -2374,6 +2398,14 @@ def _validate_rendered_pages(output, model):
             source = output/name
             if source.is_file():
                 shutil.copy2(source, expected/name)
+        if model.get('pricing'):
+            pricing = model['pricing']
+            source = contained_path(output, pricing['path'], reject_symlinks=True)
+            if _sha(source) != pricing['sha256']:
+                raise ValueError('Bound pricing catalog changed')
+            target = contained_path(expected, pricing['path'])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
         _write(expected/'matrix.json', model)
         with _source_validated_render(expected, model):
             render_saved_with_standard_generator(expected, model)
@@ -2477,6 +2509,17 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 except ValueError as exc:
                     raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if inputs is not None:
+        pricing = inputs['spec'].get('pricing')
+        expected = ({'path':'report-assets/provider-pricing.json','sha256':pricing['sha256']}
+                    if pricing else None)
+        if model.get('pricing') != expected:
+            raise ValueError('Pricing catalog binding differs from source specification')
+        if (output/'report-assets/provider-pricing.json').is_file() != bool(expected):
+            raise ValueError('Saved report has missing or unbound pricing data')
+        if pricing and contained_path(output, expected['path']).read_bytes() != _path(
+                inputs['sources'].base, pricing['path']).read_bytes():
+            raise ValueError('Pricing catalog differs from validated source')
     if model.get('public_evidence_views'):
         if inputs is None or inputs['spec'].get('public_evidence_views') is not True:
             raise ValueError('Public evidence views require the original source specification')

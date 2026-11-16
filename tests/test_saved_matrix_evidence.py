@@ -190,6 +190,66 @@ def test_public_result_diagnostics_preserve_measurements_and_original_authority(
         check_saved_matrix(output,spec_path=tmp_path/'spec.json')
 
 
+def test_saved_pricing_is_source_bound_covers_participants_and_renders_only_the_cohort(tmp_path):
+    from harness.web_fetch.report_pricing import SOURCE
+    spec, _, _, _ = fixture(tmp_path)
+    data = json.loads(SOURCE.read_bytes())
+    price = next(item for item in data['providers'] if item['id']=='kimi-fetch')
+    data['providers'] = [{**price,'id':'method','label':'Synthetic fetch API'}]
+    data['other_methods'] = []
+    spec['pricing'] = write(tmp_path/'pricing.json',data)
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    page = (output/'adoption/index.html').read_text(encoding='utf-8')
+    assert 'Synthetic fetch API' in page and '$2' in page
+    assert 'id="interface-method"' in page
+    assert 'id="interface-firecrawl"' not in page
+    assert '未绑定价格资料' not in page
+    price_path = output/'report-assets/provider-pricing.json'
+    assert price_path.read_bytes() == (tmp_path/'pricing.json').read_bytes()
+    audit_path = output/'saved-matrix-audit.json'
+    audit = json.loads(audit_path.read_bytes())
+    altered = deepcopy(data)
+    altered['providers'][0]['comparison'] = 'altered price'
+    audit['files']['report-assets/provider-pricing.json'] = write(price_path,altered)['sha256']
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='Pricing catalog differs from validated source'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+    data['providers'] = []
+    spec['pricing'] = write(tmp_path/'missing-price.json',data)
+    with pytest.raises(ValueError,match='omits selected participants'):
+        build(tmp_path,spec,name='missing-pricing')
+
+
+def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    binary = b'%PDF-1.7\n%\xff\xfe\xfd\nretained binary attachment'
+    path = source/'artifacts/download.bin'
+    path.write_bytes(binary)
+    record['provider_metadata']['file_evaluation'] = {'files':[{
+        'artifact_path':'artifacts/download.bin','sha256':hashlib.sha256(binary).hexdigest(),
+        'bytes':len(binary),'mime':'application/pdf','pass':False}]}
+    log = source/'private_artifacts/call.stderr.log'
+    log.parent.mkdir()
+    log.write_text('Observed native failure\n--- native log ---\n/Users/sample/worker.py\n',encoding='utf-8')
+    record['provider_metadata'].update(diagnostic_log_path='private_artifacts/call.stderr.log',
+        diagnostic_log_sha256=hashlib.sha256(log.read_bytes()).hexdigest(),diagnostic_log_bytes=log.stat().st_size)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    scope = output/'evidence/first/method/same'
+    assert (scope/'artifacts/download.bin').read_bytes() == binary
+    assert (source/'artifacts/download.bin').read_bytes() == binary
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    log_view = output/projected[0]['provider_metadata']['public_debug_log_path']
+    assert log_view.suffix == '.txt'
+    assert 'Observed native failure' in log_view.read_text(encoding='utf-8')
+    assert '/Users/sample' not in log_view.read_text(encoding='utf-8')
+
+
 def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True
