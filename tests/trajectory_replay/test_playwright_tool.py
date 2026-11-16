@@ -1293,10 +1293,23 @@ def test_moli_layout_publication_fails_when_renderer_returns_no_metrics():
         _unit_tool(object(), context, engine="moli")._publish_page_layout(object())
 
 
-def test_moli_layout_publication_obeys_its_budget():
+def test_moli_layout_publication_obeys_its_budget(monkeypatch):
+    budgets, cancelled = [], []
+    wait_for = asyncio.wait_for
+
+    async def checked_wait_for(awaitable, *, timeout):
+        budgets.append(timeout)
+        return await wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(asyncio, 'wait_for', checked_wait_for)
+
     class Impl:
         async def send(self, _method, _params):
-            await asyncio.sleep(1)
+            try:
+                await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                cancelled.append(True)
+                raise
             return {"layoutViewport": {"clientWidth": 1280, "clientHeight": 720}}
 
     class Session:
@@ -1306,13 +1319,12 @@ def test_moli_layout_publication_obeys_its_budget():
             return asyncio.run(coroutine)
 
     context = type("Context", (), {"new_cdp_session": lambda self, _page: Session()})()
-    started = time.monotonic()
-
     tool = _unit_tool(object(), context, engine="moli")
     with pytest.raises(TimeoutError, match="publication timed out"):
         tool._publish_page_layout(object(), timeout_ms=20)
 
-    assert time.monotonic() - started < 0.2
+    assert budgets == [0.02]
+    assert cancelled == [True]
     assert tool.failure_capture_available is False
 
 

@@ -490,3 +490,50 @@ def test_inline_textarea_markup_is_literal_while_an_outside_markdown_link_is_rea
     citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
     assert citation['marker'] == '[source](https://source.test/a)'
     assert citation['claim_context'] == 'Real source.'
+
+
+def test_html5_reconstructed_hidden_anchor_stays_hidden():
+    answer = '<p><a hidden href="https://source.test/a">Hidden<div>Visible</div>'
+    assert answers.citation_inventory(answer, [dict(url='https://source.test/a')]) == []
+
+
+def test_link_starting_with_a_block_does_not_borrow_the_preceding_block_text():
+    answer = '<div>Unrelated<a href="https://source.test/a"><p>Supported claim.</p></a></div>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a')])
+    assert citation['claim_context'] == 'Supported claim.'
+
+
+@pytest.mark.parametrize('attributes,claim', [
+    ('hidden', 'Claim'), ('style="display:none"', 'Claim'),
+    ('style="visibility:hidden"', 'Claim'), ('', ''),
+])
+def test_only_visible_rules_separate_claims(attributes, claim):
+    answer = '<div>Claim<hr ' + attributes + '>[引用:1]</div>'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == claim
+
+
+@pytest.mark.parametrize('body,claim', [
+    ('<tr><td>Alpha.</td></tr><tr><td>[引用:1]</td></tr>', ''),
+    ('<tr><td>Alpha.</td><td>[引用:1]</td></tr>', 'Alpha.'),
+])
+def test_table_citations_stay_in_their_row(body, claim):
+    citation, = answers.citation_inventory('<table>' + body + '</table>', [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == claim
+
+
+def test_nested_anchor_opening_closes_previous_link_and_original_span():
+    first = '<a href="https://a.example">First. '
+    second = '<a href="https://b.example">Second.</a>'
+    citations = answers.citation_inventory(first + second + ' Third.', [dict(url='https://a.example'), dict(url='https://b.example')])
+    assert [c['claim_context'] for c in citations] == ['First.', 'Second.']
+    assert [c['marker'] for c in citations] == [first, second]
+    assert [c['span'] for c in citations] == [[0, len(first)], [len(first), len(first + second)]]
+
+
+def test_markdown_link_also_closes_an_open_html_anchor():
+    first = '<a href="https://a.example">First. '
+    second = '[Second.](https://b.example)'
+    citations = answers.citation_inventory(first + second + ' Third.', [dict(url='https://a.example'), dict(url='https://b.example')])
+    assert [c['marker'] for c in citations] == [first, second]
+    assert [c['claim_context'] for c in citations] == ['First.', 'Second.']

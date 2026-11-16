@@ -87722,6 +87722,114 @@
           "Paris is in France."
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<p><a hidden href=\"https://source.test/a\">Hidden<div>Visible</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<div>Unrelated<a href=\"https://source.test/a\"><p>Supported claim.</p></a></div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Supported claim."
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<div>Claim<hr hidden>[引用:1]</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<div>Claim<hr>[引用:1]</div>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tr><td>Claim</td></tr><tr><td>[引用:1]</td></tr></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<table><tr><td>Claim</td><td>[引用:1]</td></tr></table>",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          }
+        ],
+        "claims": [
+          "Claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<a href=\"https://source.test/a\">First. <a href=\"https://source.test/b\">Second.</a> Third.",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1",
+            "snippet": "Claim"
+          },
+          {
+            "url": "https://source.test/b",
+            "snippet": "Second."
+          }
+        ],
+        "claims": [
+          "First.",
+          "Second."
+        ],
+        "expected": true
       }
     ],
     "reference-question-evidence": [
