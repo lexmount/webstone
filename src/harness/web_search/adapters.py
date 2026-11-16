@@ -36,7 +36,8 @@ class Adapter:
             return code
         if (self.version_path and http_status == 200 and not error
                 and (not isinstance(response, dict)
-                     or not isinstance(response.get('Pages'), list) and not response.get('Version'))):
+                     or not isinstance(response.get('Pages'), list)
+                     and not (isinstance(response.get('Version'), str) and response['Version']))):
             return 'MissingNativeEnvelope'
         expected = (method or {}).get("expected_response_version")
         if (expected is not None and isinstance(response, dict) and not error

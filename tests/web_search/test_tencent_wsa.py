@@ -420,7 +420,7 @@ def test_missing_or_malformed_http_200_native_envelope_stops_runner_before_more_
     from harness.web_search.runner import run
 
     bodies = [b'', b'<html>bad response</html>', b'{}', b'{"Response":null}', b'{"Response":[]}',
-              b'{"Response":"wrong"}', b'{"unexpected":{}}']
+              b'{"Response":"wrong"}', b'{"Response":{"Version":3}}', b'{"unexpected":{}}']
     for index, raw in enumerate(bodies):
         root = tmp_path/str(index)
         root.mkdir()
