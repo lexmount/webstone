@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from harness.web_fetch.models import ProviderResult
+from harness.web_fetch.diagnostics import emit
 from harness.web_fetch.native_projection import native_answer_projection, project_native_answer, project_native_result_fields
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider, terminate_owned_process_tree, await_owned_process_exit
@@ -98,6 +99,9 @@ class ClaudeFetchProvider(Provider):
             raise ValueError('; '.join(errors))
         # This path has no local HTTP client, key lookup, proxy, or fallback.
         worker = Path(__file__).parents[1] / 'workers/claude_fetch_worker.py'
+        emit('remote_http_request_prepared', url=endpoint, method=arguments['method'],
+             json_body=arguments['json_body'], timeout=arguments['timeout'],
+             execution_server=self.config['ssh_server_ip'])
         deadline = getattr(self, '_call_deadline', time.monotonic() + arguments['timeout'])
         envelope = {'body': arguments['json_body'],
                     'max_bytes': arguments['max_bytes'],
@@ -115,6 +119,8 @@ class ClaudeFetchProvider(Provider):
                     or ready.get('ssh_server') != self.config['ssh_server_ip']
                     or ready.get('worker_sha256') != envelope['worker_sha256']):
                 raise ValueError('Remote Claude readiness differs from the declared server or source')
+            emit('ssh_worker_ready', execution_server=ready['ssh_server'],
+                 worker_sha256=ready['worker_sha256'])
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError('No API budget remains after SSH startup')
@@ -123,6 +129,8 @@ class ClaudeFetchProvider(Provider):
         except BaseException:
             self.cancel()
             raise
+        emit('ssh_process_completed', exit_code=self._process.returncode,
+             stderr=error.decode(errors='replace'))
         if self._process.returncode:
             raise RuntimeError('Remote Claude worker failed: ' + error.decode(errors='replace')[-1200:])
         receipt = json.loads(output)
@@ -132,8 +140,12 @@ class ClaudeFetchProvider(Provider):
             'remote_api_budget_seconds': receipt.get('remote_api_budget_seconds'),
             'remote_worker_sha256': ready['worker_sha256'],
             'deadline_policy': 'shared_caller_deadline_with_ready_anchored_remote_stop'}
-        return HttpResponse(receipt['status'], endpoint, receipt.get('headers', {}),
-                            base64.b64decode(receipt['body_b64'], validate=True))
+        body = base64.b64decode(receipt['body_b64'], validate=True)
+        emit('remote_http_response_received', status=receipt['status'], url=endpoint,
+             headers=receipt.get('headers', {}), body_bytes=len(body),
+             body=body.decode('utf-8', errors='replace'),
+             execution_server=receipt['ssh_server'])
+        return HttpResponse(receipt['status'], endpoint, receipt.get('headers', {}), body)
 
     def cancel(self):
         if self._process is not None:

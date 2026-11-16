@@ -136,9 +136,10 @@ def test_remote_readiness_uses_the_call_deadline():
         os.close(write)
 
 
-def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction():
+def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction(tmp_path):
     from harness.web_fetch.providers import claude_fetch
     from unittest.mock import Mock
+    from harness.web_fetch.diagnostics import CallDiagnostics, diagnostic_context
     provider = build_provider('claude', remote_config())
     worker = Path(claude_fetch.__file__).parents[1]/'workers/claude_fetch_worker.py'
     ready = {'kind': 'claude_fetch_ready', 'ssh_server': '192.0.2.83',
@@ -152,12 +153,18 @@ def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction():
         'body_b64': base64.b64encode(json.dumps(claude_payload()).encode()).decode(),
         'remote_api_budget_seconds': 29.9}).encode(), b'')
     try:
-        with patch.object(claude_fetch.subprocess, 'Popen', return_value=process):
+        diagnostics = CallDiagnostics(tmp_path/'call.jsonl', 'synthetic-call')
+        with patch.object(claude_fetch.subprocess, 'Popen', return_value=process), diagnostic_context(diagnostics):
             result = provider.fetch(case(), 30)
         assert result.ok
         envelope = json.loads(process.communicate.call_args.args[0])
         assert 29.5 < envelope['timeout'] <= 30
         assert process.communicate.call_args.kwargs['timeout'] == envelope['timeout']
+        diagnostics.finish(result)
+        events = [json.loads(line)['event'] for line in (tmp_path/'call.jsonl').read_text().splitlines()]
+        assert events == ['remote_http_request_prepared', 'ssh_worker_ready',
+                          'ssh_process_completed', 'remote_http_response_received',
+                          'http_dns_resolution', 'collection_completed']
     finally:
         process.stdout.close()
 
