@@ -69,13 +69,14 @@
       "media-information": "Requested image and video resources, links or metadata on webpages; media understanding is outside the task",
       "direct-media-files": "Complete delivered image and video files under the declared file contracts",
       "articles": "Article bodies, titles, requested initial comments and post collections",
-      "challenge-examples": "Separate challenge set of 10 access-challenge list pages from the original mixed suite; not counted in the v3.0.0 edition"
+      "challenge-examples": "Ten access-challenge list pages from the original mixed suite; counted only in the historical 550-task edition"
     },
     "viewer_exclude_datasets": [
       "content-scopes-530"
     ],
     "viewer_exclude_tracks": {
       "webfetch": [
+        "challenge",
         "dynamic"
       ]
     },
