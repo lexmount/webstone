@@ -8,7 +8,7 @@ from markdown_it import MarkdownIt
 
 from harness.record_io import bytes_sha256, json_bytes
 from harness.web_search.adapters import adapter_for
-from harness.web_search.core import verify_bundle
+from harness.web_search.core import response_entries, verify_bundle
 from lexbench_webfetch.reference_quality import blocked_page_hits
 from lexbench_websearch.outputs import project_rows, qualify_field
 from lexbench_websearch.scoring import canonical_url
@@ -107,8 +107,8 @@ def source_page_text(page, artifacts):
         return None
     if not isinstance(payload, dict):
         return None
-    statuses = [v for v in payload.get("statuses", []) if v.get("id") == page["url"]]
-    content = [v for v in payload.get("results", []) if v.get("id") == page["url"]]
+    statuses = response_entries(payload, 'statuses', page['url'])
+    content = response_entries(payload, 'results', page['url'])
     if (
         len(statuses) != 1
         or statuses[0].get("status") != "success"
@@ -282,6 +282,10 @@ def level_benchmarks(view):
                            factual=([('source_rr', 'MRR@5'), ('source_hit', 'Source Hit@5'),
                                      ('answer_match', 'Answer Match@5')]
                                     if level == 'l1' else [('answer_match', 'Extra-text Answer Match@5')]))
+        if level == 'l1' and any('reference_verification_coverage' in case for case in cases.values()):
+            definitions['factual'] += [('publisher_rr', 'Publisher-only MRR@5'),
+                                       ('publisher_hit', 'Publisher-only Hit@5'),
+                                       ('capture_failed', 'Unverified mirror questions')]
     output = {}
     for benchmark in ('scenario', 'factual'):
         timing_ids = [cid for cid, case in cases.items()
@@ -312,6 +316,13 @@ def level_benchmarks(view):
                 if level == 'l1':
                     values.update(source_rr=metrics['labeled_source_rr_5'], source_hit=metrics['labeled_source_hit_5'],
                                   answer_match=metrics['answer_in_preview_5'])
+                    if 'reference_verification_coverage' in cases[cid]:
+                        from lexbench_websearch.scoring import canonical_url, factual_evidence
+
+                        publisher = factual_evidence(dict(cases[cid], equivalent_reference_urls=[]), row['results'], cutoff=5)
+                        failed = {canonical_url(url, policy='document-url/2') for url in cases[cid]['capture_failed_reference_urls']}
+                        values.update(publisher_rr=publisher['labeled_source_rr_5'], publisher_hit=publisher['labeled_source_hit_5'],
+                            capture_failed=int(any(not item.get('invalid_slot') and canonical_url(item['url'], policy='document-url/2') in failed for item in row['results'][:5])))
                 else:
                     values['answer_match'] = metrics['answer_in_extra_text_5']
             scored.append(values)
@@ -320,7 +331,7 @@ def level_benchmarks(view):
             raise ValueError('An output level is missing scored benchmark cells')
         output[benchmark] = dict(case_ids=quality_ids, timing_case_ids=timing_ids,
                                  primary_metric=definitions[benchmark][0][0],
-                                 metrics=[dict(key=key, label=label, direction='max')
+                                 metrics=[dict(key=key, label=label, direction='neutral' if key == 'capture_failed' else 'max')
                                           for key, label in definitions[benchmark]],
                                  scores=scored)
     return output

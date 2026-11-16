@@ -85,6 +85,7 @@ class _InlineVisibility(HTMLParser):
         self.separator = False
         self.anchor_events = []
         self.block_break = False
+        self.image_text = ''
 
     @property
     def hidden(self):
@@ -94,6 +95,7 @@ class _InlineVisibility(HTMLParser):
         self.separator = False
         self.anchor_events = []
         self.block_break = False
+        self.image_text = ''
         super().feed(data)
 
     def handle_starttag(self, tag, attrs):
@@ -117,6 +119,8 @@ class _InlineVisibility(HTMLParser):
             visibility = declarations['visibility'] in {'hidden', 'collapse'}
         if tag in {'br', 'hr'} and not blocked and not visibility:
             self.separator = True
+        if tag == 'img' and not blocked and not visibility:
+            self.image_text = attributes.get('alt') or ''
         if tag not in self._void:
             self.stack.append((tag, blocked, visibility))
         if tag == 'a':
@@ -295,6 +299,7 @@ def citation_inventory(answer, results):
     visibility = _InlineVisibility()
     search_source = answer.replace("\x00", "\ufffd")
     line_offsets = [0, *(match.end() for match in re.finditer(r"\r\n|\r|\n", answer)), len(answer)]
+    parts, length, pending, local, html_pending, block_breaks = [], 0, [], [], [], []
     for block in parser.parse(answer):
         if block.type == 'html_block':
             block.children = _html_tokens(block.content)
@@ -321,7 +326,10 @@ def citation_inventory(answer, results):
                     positions.append(offset + newline.start())
                     offset += newline.end()
 
-        parts, length, pending, local, html_pending, block_breaks = [], 0, [], [], [], []
+        if parts:
+            parts.append('\n')
+            length += 1
+        block_breaks.append(length)
         for token in block.children or []:
             if token.type == 'html_inline':
                 visibility.feed(token.content)
@@ -330,7 +338,7 @@ def citation_inventory(answer, results):
                     if action == 'open':
                         try:
                             key = canonical_url(href, policy='document-url/2')
-                            eligible = visible
+                            eligible = True
                         except ValueError:
                             key, eligible = '', False
                         html_pending.append(dict(begin=positions[begin], local_start=length,
@@ -344,6 +352,9 @@ def citation_inventory(answer, results):
                 if visibility.separator:
                     parts.append(' ')
                     length += 1
+                if visibility.image_text:
+                    parts.append(visibility.image_text)
+                    length += len(visibility.image_text)
                 continue
             if token.type == "link_open":
                 begin, end = token.meta["span"]
@@ -368,7 +379,8 @@ def citation_inventory(answer, results):
                 for identity in token.meta["identities"]:
                     local.append(dict(begin=positions[begin], end=positions[end - 1] + 1,
                                       local_start=length, local_end=length,
-                                      item=by_id.get(identity), native=True))
+                                      item=by_id.get(identity), native=True,
+                                      block_floor=block_breaks[-1]))
                 continue
             if token.type == "image":
                 text = parser.renderer.renderInlineAsText(token.children, parser.options, {})
@@ -380,41 +392,44 @@ def citation_inventory(answer, results):
                 continue
             parts.append(text)
             length += len(text)
-        for reference in html_pending:
-            if reference.pop('eligible') and ''.join(parts)[reference['local_start']:].strip():
-                local.append(dict(reference, end=positions[-1] + 1, local_end=length))
-        plain = "".join(parts)
-        # Sentences are local to this rendered inline block. Every link in one
-        # sentence sees the complete assertion, including the other link labels.
-        boundaries = [0, *block_breaks]
-        closers = r'''["'”’»）)\]}」』】]*'''
-        native_offsets = {reference['local_start'] for reference in local if reference['native']}
-        for match in re.finditer(rf"(?P<stop>[。！？]+|[.!?]+){closers}", plain):
-            if (match['stop'][0] in '.!?'
-                    and match.end() < len(plain) and not plain[match.end()].isspace()
-                    and match.end() not in native_offsets and match.end('stop') not in native_offsets):
-                continue
-            prefix = plain[:match.end("stop")]
-            abbreviation = re.search(r"(?:[A-Za-z]\.){2,}$", prefix)
-            word = re.search(r"([A-Za-z]+)\.$", prefix)
-            if match["stop"] == "." and (abbreviation or word and word[1].casefold() in
-                                      {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "fig", "no"}):
-                continue
-            boundaries.append(match.end())
-        boundaries = sorted({*boundaries, len(plain)})
-        for reference in local:
-            anchor = reference["local_start"]
-            if reference["native"]:
-                anchor = len(plain[:anchor].rstrip()) - 1
-            if anchor < 0 or not plain.strip():
-                context = ""
-            else:
-                left = max((value for value in boundaries if value <= anchor), default=0)
-                last = anchor if reference["native"] else max(anchor, reference["local_end"] - 1)
-                right = next((value for value in boundaries if value > last), len(plain))
-                context = re.sub(r"\s+", " ", plain[left:right]).strip()
-                context = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", context)
-            references.append(dict(reference, claim_context=context))
+    for reference in html_pending:
+        if reference.pop('eligible') and ''.join(parts)[reference['local_start']:].strip():
+            local.append(dict(reference, end=positions[-1] + 1, local_end=length))
+    plain = "".join(parts)
+    # Sentences are local to this rendered inline block. Every link in one
+    # sentence sees the complete assertion, including the other link labels.
+    boundaries = [0, *block_breaks]
+    closers = r'''["'”’»）)\]}」』】]*'''
+    native_offsets = {reference['local_start'] for reference in local if reference['native']}
+    for match in re.finditer(rf"(?P<stop>[。！？]+|[.!?]+){closers}", plain):
+        if (match['stop'][0] in '.!?'
+                and match.end() < len(plain) and not plain[match.end()].isspace()
+                and match.end() not in native_offsets and match.end('stop') not in native_offsets):
+            continue
+        prefix = plain[:match.end("stop")]
+        abbreviation = re.search(r"(?:[A-Za-z]\.){2,}$", prefix)
+        word = re.search(r"([A-Za-z]+)\.$", prefix)
+        if match["stop"] == "." and (abbreviation or word and word[1].casefold() in
+                                  {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "fig", "no"}):
+            continue
+        boundaries.append(match.end())
+    boundaries = sorted({*boundaries, len(plain)})
+    for reference in local:
+        anchor = reference["local_start"]
+        if reference["native"]:
+            floor = reference.pop('block_floor')
+            anchor = floor + len(plain[floor:anchor].rstrip()) - 1
+        else:
+            floor = 0
+        if anchor < floor or not plain.strip():
+            context = ""
+        else:
+            left = max((value for value in boundaries if value <= anchor), default=0)
+            last = anchor if reference["native"] else max(anchor, reference["local_end"] - 1)
+            right = next((value for value in boundaries if value > last), len(plain))
+            context = re.sub(r"\s+", " ", plain[left:right]).strip()
+            context = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", context)
+        references.append(dict(reference, claim_context=context))
     citations = []
     for reference in sorted(references, key=lambda value: value["begin"]):
         start, end, item = reference["begin"], reference["end"], reference["item"]

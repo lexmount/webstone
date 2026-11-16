@@ -102,6 +102,7 @@ def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_docu
     reference = dict(url='https://en.wikipedia.org/wiki/Article',title='Article',
                      lead='A reference paragraph identifying the subject and its independently documented history. '*6,
                      body_sha256='a'*64,status=200,verified_at='2026-11-13T00:00:00Z')
+    reference['article_text'] = reference['lead']
     mirror = dict(reference,url='https://wiki2.org/en/Article',body_sha256='b'*64)
     dataset = dict(cases=[dict(id=str(i),query='Question '+str(i),reference_answer='Answer '+str(i),
                               reference_urls=[reference['url']]) for i in range(2)])
@@ -117,8 +118,8 @@ def test_reference_extension_preserves_publisher_data_and_shares_aliases_by_docu
         assert case['equivalent_reference_provenance'][0]['reference_url'] == reference['url']
     assert not extend_reference_urls(dataset,[mirror])['cases'][0]['equivalent_reference_urls']
     audit = extended['reference_equivalence_audit']
-    assert len(audit) == 9
-    assert {entry['outcome'] for entry in audit} == {'qualified', 'fetch_failed'}
+    assert len(audit) == 18
+    assert {entry['outcome'] for entry in audit} == {'verified', 'capture_failed'}
     assert {entry['url'] for entry in audit} == set(mirror_candidates(reference['url']))
     with pytest.raises(ValueError,match='independently derived'):
         extend_reference_urls(dataset,[dict(mirror,url='https://provider-result.test/document')])
@@ -139,12 +140,52 @@ def test_mirror_rejections_and_failed_fetches_remain_auditable():
     reference = dict(url='https://en.wikipedia.org/wiki/Article', title='Article',
                      lead='A documented subject with independently published history. ' * 10,
                      body_sha256='a' * 64, status=200, verified_at='2026-11-16T00:00:00Z')
+    reference['article_text'] = reference['lead']
     urls = mirror_candidates(reference['url'])
     observations = [reference, dict(reference, url=urls[0], title='Other'),
-                    dict(reference, url=urls[1], lead='Different material concerning another topic. ' * 20),
+                    dict(reference, url=urls[1], article_text='Different material concerning another topic. ' * 20),
                     dict(reference, url=urls[2], status=503)]
     data = dict(cases=[dict(id='q', query='Question', reference_answer='Answer', reference_urls=[reference['url']])])
     extended = extend_reference_urls(data, observations)
     assert not extended['cases'][0]['equivalent_reference_urls']
     assert [item['outcome'] for item in extended['reference_equivalence_audit'][:3]] == [
-        'title_mismatch', 'overlap_below_threshold', 'fetch_failed']
+        'title_mismatch', 'evidence_mismatch', 'capture_failed']
+
+
+@pytest.mark.parametrize('change', ['none', 'missing_answer', 'stale', 'lookalike'])
+def test_full_mirror_proof_is_question_scoped_and_replayable(change):
+    from copy import deepcopy
+    from lexbench_websearch.inputs import digest
+    from lexbench_websearch.simpleqa import extend_reference_urls, validate_reference_evidence, mirror_candidates
+
+    lead = 'A documented article with matching introductory material. ' * 100
+    reference = ('# Article\n\n' + lead + '\n\nSupporting fact: sapphire.').encode()
+    mirror = reference if change not in ('missing_answer', 'stale') else ('# Article\n\n' + lead).encode()
+    urls = ['https://en.wikipedia.org/wiki/Article', 'https://wiki2.org/en/Article']
+    if change == 'lookalike':
+        urls[1] = 'https://wiki2.org.attacker.test/en/Article'
+    artifacts = {'reference.md': reference, 'mirror.md': mirror}
+    observations = [dict(url=url, status=200, verified_at='2026-11-16T00:00:00Z',
+        body_sha256=digest(artifacts[path]), media_type='text/markdown',
+        body_artifact=dict(path=path, sha256=digest(artifacts[path])))
+        for url, path in zip(urls, artifacts, strict=True)]
+    data = dict(cases=[dict(id='q', query='What is the fact?', reference_answer='sapphire', reference_urls=[urls[0]]),
+                       dict(id='other', query='Another fact?', reference_answer='absent', reference_urls=[urls[0]])])
+    if change == 'lookalike':
+        with pytest.raises(ValueError, match='independently derived'):
+            extend_reference_urls(data, observations, artifacts=artifacts)
+        return
+    observations += [dict(url=url, status=0, verified_at='2026-11-16T00:00:00Z')
+                     for url in mirror_candidates(urls[0]) if url != urls[1]]
+    result = extend_reference_urls(data, observations, artifacts=artifacts)
+    assert bool(result['cases'][0]['equivalent_reference_urls']) == (change == 'none')
+    assert result['cases'][1]['equivalent_reference_urls'] == [urls[1]]
+    assert len(result['reference_equivalence_audit']) == 18
+    validate_reference_evidence(result, artifacts)
+    incomplete = deepcopy(result)
+    incomplete['reference_equivalence_audit'].pop()
+    with pytest.raises(ValueError, match='audit'):
+        validate_reference_evidence(incomplete, artifacts)
+    modified = dict(artifacts, **{'mirror.md': b'changed'})
+    with pytest.raises(ValueError, match='hash'):
+        validate_reference_evidence(result, modified)

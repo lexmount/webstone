@@ -4276,4 +4276,12 @@ def dataset_context(profile, content, zh):
     if note:
         note += report_text(". ", zh)
     note += report_text("Original queries, source URLs and derivations are listed below.", zh)
-    return '<section data-dataset-context><h2>' + report_text("Datasets and evaluation scope", zh) + '</h2>' + table([report_text("Dataset", zh), report_text("Queries", zh), report_text("Purpose", zh)], rows) + '<p>' + note + '</p></section>'
+    result = '<section data-dataset-context><h2>' + report_text("Datasets and evaluation scope", zh) + '</h2>' + table([report_text("Dataset", zh), report_text("Queries", zh), report_text("Purpose", zh)], rows) + '<p>' + note + '</p></section>'
+    verified = [case for case in profile['cases'] if 'reference_verification_coverage' in case]
+    if verified:
+        coverage = [cells([esc(case['id']), *[str(case['reference_verification_coverage'][key]) for key in
+                    ('candidate_count', 'verified', 'title_mismatch', 'evidence_mismatch', 'capture_failed')]]) for case in verified]
+        result += '<section data-reference-verification><h2>' + report_text('Reference mirror verification', zh) + '</h2><p><a href="' + esc(verified[0]['reference_verification_audit_url']) + '">' + report_text('Full capture audit', zh) + '</a></p>'
+        result += table([report_text('Query ID', zh), report_text('Candidates', zh), report_text('Verified', zh),
+                         report_text('Title mismatch', zh), report_text('Evidence mismatch', zh), report_text('Capture failed', zh)], coverage) + '</section>'
+    return result

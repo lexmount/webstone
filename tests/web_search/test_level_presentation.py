@@ -309,3 +309,32 @@ def test_l2_capabilities_show_verified_admission_and_count_unavailable_pages():
     views['l2']['field_admissions'].clear()
     with pytest.raises(ValueError, match='verified field admission'):
         render_level_capabilities(views)
+
+
+def test_verified_mirrors_keep_publisher_scores_and_capture_failures_separate():
+    selected = view(n=2)
+    for case in selected['profile']['cases']:
+        case['equivalent_reference_urls'] = ['https://copy.test/' + case['id']]
+        case['reference_verification_coverage'] = dict(candidate_count=2, verified=1, capture_failed=1)
+        case['capture_failed_reference_urls'] = ['https://other.test/']
+    cases = {case['id']: case for case in selected['profile']['cases']}
+    for row in selected['rows']:
+        if row['method'] == 'a':
+            row['results'][0]['url'] = cases[row['case_id']]['equivalent_reference_urls'][0]
+        row['metrics'] = evaluate(cases[row['case_id']], row['results'])
+    selected['benchmarks'] = level_benchmarks(selected)
+    scores = selected['benchmarks']['factual']['scores']
+    assert all(s['source_hit'] == 1 and s['publisher_hit'] == 0 for s in scores if s['method'] == 'a')
+    assert all(s['capture_failed'] == 1 and s['source_hit'] == 0 for s in scores if s['method'] == 'b')
+    doc = check_presentation(render_level_summary(selected))
+    cells = doc.select('[data-summary-method="b"] [data-metric$="-capture_failed"]')
+    assert len(cells) == 1 and cells[0].get_text(strip=True) == '2/2'
+    assert not cells[0].select('.win, .best')
+
+
+def test_request_failures_are_visible_beside_the_affected_method():
+    selected = view(n=2)
+    selected['rows'][0].update(http_status=503, error='Service unavailable')
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    affected = doc.select_one('[data-summary-method="' + selected['rows'][0]['method'] + '"]')
+    assert affected.select_one('[data-delivery-limited]').get_text() == 'Delivery limited: 1/2 failed calls'

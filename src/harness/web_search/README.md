@@ -547,3 +547,10 @@ zero against every comparator. A single participant receives absolute results.
 Per-level result filters and details use the same verified projections as scores.
 Build the deterministic layout example with `example --levels` and run the normal
 report check; no provider account is needed.
+
+Current reference-mirror revisions verify each question from hash-bound full
+captures. Matching article titles must retain the reference answer when it is
+present in the original capture; otherwise both full article texts must overlap
+by at least 80%. Every derived candidate has a recorded outcome, including failed
+captures. Dataset builds and report input checks replay the complete audit;
+historical lead-only receipts remain readable only for their frozen revisions.

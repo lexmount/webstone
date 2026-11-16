@@ -377,3 +377,25 @@ def test_component_license_is_preserved_from_its_committed_bytes(tmp_path):
     (root / "LICENSE-annotations").write_bytes(b"Uncommitted replacement")
     release = DatasetRelease.from_git(root, "websearch", revision)
     assert release.files["LICENSE-annotations"] == component
+
+
+@pytest.mark.parametrize('missing_inventory', [False, True])
+def test_simpleqa_release_replays_full_reference_audit(tmp_path, missing_inventory):
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    dataset = extend_reference_urls(dict(cases=[dict(id='q', query='Question', reference_answer='Answer',
+        reference_urls=['https://publisher.test/page'])]), [])
+    if missing_inventory:
+        dataset.pop('reference_equivalence_observations')
+    raw = json.dumps(dataset).encode()
+    registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
+                                               sha256=hashlib.sha256(raw).hexdigest())})
+    release = DatasetRelease('simpleqa-verified', 'a' * 40, {
+        'definitions/registry.json': json.dumps(registry).encode(),
+        'definitions/datasets/factual-v1.json': raw,
+    }, card_body='# Synthetic reference release\n', language_annotations={})
+    if missing_inventory:
+        with pytest.raises(ValueError, match='full reference capture inventory'):
+            release.build(tmp_path / 'release')
+    else:
+        assert release.build(tmp_path / 'release')['datasets']['factual-v1']['count'] == 1

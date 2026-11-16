@@ -398,6 +398,8 @@ def render_level_summary(view, zh=False, *, content=None):
                   l3=t('Generated answers: answering correctly'))
     labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
                   source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
+                  publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
+                  capture_failed=t('Unverified mirror questions'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
                   answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'),
                   citation_support=t('Citation support'), cited_urls_in_results=t('Cited URLs in results'),
@@ -431,6 +433,8 @@ def render_level_summary(view, zh=False, *, content=None):
         intervals = {}
         if len(methods) > 1 and n >= 30:
             for key in quality_keys:
+                if key == 'capture_failed':
+                    continue
                 intervals[key] = paired_bootstrap(panel['scores'], method_ids, metric=key)
         records = []
         for method in methods:
@@ -457,11 +461,15 @@ def render_level_summary(view, zh=False, *, content=None):
         for method, values in sorted(records, key=lambda row: (row[1][panel['primary_metric']] is None,
                                                                -(row[1][panel['primary_metric']] or 0))):
             mid = method['id']
-            cells = ['<td>' + esc(method['label']) + '</td>']
+            calls = [row for row in view.get('timing_rows', rows) if row['case_id'] in ids and row['method'] == mid]
+            failed = sum(bool(row.get('error') or row.get('transport_exit') or row.get('http_status', 200) != 200) for row in calls)
+            delivery = ('<small data-delivery-limited>' + t('Delivery limited: {failed}/{total} failed calls', failed=failed, total=len(calls)) + '</small>') if failed else ''
+            cells = ['<td>' + esc(method['label']) + delivery + '</td>']
             for index, metric in enumerate(definitions):
                 key, value = metric['key'], values[metric['key']]
                 label = '—' if value is None else (f'{value * 100:.1f}' if key == 'ndcg' else
-                         f'{value:.3f}' if key == 'source_rr' else f'{value:.2f}' if key == 'answer_grade' else
+                         f'{value:.3f}' if key in ('source_rr', 'publisher_rr') else
+                         f'{round(value * n)}/{n}' if key == 'capture_failed' else f'{value:.2f}' if key == 'answer_grade' else
                          f'{value:.1%}' if key in quality_keys or key in ('citation_support', 'cited_urls_in_results') else fmt(value))
                 if key == 'mean_ms':
                     batches = [b for b in profile.get('method_collections', []) if method['id'] in b['methods']]

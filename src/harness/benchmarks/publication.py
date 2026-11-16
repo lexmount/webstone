@@ -381,6 +381,12 @@ class DatasetRelease:
         external = self.external_definitions(context)
         definition_files = {name: raw for name, raw in self.files.items() if name not in external}
         files = dict(definition_files)
+        if self.track == 'simpleqa-verified':
+            from lexbench_websearch.simpleqa import validate_reference_evidence
+
+            for name, raw in files.items():
+                if name.startswith('definitions/datasets/') and name.endswith('.json'):
+                    validate_reference_evidence(json.loads(raw), lambda path: files['definitions/' + path])
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])
             for name, binding in registry["source_files"].items():

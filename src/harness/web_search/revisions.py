@@ -25,7 +25,7 @@ def _rescore(profile, rows):
 NATIVE_CONTROLS = Path(__file__).with_name("data") / "native-normalization-regressions.json"
 
 
-def capture_mirror_observations(dataset, previous, output, token, *, collect=False):
+def capture_mirror_observations(dataset, previous, output, token, *, collect=False, full=False):
     """Capture reference-derived pages once, retrying prior fetch failures once.
 
     Native responses, request reservations and the execution contract are retained;
@@ -35,7 +35,7 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
     from datetime import UTC, datetime
 
     from harness.benchmark_execution import ExecutionPolicy, Job, assess_execution, run_jobs
-    from harness.web_search.core import write_json
+    from harness.web_search.core import response_entries, write_json
     from harness.web_search.runner import http_call
     from lexbench_websearch.simpleqa import mirror_candidates
 
@@ -55,6 +55,8 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
                     previous_sha256=digest(json.dumps(previous, sort_keys=True).encode()), urls=urls,
                     execution_policy=policy, maximum_calls=len(batches), timeout_s=45,
                     retries=1, request=options, maximum_url_charge_usd=len(urls) * .001)
+    if full:
+        contract['full_capture'] = True
     path = output / 'contract.json'
     if path.exists() and json.loads(path.read_bytes()) != contract:
         raise ValueError('Reference capture contract changed after preparation')
@@ -110,14 +112,23 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
         if not isinstance(payload, dict):
             payload = {}
         for url in batch:
-            matches = [item for item in payload.get('results', []) if item.get('id') == url]
-            statuses = [item for item in payload.get('statuses', []) if item.get('id') == url]
+            matches = response_entries(payload, 'results', url)
+            statuses = response_entries(payload, 'statuses', url)
             item, status = (matches[0] if len(matches) == 1 else {}), (statuses[0] if len(statuses) == 1 else {})
             successful = (status.get('status') == 'success' and status.get('source') == 'crawled'
                           and isinstance(item.get('text'), str) and bool(item['text'].strip()))
             body = item['text'].encode() if successful else b''
             observation = article_observation(body, url, status=200 if successful else 0,
                 verified_at=receipt['completed_at'], media_type='text/markdown', source_title=item.get('title'))
+            if full and body:
+                from lexbench_websearch.simpleqa import article_text
+
+                title, text = article_text(body, media_type='text/markdown', source_title=item.get('title'))
+                if title and len(text) >= 200:
+                    observation.update(title=title, media_type='text/markdown', source_title=item.get('title'),
+                        body_artifact=dict(path='bodies/' + digest(body) + '.md', sha256=digest(body)))
+                else:
+                    observation['status'] = 0
             observation.update(source_status=status, native_evidence=dict(path=key + '-response.json', sha256=digest(raw)),
                                capture=dict(path=key + '.json', sha256=digest((output / (key + '.json')).read_bytes())),
                                fetch_attempts=indexed.get(url, {}).get('fetch_attempts', int(url in indexed)) + 1)
@@ -444,7 +455,13 @@ def validate_revision_controls(revision, normalizer=None):
             if control.get('kind') == 'reference_mirror':
                 from lexbench_websearch.simpleqa import qualify_mirror
 
-                proof = qualify_mirror(control['reference'], control['candidate'])
+                try:
+                    proof = qualify_mirror(control['reference'], control['candidate'],
+                        answer=control['case']['reference_answer'] if control.get('full_capture') else None)
+                except ValueError:
+                    if not control.get('error'):
+                        raise
+                    proof = {'qualified': False}
                 case = deepcopy(control['case'])
                 if proof['qualified']:
                     case['equivalent_reference_urls'] = [proof['url']]
@@ -550,7 +567,11 @@ def apply_reference_dataset(cases, selected):
     raw = definition_path(selected['track'], selected['path'], selected['revision']).read_bytes()
     dataset = json.loads(raw)
     validate_cases(dataset['cases'])
+    from lexbench_websearch.simpleqa import validate_reference_evidence
+
+    validate_reference_evidence(dataset, lambda path: definition_path(selected['track'], path, selected['revision']).read_bytes())
     indexed = {case['id']: case for case in dataset['cases']}
+    coverage = {item['case_id']: item for item in dataset.get('reference_equivalence', {}).get('case_coverage', [])}
     for case in cases.values():
         if 'reference_answer' not in case:
             continue
@@ -562,6 +583,12 @@ def apply_reference_dataset(cases, selected):
             if key not in reference:
                 raise ValueError('Selected dataset has no qualified reference extension')
             case[key] = deepcopy(reference[key])
+        if dataset.get('reference_equivalence', {}).get('method') == 'reference-question-evidence/1':
+            case['reference_verification_coverage'] = coverage[case['id']]
+            case['capture_failed_reference_urls'] = [item['url'] for item in dataset['reference_equivalence_audit']
+                if item['case_id'] == case['id'] and item['outcome'] == 'capture_failed']
+            case['reference_verification_audit_url'] = ('https://huggingface.co/datasets/' + source['repository']
+                + '/resolve/' + selected['revision'] + '/definitions/' + selected['path'])
 
 
 def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer=None):
@@ -609,6 +636,9 @@ def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer
         if not {'generic-document-urls', 'reference-mirror-title-and-lead'}.issubset(revision['regression_ids']):
             raise ValueError('Reference dataset revision requires URL and mirror regression controls')
         apply_reference_dataset(cases, revision['reference_dataset'])
+        if (any('reference_verification_coverage' in case for case in cases.values())
+                and 'reference-question-evidence' not in revision['regression_ids']):
+            raise ValueError('Full reference revision requires question-evidence regression controls')
     identities = set()
     for item in revision.get('factual_source_identities', []):
         cid, alias = item.get('case_id'), item.get('alias')

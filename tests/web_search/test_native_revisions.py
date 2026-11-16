@@ -731,7 +731,9 @@ def test_assessment_replay_keeps_each_source_protocol_unless_explicitly_revised(
     assert source['result_url_resolution'] == 'request-url/1'
 
 
-def test_reference_capture_freezes_attempts_and_resumes_without_repeating_requests(tmp_path, monkeypatch):
+@pytest.mark.parametrize('malformed', [None, {'results': None, 'statuses': []},
+    {'results': [None], 'statuses': [None]}, {'results': {}, 'statuses': 'invalid'}, []])
+def test_reference_capture_freezes_attempts_and_resumes_without_repeating_requests(tmp_path, monkeypatch, malformed):
     from copy import deepcopy
     from harness.web_search.revisions import capture_mirror_observations
     from lexbench_websearch.simpleqa import mirror_candidates
@@ -743,6 +745,8 @@ def test_reference_capture_freezes_attempts_and_resumes_without_repeating_reques
     def capture(url, body, header, timeout):
         requested.append(body)
         payload = dict(statuses=[dict(id=u, status='error') for u in body['urls']], results=[])
+        if malformed is not None:
+            payload = malformed
         return dict(http_status=200, transport_exit=0), json.dumps(payload).encode()
     monkeypatch.setattr('harness.web_search.runner.http_call', capture)
     capture_mirror_observations(dataset, previous, tmp_path/'capture', 'fixture')
@@ -760,3 +764,11 @@ def test_reference_capture_freezes_attempts_and_resumes_without_repeating_reques
     broken['cases'][0]['reference_urls'] = ['https://en.wikipedia.org/wiki/Other']
     with pytest.raises(ValueError, match='reference-derived'):
         capture_mirror_observations(broken, previous, tmp_path/'capture', 'fixture', collect=True)
+
+
+def test_current_full_capture_and_visible_html_controls_use_production_scoring():
+    from harness.web_search.revisions import validate_revision_controls
+
+    validate_revision_controls(dict(
+        root_cause='Question-specific full capture evidence and rendered HTML citation boundaries.',
+        regression_ids=['reference-question-evidence', 'visible-html-citation-links'], provider_calls=0))

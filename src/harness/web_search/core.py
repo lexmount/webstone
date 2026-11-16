@@ -109,6 +109,12 @@ def latency(values):
     }
 
 
+def response_entries(payload, field, identity):
+    """Read optional native result arrays without trusting collection/entry types."""
+    values = payload.get(field) if isinstance(payload, dict) else None
+    return [item for item in values if isinstance(item, dict) and item.get('id') == identity] if isinstance(values, list) else []
+
+
 def aggregate(rows):
     output = {}
     for method in dict.fromkeys(r["method"] for r in rows):

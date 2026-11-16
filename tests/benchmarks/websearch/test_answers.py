@@ -387,6 +387,11 @@ def test_citation_support_uses_visible_inline_html_text(markup, claim):
     ('Claim <a href="https://source.test/a">a <em>formatted</em> source</a>.', ['Claim a formatted source.']),
     ('Claim <a href="https://source.test/a">source', ['Claim source']),
     ('Claim <a hidden href="https://source.test/a">source</a>.', []),
+    ('Claim <a style="visibility:hidden" href="https://source.test/a"><span style="visibility:visible">source</span></a>.', ['Claim source.']),
+    ('Claim <a href="https://source.test/a"><img src="badge.png" alt="source"></a>.', ['Claim source.']),
+    ('Claim <a href="https://source.test/a"><img hidden alt="source"></a>.', []),
+    ('Claim <a style="display:none" href="https://source.test/a"><span style="visibility:visible">source</span></a>.', []),
+    ('<div><a href="https://source.test/a">First claim\n\nSecond claim</a></div>', ['First claim Second claim']),
     ('<div hidden>Claim <a href="https://source.test/a">source</a>.</div>', []),
     ('Claim <span style="display:none"><a href="https://source.test/a">source</a></span>.', []),
 ])
@@ -406,3 +411,16 @@ def test_html_links_outside_results_still_count_in_the_support_denominator():
     citation, = answers.citation_inventory('Claim <a href="https://missing.test/a">source</a>.', [])
     assert citation['claim_context'] == 'Claim source.'
     assert not citation['in_results'] and citation['source'] is None
+
+
+@pytest.mark.parametrize('answer,context', [
+    ('<div>Claim.</div><div>[引用:1]</div>', ''),
+    ('<div><p>Claim.</p><p>[引用:1]</p></div>', ''),
+    ('<div><p>Claim. [引用:1]</p></div>', 'Claim.'),
+    ('<div><img alt="Claim">[引用:1]</div>', 'Claim'),
+    ('<div><img style="display:none" alt="Claim">[引用:1]</div>', ''),
+])
+def test_html_native_markers_use_only_their_own_visible_block(answer, context):
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1', snippet='Claim.')])
+    assert citation['claim_context'] == context
+    assert citation['marker'] == '[引用:1]'
