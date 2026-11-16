@@ -16,6 +16,15 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from harness.results.versions import (
+    KINDS,
+    VERSION_PATTERN,
+    identity,
+    next_version,
+    parts,
+    release_info,
+)
+
 DEFAULT_REPOSITORY = "lexmount/webstone-site"
 DEFAULT_WEBSITE = "https://webstone.dev.lexmount.net"
 MAX_REPORT_BYTES = 1024 * 1024
@@ -232,6 +241,10 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
         raise SubmissionError(
             "Provide a public HTTPS evidence URL with a DNS hostname in source.url."
         )
+    try:
+        release_info(report, None)
+    except ValueError as error:
+        raise SubmissionError(str(error)) from error
     result = report["benchmarks"][0]
     if not isinstance(result, dict):
         raise SubmissionError("The benchmark result must be an object.")
@@ -354,7 +367,11 @@ class ResultsClient:
             "note": "Trusted repository CI performs authoritative validation before approval.",
         }
 
-    def template(self, benchmark: str, definition: str | None = None) -> dict:
+    def template(
+        self, benchmark: str, definition: str | None = None, *, kind: str = "results"
+    ) -> dict:
+        if kind not in KINDS:
+            raise SubmissionError("Choose protocol, results or metadata for the release kind.")
         catalog = self.catalog()
         info = next((item for item in catalog["benchmarks"] if item["id"] == benchmark), None)
         if not info:
@@ -391,6 +408,7 @@ class ResultsClient:
             result["categoryTotals"] = {item["id"]: None for item in selected["categories"]}
             provider["categoryPassed"] = {item["id"]: None for item in selected["categories"]}
         return {
+            "release": {"kind": kind, "date": "", "summary": ""},
             "datasetDifference": "",
             "source": {
                 "kind": "report-page",
@@ -429,17 +447,23 @@ class ResultsClient:
                 "Submit a reviewed result PR manually; no version was allocated."
             )
         versions = [
-            int(match[1])
+            match[1]
             for file in files
             if (
                 match := re.fullmatch(
-                    re.escape(benchmark) + r"-v([1-9]\d*)-report\.json", file.get("name", "")
+                    re.escape(benchmark) + rf"-({VERSION_PATTERN})-report\.json",
+                    file.get("name", "")
                 )
             )
         ]
-        version = f"v{max(versions, default=0) + 1}"
+        previous = max(versions, key=parts, default=None)
+        try:
+            release = release_info(report, previous)
+            version = next_version(previous, release["kind"])
+        except ValueError as error:
+            raise SubmissionError(str(error)) from error
         normalized = copy.deepcopy(report)
-        normalized.update(id=f"{benchmark}-{version}", version=version)
+        normalized.update(id=f"{benchmark}-{version}", version=version, release=release)
         content = _json(normalized)
         if len(content.encode("utf-8")) > MAX_REPORT_BYTES:
             raise SubmissionError("The versioned report exceeds 1 MiB. Reduce its public notes.")
@@ -513,12 +537,10 @@ class ResultsClient:
                 "files": [item["path"] for item in prepared["entries"]],
             }
         login = self.transport.request("GET", "/user")["login"]
-        identity = copy.deepcopy(report)
-        identity.pop("id", None)
-        identity.pop("version", None)
+        payload_identity = identity(report)
         digest = hashlib.sha256(
             json.dumps(
-                {"report": identity, "providerUrls": provider_urls or {}},
+                {"report": payload_identity, "providerUrls": provider_urls or {}},
                 sort_keys=True,
                 ensure_ascii=False,
                 allow_nan=False,
@@ -574,18 +596,18 @@ class ResultsClient:
                 item["name"]
                 for item in files
                 if re.fullmatch(
-                    re.escape(prepared["benchmark"]) + r"-v[1-9]\d*-report\.json", item["name"]
+                    re.escape(prepared["benchmark"]) + rf"-{VERSION_PATTERN}-report\.json",
+                    item["name"]
                 )
             ]
             if not names:
                 raise SubmissionError("The existing submission branch has no result report.")
-            name = max(names, key=lambda value: int(value.rsplit("-v", 1)[1].split("-", 1)[0]))
+            name = max(
+                names, key=lambda value: parts("v" + value.rsplit("-v", 1)[1].split("-", 1)[0])
+            )
             saved_file = f"results/{prepared['benchmark']}/{name}"
             saved = self._file(saved_file, saved_head, fork)
-            saved_identity = copy.deepcopy(saved)
-            saved_identity.pop("id", None)
-            saved_identity.pop("version", None)
-            if saved_identity != identity:
+            if identity(saved) != payload_identity:
                 raise SubmissionError(
                     "The existing submission branch changed. Inspect it before retrying."
                 )
@@ -667,7 +689,8 @@ class ResultsClient:
             item
             for item in changes
             if re.fullmatch(
-                r"results/[a-z0-9-]+/[a-z0-9-]+-v[1-9]\d*-report\.json", item["filename"]
+                rf"results/[a-z0-9-]+/[a-z0-9-]+-{VERSION_PATTERN}-report\.json",
+                item["filename"]
             )
         ]
         if len(reports) != 1 or any(
@@ -740,7 +763,8 @@ class ResultsClient:
                 item["filename"]
                 for item in files
                 if re.fullmatch(
-                    r"results/[a-z0-9-]+/[a-z0-9-]+-v[1-9]\d*-report\.json", item["filename"]
+                    rf"results/[a-z0-9-]+/[a-z0-9-]+-{VERSION_PATTERN}-report\.json",
+                item["filename"]
                 )
             ]
             published = bool(paths and pr.get("merge_commit_sha"))

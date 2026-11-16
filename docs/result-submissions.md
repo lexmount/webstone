@@ -75,3 +75,11 @@ The package already declares the `webstone` command and an installable wheel/sdi
 Configure a pending Trusted Publisher if the PyPI project does not yet exist. The `pypi` environment should require maintainer approval. Organization ownership is optional for publishing; a commercial PyPI organization needs separate application, billing and administrator approval.
 
 Publishing requires a separately approved software version and immutable `vMAJOR.MINOR.PATCH` tag, matching `pyproject.toml` and `uv.lock`, successful full CI on that exact commit, and a published GitHub software release. The workflow verifies these boundaries, builds both distributions, checks metadata and publishes with attestations. Adding this workflow does not itself bump a version, create a tag, publish a package or certify benchmark numbers. Follow [Software releases](releases.md).
+
+## Result versions and dates
+
+Result editions use independent `vMAJOR.MINOR.PATCH` versions, separate from Webstone software releases. `protocol` bumps MAJOR for changed populations/reference answers/scoring; `results` bumps MINOR for methods/configurations/measurements under the same protocol; `metadata` bumps PATCH for wording/evidence/links only, with unchanged measured data and configurations. The first edition is v1.0.0. Published files are immutable; every update is reviewed again.
+
+`webstone results template --benchmark <id> --kind results --output result.json` includes `release.kind`, a blank `release.date` and `release.summary`. Fill an English summary of the actual change. The CLI allocates the next version and `release.previous`, proposing today's UTC date if blank. Reviewers confirm the actual publication date; it is not the execution date. Future dates are rejected. After a version collision, `rebase` allocates again and requires renewed review.
+
+Historical vN editions remain unchanged on disk and resolve as vN.0.0 in the website. Their recorded source import dates are labelled Imported; no historical publication date is invented. See the website's [versioning guide](https://webstone.dev.lexmount.net/versioning).
