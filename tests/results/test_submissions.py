@@ -72,6 +72,15 @@ def test_preflight_rejects_private_evidence_and_project_credentials():
         report["benchmarks"][0]["notes"] = [prefix + "ghp_" + "x" * 36]
         with pytest.raises(SubmissionError, match="credential-like"):
             preflight(report, CATALOG)
+    for value in [
+        ("ghp_" + "x" * 36,),
+        ["-----BEGIN DSA PRIVATE KEY-----"],
+        ["-----BEGIN ENCRYPTED PRIVATE KEY-----"],
+    ]:
+        report = copy.deepcopy(REPORT)
+        report["benchmarks"][0]["notes"] = value
+        with pytest.raises(SubmissionError, match="credential-like"):
+            preflight(report, CATALOG)
 
 
 class FakeGitHub:
@@ -182,7 +191,7 @@ class FakeGitHub:
 @pytest.fixture
 def setup_client():
     api = FakeGitHub()
-    return api, ResultsClient(api, repository=api.repository)
+    return api, ResultsClient(api, repository=api.repository, website="https://example.com")
 
 
 def test_submit_uses_personal_fork_and_never_mutates_input_or_upstream_main(setup_client):
@@ -208,9 +217,18 @@ def test_dry_run_and_duplicate_submission_do_not_create_extra_prs(setup_client):
     assert all(method == "GET" for method, _, _ in api.calls)
     first = client.submit(REPORT)
     writes = sum(method != "GET" for method, _, _ in api.calls)
-    second = client.submit(REPORT)
+    reordered = json.loads(json.dumps(REPORT, sort_keys=True))
+    second = client.submit(reordered)
     assert second["existing"] is True and second["url"] == first["url"]
     assert sum(method != "GET" for method, _, _ in api.calls) == writes
+
+
+def test_custom_repository_does_not_verify_against_an_unrelated_website(setup_client):
+    api, _ = setup_client
+    client = ResultsClient(api, repository=api.repository)
+    with pytest.raises(SubmissionError, match="Specify website"):
+        client.status(7, verify_published=True)
+    assert not api.calls
 
 
 def test_retry_after_pr_creation_failure_reuses_the_existing_data_branch(setup_client):
@@ -333,7 +351,12 @@ def test_publication_status_requires_exact_live_result_not_just_a_merge(setup_cl
 
     response = PublicResponse()
     response.data = api.saved_report
-    monkeypatch.setattr("harness.results.client.urlopen", lambda *args, **kwargs: response)
+
+    def fetch(request, **kwargs):
+        assert request.full_url.startswith("https://example.com/results/")
+        return response
+
+    monkeypatch.setattr("harness.results.client.urlopen", fetch)
     assert client.status(7, verify_published=True)["state"] == "published"
     response.data = {**api.saved_report, "datasetDifference": "A different result"}
     assert client.status(7, verify_published=True)["published"] is False
@@ -351,6 +374,11 @@ def test_cli_uses_shared_client_and_does_not_overwrite_templates(
     assert template["benchmarks"][0]["providers"][0]["scores"] == {"quality": None}
     with pytest.raises(SystemExit) as error:
         main(["template", "--benchmark", "fixture-results", "--output", str(output)])
+    assert error.value.code == 2
+    report = tmp_path / "report.json"
+    report.write_text("[" * 2000 + "]" * 2000, encoding="utf-8")
+    with pytest.raises(SystemExit) as error:
+        main(["validate", str(report)])
     assert error.value.code == 2
     report = tmp_path / "report.json"
     report.write_text(json.dumps(REPORT), encoding="utf-8")

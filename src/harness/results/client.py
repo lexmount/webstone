@@ -45,7 +45,7 @@ def _json(value: Any) -> str:
 def _reject_credentials(value: Any) -> None:
     if isinstance(value, str):
         if re.search(
-            r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
+            r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----|"
             r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[A-Z0-9]{16})\b",
             value,
         ):
@@ -54,7 +54,7 @@ def _reject_credentials(value: Any) -> None:
         for key, child in value.items():
             _reject_credentials(key)
             _reject_credentials(child)
-    elif isinstance(value, list):
+    elif isinstance(value, (list, tuple)):
         for child in value:
             _reject_credentials(child)
 
@@ -190,7 +190,7 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
     """Check common input mistakes; the trusted site CI remains authoritative."""
     try:
         encoded = _json(report)
-    except (ValueError, TypeError) as error:
+    except (ValueError, TypeError, RecursionError) as error:
         raise SubmissionError("Results must be JSON with finite numeric values.") from error
     if len(encoded.encode("utf-8")) > MAX_REPORT_BYTES:
         raise SubmissionError("A report must not exceed 1 MiB. Keep raw logs outside Git.")
@@ -282,13 +282,26 @@ def preflight(report: dict, catalog: dict, provider_urls: dict[str, str] | None 
 class ResultsClient:
     """Prepare, submit, rebase and inspect reviewed result pull requests."""
 
-    def __init__(self, transport: Transport | None = None, repository: str = DEFAULT_REPOSITORY):
+    def __init__(
+        self,
+        transport: Transport | None = None,
+        repository: str = DEFAULT_REPOSITORY,
+        *,
+        website: str | None = None,
+    ):
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
             raise SubmissionError("Repository must be OWNER/NAME on GitHub.")
         if any(part in {".", ".."} for part in repository.split("/")):
             raise SubmissionError("Invalid repository name.")
         self.transport = transport or GhTransport()
         self.repository = repository
+        self.website = website or (DEFAULT_WEBSITE if repository == DEFAULT_REPOSITORY else None)
+        if self.website and (
+            not _public_evidence(self.website)
+            or urlsplit(self.website).query
+            or urlsplit(self.website).fragment
+        ):
+            raise SubmissionError("The publication website must be a public HTTPS base URL.")
 
     def _request(self, method: str, suffix: str, body: Any = None, repository: str | None = None):
         return self.transport.request(
@@ -467,7 +480,12 @@ class ResultsClient:
         identity.pop("id", None)
         identity.pop("version", None)
         digest = hashlib.sha256(
-            _json({"report": identity, "providerUrls": provider_urls or {}}).encode("utf-8")
+            json.dumps(
+                {"report": identity, "providerUrls": provider_urls or {}},
+                sort_keys=True,
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
         ).hexdigest()[:16]
         branch = f"webstone-results/{prepared['benchmark']}/{digest}"
         existing = self._request(
@@ -632,6 +650,10 @@ class ResultsClient:
         }
 
     def status(self, number: int, *, verify_published: bool = False) -> dict:
+        if verify_published and not self.website:
+            raise SubmissionError(
+                "Specify website for publication verification of a custom repository."
+            )
         pr = self._request("GET", f"pulls/{number}")
         reviews = self._request("GET", f"pulls/{number}/reviews?per_page=100")
         result = {
@@ -655,7 +677,7 @@ class ResultsClient:
             published = bool(paths and pr.get("merge_commit_sha"))
             for path in paths if published else []:
                 expected = self._file(path, pr["merge_commit_sha"])
-                url = f"{DEFAULT_WEBSITE}/{path}?submission={pr['merge_commit_sha']}"
+                url = f"{self.website.rstrip('/')}/{path}?submission={pr['merge_commit_sha']}"
                 request = Request(url, headers={"User-Agent": "Webstone-results"})
                 try:
                     with urlopen(request, timeout=20) as response:

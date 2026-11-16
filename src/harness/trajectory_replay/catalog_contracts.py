@@ -533,7 +533,9 @@ def validate_catalog_report_profile(profile_path: Path, data_home: Path) -> dict
         for value in requirements
         if value.startswith("webarena-verified @ ")
     ]
-    dependency_source = {}
+    dependency_source = (
+        project.get("tool", {}).get("uv", {}).get("sources", {}).get("webarena-verified", {})
+    )
     if len(sources) == 1:
         repository, separator, revision = sources[0].rpartition("@")
         if separator and repository.startswith("git+"):
@@ -567,6 +569,10 @@ def validate_catalog_report_profile(profile_path: Path, data_home: Path) -> dict
         or evaluator_source.get("branch") != WEBARENA_FORK_BRANCH
         or dependency_source.get("git") != WEBARENA_FORK_REPOSITORY
         or dependency_source.get("rev") != evaluator_source.get("revision")
+        or (
+            not sources
+            and f"webarena-verified=={locked_package.get('version')}" not in requirements
+        )
         or locked_git
         != (
             f"{WEBARENA_FORK_REPOSITORY}?rev={evaluator_source.get('revision')}"

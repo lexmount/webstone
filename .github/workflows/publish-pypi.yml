@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      checks: read
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -32,8 +32,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha="$(git rev-parse HEAD)"
-          conclusion="$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq '[.check_runs[] | select(.name == "Python 3.11")] | sort_by(.started_at) | last | .conclusion')"
-          test "$conclusion" = success
+          succeeded="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=$sha&status=completed&per_page=100" --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success")] | length')"
+          test "$succeeded" -gt 0
       - run: uv lock --check
       - run: uv sync --frozen
       - name: Verify approved tag and package metadata

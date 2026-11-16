@@ -31,6 +31,8 @@ The command only handles the current contributor's own open single-result data P
 
 `status` reports GitHub PR state and review history. `--verify-published` additionally compares live result JSON with the approved file at the merged commit. A mismatch or unavailable site is reported as publication not verified, never as success.
 
+For a custom repository, set the matching deployment explicitly with `webstone results --repo OWNER/NAME --website https://your-public-site.example status 123 --verify-published`, or `ResultsClient(..., repository="OWNER/NAME", website="https://your-public-site.example")`. A custom repository is never verified against the default Webstone deployment.
+
 ## Python SDK
 
 ```python

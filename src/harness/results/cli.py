@@ -23,7 +23,10 @@ def _read_report(path: Path) -> dict:
     def reject_constant(value: str):
         raise SubmissionError("Non-finite JSON numbers are not supported.")
 
-    return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"), parse_constant=reject_constant)
+    except RecursionError as error:
+        raise SubmissionError("The JSON nesting exceeds the supported input depth.") from error
 
 
 def _provider_urls(values: list[str]) -> dict[str, str]:
@@ -46,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo", default=DEFAULT_REPOSITORY, help="GitHub website repository (OWNER/NAME)"
     )
+    parser.add_argument("--website", help="Public website base URL for a custom repository")
     commands = parser.add_subparsers(dest="command", required=True)
     template = commands.add_parser(
         "template", help="Create an unfilled result template from the current catalog"
@@ -88,7 +92,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        client = ResultsClient(repository=args.repo)
+        client = ResultsClient(repository=args.repo, website=args.website)
         if args.command == "template":
             result = client.template(args.benchmark, args.definition)
             with args.output.open("x", encoding="utf-8") as stream:
