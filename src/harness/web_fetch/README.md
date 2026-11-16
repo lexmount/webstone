@@ -28,6 +28,33 @@ uv run --frozen lexbench-webfetch export --suite content-scopes-530 --source <ap
 uv run --frozen webstone validate --dataset <new-directory>/dataset.json --content-scope main
 ```
 
+When the approved private export is unavailable, a saved source dataset can
+restore the annotation inputs only if every task matches the annotations' source
+hash. `lexbench-webfetch restore-annotations --suite content-scopes-530 --source
+<source-dataset.json> --output <new-directory>` restores omitted reference text
+by SHA-256, checks the complete public acceptance projection, and retains an
+`input-provenance.json` receipt. These are explicitly derived inputs; the command
+does not claim to reproduce the private export's byte hash.
+
+### Hosted fetch APIs
+
+The existing hosted adapter supports `kimi_fetch` (international URL-only Fetch)
+and `zai_reader` (international Web Reader). Example configurations are optional
+entries in `configs/providers.example.json`; they are not added to its default
+cohort. Z.AI's `embedded_media_keep_img_data_url` applies to image/video web tasks
+only, including body tasks; direct files keep the ordinary setting.
+
+`claude_web_fetch` runs Messages API calls exclusively through its configured
+SSH server; loopback targets are rejected. Install
+`src/harness/web_fetch/workers/claude_fetch_worker.py` at the configured absolute
+remote worker path. Declare the remote repository `.env` and `uv` paths. The worker
+checks its source hash and SSH server address before reading the remote
+repository's `.env`. It never transfers the API key or falls back to local HTTP.
+Its remote hard deadline is one second shorter than the caller deadline to
+allow transport cleanup. A fresh message forces the declared Web Fetch tool;
+the final tool result's native text is scored, while all model text remains
+diagnostic. Base64 document results are not replaced by model-generated text.
+
 Use `--score-scope main`, `--score-scope full` or `--score-scope both` with
 `webstone run`, `webstone rescore` or `lexbench-webfetch score`. A single scope
 computes only that rule set and builds a single-view report. When omitted,

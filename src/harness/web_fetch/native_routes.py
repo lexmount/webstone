@@ -192,6 +192,9 @@ def normalized_http_parameters(case, arguments):
         body['url'] = '<input-url>'
     elif slots == ['urls'] and body['urls'] in ([case.url], [encode_http_target_url(case.url)]):
         body['urls'] = ['<input-url>']
+    elif (not slots and body.get('messages') == [{'role': 'user', 'content': case.url}]
+          and body.get('tool_choice') == {'type': 'tool', 'name': 'web_fetch'}):
+        body['messages'][0]['content'] = '<input-url>'
     elif (not slots and isinstance(body.get('extract'), dict)
           and 'dom_id' not in body['extract']
           and body['extract'].get('url') in (case.url, encode_http_target_url(case.url))):

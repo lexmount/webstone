@@ -857,7 +857,7 @@ def _synthetic_route_baseline():
     from harness.web_fetch.providers.base import build_provider
     methods = ('moli_webfetch', 'firecrawl', 'tavily_extract', 'exa_contents', 'lexmount',
                'cloudflare_markdown', 'cloudflare_content', 'subprocess_jsonl',
-               'cowagent_builtin', 'fixture')
+               'cowagent_builtin', 'fixture', 'kimi_fetch', 'zai_reader', 'claude_web_fetch')
     baseline = {}
     for method, configured in product(methods, (False, True)):
         config = {'type': method, 'uniform_native_parameters': True}

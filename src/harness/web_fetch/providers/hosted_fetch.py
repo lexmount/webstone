@@ -21,6 +21,8 @@ ENDPOINTS = {
     "browser_use_fetch": "https://fetch.browser-use.com/fetch",
     "browserbase_fetch": "https://api.browserbase.com/v1/fetch",
     "deepseek_fetch": "https://api.deepseek.com/v1/tools/fetch",
+    "kimi_fetch": "https://api.moonshot.ai/v1/tools/fetch",
+    "zai_reader": "https://api.z.ai/api/paas/v4/reader",
 }
 
 
@@ -31,7 +33,9 @@ def _http_status(value: object) -> int | None:
 class HostedFetchProvider(Provider):
     # The shared runner owns declared failure retries; the adapter calls once.
     native_configuration_fields = (*Provider.native_configuration_fields,
-        'render', 'debug', 'proxies', 'proxy_country', 'engine', 'proxy', 'output_format')
+        'render', 'debug', 'proxies', 'proxy_country', 'engine', 'proxy', 'output_format',
+        'no_cache', 'return_format', 'retain_images', 'no_gfm', 'keep_img_data_url',
+        'with_images_summary', 'with_links_summary', 'embedded_media_keep_img_data_url')
 
     def __init__(self, name, config):
         super().__init__(name, config)
@@ -43,7 +47,8 @@ class HostedFetchProvider(Provider):
     def native_route(self, case):
         fields = {'brightdata_unlocker': ('response_body',), 'browser_use_fetch': ('body', 'final_url'),
                   'browserbase_fetch': ('content',), 'deepseek_fetch': ('content', 'title'),
-                  'crawl4ai_cloud': ('markdown',)}
+                  'crawl4ai_cloud': ('markdown',), 'kimi_fetch': ('markdown', 'title', 'url'),
+                  'zai_reader': ('reader_result.content', 'reader_result.title', 'reader_result.url')}
         answer_fields = (('original_bytes',) if self.type == 'brightdata_unlocker' and case.task_kind == 'file'
                          else fields[self.type])
         if case.task_kind == 'file' and self.type == 'browser_use_fetch':
@@ -100,8 +105,16 @@ class HostedFetchProvider(Provider):
             headers = {"Authorization": f"Bearer {key}"}
             body.update(format="md", engine=self.config.get("engine", "browser"),
                         proxy=self.config.get("proxy", "none"))
-        elif self.type == "deepseek_fetch":
+        elif self.type in {"deepseek_fetch", "kimi_fetch", "zai_reader"}:
             headers = {"Authorization": f"Bearer {key}"}
+            if self.type == 'zai_reader':
+                body.update({field: self.config[field] for field in (
+                    'no_cache', 'return_format', 'retain_images', 'no_gfm',
+                    'keep_img_data_url', 'with_images_summary', 'with_links_summary')
+                    if field in self.config})
+                if case.track in {'image', 'video'} and case.task_kind != 'file':
+                    body['keep_img_data_url'] = self.config.get(
+                        'embedded_media_keep_img_data_url', body.get('keep_img_data_url', False))
         else:
             headers = {"X-Browser-Use-API-Key": key}
             body.update(method="GET", output_format=output_format,
@@ -179,9 +192,13 @@ class HostedFetchProvider(Provider):
                     service_error = (bool(payload.get("error")) or payload.get("success") is False
                                      or payload.get("ok") is False)
                     metadata["upstream_http_status_available"] = status is not None
-                elif self.type == "deepseek_fetch":
-                    content = payload.get("content")
-                    title = payload.get("title")
+                elif self.type in {"deepseek_fetch", "kimi_fetch", "zai_reader"}:
+                    answer = payload.get('reader_result') if self.type == 'zai_reader' else payload
+                    answer = answer if isinstance(answer, dict) else {}
+                    content = answer.get('markdown' if self.type == 'kimi_fetch' else 'content')
+                    title = answer.get("title")
+                    if self.type != 'deepseek_fetch':
+                        final_url = answer.get('url') if isinstance(answer.get('url'), str) else None
                     service_error = bool(payload.get("error"))
                     metadata["upstream_http_status_available"] = False
                 else:
@@ -192,6 +209,7 @@ class HostedFetchProvider(Provider):
                 metadata["request_id"] = payload.get("id") if isinstance(payload.get("id"), str) else None
                 malformed = (not isinstance(content, str) or
                              (not isinstance(title, str) if self.type == "deepseek_fetch" else
+                              False if self.type in {'kimi_fetch', 'zai_reader'} else
                               False if self.type == "crawl4ai_cloud" else status is None))
                 if native_file_delivery:
                     declaration = native_answer_projection(self.type, case, payload, response.status, interface=output_format)
