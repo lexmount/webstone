@@ -74,11 +74,11 @@ def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
     from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
     event = json.dumps({'event':'native_response','body':json.dumps({'token':'synthetic-secret',
         'message':'first\u2028second'},ensure_ascii=False)},ensure_ascii=False)
-    raw = (event+'\n--- native file log ---\nActual native failure at /Users/sample/worker.py\n').encode()
+    raw = (event+'\n--- native file log ---\nActual native failure at /Users/fixture/worker.py\n').encode()
     public, receipt = project_evidence_view('public-evidence/debug.txt',raw,role='diagnostic_log')
     first = json.loads(public.split(b'\n',1)[0])
     assert json.loads(first['body'])['message'] == 'first\u2028second'
-    assert 'synthetic-secret' not in public.decode() and '/Users/sample' not in public.decode()
+    assert 'synthetic-secret' not in public.decode() and '/Users/fixture' not in public.decode()
     assert '--- native file log ---\nActual native failure' in public.decode()
     assert publication_file_risk('debug.txt',public) is None
     assert receipt['role'] == 'diagnostic_log'

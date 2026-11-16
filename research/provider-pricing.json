@@ -302,11 +302,11 @@
   "translations": {
     "比较按给定 URL 返回内容的调用路线。模型工具还会产生模型 token 费用，工具无附加费不代表免费调用。按次、按时长和按 token 的报价分别列示；不能直接当作同一种每千页单价。": "Compare routes that return content for a supplied URL. Model-backed tools also incur model token charges; no tool surcharge does not mean free requests. Per-call, duration and token quotes are listed separately and cannot be treated as equivalent per-thousand-page rates.",
     "HTTP 200 且 markdown 非空时按次收费": "Per call when HTTP 200 returns nonblank markdown",
-    "$2 / 千次符合计费条件的调用": "$2 / 1,000 billable calls",
+    "$2 / 千次符合计费条件的调用": "$2 / thousand billable calls",
     "使用 API 账户余额；本条未核实最低充值金额": "API account balance; minimum top-up not verified for this entry",
     "未核实 Fetch 优惠、套餐或年付折扣": "Fetch promotions, plans and annual discounts not verified",
     "$0.002 / 次成功返回": "$0.002 / successful return",
-    "独立 /v1/tools/fetch 接口；官方价格页的渲染表格列明 $0.002/次，即每千次符合计费条件的调用 $2，不含适用税费。该报价不代表每千个评测通过页面的成本。": "Standalone /v1/tools/fetch endpoint. The rendered official price table lists USD 0.002 per call, or USD 2 per 1,000 billable calls, excluding applicable taxes. This quote is not a cost per 1,000 benchmark-accepted pages.",
+    "独立 /v1/tools/fetch 接口；官方价格页的渲染表格列明 $0.002/次，即每千次符合计费条件的调用 $2，不含适用税费。该报价不代表每千个评测通过页面的成本。": "Standalone /v1/tools/fetch endpoint. The rendered official price table lists USD 0.002 per call, or USD 2 per thousand billable calls, excluding applicable taxes. This quote is not a cost per thousand benchmark-accepted pages.",
     "官方工具计费": "Official tool billing",
     "Fetch 接口与错误码": "Fetch endpoint and error codes",
     "计费成功": "Billable success",

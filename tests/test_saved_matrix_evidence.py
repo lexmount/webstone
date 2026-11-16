@@ -232,7 +232,7 @@ def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
         'bytes':len(binary),'mime':'application/pdf','pass':False}]}
     log = source/'private_artifacts/call.stderr.log'
     log.parent.mkdir()
-    log.write_text('Observed native failure\n--- native log ---\n/Users/sample/worker.py\n',encoding='utf-8')
+    log.write_text('Observed native failure\n--- native log ---\n/Users/fixture/worker.py\n',encoding='utf-8')
     record['provider_metadata'].update(diagnostic_log_path='private_artifacts/call.stderr.log',
         diagnostic_log_sha256=hashlib.sha256(log.read_bytes()).hexdigest(),diagnostic_log_bytes=log.stat().st_size)
     raw = (json.dumps(record)+'\n').encode()
@@ -247,7 +247,7 @@ def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
     log_view = output/projected[0]['provider_metadata']['public_debug_log_path']
     assert log_view.suffix == '.txt'
     assert 'Observed native failure' in log_view.read_text(encoding='utf-8')
-    assert '/Users/sample' not in log_view.read_text(encoding='utf-8')
+    assert '/Users/fixture' not in log_view.read_text(encoding='utf-8')
 
 
 def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
@@ -262,7 +262,7 @@ def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
     private.write_text(json.dumps({'markdown':answer.decode()}), encoding='utf-8')
     diagnostic = source/'private_artifacts/call.stderr.log'
     diagnostic.write_text(json.dumps({'source':'caller','event':'request_failed',
-        'message':'Actual observed failure at /Users/sample/worker.py'})+'\n', encoding='utf-8')
+        'message':'Actual observed failure at /Users/fixture/worker.py'})+'\n', encoding='utf-8')
     for prefix, path in [('raw_response',private),('diagnostic_log',diagnostic)]:
         record['provider_metadata'].update({prefix+'_path':path.relative_to(source).as_posix(),
             prefix+'_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),prefix+'_bytes':path.stat().st_size})
@@ -281,7 +281,7 @@ def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
     assert projected[0]['metrics'] == record['metrics']
     metadata = projected[0]['provider_metadata']
     assert 'Actual observed failure' in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
-    assert '/Users/sample' not in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
+    assert '/Users/fixture' not in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
     assert (output/metadata['public_response_path']).is_file()
     with pytest.raises(ValueError,match='original source specification'):
         check_saved_matrix(output)

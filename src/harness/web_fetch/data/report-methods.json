@@ -6819,6 +6819,10 @@
       "zh": "<p>已测方法的输入展示保存的公开调用字段，输出展示同一次调用的实际节选。完整配置、原始响应和日志见环境与调用详情。未参评方法保留仓库登记示例。</p>",
       "en": "<p>For measured methods, inputs show saved public request fields and outputs show excerpts from the same call. See environment and call details for full configurations, raw responses, and logs. Unmeasured methods retain registered repository examples.</p>"
     },
+    "interface_verified_template_note": {
+      "zh": "按原始调用核验的请求模板；<input-url> 表示该题网址。",
+      "en": "Request template verified against retained calls; <input-url> denotes the task URL. "
+    },
     "interface_request_note": {
       "zh": "此处展示该次公开调用记录保存的请求字段；完整配置和日志见环境与调用详情。产品内部超时以冻结配置和实际请求为准。",
       "en": "These are the request fields saved in this public call record. Full configuration and logs are in the environment and call details; internal product timeouts follow the frozen configuration and actual request."

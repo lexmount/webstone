@@ -261,8 +261,8 @@ def render_interfaces(out,records,*,only_measured=False):
              if item['provider']==name and item['family']==report_family(example_case)
              for setting in item['settings'] if setting.get('input_class')==input_class and setting.get('request')]
   if len(verified)==1:
-   s={**s,'request':verified[0],'notes':'按原始调用核验的请求模板；<input-url> 表示该题网址。'+s['notes']}
-   english={**english,'request':verified[0],'notes':'Request template verified against retained calls; <input-url> denotes the task URL. '+english['notes']}
+   s={**s,'request':verified[0],'notes':messages['interface_verified_template_note']+s['notes']}
+   english={**english,'request':verified[0],'notes':english_messages['interface_verified_template_note']+english['notes']}
   elif bindings:
    request=json.loads(evidence_artifacts.verify_public_call_log(log_root,bindings[-1]).read_text(encoding='utf-8'))["request"]
    model=method_page_model(name,name,[x for x in records if x["provider"]==name])
