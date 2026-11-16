@@ -19,6 +19,8 @@ from harness.web_fetch.native_projection import native_answer_projection, projec
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider, terminate_owned_process_tree, await_owned_process_exit
 from harness.web_fetch.providers.http_client import HttpResponse
+from harness.web_fetch.workers.claude_fetch_worker import runtime_sources
+from harness.record_io import parse_utf8_json
 
 TOOL = {'type': 'web_fetch_20260318', 'name': 'web_fetch', 'allowed_callers': ['direct'],
         'use_cache': False, 'response_inclusion': 'full', 'citations': {'enabled': False}}
@@ -99,6 +101,7 @@ class ClaudeFetchProvider(Provider):
             raise ValueError('; '.join(errors))
         # This path has no local HTTP client, key lookup, proxy, or fallback.
         worker = Path(__file__).parents[1] / 'workers/claude_fetch_worker.py'
+        shared = runtime_sources(Path(__file__).parents[3])
         emit('remote_http_request_prepared', url=endpoint, method=arguments['method'],
              json_body=arguments['json_body'], timeout=arguments['timeout'],
              execution_server=self.config['ssh_server_ip'])
@@ -107,17 +110,20 @@ class ClaudeFetchProvider(Provider):
                     'max_bytes': arguments['max_bytes'],
                     'expected_ssh_server_ip': self.config['ssh_server_ip'],
                     'remote_env_file': self.config['remote_env_file'],
-                    'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest()}
+                    'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(),
+                    'runtime_sources': shared}
         self._process = subprocess.Popen(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', self.config['ssh_host'],
-             shlex.join([self.config['remote_uv'], 'run', '--no-project', '--python', '3.11',
+             shlex.join([self.config['remote_uv'], 'run', '--frozen', '--no-sync',
+                         '--project', str(Path(self.config['remote_worker']).parent), '--python', '3.11',
                          'python', self.config['remote_worker']])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, start_new_session=True)
         try:
             ready = _read_remote_ready(self._process.stdout, deadline)
             if (ready.get('kind') != 'claude_fetch_ready'
                     or ready.get('ssh_server') != self.config['ssh_server_ip']
-                    or ready.get('worker_sha256') != envelope['worker_sha256']):
+                    or ready.get('worker_sha256') != envelope['worker_sha256']
+                    or ready.get('runtime_sources') != shared):
                 raise ValueError('Remote Claude readiness differs from the declared server or source')
             emit('ssh_worker_ready', execution_server=ready['ssh_server'],
                  worker_sha256=ready['worker_sha256'])
@@ -139,6 +145,7 @@ class ClaudeFetchProvider(Provider):
         self._remote_execution_receipt = {
             'remote_api_budget_seconds': receipt.get('remote_api_budget_seconds'),
             'remote_worker_sha256': ready['worker_sha256'],
+            'remote_runtime_sources': shared,
             'deadline_policy': 'shared_caller_deadline_with_ready_anchored_remote_stop'}
         body = base64.b64decode(receipt['body_b64'], validate=True)
         emit('remote_http_response_received', status=receipt['status'], url=endpoint,
@@ -161,18 +168,26 @@ class ClaudeFetchProvider(Provider):
         response = self.native_http_request(case, self._remote_request, endpoint,
                             native_route_ledger=native_route_ledger, **arguments)
         try:
-            payload = json.loads(response.body)
+            decoded = parse_utf8_json(response.body)
         except ValueError:
-            payload = {}
-        blocks = payload.get('content', []) if isinstance(payload, dict) else []
+            decoded = None
+        payload = decoded if isinstance(decoded, dict) else {}
+        blocks = payload.get('content', [])
+        malformed = (not isinstance(decoded, dict) or not isinstance(blocks, list)
+                     or any(not isinstance(block, dict) for block in blocks))
+        blocks = [] if malformed else blocks
         calls = [b for b in blocks if b.get('type') == 'server_tool_use']
-        wrong_url = any(b.get('name') != 'web_fetch' or b.get('input', {}).get('url') != case.url for b in calls)
-        declaration = native_answer_projection(self.type, case, payload, response.status)
-        content, _ = project_native_answer(payload, declaration)
-        fields = project_native_result_fields(payload, declaration, request_url=case.url)
+        malformed = malformed or any(not isinstance(b.get('input'), dict) for b in calls)
+        wrong_url = any(b.get('name') != 'web_fetch' or
+                        (b.get('input') if isinstance(b.get('input'), dict) else {}).get('url') != case.url for b in calls)
+        declaration = native_answer_projection(self.type, case, payload, response.status) if isinstance(decoded, dict) else None
+        content = project_native_answer(payload, declaration)[0] if declaration else ''
+        fields = (project_native_result_fields(payload, declaration, request_url=case.url)
+                  if declaration else {'title': None, 'final_url': None})
         error = ('authentication' if response.status in {401, 403} else
                  'rate_limit' if response.status == 429 else
                  'api_error' if not 200 <= response.status < 300 else
+                 'malformed_response' if malformed else
                  'wrong_tool_url' if wrong_url else
                  'tool_error' if not content else None)
         if error:
@@ -180,7 +195,8 @@ class ClaudeFetchProvider(Provider):
         metadata = {'_raw_response_b64': base64.b64encode(response.body).decode(),
                     'raw_response_sha256': hashlib.sha256(response.body).hexdigest(),
                     'raw_response_bytes': len(response.body), 'api_http_status': response.status,
-                    'native_answer_projection': declaration, 'execution_ssh_server': self.config['ssh_server_ip'],
+                    **({'native_answer_projection': declaration} if declaration else {}),
+                    'execution_ssh_server': self.config['ssh_server_ip'],
                     'model': payload.get('model'), 'usage': payload.get('usage'),
                     'stop_reason': payload.get('stop_reason'), 'client_retries': 0,
                     'service_retry_policy': 'provider_default_not_overridden',

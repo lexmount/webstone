@@ -110,6 +110,70 @@
   ],
   "providers": [
     {
+      "id": "kimi-fetch", "label": "Kimi · URL Fetch",
+      "verified_at": "2026-11-17",
+      "billing_mode": "successful_url",
+      "unit": "HTTP 200 且 markdown 非空时按次收费",
+      "comparison": "$2 / 千次符合计费条件的调用",
+      "commitment": "使用 API 账户余额；本条未核实最低充值金额",
+      "discount": "未核实 Fetch 优惠、套餐或年付折扣",
+      "headline": "$0.002 / 次成功返回",
+      "scope": "独立 /v1/tools/fetch 接口；官方价格页的渲染表格列明 $0.002/次，即每千次符合计费条件的调用 $2，不含适用税费。该报价不代表每千个评测通过页面的成本。",
+      "sources": [
+        {"label": "官方工具计费", "url": "https://platform.kimi.ai/docs/pricing/websearch"},
+        {"label": "Fetch 接口与错误码", "url": "https://platform.kimi.ai/docs/api/tools-fetch"}
+      ],
+      "terms": [
+        ["计费成功", "HTTP 200 且 markdown 非空时计一次费用；接口计费成功不等于评测任务通过。"],
+        ["失败与空内容", "官方说明失败请求、无可提取内容和空返回不收费；客户端超时不能单凭本地结果确认服务端最终扣费。"],
+        ["价格与账单", "官方报价为 $0.002/次符合计费条件的调用；未取得完整账户账单，实际扣费仍以账单为准。"]
+      ]
+    },
+    {
+      "id": "zai-reader", "label": "Z.AI · Web Reader",
+      "verified_at": "2026-11-17",
+      "billing_mode": "undisclosed",
+      "unit": "独立 Reader 接口；未查到公开计费单位和单价",
+      "comparison": "未知：官方价格页未列明 Web Reader",
+      "commitment": "需要 API 账户；未核实此接口的付费门槛",
+      "discount": "未查到独立 Reader 的公开折扣规则",
+      "headline": "公开资料未明确独立 Reader 价格",
+      "scope": "本条针对 /api/paas/v4/reader。官方价格页列有 Web Search，但不能把搜索的每次费用或 Coding Plan 的 MCP 配额套到独立 Reader 接口。没有公开报价不代表免费。",
+      "sources": [
+        {"label": "官方价格页", "url": "https://docs.z.ai/guides/overview/pricing"},
+        {"label": "Web Reader 接口", "url": "https://docs.z.ai/api-reference/tools/web-reader"}
+      ],
+      "terms": [
+        ["尚未明确的项目", "本条核验的官方价格页和 Reader 接口文档未说明独立 Reader 的单价、失败扣费或缓存计费规则。"],
+        ["账单边界", "每千页价格和完整调用费用均不能由公开资料确定；需要账户账单或供应商确认。"]
+      ]
+    },
+    {
+      "id": "claude-web-fetch", "label": "Claude · Web Fetch / Haiku 5.5",
+      "verified_at": "2026-11-17",
+      "billing_mode": "model_tokens",
+      "unit": "模型输入、输出及适用缓存 token；工具无额外附加费",
+      "comparison": "不能固定换算：取决于网页长度、模型用量和重试",
+      "commitment": "Claude API 按模型用量计费；不属于聊天订阅额度",
+      "discount": "模型缓存和其他计费方式各有规则；不假定请求命中缓存",
+      "headline": "抓取工具不另收费，模型 token 仍收费",
+      "scope": "Web Fetch 通过 Messages API 使用，返回内容进入模型上下文并产生标准模型费用。下表为 Claude Haiku 5.5 的标准 USD / 百万 token 报价；长提示词档适用于超过 100,000 输入 token 的请求，不能只给超出部分套用高档价格。其他模型价格不同。",
+      "sources": [
+        {"label": "官方模型定价", "url": "https://platform.claude.com/docs/en/about-claude/pricing"},
+        {"label": "Web Fetch 使用量与费用", "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool"}
+      ],
+      "rate_headers": ["提示词长度", "输入 / 百万 token", "输出 / 百万 token", "缓存写入 5 分钟 / 1 小时", "缓存读取"],
+      "rates": [
+        ["不超过 100,000 token", "$0.10", "$0.50", "$0.125 / $0.20", "$0.01"],
+        ["超过 100,000 token", "$0.50", "$2.50", "$0.625 / $1", "$0.05"]
+      ],
+      "terms": [
+        ["工具费用", "Web Fetch 没有独立附加费；这不表示 API 请求或抓取内容免费。"],
+        ["用量与账单", "usage 是接口报告的用量，不是完整账单。缺少失败、超时或重试的用量时，不能把部分用量合计称为完整费用。"],
+        ["每千页换算", "需要完整输入、输出、缓存用量和适用价格档。仅知道 URL 数或客户端耗时，不能给出可靠的每千页价格。"]
+      ]
+    },
+    {
       "id": "firecrawl", "label": "Firecrawl · Scrape",
       "verified_at": "2026-09-11",
       "unit": "标准抓取 1 credit / 页",
@@ -236,6 +300,54 @@
     {"ids":["cowagent-built-in","openclaw-built-in","deepseek-harness-built-in","langchain-webbase"], "label":"CowAgent / OpenClaw / DeepSeek Harness / LangChain", "status":"内置或本地实现", "note":"没有调用其聊天模型或付费回退 API；不引用模型 token 价格。运行与维护成本不等于零。", "sources":[{"label":"接口与实现", "url":"#method-guide-interfaces"}]}
   ],
   "translations": {
+    "比较按给定 URL 返回内容的调用路线。模型工具还会产生模型 token 费用，工具无附加费不代表免费调用。按次、按时长和按 token 的报价分别列示；不能直接当作同一种每千页单价。": "Compare routes that return content for a supplied URL. Model-backed tools also incur model token charges; no tool surcharge does not mean free requests. Per-call, duration and token quotes are listed separately and cannot be treated as equivalent per-thousand-page rates.",
+    "HTTP 200 且 markdown 非空时按次收费": "Per call when HTTP 200 returns nonblank markdown",
+    "$2 / 千次符合计费条件的调用": "$2 / 1,000 billable calls",
+    "使用 API 账户余额；本条未核实最低充值金额": "API account balance; minimum top-up not verified for this entry",
+    "未核实 Fetch 优惠、套餐或年付折扣": "Fetch promotions, plans and annual discounts not verified",
+    "$0.002 / 次成功返回": "$0.002 / successful return",
+    "独立 /v1/tools/fetch 接口；官方价格页的渲染表格列明 $0.002/次，即每千次符合计费条件的调用 $2，不含适用税费。该报价不代表每千个评测通过页面的成本。": "Standalone /v1/tools/fetch endpoint. The rendered official price table lists USD 0.002 per call, or USD 2 per 1,000 billable calls, excluding applicable taxes. This quote is not a cost per 1,000 benchmark-accepted pages.",
+    "官方工具计费": "Official tool billing",
+    "Fetch 接口与错误码": "Fetch endpoint and error codes",
+    "计费成功": "Billable success",
+    "HTTP 200 且 markdown 非空时计一次费用；接口计费成功不等于评测任务通过。": "One charge for HTTP 200 with nonblank markdown. Billable success does not establish benchmark task acceptance.",
+    "失败与空内容": "Failures and empty content",
+    "官方说明失败请求、无可提取内容和空返回不收费；客户端超时不能单凭本地结果确认服务端最终扣费。": "Official documentation exempts failed requests, pages without extractable content and empty responses. A client timeout alone does not establish the final server-side charge.",
+    "价格与账单": "Price and invoice",
+    "官方报价为 $0.002/次符合计费条件的调用；未取得完整账户账单，实际扣费仍以账单为准。": "The official quote is USD 0.002 per billable call. A complete account invoice was not obtained; actual charges still require that invoice.",
+    "独立 Reader 接口；未查到公开计费单位和单价": "Standalone Reader endpoint; public billing unit and rate not found",
+    "未知：官方价格页未列明 Web Reader": "Unavailable: the official price page does not list Web Reader",
+    "需要 API 账户；未核实此接口的付费门槛": "Requires an API account; payment threshold for this endpoint not verified",
+    "未查到独立 Reader 的公开折扣规则": "No public discount rules found for standalone Reader",
+    "公开资料未明确独立 Reader 价格": "Public sources do not specify standalone Reader pricing",
+    "本条针对 /api/paas/v4/reader。官方价格页列有 Web Search，但不能把搜索的每次费用或 Coding Plan 的 MCP 配额套到独立 Reader 接口。没有公开报价不代表免费。": "This entry covers /api/paas/v4/reader. The official price page lists Web Search, whose per-call charge and Coding Plan MCP quotas do not establish the standalone Reader rate. An absent public quote does not mean free usage.",
+    "官方价格页": "Official pricing",
+    "Web Reader 接口": "Web Reader endpoint",
+    "尚未明确的项目": "Unspecified terms",
+    "本条核验的官方价格页和 Reader 接口文档未说明独立 Reader 的单价、失败扣费或缓存计费规则。": "The checked official pricing and Reader documentation do not specify a standalone Reader rate, failed-call charges or cache billing.",
+    "账单边界": "Invoice boundary",
+    "每千页价格和完整调用费用均不能由公开资料确定；需要账户账单或供应商确认。": "Public sources do not establish a per-thousand-page price or a complete workload charge. An account invoice or provider confirmation is required.",
+    "模型输入、输出及适用缓存 token；工具无额外附加费": "Model input, output and applicable cache tokens; no extra tool fee",
+    "不能固定换算：取决于网页长度、模型用量和重试": "No fixed conversion: depends on page length, model usage and retries",
+    "Claude API 按模型用量计费；不属于聊天订阅额度": "Usage-priced Claude API; separate from chat subscription quotas",
+    "模型缓存和其他计费方式各有规则；不假定请求命中缓存": "Model caching and other billing modes have their own terms; cache hits are not assumed",
+    "抓取工具不另收费，模型 token 仍收费": "No extra fetch-tool fee; model tokens are still billed",
+    "Web Fetch 通过 Messages API 使用，返回内容进入模型上下文并产生标准模型费用。下表为 Claude Haiku 5.5 的标准 USD / 百万 token 报价；长提示词档适用于超过 100,000 输入 token 的请求，不能只给超出部分套用高档价格。其他模型价格不同。": "Web Fetch uses the Messages API. Fetched content enters model context and incurs standard model charges. The table lists standard Claude Haiku 5.5 USD per million tokens. Prompts over 100,000 input tokens use the higher tier for the request, rather than only its excess tokens. Other models have different prices.",
+    "官方模型定价": "Official model pricing",
+    "Web Fetch 使用量与费用": "Web Fetch usage and pricing",
+    "工具费用": "Tool fee",
+    "Web Fetch 没有独立附加费；这不表示 API 请求或抓取内容免费。": "Web Fetch has no separate surcharge. API requests and fetched content are not thereby free.",
+    "用量与账单": "Usage and invoice",
+    "usage 是接口报告的用量，不是完整账单。缺少失败、超时或重试的用量时，不能把部分用量合计称为完整费用。": "The usage field reports API usage, not a complete invoice. When usage is missing for failures, timeouts or retries, a partial usage subtotal cannot represent the full charge.",
+    "每千页换算": "Per-thousand-page conversion",
+    "需要完整输入、输出、缓存用量和适用价格档。仅知道 URL 数或客户端耗时，不能给出可靠的每千页价格。": "Requires complete input, output and cache usage with the applicable rate tier. URL counts or client latency alone cannot establish a reliable per-thousand-page price.",
+    "提示词长度": "Prompt length",
+    "输入 / 百万 token": "Input / million tokens",
+    "输出 / 百万 token": "Output / million tokens",
+    "缓存写入 5 分钟 / 1 小时": "Cache writes: 5 minutes / 1 hour",
+    "缓存读取": "Cache reads",
+    "不超过 100,000 token": "Up to 100,000 tokens",
+    "超过 100,000 token": "Over 100,000 tokens",
   "标准抓取 1 credit / 页": "Standard extraction: 1 credit / page",
   "月付满额 $0.749–3.8；年付满额约 $0.599–3.167": "Fully utilized monthly plans: $0.749–3.8; fully utilized annual plans: approximately $0.599–3.167",
   "Hobby $19/月；年付 $190 起": "Hobby $19/month; annual billing starts at $190",

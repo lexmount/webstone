@@ -24,6 +24,43 @@ from harness.web_fetch.publication_privacy import (
 )
 
 
+def test_nested_response_urls_in_json_keys_are_redacted_in_real_log_views():
+    from harness.web_fetch.publication_privacy import project_evidence_view
+    url = 'https://example.test/player?token=synthetic-secret&format=video'
+    nested = {url:{'status':'denied','code':403}}
+    raw = (json.dumps({'source':'caller','body':json.dumps(nested)})+'\n').encode()
+    public, receipt = project_evidence_view('public-evidence/debug.jsonl',raw,role='diagnostic_log')
+    decoded = json.loads(json.loads(public)['body'])
+    assert list(decoded.values()) == list(nested.values())
+    assert 'synthetic-secret' not in public.decode()
+    assert '&format=video' in next(iter(decoded))
+    assert receipt['original_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert receipt['published_sha256'] == hashlib.sha256(public).hexdigest()
+    assert publication_risk(public) is None
+
+
+def test_redaction_rejects_colliding_json_keys_instead_of_dropping_a_response():
+    raw = json.dumps({'https://example.test/?token=first':1,
+                      'https://example.test/?token=second':2}).encode()
+    with pytest.raises(ValueError,match='merge distinct JSON keys'):
+        project_file('response.json',raw)
+
+
+def test_multiline_debug_views_redact_decoded_nested_responses():
+    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    rows = [{'event':'request_started'}, {'body': json.dumps({'token':'synthetic-secret',
+        'data':{'status':403,'reason':'retained failure'}})}, {'event':'request_finished'}]
+    raw = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
+    public, receipt = project_evidence_view('public-evidence/debug.jsonl',raw,role='diagnostic_log')
+    decoded = [json.loads(line) for line in public.splitlines()]
+    assert decoded[0] == rows[0] and decoded[-1] == rows[-1]
+    assert json.loads(decoded[1]['body'])['data'] == {'status':403,'reason':'retained failure'}
+    assert 'synthetic-secret' not in public.decode()
+    assert publication_file_risk('debug.jsonl',public) is None
+    assert all(publication_risk(json.dumps(row).encode()) is None for row in decoded)
+    assert receipt['provider_calls_added'] == 0
+
+
 @pytest.mark.parametrize('scheme', ['https', 'http', 'wss', 'ws'])
 def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme):
     from harness.web_fetch.publication_privacy import project_evidence_view

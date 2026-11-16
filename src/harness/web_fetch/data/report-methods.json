@@ -5970,7 +5970,9 @@
         "claude_web_fetch"
       ],
       "access": {
-        "env_vars": [],
+        "env_vars": [
+          "ANTHROPIC_API_KEY"
+        ],
         "links": [
           [
             {
@@ -5979,11 +5981,18 @@
             },
             "https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-fetch-tool"
           ]
-        ]
+        ],
+        "configuration": {
+          "zh": "仅在指定 SSH 主机的仓库 .env 中配置密钥；调用通过仓库的 SSH 适配器执行。",
+          "en": "Set the key only in the repository .env on the designated SSH host; invoke through the repository SSH adapter."
+        }
       },
       "interface": {
-        "entry": "POST https://api.anthropic.com/v1/messages",
-        "auth": "Remote repository .env via SSH",
+        "entry": "SSH → remote POST https://api.anthropic.com/v1/messages",
+        "auth": {
+          "zh": "仅远程仓库 .env 中的 ANTHROPIC_API_KEY",
+          "en": "ANTHROPIC_API_KEY from the remote repository .env only"
+        },
         "fields": [
           [
             "content[].content.content.source.data",
@@ -5993,7 +6002,86 @@
               "en": "Force Web Fetch through the designated SSH server; score only the final tool result body, excluding model answers."
             }
           ]
-        ]
+        ],
+        "source": "src/harness/web_fetch/providers/claude_fetch.py",
+        "params": [
+          [
+            "model",
+            {
+              "zh": "string · 必填",
+              "en": "string · required"
+            },
+            {
+              "zh": "模型标识；固定于运行配置",
+              "en": "Model ID, fixed by the run configuration"
+            }
+          ],
+          [
+            "max_tokens",
+            {
+              "zh": "integer · 必填",
+              "en": "integer · required"
+            },
+            {
+              "zh": "模型输出预算，不是抓取正文长度上限",
+              "en": "Model output budget, not the fetched-content length limit"
+            }
+          ],
+          [
+            "tools / tool_choice",
+            {
+              "zh": "object · 必填",
+              "en": "object · required"
+            },
+            {
+              "zh": "声明 Web Fetch 并强制调用该工具",
+              "en": "Declare Web Fetch and force that tool"
+            }
+          ],
+          [
+            "messages",
+            {
+              "zh": "array · 必填",
+              "en": "array · required"
+            },
+            {
+              "zh": "新会话中直接给出任务网址",
+              "en": "Supply the task URL directly in a fresh conversation"
+            }
+          ]
+        ],
+        "request": {
+          "model": "claude-haiku-5-5",
+          "max_tokens": 1024,
+          "tools": [
+            {
+              "type": "web_fetch_20260318",
+              "name": "web_fetch",
+              "allowed_callers": [
+                "direct"
+              ],
+              "use_cache": false,
+              "response_inclusion": "full",
+              "citations": {
+                "enabled": false
+              }
+            }
+          ],
+          "tool_choice": {
+            "type": "tool",
+            "name": "web_fetch"
+          },
+          "messages": [
+            {
+              "role": "user",
+              "content": "https://example.com/"
+            }
+          ]
+        },
+        "notes": {
+          "zh": "这是通过指定 SSH 主机发送的 Messages 请求示例。密钥留在远程仓库；该接入没有本地 API 回退。仅最后一个工具结果中的原生文字参与评分，模型回答排除；模型输入限制、生成耗时与费用仍会影响整体调用。实际参数以保存的请求记录为准。",
+          "en": "This Messages request example is sent through the designated SSH host. The key stays in its remote repository; the adapter has no local API fallback. Score only native text in the final tool result, excluding model replies. Model input limits, generation time and charges still affect the overall call. Saved request evidence owns the actual parameters."
+        }
       },
       "capabilities": {
         "scope": "POST https://api.anthropic.com/v1/messages"
@@ -6485,7 +6573,7 @@
         "request": {
           "url": "https://example.com/"
         },
-        "source": "harness/web_fetch/providers/hosted_fetch.py",
+        "source": "src/harness/web_fetch/providers/hosted_fetch.py",
         "notes": {
           "zh": "这是接口示例，不代表历史调用参数。渲染、代理、引擎、输出格式和时间预算以保存的配置及请求日志为准。保存完整原始响应，不补抓或补写正文；调用端日志不等于服务内部日志。",
           "en": "This interface example does not establish historical call parameters. Rendering, proxy, engine, output format and time budget come from saved configuration and request logs. Preserve the complete response without supplemental retrieval or content repair; caller logs are not service-internal traces."
@@ -6522,8 +6610,8 @@
           "en": "This describes the current adapter, not other products from the provider."
         },
         "tested": {
-          "zh": "接入已通过离线模拟响应检查；不代表完成同范围正式评测。",
-          "en": "Adapter checked with offline simulated responses; no same-scope formal benchmark is implied."
+          "zh": "实测范围、版本与结果以当前报告证据为准；本页接入范围不代表任务通过率。",
+          "en": "Measured scope, versions and outcomes come from the current report evidence; adapter coverage does not establish task pass rate."
         },
         "document": {
           "status": {
@@ -6537,32 +6625,32 @@
         },
         "image": {
           "status": {
-            "zh": "未声明",
-            "en": "Undeclared"
+            "zh": "有限支持",
+            "en": "Limited support"
           },
           "detail": {
-            "zh": "当前接入未实现此类任务，不提供调用端补救。",
-            "en": "This task family is not implemented by the current adapter; no caller fallback is supplied."
+            "zh": "按原生返回的文字或 Markdown 核对任务要求的媒体资源及其网址；不据此声称视觉理解、视频播放或完整文件交付。",
+            "en": "Check task media resources and URLs in native text or Markdown; this does not establish visual understanding, video playback or original-file delivery."
           }
         },
         "av": {
           "status": {
-            "zh": "未声明",
-            "en": "Undeclared"
+            "zh": "有限支持",
+            "en": "Limited support"
           },
           "detail": {
-            "zh": "当前接入未实现此类任务，不提供调用端补救。",
-            "en": "This task family is not implemented by the current adapter; no caller fallback is supplied."
+            "zh": "按原生返回的文字或 Markdown 核对任务要求的媒体资源及其网址；不据此声称视觉理解、视频播放或完整文件交付。",
+            "en": "Check task media resources and URLs in native text or Markdown; this does not establish visual understanding, video playback or original-file delivery."
           }
         },
         "file": {
           "status": {
-            "zh": "未声明",
-            "en": "Undeclared"
+            "zh": "依原生接口而定",
+            "en": "Depends on the native interface"
           },
           "detail": {
-            "zh": "当前接入未实现此类任务，不提供调用端补救。",
-            "en": "This task family is not implemented by the current adapter; no caller fallback is supplied."
+            "zh": "直接文件任务要求可核验的原始字节，文字或网址不能替代；是否交付原始文件按接口返回与证据判断。",
+            "en": "Direct-file tasks require verifiable original bytes; text or a URL cannot substitute. Native responses and evidence determine whether the original file was delivered."
           }
         },
         "js": {
@@ -6571,8 +6659,8 @@
             "en": "Undeclared"
           },
           "detail": {
-            "zh": "渲染行为由原生服务及所选配置决定；未据离线检查确认页面执行能力。",
-            "en": "Rendering depends on the native service and selected configuration; offline checks do not establish page execution capability."
+            "zh": "渲染行为由原生服务及所选配置决定；不根据文字返回推断页面是否执行了 JavaScript。",
+            "en": "Rendering depends on the native service and configuration; text output alone does not establish whether the page executed JavaScript."
           }
         }
       }

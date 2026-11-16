@@ -145,7 +145,7 @@ def test_http_failure_retains_observed_stage_and_closes_response(tmp_path, stage
         with pytest.raises(TimeoutError):
             request("https://fixture.invalid/", timeout=30)
     sink.finish(ProviderResult(False, "", error_type="timeout"))
-    rows = [json.loads(line) for line in sink.path.read_text().splitlines()]
+    rows = [json.loads(line) for line in sink.path.read_text(encoding='utf-8').splitlines()]
     failed = next(r for r in rows if r["event"] == "http_request_failed")
     assert failed["phase"] == stage
     assert any(r["event"] == "http_headers_received" for r in rows) == (stage == "body")

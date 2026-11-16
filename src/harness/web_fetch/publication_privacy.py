@@ -775,7 +775,7 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
     if (path.is_absolute() or not path.parts or path.parts[0] != 'public-evidence'
             or '..' in path.parts or any(part.startswith('.') for part in path.parts)):
         raise ValueError('Public evidence views require a separate safe public-evidence path')
-    if role not in {'scored_answer', 'native_response'}:
+    if role not in {'scored_answer', 'native_response', 'diagnostic_log'}:
         raise ValueError('Unknown public evidence role')
     if content_format not in {'auto', 'text', 'json'}:
         raise ValueError('Unknown public evidence content format')
@@ -830,7 +830,16 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
         return text_view(value) if isinstance(value, str) else value
 
     text = data.decode('utf-8')
-    if content_format == 'text':
+    if role == 'diagnostic_log' and path.suffix == '.jsonl':
+        try:
+            documents = [json.loads(line) for line in io.BytesIO(data) if line.strip()]
+        except ValueError:
+            raise ValueError('Declared JSONL diagnostic evidence is not JSONL') from None
+        public = [node_view(document) for document in documents]
+        projected = (b''.join(json.dumps(document, ensure_ascii=False).encode('utf-8')+b'\n'
+                             for document in public) if public != documents else data)
+        encoding = 'utf-8-text'
+    elif content_format == 'text':
         projected = text_view(text).encode('utf-8')
         encoding = 'utf-8-text'
     else:
@@ -846,7 +855,7 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
             projected = (json.dumps(public, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
                          if public != native else data)
             encoding = 'json'
-    risk = publication_risk(projected)
+    risk = publication_file_risk(name, projected)
     if risk:
         raise ValueError('Public evidence still has a publication risk: '+risk)
     receipt = {'kind': 'post_score_public_evidence_view', 'role': role, 'path': name,
@@ -868,7 +877,7 @@ def require_public_evidence_view(source, binding):
     path = PurePosixPath(name)
     redactions = receipt.get('redactions')
     if (receipt.get('kind') != 'post_score_public_evidence_view'
-            or receipt.get('role') not in {'scored_answer', 'native_response'}
+            or receipt.get('role') not in {'scored_answer', 'native_response', 'diagnostic_log'}
             or receipt.get('encoding') not in {'json', 'utf-8-text'}
             or receipt.get('provider_calls_added') != 0
             or receipt.get('original_retained_privately') is not True
@@ -888,7 +897,7 @@ def require_public_evidence_view(source, binding):
         raise ValueError('Public view identity does not match its declared redactions')
     public = read_evidence_binding(source, {'path': name, 'sha256': receipt['published_sha256']})
     raw = public.read_bytes()
-    if len(raw) != receipt['published_bytes'] or publication_risk(raw):
+    if len(raw) != receipt['published_bytes'] or publication_file_risk(name, raw):
         raise ValueError('Public evidence view bytes or privacy state differ')
     if receipt['encoding'] == 'json':
         json.loads(raw)
@@ -938,7 +947,8 @@ def bound_public_view(source, binding):
         return None
     receipt = require_public_evidence_view(source, entry['view_receipt'])
     original_root = PurePosixPath(binding['path']).parts[0]
-    expected_root = {'scored_answer': 'artifacts', 'native_response': 'private_artifacts'}[receipt['role']]
+    expected_root = {'scored_answer': 'artifacts', 'native_response': 'private_artifacts',
+                     'diagnostic_log': 'private_artifacts'}[receipt['role']]
     if original_root != expected_root:
         raise ValueError('Public payload views cannot replace metadata or source authority')
     if receipt['original_sha256'] != binding['sha256']:
@@ -1021,7 +1031,8 @@ def require_public_evidence_view_inventory(source, binding, records):
         identities.add(identity)
         receipt = require_public_evidence_view(source, entry['view_receipt'])
         root = PurePosixPath(identity[0]).parts
-        expected_root = {'scored_answer': 'artifacts', 'native_response': 'private_artifacts'}[receipt['role']]
+        expected_root = {'scored_answer': 'artifacts', 'native_response': 'private_artifacts',
+                         'diagnostic_log': 'private_artifacts'}[receipt['role']]
         if (not root or root[0] != expected_root or '..' in root
                 or receipt['original_sha256'] != identity[1]):
             raise ValueError('Public evidence view inventory changes an original authority')
@@ -1080,8 +1091,14 @@ def _project_json(name, data):
     def project(value, *, secret=False):
         nonlocal replacements
         if isinstance(value, dict):
-            return {key:project(child,secret=secret or bool(re.fullmatch(SENSITIVE_KEY,key.encode(),re.I)))
-                    for key,child in value.items()}
+            result = {}
+            for key, child in value.items():
+                public_key = project(key)
+                if public_key in result:
+                    raise ValueError('Public projection would merge distinct JSON keys')
+                result[public_key] = project(child,
+                    secret=secret or bool(re.fullmatch(SENSITIVE_KEY,key.encode(),re.I)))
+            return result
         if isinstance(value, list):
             return [project(child,secret=secret) for child in value]
         if isinstance(value, str):

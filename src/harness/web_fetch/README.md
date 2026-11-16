@@ -47,8 +47,12 @@ only, including body tasks; direct files keep the ordinary setting.
 `claude_web_fetch` runs Messages API calls exclusively through its configured
 SSH server; loopback targets are rejected. Install
 `src/harness/web_fetch/workers/claude_fetch_worker.py` at the configured absolute
-remote worker path. Declare the remote repository `.env` and `uv` paths. The worker
-checks its source hash and SSH server address before reading the remote
+remote worker path. Its parent directory must contain the same checkout's `src/`,
+`pyproject.toml`, `uv.lock`, and `.python-version`; prepare core dependencies there
+with `uv sync --frozen --no-dev --no-install-project`. The adapter runs this frozen
+environment with `--no-sync`. Declare the remote repository `.env` and `uv` paths.
+The worker uses the shared dotenv parser and HTTP client, refuses HTTP redirects,
+and checks its source hash, shared runtime hashes, and SSH server address before reading the remote
 repository's `.env`. It never transfers the API key or falls back to local HTTP.
 SSH startup and API work share one caller deadline. The ready handshake anchors
 the remote hard deadline without cross-host clock assumptions or a fixed
@@ -1615,6 +1619,7 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 
 - The hash-bound specification declares datasets, providers, selected results and evidenced missing outcomes. Suite-qualified identities preserve original cases and scores. No provider calls, rescoring or certification are added.
 - This mode uses the existing Web Fetch renderer, including datasets, method pages and result/reference comparisons. Missing outcomes have a separate inventory. Keep the HTML pages and evidence directories together.
+- Set `public_evidence_views: true` for a fixed text-output selection when native responses or diagnostic logs need inspectable public copies. The shared privacy owner creates separately hash-bound post-score views; original result records, source artifacts and scores remain immutable. A changed displayed answer must preserve task acceptance. Each evidence scope retains its view inventory and original/public identities, including declared split retries. The source-spec check reproduces these views from originals and rejects altered or missing copies. This option currently excludes score revisions, parameter candidates, adoptions and superseded histories; it does not weaken acquisition checks or add provider calls.
 - Optional `report_families` lists ordered `{id, label}` entries for every observed task family. It groups the presentation by task content (including embedded media versus direct files), while preserving suite-qualified evidence identities and all saved scores.
 - A family may set `task_family` and `source_suites` to keep independently frozen populations separate. Selectors must partition all cases exactly once. Set `combined_ranking: false` when cross-population aggregation is not meaningful; the summary then shows per-group results without a combined pass-rate column or rank.
 - Optional `offline_revision` binds a revision `root` and a path/hash `receipt` produced by the existing local revision owner. Its complete predecessor cases and results must match this matrix. The report preserves original rules/results beside revised scores and labels the offline change. Optional `review_files` maps attachment names to JSON path/hash bindings; no provider calls occur during assembly.

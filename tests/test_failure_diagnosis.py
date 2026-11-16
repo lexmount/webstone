@@ -31,6 +31,29 @@ class FailureDiagnosisTests(unittest.TestCase):
  def test_unknown_remote_internals_remain_unknown(self):
   d=diagnose(self.record(error_type='CRAWL_UNKNOWN_ERROR'),{},'')
   self.assertEqual(d['category'],'服务取页失败');self.assertIn('未披露',d['certainty'])
+ def test_native_security_error_is_not_a_bad_key(self):
+  row=self.record(status_code=403,error_type='authentication')
+  before=deepcopy(row)
+  raw=json.dumps({'error':{'type':'security_risk','message':'URL rejected'}})
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'方法安全限制')
+  self.assertEqual(diagnose(row,{},'')['category'],'接口鉴权失败')
+  self.assertEqual(row,before)
+ def test_native_model_context_limit_is_distinct_from_other_bad_requests(self):
+  row=self.record(status_code=400,error_type='api_error')
+  raw=json.dumps({'error':{'type':'invalid_request_error','message':'prompt is too long: 1660951 tokens > 1000000 maximum'}})
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'模型输入容量限制')
+  other=json.dumps({'error':{'type':'invalid_request_error','message':'Invalid parameter'}})
+  self.assertNotEqual(diagnose(row,{},'',native_raw=other)['category'],'模型输入容量限制')
+ def test_native_tool_diagnosis_uses_final_result_without_scoring_model_text(self):
+  def block(content):return {'type':'web_fetch_tool_result','content':content}
+  binary={'type':'web_fetch_result','content':{'source':{'type':'base64','media_type':'application/pdf','data':'JVBERi0='}}}
+  error={'type':'web_fetch_tool_result_error','error_code':'url_not_accessible'}
+  row=self.record(status_code=200,error_type='tool_error')
+  for blocks,expected in [([block(error),block(binary)],'返回原生 PDF，未提供所需文字'),([block(binary),block(error)],'抓取工具返回 HTTP 错误')]:
+   raw=json.dumps({'content':blocks+[{'type':'text','text':'Everything worked'}]})
+   self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],expected)
+  raw=json.dumps({'content':[block({'type':'web_fetch_tool_result_error','error_code':'too_many_requests'})]})
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'限流 / 配额')
  def test_timeout_option_name_is_not_timeout_error(self):
   raw=json.dumps({'errors':[{'message':'Execution context was destroyed. Check waitForTimeout options.'}]})
   self.assertEqual(diagnose(self.record(),{},raw)['category'],'浏览器执行上下文中断')

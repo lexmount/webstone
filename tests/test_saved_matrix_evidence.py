@@ -156,6 +156,70 @@ def build(tmp_path, spec, name='report'):
     return build_saved_matrix(path, tmp_path / name)
 
 
+def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    secret = 'synthetic-csrf-value'
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    (source/record['artifact_path']).write_bytes(answer)
+    record['metrics']['content_sha256'] = hashlib.sha256(answer).hexdigest()
+    private = source/'private_artifacts/response.bin'
+    private.parent.mkdir()
+    private.write_text(json.dumps({'markdown':answer.decode()}), encoding='utf-8')
+    diagnostic = source/'private_artifacts/call.stderr.log'
+    diagnostic.write_text(json.dumps({'source':'caller','event':'request_failed',
+        'message':'Actual observed failure at /Users/sample/worker.py'})+'\n', encoding='utf-8')
+    for prefix, path in [('raw_response',private),('diagnostic_log',diagnostic)]:
+        record['provider_metadata'].update({prefix+'_path':path.relative_to(source).as_posix(),
+            prefix+'_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),prefix+'_bytes':path.stat().st_size})
+    record['provider_metadata']['diagnostic_log_truncated'] = False
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    scope = output/'evidence/first/method/same'
+    assert (scope/'record.json').read_bytes() == raw
+    assert (source/record['artifact_path']).read_bytes() == answer
+    assert secret not in (scope/record['artifact_path']).read_text(encoding='utf-8')
+    assert (scope/'presentation-binding.json').is_file()
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    assert projected[0]['metrics'] == record['metrics']
+    metadata = projected[0]['provider_metadata']
+    assert 'Actual observed failure' in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
+    assert '/Users/sample' not in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
+    assert (output/metadata['public_response_path']).is_file()
+    with pytest.raises(ValueError,match='original source specification'):
+        check_saved_matrix(output)
+    inventory=json.loads((scope/'PUBLIC-EVIDENCE-VIEWS.json').read_text(encoding='utf-8'))
+    receipt_path=scope/inventory['files'][0]['view_receipt']['path']
+    receipt=json.loads(receipt_path.read_text(encoding='utf-8'))
+    public=scope/receipt['path']
+    public.write_bytes(public.read_bytes()+b' altered')
+    audit_path=output/'saved-matrix-audit.json'
+    audit=json.loads(audit_path.read_text(encoding='utf-8'))
+    audit['files'][public.relative_to(output).as_posix()]=hashlib.sha256(public.read_bytes()).hexdigest()
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='artifact differs|binding changed|view bytes|projection'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+
+
+def test_public_view_cannot_silently_change_task_acceptance(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    case = json.loads((source/'dataset.json').read_text(encoding='utf-8'))['cases'][0]
+    case['expected_any'] = ['synthetic-csrf-value']
+    spec['suites'][0]['dataset'] = write(source/'dataset.json',{'cases':[case]})
+    answer = b'meta-csrf-token: synthetic-csrf-value\nanswer'
+    (source/record['artifact_path']).write_bytes(answer)
+    record['metrics']['content_sha256'] = hashlib.sha256(answer).hexdigest()
+    spec['sources'][0]['results'] = write(source/'results.jsonl',record)
+    with pytest.raises(ValueError,match='changes task acceptance'):
+        build(tmp_path,spec)
+    assert (source/record['artifact_path']).read_bytes() == answer
+    assert not (tmp_path/'report').exists()
+
+
 @pytest.mark.parametrize('separator', ['\u2028', '\u2029', '\u0085'])
 def test_jsonl_unicode_separators_are_content(tmp_path, separator):
     spec, root, record, _ = fixture(tmp_path)

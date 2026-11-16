@@ -43,19 +43,21 @@ def test_native_fields_and_no_envelope_scoring(kind, payload, expected):
                                      final_url=result.final_url, request_url=case().url)
 
 
-@pytest.mark.parametrize('kind', ['kimi_fetch', 'zai_reader'])
+@pytest.mark.parametrize('kind', ['kimi_fetch', 'zai_reader', 'claude_web_fetch'])
 @pytest.mark.parametrize('raw', [b'error code: 504\n', b'[]', b'null'])
 def test_malformed_api_envelope_remains_failure_evidence(kind, raw, tmp_path):
     from dataclasses import asdict
     from harness.web_fetch.artifacts import verify_record_artifacts
     from harness.web_fetch.runner import run_evaluation
-    provider = build_provider(kind, {'type': kind, 'api_key': 'test',
+    provider = build_provider(kind, {**(remote_config() if kind == 'claude_web_fetch' else {'type':kind,'api_key':'test'}),
                                      'uniform_native_parameters': True})
     dataset = {'tool': 'web_fetch', 'id': 'fixture', 'cases': [asdict(case())]}
     source = tmp_path/'dataset.json'
     source.write_text(json.dumps(dataset), encoding='utf-8')
-    with patch('harness.web_fetch.providers.hosted_fetch.request',
-               return_value=HttpResponse(504, '', {}, raw)):
+    transport = (patch.object(provider,'_remote_request',return_value=HttpResponse(504,'',{},raw))
+                 if kind == 'claude_web_fetch' else patch('harness.web_fetch.providers.hosted_fetch.request',
+                    return_value=HttpResponse(504, '', {}, raw)))
+    with transport:
         records, _ = run_evaluation(output_dir=tmp_path/'run', dataset_meta=dataset,
             dataset_path=source, cases=[case()], providers=[provider],
             provider_config_path=tmp_path/'providers.json', runs=1, timeout=30,
@@ -172,7 +174,8 @@ def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction(tmp_path):
     provider = build_provider('claude', remote_config())
     worker = Path(claude_fetch.__file__).parents[1]/'workers/claude_fetch_worker.py'
     ready = {'kind': 'claude_fetch_ready', 'ssh_server': '192.0.2.83',
-             'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest()}
+             'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(),
+             'runtime_sources': claude_fetch.runtime_sources(Path(claude_fetch.__file__).parents[3])}
     read, write = os.pipe()
     os.write(write, (json.dumps(ready)+'\n').encode())
     os.close(write)
@@ -190,7 +193,7 @@ def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction(tmp_path):
         assert 29.5 < envelope['timeout'] <= 30
         assert process.communicate.call_args.kwargs['timeout'] == envelope['timeout']
         diagnostics.finish(result)
-        events = [json.loads(line)['event'] for line in (tmp_path/'call.jsonl').read_text().splitlines()]
+        events = [json.loads(line)['event'] for line in (tmp_path/'call.jsonl').read_text(encoding='utf-8').splitlines()]
         assert events == ['remote_http_request_prepared', 'ssh_worker_ready',
                           'ssh_process_completed', 'remote_http_response_received',
                           'http_dns_resolution', 'collection_completed']
@@ -200,20 +203,66 @@ def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction(tmp_path):
 
 def test_remote_deadline_deducts_actual_post_readiness_elapsed_time(monkeypatch, capsys):
     from harness.web_fetch.workers import claude_fetch_worker as worker
-    from unittest.mock import Mock
     monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
     envelope = {'expected_ssh_server_ip': '192.0.2.83',
         'worker_sha256': hashlib.sha256(Path(worker.__file__).read_bytes()).hexdigest(),
+        'runtime_sources': worker.runtime_sources(Path(worker.__file__).parents[3]),
         'timeout': 27.0, 'remote_env_file': '/remote/.env', 'body': {}, 'max_bytes': 1000}
-    response = Mock(status=200, headers={})
-    response.read.return_value = b'{"content":[]}'
-    response.__enter__ = Mock(return_value=response)
-    response.__exit__ = Mock(return_value=False)
+    response = HttpResponse(200,'https://api.anthropic.com/v1/messages',{},b'{"content":[]}')
     with patch.object(worker.json, 'load', return_value=envelope), \
          patch.object(worker.time, 'monotonic', side_effect=[10.0, 12.0]), \
          patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer') as timer, \
-         patch.object(worker.Path, 'read_text', return_value='ANTHROPIC_API_KEY=unit-test-key'), \
-         patch.object(worker.urllib.request, 'urlopen', return_value=response):
+         patch('harness.env_file.parse_env_file',return_value={'ANTHROPIC_API_KEY':'unit-test-key'}), \
+         patch('harness.web_fetch.providers.http_client.request', return_value=response) as request:
         worker.main()
     assert timer.call_args.args[1] == 25.0
+    assert request.call_args.kwargs['allow_redirects'] is False
     assert len(capsys.readouterr().out.splitlines()) == 2
+
+
+@pytest.mark.parametrize('bad', [{'content':None}, {'content':[None]},
+    {'content':[{'type':'server_tool_use','name':'web_fetch','input':None}]}])
+def test_claude_malformed_blocks_are_retained_without_an_exception(bad):
+    provider=build_provider('claude',remote_config())
+    raw=json.dumps(bad).encode()
+    with patch.object(provider,'_remote_request',return_value=HttpResponse(200,'',{},raw)):
+        result=provider.fetch(case(),30)
+    assert not result.ok and result.error_type=='malformed_response'
+    assert result.content==''
+    assert base64.b64decode(result.metadata['_raw_response_b64'])==raw
+    require_native_answer_projection(result.content,result.metadata,raw,
+        title=result.title,final_url=result.final_url,request_url=case().url)
+
+
+@pytest.mark.parametrize('status',[301,302,303])
+@pytest.mark.parametrize('destination',['http://other.example.test/','https://other.example.test/'])
+def test_remote_worker_does_not_send_a_key_on_an_api_redirect(monkeypatch,capsys,status,destination):
+    import io
+    import urllib.request
+    from urllib.response import addinfourl
+    from harness.web_fetch.workers import claude_fetch_worker as worker
+    seen=[]
+    def respond(request):
+        seen.append((request.full_url,dict(request.headers)))
+        response=addinfourl(io.BytesIO(b'redirect'),{'Location':destination},request.full_url,
+                           code=status if len(seen)==1 else 200)
+        response.msg='Found'
+        return response
+    class HTTPS(urllib.request.HTTPSHandler):
+        def https_open(self,request):return respond(request)
+    class HTTP(urllib.request.HTTPHandler):
+        def http_open(self,request):return respond(request)
+    original=urllib.request.build_opener
+    monkeypatch.setattr(urllib.request,'build_opener',lambda *handlers:
+        original(urllib.request.ProxyHandler({}),*handlers,HTTPS(),HTTP()))
+    monkeypatch.setenv('SSH_CONNECTION','192.0.2.1 12345 192.0.2.83 22')
+    envelope={'expected_ssh_server_ip':'192.0.2.83','timeout':30,'remote_env_file':'/remote/.env',
+        'max_bytes':1000,'body':{},'worker_sha256':hashlib.sha256(Path(worker.__file__).read_bytes()).hexdigest(),
+        'runtime_sources':worker.runtime_sources(Path(worker.__file__).parents[3])}
+    with patch.object(worker.json,'load',return_value=envelope), \
+         patch('harness.env_file.parse_env_file',return_value={'ANTHROPIC_API_KEY':'unit-test-key'}), \
+         patch.object(worker.signal,'signal'),patch.object(worker.signal,'setitimer'):
+        worker.main()
+    assert len(seen)==1
+    assert seen[0][0]=='https://api.anthropic.com/v1/messages'
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['status']==status

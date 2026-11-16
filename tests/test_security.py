@@ -109,7 +109,7 @@ class SecurityTests(unittest.TestCase):
             handler.redirect_request(Request('https://example.com'),None,302,'Found',{},'file:///etc/passwd')
 
     def test_response_closes_on_size_error(self):
-        response=Mock();response.read.return_value=b'too long'
+        response=Mock(status=200,headers={});response.read.return_value=b'too long'
         with patch('urllib.request.build_opener') as opener:
             opener.return_value.open.return_value=response
             with self.assertRaises(ValueError): request('https://example.com',max_bytes=1)

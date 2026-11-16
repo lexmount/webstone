@@ -171,6 +171,8 @@ def native_answer_projection(provider_type, case, payload, status_code=None, *, 
                 'content_format': 'utf8' if successful_http else 'empty'}
     if provider_type == 'claude_web_fetch':
         blocks = payload.get('content', [])
+        malformed = not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks)
+        blocks = [] if malformed else blocks
         selected = None
         target_url = case.get('url') if isinstance(case, dict) else case.url
         for index, block in enumerate(blocks if isinstance(blocks, list) else []):
@@ -184,8 +186,10 @@ def native_answer_projection(provider_type, case, payload, status_code=None, *, 
                     and source.get('type') == 'text' and isinstance(source.get('data'), str)):
                 selected = index
         invalid = (not successful_http or selected is None
+                   or malformed
                    or not any(b.get('type') == 'server_tool_use' for b in blocks)
-                   or any(b.get('name') != 'web_fetch' or b.get('input', {}).get('url') != target_url
+                   or any(b.get('name') != 'web_fetch' or not isinstance(b.get('input'), dict)
+                          or _object(b.get('input')).get('url') != target_url
                           for b in blocks if b.get('type') == 'server_tool_use'))
         return {'schema_version': 2, 'content_format': 'empty' if invalid else 'text',
                 **({'content_pointer': ['content', selected, 'content', 'content', 'source', 'data']}

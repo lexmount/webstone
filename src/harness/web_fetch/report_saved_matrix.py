@@ -486,6 +486,8 @@ def _load_saved_matrix(spec_path):
         raise ValueError('Unsupported saved-matrix ranking selection')
     if spec.get('presentation', 'audit') not in {'audit', 'final'}:
         raise ValueError('Unknown saved-matrix presentation')
+    if 'public_evidence_views' in spec and type(spec['public_evidence_views']) is not bool:
+        raise ValueError('Public evidence views must be explicitly enabled or disabled')
     sources = _SourceBindings(spec_path.parent)
     bind, binding, tracked = sources.bind, sources.binding, sources.tracked
     def registry(items):
@@ -1612,6 +1614,92 @@ def build_saved_matrix(spec_path: Path, output: Path) -> Path:
         return output / entry.relative_to(staged)
 
 
+def _record_public_views(source, record, case):
+    """Use the shared post-score projection, retaining every original identity."""
+    from harness.web_fetch.publication_privacy import project_evidence_view
+    from lexbench_webfetch.scoring import score_attempt
+    bindings = [(dict(path=name, sha256=digest), 'scored_answer')
+                for name, digest in artifact_bindings(record)
+                if Path(name).parts[0] == 'artifacts']
+    bindings += [(binding, 'diagnostic_log' if binding['path'].endswith('.stderr.log')
+                  else 'native_response') for binding in record_private_bindings(record)]
+    views = []
+    for binding, role in bindings:
+        raw = contained_path(source, binding['path'], reject_symlinks=True).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding['sha256']:
+            raise ValueError('Public view original changed')
+        identifier = hashlib.sha256(binding['path'].encode()).hexdigest()
+        extension = '.jsonl' if role == 'diagnostic_log' else '.txt'
+        name = 'public-evidence/' + identifier + extension
+        try:
+            public, receipt = project_evidence_view(name, raw, role=role,
+                content_format='text' if role == 'scored_answer' else 'auto')
+        except ValueError as exc:
+            raise ValueError(f'Public evidence projection failed: {record["provider"]}/{case["id"]}/{role}/{Path(binding["path"]).name}: {exc}') from exc
+        if (role == 'scored_answer' and binding['path'] == record['artifact_path']
+                and public != raw):
+            metrics = score_attempt(case, public, ok=record['ok'],
+                status_code=record.get('status_code'), metadata=record.get('provider_metadata'),
+                previous_metrics=record['metrics'], title=record.get('title'),
+                final_url=record.get('final_url'))
+            kind = case.get('task_kind', 'body')
+            if task_passed(record['ok'], metrics, kind) != task_passed(record['ok'], record['metrics'], kind):
+                raise ValueError('Public answer projection changes task acceptance')
+        views.append((binding, public, receipt))
+    return views
+
+
+def _materialize_record_public_views(source, destination, record, case):
+    files = []
+    for binding, public, receipt in _record_public_views(source, record, case):
+        _write_bytes(destination / receipt['path'], public)
+        receipt_path = receipt['path'] + '.receipt.json'
+        _write(destination / receipt_path, receipt)
+        files.append({'original_path': binding['path'], 'original_sha256': binding['sha256'],
+                      'view_receipt': {'path': receipt_path, 'sha256': _sha(destination / receipt_path)}})
+        if receipt['role'] == 'scored_answer':
+            alias = contained_path(destination, binding['path'], reject_symlinks=True)
+            original = contained_path(source, binding['path'], reject_symlinks=True)
+            if alias.resolve() == original.resolve() or _sha(alias) != binding['sha256']:
+                raise ValueError('Public answer alias is not a verified report copy')
+            alias.write_bytes(public)
+    index = destination / 'PUBLIC-EVIDENCE-VIEWS.json'
+    _write(index, {'kind': 'post_score_public_evidence_view_inventory',
+                   'provider_calls_added': 0, 'files': files})
+    _write(destination / 'presentation-binding.json',
+           {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
+
+
+def _public_view_sources(inputs, keys):
+    """Resolve fixed current records and their declared split retry predecessors."""
+    for relative, raw in _source_record_inventory(inputs, {}, {}, {}, keys).items():
+        key = tuple(Path(relative).parts[1:4])
+        prefix = 'evidence/'+'/'.join(key)
+        source = (inputs['selected'][key][0] if relative == prefix+'/record.json'
+                  else inputs['continuations'][key][1][0])
+        yield relative, source, json.loads(raw), inputs['cases'][key[0]][key[2]]
+
+
+def _validate_record_public_views(source, destination, record, case):
+    """Reproduce every public byte from the verified original source."""
+    from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
+    profile = _json(destination/'presentation-binding.json')
+    binding = profile['publication_evidence_views']
+    index = require_public_evidence_view_inventory(destination, binding, [record])
+    expected = []
+    for original, public, receipt in _record_public_views(source, record, case):
+        name = receipt['path']+'.receipt.json'
+        if (_json(destination/name) != receipt
+                or (destination/receipt['path']).read_bytes() != public):
+            raise ValueError('Public evidence view differs from original-source projection')
+        if receipt['role'] == 'scored_answer' and (destination/original['path']).read_bytes() != public:
+            raise ValueError('Displayed answer differs from source-backed public view')
+        expected.append({'original_path': original['path'], 'original_sha256': original['sha256'],
+                         'view_receipt': {'path': name, 'sha256': _sha(destination/name)}})
+    if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
+        raise ValueError('Public evidence view inventory differs from original sources')
+
+
 def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     """Verify immutable sources and create a new portable report directory."""
     from harness.web_fetch.report import generate_saved_matrix
@@ -1898,6 +1986,13 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     if revision:
         model['offline_revision'] = revision['receipt']
     model['scores_changed'] = bool(revision) or any(row.get('score_revision') for row in model_rows)
+    if spec.get('public_evidence_views'):
+        if revision or candidates or adoptions or historical:
+            raise ValueError('Public evidence views require a fixed saved selection without revisions')
+        model['public_evidence_views'] = True
+        keys = [(row['suite'], row['provider'], row['case_id']) for row in model_rows]
+        for relative, source, record, case in _public_view_sources(inputs, keys):
+            _materialize_record_public_views(source, (output/relative).parent, record, case)
     _write(output / 'matrix.json', model)
     with _source_validated_render(output, model):
         entry = generate_saved_matrix(output, model)
@@ -1913,7 +2008,7 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         'sources': [{'name': path.name, 'sha256': digest} for path, digest in tracked.items()],
         'files': copies, 'totals': model['totals'], 'provider_calls_added': 0, 'scores_changed': model['scores_changed'],
         'private_debug_policy': 'Private raw responses and debug files verified at source, not copied.'})
-    check_saved_matrix(output, spec_path=spec_path if model.get('presentation') == 'final' else None)
+    check_saved_matrix(output, spec_path=spec_path if model.get('presentation') == 'final' or model.get('public_evidence_views') else None)
     return entry
 
 
@@ -2187,10 +2282,12 @@ def _validate_selection_proofs(output, row, inputs, candidates, decisions, adopt
 
 
 def _validate_record_artifacts(path):
+    from harness.web_fetch.publication_privacy import read_evidence_binding
     for artifact, expected in artifact_bindings(_json(path)):
-        target = contained_path(path.parent, artifact, reject_symlinks=True)
-        if not target.is_file() or _sha(target) != expected:
-            raise ValueError('Portable saved record artifact differs')
+        try:
+            read_evidence_binding(path.parent, {'path': artifact, 'sha256': expected})
+        except (ValueError, OSError) as exc:
+            raise ValueError('Portable saved record artifact differs') from exc
 
 
 def _validate_record_links(output, value):
@@ -2347,8 +2444,18 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 # The shared text privacy scan above still applies to their bytes.
                 values = []
             for value in values:
-                _require_public_json(value, label='Saved report file')
+                try:
+                    _require_public_json(value, label='Saved report file')
+                except ValueError as exc:
+                    raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if model.get('public_evidence_views'):
+        if inputs is None or inputs['spec'].get('public_evidence_views') is not True:
+            raise ValueError('Public evidence views require the original source specification')
+        if inputs['revision'] or candidates or adoptions or inputs['historical']:
+            raise ValueError('Public evidence views require a fixed saved selection without revisions')
+    elif inputs is not None and inputs['spec'].get('public_evidence_views'):
+        raise ValueError('Report omits the declared public evidence views')
     if model.get('presentation') == 'final' and (inputs is None or inputs['spec'].get('presentation') != 'final'):
         raise ValueError('Final saved results require the original final source specification')
     if inputs is not None and model.get('execution_settings') != execution_settings:
@@ -2458,6 +2565,9 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             if (previous['provider'], previous['case_id']) != (row['provider'], row['case_id']):
                 raise ValueError('Superseded evidence identity differs')
     if inputs is not None:
+        if model.get('public_evidence_views'):
+            for relative, source, record, case in _public_view_sources(inputs, keys):
+                _validate_record_public_views(source, (output/relative).parent, record, case)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
             if not path.is_file() or path.read_bytes() != expected_record:
@@ -2581,6 +2691,32 @@ def _saved_renderer_projection(output, model):
                     return candidate
             return value
         record = project(raw)
+        if model.get('public_evidence_views'):
+            from harness.web_fetch.publication_privacy import public_render_views, read_evidence_binding
+            from harness.web_fetch.failure_diagnosis import diagnose
+            local_root = contained_path(output, prefix, reject_symlinks=True)
+            views = public_render_views(local_root, [raw])[raw['attempt_id']]
+            for view in views.values():
+                view['path'] = prefix+'/'+view['path']
+                view['receipt'] = prefix+'/'+view['receipt']
+            metadata = record.setdefault('provider_metadata', {})
+            metadata['publication_views'] = views
+            native = views.get('native_response')
+            native_text = None
+            if native:
+                metadata.update(public_response_path=native['path'], public_response_sha256=native['published_sha256'])
+                native_text = contained_path(output, native['path']).read_text(encoding='utf-8')
+            profile = _json(local_root/'presentation-binding.json')
+            inventory = _json(read_evidence_binding(local_root, profile['publication_evidence_views']))
+            original = raw.get('provider_metadata', {})
+            for entry in inventory['files']:
+                if (entry['original_path'], entry['original_sha256']) != (original.get('diagnostic_log_path'), original.get('diagnostic_log_sha256')):
+                    continue
+                receipt = _json(local_root/entry['view_receipt']['path'])
+                metadata.update(public_debug_log_path=prefix+'/'+receipt['path'],
+                                public_debug_log_sha256=receipt['published_sha256'])
+            answer = contained_path(output, row['answer_path']).read_text(encoding='utf-8', errors='replace')
+            record['diagnosis'] = diagnose(record, case, answer, native_raw=native_text)
         if row.get('completion_note'):
             record['report_completion_note'] = row['completion_note']
         record['report_invocation_status'] = row['status']

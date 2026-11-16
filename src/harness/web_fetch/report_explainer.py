@@ -1093,6 +1093,45 @@ def check_current_browser_article(out, cases, records, binding):
     return model
 
 
+def _saved_failure_chapters(cases, records):
+    """Explain the full failure population using recorded program evidence only."""
+    from harness.web_fetch.report import provider_label
+    heading = bilingual_text('各方法未通过的原因', 'Why each method did not pass')
+    note = bilingual_text(
+        '以下分类来自程序检查和返回内容，覆盖全部未通过结果。相同分类可能有不同原因；没有逐题人工复核的结果，不据此认定网站或提供商的根因。',
+        'These categories cover every failed result and come from program checks and returned evidence. One category can have different causes; unreviewed results do not establish a site or provider root cause.')
+    chapters = []
+    for provider in dict.fromkeys(row['provider'] for row in records):
+        selected = [row for row in records if row['provider'] == provider]
+        failed = [row for row in selected if not task_passed(
+            row['ok'], row['metrics'], cases[row['case_id']].get('task_kind', 'body'))]
+        grouped = {}
+        for row in failed:
+            category = (row.get('diagnosis') or {}).get('category') or t(
+                'failed_without_detailed_diagnosis', 'Failed without a detailed diagnosis')
+            grouped.setdefault(category, []).append(row)
+        rows, examples = [], []
+        for category, members in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+            specimen = members[0]
+            aid = specimen.get('attempt_id')
+            target = ('../attempts/'+escape(aid, quote=True)+'.html') if aid else '../analysis/index.html'
+            evidence_link = '<a href="'+target+'">'+bilingual_text('查看实际返回与评分', 'Inspect response and scoring')+'</a>'
+            rows.append((escape(category), str(len(members)), f'{len(members)/len(failed):.1%}', evidence_link))
+            proof = (specimen.get('diagnosis') or {}).get('evidence')
+            if proof:
+                examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
+                    +'</p><p>'+escape(cases[specimen['case_id']].get('url', ''))+' · '+evidence_link+'</p></details>')
+        count = bilingual_text(
+            f'共 {len(selected)} 题，通过 {len(selected)-len(failed)} 题，未通过 {len(failed)} 题。',
+            f'{len(selected)} tasks: {len(selected)-len(failed)} passed and {len(failed)} failed.')
+        distribution = _table([('程序分类', 'Program category'), ('题数', 'Tasks'),
+            ('占该方法未通过结果', 'Share of this method’s failures'), ('示例证据', 'Example evidence')], rows,
+            t('complete_failure_distribution', 'Complete failure distribution')) if failed else ''
+        chapters.append('<section data-method-failures="'+escape(provider, quote=True)+'"><h3>'
+            +escape(provider_label(provider))+'</h3><p>'+count+'</p>'+distribution+''.join(examples)+'</section>')
+    return '<section data-saved-failure-chapters><h2>'+heading+'</h2><p>'+note+'</p>'+''.join(chapters)+'</section>'
+
+
 def render_explainer(out, cases, records, *, table=None, cell=None, link=None, authored=True, content_binding=None):
     """Render explicitly bound editorial content, otherwise summarize these inputs."""
     out = Path(out)
@@ -1118,6 +1157,10 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
             context = _table([('方法', 'Method'), ('保存结果', 'Saved results'),
                               ('通过', 'Passed'), ('通过率', 'Pass rate')], rows,
                              t('method_comparison_for_this_round', 'Method comparison for this round'))
+            context += '<p>'+bilingual_text(
+                '通过要求该题适用的检查全部满足。接口返回了内容，仍可能缺少题目要求的段落、记录、资源或文件；完整的实际返回和冻结参考保存在结果详情中。',
+                'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
+            context += _saved_failure_chapters(cases, records)
             context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'
             context += ''.join('<p>'+escape(note)+'</p>' for note in scope.get('limitations', []))
             context += '<p><a href="../review/index.html">' + bilingual_text(

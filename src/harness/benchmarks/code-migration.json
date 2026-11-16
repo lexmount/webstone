@@ -32,7 +32,7 @@
         },
         "benchmark.py": {
           "before_sha256": "c8951a2425441ac334ab126f2b7c9196d980b0cf1b904a7e8621c2a8aab15977",
-          "after_sha256": "f1c151720cf83c549a4e47ed2acb54d77919b0b0b3839a9184c0f6b7783e047f"
+          "after_sha256": "6b18f1a1a7c4eda1d2c34a3d22d37726cf57e4f12737f2639977bcbd7747a355"
         },
         "body_coverage.py": {
           "before_sha256": "a349a1db3d5de9d63d33443572c4d8f48afb8a7f88d03090625407fddf7b6137",
@@ -40,7 +40,7 @@
         },
         "cli.py": {
           "before_sha256": "46b7bd246e8b56bc03c7d35309a7ec48419c37f54bb05bc6a144cfd3c527e194",
-          "after_sha256": "95abb118452111ca92c50a510e740aef44d0910f7a704a076518596eac46b856"
+          "after_sha256": "d46ffa7e8bdc15ff54e4b8345404abce4bcbc00a01f0c82db452ce3d9486c15e"
         },
         "composite_tasks.py": {
           "before_sha256": "b3281beb921bbfbddb1ca69f17cedc7af303965eb9039c383d602287c85b1e3d",
@@ -4330,6 +4330,16 @@
             "tests/benchmarks/webfetch/test_release_versions.py::test_catalog_still_validates_extra_suites",
             "tests/test_dual_content_scopes.py::test_selected_scope_scores_only_its_contract",
             "tests/test_dual_content_scopes.py::test_run_and_offline_rescore_can_select_one_scope_or_both"
+          ]
+        },
+        {
+          "modules": [
+            "benchmark.py",
+            "cli.py"
+          ],
+          "behavior": "Restore scope annotations from independently acquired frozen task bytes only after verifying every public task contract, source hash and bound reference text; scoring and acceptance rules are unchanged.",
+          "tests": [
+            "tests/benchmarks/webfetch/test_annotation_restore.py"
           ]
         }
       ]

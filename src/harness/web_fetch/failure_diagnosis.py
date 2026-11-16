@@ -58,17 +58,65 @@ def _stable_failure(metrics):
     return label, t('content_validation', 'Content validation'), f"{counts}。规则：{', '.join(errors) or t('no_specific_error_provided', 'No specific error provided')}"
 
 
-def diagnose(r,c,raw):
+def _native_failure(payload):
+    """Describe explicit native errors without inferring hidden service causes."""
+    error = payload.get('error')
+    certainty = t('direct_response_basis', 'Direct-response basis')
+    category = stage = evidence = None
+    if isinstance(error, dict) and error.get('type') == 'security_risk':
+        category = t('method_safety_restriction', 'Method safety restriction')
+        stage = t('method_security_policy', 'Method security policy')
+        evidence = json.dumps(error, ensure_ascii=False)
+    elif (isinstance(error, dict) and error.get('type') == 'invalid_request_error'
+          and re.search(r'prompt is too long:\s*\d+\s*tokens\s*>\s*\d+', str(error.get('message', '')), re.I)):
+        category = t('model_input_limit_exceeded', 'Model input limit exceeded')
+        stage = t('model_context', 'Model context')
+        evidence = str(error['message'])
+    elif isinstance(error, dict) and error.get('type') == 'markdown_not_found':
+        category = t('body_extraction_empty', 'Body extraction empty')
+        stage = t('content_extraction', 'Content extraction')
+        evidence = json.dumps(error, ensure_ascii=False)
+    else:
+        blocks = payload.get('content', [])
+        results = [block.get('content') for block in blocks
+                   if isinstance(block, dict) and block.get('type') == 'web_fetch_tool_result'] if isinstance(blocks, list) else []
+        result = results[-1] if results else None
+        if isinstance(result, dict) and result.get('type') == 'web_fetch_tool_result_error':
+            code = result.get('error_code')
+            if code == 'url_not_allowed':
+                category = t('method_safety_restriction', 'Method safety restriction')
+                stage = t('method_security_policy', 'Method security policy')
+            elif code == 'too_many_requests':
+                category = t('rate_limit_quota', 'Rate limit / quota')
+                stage = t('provider_retrieval', 'Provider retrieval')
+            elif code == 'url_not_accessible':
+                category = t('fetch_tool_http_failure', 'Fetch tool HTTP error')
+                stage = t('provider_retrieval', 'Provider retrieval')
+            if category:
+                evidence = json.dumps(result, ensure_ascii=False)
+                certainty = t('native_tool_error_boundary', 'The native tool reported this code; it does not identify the responsible internal component or establish that the origin is unavailable to everyone.')
+        elif isinstance(result, dict) and result.get('type') == 'web_fetch_result':
+            document = result.get('content')
+            source = document.get('source') if isinstance(document, dict) else None
+            if isinstance(source, dict) and source.get('type') == 'base64' and source.get('media_type') == 'application/pdf':
+                category = t('native_pdf_without_text', 'Native PDF returned without task text')
+                stage = t('content_delivery', 'Content delivery')
+                evidence = 'web_fetch_result; source.type=base64; source.media_type=application/pdf'
+    return ({'category': category, 'stage': stage, 'evidence': evidence[:650], 'certainty': certainty}
+            if category else None)
+
+
+def diagnose(r,c,raw,*,native_raw=None):
     if not task_measured(r['metrics'], c.get('task_kind')):
         return None
-    try:payload=json.loads(raw)
+    try:payload=json.loads(native_raw if native_raw is not None else raw)
     except (ValueError,TypeError):payload={}
     if not isinstance(payload,dict):payload={}
     nested=payload.get('error') or {}
     if not isinstance(nested,dict):nested={}
     meta=r.get('provider_metadata',{});m=r['metrics']
     fragments=[str(r.get('error_type') or ''),str(r.get('error_message') or '')]
-    if not r['ok']:fragments.extend([raw[:3000],json.dumps(meta.get('errors') or [],ensure_ascii=False)[:1000]])
+    if not r['ok']:fragments.extend([(native_raw if native_raw is not None else raw)[:3000],json.dumps(meta.get('errors') or [],ensure_ascii=False)[:1000]])
     message=' '.join(fragments);low=message.lower()
     upstream=nested.get('upstream_status_code') or meta.get('upstream_status')
     category=None;stage='';proof='';certainty=t('direct_response_basis', 'Direct-response basis')
@@ -78,6 +126,9 @@ def diagnose(r,c,raw):
     elif meta.get('empty_content'):
         category,stage,proof=set_result(t('body_extraction_empty', 'Body extraction empty'),t('content_extraction', 'Content extraction'),t('the_interface_succeeded_but_the_returned_result', 'The interface succeeded, but the returned result is empty; response type: {value}', value=str(meta.get('content_type') or t('not_provided', 'Not provided'))))
     elif not r['ok']:
+        native = _native_failure(payload)
+        if native:
+            return native
         output_error = _unsupported_output_error(message)
         if output_error:
             category,stage,proof=set_result(t('required_output_format_unsupported', 'Required output format unsupported'),t('content_delivery', 'Content delivery'),output_error.group(0)[:650])
