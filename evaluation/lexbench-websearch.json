@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "huggingface_benchmark_binding",
   "repository": "https://huggingface.co/datasets/Lexmount/LexBench-Web-Search",
-  "revision": "38e8f0626a55eff2836d2274cebe5e48975c4481",
+  "revision": "4f647e6afd2994432a3af757c330b92f500f910e",
   "datasets": {
     "scenarios-v1": {
       "path": "datasets/scenarios-v1.json",
@@ -12,7 +12,7 @@
     "factual-v1": {
       "count": 831,
       "path": "datasets/factual-v1.json",
-      "sha256": "41e36f3e5f8c954192b6ecbd6f8b5a6bc86cd1950c79eafb89d0a96c3aa4f536"
+      "sha256": "363814d3245f512dc90cfdc808e280064e7d7933bef126b535af2a173a0ca671"
     },
     "scenarios-v2": {
       "path": "datasets/scenarios-v2.json",
@@ -21,8 +21,8 @@
     }
   },
   "definition_files": {
-    "registry.json": "5444bd1b0bfc9bf9c385cbbe2c9121c8d3ebc5267beded456ae98f22737cc405",
+    "registry.json": "c5e627fd0724b76c28d58bda0b42e7c6b38064cd6f7a12a6f4365c2d3c26f792",
     "benchmark-release.json": "0d9d84ef66d1eab3c4907c639ba2174b769f430fbf8efd8b2cf924671081cf63"
   },
-  "source_revision": "f991c26b4a462d643fe7017b48979af09a5326da"
+  "source_revision": "88ec0b315e46fb23fa9f76504b7b91fbe4363fcd"
 }
