@@ -775,3 +775,48 @@ def test_collapse_on_anonymous_table_rows_uses_the_parent_visibility(cell_displa
 def test_collapse_on_an_ordinary_container_keeps_overridable_visibility():
     citation, = answers.citation_inventory('<div style="visibility:collapse"><span style="visibility:visible">Claim [引用:1]</span></div>', [dict(url='https://source.test/a', citation_id='1')])
     assert citation['claim_context'] == 'Claim'
+
+
+@pytest.mark.parametrize('options,label', [
+    ('<option>False </option><option selected>True </option>', 'True'),
+    ('<option>First</option><option>Other</option>', 'First'),
+    ('<option disabled>False</option><option>True</option>', 'True'),
+    ('<option disabled>False</option>', ''),
+    ('<option selected>False</option><option selected>True</option>', 'True'),
+    ('<option disabled selected>Chosen</option><option>Other</option>', 'Chosen'),
+    ('<optgroup disabled label="Group"><option>False</option></optgroup><option>True</option>', 'True'),
+    ('<optgroup disabled label="Group"><option selected>Chosen</option></optgroup><option>Other</option>', 'Chosen'),
+    ('<option hidden selected>Chosen</option><option>Other</option>', 'Chosen'),
+    ('<option label="True" selected>False</option>', 'True'),
+    ('<option label="">Body</option>', 'Body'),
+    ('<option>A<script>False</script>B<!-- False --></option>', 'AB'),
+])
+def test_single_select_claims_use_the_initial_displayed_option(options, label):
+    answer = '<select>' + options + '</select>claim[引用:1]'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == (label + ' claim').strip()
+
+
+@pytest.mark.parametrize('attributes,label', [
+    ('multiple', 'False True'), ('multiple="false" size="1"', 'False True'),
+    ('size="2"', 'False True'), ('size="2x"', 'False True'), ('size="+2"', 'False True'),
+    ('size="1"', 'True'), ('size="-2"', 'True'), ('size="4294967295"', 'True'),
+    ('size="' + '9'*5000 + '"', 'True'),
+])
+def test_select_display_size_and_multiple_mode_choose_the_visible_label_set(attributes, label):
+    answer = '<select ' + attributes + '><option>False</option><option selected>True</option></select>claim[引用:1]'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == label + ' claim'
+
+
+def test_listbox_keeps_group_labels_and_visible_disabled_options():
+    answer = '<select multiple><optgroup disabled label="Group"><option label="First">Ignored</option><option>Second</option></optgroup><option hidden>Hidden</option></select>claim[引用:1]'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == 'Group First Second claim'
+
+
+@pytest.mark.parametrize('attributes', ['', 'multiple', 'size="3"'])
+def test_hidden_select_does_not_expose_option_labels(attributes):
+    answer = '<select ' + attributes + ' style="visibility:hidden"><option selected style="visibility:visible">Hidden</option></select>Claim [引用:1]'
+    citation, = answers.citation_inventory(answer, [dict(url='https://source.test/a', citation_id='1')])
+    assert citation['claim_context'] == 'Claim'

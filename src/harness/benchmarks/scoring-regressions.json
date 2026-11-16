@@ -88971,6 +88971,62 @@
           "Claim"
         ],
         "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<select ><option>False</option><option selected>True</option></select>claim[引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "True claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<select ><option>False</option><option selected>True</option></select>claim[引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "False True claim"
+        ],
+        "expected": false
+      },
+      {
+        "kind": "citation",
+        "answer": "<select multiple><option>False</option><option selected>True</option></select>claim[引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "False True claim"
+        ],
+        "expected": true
+      },
+      {
+        "kind": "citation",
+        "answer": "<select multiple><option>False</option><option selected>True</option></select>claim[引用:1]",
+        "results": [
+          {
+            "url": "https://source.test/a",
+            "citation_id": "1"
+          }
+        ],
+        "claims": [
+          "True claim"
+        ],
+        "expected": false
       }
     ],
     "reference-question-evidence": [

@@ -179,6 +179,56 @@ def _visibility(tag, attributes, blocked, visibility, parent_box):
     return blocked, visibility, box
 
 
+def _option_label(option):
+    if option.attrib.get('label'):
+        return option.attrib['label']
+    parts, pending = [], [option]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, str):
+            parts.append(node)
+            continue
+        if not isinstance(node.tag, str) or node.tag.rpartition('}')[2].lower() in {'script', 'style', 'template'}:
+            continue
+        parts.append(node.text or '')
+        for child in reversed(node):
+            pending.extend((child.tail or '', child))
+    return re.sub(r'[\t\n\f\r ]+', ' ', ''.join(parts)).strip(' ')
+
+
+def _select_text(select, visibility, box):
+    """Project a control's initial label, following HTML selectedness rules."""
+    match = re.match(r'[\t\n\f\r ]*\+?([0-9]+)', select.attrib.get('size', ''))
+    digits = (match[1].lstrip('0') or '0') if match else '0'
+    size = int(digits) if len(digits) <= 10 else 0
+    listbox = 'multiple' in select.attrib or 1 < size <= 2147483647
+    options, labels = [], []
+    pending = [(child, False, visibility, box, False) for child in reversed(select)]
+    while pending:
+        node, blocked, hidden, parent_box, disabled = pending.pop()
+        if not isinstance(node.tag, str):
+            continue
+        tag = node.tag.rpartition('}')[2].lower()
+        if tag in {'script', 'style', 'template', 'select', 'datalist'}:
+            continue
+        blocked, hidden, child_box = _visibility(tag, node.attrib, blocked, hidden, parent_box)
+        disabled = disabled or tag in {'option', 'optgroup'} and 'disabled' in node.attrib
+        if tag == 'option':
+            label = _option_label(node)
+            options.append((node, label, disabled))
+            if listbox and not blocked and not hidden:
+                labels.append(label)
+            continue
+        if listbox and tag == 'optgroup' and not blocked and not hidden:
+            labels.append(node.attrib.get('label', ''))
+        pending.extend((child, blocked, hidden, child_box, disabled) for child in reversed(node))
+    if not listbox:
+        selected = [value for value in options if 'selected' in value[0].attrib]
+        chosen = selected[-1] if selected else next((value for value in options if not value[2]), None)
+        return chosen[1] if chosen else ''
+    return ' '.join(labels)
+
+
 CITATION_RULE = "native-source-citations/7"
 CITATION_CORRECTION = {
     "root_cause": "Native webpage source URIs are zero-based while prose citation markers are one-based. Resolve declared source identifiers consistently, bind repeated citation occurrences to their own claims, reject ambiguous identifiers and preserve the returned ranking. Count only rendered citation markers, bind original Markdown block locations, derive complete local claims from rendered text, retain every link label in a shared sentence, and reset context at Markdown block boundaries, and bind sentence-final native markers to the preceding sentence regardless of intervening whitespace. Include sentence-closing quotes and parentheses in the preceding boundary.",
@@ -498,9 +548,11 @@ def citation_inventory(answer, results):
                 text(node.attrib.get('alt') or '')
             elif tag == 'br':
                 text(' ')
-            if not closed:
+            elif tag == 'select':
+                text(' ' + _select_text(node, visibility, box) + ' ')
+            if not closed and tag != 'select':
                 text(node.text)
-        children = [child for child in node if child.tag == 'summary'][:1] if closed else node
+        children = [] if tag == 'select' else [child for child in node if child.tag == 'summary'][:1] if closed else node
         pending.append(('exit', (records, identity, start, separate)))
         for child in reversed(children):
             if not visibility and not closed:
