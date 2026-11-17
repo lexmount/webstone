@@ -185,7 +185,7 @@ def test_public_views_retain_scoring_only_revision_and_verify_old_summary(tmp_pa
                          'finding':'Native answer retained','fix':'Scoring-only revision','pending':'None'}]}
     spec['result_review']=write(tmp_path/'review.json',review)
     reviewed=build(tmp_path,spec,'reviewed-public-revision').parent
-    page=(reviewed/'review/index.html').read_text()
+    page=(reviewed/'review/index.html').read_text(encoding='utf-8')
     assert 'current-result-review' in page and '已知程序判定' in page
     assert '原评分摘要' in page
     assert 'Evidence audit' in page and 'Native answer retained' in page

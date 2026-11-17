@@ -193,7 +193,7 @@ def test_public_result_diagnostics_preserve_measurements_and_original_authority(
 def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_path):
     spec, _, _, _ = fixture(tmp_path)
     baseline = build(tmp_path,spec,name='baseline').parent
-    result = json.loads((baseline/'results.jsonl').read_text())
+    result = json.loads((baseline/'results.jsonl').read_text(encoding='utf-8'))
     review = {'schema_version':1,'kind':'local_evidence_audit',
         'bindings':{'dataset_sha256':hashlib.sha256((baseline/'dataset.json').read_bytes()).hexdigest(),
                     'results_sha256':hashlib.sha256((baseline/'results.jsonl').read_bytes()).hexdigest()},
@@ -209,10 +209,10 @@ def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_pa
     spec['result_review'] = write(tmp_path/'review.json',review)
     output = build(tmp_path,spec).parent
     assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
-    page = (output/'review/index.html').read_text()
+    page = (output/'review/index.html').read_text(encoding='utf-8')
     assert '已知程序判定' in page
     assert 'Machine verdicts and scores are hidden' not in page
-    detail = (output/'attempts'/(result['attempt_id']+'.html')).read_text()
+    detail = (output/'attempts'/(result['attempt_id']+'.html')).read_text(encoding='utf-8')
     assert 'Checked synthetic content.' in detail
     assert '证据审查判定' in detail
     altered = deepcopy(review)
@@ -279,7 +279,7 @@ def test_public_views_withhold_non_utf8_native_bytes_without_losing_identity(tmp
     spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
     output = build(tmp_path,spec).parent
     assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
-    projected = json.loads((output/'results.jsonl').read_text())
+    projected = json.loads((output/'results.jsonl').read_text(encoding='utf-8'))
     notice = json.loads((output/projected['provider_metadata']['public_response_path']).read_bytes())
     assert notice['kind'] == 'withheld_non_utf8_native_response'
     assert notice['original_sha256'] == hashlib.sha256(native).hexdigest()
