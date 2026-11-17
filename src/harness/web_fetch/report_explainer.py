@@ -1119,15 +1119,15 @@ def _saved_failure_chapters(cases, records):
             if proof:
                 examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
                     +'</p><p>'+escape(cases[specimen['case_id']].get('url', ''))+' · '+evidence_link+'</p></details>')
-        count = t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
-                  total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))
+        count = '<p>'+t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
+                  total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))+'</p>'
         if len(eligible) != len(selected):
-            count += ' ' + t('saved_method_unmeasured_count', '{count} results are unavailable and excluded from the pass-rate and failure denominators.', count=len(selected)-len(eligible))
+            count += '<p>'+t('saved_method_unmeasured_count', 'Unavailable results: {count}; excluded from the pass-rate and failure denominators.', count=len(selected)-len(eligible))+'</p>'
         distribution = _table([t('program_category', 'Program category'), t('saved_failure_tasks', 'Tasks'),
             t('method_failure_share', 'Share of this method’s failures'), t('example_evidence', 'Example evidence')], rows,
             t('complete_failure_distribution', 'Complete failure distribution')) if failed else ''
         chapters.append('<section data-method-failures="'+escape(provider, quote=True)+'"><h3>'
-            +escape(provider_label(provider))+'</h3><p>'+count+'</p>'+distribution+''.join(examples)+'</section>')
+            +escape(provider_label(provider))+'</h3>'+count+distribution+''.join(examples)+'</section>')
     return '<section data-saved-failure-chapters><h2>'+heading+'</h2><p>'+note+'</p>'+''.join(chapters)+'</section>'
 
 
@@ -1141,11 +1141,18 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
         return _render_current_browser_article(out, cases, records, content_binding)
     passes = sum(task_passed(row['ok'], row['metrics'],
                  cases[row['case_id']].get('task_kind', 'body')) for row in records)
+    intro = bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
     context = ''
     if dataset_path.is_file():
         scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
         if scope:
             from harness.web_fetch.report import provider_label, measured, succeeded, comparative_rows, cell as report_cell, table as report_table
+            eligible_results = [row for row in records if measured(row, cases[row['case_id']])]
+            if len(eligible_results) != len(records):
+                intro = t('saved_measured_result_summary', 'This report contains {tasks} tasks and {total} saved logical results. Of {measured} measurable results, {passed} passed; {unavailable} are unavailable and excluded from pass-rate denominators. Findings apply only to the registered tasks and rules.',
+                    tasks=len(cases), total=len(records), measured=len(eligible_results),
+                    passed=sum(succeeded(row, cases[row['case_id']]) for row in eligible_results),
+                    unavailable=len(records)-len(eligible_results))
             rows = []
             for name in dict.fromkeys(row['provider'] for row in records):
                 selected = [row for row in records if row['provider'] == name]
@@ -1171,7 +1178,7 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
                 'View case audits, actual response comparisons and revision evidence') + '</a></p>'
     return ('<section class="wrap"><h1>'
             + bilingual_text(*pair('task_scope_and_acceptance_rules', 'Task scope and acceptance rules'))
-            + '</h1><p>' + bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
+            + '</h1><p>' + intro
             + '</p><p><a href="../datasets/index.html">'
             + bilingual_text(*pair('view_all_tasks_and_acceptance_rules', 'View all tasks and acceptance rules'))
             + '</a> · <a href="../analysis/index.html">'

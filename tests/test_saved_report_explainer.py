@@ -61,6 +61,8 @@ def test_saved_failure_chapters_cover_every_method_and_failure_with_exact_eviden
 
 def test_saved_guide_keeps_unmeasured_results_out_of_failures_and_rates(tmp_path):
     from bs4 import BeautifulSoup
+    from pathlib import PurePosixPath
+    from harness.web_fetch.report_i18n import localize_html, untranslated_english_narrative
     cases = {name: {'id': name, 'task_kind': 'body'} for name in ['pass', 'fail', 'unknown']}
     records = [{'provider': 'method', 'case_id': name, 'ok': True,
                 'metrics': {'content_pass': name == 'pass'}} for name in cases]
@@ -71,9 +73,15 @@ def test_saved_guide_keeps_unmeasured_results_out_of_failures_and_rates(tmp_path
     soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False), 'html.parser')
     chapters = soup.select('[data-method-failures]')
     assert '未通过 1 题' in chapters[0].get_text()
+    assert '2 条可判定结果通过 1 条' in soup.get_text()
+    assert '2 条无法判定' in soup.get_text()
     assert '1 题无法判定' in chapters[0].get_text()
     assert [cell.get_text() for cell in chapters[0].select('tbody td')][2:4] == ['1', '100.0%']
     assert not chapters[1].select('tbody tr')
     rates = soup.select('[data-metric="saved-guide-pass-rate"]')
     assert rates[0]['data-sort'] == '0.5'
     assert rates[1].get_text() == '—' and not rates[1].has_attr('data-sort')
+    english = localize_html(str(soup), PurePosixPath('guide/index.html'))
+    assert 'Of 2 measurable results, 1 passed' in english
+    assert 'Unavailable results: 1; excluded' in english
+    assert untranslated_english_narrative(english) == []

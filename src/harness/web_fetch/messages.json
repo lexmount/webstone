@@ -8,6 +8,7 @@
     "inspect_response_scoring": "查看实际返回与评分",
     "saved_method_task_counts": "共 {total} 题，通过 {passed} 题，未通过 {failed} 题。",
     "saved_method_unmeasured_count": "另有 {count} 题无法判定，不计入通过率与失败分布的分母。",
+    "saved_measured_result_summary": "本报告包含 {tasks} 个任务、{total} 个保存的逻辑结果。其中 {measured} 条可判定结果通过 {passed} 条；另有 {unavailable} 条无法判定，不计入通过率分母。结论仅适用于已登记的任务和规则。",
     "program_category": "程序分类",
     "saved_failure_tasks": "题数",
     "method_failure_share": "占该方法未通过结果",
