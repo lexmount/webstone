@@ -182,7 +182,7 @@ def publish(source, target, work, visual_receipt, *, transport=None, home=None):
             inline_limit_bytes=bound.get("inline_limit_bytes"),
             label="Web Extract",
             prefix="web-extract",
-            client=PublicationClient("Browser-Eval-Web-Extract/1.0"),
+            client=PublicationClient("Webstone-Web-Extract/1.0"),
             base=bound["host"],
             slug=bound["slug"],
             expected_version=bound["expected_version"],

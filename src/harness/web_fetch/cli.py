@@ -34,6 +34,17 @@ from harness.data_home import data_home
 EXAMPLES = Path(__file__).parent / "data"
 # Stages whose owner parses its own arguments, including --help.
 OWNER_COMMANDS = {
+    "tracks": ("harness.agent_workflows", "tracks_main",
+               "Discover tracks, installed capabilities and exact dataset selections as JSON"),
+    "skills": ("harness.agent_workflows", "skills_main",
+               "List or install the bundled Webstone agent skill"),
+    "datasets": ("harness.agent_workflows", "datasets_main",
+                 "List, fetch, propose or select dataset revisions through existing owners"),
+    "web-search": ("harness.web_search.cli", "main", "Run Web Search stages"),
+    "web-extract": ("harness.web_extract.cli", "main", "Run Web Extract stages"),
+    "trajectory-replay": ("harness.trajectory_replay.cli", "main",
+                          "Run Browser Trajectory Replay stages"),
+    "browser-use": ("harness.browser_use.cli", "main", "Run experimental Browser Use stages"),
     "results": ("harness.results.cli", "main",
                 "Submit public benchmark results for review in webstone-site"),
     "headless-run": ("harness.web_fetch.headless_runner", "main",

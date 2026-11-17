@@ -1,3 +1,7 @@
+# Agent entry point
+
+Install the project-owned [webstone skill](webstone/SKILL.md) for lifecycle planning and CLI discovery. `webstone skills install --directory <your-agent-skills-root>` copies the packaged skill without overwriting existing instructions; it works offline after package installation. [Agent workflows](../../docs/agent-workflows.md) explains installation, capabilities and boundaries. The leaderboard has its own [PR submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md), usable without this package.
+
 # Skill sources and updates
 
 `benchmark-report` and `benchmark-editorial` are maintained by this project. `humanizer` and `humanizer-chinese` are vendored dependencies:

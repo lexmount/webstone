@@ -1,15 +1,14 @@
 name: Publish Webstone to PyPI
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: read
 
 jobs:
   build:
-    if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -18,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -38,7 +37,7 @@ jobs:
       - run: uv sync --frozen
       - name: Verify approved tag and package metadata
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: uv run --frozen --no-sync python scripts/check_pypi_release.py
       - run: uv build --no-sources
       - run: uvx --from twine twine check dist/*

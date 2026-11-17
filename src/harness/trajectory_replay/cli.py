@@ -74,7 +74,8 @@ COMMANDS = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=PROG, description=__doc__)
+    prog = sys.argv[0] if sys.argv[0].startswith("webstone ") else PROG
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, (_, _, summary) in COMMANDS.items():
         # The owning module parses the remaining arguments, including its own --help.
@@ -83,13 +84,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args, remaining = build_parser().parse_known_args(argv)
+    parser = build_parser()
+    args, remaining = parser.parse_known_args(argv)
     module, function, _ = COMMANDS[args.command]
     # Import on selection so each command and top-level help load only what they use.
     handler = getattr(importlib.import_module(module), function)
     invoked = sys.argv
     # Owners read sys.argv: visual receipts hash webarena_report_visual.py, so main cannot change.
-    sys.argv = [f"{PROG} {args.command}", *remaining]
+    sys.argv = [f"{parser.prog} {args.command}", *remaining]
     try:
         handler()
     finally:

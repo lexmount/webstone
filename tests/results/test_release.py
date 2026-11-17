@@ -56,3 +56,25 @@ def test_release_requires_matching_metadata_and_exact_tag(tmp_path, monkeypatch)
     git("commit", "-m", "Later fixture")
     with pytest.raises(SystemExit, match="exact tagged commit"):
         check()
+
+
+def test_tag_publishing_keeps_exact_main_ci_and_protected_oidc_boundary():
+    import yaml
+
+    workflow = yaml.load((ROOT / '.github/workflows/publish-pypi.yml').read_text(),
+                         Loader=yaml.BaseLoader)
+    assert workflow['on'] == {'push': {'tags': ['v*']}}
+    assert workflow['permissions'] == {'contents': 'read'}
+    build = workflow['jobs']['build']
+    steps = build['steps']
+    checkout = next(step for step in steps if step.get('uses', '').startswith('actions/checkout@'))
+    assert checkout['with']['ref'] == '${{ github.ref_name }}'
+    gate = next(step for step in steps if step.get('name', '').startswith('Require successful'))
+    assert 'ci.yml/runs?event=push&branch=main&head_sha=$sha&status=completed' in gate['run']
+    assert any(step.get('env', {}).get('RELEASE_TAG') == '${{ github.ref_name }}'
+               and 'check_pypi_release.py' in step.get('run', '') for step in steps)
+    publish = workflow['jobs']['publish']
+    assert publish['needs'] == 'build'
+    assert publish['environment']['name'] == 'pypi'
+    assert publish['permissions'] == {'id-token': 'write'}
+    assert publish['steps'][-1]['with']['attestations'] == 'true'
