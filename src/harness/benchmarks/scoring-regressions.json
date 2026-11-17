@@ -86197,6 +86197,432 @@
     }
   ],
   "web_search": {
+    "coordinate-answer-formats": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′S"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′N"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°61′S"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude -13.9865846103"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′30″S"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′30″N"
+          }
+        ],
+        "expected": false
+      }
+    ],
+    "discretionary-text-hyphens": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "6.9 mil­lime­tres"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "69 mil­lime­tres"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "-6.9 mil­lime­tres"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "6.9 milli-metres"
+          }
+        ],
+        "expected": false
+      }
+    ],
+    "reference-answer-annotations": [
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "Alex Stone (also known as A. Stone)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "Alex Stone (also known as A. Stone)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. B. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "20 m (acceptable range: anything between 19 and 21 m)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "20 m (acceptable range: anything between 19 and 21 m)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 25 m tall.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "compact-compound-score",
+          "reference_answer": "Team North 38 - 26 Team South",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "compact-compound-score",
+          "reference_answer": "Team North 38 - 26 Team South",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 18-26 Team South",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
+      }
+    ],
+    "corrected-factual-reference": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "corrected-answer",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "The sculptor died of bronchitis."}],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "corrected-answer",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "An incorrect entry gives pneumonia."}],
+        "expected": false
+      },
+      {
+        "kind": "source_url",
+        "case": {
+          "id": "corrected-document",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "The sculptor died of bronchitis."}],
+        "expected": true
+      },
+      {
+        "kind": "source_url",
+        "case": {
+          "id": "corrected-document",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/wrong-entry", "snippet": "An entry about another artist."}],
+        "expected": false
+      }
+    ],
     "verified-factual-source-identities": [
       {
         "id": "redirect-reference-despite-fetch-denial",

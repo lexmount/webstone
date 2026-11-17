@@ -637,6 +637,132 @@ def test_component_license_is_preserved_from_its_committed_bytes(tmp_path):
     assert release.files["LICENSE-annotations"] == component
 
 
+def test_repair_proposal_rejects_main_advance_before_upload(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0', build=lambda output: {})
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args: SimpleNamespace(sha='b'*40))
+    # No write capability: the changed parent must be rejected before upload.
+    with pytest.raises(ValueError, match='main changed'):
+        publication.propose_release(release, tmp_path, 'Lexmount/Test',
+                                    api=object(), parent_revision='a'*40)
+
+
+def test_publication_cli_exposes_guarded_existing_pr_updates(tmp_path, monkeypatch, capsys):
+    import sys
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0')
+    monkeypatch.setattr(publication.DatasetRelease, 'from_git', lambda *args: release)
+    calls = []
+    def propose(*args, **kwargs):
+        calls.append(kwargs)
+        return dict(track='simpleqa-verified', source_revision='a'*40, archive={}), dict(state='review_pending')
+    monkeypatch.setattr(publication, 'propose_release', propose)
+    monkeypatch.setattr(sys, 'argv', ['publication', '--checkout', str(tmp_path),
+        '--track', 'simpleqa-verified', '--revision', 'a'*40, '--output', str(tmp_path/'out'),
+        '--create-pr', 'Lexmount/Test', '--parent-revision', 'b'*40, '--pull-request', '5'])
+    publication.main()
+    assert calls == [dict(parent_revision='b'*40, pull_request=5)]
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['state'] == 'review_pending'
+
+
+@pytest.mark.parametrize('defect', [None, 'closed', 'discussion', 'changed-parent'])
+def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch, defect):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    output = tmp_path / 'out'
+    def build(path):
+        path.mkdir()
+        (path / 'data.json').write_text('{}', encoding='utf-8')
+        return {'edition': {'version': '2.0.0'}}
+    release = SimpleNamespace(dataset_version='2.0.0', track='simpleqa-verified', build=build)
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args, **kwargs: None)
+    uploads = []
+    class Api:
+        def get_discussion_details(self, repository, number, *, repo_type):
+            assert number == 5 and repo_type == 'dataset'
+            return SimpleNamespace(is_pull_request=defect != 'discussion',
+                                   status='closed' if defect == 'closed' else 'open',
+                                   url='https://huggingface.co/datasets/Lexmount/Test/discussions/5')
+        def repo_info(self, repository, *, repo_type, revision):
+            assert revision == 'refs/pr/5'
+            return SimpleNamespace(sha='c'*40 if defect == 'changed-parent' else 'b'*40, siblings=[])
+        def upload_folder(self, **kwargs):
+            assert kwargs['create_pr'] is False
+            assert kwargs['revision'] == 'refs/pr/5'
+            assert kwargs['parent_commit'] == 'b'*40
+            uploads.append(kwargs)
+            return SimpleNamespace(oid='d'*40, pr_url=None)
+    if defect:
+        with pytest.raises(ValueError):
+            publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                        pull_request=5, parent_revision='b'*40)
+        assert not uploads
+    else:
+        _, receipt = publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                                 pull_request=5, parent_revision='b'*40)
+        assert len(uploads) == 1 and receipt['pr_revision'] == 'd'*40
+        assert receipt['pull_request'].endswith('/discussions/5')
+
+
+@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls',
+                                  'unresolved', 'quote-mismatch', 'source-hash', 'output-informed', 'visual-without-image'])
+def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
+    from copy import deepcopy
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    before = dict(query='Who wrote the book?', reference_answer='Wrong Author',
+                  reference_urls=['https://publisher.test/page'])
+    after = dict(before, reference_answer='Correct Author')
+    recipe = dict(schema='simpleqa-case-repairs/1', predecessor=dict(revision='a'*40, sha256='b'*64),
+                  root_cause='Wrong original author', regression_ids=['corrected-factual-reference'], repairs=[dict(
+                      case_id='q', before=before, after=after, root_cause='Wrong original author', evidence=[dict(
+                          url=after['reference_urls'][0], sha256='c'*64, quote='Correct Author wrote the book.')])])
+    excerpt = json.dumps(dict(schema='source-excerpt/1', url=after['reference_urls'][0],
+                              source_sha256='c'*64, text='Correct Author wrote the book.')).encode()
+    recipe['repairs'][0].update(resolution='corrected', source_discovery=dict(
+        kind='publisher_reference', description='Rechecked the original publisher reference.'))
+    recipe['repairs'][0]['evidence'][0].update(path='repair-evidence/q.json',
+        sha256=hashlib.sha256(excerpt).hexdigest(), interpretation=dict(kind='verbatim', answer='Correct Author'))
+    from lexbench_websearch.simpleqa import repair_cases
+    dataset = extend_reference_urls(dict(cases=repair_cases([dict(id='q', **before)], recipe),
+                                        case_repairs=deepcopy(recipe)), [])
+    if defect == 'unapplied-answer':
+        dataset['cases'][0]['reference_answer'] = before['reference_answer']
+    elif defect == 'missing-evidence':
+        dataset['case_repairs']['repairs'][0]['evidence'] = []
+    elif defect == 'unknown-controls':
+        dataset['case_repairs']['regression_ids'] = ['unknown-controls']
+    elif defect == 'unresolved':
+        dataset['case_repairs']['repairs'][0]['resolution'] = 'unresolved'
+    elif defect == 'quote-mismatch':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['quote'] = 'Invented source quote.'
+    elif defect == 'source-hash':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['sha256'] = 'd'*64
+    elif defect == 'output-informed':
+        dataset['case_repairs']['repairs'][0]['source_discovery']['kind'] = 'legacy_result_audit'
+    elif defect == 'visual-without-image':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['interpretation'].update(
+            kind='visual_record', source_form='Correct Author', explanation='Transcribed from the source page.')
+    raw = json.dumps(dataset).encode()
+    registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
+                                               sha256=hashlib.sha256(raw).hexdigest())})
+    release = DatasetRelease('simpleqa-verified', 'a'*40, {
+        'definitions/registry.json': json.dumps(registry).encode(),
+        'definitions/datasets/factual-v1.json': raw,
+        'definitions/repair-evidence/q.json': excerpt,
+    }, card_body='# Synthetic corrected release\n', language_annotations={})
+    if defect:
+        with pytest.raises(ValueError):
+            release.build(tmp_path / 'release')
+    else:
+        assert release.build(tmp_path / 'release')['datasets']['factual-v1']['count'] == 1
+
+
 @pytest.mark.parametrize('missing_inventory', [False, True])
 def test_simpleqa_release_replays_full_reference_audit(tmp_path, missing_inventory):
     from lexbench_websearch.simpleqa import extend_reference_urls

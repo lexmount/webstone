@@ -861,3 +861,53 @@ def test_lead_capture_survives_a_lead_transfer_then_full_upgrade(tmp_path, monke
     assert all(o.get('body_artifact') for o in upgraded)
     revised = extend_reference_urls(dataset, upgraded, artifacts=lambda path: (final/path).read_bytes())
     validate_reference_evidence(revised, lambda path: (final/path).read_bytes())
+
+
+@pytest.mark.parametrize('defect', [None, 'archive', 'member', 'dataset', 'missing'])
+def test_pending_reference_snapshot_is_hash_bound_without_changing_the_dataset_lock(defect):
+    import copy
+    import hashlib
+    import io
+    import tarfile
+    from harness.benchmarks.data import binding
+    from harness.web_search.revisions import apply_reference_dataset
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    before = binding('simpleqa-verified')
+    case = dict(id='q', query='Who wrote the record?', reference_answer='Author',
+                reference_urls=['https://publisher.test/record'])
+    dataset = extend_reference_urls(dict(cases=[case]), [])
+    raw = json.dumps(dataset).encode()
+    sha = lambda value: hashlib.sha256(value).hexdigest()
+    member = 'definitions/datasets/factual-v1.json'
+    file_binding = dict(size=len(raw), sha256=sha(raw))
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode='w:gz') as archive:
+        item = tarfile.TarInfo(member);item.size = len(raw)
+        archive.addfile(item, io.BytesIO(raw))
+    compressed = buffer.getvalue()
+    manifest = dict(track='simpleqa-verified', files={member:file_binding},
+                    archive=dict(size=len(compressed), sha256=sha(compressed)))
+    if defect == 'member':
+        manifest['files'][member]['sha256'] = '0'*64
+    manifest_raw = json.dumps(manifest).encode()
+    proposal = dict(repository='Lexmount/LexBench-SimpleQA-Verified', pull_request=5,
+        manifest=dict(path='proposal/manifest.json', sha256=sha(manifest_raw)),
+        archive=dict(path='proposal/definitions.tar.gz', sha256=sha(compressed)))
+    selected = dict(track='simpleqa-verified', revision='a'*40,
+                    path='datasets/factual-v1.json', sha256=sha(raw), proposal=proposal)
+    artifacts = {'proposal/manifest.json':manifest_raw, 'proposal/definitions.tar.gz':compressed}
+    if defect == 'archive':artifacts['proposal/definitions.tar.gz'] = b'changed'
+    if defect == 'missing':artifacts.pop('proposal/manifest.json')
+    if defect == 'dataset':selected['sha256'] = 'b'*64
+    cases = {'q':copy.deepcopy(case)}
+    if defect:
+        with pytest.raises(ValueError):
+            apply_reference_dataset(cases, selected, regression_ids=['reference-question-evidence',
+                'reference-answer-annotations'], artifacts=artifacts)
+        assert cases == {'q':case}
+    else:
+        apply_reference_dataset(cases, selected, regression_ids=['reference-question-evidence',
+            'reference-answer-annotations'], artifacts=artifacts)
+        assert cases['q']['url_equivalence'] == dataset['cases'][0]['url_equivalence']
+    assert binding('simpleqa-verified') == before

@@ -6,6 +6,14 @@ The collector resolves benchmark references before freezing run inputs. Keep eac
 
 ## Run a comparison
 
+Factual corrections use the dataset's versioned `case_repairs` receipt. Rebuild
+from the pinned publisher CSV, replay the repairs and retained reference captures,
+then compare the resulting task hash. Changed questions require new calls from
+every method; reference-only changes reuse the recorded requests and responses.
+The report revision replaces the references and recomputes scores uniformly.
+Mirror checks use the accepted answer aliases and numeric ranges. Discretionary
+word hyphens are ignored; visible signs and numeric boundaries remain significant.
+
 Put `LEXMOUNT_SEARCH_API_KEY`, `DEEPSEEK_API_KEY`, and `BOCHA_API_KEY` in the repository `.env`. Obtain a DeepSeek key from [its console](https://platform.deepseek.com/api_keys), a Bocha key from [its platform](https://open.bochaai.com/), and a Lexmount key from the service administrator. Never put credentials in profiles or evidence.
 
 ```sh
@@ -573,3 +581,14 @@ errors; successful calls with no usable output have their own Empty outputs colu
 P50 latency, price and request failures; remaining metrics stay in the same sortable
 table under All metrics. Rejected reference candidates belong in the dataset audit,
 not among unfinished scores in the leaderboard.
+
+### Reports for pending dataset revisions
+
+A report may bind an immutable HF proposal before a maintainer activates its main
+commit. Its `assessment_revision.reference_dataset.proposal` names the repository,
+PR number, and hash-bound manifest and definitions archive. Retain both as declared
+report assets. The shared reference reader verifies every archived definition and
+repair excerpt before scoring; the report check repeats this offline. Every HTML
+page identifies the pending dataset state. This mode does not change `data-lock.json`
+or present the proposal as an approved dataset release. After approval, rebuild with
+the ordinary locked main binding.

@@ -363,6 +363,33 @@ def test_matrix_can_replace_a_predeclared_case_scope_without_selecting_outcomes(
                          source_cases=dict(scopes, extra=ids[:1]))
 
 
+@pytest.mark.parametrize('change', ['label', 'endpoint'])
+def test_incremental_matrix_separates_display_labels_from_method_configuration(tmp_path, change):
+    old, extra = split_runs(tmp_path)
+    source = json.loads((old/'profile.json').read_bytes())
+    mid = source['methods'][0]['id']
+    other = json.loads((extra/'profile.json').read_bytes())['methods'][0]['id']
+    ids = [c['id'] for c in source['cases']]
+    increment = _fragment_run(old, tmp_path/'increment', ids[:1])
+    current = json.loads((increment/'profile.json').read_bytes())
+    current['methods'][0][change] = ('Updated display name' if change == 'label'
+                                     else 'https://different-service.test/search')
+    write_json(increment/'profile.json', current)
+    receipt = json.loads((increment/'receipt.json').read_bytes())
+    receipt['profile_sha256'] = bytes_sha256((increment/'profile.json').read_bytes())
+    write_json(increment/'receipt.json', receipt)
+    frozen = (increment/'results.jsonl').read_bytes()
+    args = dict(composition='matrix', source_methods={'primary':[mid], 'increment':[mid], 'extra':[other]},
+                source_cases={'primary':ids[1:], 'increment':ids[:1], 'extra':ids})
+    if change == 'endpoint':
+        with pytest.raises(ValueError):
+            load_report_runs(old, [('increment', increment), ('extra', extra)], {}, **args)
+    else:
+        profile, rows, _, _ = load_report_runs(old, [('increment', increment), ('extra', extra)], {}, **args)
+        assert len(rows) == 4 and profile['methods'][0]['label'] == source['methods'][0]['label']
+        assert (increment/'results.jsonl').read_bytes() == frozen
+
+
 @pytest.mark.parametrize('control', ['normalize_top_k', 'result_url_resolution'])
 def test_matrix_replays_each_source_projection_policy_through_public_report(tmp_path, control):
     from harness.web_search.core import normalize_response

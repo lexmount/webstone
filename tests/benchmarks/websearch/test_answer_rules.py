@@ -1,5 +1,17 @@
 import pytest
 
+
+@pytest.mark.parametrize(('text', 'expected'), [
+    ('Latitude -13.9865846103', True), ('Latitude -13.99', True),
+    ('Latitude 13°59′30″S', True), ('Latitude 13°59\'30"S', True), ('Latitude 13°59′60″S', False), ('Latitude 13°59′30″N', False), ('Latitude 13°59′S', True), ('Latitude 13°59′N', False),
+    ('Latitude 13°61′S', False), ('Latitude 19°30′S', False),
+])
+def test_numeric_coordinate_evidence_preserves_hemisphere_and_minute_bounds(text, expected):
+    from lexbench_websearch.answer_rules import match_reference_answer
+
+    reference = '-13.99 (acceptable range: anything between -14.01 and -13.95)'
+    assert match_reference_answer(reference, text) is expected
+
 from lexbench_websearch.answer_rules import match_reference_answer, reference_rule
 
 
@@ -170,3 +182,14 @@ def test_formatted_answers_on_frozen_factual_task(text, expected):
         == expected
     )
     assert results[0]["snippet"] == text
+@pytest.mark.parametrize(('text', 'expected'), [
+    ('It rained 6.9 mil\u00adlime\u00adtres.', True),
+    ('It rained 69 mil\u00adlime\u00adtres.', False),
+    ('It rained -6.9 mil\u00adlime\u00adtres.', False),
+    ('It rained 6.9 milli-metres.', False),
+])
+def test_discretionary_hyphens_do_not_change_quantities_or_remove_visible_signs(text, expected):
+    from lexbench_websearch.answer_rules import match_reference_answer
+
+    answer = '6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)'
+    assert match_reference_answer(answer, text) is expected

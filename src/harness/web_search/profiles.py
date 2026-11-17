@@ -11,7 +11,7 @@ from lexbench_websearch.inputs import resolve_profile
 from harness.data_home import data_home as default_data_home
 from harness.record_io import bytes_sha256
 from harness.reporting.publication_target import validate_service_base
-from harness.web_search.core import validate_profile
+from harness.web_search.core import method_contract, validate_profile
 
 
 def authority_root(path, root=None):
@@ -67,7 +67,8 @@ def current_selection(path, *, root=None):
         raise ValueError("Duplicate current search cohort")
     for cohort in cohorts:
         for method in _selected_methods(_bound(root, cohort), cohort):
-            if method["id"] in available and available[method["id"]] != method:
+            if (method["id"] in available
+                    and method_contract(available[method["id"]]) != method_contract(method)):
                 raise ValueError("Conflicting current search method definitions")
             available[method["id"]] = method
     if not ids or len(ids) != len(set(ids)) or not set(ids).issubset(available):
