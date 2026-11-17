@@ -312,7 +312,7 @@ def test_public_views_withhold_non_utf8_native_bytes_without_losing_identity(tmp
     assert path.read_bytes() == native
 
 
-@pytest.mark.parametrize('mode', ['missing_inputs', 'changed_verdict', 'unchanged_verdict'])
+@pytest.mark.parametrize('mode', ['missing_inputs', 'changed_verdict', 'unchanged_verdict', 'historical'])
 def test_changed_retry_public_answer_requires_its_own_scoring_contract(tmp_path, mode):
     from harness.web_fetch.report_saved_matrix import _record_public_views
     from lexbench_webfetch.scoring import score_attempt
@@ -331,16 +331,32 @@ def test_changed_retry_public_answer_requires_its_own_scoring_contract(tmp_path,
             'task_pass':mode != 'changed_verdict', 'ok':True,'status_code':200}
     if mode != 'missing_inputs':
         call.update(metrics=metrics,provider_metadata={},title=None,final_url=None)
+    if mode == 'historical':
+        call['metrics']['scoring_source_sha256'] = 'b'*64
     record['provider_metadata']['retry'] = {'attempts':[call]}
     if mode == 'unchanged_verdict':
         views = _record_public_views(source,record,case)
         assert len(views) == 2
         assert secret.encode() not in views[1][1]
     else:
-        reason = 'original scoring inputs' if mode == 'missing_inputs' else 'changes task acceptance'
+        reason = ('original scoring inputs' if mode == 'missing_inputs' else
+                  'bound scoring version' if mode == 'historical' else 'changes task acceptance')
         with pytest.raises(ValueError,match=reason):
             _record_public_views(source,record,case)
     assert early.read_bytes() == answer
+
+
+def test_changed_final_public_answer_requires_current_scoring_version(tmp_path):
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import score_attempt
+    _, source, record, _ = fixture(tmp_path)
+    case = {'url':'https://example.test', 'expected_any':['answer']}
+    answer = b'meta-csrf-token: synthetic-csrf-value\nanswer'
+    (source/record['artifact_path']).write_bytes(answer)
+    record['metrics'] = score_attempt(case, answer, ok=True)
+    record['metrics']['scoring_source_sha256'] = 'b'*64
+    with pytest.raises(ValueError, match='bound scoring version'):
+        _record_public_views(source, record, case)
 
 
 @pytest.mark.parametrize('mode', ['unchanged', 'changed', 'language_invariant', 'language_ambiguous', 'tampered'])
@@ -427,12 +443,14 @@ def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
 
 
 def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
+    from lexbench_webfetch.scoring import score_attempt
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True
     secret = 'synthetic-csrf-value'
     answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
     (source/record['artifact_path']).write_bytes(answer)
-    record['metrics']['content_sha256'] = hashlib.sha256(answer).hexdigest()
+    case = json.loads((source/'dataset.json').read_text(encoding='utf-8'))['cases'][0]
+    record['metrics'] = score_attempt(case, answer, ok=True)
     private = source/'private_artifacts/response.bin'
     private.parent.mkdir()
     private.write_text(json.dumps({'markdown':answer.decode()}), encoding='utf-8')
@@ -475,6 +493,7 @@ def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
 
 
 def test_public_view_cannot_silently_change_task_acceptance(tmp_path):
+    from lexbench_webfetch.scoring import score_attempt
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True
     case = json.loads((source/'dataset.json').read_text(encoding='utf-8'))['cases'][0]
@@ -482,7 +501,7 @@ def test_public_view_cannot_silently_change_task_acceptance(tmp_path):
     spec['suites'][0]['dataset'] = write(source/'dataset.json',{'cases':[case]})
     answer = b'meta-csrf-token: synthetic-csrf-value\nanswer'
     (source/record['artifact_path']).write_bytes(answer)
-    record['metrics']['content_sha256'] = hashlib.sha256(answer).hexdigest()
+    record['metrics'] = score_attempt(case, answer, ok=True)
     spec['sources'][0]['results'] = write(source/'results.jsonl',record)
     with pytest.raises(ValueError,match='changes task acceptance'):
         build(tmp_path,spec)

@@ -8,6 +8,21 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_loading_label_with_delivered_code_is_not_a_shell(self):
+  for listing in ["```python\nprint('Delivered example')\n```", "    print('Delivered example')"]:
+   for label in ['Loading...', '# Loading', 'Please enable JavaScript']:
+    for same_reference in [False, True]:
+     raw=label+'\n\n'+listing
+     with self.subTest(listing=listing,label=label,same_reference=same_reference):
+      case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Additional required section']}],
+            'ground_truth_main_content':raw if same_reference else ''}
+      row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+      self.assertNotEqual(diagnose(row,case,raw)['category'],'仅返回加载或 JavaScript 提示')
+ def test_video_fallback_beside_real_content_does_not_replace_contract_failure(self):
+  raw="# Product details\nModel Alpha costs $20.\nYour browser doesn't support HTML5 video."
+  case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Specifications']} ]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertNotEqual(diagnose(row,case,raw)['category'],'返回媒体兼容提示，未交付目标内容')
  def test_code_example_gate_exclusion_applies_to_long_documents(self):
   for count in [10,1000]:
    for raw,expected in [('# Reference\n'+('Ordinary documentation.\n'*count)+'\n```text\nAccess denied\n```','content'),

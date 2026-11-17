@@ -84,8 +84,8 @@ def test_zai_embedded_media_configuration(track, kind, enabled):
 
 
 def claude_payload(text='Tool body'):
-    return {'content': [{'type': 'server_tool_use', 'name': 'web_fetch', 'input': {'url': case().url}},
-        {'type': 'web_fetch_tool_result', 'content': {'type': 'web_fetch_result', 'url': case().url,
+    return {'content': [{'type': 'server_tool_use', 'id':'fetch-001', 'name': 'web_fetch', 'input': {'url': case().url}},
+        {'type': 'web_fetch_tool_result', 'tool_use_id':'fetch-001', 'content': {'type': 'web_fetch_result', 'url': case().url,
          'content': {'type': 'document', 'source': {'type': 'text', 'data': text}}}},
         {'type': 'text', 'text': 'MODEL ANSWER MUST NEVER BE SCORED'}], 'stop_reason': 'end_turn'}
 
@@ -101,7 +101,8 @@ def test_claude_tool_body_only_and_frozen_request():
                                      title=result.title, final_url=result.final_url)
 
 
-@pytest.mark.parametrize('change', ['wrong_url', 'model_only', 'base64', 'last_tool_error'])
+@pytest.mark.parametrize('change', ['wrong_url', 'model_only', 'base64', 'last_tool_error',
+    'missing_tool_id', 'wrong_tool_id', 'duplicate_tool_id', 'result_before_invocation'])
 def test_claude_rejects_model_or_incomplete_tool_output(change):
     payload = claude_payload()
     if change == 'wrong_url':
@@ -110,6 +111,14 @@ def test_claude_rejects_model_or_incomplete_tool_output(change):
         payload['content'] = [payload['content'][-1]]
     elif change == 'base64':
         payload['content'][1]['content']['content']['source'] = {'type': 'base64', 'data': 'AAAA'}
+    elif change == 'missing_tool_id':
+        payload['content'][1].pop('tool_use_id')
+    elif change == 'wrong_tool_id':
+        payload['content'][1]['tool_use_id'] = 'unrelated-call'
+    elif change == 'duplicate_tool_id':
+        payload['content'].insert(1, dict(payload['content'][0]))
+    elif change == 'result_before_invocation':
+        payload['content'][:2] = reversed(payload['content'][:2])
     else:
         payload['content'].append({'type': 'web_fetch_tool_result',
                                   'content': {'type': 'web_fetch_tool_result_error', 'error_code': 'timeout'}})

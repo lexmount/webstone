@@ -51,9 +51,8 @@ def _returned_page_failure(raw, case, metrics):
     if frontmatter and not re.search(r'(?m)^[\w.-]+\s*:\s*\S', frontmatter.group()):
         frontmatter = None
     body = raw[frontmatter.end():] if frontmatter else raw
-    diagnostic_body = body
     reference = case.get('ground_truth_main_content') or ''
-    visible = visible_markdown_links(body).strip()
+    full_visible = visible_markdown_links(body).strip()
     # Short examples in technical articles are content, not proof of a shell.
     # Keep original line boundaries while removing fenced/indented code blocks.
     lines = body.splitlines(keepends=True)
@@ -64,7 +63,7 @@ def _returned_page_failure(raw, case, metrics):
     diagnostic_body = ''.join(lines)
     visible = visible_markdown_links(diagnostic_body).strip()
     normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
-    if visible and normalize(visible) == normalize(visible_markdown_links(reference)):
+    if full_visible and normalize(full_visible) == normalize(visible_markdown_links(reference)):
         return None
     reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
     hits = [hit for hit in blocked_page_hits(diagnostic_body) if hit.casefold() not in reference_hits]
@@ -97,11 +96,11 @@ def _returned_page_failure(raw, case, metrics):
                     'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
     loading_only = re.fullmatch(
         r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
-        r'Chargement des statistiques[.…]*)\s*', visible)
+        r'Chargement des statistiques[.…]*)\s*', full_visible)
     if len(visible) <= 1000 and (loading_only or re.fullmatch(
             r'(?i)\s*(?:#{1,6}[^\n]*\n\s*)?(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
             r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
-            r'enable javascript to (?:see|view)[^\n]*)\s*', visible)):
+            r'enable javascript to (?:see|view)[^\n]*)\s*', full_visible)):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
@@ -121,9 +120,12 @@ def _returned_page_failure(raw, case, metrics):
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible,
                 'certainty': t('direct_response_basis', 'Direct-response basis')}
-    if len(visible) <= 1500 and re.search(
-            r"your browser (?:does not|doesn't) support html5 video|"
-            r'您的浏览器版本过低.{0,100}已无法正常访问', visible, re.I | re.S):
+    if re.fullmatch(
+            r"\s*(?:your browser (?:does not|doesn't) support html5 video[.!]?"
+            r'(?:\s*Here is a link instead[.!]?)?|'
+            r'(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*\n\s*'
+            r'(?:亲爱的小伙伴[，,]\s*)?您(?:当前使用的)?浏览器版本过低[，,]\s*'
+            r'已无法正常访问此页面[。.]\s*请升级浏览器[。.]?)\s*', full_visible, re.I):
         return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}

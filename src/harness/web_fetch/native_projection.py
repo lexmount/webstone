@@ -185,8 +185,13 @@ def native_answer_projection(provider_type, case, payload, status_code=None, *, 
             if (block.get('type') == 'web_fetch_tool_result' and result.get('type') == 'web_fetch_result'
                     and source.get('type') == 'text' and isinstance(source.get('data'), str)):
                 selected = index
+        result_id = blocks[selected].get('tool_use_id') if selected is not None else None
+        invocations = [index for index, block in enumerate(blocks)
+                       if block.get('type') == 'server_tool_use' and block.get('id') == result_id]
         invalid = (not successful_http or selected is None
                    or malformed
+                   or not isinstance(result_id, str) or not result_id
+                   or len(invocations) != 1 or invocations[0] >= selected
                    or not any(b.get('type') == 'server_tool_use' for b in blocks)
                    or any(b.get('name') != 'web_fetch' or not isinstance(b.get('input'), dict)
                           or _object(b.get('input')).get('url') != target_url

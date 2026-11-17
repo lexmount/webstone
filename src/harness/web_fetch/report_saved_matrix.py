@@ -1733,7 +1733,7 @@ def _native_retry_scoring_record(source, record, call, case):
 def _record_public_views(source, record, case):
     """Use the shared post-score projection, retaining every original identity."""
     from harness.web_fetch.publication_privacy import project_evidence_view
-    from lexbench_webfetch.scoring import score_attempt
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
     answers = {record['artifact_path']}
     answers.update(attempt['artifact_path'] for attempt in
                    record.get('provider_metadata', {}).get('retry', {}).get('attempts', []))
@@ -1776,6 +1776,8 @@ def _record_public_views(source, record, case):
                         ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
                     call = _native_retry_scoring_record(source, record, call, case)
             kind = case.get('task_kind', 'body')
+            if call['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256:
+                raise ValueError('Changed public answer requires its bound scoring version')
             before = task_passed(call['ok'], call['metrics'], kind)
             if 'task_pass' in call and call['task_pass'] is not before:
                 raise ValueError('Retry answer verdict differs from its scoring inputs')
