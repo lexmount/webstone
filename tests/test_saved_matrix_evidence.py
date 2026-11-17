@@ -221,6 +221,66 @@ def test_saved_pricing_is_source_bound_covers_participants_and_renders_only_the_
         build(tmp_path,spec,name='missing-pricing')
 
 
+@pytest.mark.parametrize(('native', 'ok'), [
+    (b'%PDF-1.7\n%\xff\xfe\xfd\nretained PDF', True),
+    (b'failed API response\xff Authorization: Bearer synthetic-secret', False),
+])
+def test_public_views_withhold_non_utf8_native_bytes_without_losing_identity(tmp_path, native, ok):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    path = source/'private_artifacts/response.bin'
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(native)
+    record['provider_metadata'].update(raw_response_path='private_artifacts/response.bin',
+        raw_response_sha256=hashlib.sha256(native).hexdigest(), raw_response_bytes=len(native))
+    record['ok'] = ok
+    record['metrics'].update(content_pass=ok,request_ok=ok)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    projected = json.loads((output/'results.jsonl').read_text())
+    notice = json.loads((output/projected['provider_metadata']['public_response_path']).read_bytes())
+    assert notice['kind'] == 'withheld_non_utf8_native_response'
+    assert notice['original_sha256'] == hashlib.sha256(native).hexdigest()
+    assert notice['original_bytes'] == len(native)
+    assert 'synthetic-secret' not in json.dumps(notice)
+    assert projected['metrics'] == record['metrics']
+    assert path.read_bytes() == native
+
+
+@pytest.mark.parametrize('mode', ['missing_inputs', 'changed_verdict', 'unchanged_verdict'])
+def test_changed_retry_public_answer_requires_its_own_scoring_contract(tmp_path, mode):
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import score_attempt
+    _, source, record, _ = fixture(tmp_path)
+    secret = 'synthetic-csrf-value'
+    case = {'url':'https://example.test', 'expected_any':['answer']}
+    if mode == 'changed_verdict':
+        case['forbidden_any'] = [secret]
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    early = source/'artifacts/early.txt'
+    early.write_bytes(answer)
+    metrics = score_attempt(case,answer,ok=True)
+    call = {'artifact_path':'artifacts/early.txt','content_sha256':hashlib.sha256(answer).hexdigest(),
+            'artifact_paths':['artifacts/early.txt'],
+            'artifact_sha256':{'artifacts/early.txt':hashlib.sha256(answer).hexdigest()},
+            'task_pass':mode != 'changed_verdict', 'ok':True,'status_code':200}
+    if mode != 'missing_inputs':
+        call.update(metrics=metrics,provider_metadata={},title=None,final_url=None)
+    record['provider_metadata']['retry'] = {'attempts':[call]}
+    if mode == 'unchanged_verdict':
+        views = _record_public_views(source,record,case)
+        assert len(views) == 2
+        assert secret.encode() not in views[1][1]
+    else:
+        reason = 'original scoring inputs' if mode == 'missing_inputs' else 'changes task acceptance'
+        with pytest.raises(ValueError,match=reason):
+            _record_public_views(source,record,case)
+    assert early.read_bytes() == answer
+
+
 def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True

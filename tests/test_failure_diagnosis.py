@@ -66,12 +66,43 @@ class FailureDiagnosisTests(unittest.TestCase):
  def test_login_loading_metadata_and_media_fallback_are_distinct(self):
   examples=[('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
    ('Please wait...','仅返回加载或 JavaScript 提示'),
+   ('# JS Rendering\nEnable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('Javascript must be enabled to view our earthquake maps.','仅返回加载或 JavaScript 提示'),
+   ('This deployment is temporarily paused\n`request-id`','返回站点部署暂停提示'),
    ('---\ntitle: Application\n---\n','仅返回页面元信息，没有正文'),
    ("Your browser doesn't support HTML5 video. Here is a link instead.",'返回媒体兼容提示，未交付目标内容')]
   for raw,label in examples:
    case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
    self.assertEqual(diagnose(row,case,raw)['category'],label)
+ def test_move_stub_is_not_a_missing_table_or_proven_redirect_failure(self):
+  case={'url':'https://example.test/old','required_facts':[{'id':'target','alternatives':['Target table']} ]}
+  stub='This page has moved to [https://example.test/new](https://example.test/new).'
+  raw='---\ntitle: This page has moved\n---\n\n'+stub
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  before=deepcopy(row)
+  result=diagnose(row,case,raw)
+  self.assertEqual(result['category'],'仅返回页面迁移提示，未交付目标内容')
+  self.assertIn('不能确定',result['certainty'])
+  self.assertEqual(row,before)
+  article=stub+'\n\n# Target table\nThe content continues here.'
+  # A real article can mention a move without being only a move notice.
+  row=self.record(ok=True,metrics=score_attempt(case,b'Other incomplete content',ok=True))
+  self.assertNotEqual(diagnose(row,case,article)['category'],result['category'])
+ def test_reference_articles_and_fenced_examples_are_not_shells(self):
+  examples=[('# Loading example\n```text\nLoading...\n```\nExplanation of the loading state.','仅返回加载或 JavaScript 提示'),
+   ('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
+   ("Your browser doesn't support HTML5 video. Here is a link instead.",'返回媒体兼容提示，未交付目标内容')]
+  for raw,label in examples:
+   with self.subTest(label=label):
+    case={'url':'https://example.test','ground_truth_main_content':raw,
+     'required_facts':[{'id':'missing','alternatives':['Additional required section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    self.assertNotEqual(diagnose(row,case,raw)['category'],label)
+  raw=examples[0][0]
+  case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Additional required section']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertNotEqual(diagnose(row,case,raw)['category'],examples[0][1])
  def test_api_server_error_is_not_attributed_to_target_site_or_client_dns(self):
   row=self.record(error_type='api_error',provider_metadata={'api_http_status':504})
   result=diagnose(row,{},'',native_raw='error code: 504\n')

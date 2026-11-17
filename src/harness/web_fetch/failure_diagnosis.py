@@ -3,6 +3,8 @@
 import json
 import re
 
+from markdown_it import MarkdownIt
+
 from lexbench_webfetch.metrics import task_measured, task_passed
 from lexbench_webfetch.reference_quality import blocked_page_hits, visible_markdown_links
 
@@ -45,8 +47,20 @@ def _returned_page_failure(raw, case, metrics):
     """
     frontmatter = re.match(r'\A\s*---\s*\n.*?\n---\s*(?:\n|$)', raw, re.S)
     body = raw[frontmatter.end():] if frontmatter else raw
-    visible = visible_markdown_links(body).strip()
     reference = case.get('ground_truth_main_content') or ''
+    visible = visible_markdown_links(body).strip()
+    # Short examples in technical articles are content, not proof of a shell.
+    # Keep original line boundaries while removing fenced/indented code blocks.
+    if len(body) <= 10000:
+        lines = body.splitlines(keepends=True)
+        for token in MarkdownIt('commonmark').parse(body):
+            if token.type in {'fence', 'code_block'} and token.map:
+                for index in range(*token.map):
+                    lines[index] = '\n'
+        visible = visible_markdown_links(''.join(lines)).strip()
+    normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
+    if visible and normalize(visible) == normalize(visible_markdown_links(reference)):
+        return None
     reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
     hits = [hit for hit in blocked_page_hits(body) if hit.casefold() not in reference_hits]
     # Standalone error headings in long technical documents are not gates.
@@ -76,7 +90,8 @@ def _returned_page_failure(raw, case, metrics):
     if len(visible) <= 1000 and re.search(
             r'(?im)^\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
             r'you (?:need|must) (?:to )?enable javascript[^\n]*|'
-            r'please enable javascript[^\n]*)\s*$', visible):
+            r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
+            r'enable javascript to (?:see|view)[^\n]*)\s*$', visible):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
@@ -84,6 +99,18 @@ def _returned_page_failure(raw, case, metrics):
         return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': raw[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if len(visible) <= 700 and re.fullmatch(
+            r'This page has moved to\s+https?://\S+\.?', visible, re.I):
+        return {'category': t('returned_move_notice', 'Returned page-moved notice without target content'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible,
+                'certainty': t('move_notice_boundary', 'The answer contains a move notice, not the requested page content. This alone does not establish whether the provider followed an HTTP redirect.')}
+    if len(visible) <= 500 and re.match(
+            r'\AThis deployment is temporarily paused(?:\s|$)', visible, re.I):
+        return {'category': t('returned_deployment_paused', 'Returned deployment-paused notice'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible,
+                'certainty': t('direct_response_basis', 'Direct-response basis')}
     if len(visible) <= 1500 and re.search(
             r"your browser (?:does not|doesn't) support html5 video", visible, re.I):
         return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),

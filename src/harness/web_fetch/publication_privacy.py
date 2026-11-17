@@ -829,8 +829,25 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
             return [node_view(item) for item in value]
         return text_view(value) if isinstance(value, str) else value
 
-    text = data.decode('utf-8')
-    if role == 'diagnostic_log':
+    try:
+        text = data.decode('utf-8')
+    except UnicodeDecodeError:
+        if role != 'native_response' or content_format != 'auto':
+            raise ValueError('Non-UTF-8 evidence requires an automatic native-response view') from None
+        # Do not guess a binary encoding or publish unchecked binary metadata.
+        # Preserve its identity while explicitly withholding the native bytes.
+        projected = json.dumps({
+            'kind': 'withheld_non_utf8_native_response',
+            'original_sha256': hashlib.sha256(data).hexdigest(),
+            'original_bytes': len(data),
+            'notice': 'Non-UTF-8 native bytes remain private; this notice is not the original response or scored answer.',
+        }, separators=(',', ':')).encode('utf-8')
+        counts['non_utf8_native_bytes_omitted'] = 1
+        encoding = 'json'
+        text = None
+    if text is None:
+        pass
+    elif role == 'diagnostic_log':
         lines = []
         for raw_line in io.BytesIO(data):
             line = raw_line.decode('utf-8')
@@ -889,7 +906,8 @@ def require_public_evidence_view(source, binding):
             or path.is_absolute() or not path.parts or path.parts[0] != 'public-evidence'
             or '..' in path.parts or any(p.startswith('.') for p in path.parts)
             or not isinstance(redactions, dict)
-            or any(key not in {'local_path', 'hostname', 'credential_shape', 'sensitive_values'}
+            or any(key not in {'local_path', 'hostname', 'credential_shape', 'sensitive_values',
+                              'non_utf8_native_bytes_omitted'}
                    or type(count) is not int or count < 1 for key, count in redactions.items())):
         raise ValueError('Invalid separately identified public evidence view')
     for label in ('original', 'published'):
@@ -900,6 +918,10 @@ def require_public_evidence_view(source, binding):
     if (same and (redactions or receipt['original_bytes'] != receipt['published_bytes'])
             or not same and not redactions):
         raise ValueError('Public view identity does not match its declared redactions')
+    if 'non_utf8_native_bytes_omitted' in redactions and (
+            receipt['role'] != 'native_response' or receipt['encoding'] != 'json'
+            or redactions['non_utf8_native_bytes_omitted'] != 1):
+        raise ValueError('Non-UTF-8 omission must identify a native-response notice')
     public = read_evidence_binding(source, {'path': name, 'sha256': receipt['published_sha256']})
     raw = public.read_bytes()
     if len(raw) != receipt['published_bytes'] or publication_file_risk(name, raw):

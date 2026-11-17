@@ -1660,14 +1660,24 @@ def _record_public_views(source, record, case):
                 content_format='text' if role == 'scored_answer' else 'auto')
         except ValueError as exc:
             raise ValueError(f'Public evidence projection failed: {record["provider"]}/{case["id"]}/{role}/{Path(binding["path"]).name}: {exc}') from exc
-        if (role == 'scored_answer' and binding['path'] == record['artifact_path']
-                and public != raw):
-            metrics = score_attempt(case, public, ok=record['ok'],
-                status_code=record.get('status_code'), metadata=record.get('provider_metadata'),
-                previous_metrics=record['metrics'], title=record.get('title'),
-                final_url=record.get('final_url'))
+        if role == 'scored_answer' and public != raw:
+            call = record
+            if binding['path'] != record['artifact_path']:
+                calls = [attempt for attempt in record.get('provider_metadata', {}).get('retry', {}).get('attempts', [])
+                         if attempt['artifact_path'] == binding['path']]
+                if len(calls) != 1 or not all(key in calls[0] for key in
+                        ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
+                    raise ValueError('Changed retry answer requires its original scoring inputs')
+                call = calls[0]
+            metrics = score_attempt(case, public, ok=call['ok'],
+                status_code=call.get('status_code'), metadata=call.get('provider_metadata'),
+                previous_metrics=call['metrics'], title=call.get('title'),
+                final_url=call.get('final_url'))
             kind = case.get('task_kind', 'body')
-            if task_passed(record['ok'], metrics, kind) != task_passed(record['ok'], record['metrics'], kind):
+            before = task_passed(call['ok'], call['metrics'], kind)
+            if 'task_pass' in call and call['task_pass'] is not before:
+                raise ValueError('Retry answer verdict differs from its scoring inputs')
+            if task_passed(call['ok'], metrics, kind) != before:
                 raise ValueError('Public answer projection changes task acceptance')
         views.append((binding, public, receipt))
     return views
