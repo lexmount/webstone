@@ -9,6 +9,8 @@ maintained in this repository.
 
 # Benchmark ownership
 
+All Hugging Face dataset content changes, including cards and snapshot URL bindings, must use pull requests. Owner approval to publish does not permit direct commits or uploads to dataset main. Release tags require an explicit release request, a verified immutable input commit on main, and must never move. Keep automation credentials limited to reading repository inputs and submitting discussions/pull requests; keep maintainer write credentials separate.
+
 Webstone owns benchmark scoring and input tooling as well as execution, evidence and reports. Keep the independent scorer APIs in `src/lexbench_webfetch/` and `src/lexbench_websearch/`; they must work without browsers or provider credentials. Shared dataset distribution and pinning belong in `src/harness/benchmarks/`.
 
 Hugging Face owns versioned public benchmark definitions and redistributable reference inputs. `src/harness/benchmarks/data-lock.json` selects their repositories, full commits and file hashes. Change a selection through `make pin-dataset DATASET=<track> REV=<full-HF-commit>`; keep import bindings aligned and historical snapshots intact. Do not copy datasets into Git or reintroduce retired standalone scorer repositories as execution dependencies. Official upstream evaluators retain their pinned code dependencies. Full third-party references without redistribution rights remain external approved inputs.

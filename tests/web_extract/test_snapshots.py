@@ -489,6 +489,7 @@ def test_hf_publication_atomically_updates_only_card_and_binding():
     )
     call = api.create_commit.call_args.kwargs
     assert call["parent_commit"] == revision
+    assert call["create_pr"] is True
     assert {operation.path_in_repo for operation in call["operations"]} == {
         "README.md",
         "snapshots.json",
@@ -597,11 +598,14 @@ def test_hf_cache_symlinks_are_read_but_changed_originals_block_publication(
     )
     from unittest.mock import MagicMock
 
-    result = MagicMock(oid="new-revision")
+    result = MagicMock(oid="new-revision", pr_url="https://huggingface.co/datasets/owner/data/discussions/1")
     with patch(
         "harness.benchmarks.publication.publish_snapshot_metadata", return_value=result
     ) as publish:
-        assert snapshots.publish(home, value, receipt, revision="a" * 40)["cases"] == 1
+        proposed = snapshots.publish(home, value, receipt, revision="a" * 40)
+        assert proposed["cases"] == 1
+        assert proposed["state"] == "review_pending"
+        assert proposed["pull_request"] == result.pr_url
         assert "Original source and license" in publish.call_args.kwargs["readme"]
         assert "Keep this citation" in publish.call_args.kwargs["readme"]
         assert "Old address" not in publish.call_args.kwargs["readme"]

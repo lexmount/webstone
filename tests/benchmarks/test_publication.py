@@ -9,6 +9,65 @@ import pytest
 from harness.benchmarks.publication import DatasetRelease
 
 
+def test_dataset_version_survives_a_hub_rebuild(tmp_path):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.2.0')
+    output = tmp_path / 'versioned'
+    assert release.build(output)['version'] == '1.2.0'
+    assert 'v1.2.0' in (output / 'README.md').read_text(encoding='utf-8')
+    git(output, 'init', '-q')
+    git(output, 'add', '.')
+    git(output, 'commit', '-qm', 'Versioned fixture')
+    rebuilt = DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD'))
+    assert rebuilt.build(tmp_path / 'rebuilt')['version'] == '1.2.0'
+
+
+def test_version_is_visible_on_a_card_without_subheadings(tmp_path):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(
+        DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.0.0',
+        card_body='# Custom benchmark\n\nOriginal description.')
+    release.build(tmp_path / 'release')
+    assert 'v1.0.0' in (tmp_path / 'release/README.md').read_text(encoding='utf-8')
+
+
+@pytest.mark.parametrize('version', [None, '1.0.0'])
+def test_new_proposals_require_an_unused_explicit_version(tmp_path, monkeypatch, version):
+    import sys
+    from types import SimpleNamespace
+
+    from harness.benchmarks import publication
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+
+    class Api:
+        def list_repo_refs(self, *args, **kwargs):
+            return SimpleNamespace(tags=[SimpleNamespace(name='v1.0.0')])
+
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(HfApi=Api))
+    args = ['publish', '--checkout', str(root), '--track', 'websearch', '--revision', revision,
+            '--output', str(tmp_path / 'release'), '--create-pr', 'owner/data']
+    if version is not None:
+        args += ['--dataset-version', version]
+    monkeypatch.setattr(sys, 'argv', args)
+    with pytest.raises(SystemExit if version is None else ValueError):
+        publication.main()
+
+
+@pytest.mark.parametrize('version', ['v1.0.0', '1.0', '01.2.3', 'main', ''])
+def test_dataset_release_rejects_invalid_version_labels(tmp_path, version):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version=version)
+    with pytest.raises(ValueError, match='dataset version'):
+        release.build(tmp_path / 'invalid')
+
+
 def git(checkout, *args):
     return subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org", *args],
                           cwd=checkout, check=True, capture_output=True, text=True).stdout.strip()
@@ -404,6 +463,9 @@ def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(tmp_pa
     calls = []
 
     class ReviewApi:
+        def list_repo_refs(self, repo_id, *, repo_type):
+            return SimpleNamespace(tags=[])
+
         def repo_info(self, *, repo_id, repo_type):
             assert (repo_id, repo_type) == ('Lexmount/Test-Dataset', 'dataset')
             return SimpleNamespace(sha='a' * 40, siblings=[
@@ -422,7 +484,8 @@ def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(tmp_pa
 
     monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(HfApi=ReviewApi))
     monkeypatch.setattr(sys, 'argv', ['publication', '--checkout', str(root), '--track', 'websearch',
-        '--revision', revision, '--output', str(output), '--create-pr', 'Lexmount/Test-Dataset'])
+        '--revision', revision, '--output', str(output), '--dataset-version', '1.0.0',
+        '--create-pr', 'Lexmount/Test-Dataset'])
     publication.main()
     result = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert len(calls) == 1

@@ -522,6 +522,8 @@ def publish(home, binding, verification, *, revision):
         "repository": hf["repository"],
         "source_revision": revision,
         "revision": result.oid,
+        "pull_request": result.pr_url,
+        "state": "review_pending",
         "fixture_base": metadata["fixture_base"],
         "cases": len(originals),
     }

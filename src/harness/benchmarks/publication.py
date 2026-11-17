@@ -27,7 +27,7 @@ def encoded(value: object) -> bytes:
 
 
 def publish_snapshot_metadata(repository, metadata, *, parent_revision, readme, api=None):
-    """Add a verified URL binding atomically without changing original dataset files."""
+    """Propose a verified URL binding without updating dataset main."""
     from huggingface_hub import CommitOperationAdd, HfApi
 
     if not re.fullmatch(r"[0-9a-f]{40}", parent_revision):
@@ -39,6 +39,7 @@ def publish_snapshot_metadata(repository, metadata, *, parent_revision, readme, 
         repo_id=repository,
         repo_type="dataset",
         parent_commit=parent_revision,
+        create_pr=True,
         commit_message="Bind verified public HTML snapshot URLs",
         operations=[
             CommitOperationAdd(path_in_repo="snapshots.json", path_or_fileobj=encoded(metadata)),
@@ -216,6 +217,7 @@ class DatasetRelease:
     viewer_filters: dict | None = None
     edition: dict | None = None
     hub_files: dict[str, bytes] | None = None
+    dataset_version: str | None = None
 
     @classmethod
     def from_git(cls, checkout: Path, track: str, revision: str) -> DatasetRelease:
@@ -282,7 +284,7 @@ class DatasetRelease:
                    scorer=settings.get('scorer'), default_dataset=settings.get('default_dataset'),
                    viewer_filters=filters, edition=identity.get('edition') if hub else None,
                    hub_files=_git_blobs(checkout, revision, ('tools', 'Makefile', 'snapshots.json'))
-                   if hub else None)
+                   if hub else None, dataset_version=identity.get('version') if hub else None)
 
     def runtime_settings(self) -> dict:
         """Publish the execution choices bound to this dataset edition."""
@@ -412,6 +414,11 @@ class DatasetRelease:
         return selected
 
     def build(self, output: Path, *, selections: dict | None = None) -> dict:
+        if self.dataset_version is not None:
+            if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', self.dataset_version):
+                raise ValueError('A dataset version must be MAJOR.MINOR.PATCH')
+            if 'VERSIONING.md' not in self.files:
+                raise ValueError('A dataset version requires a committed VERSIONING.md policy')
         if output.exists() and any(output.iterdir()):
             raise ValueError("Release output must be empty")
         if self.tooling_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", self.tooling_revision):
@@ -510,6 +517,8 @@ class DatasetRelease:
             "files": {name: {"sha256": bytes_sha256(raw), "size": len(raw)} for name, raw in sorted(files.items())},
         }
         manifest.update(settings)
+        if self.dataset_version is not None:
+            manifest['version'] = self.dataset_version
         manifest['viewer_filters'] = {
             key: filters.get(key, default) for key, default in
             [('viewer_exclude_datasets', []), ('viewer_exclude_tracks', {})]}
@@ -603,6 +612,16 @@ class DatasetRelease:
         table = ["| Viewer group | Source suite | Tasks | Scope |", "| --- | --- | ---: | --- |"]
         table.extend(f"| `{row['config']}` | `{row['source_suite']}` | {row['count']:,} | {row['description']} |" for row in populations)
         body = body.replace("{{dataset_summary}}", "\n".join(table))
+        if self.dataset_version is not None:
+            version_section = ('## Dataset version\n\nThis dataset release is **v' + self.dataset_version
+                               + '**. See [version history and comparison rules](VERSIONING.md).\n\n')
+            if re.search(r'(?m)^## Dataset version\s*$', body):
+                body = re.sub(r'(?ms)^## Dataset version\s*\n.*?(?=^## |\Z)', lambda _: version_section, body, count=1)
+            else:
+                if re.search(r'(?m)^## ', body):
+                    body = re.sub(r'(?m)^## ', lambda _: version_section + '## ', body, count=1)
+                else:
+                    body = body.rstrip() + '\n\n' + version_section
         body = body.replace("{{total_records}}", f"{sum(row['count'] for row in populations):,}")
         if self.track == "headless-browser":
             for key, value in manifest["upstream"].items():
@@ -627,9 +646,14 @@ def main() -> None:
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tooling-revision", help="Full Webstone commit for executable examples and code links")
+    parser.add_argument("--dataset-version", help="Explicit dataset release number, MAJOR.MINOR.PATCH")
     parser.add_argument("--create-pr", metavar="HF_REPOSITORY", help="Open a Hugging Face pull request for the built dataset")
     args = parser.parse_args()
     release = DatasetRelease.from_git(args.checkout, args.track, args.revision)
+    if args.dataset_version is not None:
+        release = replace(release, dataset_version=args.dataset_version)
+    if args.create_pr and release.dataset_version is None:
+        parser.error('Publishing requires --dataset-version or a committed manifest version')
     if args.tooling_revision is not None:
         release = replace(release, tooling_revision=args.tooling_revision)
     result = release.build(args.output)
@@ -637,6 +661,9 @@ def main() -> None:
     if args.create_pr:
         from huggingface_hub import HfApi
         api = HfApi()
+        tags = api.list_repo_refs(args.create_pr, repo_type='dataset').tags
+        if any(tag.name == 'v' + release.dataset_version for tag in tags):
+            raise ValueError('Dataset version is already released; published tags are immutable')
         info = api.repo_info(repo_id=args.create_pr, repo_type="dataset")
         current = {p.relative_to(args.output).as_posix() for p in args.output.rglob("*") if p.is_file()}
         removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != ".gitattributes"]

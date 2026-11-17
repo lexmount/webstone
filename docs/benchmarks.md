@@ -77,6 +77,10 @@ The export verifies the full dataset and declared reference files before materia
 
 ## Historical bindings and new revisions
 
+Dataset content changes always use Hugging Face pull requests, including cards and snapshot URL bindings. Publication approval does not authorize a direct update to `main`. The supported publishers cannot merge PRs or create tags. For automation, use a fine-grained token with repository read access and discussion/PR submission permission, without repository write access. Keep maintainer credentials separate. HF repository settings do not provide a GitHub-style required-PR branch rule; a write-capable token can bypass a local publishing command.
+
+A formal dataset proposal selects `--dataset-version MAJOR.MINOR.PATCH` and includes a committed `VERSIONING.md`. The builder records that number in the release manifest and card, retains it when rebuilding, and rejects already released numbers for new proposals. Unnumbered historical snapshots remain readable, but cannot be proposed as new releases without an explicit version. A first distribution release uses `1.0.0`; preserve an established edition series. Changed task populations or task contracts require a major release, reference corrections on the same tasks a minor release, and documentation or byte-preserving packaging fixes a patch. Retain upstream versions separately from LexBench distribution versions.
+
 [The data lock](../src/harness/benchmarks/data-lock.json) selects dataset commits, records archive/file hashes and retains earlier snapshots. [Fetch](../evaluation/lexbench-webfetch.json) and [Search](../evaluation/lexbench-websearch.json) import bindings preserve logical historical paths and exact definition hashes. Existing experiment profiles and certificates retain their original identities.
 
 Select a new published edition through one command:
