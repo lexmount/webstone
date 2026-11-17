@@ -246,6 +246,7 @@ class DatasetRelease:
                     or canonical_source_name("tracks", identity.get("track")) != track):
                 raise ValueError("Hub source manifest does not match the requested benchmark track")
             files = _hub_definitions(checkout, revision, identity)
+            files.update(_git_blobs(checkout, revision, ('VERSIONING.md',)))
         else:
             prefixes = [value for value in (f"src/lexbench_{track}/definitions/", f"lexbench_{track}/definitions/")
                         if subprocess.run(["git", "cat-file", "-e", revision + ":" + value.rstrip("/")],

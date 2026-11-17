@@ -20,8 +20,13 @@ def test_dataset_version_survives_a_hub_rebuild(tmp_path):
     git(output, 'init', '-q')
     git(output, 'add', '.')
     git(output, 'commit', '-qm', 'Versioned fixture')
+    (output / 'VERSIONING.md').write_text('Committed release policy.\n', encoding='utf-8')
+    git(output, 'add', 'VERSIONING.md')
+    git(output, 'commit', '-qm', 'Update policy without rewriting frozen inputs')
+    (output / 'VERSIONING.md').write_text('Uncommitted edit.\n', encoding='utf-8')
     rebuilt = DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD'))
     assert rebuilt.build(tmp_path / 'rebuilt')['version'] == '1.2.0'
+    assert (tmp_path / 'rebuilt/VERSIONING.md').read_text(encoding='utf-8') == 'Committed release policy.\n'
 
 
 def test_version_is_visible_on_a_card_without_subheadings(tmp_path):
