@@ -190,6 +190,45 @@ def test_public_result_diagnostics_preserve_measurements_and_original_authority(
         check_saved_matrix(output,spec_path=tmp_path/'spec.json')
 
 
+def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_path):
+    spec, _, _, _ = fixture(tmp_path)
+    baseline = build(tmp_path,spec,name='baseline').parent
+    result = json.loads((baseline/'results.jsonl').read_text())
+    review = {'schema_version':1,'kind':'local_evidence_audit',
+        'bindings':{'dataset_sha256':hashlib.sha256((baseline/'dataset.json').read_bytes()).hexdigest(),
+                    'results_sha256':hashlib.sha256((baseline/'results.jsonl').read_bytes()).hexdigest()},
+        'reviewer':{'agent':'Evidence auditor'},
+        'review_protocol':{'scope':'machine-failures','machine_judgments_withheld':False,
+                           'additional_attempt_ids':[result['attempt_id']]},
+        'attempts':[{'attempt_id':result['attempt_id'],'machine_verdict':'pass',
+                     'agent_verdict':'pass','final_verdict':'pass','agent_evidence':'Checked synthetic content.'}],
+        'reviewed_attempts':1,'expected_attempts':1,'total_attempts':1,
+        'accepted_unreviewed_passes':0,'disagreements':0,'unresolved':0,
+        'review_rounds':[{'date':'2026-11-17','title':'Saved evidence audit','scope':'One saved result',
+                         'finding':'Content retained','fix':'No scoring change','pending':'None'}]}
+    spec['result_review'] = write(tmp_path/'review.json',review)
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    page = (output/'review/index.html').read_text()
+    assert '已知程序判定' in page
+    assert 'Machine verdicts and scores are hidden' not in page
+    detail = (output/'attempts'/(result['attempt_id']+'.html')).read_text()
+    assert 'Checked synthetic content.' in detail
+    assert '证据审查判定' in detail
+    altered = deepcopy(review)
+    altered['attempts'][0]['agent_evidence'] = 'Unbound replacement opinion'
+    bound = write(output/'result-review.json',altered)
+    audit = json.loads((output/'saved-matrix-audit.json').read_bytes())
+    audit['files']['result-review.json'] = bound['sha256']
+    write(output/'saved-matrix-audit.json',audit)
+    with pytest.raises(ValueError,match='Result review differs from validated source'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+    review['bindings']['results_sha256'] = 'a'*64
+    spec['result_review'] = write(tmp_path/'stale-review.json',review)
+    with pytest.raises(ValueError,match='bound to different results'):
+        build(tmp_path,spec,name='stale')
+
+
 def test_saved_pricing_is_source_bound_covers_participants_and_renders_only_the_cohort(tmp_path):
     from harness.web_fetch.report_pricing import SOURCE
     spec, _, _, _ = fixture(tmp_path)
@@ -276,6 +315,60 @@ def test_changed_retry_public_answer_requires_its_own_scoring_contract(tmp_path,
         assert secret.encode() not in views[1][1]
     else:
         reason = 'original scoring inputs' if mode == 'missing_inputs' else 'changes task acceptance'
+        with pytest.raises(ValueError,match=reason):
+            _record_public_views(source,record,case)
+    assert early.read_bytes() == answer
+
+
+@pytest.mark.parametrize('mode', ['unchanged', 'changed', 'language_invariant', 'language_ambiguous', 'tampered'])
+def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_path, mode):
+    from harness.web_fetch.native_projection import native_projection_policy, native_projection_source
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+    _, source, record, _ = fixture(tmp_path)
+    case = {'url':'https://example.test', 'expected_any':['missing section']}
+    secret = 'synthetic-csrf-value'
+    if mode in {'changed', 'language_ambiguous'}:
+        case['expected_any'] = ['answer']
+    if mode == 'changed':
+        case['forbidden_any'] = [secret]
+    if mode.startswith('language_'):
+        case.update(expected_document_language='en',expected_final_url=case['url'],page_identity_required=True)
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    early = source/'artifacts/early.txt'
+    early.write_bytes(answer)
+    record.update(provider_type='kimi_fetch')
+    record['metrics']['scoring_source_sha256'] = SCORING_SOURCE_SHA256
+    policy = native_projection_policy('kimi_fetch')
+    policy_path = source/policy['source_path']
+    policy_path.parent.mkdir()
+    policy_path.write_bytes(native_projection_source())
+    raw = write(source/'private_artifacts/early.response.bin',
+                {'markdown':answer.decode(),'title':'Example','url':case['url']})
+    events = write(source/'private_artifacts/early.stderr.log',
+                   {'event':'http_response_received','status':200})
+    digest = hashlib.sha256(answer).hexdigest()
+    log = write(source/'call-logs/early.json', {'output':{'sha256':digest},
+        'timing':{'elapsed_ms':1,'deadline_budget_ms':30000,'deadline_overrun':False},
+        'response':{'final_url':case['url']}})
+    for binding in (raw,events,log):
+        binding['bytes'] = Path(binding['path']).stat().st_size
+        binding['path'] = Path(binding['path']).relative_to(source).as_posix()
+    call = {'artifact_path':'artifacts/early.txt','content_sha256':digest,
+        'artifact_paths':['artifacts/early.txt'],'artifact_sha256':{'artifacts/early.txt':digest},
+        'elapsed_ms':1,'task_pass':False,'ok':True,'status_code':None,'private_artifacts':[raw,events],
+        'call_log':log,'native_route_receipt':{'answer_selection_policy':policy,
+            'answer_fields':['markdown','title','url'],
+            'requests':[{'signature':{'interface':'fetch'}}]}}
+    record['provider_metadata']['retry'] = {'attempts':[call]}
+    if mode == 'tampered':
+        (source/raw['path']).write_bytes(b'altered response')
+    if mode in {'unchanged', 'language_invariant'}:
+        views = _record_public_views(source,record,case)
+        assert secret.encode() not in next(public for binding,public,_ in views if binding['path']==call['artifact_path'])
+    else:
+        reason = {'changed':'changes task acceptance','language_ambiguous':'unretained language',
+                  'tampered':'original scoring inputs'}[mode]
         with pytest.raises(ValueError,match=reason):
             _record_public_views(source,record,case)
     assert early.read_bytes() == answer

@@ -1600,6 +1600,15 @@ it does not upload attachments.
 
 Use `scripts/build_report.py --saved-matrix /absolute/input-spec.json --output /absolute/new-report --language zh` to display saved results across suites.
 
+The specification may bind `result_review` with an explicit path and SHA-256.
+It must use the shared result-review schema, bind the projected dataset and
+results, and include validated coverage counts. The builder checks the review
+before rendering and reproduces its exact source bytes during verification.
+For a failure-only review, `review_protocol.additional_attempt_ids` may explicitly
+include selected saved passes; all other passes remain counted as unreviewed.
+Set `machine_judgments_withheld: false` for an audit with known machine outcomes;
+the report labels that evidence audit separately from independent blind review.
+
 Final presentation requires verified settings for every displayed method/family,
 including unchanged and completion-only groups. Request options must be uniform
 within each declared input class; DNS, timeout and retry budgets must also agree

@@ -317,6 +317,9 @@ def _visible(text, schema=None, *, normalized_html=False, representation=None):
         text = "\n".join(line if line.strip() in boundaries
                          else line.replace(_CARD_BOUNDARY, "").replace(_MEDIA_BOUNDARY, "")
                          for line in text.splitlines())
+    if body_view and not normalized_html and not projected_html:
+        from .reference_quality import nested_markdown_emphasis_text
+        text = nested_markdown_emphasis_text(text)
     text = re.sub(r"\*\*|__" if schema in {None, "body_text", "page_identity"} else r"\*\*|__|`", "", text)
     # Link unwrapping may insert boundary spaces inside surrounding emphasis
     # (``*[label](url)*`` becomes ``* label *``). Treat that as the same visible
@@ -1074,6 +1077,10 @@ def _stable_literal_match(surface, value, registered_words=(), *, phrase_boundar
     from .reference_quality import visible_markdown_links
     def normalize_for_match(text):
         if rendered and representation not in {'plain_text', 'html'}:
+            # A Markdown soft break renders as a space, not a new paragraph.
+            # Resolve it before the literal-view normalizer preserves paragraph
+            # boundaries and folds gaps after CJK punctuation.
+            text = re.sub(r'(?<=\S)[ \t]*\n(?=[ \t]*\S)', ' ', text)
             text = quoted_scalar_equivalence(unicodedata.normalize('NFKC', text).casefold())
         text = normalize(text, representation='plain_text' if rendered or representation == 'html' else representation)
         return _LETTER_SPACED_CJK.sub(lambda match: re.sub(r'[ \t]+', '', match[0]), text)

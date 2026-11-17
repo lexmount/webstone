@@ -507,6 +507,8 @@ def _load_saved_matrix(spec_path):
     bind(spec_path)
     if spec.get('native_policy_registry'):
         binding(spec['native_policy_registry'])
+    if spec.get('result_review'):
+        _require_public_json(_json(binding(spec['result_review'])), label='Result review')
     if spec.get('pricing'):
         pricing = _json(binding(spec['pricing']))
         _require_public_json(pricing, label='Pricing catalog')
@@ -1626,6 +1628,96 @@ def build_saved_matrix(spec_path: Path, output: Path) -> Path:
         return output / entry.relative_to(staged)
 
 
+def _native_retry_scoring_record(source, record, call, case):
+    """Replay missing text-only retry inputs from its frozen native evidence.
+
+    Earlier runner receipts omitted per-call metrics/title. Never borrow the
+    final call's returned fields. Unsupported or incomplete evidence fails closed.
+    """
+    from harness.web_fetch.native_projection import (
+        native_answer_projection, native_projection_policy_version,
+        project_native_answer, project_native_result_fields, require_native_answer_projection,
+    )
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
+    def reject():
+        raise ValueError('Changed retry answer requires its original scoring inputs')
+    if (record['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256
+            or case.get('task_kind') == 'file'):
+        reject()
+    receipt = call.get('native_route_receipt', {})
+    policy = receipt.get('answer_selection_policy')
+    if not policy or receipt.get('protocol_errors') or len(receipt.get('requests', [])) != 1:
+        reject()
+    version = native_projection_policy_version(policy, record['provider_type'])
+    if _sha(contained_path(source, policy['source_path'], reject_symlinks=True)) != policy['source_sha256']:
+        reject()
+    private = call.get('private_artifacts', [])
+    responses = [item for item in private if item['path'].endswith('.response.bin')]
+    logs = [item for item in private if item['path'].endswith('.stderr.log')]
+    if len(responses) != 1 or len(logs) != 1 or not call.get('call_log'):
+        reject()
+    def read(binding):
+        raw = contained_path(source, binding['path'], reject_symlinks=True).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding['sha256']:
+            reject()
+        return raw
+    native = read(responses[0])
+    events = []
+    for line in read(logs[0]).splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, UnicodeError):
+            continue
+        if isinstance(event, dict) and str(event.get('event', '')).endswith('http_response_received'):
+            events.append(event)
+    log = json.loads(read(call['call_log']))
+    if (len(events) != 1 or type(events[0].get('status')) is not int
+            or log.get('output', {}).get('sha256') != call['content_sha256']
+            or log.get('timing', {}).get('elapsed_ms') != call['elapsed_ms']
+            or type(log.get('timing', {}).get('deadline_overrun')) is not bool):
+        reject()
+    payload = json.loads(native)
+    interface = receipt['requests'][0]['signature']['interface']
+    declaration = native_answer_projection(record['provider_type'], case, payload,
+        events[0]['status'], interface=interface, policy_version=version)
+    if (not declaration or declaration.get('content_format') != 'text'
+            or declaration.get('files') or declaration.get('source_format') == 'bytes'):
+        reject()
+    content, metadata = project_native_answer(payload, declaration)
+    answer = read({'path':call['artifact_path'], 'sha256':call['content_sha256']})
+    if content.encode('utf-8') != answer:
+        reject()
+    fields = project_native_result_fields(payload, declaration, request_url=case['url'])
+    if fields['final_url'] != log.get('response', {}).get('final_url'):
+        reject()
+    metadata.update(native_answer_projection=declaration, native_route_receipt=receipt,
+                    raw_response_sha256=responses[0]['sha256'])
+    require_native_answer_projection(content, metadata, native, request_url=case['url'], **fields)
+    prior = {key:log['timing'][key] for key in ('deadline_overrun', 'deadline_budget_ms')}
+    metrics = score_attempt(case, answer, ok=call['ok'], status_code=call.get('status_code'),
+        metadata=metadata, previous_metrics=prior, **fields)
+    if task_passed(call['ok'], metrics, case.get('task_kind', 'body')) is not call.get('task_pass'):
+        raise ValueError('Native retry replay differs from its retained task verdict')
+    variants = [metadata]
+    if any(key in case for key in ('target_language', 'expected_document_language',
+                                   'expected_document_language_present')):
+        # Old receipts do not bind the language metadata. Check every outcome
+        # class of that field instead of assuming it was absent: missing,
+        # explicitly absent, matching, and mismatching. Only an invariant task
+        # verdict can authorize a public view with this incomplete context.
+        expected = case.get('expected_document_language') or case.get('target_language')
+        for language in dict.fromkeys(('', expected, '__unmatched_language__')):
+            if language is not None:
+                variants.append({**metadata, 'document_language':language})
+        for variant in variants[1:]:
+            alternate = score_attempt(case, answer, ok=call['ok'], status_code=call.get('status_code'),
+                metadata=variant, previous_metrics=prior, **fields)
+            if task_passed(call['ok'], alternate, case.get('task_kind', 'body')) is not call['task_pass']:
+                raise ValueError('Retry acceptance depends on unretained language metadata')
+    return {**call, **fields, 'provider_metadata':metadata, 'metrics':metrics,
+            '_public_acceptance_variants':variants}
+
+
 def _record_public_views(source, record, case):
     """Use the shared post-score projection, retaining every original identity."""
     from harness.web_fetch.publication_privacy import project_evidence_view
@@ -1665,20 +1757,23 @@ def _record_public_views(source, record, case):
             if binding['path'] != record['artifact_path']:
                 calls = [attempt for attempt in record.get('provider_metadata', {}).get('retry', {}).get('attempts', [])
                          if attempt['artifact_path'] == binding['path']]
-                if len(calls) != 1 or not all(key in calls[0] for key in
-                        ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
+                if len(calls) != 1:
                     raise ValueError('Changed retry answer requires its original scoring inputs')
                 call = calls[0]
-            metrics = score_attempt(case, public, ok=call['ok'],
-                status_code=call.get('status_code'), metadata=call.get('provider_metadata'),
-                previous_metrics=call['metrics'], title=call.get('title'),
-                final_url=call.get('final_url'))
+                if not all(key in call for key in
+                        ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
+                    call = _native_retry_scoring_record(source, record, call, case)
             kind = case.get('task_kind', 'body')
             before = task_passed(call['ok'], call['metrics'], kind)
             if 'task_pass' in call and call['task_pass'] is not before:
                 raise ValueError('Retry answer verdict differs from its scoring inputs')
-            if task_passed(call['ok'], metrics, kind) != before:
-                raise ValueError('Public answer projection changes task acceptance')
+            for metadata in call.get('_public_acceptance_variants', [call.get('provider_metadata')]):
+                metrics = score_attempt(case, public, ok=call['ok'],
+                    status_code=call.get('status_code'), metadata=metadata,
+                    previous_metrics=call['metrics'], title=call.get('title'),
+                    final_url=call.get('final_url'))
+                if task_passed(call['ok'], metrics, kind) != before:
+                    raise ValueError('Public answer projection changes task acceptance')
         views.append((binding, public, receipt))
     return views
 
@@ -2031,6 +2126,10 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         relative = 'report-assets/provider-pricing.json'
         copy(source, relative)
         model['pricing'] = {'path': relative, 'sha256': _sha(source)}
+    if spec.get('result_review'):
+        source = binding(spec['result_review'])
+        copy(source, 'result-review.json')
+        model['result_review'] = {'path':'result-review.json', 'sha256':_sha(source)}
     if 'report_families' in spec:
         model['report_families'] = [deepcopy(group) for group in spec['report_families']
                                     if group['id'] not in spec.get('excluded_report_families', [])]
@@ -2416,6 +2515,12 @@ def _validate_rendered_pages(output, model):
             target = contained_path(expected, pricing['path'])
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        if model.get('result_review'):
+            review = model['result_review']
+            source = contained_path(output, review['path'], reject_symlinks=True)
+            if _sha(source) != review['sha256']:
+                raise ValueError('Bound result review changed')
+            shutil.copy2(source, expected/review['path'])
         _write(expected/'matrix.json', model)
         with _source_validated_render(expected, model):
             render_saved_with_standard_generator(expected, model)
@@ -2530,6 +2635,15 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         if pricing and contained_path(output, expected['path']).read_bytes() != _path(
                 inputs['sources'].base, pricing['path']).read_bytes():
             raise ValueError('Pricing catalog differs from validated source')
+    if inputs is not None:
+        review = inputs['spec'].get('result_review')
+        expected_review = {'path':'result-review.json','sha256':review['sha256']} if review else None
+        if (model.get('result_review') != expected_review
+                or (output/'result-review.json').is_file() != bool(review)):
+            raise ValueError('Result review binding differs from source specification')
+        if review and (output/'result-review.json').read_bytes() != _path(
+                inputs['sources'].base, review['path']).read_bytes():
+            raise ValueError('Result review differs from validated source')
     if model.get('public_evidence_views'):
         if inputs is None or inputs['spec'].get('public_evidence_views') is not True:
             raise ValueError('Public evidence views require the original source specification')
@@ -2864,6 +2978,13 @@ def render_saved_with_standard_generator(output, model):
     providers = [p['id'] for p in model['providers']]
     _write(output/'dataset.json', dataset)
     (output/'results.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records), encoding='utf-8')
+    if model.get('result_review'):
+        from harness.web_fetch.result_review import require_result_review
+        review = _json(output/'result-review.json')
+        original = deepcopy(review)
+        require_result_review(output, dataset, records, review)
+        if review != original:
+            raise ValueError('Bound result review must contain verified coverage counts')
     _write(output/'summary.json', scope)
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})

@@ -1168,6 +1168,8 @@ def review_summary(out, prefix='', *, highlight=True):
  path=out/'result-review.json'
  if not path.is_file():return ''
  audit=json.loads(path.read_text(encoding='utf-8'))
+ if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+  return '<p class="callout">'+t('known_outcome_audit_scope', 'Evidence audit with known machine outcomes: {reviewed}/{total} results; {unreviewed} machine passes were not individually reviewed.', reviewed=audit.get('reviewed_attempts',0),total=audit.get('total_attempts',0),unreviewed=audit.get('accepted_unreviewed_passes',0))+' '+link(prefix+'review/index.html',t('view_review_rounds', 'View review rounds →'))+'</p>'
  if audit.get('retained_reviews'):
   mode_note = (model_text(*pair('this_round_checked_evidence_with_known_machine', ' This round checked evidence with known machine outcomes; it was not an independent blind review.')) if audit.get('review_protocol',{}).get('blind_initial_verdict') is False else '')
   if audit.get('review_protocol',{}).get('fresh_blind_initial_verdict') is True:
@@ -2526,7 +2528,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
    independent={'pass':t('pass_2', 'Pass'),'fail':t('fail_2', 'Fail'),'insufficient':t('insufficient_evidence', 'Insufficient evidence')}.get(reviewed.get('agent_verdict'),t('not_recorded', 'Not recorded'))
    final={'pass':t('pass_2', 'Pass'),'fail':t('fail_2', 'Fail'),'unavailable':t('undecidable', 'Undecidable')}.get(reviewed.get('final_verdict'),t('not_adjudicated_the_current_score_stands', 'Not adjudicated; the current score stands'))
    review_rows=[
-    (t('independent_review_verdict', 'Independent review verdict'),independent),
+    (t('evidence_audit_verdict', 'Evidence audit verdict') if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False else t('independent_review_verdict', 'Independent review verdict'),independent),
     (t('direct_evidence', 'Direct evidence'),reviewed.get('agent_evidence') or '—'),
     (t('final_verdict', 'Final verdict'),final),
    ]
@@ -2537,7 +2539,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
     if not adjudication_en and proof.get('rule_assertions'):
      adjudication_en=adjudication_reason(proof['rule_assertions'],language='en')
     review_rows.append((t('disagreement_adjudication', 'Disagreement adjudication'),proof.get('summary_zh',reviewed['adjudication'])))
-   body+=section(t('independent_result_review', 'Independent result review'),table(
+   body+=section(t('known_outcome_evidence_audit', 'Evidence audit with known machine outcomes') if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False else t('independent_result_review', 'Independent result review'),table(
        [t('field_2', 'Field'),t('review_record', 'Review record')],
        [('',cell(esc(label))+cell(
            model_text(value,adjudication_en) if label==t('disagreement_adjudication', 'Disagreement adjudication')
@@ -2851,11 +2853,13 @@ def write_review_page(out,records):
  audit=json.loads(path.read_text(encoding='utf-8'));reviewer=audit.get('reviewer',{})
  dataset_path=out/'dataset.json'
  dataset=json.loads(dataset_path.read_text(encoding='utf-8')) if dataset_path.is_file() else {}
- metadata_path=repository_root()/'research/report-changes.json'
- if not metadata_path.is_file():
-  raise ValueError('A reviewed report requires research/report-changes.json')
- changes=json.loads(metadata_path.read_text(encoding='utf-8'))
- rounds=(audit['review_rounds'] if audit.get('kind')=='local_independent_review' else require_review_rounds(changes))
+ if 'review_rounds' in audit:
+  rounds=audit['review_rounds']
+ else:
+  metadata_path=repository_root()/'research/report-changes.json'
+  if not metadata_path.is_file():
+   raise ValueError('A reviewed report requires bound review rounds or legacy research/report-changes.json')
+  rounds=require_review_rounds(json.loads(metadata_path.read_text(encoding='utf-8')))
  rounds_html=''.join(
   ('<article class="review-round"><div class="round-label">' + t('round', 'Round {i}', i=i) + f"<br><small>{esc(row.get('date', ''))}</small></div><div><h3>{model_text(row.get('title', ''), row.get('title_en'))}</h3><p><b>" + t('scope_2', 'Scope:') + f"</b>{model_text(row.get('scope', ''), row.get('scope_en'))}</p><p><b>" + t('finding', 'Finding:') + f"</b>{model_text(row.get('finding', ''), row.get('finding_en'))}</p><p><b>" + t('correction', 'Correction:') + f"""</b>{model_text(row.get('fix', ''), row.get('fix_en'))}</p><p class="round-result"><b>""" + t('outstanding', 'Outstanding:') + f"</b>{model_text(row.get('pending', ''), row.get('pending_en'))}</p></div></article>")
   for i,row in enumerate(rounds,1))
@@ -2868,7 +2872,8 @@ def write_review_page(out,records):
  def coverage(label,item):
   scope=item.get('review_protocol',{}).get('scope','all')
   if scope=='machine-failures':
-   return (f'{label}机器失败 {item.get("reviewed_attempts",0):,}/{item.get("expected_attempts",0):,}；'
+   subject=t('review_failures_and_selected_passes', 'Machine failures and selected passes') if item.get('review_protocol',{}).get('additional_attempt_ids') else '机器失败'
+   return (f'{label}{subject} {item.get("reviewed_attempts",0):,}/{item.get("expected_attempts",0):,}；'
            f'机器通过未逐条审查 {item.get("accepted_unreviewed_passes",0):,}')
   return f'{label}全量 {item.get("reviewed_attempts",0):,}/{item.get("total_attempts",item.get("expected_attempts",0)):,}'
  conclusion=(f"""<p class="callout success">{coverage('主结果', audit)}；代理分歧 {len(disagreements)}；已裁定 {len(adjudicated)}；未决 {unresolved}。</p>""")
@@ -2880,6 +2885,8 @@ def write_review_page(out,records):
  method=(('<details class="technical-details"><summary>' + t('review_protocol_and_reviewer', 'Review protocol and reviewer') + '</summary><p>' + t('reviewer', 'Reviewer:') + f"{esc(reviewer.get('agent', t('independent_agent', 'Independent agent')))}" + t('model', '; model: ') + f"{esc(reviewer.get('model', '—'))}" + t('reasoning_effort', '; reasoning effort: ') + f"{esc(reviewer.get('effort', '—'))}" + t('machine_verdicts_and_scores_are_hidden_during', '. Machine verdicts and scores are hidden during review; only the task contract, reference answer, and complete actual output are provided. Disagreements are adjudicated from original evidence, and any unresolved item blocks publication. Existing reviews are retained when task and output are unchanged; changed calls require a new blind review.') + '</p></details>'))
  if audit.get('adjudication_revision'):
   method='<p>'+model_text(*pair('original_independent_and_supplemental_opinions_remain_in', 'Original independent and supplemental opinions remain in the per-result records. This supplemental adjudication inspected saved scores, contracts and original answers; it is not a new full blind review. Each adjudication records specific rules and original excerpts. Completing adjudication does not certify source validity.'))+'</p>'
+ if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+  method='<p>'+t('known_outcome_audit_protocol', 'This evidence audit knew the machine outcomes. It checked saved responses, frozen requirements, native field selection and call evidence; it is not an independent blind review and added no provider calls.')+'</p>'
  if audit.get('review_protocol',{}).get('blind_initial_verdict') is False and audit.get('retained_reviews'):
   method='<p>'+model_text(*pair('the_newly_checked_records_received_evidence_review', 'The newly checked records received evidence review with known machine outcomes, checking complete saved answers, task requirements and native fields. Other records retain prior opinions after dependency checks. The two scopes are reported separately; this evidence review is not a new independent blind review and does not complete historical source certification.'))+'</p>'
  if audit.get('review_protocol',{}).get('fresh_blind_initial_verdict') is True and audit.get('retained_reviews'):

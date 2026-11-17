@@ -888,6 +888,9 @@ def _normalize_visible_typography(normalized: str, *, literal=False) -> str:
     # an inline-link boundary. Never bridge a digit to punctuation: doing so
     # could turn ``$10 .90`` into a different valid monetary value.
     normalized = re.sub(r"(?<!\d)\s+([,.;:!?])", r"\1", normalized)
+    # Layout gaps after a rights mark do not change the following name.
+    # Do not erase separators between words or cross paragraph boundaries.
+    normalized = re.sub(r'([©®™])[ \t]+(?=[^\W\d_])', r'\1', normalized)
     # Inline styling often separates a currency symbol from its amount.
     # Normalize only currency/financing syntax, never digit or decimal boundaries.
     normalized = re.sub(r'([$£€¥]) +(?=[+-]?\d)', r'\1', normalized)

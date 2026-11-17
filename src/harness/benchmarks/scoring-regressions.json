@@ -86194,6 +86194,375 @@
       "artifact": "Unrelated ordinary text",
       "ok": true,
       "expected_task_pass": false
+    },
+    {
+      "id": "body-cjk-markdown-softbreak",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "A Markdown soft break must be rendered before literal CJK punctuation-gap normalization; plain-text and paragraph boundaries stay distinct.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n第二句话。",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-cjk-softbreak-missing-phrase",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "A Markdown soft break must be rendered before literal CJK punctuation-gap normalization; plain-text and paragraph boundaries stay distinct.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n其他文字。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-cjk-softbreak-plain-text-boundary",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "A Markdown soft break must be rendered before literal CJK punctuation-gap normalization; plain-text and paragraph boundaries stay distinct.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n第二句话。",
+      "ok": true,
+      "expected_task_pass": false,
+      "metadata": {
+        "answer_format": "plain_text"
+      }
+    },
+    {
+      "id": "body-cjk-softbreak-distinct-paragraphs",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "A Markdown soft break must be rendered before literal CJK punctuation-gap normalization; plain-text and paragraph boundaries stay distinct.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n\n第二句话。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-nested-emphasis-visible-credit",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Nested CommonMark emphasis must preserve its rendered prose without treating escaped literal markers or missing words as equivalent.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "Alice/Example Magazine"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "*Alice/*Example Magazine**",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-nested-emphasis-equivalent-html",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Nested CommonMark emphasis must preserve its rendered prose without treating escaped literal markers or missing words as equivalent.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "Alice/Example Magazine"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "<p><em>Alice/<em>Example Magazine</em></em></p>",
+      "ok": true,
+      "expected_task_pass": true,
+      "metadata": {
+        "answer_format": "html"
+      }
+    },
+    {
+      "id": "body-nested-emphasis-missing-word",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Nested CommonMark emphasis must preserve its rendered prose without treating escaped literal markers or missing words as equivalent.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "Alice/Example Magazine"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "*Alice/*Other Magazine**",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-nested-emphasis-escaped-literal",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Nested CommonMark emphasis must preserve its rendered prose without treating escaped literal markers or missing words as equivalent.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "Alice/Example Magazine"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "\\*Alice/\\*Example Magazine\\*\\*",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-nested-emphasis-plain-literal",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Nested CommonMark emphasis must preserve its rendered prose without treating escaped literal markers or missing words as equivalent.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "Alice/Example Magazine"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "*Alice/*Example Magazine**",
+      "ok": true,
+      "expected_task_pass": false,
+      "metadata": {
+        "answer_format": "plain_text"
+      }
+    },
+    {
+      "id": "body-cjk-inline-copyright-gap",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Layout whitespace after a rights mark is equivalent, but missing words and separators between actual words remain significant.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "© 著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-mixed-language-word-gap-rejected",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Layout normalization must not join separate Latin and CJK words into an undeclared label.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "QCon全球软件开发大会"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "QCon 全球软件开发大会",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-cjk-inline-gap-missing-word",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Layout whitespace after a rights mark is equivalent, but missing words and separators between actual words remain significant.",
+      "case": {
+        "id": "prose",
+        "name": "Synthetic prose",
+        "category": "synthetic",
+        "task_kind": "body",
+        "url": "https://example.test/article",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_role": "required",
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "© 著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©著作权归其他人所有",
+      "ok": true,
+      "expected_task_pass": false
     }
   ]
 }

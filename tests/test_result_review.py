@@ -287,6 +287,18 @@ class ResultReviewTests(unittest.TestCase):
             self.assertEqual(result['total_attempts'],2)
             self.assertEqual(result['accepted_unreviewed_passes'],1)
 
+            review['review_protocol']['additional_attempt_ids'] = [records[0]['attempt_id']]
+            review['attempts'].append({'attempt_id':records[0]['attempt_id'],
+                'machine_verdict':'pass','agent_verdict':'pass','final_verdict':'pass'})
+            result=require_result_review(root,dataset,records,review)
+            self.assertEqual(result['reviewed_attempts'],2)
+            self.assertEqual(result['accepted_unreviewed_passes'],0)
+            for extra in ([records[0]['attempt_id']]*2,['unknown']):
+                review['review_protocol']['additional_attempt_ids']=extra
+                with self.assertRaisesRegex(ValueError,'Additional review attempts'):
+                    require_result_review(root,dataset,records,review)
+            del review['review_protocol']['additional_attempt_ids']
+
             review['attempts']=[]
             (root/'result-review.json').write_text(json.dumps(review), encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'every attempt'):
