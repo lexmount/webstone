@@ -898,10 +898,18 @@ def _markdown_html_block_spans(text, *, excluded_spans=()):
 
 def markdown_literal_spans(text: str) -> list[tuple[int, int]]:
     """Locate block and inline literals before interpreting Markdown syntax."""
+    # Required facts repeatedly inspect the same complete page. Caching only
+    # the intermediate HTML masks still reparses every fence/list combination.
+    # Return a fresh list so callers cannot modify a later scoring input.
+    return list(_cached_markdown_literal_spans(text))
+
+
+@lru_cache(maxsize=16)
+def _cached_markdown_literal_spans(text: str) -> tuple[tuple[int, int], ...]:
     spans, comments = _markdown_fenced_and_comment_spans(text)
     spans += markdown_indented_code_spans(text, excluded_spans=spans + comments)
     html_blocks = _markdown_html_block_spans(text, excluded_spans=spans)
-    return sorted(spans + markdown_inline_code_spans(text, excluded_spans=spans + html_blocks + comments))
+    return tuple(sorted(spans + markdown_inline_code_spans(text, excluded_spans=spans + html_blocks + comments)))
 
 
 def markdown_comment_spans(text: str) -> list[tuple[int, int]]:
@@ -914,6 +922,7 @@ def markdown_comment_spans(text: str) -> list[tuple[int, int]]:
     return comments
 
 
+@lru_cache(maxsize=16)
 def visible_markdown_links(text: str, *, include_image_alt: bool = False) -> str:
     """Keep labels and adjacent link boundaries, consuming balanced destinations.
 
