@@ -449,6 +449,8 @@ def rebuild_dataset(csv_bytes, *, manifest=None, reference_dataset=None, artifac
         if repairs:
             dataset['cases'] = repair_cases(dataset['cases'], repairs)
             dataset['case_repairs'] = repairs
+            if artifacts is not None:
+                validate_repair_evidence(dataset, artifacts)
         if reference_dataset.get('reference_equivalence'):
             dataset = extend_reference_urls(dataset,
                 reference_dataset['reference_equivalence_observations'], artifacts=artifacts,

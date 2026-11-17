@@ -211,7 +211,8 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
         apply_report_revision(profile, rows, revision)
 
 
-def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs():
+@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt'])
+def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs(defect):
     from lexbench_websearch import simpleqa
 
     raw = csv_fixture(['Who wrote the book?'])
@@ -224,9 +225,23 @@ def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inpu
     item = recipe['repairs'][0]
     item.update(case_id=case['id'], before={k: case[k] for k in item['before']})
     item['after'] = dict(item['before'], query='Who wrote the 1990 edition of the book?', reference_answer='Verified Author')
+    import json
+    excerpt = json.dumps(dict(schema='source-excerpt/1', url=item['after']['reference_urls'][0],
+        source_sha256='c'*64, text='Verified Author wrote the book.')).encode()
+    item.update(resolution='corrected', source_discovery=dict(kind='legacy_result_audit',
+        description='Rechecked an output-informed reference.'), requires_fresh_calls=True)
+    item['evidence'] = [dict(url=item['after']['reference_urls'][0], path='repair-evidence/q.json',
+        sha256=simpleqa.digest(excerpt), quote='Verified Author wrote the book.',
+        interpretation=dict(kind='verbatim', answer='Verified Author'))]
+    artifacts = {'repair-evidence/q.json': excerpt}
     expected = simpleqa.extend_reference_urls(dict(original,
         cases=simpleqa.repair_cases(original['cases'], recipe), case_repairs=recipe), [])
-    rebuilt = simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts={})
+    if defect:
+        artifacts = {} if defect == 'missing' else {'repair-evidence/q.json': b'corrupt'}
+        with pytest.raises(ValueError, match='repair evidence artifact|Repair evidence artifact'):
+            simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts=artifacts)
+        return
+    rebuilt = simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts=artifacts)
     assert rebuilt == expected
     assert original['cases'][0]['query'] == 'Who wrote the book?'
     assert rebuilt['cases'][0]['derivation'] == 'Repaired task contract; see case_repairs'
