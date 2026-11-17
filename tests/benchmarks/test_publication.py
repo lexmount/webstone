@@ -424,17 +424,22 @@ def test_hub_rebuild_keeps_committed_edition_tools_and_snapshot_bindings(tmp_pat
         assert not set(tools) & set(archive.getnames())
 
 
-@pytest.mark.parametrize('legacy', ['3.0.0', '3.1.0'])
-def test_hub_release_numbers_have_one_authority(tmp_path, legacy):
+@pytest.mark.parametrize(('legacy', 'edition', 'conflict'), [
+    ('3.0.0', {'version': '3.0.0', 'tag': 'v3.0.0'}, False),
+    ('3.1.0', {'version': '3.0.0', 'tag': 'v3.0.0'}, True),
+    ('3.0.0', {'tag': 'v3.0.0'}, False),
+    ('3.0.0', {'tag': 'v2.0.0'}, True),
+])
+def test_hub_release_numbers_have_one_authority(tmp_path, legacy, edition, conflict):
     root, revision, _ = checkout(tmp_path, 'websearch')
     output = tmp_path / 'hub'
     manifest = DatasetRelease.from_git(root, 'websearch', revision).build(output)
-    manifest.update(version=legacy, edition={'version': '3.0.0', 'tag': 'v3.0.0'})
+    manifest.update(version=legacy, edition=edition)
     (output / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     git(output, 'init', '-q')
     git(output, 'add', '.')
     git(output, 'commit', '-qm', 'Historical version fields')
-    if legacy != '3.0.0':
+    if conflict:
         with pytest.raises(ValueError, match='version.*disagree'):
             DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD'))
     else:

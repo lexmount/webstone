@@ -38,9 +38,10 @@ def release_version(manifest: dict) -> str | None:
             raise ValueError('A dataset version must be MAJOR.MINOR.PATCH')
     if nested is not None and legacy is not None and nested != legacy:
         raise ValueError('Dataset version fields disagree')
-    if nested is not None and edition.get('tag', 'v' + nested) != 'v' + nested:
+    version = nested if nested is not None else legacy
+    if version is not None and edition.get('tag', 'v' + version) != 'v' + version:
         raise ValueError('Dataset version and edition tag disagree')
-    return nested if nested is not None else legacy
+    return version
 
 
 def proposal_target(api, repository: str, version: str):
