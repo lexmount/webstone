@@ -60,7 +60,13 @@ def _returned_page_failure(raw, case, metrics):
     has_code = False
     for token in MarkdownIt('commonmark').parse(body):
         if token.type in {'fence', 'code_block'} and token.map:
-            has_code = has_code or bool(token.content.strip())
+            code_lines = [line.strip() for line in token.content.split('\n') if line.strip()]
+            # Identifier-only diagnostics accompany real gates too; they do
+            # not establish delivery of the requested implementation/content.
+            diagnostic_only = bool(code_lines) and all(re.fullmatch(
+                r'(?i)(?:(?:request|trace|correlation)[-_ ]?id|cf-ray)\s*[:=]\s*\S+', line)
+                for line in code_lines)
+            has_code = has_code or bool(code_lines and not diagnostic_only)
             for index in range(*token.map):
                 lines[index] = ''
     diagnostic_body = '\n'.join(lines)

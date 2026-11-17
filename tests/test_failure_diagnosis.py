@@ -35,6 +35,12 @@ class FailureDiagnosisTests(unittest.TestCase):
    raw='# HTTP reference\n\n## Access denied\n\n'+code
    self.assertIsNone(_returned_page_failure(raw,{},{}))
   self.assertIsNotNone(_returned_page_failure('# Access denied\nSecurity verification required.',{},{}))
+ def test_real_access_gate_with_incidental_identifier_code_remains_a_gate(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  gate='Loading...\nWhy am I seeing this?\nThe administrator of this website has set up Anubis to protect the server against automated scraping.'
+  for identifier in ['request-id: abc','trace_id = xyz','CF-Ray: abc-123']:
+   for code in ['```text\n'+identifier+'\n```','    '+identifier]:
+    self.assertEqual(_returned_page_failure(gate+'\n\n'+code,{}, {})['category'],'返回拦截或验证页')
  def test_unbound_native_tool_errors_do_not_explain_the_requested_page(self):
   call={'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}}
   result={'type':'web_fetch_tool_result','tool_use_id':'fetch','content':{'type':'web_fetch_tool_result_error','error_code':'too_many_requests'}}
