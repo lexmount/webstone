@@ -46,7 +46,9 @@ def release_info(report: dict, previous: str | None) -> dict:
         or re.search(r"[\u3400-\u9fff]", summary)
     ):
         raise ValueError("Provide an English release.summary describing the change.")
-    value = release.get("date") or datetime.now(UTC).date().isoformat()
+    value = release.get("date", "")
+    if value is None or value == "":
+        value = datetime.now(UTC).date().isoformat()
     if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         raise ValueError("release.date must be a UTC calendar date: YYYY-MM-DD.")
     parsed = date.fromisoformat(value)

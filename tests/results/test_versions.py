@@ -39,7 +39,7 @@ def test_release_dates_and_retry_identity_are_separate_from_measurements():
     assert released["release"]["previous"] == "v1.0.0"
     assert identity(released) == identity(source)
     assert "version" not in source
-    for date in ["2026-02-30", "2099-01-01", "2026-1-1"]:
+    for date in ["2026-02-30", "2099-01-01", "2026-1-1", False, 0]:
         source["release"]["date"] = date
         with pytest.raises(ValueError):
             release_info(source, "v1")
