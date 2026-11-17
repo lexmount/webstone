@@ -1132,3 +1132,15 @@ def test_pending_dataset_report_replays_offline_and_cannot_hide_review_state(tmp
     (out/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
     with pytest.raises(ValueError,match='review state'):
         check(out)
+
+
+@pytest.mark.parametrize('selector', ['[data-metric-definitions]', '[data-primary-definition]', '[data-metric-definitions] code'])
+def test_release_check_rejects_missing_metric_explanations(tmp_path, selector):
+    example(tmp_path, levels=True)
+    output = tmp_path / 'report'
+    path = output / 'index.html'
+    page = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
+    page.select_one(selector).decompose()
+    path.write_text(str(page), encoding='utf-8')
+    with pytest.raises(ValueError, match='Output-level presentation'):
+        check(output)

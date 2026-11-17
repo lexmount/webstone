@@ -121,3 +121,30 @@ def test_standalone_routes_follow_saved_primary_language(tmp_path, primary, lang
     (root / 'quality.html').unlink()
     with pytest.raises(ValueError, match='missing'):
         visual.routes(root)
+
+
+@pytest.mark.parametrize('width', [390, 1280])
+def test_footer_links_share_a_baseline_and_metric_guides_expand_without_page_overflow(tmp_path, width):
+    from playwright.sync_api import sync_playwright
+    from harness.web_search.example import example
+    from harness.reporting.visual import local_report_server
+
+    try:
+        binary = visual.browser_executable()
+    except ValueError:
+        pytest.skip('Install Chromium for browser layout checks')
+    example(tmp_path, levels=True)
+    with local_report_server(tmp_path / 'report') as origin, sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=binary, headless=True)
+        page = browser.new_page(viewport={'width':width,'height':900})
+        try:
+            page.goto(origin + '/index.html')
+            boxes = page.locator('footer a').evaluate_all('(links)=>links.map(a=>{const range=document.createRange();range.selectNodeContents(a);const rect=range.getBoundingClientRect();return {y:rect.y,height:rect.height}})')
+            assert len(boxes) >= 2
+            assert abs(boxes[0]['y'] - boxes[-1]['y']) < 2
+            guide = page.locator('[data-metric-definitions]').first
+            guide.locator('summary').first.click()
+            assert guide.locator('[data-metric-definition]').first.is_visible()
+            assert page.evaluate('document.documentElement.scrollWidth-innerWidth') <= 2
+        finally:
+            browser.close()

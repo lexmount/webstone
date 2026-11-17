@@ -1481,4 +1481,4 @@ def test_explicit_version_recovery_retains_other_paid_calls(tmp_path, monkeypatc
     assert (output / retained[0]['evidence']['path']).read_bytes()==frozen
     assert runner.physical_call_counts(changed, output)=={'good':1, 'wrong':2}
     assert json.loads((output/'receipt.json').read_bytes())['certified']
-    assert 'ResponseVersionMismatch' in (output/'resume-1/previous-results.jsonl').read_text()
+    assert 'ResponseVersionMismatch' in (output/'resume-1/previous-results.jsonl').read_text(encoding='utf-8')

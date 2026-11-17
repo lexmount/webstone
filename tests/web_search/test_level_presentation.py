@@ -460,3 +460,17 @@ def test_successful_empty_searches_are_not_labeled_request_failures():
     assert all(float(cell['data-value']) == 0 for cell in doc.select('[data-metric$="-failed_calls"]'))
     assert all(cell.get_text() == '2/2' for cell in doc.select('[data-metric$="-empty_outputs"]'))
     assert not doc.select('[data-request-failures]')
+
+
+@pytest.mark.parametrize('zh', [False, True])
+def test_every_layered_benchmark_has_a_folded_metric_guide(zh):
+    selected = view()
+    doc = BeautifulSoup(render_level_summary(selected, zh), 'html.parser')
+    for panel in doc.select('[data-level-benchmark]'):
+        guide = panel.select_one('details[data-metric-definitions]')
+        assert guide is not None and not guide.has_attr('open')
+        assert guide.select_one('[data-primary-definition="source_rr"]')
+        assert {node['data-metric-definition'] for node in guide.select('[data-metric-definition]')} >= {
+            'source_rr', 'source_hit', 'answer_match'}
+        assert guide.select_one('[data-measurement-definitions]')
+        assert guide.select_one('code')
