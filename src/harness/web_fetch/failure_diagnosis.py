@@ -100,11 +100,16 @@ def _returned_page_failure(raw, case, metrics):
     loading_only = re.fullmatch(
         r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
         r'Chargement des statistiques[.…]*)\s*', full_visible)
-    js_only = re.fullmatch(
-            r'(?i)\s*(?:[A-Za-z][A-Za-z \t]{0,50}\n+\s*)?'
-            r'(?:#{1,6}[^\n]*\n+\s*)*(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
+    notice_lines = ([line.strip() for line in full_visible.split('\n') if line.strip()]
+                    if len(full_visible) <= 1000 else [])
+    if notice_lines and re.fullmatch(r'[A-Za-z][A-Za-z \t]{0,50}', notice_lines[0]):
+        notice_lines = notice_lines[1:]
+    while notice_lines and re.match(r'^#{1,6}[ \t]+', notice_lines[0]):
+        notice_lines = notice_lines[1:]
+    js_only = len(notice_lines) == 1 and re.fullmatch(
+            r'(?i)(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
             r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
-            r'enable javascript to (?:see|view)[^\n]*)\s*', full_visible)
+            r'enable javascript to (?:see|view)[^\n]*)', notice_lines[0])
     browser_notice = re.fullmatch(
             r'(?is)\s*The [^\n.]{1,100} application supports [^\n.]*browsers[^\n.]*\.'
             r'\s*Javascript must be enabled[^\n.]*\.'

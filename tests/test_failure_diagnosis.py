@@ -8,6 +8,13 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_repeated_headings_do_not_stall_or_hide_article_content(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for count in [30,3000]:
+   raw=('# Heading\n\n'*count)+'Actual article content.'
+   self.assertIsNone(_returned_page_failure(raw,{},{}))
+  self.assertEqual(_returned_page_failure('# Heading\n\n'*30+'Enable JavaScript to see products',{}, {})['category'],
+                   '仅返回加载或 JavaScript 提示')
  def test_unicode_separators_do_not_shift_markdown_code_line_maps(self):
   for separator in ['\n','\u2028','\u0085']:
    for ending in ['\n','\r\n','\r']:

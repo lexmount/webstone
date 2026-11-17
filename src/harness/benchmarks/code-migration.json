@@ -72,7 +72,7 @@
         },
         "metrics.py": {
           "before_sha256": "f9281d535fd8830069019fcc918f4a02a60471ee20f2e61069ee3d1696ba51ba",
-          "after_sha256": "c1a9c5120c842661bfceede9c11c2f76d5b3fb8d5f02c649d22f661aa54cabb3"
+          "after_sha256": "92f8618f6b67c217cbfbc825cec0f2480f620411a85b0766aa8e17a0edea3014"
         },
         "models.py": {
           "before_sha256": "1900f2691f29a87696bcdd13a226b7e6f4f1c593ec20cae120c844b1963c96fe",
@@ -108,7 +108,7 @@
         },
         "stable_tasks.py": {
           "before_sha256": "f12632c4ce8d0d2ed7f07a1725534f903913db7f121c5f941d071d3c47b83787",
-          "after_sha256": "78e54ae371f213c22768d26a81c25f62f0c9993dc8550dd2a1d1686c2efeafee"
+          "after_sha256": "309a05b406a80d0b028128363ac9bc6f0ff56d5aaf7a279898f79fe73848679c"
         },
         "structured_tables.py": {
           "before_sha256": "16f0f9295b92fd25f43e2474be445380d85f5259b364c99c9be93154e98d8ba8",
@@ -4334,6 +4334,54 @@
           "tests": [
             "tests/benchmarks/test_current_scoring_controls.py",
             "tests/test_reference_quality.py"
+          ]
+        },
+        {
+          "modules": [
+            "metrics.py",
+            "stable_tasks.py"
+          ],
+          "root_cause": "Rights-mark folding after global whitespace collapse bridged paragraphs; quoted scalar matching after soft-break joining lost line anchors; literal code and explicit Markdown hard breaks lost boundaries, including CRLF/CR and tasks with unrelated exclusions. Normalize line endings before hard-break detection and preserve anchor layout without changing pattern/record parsers.",
+          "regression_ids": [
+            "rights-layout-boundary-inline",
+            "rights-layout-boundary-tab",
+            "rights-layout-boundary-paragraph",
+            "rights-layout-boundary-plain-newline",
+            "rights-layout-boundary-missing-owner",
+            "rights-layout-boundary-markdown-softbreak",
+            "quoted-scalar-line-boundary-multiple-lines",
+            "quoted-scalar-line-boundary-code-lines",
+            "quoted-scalar-line-boundary-wrong-value",
+            "quoted-scalar-line-boundary-wrong-key",
+            "quoted-scalar-line-boundary-single-line",
+            "cjk-literal-line-boundary-soft",
+            "cjk-literal-line-boundary-inline",
+            "cjk-literal-line-boundary-two-spaces",
+            "cjk-literal-line-boundary-backslash",
+            "cjk-literal-line-boundary-fenced",
+            "cjk-literal-line-boundary-indented",
+            "cjk-literal-line-boundary-paragraph",
+            "cjk-literal-line-boundary-inline-code",
+            "cjk-literal-line-boundary-exact-code",
+            "cjk-literal-line-boundary-wrong-code",
+            "body-explicit-line-ending-crlf-soft",
+            "body-explicit-line-ending-crlf-spaces",
+            "body-explicit-line-ending-crlf-backslash",
+            "body-explicit-line-ending-cr-soft",
+            "body-explicit-line-ending-cr-spaces",
+            "body-explicit-line-ending-cr-backslash",
+            "body-exclusion-line-boundary-pattern-soft",
+            "body-exclusion-line-boundary-pattern-hard",
+            "body-exclusion-line-boundary-pattern-fenced",
+            "body-exclusion-line-boundary-pattern-indented",
+            "body-exclusion-line-boundary-target-soft",
+            "body-exclusion-line-boundary-target-hard",
+            "body-exclusion-line-boundary-target-fenced",
+            "body-exclusion-line-boundary-target-indented"
+          ],
+          "tests": [
+            "tests/test_scoring_regressions.py",
+            "tests/benchmarks/webfetch/test_stable_tasks.py"
           ]
         }
       ],

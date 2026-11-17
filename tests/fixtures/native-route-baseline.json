@@ -1,106 +1,106 @@
 {
   "claude_web_fetch:configured": {
     "cells": 192,
-    "sha256": "6fc22b685c8d659947a879261ff5cade30bae95a1d5f0575faa682405af58dc7"
+    "sha256": "eb89d2e73f5581b52368a4bffee442606a3431676a90c60d9010f64dbf378d4c"
   },
   "claude_web_fetch:defaults": {
     "cells": 192,
-    "sha256": "ccd3618bb29022ec0b2f53b7dfa2f2a1ce22b40553cb48c3436d1e185462a631"
+    "sha256": "2d8e38b338c2e5d6ad54477d5a42b5b8cf1517ac3295be99e15069587a77599f"
   },
   "cloudflare_content:configured": {
     "cells": 192,
-    "sha256": "ded53860080a14877652b686496b6afaed6ee7f0e755389ad76210d272571c96"
+    "sha256": "80df530d4c9c133a7ac9f702d0d7773c5b653d05f50acf62613a8806fcdf13f2"
   },
   "cloudflare_content:defaults": {
     "cells": 192,
-    "sha256": "aa22d783fc0d6317f981424cf454dcb3727a12acd22bc6db52c6a75e5ae557b1"
+    "sha256": "97b83534509d6453c531c6bd30b95c22e269017ff06b1dfc21c960ae3b36228b"
   },
   "cloudflare_markdown:configured": {
     "cells": 192,
-    "sha256": "0670dabe8a75f68302055caf07d24e14bfdd518168e57926df44021b0c6f144a"
+    "sha256": "23376e0687071fb2e169309d49391e2eb5bcb8c576f702a67cad849c36767d31"
   },
   "cloudflare_markdown:defaults": {
     "cells": 192,
-    "sha256": "413973a4d29184860a0f1e62e12e52a04c225d0f893779f4c7b65662b0e39d3c"
+    "sha256": "544cf893b25969b5231171fed2c2025b5e4e7fbcd3afa99cf7844da20daab67b"
   },
   "cowagent_builtin:configured": {
     "cells": 192,
-    "sha256": "8baf7a02b92716253ced0736bda562c3bca4321344dfa7caa2aeb1fc4df0bd96"
+    "sha256": "295fb1c398e538e1816acd63abbd7e751d16f852555d34d9515835a8422d145a"
   },
   "cowagent_builtin:defaults": {
     "cells": 192,
-    "sha256": "10cf746a4edfc806306d6b39086a32c4929cc8cb90b982c5718939a767b5d69b"
+    "sha256": "e119fcdc7e6b465320ba9c94bd27ddb5473b4517a1decf2fc449b015f22e9957"
   },
   "exa_contents:configured": {
     "cells": 192,
-    "sha256": "1e52f2a2b2b571b8eb7cc82e73f8c44054fda3dc737e48da8caca399a0fa8806"
+    "sha256": "97dea96d47711edf6bde700c03f3c4269e26457cca9edfbaff13bab9a09ac12c"
   },
   "exa_contents:defaults": {
     "cells": 192,
-    "sha256": "af3a00a801179436dd9f7e11c73b031342b9a4d605d870c281d2b849fb2fc43c"
+    "sha256": "fe7ca3144b4c3c68003369a492283a8a3963037a9628692c36468ff881eaff11"
   },
   "firecrawl:configured": {
     "cells": 192,
-    "sha256": "901208a7e4e59160cd127df622111d8f5d66e04c9077b90097ab7d5feeac48c1"
+    "sha256": "49193ebd461f14c1a7407ed55300c2cf35b7c9bb278396bf3a483acb268fb99e"
   },
   "firecrawl:defaults": {
     "cells": 192,
-    "sha256": "b2184475f2871e1ecc95a7d8995176e08269661c4e05a6b4582e0312dbe45228"
+    "sha256": "2b20f1c424190dd53c4682c425a1ec9fa572a64a93cbeebcba6e8ed5711cf6cf"
   },
   "fixture:configured": {
     "cells": 192,
-    "sha256": "a1925ca8d0494a0d6aec7bafec318ffa31ef9d31c47ee0d76f72dc7f18542d88"
+    "sha256": "5064b2f01cda4d538e974c91ec630c34c52e51e52a9bc726e7b8c4ee40d62b63"
   },
   "fixture:defaults": {
     "cells": 192,
-    "sha256": "e532c521878564e5c7d49027e34532194ffb118ab9ebbe9c9c05f63200055e24"
+    "sha256": "8cde15dc2b9d9bc4a32725a2a4fc95c1d9e2d8b8288aa9cd472db805ff0c607b"
   },
   "kimi_fetch:configured": {
     "cells": 192,
-    "sha256": "67c00c6fdb6949d916973d90d87499142974872d47a7c5fd4c357a69cce45007"
+    "sha256": "b6cd55ee7233495d7152307ca7cedb4bbf2a2a83b2d63f54da5f470057e3fda7"
   },
   "kimi_fetch:defaults": {
     "cells": 192,
-    "sha256": "794e2bebf7b85e3979ff16c935db8b4a3d987685b370296191136d215fc8564b"
+    "sha256": "17f83b363175360daa2a51f84aeb9eaba4cc205e1f434f6f896a1ef43a5792c5"
   },
   "lexmount:configured": {
     "cells": 192,
-    "sha256": "ed0844f9bb9a326bb20bca24555d96e65442e4102edd0bcdc65a21a6d14da711"
+    "sha256": "f907725d719bc625af671b795797007bad198fd6e44292ab85199a3de0c75d09"
   },
   "lexmount:defaults": {
     "cells": 192,
-    "sha256": "017657417b47ef3948ef6615937db554e91afc4d4616aa0c487838ab4ec72229"
+    "sha256": "9fef7eb76ba01b5a3a9e821b5111c78d3f033438bb1b6528330df76ccc6b35ad"
   },
   "moli_webfetch:configured": {
     "cells": 192,
-    "sha256": "0f815071d24bc5dcb9bf556fbf57fb93f99dfa965205b127199eeb95d58631d6"
+    "sha256": "9c401dbe841aab1a3294ee547fcfad999fcd0fb367fe4950146d894a3717b573"
   },
   "moli_webfetch:defaults": {
     "cells": 192,
-    "sha256": "ca962f165e8fdb034b3e3f401dd7833335babd6e8a6976ab21adf1e422a50b4f"
+    "sha256": "472efa0aa9a2c0afd0462e33a05bd74dc4623a87c99e683aebbefa5e2d1310b3"
   },
   "subprocess_jsonl:configured": {
     "cells": 192,
-    "sha256": "688ae4d883be230cb2feb75eca885b27c83ed5d1aaef09786570f52462d3ab50"
+    "sha256": "ff240030f4f45b42dffcf16685b738dfeb977f044c6f2ad749f66434a0104b58"
   },
   "subprocess_jsonl:defaults": {
     "cells": 192,
-    "sha256": "1ff9142fce0e9f470b9140bc67eec63746e8d95597d53126a8041b32ef97ebec"
+    "sha256": "0550c941de13b6a0be669ca9947380a63af9cd7fe211a5770692529f8150b240"
   },
   "tavily_extract:configured": {
     "cells": 192,
-    "sha256": "7cff6791def4a8703ed42adde6b9745e89f39c946f3f6e91a50dac9c52b35a64"
+    "sha256": "1f937268e7678c3b035fbccc085116131fb14ba5afcd46990205a41d82638d7d"
   },
   "tavily_extract:defaults": {
     "cells": 192,
-    "sha256": "f12fcda6f6b9dbb2743dbee88eab72800d5eed7e642fb9071cde0914ec96c985"
+    "sha256": "6e8f96ab7ee60f8a133a765397e0318d043dcd11b2f3ad36843ed15ab57ec082"
   },
   "zai_reader:configured": {
     "cells": 192,
-    "sha256": "39ae6b4d9174c019331edf304bd016a0a8dad6107ce163ff6255643730216466"
+    "sha256": "6cef9c736e13ebc951c5ee9aea6552bb5083044101d3eb96b5d2f8c093627f89"
   },
   "zai_reader:defaults": {
     "cells": 192,
-    "sha256": "dd9fac6464630cd6538c0965a97e48e3e2151e00e73c249f1d245a118dc183ec"
+    "sha256": "bcc596c15be3c7f052bd9e81a96f28ce44d823750f995a9577687f0035c5f206"
   }
 }
