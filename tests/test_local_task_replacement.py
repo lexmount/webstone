@@ -244,7 +244,7 @@ def test_replacement_rejects_missing_or_altered_evidence(tmp_path, defect):
     elif defect == 'changed_case': dataset['cases'][1]['url'] = 'https://wrong.example/'
     elif defect == 'excluded_new_result': records[-1]['metrics']['evaluation_excluded'] = True
     elif defect == 'different_family': dataset['cases'][0]['track'] = 'dynamic'
-    elif defect == 'changed_call': records[-1]['elapsed_ms'] = 1
+    elif defect == 'changed_call': records[-1]['elapsed_ms'] += 1
     with pytest.raises(ValueError):
         require_local_task_replacement(tmp_path, binding, dataset, records)
 
