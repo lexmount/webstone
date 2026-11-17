@@ -407,3 +407,37 @@ def test_original_json_attachment_is_data_even_when_it_contains_download_keys(tm
         _, path = download_export(request, tmp_path)
     with zipfile.ZipFile(path) as archive:
         assert archive.read('answer.json') == original
+
+@pytest.mark.parametrize('changed', ['none', 'bytes', 'version', 'root'])
+def test_delivery_wrapper_requires_exact_original_and_version(tmp_path, changed):
+    base = 'https://reports.example'
+    original = b'<html>original report</html>'
+    archive = tmp_path / 'site.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('index.html', original)
+    root = base + '/api/delivery/d1.fixture/'
+    config = {'root': root, 'file': 'index.html',
+              'manifestUrl': root.rstrip('/') + '?__manifest=1'}
+    if changed == 'root':
+        config['root'] = 'https://foreign.example/api/delivery/d1.fixture/'
+    wrapper = ('<script id="artifact-delivery-config" type="application/json">'
+               + json.dumps(config) + '</script>').encode()
+    def response(request, timeout):
+        if not isinstance(request, str):
+            return io.BytesIO(json.dumps({'files': ['index.html'], 'file': 'index.html',
+                'content': original.decode(), 'version': {'id': 'ver_first'}}).encode())
+        if request == config['manifestUrl']:
+            return io.BytesIO(json.dumps({'versionId': 'ver_other' if changed == 'version' else 'ver_first',
+                'files': [{'path': 'index.html', 'url': base + '/raw/index.html'}]}).encode())
+        if request == base + '/raw/index.html':
+            return io.BytesIO(b'wrong' if changed == 'bytes' else original)
+        return io.BytesIO(wrapper)
+    with patch('harness.web_fetch.publication_verify.load_token', return_value='fixture'), \
+         patch('urllib.request.build_opener', lambda *args: SimpleNamespace(open=response)), \
+         patch('urllib.request.urlopen', side_effect=response):
+        if changed == 'none':
+            result = verify_public_files('test', archive, base)
+            assert result['anonymous_all_files_byte_identical']
+        else:
+            with pytest.raises(ValueError):
+                verify_public_files('test', archive, base)

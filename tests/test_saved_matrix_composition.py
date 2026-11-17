@@ -150,13 +150,13 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
         for family in families:
             home += table('ranking-' + family, [1])
         home += '<div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></body></html>'
-        (root / 'index.html').write_text(home)
+        (root / 'index.html').write_text(home, encoding='utf-8')
         (root / 'providers').mkdir()
-        (root / 'providers' / (name + '.html')).write_text('<html>Saved provider evidence</html>')
-        (root / 'answer.txt').write_text('unchanged answer: ' + name)
+        (root / 'providers' / (name + '.html')).write_text('<html>Saved provider evidence</html>', encoding='utf-8')
+        (root / 'answer.txt').write_text('unchanged answer: ' + name, encoding='utf-8')
         model = {'providers': [{'id': name}], 'report_families': [{'id': f} for f in order],
                  'rows': [{'provider': name, 'url': 'https://example.com/', 'passed': True}]}
-        (root / 'matrix.json').write_text(json.dumps(model))
+        (root / 'matrix.json').write_text(json.dumps(model), encoding='utf-8')
         audit = {'files': {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                            for p in root.rglob('*') if p.is_file()}}
         binding = write(root / 'saved-matrix-audit.json', audit)
@@ -175,7 +175,7 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     assert (output / 'answer.txt').read_bytes() == (Path(base['root']) / 'answer.txt').read_bytes()
     assert (output / 'additional/answer.txt').read_bytes() == (Path(addition['root']) / 'answer.txt').read_bytes()
     from bs4 import BeautifulSoup
-    home = BeautifulSoup((output / 'index.html').read_text(), 'html.parser')
+    home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     row = home.select('#ranking-overall tbody tr')[1]
     assert [c.get_text() for c in row.find_all('td')][4:6] == ['44', '33']
     assert row.a['href'] == 'additional/providers/extra.html'
@@ -193,9 +193,9 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     manifest['external_packs'] = {name:{'url':'https://example.com/pinned/' + name,
         'sha256':hashlib.sha256((packed/name).read_bytes()).hexdigest()} for name in manifest['packs']}
     _save_wire_manifest(packed, manifest)
-    (packed/'index.html').write_text('<html><head></head><body></body></html>')
-    (packed/'style.css').write_text('body { color: black; }')
-    (packed/'report.js').write_text('/* synthetic report controls */')
+    (packed/'index.html').write_text('<html><head></head><body></body></html>', encoding='utf-8')
+    (packed/'style.css').write_text('body { color: black; }', encoding='utf-8')
+    (packed/'report.js').write_text('/* synthetic report controls */', encoding='utf-8')
     content = tmp_path / 'extension-package'
     extended = extend_published_content(output, packed, content)
     assert extended['external_packs'] == manifest['external_packs']
@@ -210,6 +210,6 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     refreshed_archive = tmp_path / 'refreshed.zip'
     _write_archive(refreshed, refreshed_archive)
     assert check_extension_archive(refreshed_archive, output, baseline=packed)['valid']
-    (output / 'additional/answer.txt').write_text('changed')
+    (output / 'additional/answer.txt').write_text('changed', encoding='utf-8')
     with pytest.raises(ValueError, match='bytes changed'):
         check_published_extension(output)

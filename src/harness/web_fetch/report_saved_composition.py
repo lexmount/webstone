@@ -157,7 +157,7 @@ def build_published_extension(spec_path, output):
             page.write_text(rewritten, encoding='utf-8')
     shutil.copyfile(base_root / 'index.html', output / 'extension-base-home.txt')
     (output / 'index.html').write_text(_extended_home(
-        (base_root / 'index.html').read_text(), (added_root / 'index.html').read_text(),
+        (base_root / 'index.html').read_text(encoding='utf-8'), (added_root / 'index.html').read_text(encoding='utf-8'),
         base, added, overview, spec['comparison_note']), encoding='utf-8')
     _write(output / 'extension-methods.json', overview)
     _write(output / 'saved-extension.json', {
@@ -201,16 +201,16 @@ def check_published_extension(output):
             raise ValueError('Published extension changed added evidence: ' + name)
         import hashlib
         original = re.sub(r'\bdata-file="additional/([^"]+)"', r'data-file="\1"',
-                          (output / retained).read_text())
+                          (output / retained).read_text(encoding='utf-8'))
         if hashlib.sha256(original.encode()).hexdigest() != digest:
             raise ValueError('Published extension changed added page beyond its evidence namespace: ' + name)
-    expected = _extended_home((output / 'extension-base-home.txt').read_text(),
-        (output / 'additional/index.html').read_text(), _read(output / 'matrix.json'),
+    expected = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
+        (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
         proof['comparison_note'])
-    if (output / 'index.html').read_text() != expected:
+    if (output / 'index.html').read_text(encoding='utf-8') != expected:
         raise ValueError('Published extension comparison differs from source metrics')
-    home = BeautifulSoup((output / 'index.html').read_text(), 'html.parser')
+    home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     count = len(proof['providers'])
     for table in home.select('table[id^="ranking-"]'):
         if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
@@ -245,8 +245,8 @@ def refresh_published_extension(output, *, spec_path=None):
         overview = _read(path)
         if {p['id'] for p in overview} != {p['id'] for p in _read(output / 'extension-methods.json')}:
             raise ValueError('Refresh cannot replace methods')
-    home = _extended_home((output / 'extension-base-home.txt').read_text(),
-        (output / 'additional/index.html').read_text(), _read(output / 'matrix.json'),
+    home = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
+        (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview,
         proof['comparison_note'])
     for name, digest in proof['files'].items():

@@ -1046,7 +1046,7 @@ def check_extension_archive(archive, source, *, baseline):
         local_packs = set(manifest['packs']) - set(old['packs'])
         local_packs.update(name for name in old['packs']
                            if name not in old.get('external_packs', {}) and (baseline/name).is_file())
-        home = BeautifulSoup((content/'index.html').read_text(), 'html.parser')
+        home = BeautifulSoup((content/'index.html').read_text(encoding='utf-8'), 'html.parser')
         catalog = json.loads(home.select_one('#report-home').string)
         assets = {item['asset_path'] for item in catalog['files'].values() if 'asset_path' in item}
         expected = {'index.html','style.css','report.js','loader.js','manifest.json',

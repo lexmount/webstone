@@ -148,6 +148,34 @@ def verify_public_files(slug, expected_archive, base):
         injected = served[len(prefix) : len(served) - len(suffix) if suffix else None]
         return known_injection(injected)
 
+    def delivered_html(name, served):
+        """Resolve the host's navigation wrapper, then verify the original bytes."""
+        match = re.search(
+            rb'<script id="artifact-delivery-config" type="application/json">(.*?)</script>',
+            served, re.S,
+        )
+        if not match:
+            return None
+        config = json.loads(match.group(1))
+        root = config.get('root', '')
+        if (not isinstance(root, str) or not root.startswith(base + '/api/delivery/d1.')
+                or not re.fullmatch(r'[A-Za-z0-9._-]+/', root[len(base + '/api/delivery/'):])
+                or config.get('file') != name
+                or config.get('manifestUrl') != root.rstrip('/') + '?__manifest=1'):
+            raise ValueError('Invalid delivery configuration')
+        with urllib.request.urlopen(config['manifestUrl'], timeout=180) as response:
+            manifest = json.load(response)
+        if manifest.get('versionId') != before['version']['id']:
+            raise ValueError('Delivery version differs')
+        matches = [item for item in manifest.get('files', []) if item.get('path') == name]
+        if len(matches) != 1:
+            raise ValueError('Delivery omitted requested HTML')
+        target = urlsplit(matches[0]['url'])
+        if target.scheme != 'https' or not target.hostname or target.username or target.password:
+            raise ValueError('Invalid delivery file URL')
+        with urllib.request.urlopen(matches[0]['url'], timeout=180) as response:
+            return response.read()
+
     def digest(name):
         url = base + "/api/preview/" + quote(slug, safe="") + "/" + quote(name, safe="/")
         for attempt in range(3):
@@ -158,6 +186,9 @@ def verify_public_files(slug, expected_archive, base):
                         digest = hashlib.sha256(served).hexdigest()
                         if digest == wanted[name]:
                             return name, digest, "byte_identical"
+                        delivered = delivered_html(name, served)
+                        if delivered is not None:
+                            return name, hashlib.sha256(delivered).hexdigest(), "delivery_original"
                         if injected_html_matches(name, served):
                             return name, wanted[name], "injected_html"
                         return name, digest, "different"
@@ -188,7 +219,7 @@ def verify_public_files(slug, expected_archive, base):
     after = metadata()
     if before["version"]["id"] != after["version"]["id"]:
         raise ValueError("Remote version changed during verification")
-    exact = sum(layer == "byte_identical" for layer in verification.values())
+    exact = sum(layer in {"byte_identical", "delivery_original"} for layer in verification.values())
     injected = sum(layer == "injected_html" for layer in verification.values())
     return {
         "version": after["version"]["id"],
@@ -199,7 +230,7 @@ def verify_public_files(slug, expected_archive, base):
         "authenticated_original_entry_verified": authenticated_entry,
         "submitted_bytes_verified_by_layer": exact + injected == len(actual),
         "method": (
-            "anonymous_file_bytes; injected HTML requires an exact submitted "
+            "anonymous_file_bytes (including version-bound delivery originals); injected HTML requires an exact submitted "
             "document around validated Artifact Site bootstrap scripts; authenticated "
             "metadata verifies the original entry"
         ),
