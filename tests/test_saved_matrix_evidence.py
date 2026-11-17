@@ -190,9 +190,16 @@ def test_public_result_diagnostics_preserve_measurements_and_original_authority(
         check_saved_matrix(output,spec_path=tmp_path/'spec.json')
 
 
-def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_path):
+@pytest.mark.parametrize('scope', [None, 'all'])
+def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_path, scope):
     spec, _, _, _ = fixture(tmp_path)
     baseline = build(tmp_path,spec,name='baseline').parent
+    if scope is not None:
+        from harness.web_fetch.report_saved_matrix import json_bytes
+        dataset = json.loads((baseline/'dataset.json').read_bytes())
+        dataset['comparison']['independent_result_review_scope'] = scope
+        (baseline/'dataset.json').write_bytes(json_bytes(dataset))
+        spec['independent_result_review_scope'] = scope
     result = json.loads((baseline/'results.jsonl').read_text(encoding='utf-8'))
     review = {'schema_version':1,'kind':'local_evidence_audit',
         'bindings':{'dataset_sha256':hashlib.sha256((baseline/'dataset.json').read_bytes()).hexdigest(),
@@ -207,7 +214,15 @@ def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_pa
         'review_rounds':[{'date':'2026-11-17','title':'Saved evidence audit','scope':'One saved result',
                          'finding':'Content retained','fix':'No scoring change','pending':'None'}]}
     spec['result_review'] = write(tmp_path/'review.json',review)
+    if scope == 'all':
+        with pytest.raises(ValueError, match='declared full review'):
+            build(tmp_path, spec, name='failure-only')
+        review['review_protocol']['scope'] = 'all'
+        review['review_protocol'].pop('additional_attempt_ids')
+        spec['result_review'] = write(tmp_path/'review.json', review)
     output = build(tmp_path,spec).parent
+    assert json.loads((output/'dataset.json').read_bytes())['comparison'].get(
+        'independent_result_review_scope') == scope
     assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
     page = (output/'review/index.html').read_text(encoding='utf-8')
     assert '已知程序判定' in page
@@ -227,6 +242,14 @@ def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_pa
     spec['result_review'] = write(tmp_path/'stale-review.json',review)
     with pytest.raises(ValueError,match='bound to different results'):
         build(tmp_path,spec,name='stale')
+
+
+@pytest.mark.parametrize('scope', ['all', 'machine-failures', 'unsupported'])
+def test_saved_review_requirement_cannot_silently_omit_evidence(tmp_path, scope):
+    spec, _, _, _ = fixture(tmp_path)
+    spec['independent_result_review_scope'] = scope
+    with pytest.raises(ValueError, match='declared result review scope|requires bound result review'):
+        build(tmp_path, spec)
 
 
 def test_saved_pricing_is_source_bound_covers_participants_and_renders_only_the_cohort(tmp_path):

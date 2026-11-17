@@ -480,6 +480,17 @@ def _saved_revision(spec, sources, cases, selected, completed=()):
                                    'task_verdict_changes': r['task_verdict_changes']} for r in reversed(receipts)]}}
 
 
+def _declared_review_scope(document):
+    """Preserve an explicit review requirement through saved report projection."""
+    scope = document.get('independent_result_review_scope')
+    if scope is not None:
+        if not isinstance(scope, str) or scope not in {'all', 'machine-failures'}:
+            raise ValueError('Unsupported declared result review scope')
+        if not document.get('result_review'):
+            raise ValueError('Declared result review scope requires bound result review evidence')
+    return scope
+
+
 def _load_saved_matrix(spec_path):
     """Validate selection and immutable sources without writing a report."""
     spec_path = Path(spec_path)
@@ -491,6 +502,7 @@ def _load_saved_matrix(spec_path):
         raise ValueError('Unsupported saved-matrix ranking selection')
     if spec.get('presentation', 'audit') not in {'audit', 'final'}:
         raise ValueError('Unknown saved-matrix presentation')
+    _declared_review_scope(spec)
     if 'public_evidence_views' in spec and type(spec['public_evidence_views']) is not bool:
         raise ValueError('Public evidence views must be explicitly enabled or disabled')
     sources = _SourceBindings(spec_path.parent)
@@ -2156,6 +2168,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
              'execution_settings': execution_settings,
              'source_bindings': [{'sha256': digest, 'name': path.name} for path, digest in tracked.items()],
              'limitations': spec.get('limitations', [])}
+    if _declared_review_scope(spec) is not None:
+        model['independent_result_review_scope'] = spec['independent_result_review_scope']
     if spec.get('native_policy_registry'):
         approved = binding(spec['native_policy_registry'])
         relative = 'native-policy-registry.json'
@@ -2273,6 +2287,7 @@ def _validate_source_disclosures(output, model, inputs, adoptions, keys):
                       if p['id'] not in spec.get('excluded_report_providers', [])],
         'suites': [{'id': p['id'], 'label': p['label']} for p in spec['suites']],
         'limitations': spec.get('limitations', []), 'ranking': spec.get('ranking', 'diagnostic'), 'combined_ranking': spec.get('combined_ranking', True),
+        'independent_result_review_scope': _declared_review_scope(spec),
         'report_families': ([g for g in spec['report_families']
                             if g['id'] not in spec.get('excluded_report_families', [])]
                            if 'report_families' in spec else None),
@@ -2996,6 +3011,8 @@ def _saved_renderer_projection(output, model):
         'saved_matrix_scope': scope}
     if model.get('offline_revision'):
         dataset['comparison']['offline_revision'] = model['offline_revision']
+    if _declared_review_scope(model) is not None:
+        dataset['comparison']['independent_result_review_scope'] = model['independent_result_review_scope']
     dataset['report_suites'] = [dict(id=s['id'], label=s['label'],
         case_ids=[key for key, case in cases.items() if case['report_family'] == s['id']]) for s in groups]
     grouped=[key for s in dataset['report_suites'] for key in s['case_ids']]
