@@ -65,6 +65,8 @@ def repair_cases(cases, revision, *, reuse_calls=False):
         if actual == item['after']:
             case['derivation'] = 'Repaired task contract; see case_repairs'
             continue
+        if reuse_calls and item.get('requires_fresh_calls'):
+            raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
         if not reuse_calls and actual != item['before']:
             raise ValueError('Task repair does not bind the captured task: ' + case['id'])
         if reuse_calls and actual['query'] != item['after']['query']:

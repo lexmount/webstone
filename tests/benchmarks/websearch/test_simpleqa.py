@@ -454,3 +454,14 @@ def test_short_answer_token_requires_full_article_coverage(complete):
                                    observed('https://wiki2.org/en/Composer', candidate), '2')
     assert proof['mirror_has_answer']
     assert proof['qualified'] is complete
+
+
+def test_repair_reuse_requires_a_fresh_contract_for_output_informed_sources():
+    from lexbench_websearch.simpleqa import repair_cases
+
+    case, recipe = repair_fixture()
+    recipe['repairs'][0]['requires_fresh_calls'] = True
+    with pytest.raises(ValueError, match='fresh provider calls'):
+        repair_cases([case], recipe, reuse_calls=True)
+    fresh = repair_cases([case], recipe)
+    assert repair_cases(fresh, recipe, reuse_calls=True) == fresh
