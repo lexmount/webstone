@@ -714,6 +714,7 @@
     "Factual questions test whether the first five results find a verified reference page and rank it early.": "事实问题，衡量前五条是否找到已核验的参考网页，以及命中排名。",
     "Factual questions test answer-text coverage in additional excerpts, excluding titles and primary previews.": "事实问题，只检查补充原文是否包含答案文字，不含标题和主要摘要。",
     "Factual questions test generated-answer correctness with the official SimpleQA rubric.": "事实问题，按 SimpleQA 官方规则判断生成答案是否正确。",
-    "Empty outputs": "空输出"
+    "Empty outputs": "空输出",
+    "Dataset revision awaiting review": "数据集修订待审"
   }
 }

@@ -1039,7 +1039,7 @@ def _write_page(inputs: ReportInputs, edition: ReportEdition, route: str, title:
         notice_html = ''
     proposal = authored.get('assessment_revision', {}).get('reference_dataset', {}).get('proposal')
     if proposal:
-        label = '数据集修订待审' if lang == 'zh' else 'Dataset revision awaiting review'
+        label = t('Dataset revision awaiting review')
         url = 'https://huggingface.co/datasets/' + proposal['repository'] + '/discussions/' + str(proposal['pull_request'])
         notice_html += '<p class="notice" data-dataset-proposal><a href="' + esc(url) + '">' + label + '</a></p>'
     document = BeautifulSoup(
