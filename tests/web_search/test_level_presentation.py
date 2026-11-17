@@ -406,8 +406,9 @@ def test_failure_column_separates_client_timeout_empty_result_and_response_error
     row = doc.select_one('[data-summary-method="a"]')
     assert row.select_one('[data-method-name]').get_text() == 'Method A'
     failure = row.select_one('[data-metric$="-failed_calls"]')
-    assert failure.select_one('summary').get_text() == '4/4'
-    assert len(failure.select('li')) == 4
+    assert failure.select_one('summary').get_text() == '3/4'
+    assert len(failure.select('li')) == 3
+    assert row.select_one('[data-metric$="-empty_outputs"]').get_text() == '1/4'
     assert '60' in failure.get_text()
     assert not failure.has_attr('hidden')
     assert row.select_one('[data-metric$="-mean_ms"]').has_attr('hidden')
@@ -421,8 +422,9 @@ def test_http_200_api_error_and_valid_empty_response_keep_distinct_causes():
     calls[1].update(http_status=200, results=[], error='')
     doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
     failure = doc.select_one('[data-summary-method="a"] [data-request-failures]')
-    assert failure.select_one('summary').get_text() == '2/2'
-    assert [n.get_text() for n in failure.select('li')] == ['Empty results: 1', 'API or response error: 1']
+    assert failure.select_one('summary').get_text() == '1/2'
+    assert [n.get_text() for n in failure.select('li')] == ['API or response error: 1']
+    assert doc.select_one('[data-summary-method="a"] [data-metric$="-empty_outputs"]').get_text() == '1/2'
 
 
 @pytest.mark.parametrize('status,error,transport,reason', [
@@ -448,3 +450,13 @@ def test_l3_answer_only_success_is_distinct_from_an_api_failure(response_error):
     failures = doc.select('[data-metric$="-failed_calls"]')
     assert all(float(cell['data-value']) == (int(cell.select_one('summary').get_text().split('/')[1]) if response_error else 0) for cell in failures)
     assert bool(doc.select('[data-request-failures]')) is bool(response_error)
+
+
+def test_successful_empty_searches_are_not_labeled_request_failures():
+    selected = view(n=2)
+    for row in selected['rows']:
+        row.update(results=[], http_status=200, transport_exit=0, error='')
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    assert all(float(cell['data-value']) == 0 for cell in doc.select('[data-metric$="-failed_calls"]'))
+    assert all(cell.get_text() == '2/2' for cell in doc.select('[data-metric$="-empty_outputs"]'))
+    assert not doc.select('[data-request-failures]')

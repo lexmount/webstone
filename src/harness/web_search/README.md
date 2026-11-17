@@ -568,8 +568,8 @@ first delivered record for that ID; distinct IDs may retain distinct excerpts of
 the same document. Browser layout and CSS visibility are not simulated.
 
 Summary tables keep method names separate from request outcomes. Failed-request
-counts expand into client timeouts, other network errors, empty results and API or
-response errors, using the frozen call metadata. The default view shows key quality,
+counts expand into client timeouts, other network errors and API or response
+errors; successful calls with no usable output have their own Empty outputs column, using the frozen call metadata. The default view shows key quality,
 P50 latency, price and request failures; remaining metrics stay in the same sortable
 table under All metrics. Rejected reference candidates belong in the dataset audit,
 not among unfinished scores in the leaderboard.

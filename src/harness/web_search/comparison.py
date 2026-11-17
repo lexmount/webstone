@@ -400,7 +400,7 @@ def render_level_summary(view, zh=False, *, content=None):
     labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
                   source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
                   publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
-                  failed_calls=t('Failed requests'),
+                  failed_calls=t('Failed requests'), empty_outputs=t('Empty outputs'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
                   answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'),
                   citation_support=t('Citation support'), cited_urls_in_results=t('Cited URLs in results'),
@@ -425,7 +425,7 @@ def render_level_summary(view, zh=False, *, content=None):
                             dict(key='cited_urls_in_results', label='Cited URLs in results', direction='max')]
         else:
             definitions.append(dict(key='context_characters', label='Text characters / query', direction='neutral'))
-        definitions.append(dict(key='failed_calls', label='Failed requests', direction='min'))
+        definitions += [dict(key=key, label=label, direction='min') for key, label in [('failed_calls', 'Failed requests'), ('empty_outputs', 'Empty outputs')]]
         definitions += [dict(key=key, label=label, direction='min') for key, label in
                         [('mean_ms', 'Mean ms'), ('p50_ms', 'P50 ms'), ('p95_ms', 'P95 ms')]]
         labels['price'] = t('USD / 1,000 calls') if prices is not None else t('Price / 1,000 calls')
@@ -456,7 +456,8 @@ def render_level_summary(view, zh=False, *, content=None):
                                                    for r in delivered for item in r['results']) / len(delivered)
             calls = [r for r in view.get('timing_rows', rows) if r['case_id'] in ids and r['method'] == mid]
             outcomes[mid] = Counter(request_outcome(r, level=level) for r in calls)
-            values['failed_calls'] = len(calls) - outcomes[mid]['results']
+            values['failed_calls'] = len(calls) - outcomes[mid]['results'] - outcomes[mid]['empty_results']
+            values['empty_outputs'] = outcomes[mid]['empty_results']
             latency = stats[mid]['all_latency']
             values.update(mean_ms=latency['mean'], p50_ms=latency['p50'], p95_ms=latency['p95'],
                           price=prices[mid]['amount'] if prices is not None else method.get('price_per_1000'))
@@ -465,7 +466,7 @@ def render_level_summary(view, zh=False, *, content=None):
         directions = {i: d['direction'] if len(methods) > 1 else 'neutral'
                       for i, d in enumerate(definitions)}
         winners = numeric_winners(columns, directions)
-        core = {panel['primary_metric'], 'source_hit', 'answer_match', 'precision', 'success', 'citation_support', 'failed_calls', 'p50_ms', 'price'}
+        core = {panel['primary_metric'], 'source_hit', 'answer_match', 'precision', 'success', 'citation_support', 'failed_calls', 'empty_outputs', 'p50_ms', 'price'}
         rendered = []
         for method, values in sorted(records, key=lambda row: (row[1][panel['primary_metric']] is None,
                                                                -(row[1][panel['primary_metric']] or 0))):
@@ -478,10 +479,12 @@ def render_level_summary(view, zh=False, *, content=None):
                          f'{value:.3f}' if key in ('source_rr', 'publisher_rr') else
                          f'{value:.2f}' if key == 'answer_grade' else
                          f'{value:.1%}' if key in quality_keys or key in ('citation_support', 'cited_urls_in_results') else fmt(value))
+                if key == 'empty_outputs':
+                    label = str(int(value)) + '/' + str(len(calls))
                 if key == 'failed_calls':
                     label = str(int(value)) + '/' + str(len(calls))
                     counts = outcomes[mid]
-                    reasons = [('client_timeout', 'Client timeout'), ('network_error', 'Network error'), ('empty_results', 'Empty results'), ('response_error', 'API or response error')]
+                    reasons = [('client_timeout', 'Client timeout'), ('network_error', 'Network error'), ('response_error', 'API or response error')]
                     breakdown = ''.join('<li>' + t(name) + ': ' + str(counts[reason]) + '</li>' for reason, name in reasons if counts[reason])
                     if breakdown:
                         from harness.web_search.revisions import collection_protocol
