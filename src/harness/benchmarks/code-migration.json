@@ -72,7 +72,7 @@
         },
         "metrics.py": {
           "before_sha256": "f9281d535fd8830069019fcc918f4a02a60471ee20f2e61069ee3d1696ba51ba",
-          "after_sha256": "fcbfc2bb99e295003ab7e9e28a18e10d6fa74274cef9f773bd1217c54e0aaada"
+          "after_sha256": "c1a9c5120c842661bfceede9c11c2f76d5b3fb8d5f02c649d22f661aa54cabb3"
         },
         "models.py": {
           "before_sha256": "1900f2691f29a87696bcdd13a226b7e6f4f1c593ec20cae120c844b1963c96fe",
@@ -84,7 +84,7 @@
         },
         "reference_quality.py": {
           "before_sha256": "b381c5c8d303df9259fa2a7ddddd808de7a0974a36a895211a6aeae371b3a34c",
-          "after_sha256": "545b29444dc0019f50112bd96b3bb4f76ed032c2d59c53e3c5853953dc426913"
+          "after_sha256": "0eaeb337cc8bb9e0fe52c12572a2ab7531ee2d5e278bb8f273d2ef65a2d6303e"
         },
         "required_components.py": {
           "before_sha256": "30ef963a179248ff9ce5addd9e2a3e26693508a921f42c5145477995a42f2e07",
@@ -108,7 +108,7 @@
         },
         "stable_tasks.py": {
           "before_sha256": "f12632c4ce8d0d2ed7f07a1725534f903913db7f121c5f941d071d3c47b83787",
-          "after_sha256": "df423d9ba568dd39bcf49949d52e77eed5d687978853c2dfc9e069c36f73b349"
+          "after_sha256": "78e54ae371f213c22768d26a81c25f62f0c9993dc8550dd2a1d1686c2efeafee"
         },
         "structured_tables.py": {
           "before_sha256": "16f0f9295b92fd25f43e2474be445380d85f5259b364c99c9be93154e98d8ba8",
@@ -4309,6 +4309,32 @@
             "tests/benchmarks/webfetch/test_benchmark.py"
           ],
           "reason": "Revision export scored descriptive reference text, record-task ground truth and body-only main content as full answers, so contracts that also need records, anchors, titles, comments, links or files failed the frozen-reference gate. Score dataset reference text as plain text; a rejected text that cannot carry every declared requirement and still meets its body requirement is unavailable, while any failed text check (body, facts, patterns, literals, length, content), text-only failures and accepted error pages still fail. Reviews may inherit predecessor entries for byte-identical change rows. score_attempt is unchanged."
+        },
+        {
+          "modules": [
+            "metrics.py",
+            "stable_tasks.py",
+            "reference_quality.py"
+          ],
+          "root_cause": "Rendered Markdown soft breaks and nested emphasis were treated as literal text, and horizontal layout gaps after rights marks prevented equivalent visible phrases from matching. Preserve paragraph boundaries, plain-text literals, missing words and separate labels; cache only immutable parse results.",
+          "regression_ids": [
+            "body-cjk-markdown-softbreak",
+            "body-cjk-softbreak-missing-phrase",
+            "body-cjk-softbreak-plain-text-boundary",
+            "body-cjk-softbreak-distinct-paragraphs",
+            "body-nested-emphasis-visible-credit",
+            "body-nested-emphasis-equivalent-html",
+            "body-nested-emphasis-missing-word",
+            "body-nested-emphasis-escaped-literal",
+            "body-nested-emphasis-plain-literal",
+            "body-cjk-inline-copyright-gap",
+            "body-mixed-language-word-gap-rejected",
+            "body-cjk-inline-gap-missing-word"
+          ],
+          "tests": [
+            "tests/benchmarks/test_current_scoring_controls.py",
+            "tests/test_reference_quality.py"
+          ]
         }
       ],
       "extensions": [
