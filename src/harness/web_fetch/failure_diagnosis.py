@@ -46,6 +46,10 @@ def _returned_page_failure(raw, case, metrics):
     A title inside a documentation example is not evidence of an access gate.
     """
     frontmatter = re.match(r'\A\s*---\s*\n.*?\n---\s*(?:\n|$)', raw, re.S)
+    # Horizontal rules can enclose a real directory/code listing. Require a
+    # metadata key before treating the entire enclosure as front matter.
+    if frontmatter and not re.search(r'(?m)^[\w.-]+\s*:\s*\S', frontmatter.group()):
+        frontmatter = None
     body = raw[frontmatter.end():] if frontmatter else raw
     reference = case.get('ground_truth_main_content') or ''
     visible = visible_markdown_links(body).strip()
@@ -95,6 +99,10 @@ def _returned_page_failure(raw, case, metrics):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if len(visible) <= 5000 and re.search(r'(?im)^\s*Chargement des statistiques[.…]*\s*$', visible):
+        return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': 'Chargement des statistiques…', 'certainty': t('direct_response_basis', 'Direct-response basis')}
     if frontmatter and not body.strip():
         return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
                 'stage': t('content_delivery', 'Content delivery'),
@@ -112,7 +120,8 @@ def _returned_page_failure(raw, case, metrics):
                 'evidence': visible,
                 'certainty': t('direct_response_basis', 'Direct-response basis')}
     if len(visible) <= 1500 and re.search(
-            r"your browser (?:does not|doesn't) support html5 video", visible, re.I):
+            r"your browser (?:does not|doesn't) support html5 video|"
+            r'您的浏览器版本过低.{0,100}已无法正常访问', visible, re.I | re.S):
         return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}

@@ -21,6 +21,16 @@ class FailureDiagnosisTests(unittest.TestCase):
   d=diagnose(self.record(ok=True,metrics=metrics),case,'## Jump to heading: Parameters Parameters\nActual parameter table')
   self.assertEqual(d['category'],'要求的文档章节未被识别')
   self.assertIn('Parameters',d['evidence'])
+ def test_horizontal_rules_around_real_listing_are_not_metadata(self):
+  raw='---\n\n```\n../\nmovie.mp4.zip 24-Nov-2023 275524128\n```\n\n---'
+  r=self.record(ok=True,metrics={'content_pass':False,'resource_pass':False,
+   'resource_results':[{'id':'video','pass':False}]})
+  d=diagnose(r,{'task_kind':'resource'},raw)
+  self.assertEqual(d['category'],'缺少目标资源')
+ def test_browser_compatibility_page_precedes_missing_video_link(self):
+  raw='# 您的浏览器版本过低哦\n亲爱的小伙伴，您当前使用的浏览器版本过低，已无法正常访问此页面。请升级浏览器。'
+  d=diagnose(self.record(ok=True,metrics={'content_pass':False}),{'task_kind':'resource'},raw)
+  self.assertEqual(d['category'],'返回媒体兼容提示，未交付目标内容')
  def test_nested_upstream_not_generic_502(self):
   r=self.record();d=diagnose(r,{},json.dumps({'error':{'upstream_status_code':403,'message':'unexpected status code: 403'}}))
   self.assertEqual(d['category'],'源站拒绝该次访问')
