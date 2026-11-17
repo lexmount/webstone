@@ -74,7 +74,7 @@ def _returned_page_failure(raw, case, metrics):
         and not re.search(r'click (?:on )?the flickering circle to continue', reference, re.I))
     anubis = (len(visible) <= 6000 and (re.search(
         r'protected by anubis|has set up anubis to protect', visible, re.I) or re.search(
-        r'/\.within\.website/x/cmd/anubis/|/\.cerberus/static/', raw, re.I))
+        r'/\.within\.website/x/cmd/anubis/|/\.cerberus/static/', diagnostic_body, re.I))
         and re.search(r'access denied|filtering rules|administrator has misconfigured|'
                       r'why am i seeing this|making sure|calculating|click the circle|'
                       r'protect.{0,60}(?:server|website)|not a bot|circle challenge|'

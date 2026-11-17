@@ -8,6 +8,17 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_anubis_asset_example_does_not_make_documentation_a_gate(self):
+  for asset in ['/.within.website/x/cmd/anubis/static/example.js','/.cerberus/static/example.js']:
+   for code in ['```text\n'+asset+'\n```','    '+asset]:
+    raw='# Configuration\nUse this configuration to protect the website.\n\n'+code
+    case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    with self.subTest(asset=asset,code=code):
+     self.assertNotEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+   raw='Making sure you are not a bot to protect this website.\n![Check]('+asset+')'
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
  def test_loading_label_with_delivered_code_is_not_a_shell(self):
   for listing in ["```python\nprint('Delivered example')\n```", "    print('Delivered example')"]:
    for label in ['Loading...', '# Loading', 'Please enable JavaScript']:
