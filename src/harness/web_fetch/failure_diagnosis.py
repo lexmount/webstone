@@ -56,14 +56,13 @@ def _returned_page_failure(raw, case, metrics):
     visible = visible_markdown_links(body).strip()
     # Short examples in technical articles are content, not proof of a shell.
     # Keep original line boundaries while removing fenced/indented code blocks.
-    if len(body) <= 10000:
-        lines = body.splitlines(keepends=True)
-        for token in MarkdownIt('commonmark').parse(body):
-            if token.type in {'fence', 'code_block'} and token.map:
-                for index in range(*token.map):
-                    lines[index] = '\n'
-        diagnostic_body = ''.join(lines)
-        visible = visible_markdown_links(diagnostic_body).strip()
+    lines = body.splitlines(keepends=True)
+    for token in MarkdownIt('commonmark').parse(body):
+        if token.type in {'fence', 'code_block'} and token.map:
+            for index in range(*token.map):
+                lines[index] = '\n'
+    diagnostic_body = ''.join(lines)
+    visible = visible_markdown_links(diagnostic_body).strip()
     normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
     if visible and normalize(visible) == normalize(visible_markdown_links(reference)):
         return None

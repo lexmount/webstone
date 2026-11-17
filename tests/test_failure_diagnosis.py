@@ -8,6 +8,15 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_code_example_gate_exclusion_applies_to_long_documents(self):
+  for count in [10,1000]:
+   for raw,expected in [('# Reference\n'+('Ordinary documentation.\n'*count)+'\n```text\nAccess denied\n```','content'),
+                        ('# Access denied\nSecurity verification required.','gate')]:
+    with self.subTest(count=count,expected=expected):
+     case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+     row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+     label=diagnose(row,case,raw)['category']
+     self.assertEqual(label=='返回拦截或验证页',expected=='gate')
  def test_error_examples_and_javascript_widgets_do_not_replace_content_failure(self):
   for raw in ['# HTTP reference\n\n```text\n403 Forbidden\n```\nCheck credentials.',
               '# HTTP reference\n\n    Access denied\n\nExample response.',
