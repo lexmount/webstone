@@ -702,7 +702,7 @@ class DatasetRelease:
         return {**manifest, "archive": {"path": "definitions.tar.gz", "sha256": bytes_sha256(bundle), "size": len(bundle)}}
 
 
-def propose_release(release, output, repository, *, api=None):
+def propose_release(release, output, repository, *, api=None, parent_revision=None):
     """Build a release and propose its exact files without updating main."""
     from huggingface_hub import HfApi
 
@@ -711,6 +711,8 @@ def propose_release(release, output, repository, *, api=None):
     result = release.build(output)
     client = api or HfApi()
     info = proposal_target(client, repository, release.dataset_version)
+    if parent_revision is not None and info.sha != parent_revision:
+        raise ValueError('Dataset main changed after the repair inputs were frozen')
     current = {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()}
     removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != '.gitattributes']
     commit = client.upload_folder(repo_id=repository, repo_type='dataset', folder_path=output,

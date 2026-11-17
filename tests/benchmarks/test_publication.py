@@ -637,6 +637,18 @@ def test_component_license_is_preserved_from_its_committed_bytes(tmp_path):
     assert release.files["LICENSE-annotations"] == component
 
 
+def test_repair_proposal_rejects_main_advance_before_upload(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0', build=lambda output: {})
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args: SimpleNamespace(sha='b'*40))
+    # No write capability: the changed parent must be rejected before upload.
+    with pytest.raises(ValueError, match='main changed'):
+        publication.propose_release(release, tmp_path, 'Lexmount/Test',
+                                    api=object(), parent_revision='a'*40)
+
+
 @pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence'])
 def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
     from copy import deepcopy
