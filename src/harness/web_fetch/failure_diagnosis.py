@@ -122,13 +122,13 @@ def _returned_page_failure(raw, case, metrics):
         return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': raw[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
-    if len(visible) <= 700 and re.fullmatch(
+    if not has_code and len(full_visible) <= 700 and re.fullmatch(
             r'This page has moved to\s+https?://\S+\.?', visible, re.I):
         return {'category': t('returned_move_notice', 'Returned page-moved notice without target content'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible,
                 'certainty': t('move_notice_boundary', 'The answer contains a move notice, not the requested page content. This alone does not establish whether the provider followed an HTTP redirect.')}
-    if len(visible) <= 500 and re.match(
+    if not has_code and len(full_visible) <= 500 and re.match(
             r'\AThis deployment is temporarily paused(?:\s|$)', visible, re.I):
         return {'category': t('returned_deployment_paused', 'Returned deployment-paused notice'),
                 'stage': t('content_delivery', 'Content delivery'),

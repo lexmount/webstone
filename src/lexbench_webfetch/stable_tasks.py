@@ -1283,7 +1283,7 @@ def _escaped_prose_surface(content, schema):
     prose = content
     for start, end in reversed(markdown_literal_spans(content)):
         prose = prose[:start] + '\u01bb' + prose[end:]
-    return _visible(prose, schema) if escape.search(prose) else ''
+    return _visible(prose, schema, anchor_layout=True) if escape.search(prose) else ''
 
 
 def _native_link_label_surface(content, exclusions):

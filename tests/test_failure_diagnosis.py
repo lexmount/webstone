@@ -15,6 +15,12 @@ class FailureDiagnosisTests(unittest.TestCase):
    self.assertIsNone(_returned_page_failure(raw,{},{}))
   self.assertEqual(_returned_page_failure('# Heading\n\n'*30+'Enable JavaScript to see products',{}, {})['category'],
                    '仅返回加载或 JavaScript 提示')
+ def test_move_and_deployment_notices_with_delivered_code_are_not_notice_only(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for notice in ['This page has moved to https://example.test/new','This deployment is temporarily paused']:
+   self.assertIsNotNone(_returned_page_failure(notice,{},{}))
+   for code in ['```python\nprint("Delivered content")\n```','    print("Delivered content")']:
+    self.assertIsNone(_returned_page_failure(notice+'\n\n'+code,{},{}))
  def test_unicode_separators_do_not_shift_markdown_code_line_maps(self):
   for separator in ['\n','\u2028','\u0085']:
    for ending in ['\n','\r\n','\r']:

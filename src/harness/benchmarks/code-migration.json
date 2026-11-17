@@ -108,7 +108,7 @@
         },
         "stable_tasks.py": {
           "before_sha256": "f12632c4ce8d0d2ed7f07a1725534f903913db7f121c5f941d071d3c47b83787",
-          "after_sha256": "309a05b406a80d0b028128363ac9bc6f0ff56d5aaf7a279898f79fe73848679c"
+          "after_sha256": "099c6f32f0179ebcae89279703f663455c96b3a3ae1a61559a8e94cdbde1598e"
         },
         "structured_tables.py": {
           "before_sha256": "16f0f9295b92fd25f43e2474be445380d85f5259b364c99c9be93154e98d8ba8",
@@ -4341,7 +4341,7 @@
             "metrics.py",
             "stable_tasks.py"
           ],
-          "root_cause": "Rights-mark folding after global whitespace collapse bridged paragraphs; quoted scalar matching after soft-break joining lost line anchors; literal code and explicit Markdown hard breaks lost boundaries, including CRLF/CR and tasks with unrelated exclusions. Normalize line endings before hard-break detection and preserve anchor layout without changing pattern/record parsers.",
+          "root_cause": "Rights-mark folding after global whitespace collapse bridged paragraphs; quoted scalar matching after soft-break joining lost line anchors; literal code and explicit Markdown hard breaks lost boundaries, including CRLF/CR and tasks with unrelated exclusions. Normalize line endings before hard-break detection and preserve anchor layout without changing pattern/record parsers. Apply identical anchor-layout protection to the escaped-punctuation prose fallback.",
           "regression_ids": [
             "rights-layout-boundary-inline",
             "rights-layout-boundary-tab",
@@ -4377,7 +4377,11 @@
             "body-exclusion-line-boundary-target-soft",
             "body-exclusion-line-boundary-target-hard",
             "body-exclusion-line-boundary-target-fenced",
-            "body-exclusion-line-boundary-target-indented"
+            "body-exclusion-line-boundary-target-indented",
+            "escaped-prose-rights-boundary-inline",
+            "escaped-prose-rights-boundary-soft",
+            "escaped-prose-rights-boundary-hard-spaces",
+            "escaped-prose-rights-boundary-hard-backslash"
           ],
           "tests": [
             "tests/test_scoring_regressions.py",

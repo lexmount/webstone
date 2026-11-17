@@ -87647,6 +87647,134 @@
         "answer_format": "markdown"
       },
       "expected_task_pass": false
+    },
+    {
+      "id": "escaped-prose-rights-boundary-inline",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Escaped-punctuation prose fallback must preserve the same explicit Markdown hard-break boundaries as the primary anchor surface. Unrelated escaped punctuation cannot enable matching across a hard break.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic escaped prose boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "owner",
+              "alternatives": [
+                "©Example"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "© Example\n\n\\!",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "escaped-prose-rights-boundary-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Escaped-punctuation prose fallback must preserve the same explicit Markdown hard-break boundaries as the primary anchor surface. Unrelated escaped punctuation cannot enable matching across a hard break.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic escaped prose boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "owner",
+              "alternatives": [
+                "©Example"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\nExample\n\n\\!",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "escaped-prose-rights-boundary-hard-spaces",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Escaped-punctuation prose fallback must preserve the same explicit Markdown hard-break boundaries as the primary anchor surface. Unrelated escaped punctuation cannot enable matching across a hard break.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic escaped prose boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "owner",
+              "alternatives": [
+                "©Example"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©  \nExample\n\n\\!",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "escaped-prose-rights-boundary-hard-backslash",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Escaped-punctuation prose fallback must preserve the same explicit Markdown hard-break boundaries as the primary anchor surface. Unrelated escaped punctuation cannot enable matching across a hard break.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic escaped prose boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "owner",
+              "alternatives": [
+                "©Example"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\\\nExample\n\n\\!",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
     }
   ]
 }
