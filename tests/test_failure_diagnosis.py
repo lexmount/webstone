@@ -8,6 +8,14 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_error_examples_and_javascript_widgets_do_not_replace_content_failure(self):
+  for raw in ['# HTTP reference\n\n```text\n403 Forbidden\n```\nCheck credentials.',
+              '# HTTP reference\n\n    Access denied\n\nExample response.',
+              '# Product\nModel Alpha costs $20.\n\nPlease enable JavaScript to view charts.']:
+   with self.subTest(raw=raw):
+    row=self.record(ok=True,metrics={'content_pass':False,'blocked_page':False,'forbidden_requirement_hits':[]})
+    category=diagnose(row,{},raw)['category']
+    self.assertNotIn(category,['返回拦截或验证页','仅返回加载或 JavaScript 提示'])
  def test_login_navigation_and_footer_do_not_establish_login_gate(self):
   examples=[
    '# Product directory\n\n登录\n\n## Products\nAvailable products and descriptions.\n\n忘记密码？',

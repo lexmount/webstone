@@ -51,6 +51,7 @@ def _returned_page_failure(raw, case, metrics):
     if frontmatter and not re.search(r'(?m)^[\w.-]+\s*:\s*\S', frontmatter.group()):
         frontmatter = None
     body = raw[frontmatter.end():] if frontmatter else raw
+    diagnostic_body = body
     reference = case.get('ground_truth_main_content') or ''
     visible = visible_markdown_links(body).strip()
     # Short examples in technical articles are content, not proof of a shell.
@@ -61,12 +62,13 @@ def _returned_page_failure(raw, case, metrics):
             if token.type in {'fence', 'code_block'} and token.map:
                 for index in range(*token.map):
                     lines[index] = '\n'
-        visible = visible_markdown_links(''.join(lines)).strip()
+        diagnostic_body = ''.join(lines)
+        visible = visible_markdown_links(diagnostic_body).strip()
     normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
     if visible and normalize(visible) == normalize(visible_markdown_links(reference)):
         return None
     reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
-    hits = [hit for hit in blocked_page_hits(body) if hit.casefold() not in reference_hits]
+    hits = [hit for hit in blocked_page_hits(diagnostic_body) if hit.casefold() not in reference_hits]
     # Standalone error headings in long technical documents are not gates.
     gate = bool(hits and (metrics.get('blocked_page') or len(visible) <= 4000))
     circle_gate = (len(visible) <= 1500 and re.search(
@@ -97,10 +99,10 @@ def _returned_page_failure(raw, case, metrics):
     loading_only = re.fullmatch(
         r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
         r'Chargement des statistiques[.…]*)\s*', visible)
-    if len(visible) <= 1000 and (loading_only or re.search(
-            r'(?im)^\s*(?:#{1,6}\s*)?(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
+    if len(visible) <= 1000 and (loading_only or re.fullmatch(
+            r'(?i)\s*(?:#{1,6}[^\n]*\n\s*)?(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
             r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
-            r'enable javascript to (?:see|view)[^\n]*)\s*$', visible)):
+            r'enable javascript to (?:see|view)[^\n]*)\s*', visible)):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}

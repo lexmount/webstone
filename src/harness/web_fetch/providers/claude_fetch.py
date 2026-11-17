@@ -120,11 +120,14 @@ class ClaudeFetchProvider(Provider):
                     'remote_env_file': self.config['remote_env_file'],
                     'worker_sha256': hashlib.sha256(worker.read_bytes()).hexdigest(),
                     'runtime_sources': shared}
+        startup_budget = deadline - time.monotonic()
+        if startup_budget <= 0:
+            raise TimeoutError('No remote startup budget remains')
         self._process = subprocess.Popen(
             ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', self.config['ssh_host'],
              shlex.join([self.config['remote_uv'], 'run', '--frozen', '--no-sync',
                          '--project', str(Path(self.config['remote_worker']).parent), '--python', '3.11',
-                         'python', self.config['remote_worker']])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         'python', self.config['remote_worker'], str(startup_budget)])], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, start_new_session=True)
         try:
             ready = _read_remote_ready(self._process.stdout, deadline)

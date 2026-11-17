@@ -220,6 +220,29 @@ def test_remote_deadline_deducts_actual_post_readiness_elapsed_time(monkeypatch,
     assert len(capsys.readouterr().out.splitlines()) == 2
 
 
+def test_remote_deadline_stops_incomplete_open_stdin_without_api_access():
+    import subprocess
+    import sys
+    from harness.web_fetch.workers import claude_fetch_worker as worker
+    env = dict(os.environ, SSH_CONNECTION='192.0.2.1 12345 192.0.2.83 22')
+    process = subprocess.Popen([sys.executable, worker.__file__, '0.3'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    try:
+        ready = json.loads(process.stdout.readline())
+        assert ready['kind'] == 'claude_fetch_ready'
+        process.stdin.write(b'{"body":')
+        process.stdin.flush()
+        # Keep stdin open: the remote timer must interrupt json.load itself.
+        assert process.wait(timeout=3) != 0
+        assert b'Remote call deadline exceeded' in process.stderr.read()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in [process.stdin, process.stdout, process.stderr]:
+            stream.close()
+
+
 @pytest.mark.parametrize('phase', ['connect_or_headers', 'body'])
 def test_remote_transport_failure_retains_phase_without_credentials_or_retry(monkeypatch, capsys, phase):
     import ssl
@@ -249,6 +272,43 @@ def test_remote_transport_failure_retains_phase_without_credentials_or_retry(mon
     assert receipt['transport_error']['reason_type'] == 'SSLEOFError'
     assert 'status' not in receipt and 'body_b64' not in receipt
     assert receipt['ssh_server'] == '192.0.2.83'
+
+
+@pytest.mark.parametrize('failure', ['invalid_key', 'protocol', 'unexpected'])
+def test_remote_request_error_boundary_does_not_expose_credentials(monkeypatch, capsys, failure):
+    import http.client
+    from harness.web_fetch.workers import claude_fetch_worker as worker
+    from harness.web_fetch.diagnostics import emit
+    monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
+    key = 'private-test-key\n' if failure == 'invalid_key' else 'private-test-key'
+    envelope = {'expected_ssh_server_ip': '192.0.2.83', 'timeout': 30,
+        'remote_env_file': '/remote/.env', 'body': {}, 'max_bytes': 1000,
+        'worker_sha256': hashlib.sha256(Path(worker.__file__).read_bytes()).hexdigest(),
+        'runtime_sources': worker.runtime_sources(Path(worker.__file__).parents[3])}
+    def fail(*args, **kwargs):
+        if failure == 'protocol':
+            emit('http_request_failed', phase='body', error_type='IncompleteRead')
+            raise http.client.IncompleteRead(b'partial')
+        raise ValueError(repr(key.encode()))
+    with patch.object(worker.json, 'load', return_value=envelope), \
+         patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer'), \
+         patch('harness.env_file.parse_env_file', return_value={'ANTHROPIC_API_KEY': key}), \
+         patch('harness.web_fetch.providers.http_client.request', side_effect=fail) as request:
+        if failure == 'protocol':
+            worker.main()
+        else:
+            with pytest.raises(RuntimeError) as error:
+                worker.main()
+            assert 'private-test-key' not in str(error.value)
+            assert error.value.__suppress_context__ or failure == 'invalid_key'
+    captured = capsys.readouterr()
+    assert 'private-test-key' not in captured.out + captured.err
+    assert request.call_count == (0 if failure == 'invalid_key' else 1)
+    if failure == 'protocol':
+        receipt = json.loads(captured.out.splitlines()[-1])
+        assert receipt['transport_error']['phase'] == 'body'
+        assert receipt['transport_error']['reason_type'] == 'IncompleteRead'
+        assert 'status' not in receipt
 
 
 def test_verified_remote_transport_error_is_not_a_local_adapter_or_api_error():
