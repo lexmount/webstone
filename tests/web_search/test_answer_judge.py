@@ -258,3 +258,26 @@ def test_saved_html_answers_fail_release_replay_before_judge_calls(answer_run, h
     with pytest.raises(ValueError, match='unsupported HTML'):
         answer_run['run']()
     assert not (answer_run['output']/'answers.json').exists()
+
+
+@pytest.mark.parametrize('damage', [None, 'call', 'binding'])
+def test_rebinding_revalidates_physical_calls_when_old_controls_are_retired(answer_run, damage):
+    from harness.web_search.answers import rebind_answer_evidence
+    from harness.web_search.output_levels import level_inputs
+    answer_run['run']()
+    original = json.loads((answer_run['output']/'answers.json').read_bytes())
+    profile, rows = level_inputs(answer_run['profile'], answer_run['rows'], 'l3')
+    revision = dict(root_cause='Reference-only correction', provider_calls=0,
+                    regression_ids=['reference-question-evidence'])
+    historical = rebind_answer_evidence(profile, rows, profile, rows, original, answer_run['source'], revision)
+    historical['input_rebinding']['regression_ids'] = ['retired-input-format']
+    if damage == 'call':
+        historical['calls'][next(iter(historical['calls']))]['request']['model'] = 'changed'
+    elif damage == 'binding':
+        historical['input_rebinding']['after_inputs_sha256'] = '0'*64
+    if damage:
+        with pytest.raises(ValueError):
+            rebind_answer_evidence(profile, rows, profile, rows, historical, answer_run['source'], revision)
+    else:
+        revised = rebind_answer_evidence(profile, rows, profile, rows, historical, answer_run['source'], revision)
+        assert revised['calls'] == original['calls'] and revised['results'] == original['results']

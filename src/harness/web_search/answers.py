@@ -229,7 +229,15 @@ def rebind_answer_evidence(before_profile, before_rows, profile, rows, evidence,
     validate_revision_controls(revision)
     if revision.get('provider_calls') != 0:
         raise ValueError('Answer input rebinding cannot contain new provider calls')
-    verify_answer_evidence(before_profile, before_rows, evidence, upstream_source)
+    # A historical binding may name controls for a retired input format. Rebuild
+    # every current packet, request and verdict from its original calls instead.
+    previous = deepcopy(evidence)
+    binding = previous.pop('input_rebinding', None)
+    if binding and (binding.get('provider_calls') != 0
+                    or binding.get('after_inputs_sha256') != _inputs_digest(before_profile, before_rows)
+                    or binding.get('calls_sha256') != _digest(evidence['calls'])):
+        raise ValueError('Previous answer binding changed frozen calls or inputs')
+    verify_answer_evidence(before_profile, before_rows, previous, upstream_source)
     if _jobs(before_profile, before_rows, upstream_source) != _jobs(profile, rows, upstream_source):
         raise ValueError('Changed answer packets require new judgments')
     value = deepcopy(evidence)
