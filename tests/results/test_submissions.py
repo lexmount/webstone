@@ -162,6 +162,11 @@ class FakeGitHub:
         if method == "GET" and suffix.startswith("contents/results/fixture-results/"):
             return encoded(self.saved_report)
         if method == "GET" and suffix == "pulls":
+            if query.get("head"):
+                return [
+                    pr for pr in self.prs
+                    if query["head"] == ["fixture-user:" + pr["head"]["ref"]]
+                ]
             return self.prs
         if method == "POST" and suffix == "git/trees":
             self.saved_report = json.loads(body["tree"][0]["content"])

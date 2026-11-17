@@ -5,6 +5,7 @@ import copy
 import pytest
 
 from harness.results import ResultsClient, SubmissionError
+from harness.results.client import GitHubError
 from harness.results.versions import canonical, identity, next_version, parts, release_info
 from tests.results.test_submissions import REPORT, FakeGitHub
 
@@ -63,3 +64,36 @@ def test_cli_allocates_semantic_versions_with_honest_release_metadata():
     source["release"]["summary"] = ""
     with pytest.raises(SubmissionError, match="release.summary"):
         client.check(source)
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_explicit_date_corrections_are_distinct_from_retries(interrupted):
+    api = FakeGitHub()
+    client = ResultsClient(api, api.repository)
+    source = copy.deepcopy(REPORT)
+    source["release"]["date"] = "2026-11-15"
+    api.fail_pr_once = interrupted
+    if interrupted:
+        with pytest.raises(GitHubError):
+            client.submit(source)
+    else:
+        client.submit(source)
+    original_branches = set(api.refs)
+    source["release"]["date"] = "2026-11-16"
+    result = client.submit(source)
+    assert not result.get("existing")
+    assert len(set(api.refs) - original_branches) == 1
+    assert api.saved_report["release"]["date"] == "2026-11-16"
+
+
+def test_automatic_date_retry_preserves_the_saved_branch():
+    api = FakeGitHub()
+    client = ResultsClient(api, api.repository)
+    api.fail_pr_once = True
+    with pytest.raises(GitHubError):
+        client.submit(REPORT)
+    api.saved_report["release"]["date"] = "2026-11-15"
+    branches = set(api.refs)
+    client.submit(REPORT)
+    assert set(api.refs) == branches
+    assert api.saved_report["release"]["date"] == "2026-11-15"

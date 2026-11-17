@@ -607,7 +607,7 @@ class ResultsClient:
             )
             saved_file = f"results/{prepared['benchmark']}/{name}"
             saved = self._file(saved_file, saved_head, fork)
-            if identity(saved) != payload_identity:
+            if identity(saved, ignore_date=not report["release"].get("date")) != payload_identity:
                 raise SubmissionError(
                     "The existing submission branch changed. Inspect it before retrying."
                 )

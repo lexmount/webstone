@@ -60,12 +60,13 @@ def release_info(report: dict, previous: str | None) -> dict:
     }
 
 
-def identity(report: dict) -> dict:
-    """Ignore allocated identity/date when retrying the same result payload."""
+def identity(report: dict, *, ignore_date: bool = False) -> dict:
+    """Ignore allocated fields, retaining publication dates supplied by the caller."""
     result = copy.deepcopy(report)
     result.pop("id", None)
     result.pop("version", None)
     if isinstance(result.get("release"), dict):
         result["release"].pop("previous", None)
-        result["release"].pop("date", None)
+        if ignore_date or result["release"].get("date") in (None, ""):
+            result["release"].pop("date", None)
     return result
