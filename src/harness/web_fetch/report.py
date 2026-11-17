@@ -2837,7 +2837,8 @@ def write_review_page(out,records):
    proof=row.get('score_revision')
    if proof:
     rows.append(('', ''.join([cell(esc(row['suite'])),cell(esc(row['case_id'])),cell(esc(row['provider'])),
-                 cell(link('../'+proof['before_case_path'],(t('report_original_rules_3a92e4', 'Original rules')))),cell(link('../'+proof['before_record_path'],(t('report_original_result_b302a6', 'Original result')))),
+                 cell(link('../'+proof['before_case_path'],(t('report_original_rules_3a92e4', 'Original rules')))),cell(link('../'+(proof.get('before_summary_path') or proof['before_record_path']),
+                     t('historical_score_summary', 'Historical score summary') if proof.get('before_summary_path') else t('report_original_result_b302a6', 'Original result'))),
                  cell(link('../'+row['case_path'],(t('report_revised_rules_36d7de', 'Revised rules')))),cell(link('../'+row['record_path'],(t('report_rescored_result_f1f6a8', 'Rescored result'))))])))
   if rows:page+=section((t('report_before_and_after_evidence_de3fc6', 'Before and after evidence')),table([(t('report_task_suite_863437', 'Task suite')),(t('report_task_6603e1', 'Task')),(t('report_method_22b9f0', 'Method')),(t('report_original_rules_3a92e4', 'Original rules')),(t('report_original_result_b302a6', 'Original result')),(t('report_revised_rules_36d7de', 'Revised rules')),(t('report_rescored_result_f1f6a8', 'Rescored result'))],rows,'score-revision-evidence'))
   write(out,'review/index.html',(t('report_review_record_efa815', 'Review record')),page)

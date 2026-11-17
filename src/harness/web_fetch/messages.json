@@ -1,5 +1,9 @@
 {
   "zh": {
+    "historical_score_summary": "原评分摘要",
+    "body_target_region_count": "达到覆盖目标的区域为 {actual} 个，要求至少 {required} 个。",
+    "document_sections_incomplete": "要求的文档章节未被识别",
+    "document_section_evidence": "章节标题或正文检查未满足：{sections}。返回标题可能存在差异，请查看完整返回。",
     "native_empty_content_evidence": "API 响应的已声明答案字段没有提供非空文字。",
     "api_rejected_request": "API 拒绝请求",
     "api_bad_request_boundary": "API 返回 HTTP 400；仅凭该状态不能断定调用方拼错了参数，也不能断定接口不支持此输入类型。",

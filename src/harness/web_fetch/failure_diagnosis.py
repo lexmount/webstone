@@ -339,7 +339,20 @@ def diagnose(r,c,raw,*,native_raw=None):
         else:category,stage,proof=set_result(t('required_resource_missing', 'Required resource missing'),t('resource_validation', 'Resource validation'),t('no_registered_target_resource_was_found', 'No registered target resource was found.'))
     elif c.get('task_kind','body')=='body' and not m.get('content_pass'):
         if m.get('body_coverage_pass') is False:
-            category,stage,proof=set_result(t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),(t('body_region_coverage_requirement_not_met', 'Body-region coverage requirement not met:') + f"{', '.join((x['id'] for x in m.get('body_region_results', []) if not x['pass']))}"))
+            regions = [x['id'] for x in m.get('body_region_results', []) if not x['pass']]
+            proof = t('body_region_coverage_requirement_not_met', 'Body-region coverage requirement not met:') + ', '.join(regions)
+            if m.get('body_required_target_regions') is not None:
+                proof += ' ' + t('body_target_region_count', 'Regions reaching target coverage: {actual}/{required} required.',
+                    actual=m.get('body_target_regions'), required=m['body_required_target_regions'])
+            category,stage,proof=set_result(t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),proof)
+        elif m.get('document_structure_pass') is False:
+            headings = c.get('document_structure', {}).get('headings', [])
+            failed = [x['id'] for x in m.get('document_heading_results', []) if not x['pass']]
+            labels = {h.get('id', f'section-{i+1}'): h['text'] for i, h in enumerate(headings)}
+            category,stage,proof=set_result(t('document_sections_incomplete', 'Required document sections not recognized'),
+                t('content_validation', 'Content validation'),
+                t('document_section_evidence', 'Section heading/body checks failed: {sections}. Returned headings may differ; inspect the complete answer.',
+                  sections=', '.join(labels.get(item, item) for item in failed)))
         elif not m.get('length_pass'):
             category,stage,proof=set_result(t('insufficient_body_text', 'Insufficient body text'),t('content_validation', 'Content validation'),t('extracted_body_text_did_not_reach_this', "Extracted body text did not reach this task's minimum length"))
         elif any(not f['pass'] for f in m.get('fact_results',[])):

@@ -8,6 +8,19 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_body_region_target_count_explains_failure_above_floor(self):
+  metrics={'content_pass':False,'body_coverage_pass':False,'body_target_regions':4,
+   'body_required_target_regions':5,'body_region_results':[{'id':'footer','pass':False}]}
+  d=diagnose(self.record(ok=True,metrics=metrics),{'task_kind':'body'},'Actual article body')
+  self.assertEqual(d['category'],'正文范围不完整')
+  self.assertIn('4',d['evidence']);self.assertIn('5',d['evidence']);self.assertIn('footer',d['evidence'])
+ def test_document_heading_failure_names_declared_section(self):
+  metrics={'content_pass':False,'body_coverage_pass':True,'document_structure_pass':False,
+   'document_heading_results':[{'id':'section-1','present':False,'pass':False}]}
+  case={'task_kind':'body','document_structure':{'headings':[{'text':'Parameters','level':2}]}}
+  d=diagnose(self.record(ok=True,metrics=metrics),case,'## Jump to heading: Parameters Parameters\nActual parameter table')
+  self.assertEqual(d['category'],'要求的文档章节未被识别')
+  self.assertIn('Parameters',d['evidence'])
  def test_nested_upstream_not_generic_502(self):
   r=self.record();d=diagnose(r,{},json.dumps({'error':{'upstream_status_code':403,'message':'unexpected status code: 403'}}))
   self.assertEqual(d['category'],'源站拒绝该次访问')

@@ -1785,6 +1785,41 @@ def _display_record_bytes(settings, name, raw):
     return project_result_diagnostics(name, raw)[0]
 
 
+def _require_public_fixed_selection(inputs, candidates, adoptions):
+    """Public views may accompany scoring-only corrections of unchanged calls."""
+    revision = inputs['revision']
+    if candidates or adoptions or inputs['historical'] or revision and revision['cases']:
+        raise ValueError('Public evidence views require fixed calls and unchanged task contracts')
+    if revision:
+        for key, after in revision['records'].items():
+            before = inputs['selected'][key][1]
+            ignored = {'metrics', 'scoring', 'diagnosis', 'failure_category'}
+            if ({k: v for k, v in before.items() if k not in ignored}
+                    != {k: v for k, v in after.items() if k not in ignored}
+                    or before['metrics']['content_sha256'] != after['metrics']['content_sha256']):
+                raise ValueError('Public score revision changes call inputs or answer bytes')
+
+
+def _score_revision_proof(prefix, public):
+    return {'receipt_path': 'score-revision.json',
+            'before_case_path': prefix+'/score-before-case.json',
+            ('before_summary_path' if public else 'before_record_path'):
+                prefix+('/score-before-summary.json' if public
+                        else '/score-before/score-before-record.json')}
+
+
+def _historical_score_summary(record, raw, case):
+    """Keep the old verdict identifiable without republishing old private inputs."""
+    return {'kind': 'historical_task_score_summary',
+            'original_record_sha256': hashlib.sha256(raw).hexdigest(),
+            'content_sha256': record['metrics']['content_sha256'],
+            'scoring_source_sha256': record['metrics'].get('scoring_source_sha256'),
+            'task_passed': task_passed(record['ok'], record['metrics'], case.get('task_kind', 'body')),
+            'provider_calls_added': 0,
+            'answer_evidence': 'Unchanged answer bytes are shown with the current result. '
+                'This summary identifies the retained historical score; it is not a replay of the historical scorer.'}
+
+
 def _materialize_record_public_views(source, destination, record, case, original_record, record_name):
     files = []
     for binding, public, receipt in _record_public_views(source, record, case):
@@ -1868,6 +1903,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     _validate_completion_retention(inputs, candidates, decisions)
     adoptions = _adopted_groups(inputs, candidates)
     spec = inputs['spec']
+    if spec.get('public_evidence_views'):
+        _require_public_fixed_selection(inputs, candidates, adoptions)
     execution_settings = _matrix_execution_settings(inputs, candidates, decisions, adoptions)
     if spec.get('presentation') == 'final':
         _require_final_selection(inputs)
@@ -1965,12 +2002,15 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
                     revised = bool(revision and key in revision['records'])
                     if revised:
                         _write(output/(prefix+'/score-before-case.json'), original_case)
-                        _write_bytes(output/(prefix+'/score-before/score-before-record.json'), raw_line)
-                        for relative, digest in artifact_bindings(record):
-                            copy(contained_path(root, relative, reject_symlinks=True), prefix+'/score-before/'+relative)
-                        item['score_revision'] = {'receipt_path':'score-revision.json',
-                            'before_case_path':prefix+'/score-before-case.json',
-                            'before_record_path':prefix+'/score-before/score-before-record.json'}
+                        public = spec.get('public_evidence_views', False)
+                        if public:
+                            _write(output/(prefix+'/score-before-summary.json'),
+                                   _historical_score_summary(record, raw_line, original_case))
+                        else:
+                            _write_bytes(output/(prefix+'/score-before/score-before-record.json'), raw_line)
+                            for relative, digest in artifact_bindings(record):
+                                copy(contained_path(root, relative, reject_symlinks=True), prefix+'/score-before/'+relative)
+                        item['score_revision'] = _score_revision_proof(prefix, public)
                         item['score_revision_history'] = deepcopy(item['score_revision'])
                         record = revision['records'][key]
                         raw_line = (json.dumps(record, ensure_ascii=False)+'\n').encode()
@@ -2147,8 +2187,6 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         model['offline_revision'] = revision['receipt']
     model['scores_changed'] = bool(revision) or any(row.get('score_revision') for row in model_rows)
     if spec.get('public_evidence_views'):
-        if revision or candidates or adoptions or historical:
-            raise ValueError('Public evidence views require a fixed saved selection without revisions')
         model['public_evidence_views'] = True
         keys = [(row['suite'], row['provider'], row['case_id']) for row in model_rows]
         for relative, source, record, case, raw in _public_view_sources(inputs, keys):
@@ -2197,7 +2235,7 @@ def _source_record_inventory(inputs, candidates, decisions, adoptions, keys):
             base = ((json.dumps(revision['records'][key], ensure_ascii=False)+'\n').encode()
                     if key in revision['records'] else selected[2])
             final = base
-            if key in revision['records']:
+            if key in revision['records'] and not inputs['spec'].get('public_evidence_views'):
                 expected[prefix+'/score-before/score-before-record.json'] = selected[2]
             if key in candidates:
                 expected[prefix+'/parameter-rerun/before/record.json'] = base
@@ -2312,9 +2350,13 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
     revision = inputs['revision'] or {'records': {}}
     score = None
     if key in revision['records']:
-        score = {'receipt_path': 'score-revision.json',
-                 'before_case_path': prefix+'/score-before-case.json',
-                 'before_record_path': prefix+'/score-before/score-before-record.json'}
+        public = inputs['spec'].get('public_evidence_views', False)
+        score = _score_revision_proof(prefix, public)
+        if public:
+            _, original, raw, _ = inputs['selected'][key]
+            summary = _json(contained_path(output, score['before_summary_path'], reject_symlinks=True))
+            if summary != _historical_score_summary(original, raw, inputs['cases'][key[0]][key[2]]):
+                raise ValueError('Historical score summary differs from validated source')
     if row.get('score_revision_history') != score:
         raise ValueError('Saved historical revision proof differs from validated source')
     if decisions.get(key, {}).get('selected_new'):
@@ -2647,8 +2689,7 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
     if model.get('public_evidence_views'):
         if inputs is None or inputs['spec'].get('public_evidence_views') is not True:
             raise ValueError('Public evidence views require the original source specification')
-        if inputs['revision'] or candidates or adoptions or inputs['historical']:
-            raise ValueError('Public evidence views require a fixed saved selection without revisions')
+        _require_public_fixed_selection(inputs, candidates, adoptions)
     elif inputs is not None and inputs['spec'].get('public_evidence_views'):
         raise ValueError('Report omits the declared public evidence views')
     if model.get('presentation') == 'final' and (inputs is None or inputs['spec'].get('presentation') != 'final'):
