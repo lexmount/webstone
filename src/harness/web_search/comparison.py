@@ -455,7 +455,7 @@ def render_level_summary(view, zh=False, *, content=None):
                 values['context_characters'] = sum(len(item.get('title') or '') + len(item.get('snippet') or '')
                                                    for r in delivered for item in r['results']) / len(delivered)
             calls = [r for r in view.get('timing_rows', rows) if r['case_id'] in ids and r['method'] == mid]
-            outcomes[mid] = Counter(request_outcome(r) for r in calls)
+            outcomes[mid] = Counter(request_outcome(r, level=level) for r in calls)
             values['failed_calls'] = len(calls) - outcomes[mid]['results']
             latency = stats[mid]['all_latency']
             values.update(mean_ms=latency['mean'], p50_ms=latency['p50'], p95_ms=latency['p95'],

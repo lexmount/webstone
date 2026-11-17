@@ -6,16 +6,18 @@ from statistics import mean
 from harness.web_search.adapters import adapter_for
 
 
-def request_outcome(row):
+def request_outcome(row, *, level='l1'):
     """Classify one physical call from its recorded transport and response."""
     error = str(row.get('error') or '').lower()
-    if row.get('transport_exit') == 28 or 'timed out' in error or 'timeout' in error:
+    transport = row.get('transport_exit')
+    if transport == 28 or (transport is None and row.get('http_status') in (None, 0)
+                           and ('timed out' in error or 'timeout' in error)):
         return 'client_timeout'
     if row.get('transport_exit') or row.get('http_status', 200) == 0:
         return 'network_error'
     if row.get('http_status', 200) != 200 or error:
         return 'response_error'
-    if not row.get('results'):
+    if not row.get('results') and not (level == 'l3' and str(row.get('answer') or '').strip()):
         return 'empty_results'
     return 'results'
 

@@ -423,3 +423,28 @@ def test_http_200_api_error_and_valid_empty_response_keep_distinct_causes():
     failure = doc.select_one('[data-summary-method="a"] [data-request-failures]')
     assert failure.select_one('summary').get_text() == '2/2'
     assert [n.get_text() for n in failure.select('li')] == ['Empty results: 1', 'API or response error: 1']
+
+
+@pytest.mark.parametrize('status,error,transport,reason', [
+    (504, 'upstream timeout', 0, 'API or response error'),
+    (200, 'body timed out', 28, 'Client timeout'),
+    (0, 'Operation timed out', None, 'Client timeout'),
+])
+def test_timeout_causes_follow_the_transport_receipt(status, error, transport, reason):
+    selected = view(n=2)
+    row = next(r for r in selected['rows'] if r['method'] == 'a')
+    row.update(http_status=status, error=error, transport_exit=transport)
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    failure = doc.select_one('[data-summary-method="a"] [data-request-failures]')
+    assert failure.select_one('li').get_text() == reason + ': 1'
+
+
+@pytest.mark.parametrize('response_error', ['', 'API quota exceeded'])
+def test_l3_answer_only_success_is_distinct_from_an_api_failure(response_error):
+    selected = guide_views()['l3']
+    for row in selected['rows']:
+        row.update(results=[], answer='A complete answer.', error=response_error, http_status=200)
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    failures = doc.select('[data-metric$="-failed_calls"]')
+    assert all(float(cell['data-value']) == (int(cell.select_one('summary').get_text().split('/')[1]) if response_error else 0) for cell in failures)
+    assert bool(doc.select('[data-request-failures]')) is bool(response_error)
