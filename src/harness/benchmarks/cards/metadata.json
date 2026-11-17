@@ -194,7 +194,7 @@
       "language"
     ],
     "subsets": {
-      "factual-v1": "Unchanged publisher questions of at most 128 Unicode code points, with reference answers and URLs"
+      "factual-v1": "Factual questions of at most 128 Unicode code points, with versioned reference answers and source URLs"
     },
     "repo_id": "Lexmount/LexBench-SimpleQA-Verified",
     "previous_repo_ids": [

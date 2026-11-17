@@ -637,6 +637,37 @@ def test_component_license_is_preserved_from_its_committed_bytes(tmp_path):
     assert release.files["LICENSE-annotations"] == component
 
 
+@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence'])
+def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
+    from copy import deepcopy
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    before = dict(query='Who wrote the book?', reference_answer='Wrong Author',
+                  reference_urls=['https://publisher.test/page'])
+    after = dict(before, reference_answer='Correct Author')
+    recipe = dict(schema='simpleqa-case-repairs/1', predecessor=dict(revision='a'*40, sha256='b'*64),
+                  root_cause='Wrong original author', regression_ids=['corrected-factual-reference'], repairs=[dict(
+                      case_id='q', before=before, after=after, root_cause='Wrong original author', evidence=[dict(
+                          url=after['reference_urls'][0], sha256='c'*64, quote='Correct Author wrote the book.')])])
+    dataset = extend_reference_urls(dict(cases=[dict(id='q', **after)], case_repairs=deepcopy(recipe)), [])
+    if defect == 'unapplied-answer':
+        dataset['cases'][0]['reference_answer'] = before['reference_answer']
+    elif defect == 'missing-evidence':
+        dataset['case_repairs']['repairs'][0]['evidence'] = []
+    raw = json.dumps(dataset).encode()
+    registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
+                                               sha256=hashlib.sha256(raw).hexdigest())})
+    release = DatasetRelease('simpleqa-verified', 'a'*40, {
+        'definitions/registry.json': json.dumps(registry).encode(),
+        'definitions/datasets/factual-v1.json': raw,
+    }, card_body='# Synthetic corrected release\n', language_annotations={})
+    if defect:
+        with pytest.raises(ValueError):
+            release.build(tmp_path / 'release')
+    else:
+        assert release.build(tmp_path / 'release')['datasets']['factual-v1']['count'] == 1
+
+
 @pytest.mark.parametrize('missing_inventory', [False, True])
 def test_simpleqa_release_replays_full_reference_audit(tmp_path, missing_inventory):
     from lexbench_websearch.simpleqa import extend_reference_urls

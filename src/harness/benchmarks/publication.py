@@ -485,11 +485,15 @@ class DatasetRelease:
         definition_files = {name: raw for name, raw in self.files.items() if name not in external}
         files = dict(definition_files)
         if self.track == 'simpleqa-verified':
-            from lexbench_websearch.simpleqa import validate_reference_evidence
+            from lexbench_websearch.simpleqa import repair_cases, validate_reference_evidence
 
             for name, raw in files.items():
                 if name.startswith('definitions/datasets/') and name.endswith('.json'):
-                    validate_reference_evidence(json.loads(raw), lambda path: files['definitions/' + path])
+                    dataset = json.loads(raw)
+                    if dataset.get('case_repairs') and repair_cases(
+                            dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
+                        raise ValueError('Published task repairs must already be applied')
+                    validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])
             for name, binding in registry["source_files"].items():
@@ -698,6 +702,24 @@ class DatasetRelease:
         return {**manifest, "archive": {"path": "definitions.tar.gz", "sha256": bytes_sha256(bundle), "size": len(bundle)}}
 
 
+def propose_release(release, output, repository, *, api=None):
+    """Build a release and propose its exact files without updating main."""
+    from huggingface_hub import HfApi
+
+    if release.dataset_version is None:
+        raise ValueError('Publishing requires an explicit dataset version')
+    result = release.build(output)
+    client = api or HfApi()
+    info = proposal_target(client, repository, release.dataset_version)
+    current = {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()}
+    removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != '.gitattributes']
+    commit = client.upload_folder(repo_id=repository, repo_type='dataset', folder_path=output,
+                                 parent_commit=info.sha, delete_patterns=removed,
+                                 create_pr=True, commit_message='Publish verified ' + release.track + ' definitions')
+    return result, dict(repository=repository, pr_revision=commit.oid,
+                        pull_request=commit.pr_url, state='review_pending')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -716,20 +738,13 @@ def main() -> None:
         parser.error('Publishing requires --dataset-version or a committed manifest version')
     if args.tooling_revision is not None:
         release = replace(release, tooling_revision=args.tooling_revision)
-    result = release.build(args.output)
+    if args.create_pr:
+        result, proposal = propose_release(release, args.output, args.create_pr)
+    else:
+        result = release.build(args.output)
     print(json.dumps({"track": result["track"], "source_revision": result["source_revision"], "archive": result["archive"]}))
     if args.create_pr:
-        from huggingface_hub import HfApi
-        api = HfApi()
-        info = proposal_target(api, args.create_pr, release.dataset_version)
-        current = {p.relative_to(args.output).as_posix() for p in args.output.rglob("*") if p.is_file()}
-        removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != ".gitattributes"]
-        commit = api.upload_folder(repo_id=args.create_pr, repo_type="dataset", folder_path=args.output,
-                                   parent_commit=info.sha, delete_patterns=removed,
-                                   create_pr=True,
-                                   commit_message="Publish verified " + args.track + " definitions")
-        print(json.dumps({"repository": args.create_pr, "pr_revision": commit.oid,
-                          "pull_request": commit.pr_url, "state": "review_pending"}))
+        print(json.dumps(proposal))
 
 
 if __name__ == "__main__":

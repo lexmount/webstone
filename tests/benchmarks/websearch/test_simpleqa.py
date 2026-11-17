@@ -8,6 +8,137 @@ import pytest
 from lexbench_websearch.simpleqa import eligible_cases, rebuild_dataset
 
 
+def repair_fixture():
+    from copy import deepcopy
+
+    before = dict(query='What caused the artist’s death?', reference_answer='Pneumonia',
+                  reference_urls=['https://archive.test/wrong-entry'])
+    after = dict(before, reference_answer='Bronchitis', reference_urls=['https://archive.test/biography'])
+    case = dict(id='sqv-1', **before, topic='Art', answer_type='Text')
+    recipe = dict(schema='simpleqa-case-repairs/1', root_cause='Incorrect attribution in the original reference',
+                  predecessor=dict(revision='a'*40, sha256='b'*64),
+                  regression_ids=['corrected-factual-reference'], repairs=[dict(
+                      case_id=case['id'], before=before, after=after, root_cause='Wrong biographical entry',
+                      evidence=[dict(url=after['reference_urls'][0], sha256='c'*64,
+                                     quote='The artist died of bronchitis.')])])
+    return deepcopy(case), recipe
+
+
+def test_reference_repair_rescores_existing_answers_without_mutating_captured_calls():
+    from copy import deepcopy
+    from lexbench_websearch.simpleqa import repair_cases
+    from lexbench_websearch.scoring import evaluate, task_acceptance
+
+    case, recipe = repair_fixture()
+    untouched = dict(case, id='sqv-2')
+    originals = deepcopy([case, untouched])
+    cases = repair_cases(originals, recipe, reuse_calls=True)
+    assert originals == [case, untouched]
+    assert cases[1] == untouched
+    assert repair_cases(cases, recipe, reuse_calls=True) == cases
+    for mid in ('a', 'b'):
+        for answer, accepted in [('Bronchitis', True), ('Pneumonia', False)]:
+            row = dict(method=mid, results=[dict(url='https://archive.test/biography', snippet=answer)],
+                       elapsed_ms=143.0, evidence={'sha256': 'd'*64})
+            frozen = deepcopy(row)
+            metrics = evaluate(cases[0], row['results'])
+            assert task_acceptance(cases[0], dict(row, metrics=metrics), 'answer') is accepted
+            assert metrics['labeled_source_hit_5'] == 1
+            assert row == frozen
+
+
+def test_changed_query_requires_new_call_but_accepts_a_call_collected_with_the_repaired_question():
+    from lexbench_websearch.simpleqa import repair_cases
+
+    case, recipe = repair_fixture()
+    recipe['repairs'][0]['after']['query'] = 'What caused the death of the sculptor in the biography?'
+    repaired = repair_cases([case], recipe)[0]
+    with pytest.raises(ValueError, match='new provider call'):
+        repair_cases([case], recipe, reuse_calls=True)
+    assert repair_cases([repaired], recipe, reuse_calls=True) == [repaired]
+
+
+def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monkeypatch):
+    import json
+    from copy import deepcopy
+    from harness.benchmarks import data
+    from harness.web_search.revisions import apply_report_revision
+    from lexbench_websearch.simpleqa import repair_cases
+    from lexbench_websearch.scoring import evaluate
+
+    case, recipe = repair_fixture()
+    corrected = repair_cases([case], recipe)[0]
+    corrected.update(equivalent_reference_urls=[], equivalent_reference_provenance=[], url_equivalence='document-url/2')
+    dataset = tmp_path / 'factual-v1.json'
+    dataset.write_text(json.dumps(dict(cases=[corrected], case_repairs=recipe)))
+    descriptor = dict(sha256=__import__('hashlib').sha256(dataset.read_bytes()).hexdigest())
+    monkeypatch.setattr(data, 'binding', lambda *args: dict(files={'definitions/datasets/factual-v1.json': descriptor}))
+    monkeypatch.setattr(data, 'definition_path', lambda *args: dataset)
+    profile = dict(cases=[case], methods=[dict(id='a'), dict(id='b')], protocol={'top_k': 5},
+                   factual_quality_exclusions=[case['id']], reference_adjudications=[dict(
+                       case_id=case['id'], query=case['query'], reference_answer=case['reference_answer'],
+                       quality_excluded=True, reason='Wrong original reference', evidence='Original archive')])
+    results = [dict(url=corrected['reference_urls'][0], snippet='Bronchitis')]
+    rows = [dict(id=mid, method=mid, case_id=case['id'], results=results, metrics=evaluate(case, results), elapsed_ms=123)
+            for mid in ('a', 'b')]
+    original = deepcopy(rows)
+    revision = dict(schema='web-search-assessment-revision/1', provider_calls=0, root_cause=recipe['root_cause'],
+                    regression_ids=['generic-document-urls', 'reference-mirror-title-and-lead', 'corrected-factual-reference'],
+                    reference_dataset=dict(track='simpleqa-verified', revision='a'*40,
+                                           path='datasets/factual-v1.json', sha256=descriptor['sha256']))
+    revised, updated, changes = apply_report_revision(profile, rows, revision)
+    assert revised['cases'][0]['reference_answer'] == 'Bronchitis'
+    assert revised['factual_quality_exclusions'] == revised['reference_adjudications'] == []
+    assert profile['factual_quality_exclusions'] == [case['id']]
+    assert len(changes) == 2
+    assert all(r['metrics']['answer_in_delivered_text_5'] == r['metrics']['labeled_source_hit_5'] == 1 for r in updated)
+    assert rows == original
+    assert all(r['elapsed_ms'] == 123 for r in updated)
+    case['query'] = 'A query from an unrelated task'
+    with pytest.raises(ValueError, match='captured task'):
+        apply_report_revision(profile, rows, revision)
+
+
+def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs():
+    from lexbench_websearch import simpleqa
+
+    raw = csv_fixture(['Who wrote the book?'])
+    manifest = simpleqa.source_manifest()
+    manifest['sha256'] = simpleqa.digest(raw)
+    manifest['selection'].update(source_count=1, selected_count=1)
+    original = simpleqa.rebuild_dataset(raw, manifest=manifest)
+    case = original['cases'][0]
+    _, recipe = repair_fixture()
+    item = recipe['repairs'][0]
+    item.update(case_id=case['id'], before={k: case[k] for k in item['before']})
+    item['after'] = dict(item['before'], query='Who wrote the 1990 edition of the book?', reference_answer='Verified Author')
+    expected = simpleqa.extend_reference_urls(dict(original,
+        cases=simpleqa.repair_cases(original['cases'], recipe), case_repairs=recipe), [])
+    rebuilt = simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts={})
+    assert rebuilt == expected
+    assert original['cases'][0]['query'] == 'Who wrote the book?'
+    assert rebuilt['cases'][0]['derivation'] == 'Question repaired from cited source; see case_repairs'
+
+
+@pytest.mark.parametrize('defect', ['unknown-answer', 'duplicate', 'missing-proof', 'unbound-source', 'overlong-query'])
+def test_task_repair_rejects_unbound_or_incomplete_authority(defect):
+    from lexbench_websearch.simpleqa import repair_cases
+
+    case, recipe = repair_fixture()
+    if defect == 'unknown-answer':
+        case['reference_answer'] = 'A third unsupported cause'
+    elif defect == 'duplicate':
+        recipe['repairs'].append(recipe['repairs'][0])
+    elif defect == 'missing-proof':
+        recipe['repairs'][0]['evidence'] = []
+    elif defect == 'unbound-source':
+        recipe['repairs'][0]['evidence'][0]['sha256'] = ''
+    else:
+        recipe['repairs'][0]['after']['query'] = 'x'*129
+    with pytest.raises(ValueError):
+        repair_cases([case], recipe, reuse_calls=True)
+
+
 def csv_fixture(questions):
     text = io.StringIO()
     writer = csv.writer(text)

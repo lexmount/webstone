@@ -86197,6 +86197,48 @@
     }
   ],
   "web_search": {
+    "corrected-factual-reference": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "corrected-answer",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "The sculptor died of bronchitis."}],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "corrected-answer",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "An incorrect entry gives pneumonia."}],
+        "expected": false
+      },
+      {
+        "kind": "source_url",
+        "case": {
+          "id": "corrected-document",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/biography", "snippet": "The sculptor died of bronchitis."}],
+        "expected": true
+      },
+      {
+        "kind": "source_url",
+        "case": {
+          "id": "corrected-document",
+          "reference_answer": "Bronchitis",
+          "reference_urls": ["https://archive.test/biography"]
+        },
+        "results": [{"url": "https://archive.test/wrong-entry", "snippet": "An entry about another artist."}],
+        "expected": false
+      }
+    ],
     "verified-factual-source-identities": [
       {
         "id": "redirect-reference-despite-fetch-denial",

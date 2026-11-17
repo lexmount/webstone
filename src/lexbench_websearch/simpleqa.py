@@ -15,6 +15,70 @@ MIRROR_MINIMUM_CHARACTERS = 200
 MIRROR_OVERLAP = .8
 
 
+def repair_cases(cases, revision, *, reuse_calls=False):
+    """Replay reviewed task repairs; changed queries require new provider calls.
+
+    Question, answer, source URLs and optional labels belong to this contract.
+    Execution annotations are outside it, so a saved call can be rescored
+    without changing its response, identity or timing.
+    """
+    from copy import deepcopy
+    from .contracts import validate_cases
+
+    fields = {'query', 'reference_answer', 'reference_urls'}
+    if (not isinstance(revision, dict) or revision.get('schema') != 'simpleqa-case-repairs/1'
+            or not revision.get('root_cause') or not revision.get('regression_ids')
+            or not re.fullmatch('[0-9a-f]{40}', revision.get('predecessor', {}).get('revision', ''))
+            or not re.fullmatch('[0-9a-f]{64}', revision.get('predecessor', {}).get('sha256', ''))
+            or not isinstance(revision.get('repairs'), list) or not revision['repairs']):
+        raise ValueError('Task repairs require a versioned predecessor and correction provenance')
+    indexed = {}
+    for item in revision['repairs']:
+        cid = item.get('case_id')
+        before, after = item.get('before'), item.get('after')
+        if (not isinstance(cid, str) or cid in indexed
+                or not isinstance(before, dict) or not isinstance(after, dict)
+                or not fields.issubset(before) or set(before) != set(after)
+                or set(before) - fields - {'topic', 'answer_type'} or before == after
+                or not item.get('root_cause') or not item.get('evidence')):
+            raise ValueError('Task repairs require unique before/after contracts and source evidence')
+        for contract in (before, after):
+            if (not isinstance(contract['query'], str) or not 0 < len(contract['query']) <= 128
+                    or not isinstance(contract['reference_answer'], str) or not contract['reference_answer'].strip()
+                    or not isinstance(contract['reference_urls'], list) or not contract['reference_urls']):
+                raise ValueError('Invalid repaired task contract')
+            validate_cases([dict(id=cid, **contract)])
+        for source in item['evidence']:
+            if (not isinstance(source, dict) or not (source.get('quote') or source.get('observation'))
+                    or not re.fullmatch('[0-9a-f]{64}', source.get('sha256', ''))):
+                raise ValueError('Task repairs require hash-bound source evidence')
+            from .scoring import canonical_url
+
+            canonical_url(source['url'])
+        indexed[cid] = item
+    repaired = deepcopy(cases)
+    for case in repaired:
+        item = indexed.get(case['id'])
+        if item is None:
+            continue
+        actual = {key: case.get(key) for key in item['before']}
+        if actual == item['after']:
+            continue
+        if actual != item['before']:
+            raise ValueError('Task repair does not bind the captured task: ' + case['id'])
+        if reuse_calls and actual['query'] != item['after']['query']:
+            raise ValueError('Changed query requires a new provider call: ' + case['id'])
+        case.update(deepcopy(item['after']))
+        if actual['query'] != item['after']['query']:
+            case['derivation'] = 'Question repaired from cited source; see case_repairs'
+        # These judgments bind the old answer or old reference documents.
+        for key in ('answer_derivation', 'equivalent_reference_urls',
+                    'equivalent_reference_provenance', 'reference_verification_coverage',
+                    'capture_failed_reference_urls', 'reference_verification_audit_url'):
+            case.pop(key, None)
+    return repaired
+
+
 def mirror_candidates(reference_url):
     """Derive possible copies from publisher references, never search results."""
     from urllib.parse import quote, unquote, urlsplit
@@ -273,7 +337,7 @@ def eligible_cases(csv_bytes, *, manifest=None):
     ]
 
 
-def rebuild_dataset(csv_bytes, *, manifest=None):
+def rebuild_dataset(csv_bytes, *, manifest=None, reference_dataset=None, artifacts=None):
     """Verify the pinned publisher input before rebuilding the declared population."""
     manifest = manifest or source_manifest()
     if digest(csv_bytes) != manifest["sha256"]:
@@ -286,7 +350,7 @@ def rebuild_dataset(csv_bytes, *, manifest=None):
         or len(cases) != manifest["selection"]["selected_count"]
     ):
         raise ValueError("Frozen population differs from the pinned source selection")
-    return {
+    dataset = {
         "schema": "lexbench-websearch-dataset/1",
         "id": manifest["dataset"],
         "cases": cases,
@@ -299,3 +363,13 @@ def rebuild_dataset(csv_bytes, *, manifest=None):
             }
         },
     }
+    if reference_dataset is not None:
+        repairs = reference_dataset.get('case_repairs')
+        if repairs:
+            dataset['cases'] = repair_cases(dataset['cases'], repairs)
+            dataset['case_repairs'] = repairs
+        if reference_dataset.get('reference_equivalence'):
+            dataset = extend_reference_urls(dataset,
+                reference_dataset['reference_equivalence_observations'], artifacts=artifacts,
+                policy=reference_dataset['reference_equivalence']['method'])
+    return dataset

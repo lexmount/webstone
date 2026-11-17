@@ -643,7 +643,13 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
     raw = dataset_path.read_bytes()
     dataset = json.loads(raw)
     validate_cases(dataset['cases'])
-    from lexbench_websearch.simpleqa import validate_reference_evidence
+    from lexbench_websearch.simpleqa import repair_cases, validate_reference_evidence
+
+    repairs = dataset.get('case_repairs')
+    if repairs and not set(repairs.get('regression_ids', [])).issubset(regression_ids or []):
+        raise ValueError('Task repair requires its bound regression controls')
+    prepared = ({case['id']: case for case in repair_cases(list(cases.values()), repairs, reuse_calls=True)}
+                if repairs else cases)
 
     indexed = {case['id']: case for case in dataset['cases']}
     from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES
@@ -651,7 +657,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
     full = dataset.get('reference_equivalence', {}).get('method') in FULL_MIRROR_POLICIES
     if full and regression_ids is not None and 'reference-question-evidence' not in regression_ids:
         raise ValueError('Full reference revision requires question-evidence regression controls')
-    for case in cases.values():
+    for case in prepared.values():
         if 'reference_answer' not in case:
             continue
         reference = indexed.get(case['id'])
@@ -669,6 +675,10 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
         return raw
 
     validate_reference_evidence(dataset, captured)
+    if repairs:
+        for cid, case in cases.items():
+            case.clear()
+            case.update(prepared[cid])
     coverage = {item['case_id']: item for item in dataset.get('reference_equivalence', {}).get('case_coverage', [])}
     for case in cases.values():
         if 'reference_answer' not in case:
@@ -684,6 +694,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
                 if item['case_id'] == case['id'] and item['outcome'] == 'capture_failed']
             case['reference_verification_audit_url'] = ('https://huggingface.co/datasets/' + source['repository']
                 + '/resolve/' + selected['revision'] + '/definitions/' + selected['path'])
+    return {item['case_id'] for item in repairs['repairs'] if item['case_id'] in cases} if repairs else set()
 
 
 def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer=None):
@@ -730,7 +741,14 @@ def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer
             raise ValueError('A canonical reference revision cannot add a second URL authority')
         if not {'generic-document-urls', 'reference-mirror-title-and-lead'}.issubset(revision['regression_ids']):
             raise ValueError('Reference dataset revision requires URL and mirror regression controls')
-        apply_reference_dataset(cases, revision['reference_dataset'], regression_ids=revision['regression_ids'])
+        resolved = apply_reference_dataset(cases, revision['reference_dataset'],
+                                           regression_ids=revision['regression_ids'])
+        if resolved:
+            revised['factual_quality_exclusions'] = [
+                cid for cid in revised.get('factual_quality_exclusions', []) if cid not in resolved]
+            revised['reference_adjudications'] = [
+                item for item in revised.get('reference_adjudications', [])
+                if item['case_id'] not in resolved]
     identities = set()
     for item in revision.get('factual_source_identities', []):
         cid, alias = item.get('case_id'), item.get('alias')
