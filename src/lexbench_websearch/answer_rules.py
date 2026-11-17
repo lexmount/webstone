@@ -268,6 +268,21 @@ def _numeric_matches(text, unit):
     )
 
 
+def _coordinate_values(text):
+    pattern = (r'(?<![\w.,+\-])(\d+(?:\.\d+)?)\s*°'
+               r'(?:\s*(\d+(?:\.\d+)?)\s*[\u2032\x27]'
+               r'(?:\s*(\d+(?:\.\d+)?)\s*[\u2033\x22])?)?\s*([nsew])(?!\w)')
+    for match in re.finditer(pattern, _matching_text(text)):
+        degrees, minutes, seconds = [Decimal(value or '0') for value in match.groups()[:3]]
+        hemisphere = match[4]
+        limit = 90 if hemisphere in 'ns' else 180
+        if minutes >= 60 or seconds >= 60:
+            continue
+        value = degrees + minutes / 60 + seconds / 3600
+        if value <= limit:
+            yield -value if hemisphere in 'sw' else value
+
+
 def match_reference_answer(reference, text, *, derivation=None):
     """Whether text contains explicitly allowed reference evidence (not truth)."""
     rule = reference_rule(reference, derivation=derivation)
@@ -283,7 +298,8 @@ def match_reference_answer(reference, text, *, derivation=None):
                 if not _phrase(before, prefix, at_end=True):
                     continue
             return True
-        return False
+        return (not rule['unit'] and not rule['prefix']
+                and any(low <= value <= high for value in _coordinate_values(text)))
     if rule["kind"] == "dimensions":
         pattern = (
             r"(?<![\w.,+\-])("

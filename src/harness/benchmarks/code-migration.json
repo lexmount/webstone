@@ -4364,7 +4364,7 @@
         },
         "simpleqa.py": {
           "before_sha256": "39cd02fa1b65b10a0bc38cdf9ab245878b8ef7d07705203d10f9f4c2fa5eef0d",
-          "after_sha256": "4503a2b86a91e18bb6ab3f287ed581060165b50d15ddb999f0d61afe4faf8bc0"
+          "after_sha256": "04ca490646d8b4c5dc20a60937b77f180b15d92b2da2500120ddd1fabcd7c8f3"
         },
         "versions.py": {
           "before_sha256": "27c10a5f86b4a8ac7841cc9dfbe77c2f724ea675a938bda3719ae05084c058e0",
@@ -4380,7 +4380,7 @@
         },
         "answer_rules.py": {
           "before_sha256": "465bb1bbbfc177a9570d44c32b1c0c03120456c119312c2ab09db9046bc34852",
-          "after_sha256": "061c09c2c33cec7e6c1a71c80ba4d7b63efb86478773a2cea502dbaf73078cae"
+          "after_sha256": "8acd9f6cab31be28594b3d8e8916826b96259f079ad185594906d1c35eced66c"
         }
       },
       "corrections": [
@@ -4520,10 +4520,11 @@
             "simpleqa.py",
             "answer_rules.py"
           ],
-          "root_cause": "Full-page mirror evidence searched answer annotations literally and treated discretionary soft hyphens as word content. Use the shared accepted-answer predicate for new mirror qualifications, ignore U+00AD layout characters, and retain historical policy replay.",
+          "root_cause": "Full-page mirror checks must retain compound literal answers while preserving quantity signs. Accepted numeric coordinate ranges also recognize valid hemisphere notation. Repairs require source-bound excerpts and explicit interpretation, and resolved task metadata must not retain the publisher unchanged marker.",
           "regression_ids": [
             "reference-answer-annotations",
-            "discretionary-text-hyphens"
+            "discretionary-text-hyphens",
+            "coordinate-answer-formats"
           ],
           "tests": [
             "tests/benchmarks/websearch/test_simpleqa.py",

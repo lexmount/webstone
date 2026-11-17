@@ -709,7 +709,8 @@ def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch,
         assert receipt['pull_request'].endswith('/discussions/5')
 
 
-@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls'])
+@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls',
+                                  'unresolved', 'quote-mismatch', 'source-hash', 'output-informed'])
 def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
     from copy import deepcopy
     from lexbench_websearch.simpleqa import extend_reference_urls
@@ -721,6 +722,12 @@ def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, de
                   root_cause='Wrong original author', regression_ids=['corrected-factual-reference'], repairs=[dict(
                       case_id='q', before=before, after=after, root_cause='Wrong original author', evidence=[dict(
                           url=after['reference_urls'][0], sha256='c'*64, quote='Correct Author wrote the book.')])])
+    excerpt = json.dumps(dict(schema='source-excerpt/1', url=after['reference_urls'][0],
+                              source_sha256='c'*64, text='Correct Author wrote the book.')).encode()
+    recipe['repairs'][0].update(resolution='corrected', source_discovery=dict(
+        kind='publisher_reference', description='Rechecked the original publisher reference.'))
+    recipe['repairs'][0]['evidence'][0].update(path='repair-evidence/q.json',
+        sha256=hashlib.sha256(excerpt).hexdigest(), interpretation=dict(kind='verbatim', answer='Correct Author'))
     from lexbench_websearch.simpleqa import repair_cases
     dataset = extend_reference_urls(dict(cases=repair_cases([dict(id='q', **before)], recipe),
                                         case_repairs=deepcopy(recipe)), [])
@@ -730,12 +737,21 @@ def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, de
         dataset['case_repairs']['repairs'][0]['evidence'] = []
     elif defect == 'unknown-controls':
         dataset['case_repairs']['regression_ids'] = ['unknown-controls']
+    elif defect == 'unresolved':
+        dataset['case_repairs']['repairs'][0]['resolution'] = 'unresolved'
+    elif defect == 'quote-mismatch':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['quote'] = 'Invented source quote.'
+    elif defect == 'source-hash':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['sha256'] = 'd'*64
+    elif defect == 'output-informed':
+        dataset['case_repairs']['repairs'][0]['source_discovery']['kind'] = 'legacy_result_audit'
     raw = json.dumps(dataset).encode()
     registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
                                                sha256=hashlib.sha256(raw).hexdigest())})
     release = DatasetRelease('simpleqa-verified', 'a'*40, {
         'definitions/registry.json': json.dumps(registry).encode(),
         'definitions/datasets/factual-v1.json': raw,
+        'definitions/repair-evidence/q.json': excerpt,
     }, card_body='# Synthetic corrected release\n', language_annotations={})
     if defect:
         with pytest.raises(ValueError):

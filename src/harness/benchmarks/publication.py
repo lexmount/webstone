@@ -486,7 +486,11 @@ class DatasetRelease:
         definition_files = {name: raw for name, raw in self.files.items() if name not in external}
         files = dict(definition_files)
         if self.track == 'simpleqa-verified':
-            from lexbench_websearch.simpleqa import repair_cases, validate_reference_evidence
+            from lexbench_websearch.simpleqa import (
+                repair_cases,
+                validate_reference_evidence,
+                validate_repair_evidence,
+            )
 
             for name, raw in files.items():
                 if name.startswith('definitions/datasets/') and name.endswith('.json'):
@@ -497,6 +501,7 @@ class DatasetRelease:
                         validate_revision_controls(dataset['case_repairs'])
                         if repair_cases(dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
                             raise ValueError('Published task repairs must already be applied')
+                        validate_repair_evidence(dataset, lambda path: files['definitions/' + path])
                     validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])

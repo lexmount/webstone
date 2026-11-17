@@ -157,7 +157,8 @@ def test_mirror_retains_the_same_fact_with_discretionary_word_hyphens():
     assert result['qualified'] is True
 
 
-def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monkeypatch):
+@pytest.mark.parametrize('fresh_required', [False, True])
+def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monkeypatch, fresh_required):
     import json
     from copy import deepcopy
     from harness.benchmarks import data
@@ -166,6 +167,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     from lexbench_websearch.scoring import evaluate
 
     case, recipe = repair_fixture()
+    recipe['repairs'][0]['requires_fresh_calls'] = fresh_required
     corrected = repair_cases([case], recipe)[0]
     corrected.update(equivalent_reference_urls=[], equivalent_reference_provenance=[], url_equivalence='document-url/2')
     dataset = tmp_path / 'factual-v1.json'
@@ -185,6 +187,10 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
                     regression_ids=['generic-document-urls', 'reference-mirror-title-and-lead', 'corrected-factual-reference'],
                     reference_dataset=dict(track='simpleqa-verified', revision='a'*40,
                                            path='datasets/factual-v1.json', sha256=descriptor['sha256']))
+    if fresh_required:
+        with pytest.raises(ValueError, match='fresh provider calls'):
+            apply_report_revision(profile, rows, revision)
+        profile['cases'] = [deepcopy(corrected)]
     revised, updated, changes = apply_report_revision(profile, rows, revision)
     assert revised['cases'][0]['reference_answer'] == 'Bronchitis'
     assert revised['factual_quality_exclusions'] == revised['reference_adjudications'] == []
@@ -193,7 +199,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     assert all(r['metrics']['answer_in_delivered_text_5'] == r['metrics']['labeled_source_hit_5'] == 1 for r in updated)
     assert rows == original
     assert all(r['elapsed_ms'] == 123 for r in updated)
-    case['query'] = 'A query from an unrelated task'
+    profile['cases'][0]['query'] = 'A query from an unrelated task'
     with pytest.raises(ValueError, match='new provider call'):
         apply_report_revision(profile, rows, revision)
 

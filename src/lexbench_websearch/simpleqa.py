@@ -81,6 +81,60 @@ def repair_cases(cases, revision, *, reuse_calls=False):
     return repaired
 
 
+def validate_repair_evidence(dataset, artifacts):
+    """Verify published repair excerpts and distinguish interpretation from quotes."""
+    import json
+    from pathlib import PurePosixPath
+    from .answer_rules import match_reference_answer
+
+    receipt = dataset.get('case_repairs')
+    if not receipt:
+        return
+    for repair in receipt['repairs']:
+        if repair.get('resolution') not in {'corrected', 'replaced'}:
+            raise ValueError('Repair evidence requires a resolved correction or replacement')
+        discovery = repair.get('source_discovery', {})
+        if (discovery.get('kind') not in {'publisher_reference', 'independent_search', 'legacy_result_audit'}
+                or not discovery.get('description')):
+            raise ValueError('Repair evidence requires recorded source discovery')
+        if discovery['kind'] == 'legacy_result_audit' and repair.get('requires_fresh_calls') is not True:
+            raise ValueError('Output-informed references require fresh calls for every method')
+        for evidence in repair['evidence']:
+            if (discovery['kind'] == 'publisher_reference'
+                    and evidence['url'] not in repair['before']['reference_urls']):
+                raise ValueError('Publisher-reference discovery cannot introduce an unlisted source')
+            path = evidence.get('path', '')
+            if (not path or PurePosixPath(path).is_absolute() or '..' in PurePosixPath(path).parts
+                    or '\\' in path):
+                raise ValueError('Repair evidence requires a contained source artifact')
+            try:
+                raw = artifacts(path) if callable(artifacts) else artifacts[path]
+            except (KeyError, FileNotFoundError) as error:
+                raise ValueError('Missing repair evidence artifact') from error
+            if digest(raw) != evidence['sha256']:
+                raise ValueError('Repair evidence artifact hash mismatch')
+            source = json.loads(raw)
+            if (source.get('schema') != 'source-excerpt/1' or source.get('url') != evidence['url']
+                    or not re.fullmatch('[0-9a-f]{64}', source.get('source_sha256', ''))
+                    or not isinstance(source.get('text'), str)):
+                raise ValueError('Repair evidence must bind its original source capture')
+            quote = ' '.join(evidence.get('quote', '').split())
+            if not quote or quote not in ' '.join(source['text'].split()):
+                raise ValueError('Repair quote differs from its stored source excerpt')
+            interpretation = evidence.get('interpretation', {})
+            if interpretation.get('answer') != repair['after']['reference_answer']:
+                raise ValueError('Repair evidence interpretation must bind the accepted answer')
+            kind = interpretation.get('kind')
+            if kind == 'verbatim':
+                if not match_reference_answer(interpretation['answer'], quote):
+                    raise ValueError('Repair quote does not contain the declared answer')
+            else:
+                source_form = ' '.join(interpretation.get('source_form', '').split())
+                if (kind not in {'translation', 'calculation', 'date_context', 'visual_record'}
+                        or not interpretation.get('explanation') or not source_form or source_form not in quote):
+                    raise ValueError('Nonliteral repair evidence requires its source form and interpretation')
+
+
 def mirror_candidates(reference_url):
     """Derive possible copies from publisher references, never search results."""
     from urllib.parse import quote, unquote, urlsplit

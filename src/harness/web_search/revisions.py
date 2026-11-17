@@ -648,10 +648,25 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
     repairs = dataset.get('case_repairs')
     if repairs and not set(repairs.get('regression_ids', [])).issubset(regression_ids or []):
         raise ValueError('Task repair requires its bound regression controls')
-    prepared = ({case['id']: case for case in repair_cases(list(cases.values()), repairs, reuse_calls=True)}
-                if repairs else cases)
-
     indexed = {case['id']: case for case in dataset['cases']}
+    prepared = deepcopy(cases) if repairs else cases
+    if repairs:
+        if repair_cases(dataset['cases'], repairs, reuse_calls=True) != dataset['cases']:
+            raise ValueError('Canonical task repairs have not been applied')
+        for item in repairs['repairs']:
+            case = prepared.get(item['case_id'])
+            if case is None:
+                continue
+            if case['query'] != item['after']['query']:
+                raise ValueError('Changed query requires a new provider call: ' + case['id'])
+            if (item.get('requires_fresh_calls') and item['before']['query'] == item['after']['query']
+                    and {key: case.get(key) for key in item['after']} != item['after']):
+                raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
+            # Calls bind queries; approved definitions own their scoring metadata.
+            case.update(deepcopy(item['after']))
+            case['derivation'] = indexed[case['id']]['derivation']
+            for key in ('answer_derivation', 'equivalent_reference_urls', 'equivalent_reference_provenance'):
+                case.pop(key, None)
     from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES, FULL_MIRROR_POLICY
 
     full = dataset.get('reference_equivalence', {}).get('method') in FULL_MIRROR_POLICIES

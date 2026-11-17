@@ -86197,6 +86197,80 @@
     }
   ],
   "web_search": {
+    "coordinate-answer-formats": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′S"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°59′N"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude 13°61′S"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "coordinate-evidence",
+          "reference_answer": "-13.99 (acceptable range: anything between -14.01 and -13.95)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/city"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/city",
+            "snippet": "Latitude -13.9865846103"
+          }
+        ],
+        "expected": true
+      }
+    ],
     "discretionary-text-hyphens": [
       {
         "kind": "factual_dataset",
