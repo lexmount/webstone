@@ -188,6 +188,9 @@ def test_public_views_retain_scoring_only_revision_and_verify_old_summary(tmp_pa
     page=(reviewed/'review/index.html').read_text()
     assert 'current-result-review' in page and '已知程序判定' in page
     assert '原评分摘要' in page
+    assert 'Evidence audit' in page and 'Native answer retained' in page
+    assert 'score-revision-evidence' not in page
+    assert '../matrix.json' in page
     assert check_saved_matrix(reviewed,spec_path=tmp_path/'spec.json')['valid']
 
 

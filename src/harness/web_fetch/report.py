@@ -2789,6 +2789,16 @@ def write_saved_changes(out):
  write(out,'changes/index.html',(t('report_changelog_6a4481', 'Changelog')),hero((t('report_changelog_6a4481', 'Changelog')),saved_matrix_text('changes_scope'))+section((t('report_corrections_to_this_run_ff4ddd', 'Corrections to this run')),'<div class="review-rounds">'+updates+'</div>')+section((t('report_supporting_evidence_f9035c', 'Supporting evidence')),'<p>'+link('../review/index.html',(t('report_review_scope_and_corrections_e82445', 'Review scope and corrections')))+' · '+link('../analysis/index.html',(t('report_per_task_results_and_evidence_ddad92', 'Per-task results and evidence')))+' · '+link('../reproduce/index.html',(t('report_run_parameters_and_versions_be2f2a', 'Run parameters and versions')))+'</p>'))
 
 
+def review_rounds_html(rounds):
+ return ''.join(
+  '<article class="review-round"><div class="round-label">'+t('round','Round {i}',i=i)+
+  '<br><small>'+esc(row.get('date',''))+'</small></div><div><h3>'+model_text(row.get('title',''),row.get('title_en'))+'</h3>'+''.join(
+   '<p><b>'+label+'</b>'+model_text(row.get(key,''),row.get(key+'_en'))+'</p>'
+   for key,label in [('scope',t('scope_2','Scope:')),('finding',t('finding','Finding:')),
+                     ('fix',t('correction','Correction:')),('pending',t('outstanding','Outstanding:'))])+ '</div></article>'
+  for i,row in enumerate(rounds,1))
+
+
 def write_review_page(out,records):
  revision_path=out/'score-revision.json'
  matrix=json.loads((out/'matrix.json').read_text(encoding='utf-8')) if (out/'matrix.json').is_file() else {}
@@ -2809,6 +2819,8 @@ def write_review_page(out,records):
     note+='<p>'+t('known_outcome_audit_protocol', 'This evidence audit knew the machine outcomes. It checked saved responses, frozen requirements, native field selection and call evidence; it is not an independent blind review and added no provider calls.')+'</p>'
    note+='<p>'+link('../result-review.json',t('review_records', '{count}/{count2} · review records',count=audit.get('reviewed_attempts',0),count2=audit.get('total_attempts',0)))+'</p>'
    page+=section(t('current_status', 'Current status'),note,'current-result-review')
+   if audit.get('review_rounds'):
+    page+=section(t('review_rounds','Review rounds'),'<div class="review-rounds">'+review_rounds_html(audit['review_rounds'])+'</div>')
   if adopted:
    sections=[]
    for group in adopted:
@@ -2841,14 +2853,24 @@ def write_review_page(out,records):
    page+=section((t('report_per_case_decisions_b7f78d', 'Per-case decisions')),table([(t('report_task_suite_863437', 'Task suite')),(t('report_task_6603e1', 'Task')),(t('report_rules_removed_eb1112', 'Rules removed')),(t('report_removed_requirements_ae3ca3', 'Removed requirements')),(t('report_evidence_2e9f01', 'Evidence'))],rows,'score-revision-decisions'))
   matrix=json.loads((out/'matrix.json').read_text(encoding='utf-8')) if (out/'matrix.json').is_file() else {}
   rows=[]
+  revisions=[revision,*[group['receipt'] for group in adopted]]
+  changed_cases={case for item in revisions for case in item.get('changed_cases',[])}
+  changed_attempts={change['attempt_id'] for item in revisions for step in item.get('steps',[])
+                    for change in step.get('task_verdict_changes',[])}
   for row in matrix.get('rows',[]):
    proof=row.get('score_revision')
    if proof:
+    current=json.loads(contained_path(out,row['record_path']).read_text(encoding='utf-8'))
+    if (row['suite']+'--'+row['case_id'] not in changed_cases
+        and row['suite']+'--'+current['attempt_id'] not in changed_attempts):
+     continue
     rows.append(('', ''.join([cell(esc(row['suite'])),cell(esc(row['case_id'])),cell(esc(row['provider'])),
                  cell(link('../'+proof['before_case_path'],(t('report_original_rules_3a92e4', 'Original rules')))),cell(link('../'+(proof.get('before_summary_path') or proof['before_record_path']),
                      t('historical_score_summary', 'Historical score summary') if proof.get('before_summary_path') else t('report_original_result_b302a6', 'Original result'))),
                  cell(link('../'+row['case_path'],(t('report_revised_rules_36d7de', 'Revised rules')))),cell(link('../'+row['record_path'],(t('report_rescored_result_f1f6a8', 'Rescored result'))))])))
   if rows:page+=section((t('report_before_and_after_evidence_de3fc6', 'Before and after evidence')),table([(t('report_task_suite_863437', 'Task suite')),(t('report_task_6603e1', 'Task')),(t('report_method_22b9f0', 'Method')),(t('report_original_rules_3a92e4', 'Original rules')),(t('report_original_result_b302a6', 'Original result')),(t('report_revised_rules_36d7de', 'Revised rules')),(t('report_rescored_result_f1f6a8', 'Rescored result'))],rows,'score-revision-evidence'))
+  if matrix:
+   page+='<p>'+link('../matrix.json',t('complete_revision_inventory','Complete revision sources, including historical score summaries'))+'</p>'
   write(out,'review/index.html',(t('report_review_record_efa815', 'Review record')),page)
   return
  path=out/'result-review.json'
@@ -2869,9 +2891,7 @@ def write_review_page(out,records):
   if not metadata_path.is_file():
    raise ValueError('A reviewed report requires bound review rounds or legacy research/report-changes.json')
   rounds=require_review_rounds(json.loads(metadata_path.read_text(encoding='utf-8')))
- rounds_html=''.join(
-  ('<article class="review-round"><div class="round-label">' + t('round', 'Round {i}', i=i) + f"<br><small>{esc(row.get('date', ''))}</small></div><div><h3>{model_text(row.get('title', ''), row.get('title_en'))}</h3><p><b>" + t('scope_2', 'Scope:') + f"</b>{model_text(row.get('scope', ''), row.get('scope_en'))}</p><p><b>" + t('finding', 'Finding:') + f"</b>{model_text(row.get('finding', ''), row.get('finding_en'))}</p><p><b>" + t('correction', 'Correction:') + f"""</b>{model_text(row.get('fix', ''), row.get('fix_en'))}</p><p class="round-result"><b>""" + t('outstanding', 'Outstanding:') + f"</b>{model_text(row.get('pending', ''), row.get('pending_en'))}</p></div></article>")
-  for i,row in enumerate(rounds,1))
+ rounds_html=review_rounds_html(rounds)
  page=hero(t('review_record', 'Review record'),t('each_review_round_records_its_scope_findings', 'Each review round records its scope, findings, corrections, and unresolved items.'))
  reviewed_attempts=audit.get('attempts',[])
  disagreements=[row for row in reviewed_attempts

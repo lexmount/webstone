@@ -1,6 +1,7 @@
 {
   "zh": {
     "historical_score_summary": "原评分摘要",
+    "complete_revision_inventory": "完整修订来源及原评分摘要清单",
     "body_target_region_count": "达到覆盖目标的区域为 {actual} 个，要求至少 {required} 个。",
     "document_sections_incomplete": "要求的文档章节未被识别",
     "document_section_evidence": "章节标题或正文检查未满足：{sections}。返回标题可能存在差异，请查看完整返回。",
