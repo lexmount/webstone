@@ -398,7 +398,7 @@ def test_failure_column_separates_client_timeout_empty_result_and_response_error
     selected = view(n=4)
     group = [r for r in selected['rows'] if r['method'] == 'a']
     group[0].update(http_status=0, transport_exit=28, error='Operation timed out')
-    group[1].update(http_status=200, results=[], error='EmptySERP')
+    group[1].update(http_status=200, results=[], error='')
     group[2].update(http_status=502, error='Proxy Error')
     group[3].update(http_status=0, transport_exit=6, error='Could not resolve host')
     selected['profile']['protocol']['client_timeout_s'] = 60
@@ -412,3 +412,14 @@ def test_failure_column_separates_client_timeout_empty_result_and_response_error
     assert not failure.has_attr('hidden')
     assert row.select_one('[data-metric$="-mean_ms"]').has_attr('hidden')
     assert not row.select_one('[data-metric$="-p50_ms"]').has_attr('hidden')
+
+
+def test_http_200_api_error_and_valid_empty_response_keep_distinct_causes():
+    selected = view(n=2)
+    calls = [r for r in selected['rows'] if r['method'] == 'a']
+    calls[0].update(http_status=200, results=[], error='Response.Error: AccountSuspended')
+    calls[1].update(http_status=200, results=[], error='')
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    failure = doc.select_one('[data-summary-method="a"] [data-request-failures]')
+    assert failure.select_one('summary').get_text() == '2/2'
+    assert [n.get_text() for n in failure.select('li')] == ['Empty results: 1', 'API or response error: 1']

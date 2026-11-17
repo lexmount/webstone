@@ -700,13 +700,13 @@ def render_level_detail(views, row, zh=False):
 def level_purpose(level, benchmark, zh=False):
     t = partial(report_text, zh=zh)
     if benchmark == 'scenario':
-        return (t('Everyday search tasks cover official pages, recent facts, technical questions and website constraints. Read nDCG@5 for how useful the first five results are and how early useful results appear.')
-                if level != 'l3' else t('Everyday search tasks test whether the generated answer directly satisfies the request. Read answer usefulness, scored from 0 to 3.'))
+        return (t('Search tasks test the usefulness and ranking of the first five results.')
+                if level != 'l3' else t('Search tasks test whether the generated answer satisfies the request.'))
     if level == 'l1':
-        return t('SimpleQA Verified asks short factual questions with independently annotated supporting pages. Read MRR@5 for source ranking and Source Hit@5 for coverage. Answer Match@5 only checks answer words in titles and primary previews.')
+        return t('Factual questions test whether the first five results find a verified reference page and rank it early.')
     if level == 'l2':
-        return t('The same factual questions test whether additional original excerpts contain the answer. Read Extra-text Answer Match@5; titles, primary previews and generated answers cannot supply this score.')
-    return t('The same factual questions test the generated answer against the official SimpleQA correct, incorrect and not-attempted rubric. Read accuracy first, then citation support.')
+        return t('Factual questions test answer-text coverage in additional excerpts, excluding titles and primary previews.')
+    return t('Factual questions test generated-answer correctness with the official SimpleQA rubric.')
 
 
 def level_conclusion(view, panel, zh=False):

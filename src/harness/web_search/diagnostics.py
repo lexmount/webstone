@@ -13,10 +13,10 @@ def request_outcome(row):
         return 'client_timeout'
     if row.get('transport_exit') or row.get('http_status', 200) == 0:
         return 'network_error'
-    if row.get('http_status', 200) == 200 and not row.get('results'):
-        return 'empty_results'
     if row.get('http_status', 200) != 200 or error:
         return 'response_error'
+    if not row.get('results'):
+        return 'empty_results'
     return 'results'
 
 

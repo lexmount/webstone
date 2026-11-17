@@ -716,6 +716,11 @@
     "Key metrics": "关键指标",
     "All metrics": "全部指标",
     "Scenario queries measure search usefulness; SimpleQA checks factual sources and answers. Each output type has its own primary metric.": "场景题看搜索结果是否有用，SimpleQA 检查事实来源和答案。三类输出各自计分，以对应的主指标比较。",
-    "Benchmark tasks and scored fields": "查看评测任务、输入字段与参评方法"
+    "Benchmark tasks and scored fields": "查看评测任务、输入字段与参评方法",
+    "Search tasks test the usefulness and ranking of the first five results.": "搜索需求题，衡量前五条结果是否有用、排序是否合理。",
+    "Search tasks test whether the generated answer satisfies the request.": "搜索需求题，衡量生成答案能否满足查询要求。",
+    "Factual questions test whether the first five results find a verified reference page and rank it early.": "事实问题，衡量前五条是否找到已核验的参考网页，以及命中排名。",
+    "Factual questions test answer-text coverage in additional excerpts, excluding titles and primary previews.": "事实问题，只检查补充原文是否包含答案文字，不含标题和主要摘要。",
+    "Factual questions test generated-answer correctness with the official SimpleQA rubric.": "事实问题，按 SimpleQA 官方规则判断生成答案是否正确。"
   }
 }
