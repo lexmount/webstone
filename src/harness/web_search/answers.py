@@ -19,6 +19,7 @@ from lexbench_websearch.answers import (
     citation_grades,
     factual_grade,
     factual_messages,
+    has_html_markup,
     official_template,
     scenario_grade,
 )
@@ -57,6 +58,8 @@ def _jobs(profile, rows, upstream_source):
     actual = [(row['method'], row['case_id']) for row in rows]
     if len(actual) != len(set(actual)) or set(actual) != expected:
         raise ValueError('Answer grading requires the complete method-by-task population')
+    if any(has_html_markup(row.get("answer") or "") for row in rows):
+        raise ValueError("Saved answers contain unsupported HTML markup")
     jobs, packets = {}, {}
     for row in rows:
         case = cases[row['case_id']]

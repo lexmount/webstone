@@ -555,7 +555,21 @@ report check; no provider account is needed.
 
 Current reference-mirror revisions verify each question from hash-bound full
 captures. Matching article titles must retain the reference answer when it is
-present in the original capture; otherwise both full article texts must overlap
+present in the original capture. Both full article texts must also overlap
 by at least 80%. Every derived candidate has a recorded outcome, including failed
 captures. Dataset builds and report input checks replay the complete audit;
 historical lead-only receipts remain readable only for their frozen revisions.
+
+
+Generated-answer citation scoring supports native citation IDs and Markdown links.
+Raw HTML answers are outside this contract: release replay rejects them before any
+judge request. HTML anchors are never counted as citations. Native IDs retain the
+first delivered record for that ID; distinct IDs may retain distinct excerpts of
+the same document. Browser layout and CSS visibility are not simulated.
+
+Summary tables keep method names separate from request outcomes. Failed-request
+counts expand into client timeouts, other network errors, empty results and API or
+response errors, using the frozen call metadata. The default view shows key quality,
+P50 latency, price and request failures; remaining metrics stay in the same sortable
+table under All metrics. Rejected reference candidates belong in the dataset audit,
+not among unfinished scores in the leaderboard.

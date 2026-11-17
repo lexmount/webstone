@@ -8,7 +8,8 @@ from .inputs import digest
 
 
 MIRROR_POLICY = 'reference-title-lead/1'
-FULL_MIRROR_POLICY = 'reference-question-evidence/1'
+FULL_MIRROR_POLICY = 'reference-question-evidence/2'
+FULL_MIRROR_POLICIES = {'reference-question-evidence/1', FULL_MIRROR_POLICY}
 MIRROR_LEAD_CHARACTERS = 4000
 MIRROR_MINIMUM_CHARACTERS = 200
 MIRROR_OVERLAP = .8
@@ -87,7 +88,7 @@ def article_text(raw, *, media_type='text/html', source_title=None):
     return title, body.get_text(' ', strip=True) if body else ''
 
 
-def qualify_question_mirror(reference, candidate, answer):
+def qualify_question_mirror(reference, candidate, answer, *, policy=FULL_MIRROR_POLICY):
     """Require the same article and this question's supporting evidence."""
     from .scoring import contains_answer
     from .outputs import block_overlap, normalized_text
@@ -105,12 +106,17 @@ def qualify_question_mirror(reference, candidate, answer):
     mirror_has_answer = contains_answer(right, answer)
     title_matches = normalized_text(reference['title']) == normalized_text(candidate['title'])
     overlap = min(block_overlap(right, left), block_overlap(left, right))
-    return dict(url=candidate['url'], reference_url=reference['url'], method=FULL_MIRROR_POLICY,
+    qualified = (mirror_has_answer if reference_has_answer else overlap >= MIRROR_OVERLAP)
+    if policy == FULL_MIRROR_POLICY:
+        qualified = overlap >= MIRROR_OVERLAP and (not reference_has_answer or mirror_has_answer)
+    elif policy not in FULL_MIRROR_POLICIES:
+        raise ValueError('Unsupported full reference policy')
+    return dict(url=candidate['url'], reference_url=reference['url'], method=policy,
                 verified_at=candidate['verified_at'], title_matches=title_matches,
                 reference_observation_sha256=reference['body_sha256'], observation_sha256=candidate['body_sha256'],
                 reference_has_answer=reference_has_answer, mirror_has_answer=mirror_has_answer,
                 article_overlap=overlap,
-                qualified=title_matches and (mirror_has_answer if reference_has_answer else overlap >= MIRROR_OVERLAP))
+                qualified=title_matches and qualified)
 
 
 def _full_capture(observation, artifacts):
@@ -128,7 +134,7 @@ def _full_capture(observation, artifacts):
     return value
 
 
-def extend_reference_urls(dataset, observations, *, artifacts=None):
+def extend_reference_urls(dataset, observations, *, artifacts=None, policy=FULL_MIRROR_POLICY):
     """Audit every case/candidate under one question-specific full-page rule."""
     from copy import deepcopy
 
@@ -146,7 +152,7 @@ def extend_reference_urls(dataset, observations, *, artifacts=None):
             for candidate in mirror_candidates(reference):
                 record = dict(case_id=case['id'], reference_url=reference, url=candidate)
                 try:
-                    proof = qualify_mirror(indexed.get(reference, {}), indexed.get(candidate, dict(url=candidate)), answer=case['reference_answer'])
+                    proof = qualify_question_mirror(indexed.get(reference, {}), indexed.get(candidate, dict(url=candidate)), case['reference_answer'], policy=policy)
                 except ValueError:
                     records.append(dict(record, outcome='capture_failed'))
                     continue
@@ -160,7 +166,7 @@ def extend_reference_urls(dataset, observations, *, artifacts=None):
         audit.extend(records)
         coverage.append(dict(case_id=case['id'], candidate_count=len(records),
                              **{key: sum(r['outcome'] == key for r in records) for key in ('verified', 'title_mismatch', 'evidence_mismatch', 'capture_failed')}))
-    extended['reference_equivalence'] = dict(method=FULL_MIRROR_POLICY,
+    extended['reference_equivalence'] = dict(method=policy,
         minimum_article_characters=MIRROR_MINIMUM_CHARACTERS, minimum_block_overlap=MIRROR_OVERLAP,
         candidate_scope='Publisher reference URLs only', url_policy='document-url/2', case_coverage=coverage)
     extended['reference_equivalence_audit'] = audit
@@ -170,7 +176,8 @@ def extend_reference_urls(dataset, observations, *, artifacts=None):
 
 def validate_reference_evidence(dataset, artifacts):
     """Replay all full captures and reject incomplete or altered admissions/audits."""
-    if dataset.get('reference_equivalence', {}).get('method') != FULL_MIRROR_POLICY:
+    policy = dataset.get('reference_equivalence', {}).get('method')
+    if policy not in FULL_MIRROR_POLICIES:
         return
     observations = dataset.get('reference_equivalence_observations')
     if not isinstance(observations, list):
@@ -179,7 +186,7 @@ def validate_reference_evidence(dataset, artifacts):
     required = references | {url for reference in references for url in mirror_candidates(reference)}
     if {item.get('url') for item in observations} != required:
         raise ValueError('Incomplete full reference capture inventory')
-    rebuilt = extend_reference_urls(dataset, observations, artifacts=artifacts)
+    rebuilt = extend_reference_urls(dataset, observations, artifacts=artifacts, policy=policy)
     for field in ('reference_equivalence', 'reference_equivalence_audit'):
         if rebuilt[field] != dataset.get(field):
             raise ValueError('Reference candidate audit differs from full capture replay')
@@ -202,13 +209,14 @@ def validate_reference_extensions(case):
         raise ValueError('Equivalent reference URLs require complete unique provenance')
     for proof in proofs:
         reference = proof.get('reference_url')
-        full = proof.get('method') == FULL_MIRROR_POLICY
+        full = proof.get('method') in FULL_MIRROR_POLICIES
         overlap = proof.get('article_overlap' if full else 'lead_overlap')
         if (reference not in case.get('reference_urls',[]) or proof['url'] not in mirror_candidates(reference)
-                or proof.get('method') not in (MIRROR_POLICY, FULL_MIRROR_POLICY) or proof.get('title_matches') is not True
+                or proof.get('method') not in {MIRROR_POLICY, *FULL_MIRROR_POLICIES} or proof.get('title_matches') is not True
                 or proof.get('qualified') is not True or type(overlap) not in (float,int)
                 or not 0 <= overlap <= 1
                 or (not full and overlap < MIRROR_OVERLAP)
+                or (proof.get('method') == FULL_MIRROR_POLICY and overlap < MIRROR_OVERLAP)
                 or (full and any(type(proof.get(field)) is not bool for field in ('reference_has_answer', 'mirror_has_answer')))
                 or (full and not (proof.get('mirror_has_answer') is True if proof.get('reference_has_answer') is True else overlap >= MIRROR_OVERLAP))
                 or any(not re.fullmatch('[0-9a-f]{64}',proof.get(field,'')) for field in

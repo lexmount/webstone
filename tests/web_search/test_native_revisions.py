@@ -771,7 +771,7 @@ def test_current_full_capture_and_visible_html_controls_use_production_scoring()
 
     validate_revision_controls(dict(
         root_cause='Question-specific full capture evidence and rendered HTML citation boundaries.',
-        regression_ids=['reference-question-evidence', 'visible-html-citation-links'], provider_calls=0))
+        regression_ids=['reference-question-evidence', 'plain-answer-citation-scope'], provider_calls=0))
 
 
 @pytest.mark.parametrize('initial_full', [False, True])

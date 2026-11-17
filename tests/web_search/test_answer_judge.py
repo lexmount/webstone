@@ -249,13 +249,12 @@ def test_reference_only_rebinding_replays_identical_answer_requests(answer_run):
         verify_answer_evidence(updated, rows, result, answer_run['source'])
 
 
-@pytest.mark.parametrize('hidden', [False, True])
-def test_html_citations_are_judged_only_when_the_anchor_is_visible(answer_run, hidden):
+
+
+@pytest.mark.parametrize('html', ['<a href="https://example.test/doc">source</a>', '<span>Claim</span>'])
+def test_saved_html_answers_fail_release_replay_before_judge_calls(answer_run, html):
     for row in answer_run['rows']:
-        row['answer'] = 'Ada wrote it <a '+('hidden ' if hidden else '')+'href="https://example.test/doc">source</a>.'
-    answer_run['run']()
-    evidence = json.loads((answer_run['output']/'answers.json').read_bytes())
-    assert len(evidence['calls']) == (2 if hidden else 4)
-    assert all(row['citation_count'] == (0 if hidden else 1) for row in evidence['results'])
-    if not hidden:
-        assert all(row['citation_support'] == 1 for row in evidence['results'])
+        row['answer'] = html
+    with pytest.raises(ValueError, match='unsupported HTML'):
+        answer_run['run']()
+    assert not (answer_run['output']/'answers.json').exists()

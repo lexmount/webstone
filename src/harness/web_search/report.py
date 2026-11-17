@@ -110,9 +110,9 @@ def fmt(value):
     return "—" if value is None else f"{value:,.2f}"
 
 
-def table(headers, rows, sortable=True, *, bounded=False, primary_column=None, significance=False, query_count=None):
+def table(headers, rows, sortable=True, *, bounded=False, primary_column=None, significance=False, query_count=None, hidden_columns=()):
     head = "".join(
-        f'<th aria-sort="{"descending" if i == primary_column else "none"}"' + (' data-primary-metric' if i == primary_column else '') + f'><button type="button" aria-label="{esc(h)}" data-sort-column="{i}">{esc(h)}</button></th>'
+        '<th' + (' data-extra-column hidden' if i in hidden_columns else '') + f' aria-sort="{"descending" if i == primary_column else "none"}"' + (' data-primary-metric' if i == primary_column else '') + f'><button type="button" aria-label="{esc(h)}" data-sort-column="{i}">{esc(h)}</button></th>'
         if sortable
         else f"<th>{esc(h)}</th>"
         for i, h in enumerate(headers)

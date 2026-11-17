@@ -197,3 +197,17 @@ def test_full_mirror_proof_is_question_scoped_and_replayable(change):
     modified = dict(artifacts, **{'mirror.md': b'changed'})
     with pytest.raises(ValueError, match='hash'):
         validate_reference_evidence(result, modified)
+
+
+@pytest.mark.parametrize('complete', [False, True])
+def test_short_answer_token_requires_full_article_coverage(complete):
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+    original = ' '.join('Distinct reference sentence %d about the composer.' % n for n in range(100))
+    candidate = original if complete else 'An unrelated article about 2 performances. ' * 15
+    def observed(url, text):
+        return dict(url=url, title='Composer', article_text=text + ' Answer: 2.', status=200,
+                    verified_at='2026-11-17T00:00:00Z', body_sha256='a'*64)
+    proof = qualify_question_mirror(observed('https://en.wikipedia.org/wiki/Composer', original),
+                                   observed('https://wiki2.org/en/Composer', candidate), '2')
+    assert proof['mirror_has_answer']
+    assert proof['qualified'] is complete

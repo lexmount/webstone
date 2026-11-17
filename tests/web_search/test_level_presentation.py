@@ -162,7 +162,9 @@ def test_layer_table_has_correct_sort_order_raw_highlights_and_supported_stars(z
         assert first.select_one('[data-metric$="-' + key + '"] .comparison-extremum') is not None
     assert first.select_one('[data-metric$="-source_rr"] .comparison-winner')
     assert not first.select_one('[data-metric$="-context_characters"] .comparison-extremum')
-    assert not doc.select_one('[data-level-summary-filter]')
+    assert doc.select_one('[data-level-summary-filter]')
+    assert doc.select_one('[data-summary-metrics]')
+    assert len(table.select('thead th:not([hidden])')) <= 8
     assert doc.select_one('.scroll.inventory[tabindex="0"]')
 
 
@@ -325,11 +327,10 @@ def test_verified_mirrors_keep_publisher_scores_and_capture_failures_separate():
     selected['benchmarks'] = level_benchmarks(selected)
     scores = selected['benchmarks']['factual']['scores']
     assert all(s['source_hit'] == 1 and s['publisher_hit'] == 0 for s in scores if s['method'] == 'a')
-    assert all(s['capture_failed'] == 1 and s['source_hit'] == 0 for s in scores if s['method'] == 'b')
+    assert all('capture_failed' not in s and s['source_hit'] == 0 for s in scores if s['method'] == 'b')
     doc = check_presentation(render_level_summary(selected))
-    cells = doc.select('[data-summary-method="b"] [data-metric$="-capture_failed"]')
-    assert len(cells) == 1 and cells[0].get_text(strip=True) == '2/2'
-    assert not cells[0].select('.win, .best')
+    assert not doc.select('[data-metric$="-capture_failed"]')
+    assert 'Unverified mirror questions' not in doc.get_text()
 
 
 def test_request_failures_are_visible_beside_the_affected_method():
@@ -337,7 +338,12 @@ def test_request_failures_are_visible_beside_the_affected_method():
     selected['rows'][0].update(http_status=503, error='Service unavailable')
     doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
     affected = doc.select_one('[data-summary-method="' + selected['rows'][0]['method'] + '"]')
-    assert affected.select_one('[data-delivery-limited]').get_text() == 'Delivery limited: 1/2 failed calls'
+    assert affected.select_one('[data-method-name]').get_text() == 'Method B'
+    failure = affected.select_one('[data-metric$="-failed_calls"]')
+    assert failure['data-value'] == '1'
+    assert failure.select_one('summary').get_text() == '1/2'
+    assert 'API or response error: 1' in failure.get_text()
+    assert 'failed' not in affected.select_one('td').get_text().lower()
 
 
 @pytest.mark.parametrize('damage', ['missing', 'count', 'audit-link'])
@@ -385,3 +391,24 @@ def test_mixed_reference_audits_do_not_declare_unavailable_panel_metrics():
     assert not keys.intersection({'publisher_rr', 'publisher_hit', 'capture_failed'})
     assert all('capture_failed' not in score for score in selected['benchmarks']['factual']['scores'])
     assert check_presentation(render_level_summary(selected))
+
+
+@pytest.mark.parametrize('zh', [False, True])
+def test_failure_column_separates_client_timeout_empty_result_and_response_errors(zh):
+    selected = view(n=4)
+    group = [r for r in selected['rows'] if r['method'] == 'a']
+    group[0].update(http_status=0, transport_exit=28, error='Operation timed out')
+    group[1].update(http_status=200, results=[], error='EmptySERP')
+    group[2].update(http_status=502, error='Proxy Error')
+    group[3].update(http_status=0, transport_exit=6, error='Could not resolve host')
+    selected['profile']['protocol']['client_timeout_s'] = 60
+    doc = BeautifulSoup(render_level_summary(selected, zh), 'html.parser')
+    row = doc.select_one('[data-summary-method="a"]')
+    assert row.select_one('[data-method-name]').get_text() == 'Method A'
+    failure = row.select_one('[data-metric$="-failed_calls"]')
+    assert failure.select_one('summary').get_text() == '4/4'
+    assert len(failure.select('li')) == 4
+    assert '60' in failure.get_text()
+    assert not failure.has_attr('hidden')
+    assert row.select_one('[data-metric$="-mean_ms"]').has_attr('hidden')
+    assert not row.select_one('[data-metric$="-p50_ms"]').has_attr('hidden')

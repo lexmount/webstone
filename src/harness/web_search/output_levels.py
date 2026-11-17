@@ -286,8 +286,7 @@ def level_benchmarks(view):
                                     if level == 'l1' else [('answer_match', 'Extra-text Answer Match@5')]))
         if level == 'l1' and audit_complete:
             definitions['factual'] += [('publisher_rr', 'Publisher-only MRR@5'),
-                                       ('publisher_hit', 'Publisher-only Hit@5'),
-                                       ('capture_failed', 'Unverified mirror questions')]
+                                       ('publisher_hit', 'Publisher-only Hit@5')]
     output = {}
     for benchmark in ('scenario', 'factual'):
         timing_ids = [cid for cid, case in cases.items()
@@ -319,12 +318,10 @@ def level_benchmarks(view):
                     values.update(source_rr=metrics['labeled_source_rr_5'], source_hit=metrics['labeled_source_hit_5'],
                                   answer_match=metrics['answer_in_preview_5'])
                     if audit_complete:
-                        from lexbench_websearch.scoring import canonical_url, factual_evidence
+                        from lexbench_websearch.scoring import factual_evidence
 
                         publisher = factual_evidence(dict(cases[cid], equivalent_reference_urls=[]), row['results'], cutoff=5)
-                        failed = {canonical_url(url, policy='document-url/2') for url in cases[cid]['capture_failed_reference_urls']}
-                        values.update(publisher_rr=publisher['labeled_source_rr_5'], publisher_hit=publisher['labeled_source_hit_5'],
-                            capture_failed=int(any(not item.get('invalid_slot') and canonical_url(item['url'], policy='document-url/2') in failed for item in row['results'][:5])))
+                        values.update(publisher_rr=publisher['labeled_source_rr_5'], publisher_hit=publisher['labeled_source_hit_5'])
                 else:
                     values['answer_match'] = metrics['answer_in_extra_text_5']
             scored.append(values)

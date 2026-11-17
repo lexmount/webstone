@@ -646,7 +646,9 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
     from lexbench_websearch.simpleqa import validate_reference_evidence
 
     indexed = {case['id']: case for case in dataset['cases']}
-    full = dataset.get('reference_equivalence', {}).get('method') == 'reference-question-evidence/1'
+    from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES
+
+    full = dataset.get('reference_equivalence', {}).get('method') in FULL_MIRROR_POLICIES
     if full and regression_ids is not None and 'reference-question-evidence' not in regression_ids:
         raise ValueError('Full reference revision requires question-evidence regression controls')
     for case in cases.values():

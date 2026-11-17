@@ -311,6 +311,7 @@ def render_level_guide(views, zh=False):
     body = '<section class="level-guide" data-level-guide aria-labelledby="level-guide-heading">'
     body += '<h2 id="level-guide-heading">' + t('What each output evaluation measures') + '</h2>'
     body += '<p>' + t('One API response can contain several output types. Each is scored separately; L1, L2 and L3 scores are not added together.') + '</p>'
+    body += '<p>' + t('Scenario queries measure search usefulness; SimpleQA checks factual sources and answers. Each output type has its own primary metric.') + '</p><details class="guide-details"><summary>' + t('Benchmark tasks and scored fields') + '</summary>'
     benchmarks = [name for name in ('scenario', 'factual') if name in panels]
     column_titles = {
         'scenario': t('Scenario benchmark · {count} queries', count=scope.get('scenario', 0))
@@ -348,7 +349,7 @@ def render_level_guide(views, zh=False):
         calls = len(panels['factual']['timing_case_ids'])
         if calls != scope['factual']:
             body += '<p class="metric-caption" data-guide-population>' + t('Factual quality uses {quality} valid queries; timing retains all {calls} factual calls.', quality=scope['factual'], calls=calls) + '</p>'
-    return body + '</section>'
+    return body + '</details></section>'
 
 
 def locale_context(rows, method_id, zh=False):
@@ -399,7 +400,7 @@ def render_level_summary(view, zh=False, *, content=None):
     labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
                   source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
                   publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
-                  capture_failed=t('Unverified mirror questions'),
+                  failed_calls=t('Failed requests'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
                   answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'),
                   citation_support=t('Citation support'), cited_urls_in_results=t('Cited URLs in results'),
@@ -424,6 +425,7 @@ def render_level_summary(view, zh=False, *, content=None):
                             dict(key='cited_urls_in_results', label='Cited URLs in results', direction='max')]
         else:
             definitions.append(dict(key='context_characters', label='Text characters / query', direction='neutral'))
+        definitions.append(dict(key='failed_calls', label='Failed requests', direction='min'))
         definitions += [dict(key=key, label=label, direction='min') for key, label in
                         [('mean_ms', 'Mean ms'), ('p50_ms', 'P50 ms'), ('p95_ms', 'P95 ms')]]
         labels['price'] = t('USD / 1,000 calls') if prices is not None else t('Price / 1,000 calls')
@@ -433,9 +435,12 @@ def render_level_summary(view, zh=False, *, content=None):
         intervals = {}
         if len(methods) > 1 and n >= 30:
             for key in quality_keys:
-                if key == 'capture_failed':
-                    continue
                 intervals[key] = paired_bootstrap(panel['scores'], method_ids, metric=key)
+        from collections import Counter
+
+        from harness.web_search.diagnostics import request_outcome
+
+        outcomes = {}
         records = []
         for method in methods:
             mid = method['id']
@@ -449,6 +454,9 @@ def render_level_summary(view, zh=False, *, content=None):
                 delivered = [r for r in rows if r['method'] == mid and r['case_id'] in ids]
                 values['context_characters'] = sum(len(item.get('title') or '') + len(item.get('snippet') or '')
                                                    for r in delivered for item in r['results']) / len(delivered)
+            calls = [r for r in view.get('timing_rows', rows) if r['case_id'] in ids and r['method'] == mid]
+            outcomes[mid] = Counter(request_outcome(r) for r in calls)
+            values['failed_calls'] = len(calls) - outcomes[mid]['results']
             latency = stats[mid]['all_latency']
             values.update(mean_ms=latency['mean'], p50_ms=latency['p50'], p95_ms=latency['p95'],
                           price=prices[mid]['amount'] if prices is not None else method.get('price_per_1000'))
@@ -457,20 +465,29 @@ def render_level_summary(view, zh=False, *, content=None):
         directions = {i: d['direction'] if len(methods) > 1 else 'neutral'
                       for i, d in enumerate(definitions)}
         winners = numeric_winners(columns, directions)
+        core = {panel['primary_metric'], 'source_hit', 'answer_match', 'precision', 'success', 'citation_support', 'failed_calls', 'p50_ms', 'price'}
         rendered = []
         for method, values in sorted(records, key=lambda row: (row[1][panel['primary_metric']] is None,
                                                                -(row[1][panel['primary_metric']] or 0))):
             mid = method['id']
             calls = [row for row in view.get('timing_rows', rows) if row['case_id'] in ids and row['method'] == mid]
-            failed = sum(bool(row.get('error') or row.get('transport_exit') or row.get('http_status', 200) != 200) for row in calls)
-            delivery = ('<small data-delivery-limited>' + t('Delivery limited: {failed}/{total} failed calls', failed=failed, total=len(calls)) + '</small>') if failed else ''
-            cells = ['<td>' + esc(method['label']) + delivery + '</td>']
+            cells = ['<td data-method-name>' + esc(method['label']) + '</td>']
             for index, metric in enumerate(definitions):
                 key, value = metric['key'], values[metric['key']]
                 label = '—' if value is None else (f'{value * 100:.1f}' if key == 'ndcg' else
                          f'{value:.3f}' if key in ('source_rr', 'publisher_rr') else
-                         f'{round(value * n)}/{n}' if key == 'capture_failed' else f'{value:.2f}' if key == 'answer_grade' else
+                         f'{value:.2f}' if key == 'answer_grade' else
                          f'{value:.1%}' if key in quality_keys or key in ('citation_support', 'cited_urls_in_results') else fmt(value))
+                if key == 'failed_calls':
+                    label = str(int(value)) + '/' + str(len(calls))
+                    counts = outcomes[mid]
+                    reasons = [('client_timeout', 'Client timeout'), ('network_error', 'Network error'), ('empty_results', 'Empty results'), ('response_error', 'API or response error')]
+                    breakdown = ''.join('<li>' + t(name) + ': ' + str(counts[reason]) + '</li>' for reason, name in reasons if counts[reason])
+                    if breakdown:
+                        from harness.web_search.revisions import collection_protocol
+                        limits = sorted({collection_protocol(profile, row).get('client_timeout_s') for row in calls if counts['client_timeout'] and collection_protocol(profile, row).get('client_timeout_s')})
+                        limit = ('<p>' + t('Client timeout limit: {seconds} s', seconds=', '.join(str(x) for x in limits)) + '</p>') if limits else ''
+                        label = '<details data-request-failures><summary>' + label + '</summary><ul>' + breakdown + '</ul>' + limit + '</details>'
                 if key == 'mean_ms':
                     batches = [b for b in profile.get('method_collections', []) if method['id'] in b['methods']]
                     contexts = []
@@ -503,8 +520,11 @@ def render_level_summary(view, zh=False, *, content=None):
                         digits = 3 if key == 'source_rr' else 2 if key == 'answer_grade' else 1
                         label += f'<small class="metric-ci">95% CI [{low * scale:.{digits}f}{unit}, {high * scale:.{digits}f}{unit}]</small>'
                 winner = index in winners and value == winners[index]
-                cells.append(numeric_cell(label, value, level + '-' + benchmark + '-' + key,
-                                          directions[index], winner, significant=significant))
+                cell = numeric_cell(label, value, level + '-' + benchmark + '-' + key,
+                                    directions[index], winner, significant=significant)
+                if key not in core:
+                    cell = cell.replace('<td', '<td data-extra-column hidden', 1)
+                cells.append(cell)
             rendered.append('<tr data-summary-method="' + esc(method['id']) + '">' + ''.join(cells) + '</tr>')
         name = t('Scenario relevance') if benchmark == 'scenario' else t('SimpleQA Verified')
         body += '<article data-level-benchmark="' + benchmark + '"><h3>' + name + f' · {n}' + t(' queries') + '</h3>'
@@ -512,7 +532,8 @@ def render_level_summary(view, zh=False, *, content=None):
         body += level_conclusion(view, panel, zh)
         body += '<p class="primary-guide" data-primary-guide>' + t('Primary metric: {metric}. Higher is better; the initial order is descending.', metric=labels[panel['primary_metric']]) + '</p>'
         headers = [t('Method')] + [labels[d['key']] + (' × 100' if d['key'] == 'ndcg' else '') for d in definitions]
-        body += table(headers, rendered, bounded=True, primary_column=1, significance=True, query_count=n)
+        body += '<div class="summary-controls"><label>' + t('Find method') + '<input type="search" data-level-summary-filter placeholder="' + esc(t('Method name')) + '"></label><label>' + t('Metrics') + '<select data-summary-metrics><option value="core">' + t('Key metrics') + '</option><option value="all">' + t('All metrics') + '</option></select></label></div>'
+        body += table(headers, rendered, bounded=True, primary_column=1, significance=True, query_count=n, hidden_columns=[i+1 for i,d in enumerate(definitions) if d['key'] not in core])
         body += '</article>'
     return body + '</section>'
 

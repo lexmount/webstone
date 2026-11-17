@@ -703,6 +703,19 @@
     "{results} results returned": "返回 {results} 条结果",
     "{screenshots} queries were transcribed from user screenshots; their original authors and posts are unconfirmed": "{screenshots} 道题照录自用户截图，原作者与原帖尚未确认",
     "{value:.1f}% ({n} queries)": "{value:.1f}% ({n}题)",
-    "★ marks a unique favorable value within its column. Populations differ across columns, so these are not an overall ranking. Charges use frozen list prices; unknown prices remain unavailable.": "★ 仅标出当前列唯一的较优数值；各列适用范围不同，不能合成总排名。费用按冻结目录价估算，未知价格保留为空。"
+    "★ marks a unique favorable value within its column. Populations differ across columns, so these are not an overall ranking. Charges use frozen list prices; unknown prices remain unavailable.": "★ 仅标出当前列唯一的较优数值；各列适用范围不同，不能合成总排名。费用按冻结目录价估算，未知价格保留为空。",
+    "Failed requests": "请求失败",
+    "Client timeout": "客户端超时",
+    "Network error": "网络错误",
+    "Empty results": "空结果",
+    "API or response error": "接口或响应错误",
+    "Client timeout limit: {seconds} s": "客户端超时上限：{seconds} 秒",
+    "Find method": "筛选方法",
+    "Method name": "方法名称",
+    "Metrics": "显示指标",
+    "Key metrics": "关键指标",
+    "All metrics": "全部指标",
+    "Scenario queries measure search usefulness; SimpleQA checks factual sources and answers. Each output type has its own primary metric.": "场景题看搜索结果是否有用，SimpleQA 检查事实来源和答案。三类输出各自计分，以对应的主指标比较。",
+    "Benchmark tasks and scored fields": "查看评测任务、输入字段与参评方法"
   }
 }

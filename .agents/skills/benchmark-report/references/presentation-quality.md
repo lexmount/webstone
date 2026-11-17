@@ -64,6 +64,8 @@ Encode these rules once in metric metadata and render from that metadata. Add a 
 
 ## Information architecture
 
+Method-name cells identify the method; place request failures and their recorded causes in a dedicated operational column. A completed reference audit must not appear as unfinished scoring: rejected candidates belong in the dataset audit. When the full metric inventory makes a leaderboard too wide, show its primary quality measures, latency, price and request outcomes by default, with the remaining columns available in the same sortable table.
+
 Use short, stable, reader-facing section names. A page should have one primary question and avoid repeating another page's full tables. Put headline decisions and the minimum evidence needed to understand them on the first page; put task-level comparison, failure analysis, and evidence drill-down together when readers move among them.
 
 Treat report structure as an information architecture, not a running list of requested explanations. Assign each fact to exactly one primary location: headline comparison, dataset definition, methodology, filterable result inventory, or result detail. Link to that owner instead of adding another summary table. If a process has at least three dependent stages or a meaningful branch, lead with a Mermaid diagram or a generated image that encodes the flow; use adjacent prose only for definitions, constraints, exceptions, and evidence that the diagram cannot carry.

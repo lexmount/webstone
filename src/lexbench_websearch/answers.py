@@ -4,18 +4,9 @@ import ast
 import hashlib
 import json
 import re
-from html import unescape
-from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
 from .scoring import canonical_url
-
-_BLOCK_TAGS = {'p', 'div', 'section', 'article', 'aside', 'li', 'dt', 'dd', 'blockquote', 'pre',
-               'hr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr', 'details', 'summary', 'dialog',
-               'address', 'dl', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'header', 'hgroup',
-               'main', 'menu', 'nav', 'ol', 'ul', 'legend', 'center', 'dir', 'search'}
-_REPLACED_TAGS = {'img', 'object', 'embed', 'input', 'select', 'textarea', 'br', 'wbr',
-                  'iframe', 'audio', 'video', 'canvas', 'progress', 'meter'}
 
 SIMPLEQA_UPSTREAM = {
     "repository": "https://github.com/openai/simple-evals",
@@ -26,233 +17,17 @@ SIMPLEQA_UPSTREAM = {
 GRADES = {"A": "CORRECT", "B": "INCORRECT", "C": "NOT_ATTEMPTED"}
 
 
-def _html_tokens(source):
-    """Locate original tag and marker spans; HTML5 parsing owns rendered structure."""
-    from markdown_it.token import Token
+def has_html_markup(answer):
+    """Detect raw HTML outside Markdown code; HTML answers are outside this scorer."""
+    from markdown_it import MarkdownIt
 
-    offsets = [0, *(match.end() for match in re.finditer('\n', source))]
-    class Tokens(HTMLParser):
-        CDATA_CONTENT_ELEMENTS = (*HTMLParser.CDATA_CONTENT_ELEMENTS, 'textarea', 'title', 'xmp')
-
-        def __init__(self):
-            super().__init__(convert_charrefs=False)
-            self.tokens = []
-
-        def position(self):
-            line, column = self.getpos()
-            return offsets[line - 1] + column
-
-        def emit(self, kind, text, start=None, end=None):
-            token = Token(kind, '', 0)
-            token.content = text
-            if start is not None:
-                token.meta['span'] = (start, end)
-            self.tokens.append(token)
-
-        def handle_starttag(self, tag, attrs):
-            text, start = self.get_starttag_text(), self.position()
-            self.emit('html_inline', text, start, start + len(text))
-
-        handle_startendtag = handle_starttag
-
-        def handle_endtag(self, tag):
-            start = self.position()
-            end = source.find('>', start) + 1
-            self.emit('html_inline', source[start:end], start, end)
-
-        def handle_data(self, data):
-            if self.cdata_elem in {'textarea', 'title', 'xmp'}:
-                self.emit('text', unescape(data))
-                return
-            offset, position = 0, self.position()
-            for match in re.finditer(r'\[引用[:：]\s*([0-9]+(?:\s*[,，、]\s*[0-9]+)*)\s*\]', data):
-                self.emit('text', data[offset:match.start()])
-                self.emit('native_citation', match[0], position + match.start(), position + match.end())
-                self.tokens[-1].meta['identities'] = re.split(r'\s*[,，、]\s*', match[1])
-                offset = match.end()
-            self.emit('text', data[offset:])
-
-        def handle_entityref(self, name):
-            self.emit('text', unescape('&' + name + ';'))
-
-        def handle_charref(self, name):
-            self.emit('text', unescape('&#' + name + ';'))
-
-    tokenizer = Tokens()
-    tokenizer.feed(source)
-    tokenizer.close()
-    return tokenizer.tokens
-
-
-def _visibility(tag, attributes, blocked, visibility, parent_box):
-    """Resolve supported inline visibility rules on the browser-compatible tree."""
-    import tinycss2
-
-    declarations, priorities = {}, {}
-    globals_ = {'initial', 'inherit', 'unset', 'revert', 'revert-layer'}
-    supported = {
-        'display': globals_ | {'none', 'contents', 'block', 'inline', 'flow', 'flow-root',
-            'table', 'flex', 'grid', 'ruby', 'list-item', 'inline-block', 'inline-table', 'inline-flex',
-            'inline-grid', 'table-row-group', 'table-header-group', 'table-footer-group', 'table-row',
-            'table-cell', 'table-column-group', 'table-column', 'table-caption', 'ruby-text'},
-        'visibility': globals_ | {'visible', 'hidden', 'collapse'},
-        'content-visibility': globals_ | {'visible', 'hidden', 'auto'},
-        'position': globals_ | {'static', 'relative', 'absolute', 'fixed', 'sticky'},
-        'float': globals_ | {'none', 'left', 'right', 'inline-start', 'inline-end'},
-    }
-    for declaration in tinycss2.parse_declaration_list(attributes.get('style') or '', skip_comments=True, skip_whitespace=True):
-        if declaration.type != 'declaration' or declaration.lower_name not in supported:
-            continue
-        key, important = declaration.lower_name, declaration.important
-        tokens = [t for t in declaration.value if t.type not in {'whitespace', 'comment'}]
-        if not tokens or any(t.type != 'ident' for t in tokens):
-            continue
-        values = [t.lower_value for t in tokens]
-        valid = len(values) == 1 and values[0] in supported[key]
-        if key == 'display' and len(values) == len(set(values)):
-            outer, inner = {'block', 'inline'}, {'flow', 'flow-root', 'table', 'flex', 'grid', 'ruby'}
-            valid = valid or len(values) == 2 and any(a in outer and b in inner for a, b in (values, values[::-1]))
-            if 'list-item' in values:
-                rest = set(values) - {'list-item'}
-                valid = rest <= outer | {'flow', 'flow-root'} and len(rest & outer) <= 1 and len(rest & {'flow', 'flow-root'}) <= 1
-        if not valid or priorities.get(key) and not important:
-            continue
-        declarations[key] = ' '.join(values)
-        priorities[key] = important
-    until_found = (attributes.get('hidden') or '').casefold() == 'until-found'
-    default_hidden = (tag in {'datalist', 'rp'} or tag == 'dialog' and 'open' not in attributes
-                      or 'hidden' in attributes and not until_found)
-    default_display = {'table': 'table', 'tr': 'table-row', 'td': 'table-cell', 'th': 'table-cell',
-                       'thead': 'table-header-group', 'tbody': 'table-row-group', 'tfoot': 'table-footer-group',
-                       'col': 'table-column', 'colgroup': 'table-column-group', 'caption': 'table-caption',
-                       'rt': 'ruby-text', 'ruby': 'ruby', 'button': 'inline-block'}.get(
-                           tag, 'block' if tag in _BLOCK_TAGS or tag == 'document_fragment' else 'inline')
-    defaults = {'display': 'none' if default_hidden else default_display,
-                'position': 'absolute' if tag == 'dialog' else 'static', 'float': 'none',
-                'content-visibility': 'hidden' if until_found else 'visible'}
-    initial = {'display': 'inline', 'position': 'static', 'float': 'none', 'content-visibility': 'visible'}
-    box = {}
-    for key, default in defaults.items():
-        value = declarations.get(key, default)
-        box[key] = (parent_box.get(key, initial[key]) if value == 'inherit' else initial[key]
-                    if value in {'initial', 'unset'} else default if value in {'revert', 'revert-layer'} else value)
-    values = set(box['display'].split())
-    if len(values) > 1:
-        outer = 'inline' if 'inline' in values else 'block'
-        inner = next((v for v in ('table', 'flex', 'grid', 'ruby', 'flow-root') if v in values), 'flow')
-        if 'list-item' in values:
-            box['display'] = ('inline-list-item' if inner == 'flow' else 'inline-flow-root-list-item') if outer == 'inline' else (
-                'list-item' if inner == 'flow' else 'flow-root list-item')
-        elif outer == 'inline':
-            box['display'] = {'flow': 'inline', 'flow-root': 'inline-block', 'ruby': 'ruby'}.get(inner, 'inline-' + inner)
-        else:
-            box['display'] = {'flow': 'block', 'ruby': 'block ruby'}.get(inner, inner)
-    elif box['display'] == 'flow':
-        box['display'] = 'block'
-    item_layout = parent_box.get('child_layout', parent_box.get('display'))
-    if box['position'] in {'absolute', 'fixed'} or box['float'] != 'none' or item_layout in {'flex', 'inline-flex', 'grid', 'inline-grid'}:
-        box['display'] = {'inline': 'block', 'inline-block': 'block', 'inline-table': 'table',
-                          'inline-flex': 'flex', 'inline-grid': 'grid', 'table-row': 'block',
-                          'table-cell': 'block', 'table-column': 'block', 'table-column-group': 'block',
-                          'table-row-group': 'block', 'table-header-group': 'block', 'table-footer-group': 'block',
-                          'table-caption': 'block', 'ruby-text': 'block', 'ruby': 'block ruby',
-                          'inline-list-item': 'list-item', 'inline-flow-root-list-item': 'flow-root list-item'}.get(box['display'], box['display'])
-    display = box['display']
-    box['child_layout'] = item_layout if display == 'contents' else display
-    content_hidden = (box['content-visibility'] == 'hidden' and tag not in _REPLACED_TAGS
-                      and display in {'block', 'flow-root', 'inline-block', 'flex', 'inline-flex', 'grid',
-                                      'inline-grid', 'table-cell', 'list-item', 'block ruby', 'flow-root list-item',
-                                      'inline-flow-root-list-item'})
-    inherited_visibility = parent_box.get('visibility', 'hidden' if visibility else 'visible')
-    own_visibility = declarations.get('visibility', 'inherit')
-    box['visibility'] = ('visible' if own_visibility == 'initial' else inherited_visibility
-                         if own_visibility in {'inherit', 'unset', 'revert', 'revert-layer'} else own_visibility)
-    row_boxes = {'table-row', 'table-row-group', 'table-header-group', 'table-footer-group'}
-    collapsed_row = (box['visibility'] == 'collapse' and display in row_boxes
-                     or display == 'table-cell' and inherited_visibility == 'collapse'
-                     and parent_box.get('display') not in row_boxes)
-    blocked = (blocked or tag in {'script', 'style', 'template', 'title', 'noscript', 'iframe', 'noembed', 'noframes',
-                                 'audio', 'video', 'canvas', 'progress', 'meter'}
-               or tag == 'input' and attributes.get('type', '').lower() == 'hidden'
-               or display in {'none', 'table-column', 'table-column-group'}
-               or display == 'contents' and tag in _REPLACED_TAGS or content_hidden or collapsed_row)
-    visibility = box['visibility'] != 'visible'
-    return blocked, visibility, box
-
-
-def _option_label(option):
-    if option.attrib.get('label'):
-        return option.attrib['label']
-    parts, pending = [], [option]
+    pending = list(MarkdownIt().parse(answer))
     while pending:
-        node = pending.pop()
-        if isinstance(node, str):
-            parts.append(node)
-            continue
-        if not isinstance(node.tag, str) or node.tag.rpartition('}')[2].lower() in {'script', 'style', 'template'}:
-            continue
-        parts.append(node.text or '')
-        for child in reversed(node):
-            pending.extend((child.tail or '', child))
-    return re.sub(r'[\t\n\f\r ]+', ' ', ''.join(parts)).strip(' ')
-
-
-def _input_text(attributes):
-    """Read initial text painted by text fields and labeled input buttons."""
-    kind = attributes.get('type', 'text').lower()
-    if kind in {'hidden', 'checkbox', 'radio', 'range', 'color', 'file',
-                'date', 'datetime-local', 'month', 'week', 'time'}:
-        return ''
-    if kind == 'image':
-        return attributes.get('alt', '')
-    if kind in {'submit', 'reset'}:
-        return attributes.get('value', 'Submit' if kind == 'submit' else 'Reset')
-    value = attributes.get('value', '')
-    if kind == 'button':
-        return value
-    value = value.replace('\r', '').replace('\n', '')
-    if kind in {'email', 'url'}:
-        value = value.strip(' \t\n\r\f')
-    if kind == 'number' and (not re.fullmatch(
-            r'-?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', value)
-            or abs(float(value)) == float('inf')):
-        value = ''
-    if kind == 'password' and value:
-        return '•' * (len(value.encode('utf-16-le', errors='surrogatepass')) // 2)
-    return value or attributes.get('placeholder', '').replace('\r', '').replace('\n', '')
-
-
-def _select_text(select, visibility, box):
-    """Project a control's initial label, following HTML selectedness rules."""
-    match = re.match(r'[\t\n\f\r ]*\+?([0-9]+)', select.attrib.get('size', ''))
-    digits = (match[1].lstrip('0') or '0') if match else '0'
-    size = int(digits) if len(digits) <= 10 else 0
-    listbox = 'multiple' in select.attrib or 1 < size <= 2147483647
-    options, labels = [], []
-    pending = [(child, False, visibility, box, False) for child in reversed(select)]
-    while pending:
-        node, blocked, hidden, parent_box, disabled = pending.pop()
-        if not isinstance(node.tag, str):
-            continue
-        tag = node.tag.rpartition('}')[2].lower()
-        if tag in {'script', 'style', 'template', 'select', 'datalist'}:
-            continue
-        blocked, hidden, child_box = _visibility(tag, node.attrib, blocked, hidden, parent_box)
-        disabled = disabled or tag in {'option', 'optgroup'} and 'disabled' in node.attrib
-        if tag == 'option':
-            label = _option_label(node)
-            options.append((node, label, disabled))
-            if listbox and not blocked and not hidden:
-                labels.append(label)
-            continue
-        if listbox and tag == 'optgroup' and not blocked and not hidden:
-            labels.append(node.attrib.get('label', ''))
-        pending.extend((child, blocked, hidden, child_box, disabled) for child in reversed(node))
-    if not listbox:
-        selected = [value for value in options if 'selected' in value[0].attrib]
-        chosen = selected[-1] if selected else next((value for value in options if not value[2]), None)
-        return chosen[1] if chosen else ''
-    return ' '.join(labels)
+        token = pending.pop()
+        if token.type in {'html_inline', 'html_block'}:
+            return True
+        pending.extend(token.children or [])
+    return False
 
 
 CITATION_RULE = "native-source-citations/7"
@@ -337,8 +112,11 @@ def factual_grade(response):
 
 
 def citation_inventory(answer, results):
-    """Bind explicit IDs to native records; URL-only links use the first URL match."""
+    """Resolve supplied citation IDs and links against the delivered result list."""
     from markdown_it import MarkdownIt
+
+    if has_html_markup(answer):
+        return []
 
     by_id, by_url = {}, {}
     for item in results:
@@ -360,11 +138,9 @@ def citation_inventory(answer, results):
                     and canonical_url(by_id[identity]["url"], policy="document-url/2") != url
                 ):
                     raise ValueError("One citation identifier refers to different documents")
-                # Distinct IDs can carry different excerpts of the same document.
                 by_id.setdefault(identity, item)
-    from markdown_it.rules_inline.autolink import autolink
-    from markdown_it.rules_inline.html_inline import html_inline
     from markdown_it.rules_inline.link import link
+    from markdown_it.rules_inline.autolink import autolink
 
     def positioned(rule):
         def parse(state, silent):
@@ -381,15 +157,6 @@ def citation_inventory(answer, results):
     parser = MarkdownIt()
     parser.inline.ruler.at("link", positioned(link))
     parser.inline.ruler.at("autolink", positioned(autolink))
-    def positioned_html(state, silent):
-        start, count = state.pos, len(state.tokens)
-        accepted = html_inline(state, silent)
-        if accepted and not silent:
-            for token in state.tokens[count:]:
-                token.meta['span'] = (start, state.pos)
-        return accepted
-
-    parser.inline.ruler.at('html_inline', positioned_html)
     def native_citation(state, silent):
         marker = re.match(r"\[引用[:：]\s*([0-9]+(?:\s*[,，、]\s*[0-9]+)*)\s*\]", state.src[state.pos:])
         if not marker:
@@ -404,43 +171,18 @@ def citation_inventory(answer, results):
     # Markdown handles escapes and code before this rule. A marker in a link label
     # belongs to that link rather than becoming a second native citation.
     parser.inline.ruler.after("link", "native_citation", native_citation)
-    from html import escape
-    import html5lib
-
-    attribute = 'data-citation-' + hashlib.sha256(answer.encode()).hexdigest()[:16]
-    occurrences, html_pending = {}, []
-    raw_text = None
+    references = []
     search_source = answer.replace("\x00", "\ufffd")
     line_offsets = [0, *(match.end() for match in re.finditer(r"\r\n|\r|\n", answer)), len(answer)]
-
-    def occurrence(begin, end, items, native):
-        identity = str(len(occurrences))
-        occurrences[identity] = [dict(begin=begin, end=end, item=item, native=native) for item in items]
-        return identity
-
-    def close_html_link(end):
-        for identity in html_pending:
-            for record in occurrences[identity]:
-                record['end'] = end
-        html_pending.clear()
-
-    def link_item(href):
-        try:
-            return by_url.get(canonical_url(href, policy='document-url/2')), True
-        except ValueError:
-            return None, False
-
-    tokens = parser.parse(answer)
-    for block in tokens:
-        if block.type == 'html_block':
-            block.children = _html_tokens(block.content)
-        if block.type not in ('inline', 'html_block'):
+    for block in parser.parse(answer):
+        if block.type != "inline":
             continue
         block_start, block_end = (line_offsets[line] for line in block.map)
         start = search_source.find(block.content, block_start, block_end)
         if start >= 0:
             positions = list(range(start, start + len(block.content)))
         else:
+            # Map normalized Markdown newlines and stripped list/quote prefixes.
             positions, offset = [], block_start
             lines = block.content.split("\n")
             for index, text in enumerate(lines):
@@ -455,178 +197,78 @@ def citation_inventory(answer, results):
                         raise ValueError("Cannot bind a citation line to the native answer")
                     positions.append(offset + newline.start())
                     offset += newline.end()
-        replacements, markdown_links = [], 0
+
+        parts, length, pending, local = [], 0, [], []
         for token in block.children or []:
-            replacement = None
-            if token.type == 'html_inline':
-                source = token.content
-                begin, end = token.meta['span']
-                opening = re.match(r'<([a-z][a-z0-9:-]*)(?=[\s/>])', source, re.I)
-                closing = re.fullmatch(r'</\s*([a-z][a-z0-9:-]*)\s*>', source, re.I)
-                if raw_text:
-                    if closing and closing[1].lower() == raw_text and raw_text != 'plaintext':
-                        raw_text = None
-                    continue
-                if opening:
-                    name = opening[1].lower()
-                    if name in {'textarea', 'title', 'xmp', 'script', 'style', 'iframe', 'noembed', 'noframes', 'plaintext'}:
-                        raw_text = name
-                    elif name == 'a':
-                        close_html_link(positions[begin])
-                        identity = occurrence(positions[begin], len(answer), [None], False)
-                        html_pending.append(identity)
-                        replacement = source[:opening.end()] + ' ' + attribute + '="' + identity + '"' + source[opening.end():]
-                elif closing and closing[1].lower() == 'a' and html_pending:
-                    identity = html_pending.pop()
-                    for record in occurrences[identity]:
-                        record['end'] = positions[end - 1] + 1
-            elif token.type == 'link_open':
-                markdown_links += 1
-                if not raw_text:
-                    begin, end = token.meta['span']
-                    close_html_link(positions[begin])
-                    item, valid = link_item(token.attrGet('href') or '')
-                    if valid:
-                        identity = occurrence(positions[begin], positions[end - 1] + 1, [item], False)
-                        token.attrSet(attribute, identity)
-            elif token.type == 'link_close':
-                markdown_links -= 1
-            elif token.type == 'native_citation' and not raw_text and not markdown_links:
-                begin, end = token.meta['span']
-                identity = occurrence(positions[begin], positions[end - 1] + 1,
-                                      [by_id.get(key) for key in token.meta['identities']], True)
-                replacement = '<span ' + attribute + '="' + identity + '">' + escape(token.content) + '</span>'
-                token.meta['markup'] = replacement
-            if replacement is not None:
-                if block.type == 'html_block':
-                    replacements.append((*token.meta['span'], replacement))
-                elif token.type == 'html_inline':
-                    token.content = replacement
-        for begin, end, replacement in reversed(replacements):
-            block.content = block.content[:begin] + replacement + block.content[end:]
-
-    parser.renderer.rules['native_citation'] = lambda items, index, options, env: items[index].meta.get('markup', escape(items[index].content))
-    rendered = parser.renderer.render(tokens, parser.options, {})
-    tree = html5lib.parseFragment(rendered, treebuilder='etree', namespaceHTMLElements=False)
-    parts, length, local, block_breaks, linked = [], 0, [], [0], {}
-    literal_tags = {'pre', 'code', 'kbd', 'samp', 'textarea', 'xmp', 'plaintext'}
-
-    def text(value):
-        nonlocal length
-        if value:
-            parts.append(value)
-            length += len(value)
-
-    def boundary():
-        if parts and not parts[-1][-1:].isspace():
-            text(' ')
-        block_breaks.append(length)
-
-    pending = [('visit', (tree, False, False, False, False, {}))]
-    while pending:
-        event, payload = pending.pop()
-        if event == 'text':
-            text(payload)
-            continue
-        if event == 'exit':
-            records, identity, start, separate = payload
-            if records and ''.join(parts)[start:length].strip():
-                if identity in linked:
-                    linked[identity]['local_end'] = length
-                else:
-                    record = dict(records[0], local_start=start, local_end=length)
-                    linked[identity] = record
-                    local.append(record)
-            if separate:
-                boundary()
-            continue
-        node, blocked, visibility, literal, inside_link, parent_box = payload
-        if not isinstance(node.tag, str):
-            continue
-        tag = node.tag.rpartition('}')[2].lower()
-        blocked, visibility, box = _visibility(tag, node.attrib, blocked, visibility, parent_box)
-        if blocked:
-            continue
-        literal = literal or tag in literal_tags
-        closed = tag == 'details' and 'open' not in node.attrib
-        identity = node.attrib.get(attribute)
-        records = occurrences.get(identity, [])
-        if records and records[0]['native']:
-            if not visibility:
-                if literal or inside_link:
-                    text(''.join(node.itertext()))
-                else:
-                    local.extend(dict(record, local_start=length, local_end=length,
-                                      block_floor=block_breaks[-1]) for record in records)
-            continue
-        separate = not visibility and box['display'] in {
-            'block', 'flow-root', 'flex', 'grid', 'list-item', 'block ruby', 'flow-root list-item', 'table', 'table-row',
-            'table-row-group', 'table-header-group', 'table-footer-group', 'table-caption'}
-        if separate:
-            boundary()
-        if records:
-            item, valid = link_item(node.attrib.get('href') or '')
-            records = [dict(record, item=item) for record in records] if valid else []
-        start = length
-        inside_link = inside_link or tag == 'a' and 'href' in node.attrib
-        if not visibility:
-            if tag == 'img':
-                text(node.attrib.get('alt') or '')
-            elif tag == 'br':
-                text(' ')
-            elif tag == 'input':
-                text(' ' + _input_text(node.attrib) + ' ')
-            elif tag == 'textarea':
-                text(' ' + (node.text or node.attrib.get('placeholder', '')) + ' ')
-            elif tag == 'select':
-                text(' ' + _select_text(node, visibility, box) + ' ')
-            if not closed and tag not in {'select', 'textarea'}:
-                text(node.text)
-        children = [] if tag == 'select' else [child for child in node if child.tag == 'summary'][:1] if closed else node
-        pending.append(('exit', (records, identity, start, separate)))
-        for child in reversed(children):
-            if not visibility and not closed:
-                pending.append(('text', child.tail))
-            pending.append(('visit', (child, blocked, visibility, literal, inside_link, box)))
-    references = []
-    plain = "".join(parts)
-    # Sentences are local to this rendered inline block. Every link in one
-    # sentence sees the complete assertion, including the other link labels.
-    boundaries = [0, *block_breaks]
-    closers = r'''["'”’»）)\]}」』】]*'''
-    native_offsets = {reference['local_start'] for reference in local if reference['native']}
-    for match in re.finditer(rf"(?P<stop>[。！？]+|[.!?]+){closers}", plain):
-        if (match['stop'][0] in '.!?'
-                and match.end() < len(plain) and not plain[match.end()].isspace()
-                and match.end() not in native_offsets and match.end('stop') not in native_offsets):
-            continue
-        prefix = plain[:match.end("stop")]
-        abbreviation = re.search(r"(?:[A-Za-z]\.){2,}$", prefix)
-        word = re.search(r"([A-Za-z]+)\.$", prefix)
-        if match["stop"] == "." and (abbreviation or word and word[1].casefold() in
-                                  {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "fig", "no"}):
-            continue
-        boundaries.append(match.end())
-    boundaries = sorted({*boundaries, len(plain)})
-    for reference in local:
-        anchor = reference["local_start"]
-        if not reference["native"]:
-            label = plain[anchor:reference["local_end"]]
-            anchor += len(label) - len(label.lstrip())
-        if reference["native"]:
-            floor = reference.pop('block_floor')
-            anchor = floor + len(plain[floor:anchor].rstrip()) - 1
-        else:
-            floor = 0
-        if anchor < floor or not plain.strip():
-            context = ""
-        else:
-            left = max((value for value in boundaries if value <= anchor), default=0)
-            last = anchor if reference["native"] else max(anchor, len(plain[:reference["local_end"]].rstrip()) - 1)
-            right = next((value for value in boundaries if value > last), len(plain))
-            context = re.sub(r"\s+", " ", plain[left:right]).strip()
-            context = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", context)
-        references.append(dict(reference, claim_context=context))
+            if token.type == "link_open":
+                begin, end = token.meta["span"]
+                try:
+                    key = canonical_url(token.attrGet("href") or "", policy="document-url/2")
+                    item = by_url.get(key)
+                    eligible = True
+                except ValueError:
+                    item, eligible = None, False
+                pending.append(dict(begin=positions[begin], end=positions[end - 1] + 1,
+                                    local_start=length, item=item, eligible=eligible, native=False))
+                continue
+            if token.type == "link_close":
+                reference = pending.pop()
+                if reference.pop("eligible") and length > reference["local_start"]:
+                    local.append(dict(reference, local_end=length))
+                continue
+            if token.type == "native_citation" and not pending:
+                begin, end = token.meta["span"]
+                for identity in token.meta["identities"]:
+                    local.append(dict(begin=positions[begin], end=positions[end - 1] + 1,
+                                      local_start=length, local_end=length,
+                                      item=by_id.get(identity), native=True))
+                continue
+            if token.type in ("text", "code_inline", "image", "native_citation"):
+                text = token.content
+                if token.type == 'image':
+                    text = parser.renderer.renderInlineAsText(token.children or [], parser.options, {})
+            elif token.type in ("softbreak", "hardbreak"):
+                text = " "
+            else:
+                continue
+            parts.append(text)
+            length += len(text)
+        plain = "".join(parts)
+        # Sentences are local to this rendered inline block. Every link in one
+        # sentence sees the complete assertion, including the other link labels.
+        boundaries = [0]
+        closers = r'''["'”’»）)\]}」』】]*'''
+        native_offsets = {reference['local_start'] for reference in local if reference['native']}
+        for match in re.finditer(rf"(?P<stop>[。！？]+|[.!?]+){closers}", plain):
+            if (match['stop'][0] in '.!?'
+                    and match.end() < len(plain) and not plain[match.end()].isspace()
+                    and match.end() not in native_offsets and match.end('stop') not in native_offsets):
+                continue
+            prefix = plain[:match.end("stop")]
+            abbreviation = re.search(r"(?:[A-Za-z]\.){2,}$", prefix)
+            word = re.search(r"([A-Za-z]+)\.$", prefix)
+            if match["stop"] == "." and (abbreviation or word and word[1].casefold() in
+                                      {"mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "fig", "no"}):
+                continue
+            boundaries.append(match.end())
+        if boundaries[-1] != len(plain):
+            boundaries.append(len(plain))
+        for reference in local:
+            anchor = reference["local_start"]
+            if not reference["native"]:
+                label = plain[anchor:reference["local_end"]]
+                anchor += len(label) - len(label.lstrip())
+            if reference["native"]:
+                anchor = len(plain[:anchor].rstrip()) - 1
+            if anchor < 0 or not plain.strip():
+                context = ""
+            else:
+                left = max((value for value in boundaries if value <= anchor), default=0)
+                last = anchor if reference["native"] else max(anchor, len(plain[:reference["local_end"]].rstrip()) - 1)
+                right = next((value for value in boundaries if value > last), len(plain))
+                context = re.sub(r"\s+", " ", plain[left:right]).strip()
+                context = re.sub(r"\s+([,.;:!?，。；：！？])", r"\1", context)
+            references.append(dict(reference, claim_context=context))
     citations = []
     for reference in sorted(references, key=lambda value: value["begin"]):
         start, end, item = reference["begin"], reference["end"], reference["item"]
@@ -634,7 +276,6 @@ def citation_inventory(answer, results):
         citations.append(dict(citation_index=len(citations), marker=answer[start:end], span=[start, end],
                               claim_context=reference["claim_context"], in_results=item is not None, source=source))
     return citations
-
 
 def answer_packet(case, row):
     """Keep answer evidence separate from relevance pools and full page bodies."""

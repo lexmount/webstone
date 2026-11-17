@@ -13,8 +13,6 @@ dependencies = [
   "python-dotenv==1.1.1",
   "idna==3.19",
   "markdown-it-py==4.2.0",
-  "html5lib==1.1",
-  "tinycss2==1.4.0",
 ]
 
 [project.scripts]

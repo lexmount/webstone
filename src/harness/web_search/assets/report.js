@@ -50,3 +50,9 @@ if(levelTabs){
 for(const input of document.querySelectorAll('[data-level-inventory-filter]')){
  input.addEventListener('input',()=>{for(const row of input.closest('[data-level-results]').querySelectorAll('tbody tr'))row.hidden=!row.textContent.toLowerCase().includes(input.value.toLowerCase());});
 }
+
+for(const panel of document.querySelectorAll('[data-level-benchmark]')){
+ const filter=panel.querySelector('[data-level-summary-filter]'),metrics=panel.querySelector('[data-summary-metrics]');
+ if(filter)filter.addEventListener('input',()=>{for(const row of panel.querySelectorAll('[data-summary-method]'))row.hidden=!row.querySelector('[data-method-name]').textContent.toLowerCase().includes(filter.value.toLowerCase());});
+ if(metrics)metrics.addEventListener('change',()=>{for(const cell of panel.querySelectorAll('[data-extra-column]'))cell.hidden=metrics.value!=='all';});
+}
