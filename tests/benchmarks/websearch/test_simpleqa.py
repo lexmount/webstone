@@ -220,7 +220,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
         apply_report_revision(profile, rows, revision)
 
 
-@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt', 'unknown-id'])
+@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt', 'unknown-id', 'omitted'])
 def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs(defect):
     from lexbench_websearch import simpleqa
 
@@ -245,6 +245,10 @@ def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inpu
     artifacts = {'repair-evidence/q.json': excerpt}
     expected = simpleqa.extend_reference_urls(dict(original,
         cases=simpleqa.repair_cases(original['cases'], recipe), case_repairs=recipe), [])
+    if defect == 'omitted':
+        with pytest.raises(ValueError, match='artifact resolver'):
+            simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected)
+        return
     if defect == 'unknown-id':
         expected['case_repairs']['repairs'][0]['case_id'] = 'sqv-absent'
         with pytest.raises(ValueError, match='absent from the task population'):
