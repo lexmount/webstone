@@ -2801,6 +2801,14 @@ def write_review_page(out,records):
   page=hero((t('report_review_record_efa815', 'Review record')),saved_matrix_text('offline_review_scope'))
   count,results=saved_current_revision_scope(out,matrix)
   page+=section((t('report_revision_scope_0a5c51', 'Revision scope')),'<p>'+model_text(*pair('report_in_the_current_report_value_cases_revised_and_adefb1', 'In the current report, {value0} cases revised and {value1} saved results rescored. Original rules, results, answers and call timings are retained.', value0=count, value1=results))+'</p><p>'+link(revision_link,(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p>','current-revision-scope')
+  audit_path=out/'result-review.json'
+  if audit_path.is_file():
+   audit=json.loads(audit_path.read_text(encoding='utf-8'))
+   note=review_summary(out,'../')
+   if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+    note+='<p>'+t('known_outcome_audit_protocol', 'This evidence audit knew the machine outcomes. It checked saved responses, frozen requirements, native field selection and call evidence; it is not an independent blind review and added no provider calls.')+'</p>'
+   note+='<p>'+link('../result-review.json',t('review_records', '{count}/{count2} · review records',count=audit.get('reviewed_attempts',0),count2=audit.get('total_attempts',0)))+'</p>'
+   page+=section(t('current_status', 'Current status'),note,'current-result-review')
   if adopted:
    sections=[]
    for group in adopted:

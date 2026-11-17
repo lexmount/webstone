@@ -170,6 +170,25 @@ def test_public_views_retain_scoring_only_revision_and_verify_old_summary(tmp_pa
     write(output/'saved-matrix-audit.json', audit)
     with pytest.raises(ValueError, match='Historical score summary differs'):
         check_saved_matrix(output, spec_path=tmp_path/'spec.json')
+    results=[json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines()]
+    review={'schema_version':1,'kind':'local_evidence_audit',
+        'bindings':{'dataset_sha256':hashlib.sha256((output/'dataset.json').read_bytes()).hexdigest(),
+                    'results_sha256':hashlib.sha256((output/'results.jsonl').read_bytes()).hexdigest()},
+        'reviewer':{'agent':'Evidence auditor'},
+        'review_protocol':{'scope':'machine-failures','machine_judgments_withheld':False,
+                           'additional_attempt_ids':[r['attempt_id'] for r in results]},
+        'attempts':[{'attempt_id':r['attempt_id'],'machine_verdict':'pass','agent_verdict':'pass',
+                     'final_verdict':'pass','agent_evidence':'Checked unchanged native answer.'} for r in results],
+        'reviewed_attempts':2,'expected_attempts':2,'total_attempts':2,
+        'accepted_unreviewed_passes':0,'disagreements':0,'unresolved':0,
+        'review_rounds':[{'date':'2026-11-17','title':'Evidence audit','scope':'Two saved results',
+                         'finding':'Native answer retained','fix':'Scoring-only revision','pending':'None'}]}
+    spec['result_review']=write(tmp_path/'review.json',review)
+    reviewed=build(tmp_path,spec,'reviewed-public-revision').parent
+    page=(reviewed/'review/index.html').read_text()
+    assert 'current-result-review' in page and '已知程序判定' in page
+    assert '原评分摘要' in page
+    assert check_saved_matrix(reviewed,spec_path=tmp_path/'spec.json')['valid']
 
 
 def test_public_views_reject_changed_task_contract_revision(tmp_path):
