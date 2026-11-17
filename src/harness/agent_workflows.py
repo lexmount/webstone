@@ -98,8 +98,9 @@ def datasets_main() -> None:
             parser.error("unrecognized arguments: " + " ".join(remaining))
         print(json.dumps(dataset_inventory(), indent=2))
         return
-    if args.command == "pin" and not any(value == "--root" or value.startswith("--root=")
-                                          for value in remaining) and not {"-h", "--help"}.intersection(remaining):
+    has_root = any(value == "--root" or value.startswith("--root=") for value in remaining)
+    wants_help = bool({"-h", "--help"}.intersection(remaining))
+    if args.command == "pin" and not has_root and not wants_help:
         parser.error("pin requires an explicit --root Webstone source checkout")
     module = importlib.import_module("harness.benchmarks." + owners[args.command])
     invoked = sys.argv
