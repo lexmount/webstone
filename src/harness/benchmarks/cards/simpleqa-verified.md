@@ -29,6 +29,10 @@ Publisher row order, question text and reference answer text are retained. Case 
 
 The viewer's `input` is the unchanged question. Parse `task` as JSON for `id`, `query`, `reference_answer`, `reference_urls`, `topic`, `answer_type`, provenance and derivation. Records have `family: web`, `category: factual` and `language: en`.
 
+`reference_urls` retains the publisher's URLs. `equivalent_reference_urls` adds verified copies for each question. Candidates come from fixed URL templates applied to publisher references, without consulting search results. Current revisions store hash-bound full captures of both pages and require matching article titles. If the reference answer occurs in the original capture, it must also occur in the mirror. At least 80% of each full article must also match the other in contiguous blocks of 12 characters. Both captures need at least 200 normalized characters.
+
+Every candidate has one outcome: verified, title mismatch, evidence mismatch or capture failed. Only verified candidates enter the accepted URLs. The dataset includes every case's coverage, the complete candidate audit and capture bindings for offline replay. Failed or incomplete captures establish no equivalence. `equivalent_reference_provenance` binds each accepted copy to its original URL, verification rule, observation date and capture hashes. Historical revisions retain their recorded lead-only policy; `reference_equivalence` identifies the selected rule and `url_equivalence` selects document-URL folding.
+
 ## Load and evaluate
 
 Choose a full Hugging Face commit from this dataset's revision history and retain it with your evaluation:

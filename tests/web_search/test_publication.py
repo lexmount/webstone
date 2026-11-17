@@ -7,6 +7,15 @@ from harness.record_io import bytes_sha256
 from harness.web_search import publication, profiles
 
 
+def test_prepare_only_cannot_resume_or_upload(tmp_path, monkeypatch):
+    monkeypatch.setattr(publication, 'prepare', lambda *a, **kw: pytest.fail('Invalid options prepared a release'))
+    monkeypatch.setattr(publication, 'publish', lambda *a, **kw: pytest.fail('Invalid options uploaded a release'))
+    with pytest.raises(SystemExit) as stopped:
+        publication.main(['--report', str(tmp_path / 'report'), '--output', str(tmp_path / 'release'),
+                          '--prepare-only', '--resume'])
+    assert stopped.value.code == 2
+
+
 def publication_files(tmp_path, monkeypatch):
     monkeypatch.setenv("WEBSTONE_DATA_HOME", str(tmp_path))
     monkeypatch.setattr(publication, "ROOT", tmp_path)
@@ -56,6 +65,21 @@ def publication_files(tmp_path, monkeypatch):
 def test_publication_plan_uses_configured_data_home(tmp_path, monkeypatch):
     report, work = publication_files(tmp_path, monkeypatch)
     assert publication.verify_plan(report, work)["target"]["cases"] == 1
+
+
+@pytest.mark.parametrize("name,field", [("relevance", "relevance_sha256"),
+                                       ("independent_review", "independent_review_sha256")])
+@pytest.mark.parametrize("changed", ["missing_binding", "unclaimed_file"])
+def test_optional_assessment_must_match_the_checked_manifest(tmp_path, monkeypatch, name, field, changed):
+    report, work = publication_files(tmp_path, monkeypatch)
+    manifest = json.loads((report / "manifest.json").read_bytes())
+    target = json.loads((work / "publication-plan.json").read_bytes())["target"]
+    if changed == "missing_binding":
+        del target["bindings"][name]
+    else:
+        manifest[field] = None
+    with pytest.raises(ValueError, match="source differs"):
+        profiles.verify_publication_inputs(manifest, target, data_home=tmp_path)
 
 
 @pytest.mark.parametrize("changed_selection", [False, True])
@@ -157,7 +181,8 @@ def test_search_publisher_recovers_one_activation_and_preserves_private_site(tmp
     assert len(service.uploads) == 1
 
 
-def test_prepare_freezes_new_counts_and_keeps_correction_provenance(tmp_path, monkeypatch):
+@pytest.mark.parametrize("reviewed", [True, False])
+def test_prepare_freezes_new_counts_and_keeps_correction_provenance(tmp_path, monkeypatch, reviewed):
     from harness.web_search import report as reports, visual, delivery
     monkeypatch.setenv('WEBSTONE_DATA_HOME', str(tmp_path))
     repo = tmp_path / 'repo'; repo.mkdir()
@@ -195,19 +220,36 @@ def test_prepare_freezes_new_counts_and_keeps_correction_provenance(tmp_path, mo
                 'relevance_sha256': bytes_sha256((report/'relevance-judgments.json').read_bytes()),
                 'independent_review_sha256': bytes_sha256((report/'independent-review.json').read_bytes()),
                 'content_sha256': bytes_sha256(content.read_bytes())}
+    if not reviewed:
+        for name, field in [('relevance-judgments.json', 'relevance_sha256'),
+                            ('independent-review.json', 'independent_review_sha256')]:
+            (report / name).unlink()
+            manifest[field] = None
     (report / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     proof = tmp_path / 'visual.json'; proof.write_text(json.dumps({'manifest_sha256': bytes_sha256((report/'manifest.json').read_bytes())}), encoding='utf-8')
-    monkeypatch.setattr(reports, 'check', lambda *a: True)
-    monkeypatch.setattr(visual, 'verify', lambda *a: True)
+    checks = []
+    monkeypatch.setattr(reports, 'check', lambda *a: checks.append('report'))
+    monkeypatch.setattr(visual, 'verify', lambda *a: checks.append('visual'))
     def export(*args):
         dest = args[1]; dest.mkdir(); (dest/'index.html').write_text('<html>Verified fixture</html>', encoding='utf-8'); (dest/'delivery-index.json').write_text('{}', encoding='utf-8')
     monkeypatch.setattr(delivery, 'export', export)
-    monkeypatch.setattr(delivery, 'verify', lambda *a: True)
-    publication.prepare(report, proof, content, {'primary': source}, work, profile=repo/'instance.json')
+    monkeypatch.setattr(delivery, 'verify', lambda *a: pytest.fail('Export already verifies its delivery'))
+    monkeypatch.setattr(publication, 'publish', lambda *a: pytest.fail('Preparation must not upload'))
+    publication.main(['--report', str(report), '--visual-receipt', str(proof),
+                      '--content', str(content), '--source', 'primary=' + str(source),
+                      '--output', str(work), '--profile', str(repo / 'instance.json'),
+                      '--prepare-only'])
+    assert checks == ['report', 'visual']
     plan = publication.verify_plan(report, work)
     assert plan['title'] == '接口评测'
     assert plan['target']['physical_calls'] == 2
     assert plan['target']['correction_history']['superseded_physical_calls'] == 89
     assert 'correction' in plan['target']['bindings']
-    assert plan['target']['independent_review']['reference_dispositions'] == {}
+    if reviewed:
+        assert plan['target']['independent_review']['reference_dispositions'] == {}
+    else:
+        assert plan['target']['independent_review'] is None
+        assert plan['target']['quality_annotation'] is None
+        assert 'independent_review' not in plan['target']['bindings']
+        assert 'relevance' not in plan['target']['bindings']
     assert (work/'report.zip').is_file()
