@@ -133,7 +133,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     corrected = repair_cases([case], recipe)[0]
     corrected.update(equivalent_reference_urls=[], equivalent_reference_provenance=[], url_equivalence='document-url/2')
     dataset = tmp_path / 'factual-v1.json'
-    dataset.write_text(json.dumps(dict(cases=[corrected], case_repairs=recipe)))
+    dataset.write_text(json.dumps(dict(cases=[corrected], case_repairs=recipe)), encoding='utf-8')
     descriptor = dict(sha256=__import__('hashlib').sha256(dataset.read_bytes()).hexdigest())
     monkeypatch.setattr(data, 'binding', lambda *args: dict(files={'definitions/datasets/factual-v1.json': descriptor}))
     monkeypatch.setattr(data, 'definition_path', lambda *args: dataset)

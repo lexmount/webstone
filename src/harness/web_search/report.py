@@ -43,6 +43,7 @@ from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
     aggregate,
     execution_resources,
+    method_contract,
     normalize_response,
     normalized_answer,
     request_body,
@@ -521,7 +522,8 @@ def _load_method_runs(inputs, labels, method_ids, *, source_methods=None, source
                     raise ValueError('Matrix collections contain conflicting task definitions')
                 case_definitions.setdefault(case['id'],copy.deepcopy(case))
             for method in current['methods']:
-                if method['id'] in method_definitions and method_definitions[method['id']] != method:
+                if (method['id'] in method_definitions
+                        and method_contract(method_definitions[method['id']]) != method_contract(method)):
                     raise ValueError('Matrix collections contain conflicting method definitions')
                 method_definitions.setdefault(method['id'],copy.deepcopy(method))
             cells = {(r['case_id'],r['method'],r['round']) for r in calls}

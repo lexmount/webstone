@@ -657,7 +657,7 @@ def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch,
     output = tmp_path / 'out'
     def build(path):
         path.mkdir()
-        (path / 'data.json').write_text('{}')
+        (path / 'data.json').write_text('{}', encoding='utf-8')
         return {'edition': {'version': '2.0.0'}}
     release = SimpleNamespace(dataset_version='2.0.0', track='simpleqa-verified', build=build)
     monkeypatch.setattr(publication, 'proposal_target', lambda *args, **kwargs: None)
