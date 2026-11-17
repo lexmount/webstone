@@ -34,6 +34,7 @@ def test_home_explanation_remains_visible_while_switching_outputs(tmp_path, widt
                 assert guide.is_visible()
                 assert page.locator('[data-level-panel="'+level+'"]').is_visible()
             methods = guide.locator('[data-level-participants="l2"]')
+            guide.locator('.guide-details > summary').click()
             methods.locator('summary').focus()
             page.keyboard.press('Enter')
             assert methods.locator('li').first.is_visible()

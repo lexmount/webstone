@@ -484,8 +484,8 @@ def render_level_summary(view, zh=False, *, content=None):
                 if key == 'failed_calls':
                     label = str(int(value)) + '/' + str(len(calls))
                     counts = outcomes[mid]
-                    reasons = [('client_timeout', 'Client timeout'), ('network_error', 'Network error'), ('response_error', 'API or response error')]
-                    breakdown = ''.join('<li>' + t(name) + ': ' + str(counts[reason]) + '</li>' for reason, name in reasons if counts[reason])
+                    reasons = [('client_timeout', t('Client timeout')), ('network_error', t('Network error')), ('response_error', t('API or response error'))]
+                    breakdown = ''.join('<li>' + name + ': ' + str(counts[reason]) + '</li>' for reason, name in reasons if counts[reason])
                     if breakdown:
                         from harness.web_search.revisions import collection_protocol
                         limits = sorted({collection_protocol(profile, row).get('client_timeout_s') for row in calls if counts['client_timeout'] and collection_protocol(profile, row).get('client_timeout_s')})
