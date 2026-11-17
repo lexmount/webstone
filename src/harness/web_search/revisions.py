@@ -705,11 +705,12 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=N
                 continue
             if case['query'] != item['after']['query']:
                 raise ValueError('Changed query requires a new provider call: ' + case['id'])
-            if (item.get('requires_fresh_calls') and item['before']['query'] == item['after']['query']
-                    and {key: case.get(key) for key in item['after']} != item['after']):
-                raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
             actual = {key: case.get(key) for key in item['after']}
             recorded = (captured_contracts or {}).get(case['id'])
+            if (item.get('requires_fresh_calls') and item['before']['query'] == item['after']['query']
+                    and actual != item['after']
+                    and (actual != recorded or recorded == item['before'])):
+                raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
             if actual not in (item['before'], item['after']) and actual != recorded:
                 raise ValueError('Saved task differs from the approved repair contracts: ' + case['id'])
             # Calls bind queries; approved definitions own their scoring metadata.

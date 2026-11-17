@@ -530,13 +530,17 @@ def render_level_summary(view, zh=False, *, content=None):
                         limit = ('<p>' + t('Client timeout limit: {seconds} s', seconds=', '.join(str(x) for x in limits)) + '</p>') if limits else ''
                         label = '<details data-request-failures><summary>' + label + '</summary><ul>' + breakdown + '</ul>' + limit + '</details>'
                 if key == 'mean_ms':
-                    batches = [b for b in profile.get('method_collections', []) if method['id'] in b['methods']]
+                    selected_collections = {row.get('collection') for row in calls}
+                    batches = [b for b in profile.get('method_collections', [])
+                               if method['id'] in b['methods'] and b['id'] in selected_collections]
                     contexts = []
                     for batch in batches:
-                        dates = str(batch.get('started_at') or batch.get('as_of') or '')[:10]
+                        dates = ', '.join(sorted({str(row.get('timestamp', ''))[:10] for row in calls
+                                                  if row.get('collection') == batch['id'] and row.get('timestamp')}))
+                        dates = dates or str(batch.get('started_at') or batch.get('as_of') or '')[:10]
                         concurrency = batch.get('protocol', {}).get('concurrency')
                         contexts.append(dates + (', ' + t('concurrency {count}', count=concurrency) if concurrency else ''))
-                    locale = locale_context(view.get('timing_rows', rows), mid, zh)
+                    locale = locale_context(calls, mid, zh)
                     modes = ', '.join(k + '=' + str(v).lower() for k,v in (method.get('output_options') or {}).items()
                                       if not locale or k not in ('gl', 'hl'))
                     if locale:

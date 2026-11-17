@@ -622,7 +622,7 @@
     "chinese service": "中文公共服务",
     "community original": "社区原题",
     "complete provider batches": "逐个方法完成全部调用",
-    "concurrency {count}": "并发 {count}",
+    "concurrency {count}": "总并发 {count}",
     "contains answer cue": "包含答案线索",
     "count|Returned results": "返回条数",
     "creator discovery": "创作者发现",

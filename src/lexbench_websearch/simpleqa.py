@@ -103,6 +103,12 @@ def validate_repair_evidence(dataset, artifacts):
             raise ValueError('Repair evidence requires recorded source discovery')
         if discovery['kind'] == 'legacy_result_audit' and repair.get('requires_fresh_calls') is not True:
             raise ValueError('Output-informed references require fresh calls for every method')
+        previous = set(repair['before']['reference_urls'])
+        supported = {item['url'] for item in repair['evidence']}
+        if set(repair['after']['reference_urls']) - previous - supported:
+            raise ValueError('Added reference URLs require retained source evidence')
+        if discovery['kind'] == 'publisher_reference' and set(repair['after']['reference_urls']) - previous:
+            raise ValueError('Publisher-reference discovery cannot introduce an unlisted source')
         for evidence in repair['evidence']:
             if (discovery['kind'] == 'publisher_reference'
                     and evidence['url'] not in repair['before']['reference_urls']):

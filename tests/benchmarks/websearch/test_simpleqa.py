@@ -191,7 +191,16 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     if fresh_required:
         with pytest.raises(ValueError, match='fresh provider calls'):
             apply_report_revision(profile, rows, revision)
+        with pytest.raises(ValueError, match='fresh provider calls'):
+            apply_report_revision(profile, rows, dict(revision,
+                captured_task_contracts={case['id']: {k: case[k] for k in recipe['repairs'][0]['before']}}))
         profile['cases'] = [deepcopy(corrected)]
+        intermediate = deepcopy(profile)
+        intermediate['cases'][0]['reference_answer'] = 'Bronchitis (also known as bronchial inflammation)'
+        captured = {k: intermediate['cases'][0][k] for k in recipe['repairs'][0]['after']}
+        approved, _, _ = apply_report_revision(intermediate, rows, dict(revision,
+            captured_task_contracts={case['id']: captured}))
+        assert approved['cases'][0]['reference_answer'] == 'Bronchitis'
     revised, updated, changes = apply_report_revision(profile, rows, revision)
     assert revised['cases'][0]['reference_answer'] == 'Bronchitis'
     assert revised['factual_quality_exclusions'] == revised['reference_adjudications'] == []
@@ -220,7 +229,8 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
         apply_report_revision(profile, rows, revision)
 
 
-@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt', 'unknown-id', 'omitted'])
+@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt', 'unknown-id', 'omitted',
+                                  'unsupported-url', 'publisher-added-url'])
 def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs(defect):
     from lexbench_websearch import simpleqa
 
@@ -245,6 +255,15 @@ def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inpu
     artifacts = {'repair-evidence/q.json': excerpt}
     expected = simpleqa.extend_reference_urls(dict(original,
         cases=simpleqa.repair_cases(original['cases'], recipe), case_repairs=recipe), [])
+    if defect in {'unsupported-url', 'publisher-added-url'}:
+        item = expected['case_repairs']['repairs'][0]
+        item['after']['reference_urls'] = [*item['after']['reference_urls'], 'https://unsupported.test/document']
+        if defect == 'publisher-added-url':
+            item['source_discovery']['kind'] = 'publisher_reference'
+            item['evidence'].append(dict(item['evidence'][0], url='https://unsupported.test/document'))
+        with pytest.raises(ValueError, match='Added reference URLs|Publisher-reference'):
+            simpleqa.validate_repair_evidence(expected, artifacts)
+        return
     if defect == 'omitted':
         with pytest.raises(ValueError, match='artifact resolver'):
             simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected)
