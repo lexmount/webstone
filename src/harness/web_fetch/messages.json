@@ -2418,6 +2418,8 @@
     "report_scope_full": "评分范围：完整内容",
     "report_retries_main": "重试按主要内容要求决定；本报告对保存输出评分。",
     "report_retries_full": "重试按完整内容要求决定；本报告对保存输出评分。",
-    "report_retries_original": "重试按各题原定要求决定；本报告对保存输出评分。"
+    "report_retries_original": "重试按各题原定要求决定；本报告对保存输出评分。",
+    "response_validation_failed": "返回结果校验失败",
+    "response_validation": "返回结果校验"
   }
 }

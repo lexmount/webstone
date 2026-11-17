@@ -83,7 +83,7 @@ def _returned_page_failure(raw, case, metrics):
                       r'protect.{0,60}(?:server|website)|not a bot|circle challenge|'
                       r'this website is running anubis|measure against bots|difficulty\s*:', visible, re.I | re.S)
         and not re.search(r'protected by anubis', reference, re.I))
-    if gate or anubis or circle_gate:
+    if not has_code and (gate or anubis or circle_gate):
         return {'category': t('returned_access_gate', 'Returned verification or access-block page'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': (hits[0] if hits else visible[:500]),
@@ -91,7 +91,7 @@ def _returned_page_failure(raw, case, metrics):
     # A navigation login link and a footer email address do not establish a
     # login gate. Require the returned page to lead with the login heading and
     # contain a standalone credential field, not a keyword anywhere in its body.
-    if len(visible) <= 5000 and re.match(
+    if not has_code and len(full_visible) <= 5000 and re.match(
             r'(?im)\A\s*(?:#{1,6}\s*)?(?:sign in|log in|login|登录|登入)[ \t]*[.!:：]?[ \t]*(?:\n|$)', visible):
         if re.search(r'(?im)^[ \t]*(?:password|email address|email or username|邮箱|密码)[ \t]*[:：]?[ \t]*$', visible):
             return {'category': t('returned_login_page', 'Returned login page'),
@@ -186,7 +186,7 @@ def _stable_failure(metrics, case):
     return label, t('content_validation', 'Content validation'), ' '.join(x for x in [counts, proof, '; '.join(details)] if x)
 
 
-def _native_failure(payload):
+def _native_failure(payload, case):
     """Describe explicit native errors without inferring hidden service causes."""
     error = payload.get('error')
     certainty = t('direct_response_basis', 'Direct-response basis')
@@ -206,9 +206,25 @@ def _native_failure(payload):
         evidence = json.dumps(error, ensure_ascii=False)
     else:
         blocks = payload.get('content', [])
-        results = [block.get('content') for block in blocks
+        results = [(index, block) for index, block in enumerate(blocks)
                    if isinstance(block, dict) and block.get('type') == 'web_fetch_tool_result'] if isinstance(blocks, list) else []
-        result = results[-1] if results else None
+        result = None
+        if results:
+            selected, envelope = results[-1]
+            identifier = envelope.get('tool_use_id')
+            calls = [(index, block) for index, block in enumerate(blocks)
+                     if isinstance(block, dict) and block.get('type') == 'server_tool_use']
+            matches = [index for index, block in calls if block.get('id') == identifier]
+            if (any(not isinstance(block, dict) for block in blocks)
+                    or not isinstance(identifier, str) or not identifier or len(matches) != 1
+                    or matches[0] >= selected or not case.get('url')
+                    or any(block.get('name') != 'web_fetch' or not isinstance(block.get('input'), dict)
+                           or block['input'].get('url') != case['url'] for _, block in calls)):
+                return {'category': t('response_validation_failed', 'Response validation failed'),
+                        'stage': t('response_validation', 'Response validation'),
+                        'evidence': 'web_fetch result is not bound to one preceding invocation for the requested URL',
+                        'certainty': certainty}
+            result = envelope.get('content')
         if isinstance(result, dict) and result.get('type') == 'web_fetch_tool_result_error':
             code = result.get('error_code')
             if code == 'url_not_allowed':
@@ -264,7 +280,7 @@ def diagnose(r,c,raw,*,native_raw=None):
     elif meta.get('empty_content'):
         category,stage,proof=set_result(t('body_extraction_empty', 'Body extraction empty'),t('content_extraction', 'Content extraction'),t('the_interface_succeeded_but_the_returned_result', 'The interface succeeded, but the returned result is empty; response type: {value}', value=str(meta.get('content_type') or t('not_provided', 'Not provided'))))
     elif not r['ok']:
-        native = _native_failure(payload)
+        native = _native_failure(payload, c)
         if native:
             return native
         api_status = meta.get('api_http_status')

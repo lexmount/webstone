@@ -29,6 +29,21 @@ class FailureDiagnosisTests(unittest.TestCase):
     row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
     with self.subTest(separator=separator,ending=ending):
      self.assertNotEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_error_heading_with_delivered_implementation_is_not_gate_only(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for code in ['```python\n'+('print("Delivered content")\n'*100)+'```', '    print("Delivered content")']:
+   raw='# HTTP reference\n\n## Access denied\n\n'+code
+   self.assertIsNone(_returned_page_failure(raw,{},{}))
+  self.assertIsNotNone(_returned_page_failure('# Access denied\nSecurity verification required.',{},{}))
+ def test_unbound_native_tool_errors_do_not_explain_the_requested_page(self):
+  call={'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}}
+  result={'type':'web_fetch_tool_result','tool_use_id':'fetch','content':{'type':'web_fetch_tool_result_error','error_code':'too_many_requests'}}
+  variants=[[{**call,'input':{'url':'https://other.test'}},result],
+   [call,{**result,'tool_use_id':'other'}],[call,call,result],[result,call],
+   [call,{k:v for k,v in result.items() if k!='tool_use_id'}]]
+  row=self.record(status_code=200,error_type='tool_error')
+  for blocks in variants:
+   self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=json.dumps({'content':blocks}))['category'],'返回结果校验失败')
  def test_anubis_asset_example_does_not_make_documentation_a_gate(self):
   for asset in ['/.within.website/x/cmd/anubis/static/example.js','/.cerberus/static/example.js']:
    for code in ['```text\n'+asset+'\n```','    '+asset]:
@@ -297,8 +312,9 @@ class FailureDiagnosisTests(unittest.TestCase):
  def test_native_empty_tool_text_is_delivery_failure_not_unknown_fetch_error(self):
   raw=json.dumps({'content':[{'type':'web_fetch_tool_result','content':{
    'type':'web_fetch_result','content':{'source':{'type':'text','data':''}}}}]})
+  payload=json.loads(raw);payload['content'][0]['tool_use_id']='fetch';payload['content'].insert(0,{'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}});raw=json.dumps(payload)
   row=self.record(status_code=200,error_type='tool_error')
-  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'正文提取为空')
+  self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],'正文提取为空')
  def test_empty_answer_and_api_bad_request_have_specific_observed_categories(self):
   empty=self.record(error_type='empty_content',provider_metadata={'api_http_status':200})
   self.assertEqual(diagnose(empty,{},'')['category'],'正文提取为空')
@@ -307,15 +323,16 @@ class FailureDiagnosisTests(unittest.TestCase):
   self.assertEqual(result['category'],'API 拒绝请求')
   self.assertIn('不能断定',result['certainty'])
  def test_native_tool_diagnosis_uses_final_result_without_scoring_model_text(self):
-  def block(content):return {'type':'web_fetch_tool_result','content':content}
+  def block(content):return {'type':'web_fetch_tool_result','tool_use_id':'fetch','content':content}
+  call={'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}}
   binary={'type':'web_fetch_result','content':{'source':{'type':'base64','media_type':'application/pdf','data':'JVBERi0='}}}
   error={'type':'web_fetch_tool_result_error','error_code':'url_not_accessible'}
   row=self.record(status_code=200,error_type='tool_error')
   for blocks,expected in [([block(error),block(binary)],'返回原生 PDF，未提供所需文字'),([block(binary),block(error)],'抓取工具报告网址无法访问')]:
-   raw=json.dumps({'content':blocks+[{'type':'text','text':'Everything worked'}]})
-   self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],expected)
-  raw=json.dumps({'content':[block({'type':'web_fetch_tool_result_error','error_code':'too_many_requests'})]})
-  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'抓取工具报告限流')
+   raw=json.dumps({'content':[call]+blocks+[{'type':'text','text':'Everything worked'}]})
+   self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],expected)
+  raw=json.dumps({'content':[call,block({'type':'web_fetch_tool_result_error','error_code':'too_many_requests'})]})
+  self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],'抓取工具报告限流')
  def test_timeout_option_name_is_not_timeout_error(self):
   raw=json.dumps({'errors':[{'message':'Execution context was destroyed. Check waitForTimeout options.'}]})
   self.assertEqual(diagnose(self.record(),{},raw)['category'],'浏览器执行上下文中断')
