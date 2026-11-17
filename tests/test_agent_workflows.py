@@ -75,3 +75,13 @@ def test_pin_requires_explicit_checkout(monkeypatch):
     with pytest.raises(SystemExit) as stopped:
         main(["datasets", "pin", "--track", "webfetch", "--revision", "0" * 40])
     assert stopped.value.code == 2
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_dataset_pin_forwards_help_without_a_checkout(flag, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["webstone"])
+    with pytest.raises(SystemExit) as stopped:
+        main(["datasets", "pin", flag])
+    assert stopped.value.code == 0
+    assert "--select" in capsys.readouterr().out
+    assert sys.argv == ["webstone"]

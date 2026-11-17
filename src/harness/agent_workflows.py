@@ -99,7 +99,7 @@ def datasets_main() -> None:
         print(json.dumps(dataset_inventory(), indent=2))
         return
     if args.command == "pin" and not any(value == "--root" or value.startswith("--root=")
-                                          for value in remaining) and "--help" not in remaining:
+                                          for value in remaining) and not {"-h", "--help"}.intersection(remaining):
         parser.error("pin requires an explicit --root Webstone source checkout")
     module = importlib.import_module("harness.benchmarks." + owners[args.command])
     invoked = sys.argv
