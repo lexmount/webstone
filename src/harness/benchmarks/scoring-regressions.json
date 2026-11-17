@@ -86563,6 +86563,618 @@
       "artifact": "©著作权归其他人所有",
       "ok": true,
       "expected_task_pass": false
+    },
+    {
+      "id": "rights-layout-boundary-inline",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "© 著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "rights-layout-boundary-tab",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\t著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "rights-layout-boundary-paragraph",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\n\n著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "rights-layout-boundary-plain-newline",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\n著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": false,
+      "metadata": {
+        "answer_format": "plain_text"
+      }
+    },
+    {
+      "id": "rights-layout-boundary-missing-owner",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "© 其他作者",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "rights-layout-boundary-markdown-softbreak",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Rights-mark layout folding must inspect horizontal gaps before global whitespace collapse; explicit line and paragraph boundaries do not become inline typography.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "©著作权归作者所有"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "©\n著作权归作者所有",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "quoted-scalar-line-boundary-multiple-lines",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Quoted YAML scalar equivalence must run while each authored line is still separate, before Markdown soft-break folding joins prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "\"name\": \"Alice\""
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "name: 'Alice'\nother: 'Bob'",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "quoted-scalar-line-boundary-code-lines",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Quoted YAML scalar equivalence must run while each authored line is still separate, before Markdown soft-break folding joins prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "\"name\": \"Alice\""
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "```yaml\nname: 'Alice'\nother: 'Bob'\n```",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "quoted-scalar-line-boundary-wrong-value",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Quoted YAML scalar equivalence must run while each authored line is still separate, before Markdown soft-break folding joins prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "\"name\": \"Alice\""
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "name: 'Alicia'\nother: 'Bob'",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "quoted-scalar-line-boundary-wrong-key",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Quoted YAML scalar equivalence must run while each authored line is still separate, before Markdown soft-break folding joins prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "\"name\": \"Alice\""
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "other: 'Alice'\nname: 'Bob'",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "quoted-scalar-line-boundary-single-line",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Quoted YAML scalar equivalence must run while each authored line is still separate, before Markdown soft-break folding joins prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "\"name\": \"Alice\""
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "name: 'Alice'",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "cjk-literal-line-boundary-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n第二句话。",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "cjk-literal-line-boundary-inline",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。 第二句话。",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "cjk-literal-line-boundary-two-spaces",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。  \n第二句话。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "cjk-literal-line-boundary-backslash",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\\\n第二句话。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "cjk-literal-line-boundary-fenced",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "```text\n第一句话。\n第二句话。\n```",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "cjk-literal-line-boundary-indented",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "    第一句话。\n    第二句话。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "cjk-literal-line-boundary-paragraph",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\n\n第二句话。",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
+      "id": "cjk-literal-line-boundary-inline-code",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "`第一句话。\n第二句话。`",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "cjk-literal-line-boundary-exact-code",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "```text\n第一句话。\n第二句话。\n```"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "```text\n第一句话。\n第二句话。\n```",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "cjk-literal-line-boundary-wrong-code",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Only a Markdown prose soft break may join the CJK phrase. Explicit hard breaks and literal code line endings must survive visible-text projection and later normalization.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic display boundary",
+        "url": "https://example.test/article",
+        "category": "synthetic",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "target",
+              "alternatives": [
+                "```text\n第一句话。\n第二句话。\n```"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "```text\n第一句话。\n其他文字。\n```",
+      "ok": true,
+      "expected_task_pass": false
     }
   ]
 }
