@@ -275,3 +275,18 @@ Project citation: [CITATION.cff](CITATION.cff).
   url = {https://github.com/lexmount/webstone}
 }
 ```
+
+## Submit benchmark results
+
+Internal and external contributors use the same reviewed publication flow in [webstone-site](https://github.com/lexmount/webstone-site). Install GitHub CLI and use your existing GitHub account; no separate website account is required.
+
+```sh
+webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
+# Fill actual measurements, sample scope and public evidence before validation.
+webstone results validate report.json
+webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
+webstone results submit report.json --provider-url your-method=https://example.com/project
+webstone results status 123 --verify-published
+```
+
+Submissions create result-only PRs from personal forks. CI validates the format and immutable history; maintainers review evidence before merging. A merge is distinct from a completed deployment. See the [CLI/SDK and PyPI guide](docs/result-submissions.md) for authentication, version-conflict rebasing, public-data requirements and release setup. These commands are available from source until a PyPI release containing them is published; no software version or tag is changed by this feature.

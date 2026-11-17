@@ -113,9 +113,7 @@ def test_environment_preparation_rejects_partial_component_restart(tmp_path):
 def test_repository_root_is_independent_of_current_working_directory():
     root = repository_root(Path(__file__))
     assert (root / "pyproject.toml").is_file()
-    assert source_path(
-        "harness/trajectory_replay/webarena_runtime_source.py", root=root
-    ).is_file()
+    assert source_path("harness/trajectory_replay/webarena_runtime_source.py", root=root).is_file()
 
 
 @pytest.mark.parametrize(
@@ -136,20 +134,27 @@ def test_environment_preparation_rejects_unbound_receipts(tmp_path, path, key, v
         validate_environment_preparation(receipt, profile)
 
 
-def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path):
+@pytest.mark.parametrize("dependency_layout", ["direct", "uv-source"])
+def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path, dependency_layout):
     repository = tmp_path / "repository"
     (repository / "pyproject.toml").parent.mkdir(parents=True)
     revision = "a" * 40
     fork = "https://github.com/lexmount/webarena-verified.git"
-    (repository / "pyproject.toml").write_text(
+    metadata = (
         f"[project]\nname='fixture'\n[project.optional-dependencies]\n"
-        f"browser-use-eval = ['webarena-verified @ git+{fork}@{revision}']\n",
-        encoding="utf-8"
+        f"browser-use-eval = ['webarena-verified @ git+{fork}@{revision}']\n"
     )
+    if dependency_layout == "uv-source":
+        metadata = (
+            "[project]\nname='fixture'\n[project.optional-dependencies]\n"
+            "browser-use-eval = ['webarena-verified==1.2.3.post1.dev16']\n"
+            f"[tool.uv.sources]\nwebarena-verified = {{git='{fork}',rev='{revision}'}}\n"
+        )
+    (repository / "pyproject.toml").write_text(metadata, encoding="utf-8")
     (repository / "uv.lock").write_text(
-        f"version = 1\n[[package]]\nname = 'webarena-verified'\n"
+        f"version = 1\n[[package]]\nname = 'webarena-verified'\nversion='1.2.3.post1.dev16'\n"
         f"source = {{ git = '{fork}?rev={revision}#{revision}' }}\n",
-        encoding="utf-8"
+        encoding="utf-8",
     )
     task_ids = [4, 11, 23]
     official_checksum = "official-data"
@@ -249,7 +254,9 @@ def test_report_profile_owns_accepted_counts_instead_of_validator_code(tmp_path)
         validate_catalog_report_profile(profile, data_home)
 
     changed = json.loads(dataset.read_text(encoding="utf-8"))
-    changed["evaluator_source"]["repository"] = "https://github.com/ServiceNow/webarena-verified.git"
+    changed["evaluator_source"]["repository"] = (
+        "https://github.com/ServiceNow/webarena-verified.git"
+    )
     dataset.write_text(json.dumps(changed), encoding="utf-8")
     changed_profile = json.loads(profile.read_text(encoding="utf-8"))
     changed_profile["accepted_counts"] = counts
@@ -418,8 +425,8 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
     revision = json.loads(metadata_revision.read_text(encoding="utf-8"))
     revision["provider_calls"] = 1
     metadata_revision.write_text(json.dumps(revision), encoding="utf-8")
-    binding_payload["artifacts"]["execution_metadata_revision"]["sha256"] = (
-        file_sha256(metadata_revision)
+    binding_payload["artifacts"]["execution_metadata_revision"]["sha256"] = file_sha256(
+        metadata_revision
     )
     binding.write_text(json.dumps(binding_payload), encoding="utf-8")
     with pytest.raises(ValueError, match="execution metadata revision changed"):
@@ -427,8 +434,8 @@ def test_comparison_release_binds_population_review_and_publication(tmp_path):
 
     revision["provider_calls"] = 0
     metadata_revision.write_text(json.dumps(revision), encoding="utf-8")
-    binding_payload["artifacts"]["execution_metadata_revision"]["sha256"] = (
-        file_sha256(metadata_revision)
+    binding_payload["artifacts"]["execution_metadata_revision"]["sha256"] = file_sha256(
+        metadata_revision
     )
     binding.write_text(json.dumps(binding_payload), encoding="utf-8")
 

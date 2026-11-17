@@ -276,3 +276,17 @@ make ci
   url = {https://github.com/lexmount/webstone}
 }
 ```
+
+## 提交评测结果
+
+内部和外部贡献者通过同一 CLI／SDK 向 [webstone-site](https://github.com/lexmount/webstone-site) 提交结果 PR。复用 GitHub 账号，无需另建网站账号。结果应只含可公开且不敏感的数据；先通过校验和维护者审核，合入后再由网站自动部署。
+
+```sh
+webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
+webstone results validate report.json
+webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
+webstone results submit report.json --provider-url your-method=https://example.com/project
+webstone results status 123 --verify-published
+```
+
+模板的空值需要填写真实测量与公开证据，不是生成的评测分数。新版本追加发布，不覆盖历史；版本冲突可用 `webstone results rebase 123` 更新后重新审核。详见 [CLI／SDK 与 PyPI 发布指南](result-submissions.md)。包含该功能的 PyPI 版本发布前，可从维护中的源码安装；本次功能变更不自动修改软件版本或创建标签。
