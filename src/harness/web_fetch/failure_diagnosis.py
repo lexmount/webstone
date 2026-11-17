@@ -78,31 +78,32 @@ def _returned_page_failure(raw, case, metrics):
         and re.search(r'access denied|filtering rules|administrator has misconfigured|'
                       r'why am i seeing this|making sure|calculating|click the circle|'
                       r'protect.{0,60}(?:server|website)|not a bot|circle challenge|'
-                      r'this website is running anubis|difficulty\s*:', visible, re.I | re.S)
+                      r'this website is running anubis|measure against bots|difficulty\s*:', visible, re.I | re.S)
         and not re.search(r'protected by anubis', reference, re.I))
     if gate or anubis or circle_gate:
         return {'category': t('returned_access_gate', 'Returned verification or access-block page'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': (hits[0] if hits else visible[:500]),
                 'certainty': t('returned_gate_boundary', 'The saved answer contains an access gate; this does not identify which remote component triggered it.')}
-    if len(visible) <= 5000 and re.search(
-            r'(?im)^\s*(?:#{1,6}\s*)?(?:sign in|log in|login|登录|登入)\s*[.!:：]?\s*$', visible):
-        if re.search(r'password|forgot password|email or username|邮箱|密码', visible, re.I):
+    # A navigation login link and a footer email address do not establish a
+    # login gate. Require the returned page to lead with the login heading and
+    # contain a standalone credential field, not a keyword anywhere in its body.
+    if len(visible) <= 5000 and re.match(
+            r'(?im)\A\s*(?:#{1,6}\s*)?(?:sign in|log in|login|登录|登入)[ \t]*[.!:：]?[ \t]*(?:\n|$)', visible):
+        if re.search(r'(?im)^[ \t]*(?:password|email address|email or username|邮箱|密码)[ \t]*[:：]?[ \t]*$', visible):
             return {'category': t('returned_login_page', 'Returned login page'),
                     'stage': t('content_delivery', 'Content delivery'),
                     'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
-    if len(visible) <= 1000 and re.search(
-            r'(?im)^\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
-            r'you (?:need|must) (?:to )?enable javascript[^\n]*|'
+    loading_only = re.fullmatch(
+        r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
+        r'Chargement des statistiques[.…]*)\s*', visible)
+    if len(visible) <= 1000 and (loading_only or re.search(
+            r'(?im)^\s*(?:#{1,6}\s*)?(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
             r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
-            r'enable javascript to (?:see|view)[^\n]*)\s*$', visible):
+            r'enable javascript to (?:see|view)[^\n]*)\s*$', visible)):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
-    if len(visible) <= 5000 and re.search(r'(?im)^\s*Chargement des statistiques[.…]*\s*$', visible):
-        return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
-                'stage': t('content_delivery', 'Content delivery'),
-                'evidence': 'Chargement des statistiques…', 'certainty': t('direct_response_basis', 'Direct-response basis')}
     if frontmatter and not body.strip():
         return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
                 'stage': t('content_delivery', 'Content delivery'),
@@ -186,10 +187,10 @@ def _native_failure(payload):
                 category = t('method_safety_restriction', 'Method safety restriction')
                 stage = t('method_security_policy', 'Method security policy')
             elif code == 'too_many_requests':
-                category = t('rate_limit_quota', 'Rate limit / quota')
+                category = t('fetch_tool_rate_limit', 'Fetch tool reported a rate limit')
                 stage = t('provider_retrieval', 'Provider retrieval')
             elif code == 'url_not_accessible':
-                category = t('fetch_tool_http_failure', 'Fetch tool HTTP error')
+                category = t('fetch_tool_http_failure', 'Fetch tool could not access URL')
                 stage = t('provider_retrieval', 'Provider retrieval')
             if category:
                 evidence = json.dumps(result, ensure_ascii=False)

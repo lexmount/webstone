@@ -8,6 +8,35 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_login_navigation_and_footer_do_not_establish_login_gate(self):
+  examples=[
+   '# Product directory\n\n登录\n\n## Products\nAvailable products and descriptions.\n\n忘记密码？',
+   '# Dictionary\n\n登录\n\nTranslation products\n举报邮箱：contact@example.test',
+   '# Sign in\nThis article explains password management and account recovery.',
+   '# Directory\n\n登录\n\nEmail address\nPassword\n## Latest articles\nPublic content',
+  ]
+  for raw in examples:
+   with self.subTest(raw=raw):
+    row=self.record(ok=True,metrics={'content_pass':False})
+    before=deepcopy(row)
+    self.assertNotEqual(diagnose(row,{},raw)['category'],'返回登录页')
+    self.assertEqual(row,before)
+ def test_login_gate_requires_leading_heading_and_credential_field(self):
+  for raw in ['# Sign in\nEmail address\nPassword\nForgot password?',
+              '登录\n邮箱：\n密码：\n忘记密码？']:
+   with self.subTest(raw=raw):
+    self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'返回登录页')
+ def test_loading_indicator_beside_real_content_is_not_loading_only(self):
+  for raw in ['Loading...\n\n## Statistics\nCompleted requests: 1200',
+              'Chargement des statistiques…\n\nDemandes soumises\n\n**1200**',
+              '# Search plugin\nSet search to true.\n\nLoading...\n\nUse the selector to customize cells.']:
+   with self.subTest(raw=raw):
+    self.assertNotEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'仅返回加载或 JavaScript 提示')
+  for raw in ['Loading...', 'Chargement des statistiques…']:
+   self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'仅返回加载或 JavaScript 提示')
+ def test_loading_with_explicit_bot_challenge_is_access_gate(self):
+  raw='![Challenge](/.within.website/x/cmd/anubis/static/img/pensive.webp)\n\nLoading...\n\nThis is a measure against bots and malicious requests similar to a CAPTCHA.'
+  self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'返回拦截或验证页')
  def test_body_region_target_count_explains_failure_above_floor(self):
   metrics={'content_pass':False,'body_coverage_pass':False,'body_target_regions':4,
    'body_required_target_regions':5,'body_region_results':[{'id':'footer','pass':False}]}
@@ -198,11 +227,11 @@ class FailureDiagnosisTests(unittest.TestCase):
   binary={'type':'web_fetch_result','content':{'source':{'type':'base64','media_type':'application/pdf','data':'JVBERi0='}}}
   error={'type':'web_fetch_tool_result_error','error_code':'url_not_accessible'}
   row=self.record(status_code=200,error_type='tool_error')
-  for blocks,expected in [([block(error),block(binary)],'返回原生 PDF，未提供所需文字'),([block(binary),block(error)],'抓取工具返回 HTTP 错误')]:
+  for blocks,expected in [([block(error),block(binary)],'返回原生 PDF，未提供所需文字'),([block(binary),block(error)],'抓取工具报告网址无法访问')]:
    raw=json.dumps({'content':blocks+[{'type':'text','text':'Everything worked'}]})
    self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],expected)
   raw=json.dumps({'content':[block({'type':'web_fetch_tool_result_error','error_code':'too_many_requests'})]})
-  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'限流 / 配额')
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'抓取工具报告限流')
  def test_timeout_option_name_is_not_timeout_error(self):
   raw=json.dumps({'errors':[{'message':'Execution context was destroyed. Check waitForTimeout options.'}]})
   self.assertEqual(diagnose(self.record(),{},raw)['category'],'浏览器执行上下文中断')
