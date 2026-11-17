@@ -8,6 +8,14 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_unicode_separators_do_not_shift_markdown_code_line_maps(self):
+  for separator in ['\n','\u2028','\u0085']:
+   for ending in ['\n','\r\n','\r']:
+    raw=('# Guide'+separator+'a'+separator+'b'+separator+'c\n\n```text\nAccess denied\n```\nExplanation.').replace('\n',ending)
+    case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    with self.subTest(separator=separator,ending=ending):
+     self.assertNotEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
  def test_anubis_asset_example_does_not_make_documentation_a_gate(self):
   for asset in ['/.within.website/x/cmd/anubis/static/example.js','/.cerberus/static/example.js']:
    for code in ['```text\n'+asset+'\n```','    '+asset]:
@@ -34,6 +42,23 @@ class FailureDiagnosisTests(unittest.TestCase):
   case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Specifications']} ]}
   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
   self.assertNotEqual(diagnose(row,case,raw)['category'],'返回媒体兼容提示，未交付目标内容')
+ def test_complete_compatibility_notices_are_distinct_from_delivered_content(self):
+  notices=[
+   ("# Video\n\nYour browser doesn't support HTML5 video. Here is a link to the video instead.",'返回媒体兼容提示，未交付目标内容'),
+   ('# 您的浏览器版本过低哦\n\n亲爱的小伙伴，您当前使用的浏览器版本过低，已无法正常访问此页面。您可以通过 升级浏览器 或 下载桌面端 继续访问，感谢您的支持与陪伴～\n\n下载桌面客户端\n支持Win7以上系统\n升级您的浏览器\n- Chrome 谷歌浏览器\n- Firefox 火狐浏览器\n©2023 Example','返回媒体兼容提示，未交付目标内容'),
+   ('Example Course\n\n# JS Rendering\n\n## Challenge\n\nEnable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('The Map application supports most recent browsers, view supported browsers.\n\nJavascript must be enabled to view our maps. To access earthquake information without using javascript, use our ATOM Feed or our other feeds.','仅返回加载或 JavaScript 提示')]
+  for raw,label in notices:
+   for extra in ['', '\n\nProduct Alpha costs $20.', '\n\n```text\nDelivered example\n```']:
+    with self.subTest(raw=raw,extra=extra):
+     case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+     row=self.record(ok=True,metrics=score_attempt(case,(raw+extra).encode(),ok=True))
+     self.assertEqual(diagnose(row,case,raw+extra)['category']==label,not extra)
+   # A notice quoted as part of the task's actual reference is target content.
+   case={'url':'https://example.test','ground_truth_main_content':raw+'\n\nAdditional reference content.',
+    'required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertNotEqual(diagnose(row,case,raw)['category'],label)
  def test_code_example_gate_exclusion_applies_to_long_documents(self):
   for count in [10,1000]:
    for raw,expected in [('# Reference\n'+('Ordinary documentation.\n'*count)+'\n```text\nAccess denied\n```','content'),

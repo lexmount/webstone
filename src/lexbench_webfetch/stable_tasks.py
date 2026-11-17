@@ -168,6 +168,7 @@ def _mark_html_headings(soup, *, include=None):
 def _visible(text, schema=None, *, normalized_html=False, representation=None, anchor_layout=False):
     if representation == 'plain_text':
         return clean_reference_text(text).replace('\r\n', '\n')
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
     from .reference_quality import is_html_document_or_fragment
 
     projected_html = (
@@ -1994,9 +1995,20 @@ def evaluate_stable_task(content: str, contract: dict, base_url: str = "", eligi
             text_patterns=exclusions.get('text_patterns', []))
     # Literal line boundaries matter to prose-anchor equivalence. Pattern and
     # record parsers above retain the original visible code line endings.
-    if completed_body_view and not native_html and representation != 'plain_text' and not exclusions:
+    if completed_body_view and not native_html and representation != 'plain_text':
         visible = _visible(content, schema, representation=representation, anchor_layout=True)
-        if original_markdown_visible is not None:
+        if exclusions:
+            from .reference_quality import markdown_heading_text
+            anchor_source = (markdown_heading_text(non_record_content)
+                             if original_markdown_visible is not None else non_record_content)
+            anchor_visible = _visible(anchor_source, schema, representation=representation, anchor_layout=True)
+            if original_markdown_visible is not None:
+                original_markdown_visible = visible
+            for pattern in exclusions.get('text_patterns', []):
+                anchor_visible = re.sub(pattern, ' ', anchor_visible, flags=re.I | re.M)
+                if original_markdown_visible is not None:
+                    original_markdown_visible = re.sub(pattern, ' ', original_markdown_visible, flags=re.I | re.M)
+        elif original_markdown_visible is not None:
             original_markdown_visible = visible
             anchor_visible = _visible(heading_text, schema, anchor_layout=True)
     anchors = []

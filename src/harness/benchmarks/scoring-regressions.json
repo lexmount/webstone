@@ -87175,6 +87175,478 @@
       "artifact": "```text\n第一句话。\n其他文字。\n```",
       "ok": true,
       "expected_task_pass": false
+    },
+    {
+      "id": "body-explicit-line-ending-crlf-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\r\n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-explicit-line-ending-crlf-spaces",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。  \r\n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-explicit-line-ending-crlf-backslash",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\\\r\n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-explicit-line-ending-cr-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\r第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-explicit-line-ending-cr-spaces",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。  \r第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-explicit-line-ending-cr-backslash",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ]
+        }
+      },
+      "artifact": "第一句话。\\\r第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-pattern-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "text_exclusions": {
+            "text_patterns": [
+              "NEVER_MATCH"
+            ]
+          }
+        }
+      },
+      "artifact": "第一句话。\n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-exclusion-line-boundary-pattern-hard",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "text_exclusions": {
+            "text_patterns": [
+              "NEVER_MATCH"
+            ]
+          }
+        }
+      },
+      "artifact": "第一句话。  \n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-pattern-fenced",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "text_exclusions": {
+            "text_patterns": [
+              "NEVER_MATCH"
+            ]
+          }
+        }
+      },
+      "artifact": "```text\n第一句话。\n第二句话。\n```",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-pattern-indented",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "text_exclusions": {
+            "text_patterns": [
+              "NEVER_MATCH"
+            ]
+          }
+        }
+      },
+      "artifact": "    第一句话。\n    第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-target-soft",
+      "failure_mode": "false-negative",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "content_scope": "target_content"
+        }
+      },
+      "artifact": "第一句话。\n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": true
+    },
+    {
+      "id": "body-exclusion-line-boundary-target-hard",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "content_scope": "target_content"
+        }
+      },
+      "artifact": "第一句话。  \n第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-target-fenced",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "content_scope": "target_content"
+        }
+      },
+      "artifact": "```text\n第一句话。\n第二句话。\n```",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
+    },
+    {
+      "id": "body-exclusion-line-boundary-target-indented",
+      "failure_mode": "false-positive",
+      "category": "format-normalization",
+      "root_cause": "Markdown line boundaries must be normalized before hard-break detection and retained on anchor surfaces even when unrelated exclusions are declared. An exclusion cannot turn literal code or a hard break into prose.",
+      "case": {
+        "id": "boundary",
+        "name": "Synthetic line boundary",
+        "category": "synthetic",
+        "url": "https://example.test",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "body_text",
+          "minimum_records": 0,
+          "stable_text_anchors": [
+            {
+              "id": "phrase",
+              "alternatives": [
+                "第一句话。 第二句话。"
+              ]
+            }
+          ],
+          "content_scope": "target_content"
+        }
+      },
+      "artifact": "    第一句话。\n    第二句话。",
+      "ok": true,
+      "metadata": {
+        "answer_format": "markdown"
+      },
+      "expected_task_pass": false
     }
   ]
 }

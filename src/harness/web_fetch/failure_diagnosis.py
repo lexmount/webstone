@@ -51,19 +51,22 @@ def _returned_page_failure(raw, case, metrics):
     if frontmatter and not re.search(r'(?m)^[\w.-]+\s*:\s*\S', frontmatter.group()):
         frontmatter = None
     body = raw[frontmatter.end():] if frontmatter else raw
+    body = body.replace('\r\n', '\n').replace('\r', '\n')
     reference = case.get('ground_truth_main_content') or ''
     full_visible = visible_markdown_links(body).strip()
     # Short examples in technical articles are content, not proof of a shell.
     # Keep original line boundaries while removing fenced/indented code blocks.
-    lines = body.splitlines(keepends=True)
+    lines = body.split('\n')
+    has_code = False
     for token in MarkdownIt('commonmark').parse(body):
         if token.type in {'fence', 'code_block'} and token.map:
+            has_code = has_code or bool(token.content.strip())
             for index in range(*token.map):
-                lines[index] = '\n'
-    diagnostic_body = ''.join(lines)
+                lines[index] = ''
+    diagnostic_body = '\n'.join(lines)
     visible = visible_markdown_links(diagnostic_body).strip()
     normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
-    if full_visible and normalize(full_visible) == normalize(visible_markdown_links(reference)):
+    if full_visible and normalize(full_visible) in normalize(visible_markdown_links(reference)):
         return None
     reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
     hits = [hit for hit in blocked_page_hits(diagnostic_body) if hit.casefold() not in reference_hits]
@@ -97,10 +100,16 @@ def _returned_page_failure(raw, case, metrics):
     loading_only = re.fullmatch(
         r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
         r'Chargement des statistiques[.…]*)\s*', full_visible)
-    if len(visible) <= 1000 and (loading_only or re.fullmatch(
-            r'(?i)\s*(?:#{1,6}[^\n]*\n\s*)?(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
+    js_only = re.fullmatch(
+            r'(?i)\s*(?:[A-Za-z][A-Za-z \t]{0,50}\n+\s*)?'
+            r'(?:#{1,6}[^\n]*\n+\s*)*(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
             r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
-            r'enable javascript to (?:see|view)[^\n]*)\s*', full_visible)):
+            r'enable javascript to (?:see|view)[^\n]*)\s*', full_visible)
+    browser_notice = re.fullmatch(
+            r'(?is)\s*The [^\n.]{1,100} application supports [^\n.]*browsers[^\n.]*\.'
+            r'\s*Javascript must be enabled[^\n.]*\.'
+            r'\s*To access [^\n]*without using javascript[^\n]*\s*', full_visible)
+    if not has_code and len(full_visible) <= 1000 and (loading_only or js_only or browser_notice):
         return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
@@ -120,12 +129,23 @@ def _returned_page_failure(raw, case, metrics):
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible,
                 'certainty': t('direct_response_basis', 'Direct-response basis')}
-    if re.fullmatch(
+    media_text = re.sub(r'(?m)^#{1,6}[ \t]+[^\n]*$', '', full_visible).strip()
+    browser_page = (len(full_visible) <= 1500 and re.match(
+        r'\A\s*(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*\n', full_visible)
+        and re.search(r'已无法正常访问此页面', full_visible)
+        and re.search(r'升级(?:您的)?浏览器|下载[^\n]*客户端', full_visible)
+        and all(re.fullmatch(
+            r'(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*|'
+            r'(?:亲爱的小伙伴[，,]\s*)?您(?:当前使用的)?浏览器版本过低[^\n]*|'
+            r'下载[^\n]*客户端|支持[^\n]*系统|升级(?:您的)?浏览器|'
+            r'[-*]\s*(?:Chrome|Firefox|Edge|Opera)[^\n]*|©[^\n]*', line.strip())
+            for line in full_visible.split('\n') if line.strip()))
+    if not has_code and (browser_page or re.fullmatch(
             r"\s*(?:your browser (?:does not|doesn't) support html5 video[.!]?"
-            r'(?:\s*Here is a link instead[.!]?)?|'
+            r'(?:\s*Here is a link(?: to the video)? instead[.!]?)?|'
             r'(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*\n\s*'
             r'(?:亲爱的小伙伴[，,]\s*)?您(?:当前使用的)?浏览器版本过低[，,]\s*'
-            r'已无法正常访问此页面[。.]\s*请升级浏览器[。.]?)\s*', full_visible, re.I):
+            r'已无法正常访问此页面[。.]\s*请升级浏览器[。.]?)\s*', media_text, re.I)):
         return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),
                 'stage': t('content_delivery', 'Content delivery'),
                 'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
