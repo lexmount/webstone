@@ -271,7 +271,7 @@ def _numeric_matches(text, unit):
 def _coordinate_values(text):
     pattern = (r'(?<![\w.,+\-])(\d+(?:\.\d+)?)\s*°'
                r'(?:\s*(\d+(?:\.\d+)?)\s*[\u2032\x27]'
-               r'(?:\s*(\d+(?:\.\d+)?)\s*[\u2033\x22])?)?\s*([nsew])(?!\w)')
+               r'(?:\s*(\d+(?:\.\d+)?)\s*(?:\u2032{2}|[\u2033\x22]))?)?\s*([nsew])(?!\w)')
     for match in re.finditer(pattern, _matching_text(text)):
         degrees, minutes, seconds = [Decimal(value or '0') for value in match.groups()[:3]]
         hemisphere = match[4]

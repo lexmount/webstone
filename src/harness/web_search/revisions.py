@@ -662,6 +662,9 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
             if (item.get('requires_fresh_calls') and item['before']['query'] == item['after']['query']
                     and {key: case.get(key) for key in item['after']} != item['after']):
                 raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
+            actual = {key: case.get(key) for key in item['after']}
+            if actual not in (item['before'], item['after']):
+                raise ValueError('Saved task differs from the approved repair contracts: ' + case['id'])
             # Calls bind queries; approved definitions own their scoring metadata.
             case.update(deepcopy(item['after']))
             case['derivation'] = indexed[case['id']]['derivation']

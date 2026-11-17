@@ -133,6 +133,20 @@ def validate_repair_evidence(dataset, artifacts):
                 if (kind not in {'translation', 'calculation', 'date_context', 'visual_record'}
                         or not interpretation.get('explanation') or not source_form or source_form not in quote):
                     raise ValueError('Nonliteral repair evidence requires its source form and interpretation')
+            if kind == 'visual_record':
+                image = evidence.get('page_image', {})
+                image_path = image.get('path', '')
+                if (not image_path or PurePosixPath(image_path).is_absolute()
+                        or '..' in PurePosixPath(image_path).parts or '\\' in image_path
+                        or source.get('page_image') != image or type(source.get('page')) is not int
+                        or source['page'] < 1 or evidence.get('page') != source['page']):
+                    raise ValueError('Visual repair evidence requires a bound page image')
+                try:
+                    pixels = artifacts(image_path) if callable(artifacts) else artifacts[image_path]
+                except (KeyError, FileNotFoundError) as error:
+                    raise ValueError('Missing visual repair page image') from error
+                if digest(pixels) != image.get('sha256') or not pixels.startswith(b'\x89PNG\r\n\x1a\n'):
+                    raise ValueError('Visual repair page image hash or format mismatch')
 
 
 def mirror_candidates(reference_url):
@@ -224,12 +238,12 @@ def qualify_question_mirror(reference, candidate, answer, *, policy=FULL_MIRROR_
     left, right = [o['article_text'] for o in (reference, candidate)]
     matcher = contains_answer
     if policy == FULL_MIRROR_POLICY:
-        from .answer_rules import match_reference_answer
+        from .answer_rules import _norm, match_reference_answer
 
         # Compound prose retains literal token evidence (for example a match
         # score with a compact dash). Quantities keep the signed/unit guards.
         matcher = lambda text, reference: (
-            (not re.match(r'\s*[+\-]?\d', reference) and contains_answer(text, reference))
+            (not re.match(r'[+\-]?\s*\d', _norm(reference)) and contains_answer(text, reference))
             or match_reference_answer(reference, text))
     reference_has_answer = matcher(left, answer)
     mirror_has_answer = matcher(right, answer)

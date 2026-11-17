@@ -710,7 +710,7 @@ def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls',
-                                  'unresolved', 'quote-mismatch', 'source-hash', 'output-informed'])
+                                  'unresolved', 'quote-mismatch', 'source-hash', 'output-informed', 'visual-without-image'])
 def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
     from copy import deepcopy
     from lexbench_websearch.simpleqa import extend_reference_urls
@@ -745,6 +745,9 @@ def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, de
         dataset['case_repairs']['repairs'][0]['evidence'][0]['sha256'] = 'd'*64
     elif defect == 'output-informed':
         dataset['case_repairs']['repairs'][0]['source_discovery']['kind'] = 'legacy_result_audit'
+    elif defect == 'visual-without-image':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['interpretation'].update(
+            kind='visual_record', source_form='Correct Author', explanation='Transcribed from the source page.')
     raw = json.dumps(dataset).encode()
     registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
                                                sha256=hashlib.sha256(raw).hexdigest())})

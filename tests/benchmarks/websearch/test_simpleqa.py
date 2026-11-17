@@ -93,17 +93,18 @@ def test_mirror_requires_literal_compound_answers_when_quantity_matching_is_stri
     assert result['qualified'] is current
 
 
+@pytest.mark.parametrize('answer,correct,wrong', [('-13.99', '-13.99', '13.99'), ('−150', '−150', '150'), ('+ 150', '+ 150', '-150')])
 @pytest.mark.parametrize('current', [True, False])
-def test_mirror_literal_fallback_does_not_erase_quantity_signs(current):
+def test_mirror_literal_fallback_does_not_erase_quantity_signs(current, answer, correct, wrong):
     from lexbench_websearch.simpleqa import qualify_question_mirror
 
     background = 'Independent historical measurements and survey context. ' * 30
     reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
-                     article_text=background + 'The latitude is -13.99.', status=200,
+                     article_text=background + 'The measurement is ' + correct + '.', status=200,
                      body_sha256='a'*64, verified_at='2026-11-17T00:00:00Z')
     mirror = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
-                  article_text=background + ('The latitude is -13.99.' if current else 'The latitude is 13.99.'))
-    assert qualify_question_mirror(reference, mirror, '-13.99')['qualified'] is current
+                  article_text=background + 'The measurement is ' + (correct if current else wrong) + '.')
+    assert qualify_question_mirror(reference, mirror, answer)['qualified'] is current
 
 
 @pytest.mark.parametrize(('answer', 'supported', 'stale'), [
@@ -199,6 +200,12 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     assert all(r['metrics']['answer_in_delivered_text_5'] == r['metrics']['labeled_source_hit_5'] == 1 for r in updated)
     assert rows == original
     assert all(r['elapsed_ms'] == 123 for r in updated)
+    if not fresh_required:
+        for field, value in [('reference_answer', 'Unrelated'), ('reference_urls', ['https://unrelated.test'])]:
+            contaminated = deepcopy(profile)
+            contaminated['cases'][0][field] = value
+            with pytest.raises(ValueError, match='approved repair contracts'):
+                apply_report_revision(contaminated, rows, revision)
     profile['cases'][0]['query'] = 'A query from an unrelated task'
     with pytest.raises(ValueError, match='new provider call'):
         apply_report_revision(profile, rows, revision)

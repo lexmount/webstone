@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.parametrize(('text', 'expected'), [
     ('Latitude -13.9865846103', True), ('Latitude -13.99', True),
-    ('Latitude 13°59′S', True), ('Latitude 13°59′N', False),
+    ('Latitude 13°59′30″S', True), ('Latitude 13°59\'30"S', True), ('Latitude 13°59′60″S', False), ('Latitude 13°59′30″N', False), ('Latitude 13°59′S', True), ('Latitude 13°59′N', False),
     ('Latitude 13°61′S', False), ('Latitude 19°30′S', False),
 ])
 def test_numeric_coordinate_evidence_preserves_hemisphere_and_minute_bounds(text, expected):
