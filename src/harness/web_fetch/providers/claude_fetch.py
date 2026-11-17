@@ -26,6 +26,14 @@ TOOL = {'type': 'web_fetch_20260318', 'name': 'web_fetch', 'allowed_callers': ['
         'use_cache': False, 'response_inclusion': 'full', 'citations': {'enabled': False}}
 
 
+class RemoteClaudeTransportError(RuntimeError):
+    """A verified remote worker observed a transport failure, not an API response."""
+    def __init__(self, receipt):
+        self.receipt = receipt
+        error = receipt['transport_error']
+        super().__init__(f"Remote HTTPS {error['phase']}: {error['reason_type']}: {error['message']}")
+
+
 def _read_remote_ready(stream, deadline):
     """Bound SSH/worker startup with the same deadline as the API call."""
     data = bytearray()
@@ -146,7 +154,13 @@ class ClaudeFetchProvider(Provider):
             'remote_api_budget_seconds': receipt.get('remote_api_budget_seconds'),
             'remote_worker_sha256': ready['worker_sha256'],
             'remote_runtime_sources': shared,
+            'remote_transport_events': receipt.get('transport_events', []),
+            'remote_https_environment': receipt.get('https_environment', {}),
             'deadline_policy': 'shared_caller_deadline_with_ready_anchored_remote_stop'}
+        for event in receipt.get('transport_events', []):
+            emit('remote_transport_observed', execution_server=receipt['ssh_server'], observation=event)
+        if receipt.get('kind') == 'claude_fetch_transport_error':
+            raise RemoteClaudeTransportError(receipt)
         body = base64.b64decode(receipt['body_b64'], validate=True)
         emit('remote_http_response_received', status=receipt['status'], url=endpoint,
              headers=receipt.get('headers', {}), body_bytes=len(body),
@@ -165,8 +179,14 @@ class ClaudeFetchProvider(Provider):
         self._call_deadline = started + timeout
         self.check_native_call(case)
         endpoint, arguments = self.native_http_arguments(case, timeout)
-        response = self.native_http_request(case, self._remote_request, endpoint,
-                            native_route_ledger=native_route_ledger, **arguments)
+        try:
+            response = self.native_http_request(case, self._remote_request, endpoint,
+                                native_route_ledger=native_route_ledger, **arguments)
+        except RemoteClaudeTransportError as error:
+            return ProviderResult(ok=False, content='', error_type='network', error_message=str(error),
+                metadata={'execution_ssh_server': self.config['ssh_server_ip'], 'client_retries': 0,
+                          'remote_transport_error': error.receipt['transport_error'],
+                          **getattr(self, '_remote_execution_receipt', {})})
         try:
             decoded = parse_utf8_json(response.body)
         except ValueError:

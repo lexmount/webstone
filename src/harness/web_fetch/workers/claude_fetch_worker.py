@@ -6,12 +6,33 @@ import ipaddress
 import os
 from pathlib import Path
 import signal
+import ssl
 import sys
 import time
+import urllib.error
+import urllib.request
 
 
 RUNTIME_SOURCES = ('harness/env_file.py', 'harness/distribution.py',
-                   'harness/web_fetch/providers/http_client.py')
+                   'harness/web_fetch/providers/http_client.py',
+                   'harness/web_fetch/diagnostics.py')
+
+
+class TransportTrace:
+    """Retain transport stages without request credentials or model content."""
+    def __init__(self, key):
+        self.key = key
+        self.events = []
+
+    def emit(self, source, event, **fields):
+        if event not in {'http_request_started', 'http_headers_received',
+                         'http_response_received', 'http_request_failed'}:
+            return
+        safe = {name: value for name, value in fields.items()
+                if name in {'status', 'phase', 'elapsed_ms', 'error_type', 'message'}}
+        safe = {name: value.replace(self.key, '[REDACTED]') if isinstance(value, str) else value
+                for name, value in safe.items()}
+        self.events.append({'event': event, **safe})
 
 
 def runtime_sources(root):
@@ -51,18 +72,35 @@ def main():
     signal.setitimer(signal.ITIMER_REAL, budget)
     sys.path.insert(0, str(runtime_root))
     from harness.env_file import parse_env_file
+    from harness.web_fetch.diagnostics import diagnostic_context
     from harness.web_fetch.providers.http_client import request
     env = parse_env_file(envelope['remote_env_file'])
     key = env.get('ANTHROPIC_API_KEY')
     if not key or env.get('ANTHROPIC_BASE_URL', 'https://api.anthropic.com').rstrip('/') != 'https://api.anthropic.com':
         raise RuntimeError('Missing remote credential or unexpected endpoint')
-    response = request('https://api.anthropic.com/v1/messages', method='POST',
-        json_body=envelope['body'], headers={'x-api-key': key, 'anthropic-version': '2023-06-01'},
-        timeout=budget, max_bytes=int(envelope['max_bytes']), allow_redirects=False)
+    trace = TransportTrace(key)
+    environment = {'tls_library': ssl.OPENSSL_VERSION,
+                   'https_proxy_configured': bool(urllib.request.getproxies().get('https'))}
+    try:
+        with diagnostic_context(trace, names=()):
+            response = request('https://api.anthropic.com/v1/messages', method='POST',
+                json_body=envelope['body'], headers={'x-api-key': key, 'anthropic-version': '2023-06-01'},
+                timeout=budget, max_bytes=int(envelope['max_bytes']), allow_redirects=False)
+    except (OSError, urllib.error.URLError) as error:
+        reason = getattr(error, 'reason', error)
+        phase = next((e['phase'] for e in reversed(trace.events) if 'phase' in e), 'connect_or_headers')
+        print(json.dumps({'kind': 'claude_fetch_transport_error', 'ssh_server': connection[2],
+            'remote_api_budget_seconds': budget, 'transport_events': trace.events,
+            'https_environment': environment, 'transport_error': {
+                'phase': phase, 'exception_type': type(error).__name__,
+                'reason_type': type(reason).__name__,
+                'message': str(reason).replace(key, '[REDACTED]')}}))
+        return
     if key.encode() in response.body or key in json.dumps(response.headers):
         raise RuntimeError('Credential detected in response; refusing transfer')
     print(json.dumps({'ssh_server': connection[2], 'status': response.status,
                       'remote_api_budget_seconds': budget, 'headers': response.headers,
+                      'transport_events': trace.events, 'https_environment': environment,
                       'body_b64': base64.b64encode(response.body).decode()}))
 
 

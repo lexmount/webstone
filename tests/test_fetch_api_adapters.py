@@ -220,6 +220,52 @@ def test_remote_deadline_deducts_actual_post_readiness_elapsed_time(monkeypatch,
     assert len(capsys.readouterr().out.splitlines()) == 2
 
 
+@pytest.mark.parametrize('phase', ['connect_or_headers', 'body'])
+def test_remote_transport_failure_retains_phase_without_credentials_or_retry(monkeypatch, capsys, phase):
+    import ssl
+    import urllib.error
+    from harness.web_fetch.workers import claude_fetch_worker as worker
+    from harness.web_fetch.diagnostics import emit
+    monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
+    envelope = {'expected_ssh_server_ip': '192.0.2.83', 'timeout': 30,
+        'remote_env_file': '/remote/.env', 'body': {}, 'max_bytes': 1000,
+        'worker_sha256': hashlib.sha256(Path(worker.__file__).read_bytes()).hexdigest(),
+        'runtime_sources': worker.runtime_sources(Path(worker.__file__).parents[3])}
+    def fail(*args, **kwargs):
+        emit('http_request_started', headers={'x-api-key': 'unit-test-key'}, json_body={'private': 'body'})
+        emit('http_request_failed', phase=phase, error_type='URLError', message='unit-test-key EOF')
+        raise urllib.error.URLError(ssl.SSLEOFError('unit-test-key EOF'))
+    with patch.object(worker.json, 'load', return_value=envelope), \
+         patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer'), \
+         patch('harness.env_file.parse_env_file', return_value={'ANTHROPIC_API_KEY': 'unit-test-key'}), \
+         patch('harness.web_fetch.providers.http_client.request', side_effect=fail) as request:
+        worker.main()
+    request.assert_called_once()
+    output = capsys.readouterr().out
+    assert 'unit-test-key' not in output and 'private' not in output
+    receipt = json.loads(output.splitlines()[-1])
+    assert receipt['kind'] == 'claude_fetch_transport_error'
+    assert receipt['transport_error']['phase'] == phase
+    assert receipt['transport_error']['reason_type'] == 'SSLEOFError'
+    assert 'status' not in receipt and 'body_b64' not in receipt
+    assert receipt['ssh_server'] == '192.0.2.83'
+
+
+def test_verified_remote_transport_error_is_not_a_local_adapter_or_api_error():
+    from harness.web_fetch.providers.claude_fetch import RemoteClaudeTransportError
+    provider = build_provider('claude', remote_config())
+    receipt = {'ssh_server': '192.0.2.83', 'transport_error': {
+        'phase': 'connect_or_headers', 'reason_type': 'SSLEOFError', 'message': 'Unexpected EOF'}}
+    with patch.object(provider, '_remote_request', side_effect=RemoteClaudeTransportError(receipt)) as call:
+        result = provider.fetch(case(), 30)
+    call.assert_called_once()
+    assert not result.ok and result.error_type == 'network' and result.content == ''
+    assert result.metadata['execution_ssh_server'] == '192.0.2.83'
+    assert result.metadata['remote_transport_error']['reason_type'] == 'SSLEOFError'
+    assert result.metadata['client_retries'] == 0
+    assert 'api_http_status' not in result.metadata
+
+
 @pytest.mark.parametrize('bad', [{'content':None}, {'content':[None]},
     {'content':[{'type':'server_tool_use','name':'web_fetch','input':None}]}])
 def test_claude_malformed_blocks_are_retained_without_an_exception(bad):
