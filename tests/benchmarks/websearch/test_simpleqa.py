@@ -58,16 +58,52 @@ def test_changed_query_requires_new_call_but_accepts_a_call_collected_with_the_r
     assert repair_cases([repaired], recipe, reuse_calls=True) == [repaired]
 
 
-def test_reference_amendment_reuses_the_same_question_across_annotation_versions():
+def test_reference_amendment_rejects_unrecorded_captured_contracts():
     from lexbench_websearch.simpleqa import repair_cases
 
     case, recipe = repair_fixture()
-    # References are assessment inputs, never part of the provider request.
     captured = dict(case, reference_urls=['https://archive.test/earlier-source'])
-    revised = repair_cases([captured], recipe, reuse_calls=True)[0]
-    assert revised['query'] == captured['query']
-    assert revised['reference_urls'] == ['https://archive.test/biography']
+    with pytest.raises(ValueError, match='captured task'):
+        repair_cases([captured], recipe, reuse_calls=True)
     assert captured['reference_urls'] == ['https://archive.test/earlier-source']
+
+
+def test_repaired_task_marks_replaced_publisher_metadata():
+    from lexbench_websearch.simpleqa import repair_cases
+
+    case, recipe = repair_fixture()
+    case['derivation'] = 'Unchanged question; original publisher answer.'
+    repaired = repair_cases([case], recipe, reuse_calls=True)[0]
+    assert repaired['derivation'] == 'Repaired task contract; see case_repairs'
+
+
+@pytest.mark.parametrize('current', [True, False])
+def test_mirror_requires_literal_compound_answers_when_quantity_matching_is_stricter(current):
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+
+    background = 'Independent historical sporting record and tournament results. ' * 30
+    answer = 'Namibia 38 - 26 Emerging Italy'
+    reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
+                     article_text=background + answer.replace('38 - 26', '38-26'), status=200, body_sha256='a'*64,
+                     verified_at='2026-11-17T00:00:00Z')
+    mirror = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
+                  article_text=background + ('Namibia 38-26 Emerging Italy' if current else 'Namibia 18-26 Emerging Italy'))
+    result = qualify_question_mirror(reference, mirror, answer)
+    assert result['reference_has_answer'] is True
+    assert result['qualified'] is current
+
+
+@pytest.mark.parametrize('current', [True, False])
+def test_mirror_literal_fallback_does_not_erase_quantity_signs(current):
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+
+    background = 'Independent historical measurements and survey context. ' * 30
+    reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
+                     article_text=background + 'The latitude is -13.99.', status=200,
+                     body_sha256='a'*64, verified_at='2026-11-17T00:00:00Z')
+    mirror = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
+                  article_text=background + ('The latitude is -13.99.' if current else 'The latitude is 13.99.'))
+    assert qualify_question_mirror(reference, mirror, '-13.99')['qualified'] is current
 
 
 @pytest.mark.parametrize(('answer', 'supported', 'stale'), [
@@ -180,7 +216,7 @@ def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inpu
     rebuilt = simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts={})
     assert rebuilt == expected
     assert original['cases'][0]['query'] == 'Who wrote the book?'
-    assert rebuilt['cases'][0]['derivation'] == 'Question repaired from cited source; see case_repairs'
+    assert rebuilt['cases'][0]['derivation'] == 'Repaired task contract; see case_repairs'
 
 
 @pytest.mark.parametrize('defect', ['unknown-answer', 'duplicate', 'missing-proof', 'unbound-source', 'overlong-query'])

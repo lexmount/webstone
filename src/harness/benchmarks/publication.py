@@ -726,7 +726,8 @@ def propose_release(release, output, repository, *, api=None, parent_revision=No
             raise ValueError('Dataset updates require an open pull request')
         info = client.repo_info(repository, repo_type='dataset', revision='refs/pr/' + str(pull_request))
     if parent_revision is not None and info.sha != parent_revision:
-        raise ValueError('Dataset main changed after the repair inputs were frozen')
+        target_name = 'main' if review is None else 'PR head'
+        raise ValueError('Dataset ' + target_name + ' changed after the repair inputs were frozen')
     current = {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()}
     removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != '.gitattributes']
     target = {} if review is None else dict(revision='refs/pr/' + str(pull_request))
@@ -747,7 +748,11 @@ def main() -> None:
     parser.add_argument("--tooling-revision", help="Full Webstone commit for executable examples and code links")
     parser.add_argument("--dataset-version", help="Explicit dataset release number, MAJOR.MINOR.PATCH")
     parser.add_argument("--create-pr", metavar="HF_REPOSITORY", help="Open a Hugging Face pull request for the built dataset")
+    parser.add_argument('--parent-revision', help='Expected immutable main or existing PR head commit')
+    parser.add_argument('--pull-request', type=int, help='Update this open dataset PR instead of creating one')
     args = parser.parse_args()
+    if (args.parent_revision or args.pull_request is not None) and not args.create_pr:
+        parser.error('--parent-revision and --pull-request require --create-pr')
     release = DatasetRelease.from_git(args.checkout, args.track, args.revision)
     if args.dataset_version is not None:
         edition = dict(release.edition or {}, version=args.dataset_version, tag='v' + args.dataset_version)
@@ -757,7 +762,8 @@ def main() -> None:
     if args.tooling_revision is not None:
         release = replace(release, tooling_revision=args.tooling_revision)
     if args.create_pr:
-        result, proposal = propose_release(release, args.output, args.create_pr)
+        result, proposal = propose_release(release, args.output, args.create_pr,
+                                          parent_revision=args.parent_revision, pull_request=args.pull_request)
     else:
         result = release.build(args.output)
     print(json.dumps({"track": result["track"], "source_revision": result["source_revision"], "archive": result["archive"]}))

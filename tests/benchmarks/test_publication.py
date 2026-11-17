@@ -649,6 +649,26 @@ def test_repair_proposal_rejects_main_advance_before_upload(tmp_path, monkeypatc
                                     api=object(), parent_revision='a'*40)
 
 
+def test_publication_cli_exposes_guarded_existing_pr_updates(tmp_path, monkeypatch, capsys):
+    import sys
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0')
+    monkeypatch.setattr(publication.DatasetRelease, 'from_git', lambda *args: release)
+    calls = []
+    def propose(*args, **kwargs):
+        calls.append(kwargs)
+        return dict(track='simpleqa-verified', source_revision='a'*40, archive={}), dict(state='review_pending')
+    monkeypatch.setattr(publication, 'propose_release', propose)
+    monkeypatch.setattr(sys, 'argv', ['publication', '--checkout', str(tmp_path),
+        '--track', 'simpleqa-verified', '--revision', 'a'*40, '--output', str(tmp_path/'out'),
+        '--create-pr', 'Lexmount/Test', '--parent-revision', 'b'*40, '--pull-request', '5'])
+    publication.main()
+    assert calls == [dict(parent_revision='b'*40, pull_request=5)]
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['state'] == 'review_pending'
+
+
 @pytest.mark.parametrize('defect', [None, 'closed', 'discussion', 'changed-parent'])
 def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch, defect):
     from types import SimpleNamespace
@@ -701,7 +721,9 @@ def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, de
                   root_cause='Wrong original author', regression_ids=['corrected-factual-reference'], repairs=[dict(
                       case_id='q', before=before, after=after, root_cause='Wrong original author', evidence=[dict(
                           url=after['reference_urls'][0], sha256='c'*64, quote='Correct Author wrote the book.')])])
-    dataset = extend_reference_urls(dict(cases=[dict(id='q', **after)], case_repairs=deepcopy(recipe)), [])
+    from lexbench_websearch.simpleqa import repair_cases
+    dataset = extend_reference_urls(dict(cases=repair_cases([dict(id='q', **before)], recipe),
+                                        case_repairs=deepcopy(recipe)), [])
     if defect == 'unapplied-answer':
         dataset['cases'][0]['reference_answer'] = before['reference_answer']
     elif defect == 'missing-evidence':

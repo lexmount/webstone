@@ -86403,6 +86403,72 @@
           }
         ],
         "expected": false
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "compact-compound-score",
+          "reference_answer": "Team North 38 - 26 Team South",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "compact-compound-score",
+          "reference_answer": "Team North 38 - 26 Team South",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 38-26 Team South",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Independent historical sporting record and tournament context. Team North 18-26 Team South",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
       }
     ],
     "corrected-factual-reference": [

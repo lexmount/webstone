@@ -63,14 +63,16 @@ def repair_cases(cases, revision, *, reuse_calls=False):
             continue
         actual = {key: case.get(key) for key in item['before']}
         if actual == item['after']:
+            case['derivation'] = 'Repaired task contract; see case_repairs'
             continue
         if not reuse_calls and actual != item['before']:
             raise ValueError('Task repair does not bind the captured task: ' + case['id'])
         if reuse_calls and actual['query'] != item['after']['query']:
             raise ValueError('Changed query requires a new provider call: ' + case['id'])
+        if reuse_calls and actual not in (item['before'], item['after']):
+            raise ValueError('Task repair does not bind the captured task: ' + case['id'])
         case.update(deepcopy(item['after']))
-        if actual['query'] != item['after']['query']:
-            case['derivation'] = 'Question repaired from cited source; see case_repairs'
+        case['derivation'] = 'Repaired task contract; see case_repairs'
         # These judgments bind the old answer or old reference documents.
         for key in ('answer_derivation', 'equivalent_reference_urls',
                     'equivalent_reference_provenance', 'reference_verification_coverage',
@@ -170,7 +172,11 @@ def qualify_question_mirror(reference, candidate, answer, *, policy=FULL_MIRROR_
     if policy == FULL_MIRROR_POLICY:
         from .answer_rules import match_reference_answer
 
-        matcher = lambda text, reference: match_reference_answer(reference, text)
+        # Compound prose retains literal token evidence (for example a match
+        # score with a compact dash). Quantities keep the signed/unit guards.
+        matcher = lambda text, reference: (
+            (not re.match(r'\s*[+\-]?\d', reference) and contains_answer(text, reference))
+            or match_reference_answer(reference, text))
     reference_has_answer = matcher(left, answer)
     mirror_has_answer = matcher(right, answer)
     title_matches = normalized_text(reference['title']) == normalized_text(candidate['title'])
