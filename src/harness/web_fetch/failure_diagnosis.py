@@ -3,7 +3,8 @@
 import json
 import re
 
-from lexbench_webfetch.metrics import task_measured
+from lexbench_webfetch.metrics import task_measured, task_passed
+from lexbench_webfetch.reference_quality import blocked_page_hits, visible_markdown_links
 
 from harness.web_fetch.report_i18n import t
 
@@ -36,7 +37,62 @@ def _timeout_error(message, error_type):
     return bool(re.search(r'timed out|\btimeout\b(?!["\']?\s*[:=])|deadline exceeded', message, re.I))
 
 
-def _stable_failure(metrics):
+def _returned_page_failure(raw, case, metrics):
+    """Identify an observed gate or shell before downstream contract failures.
+
+    These labels explain a failed delivery; they never change task acceptance.
+    A title inside a documentation example is not evidence of an access gate.
+    """
+    frontmatter = re.match(r'\A\s*---\s*\n.*?\n---\s*(?:\n|$)', raw, re.S)
+    body = raw[frontmatter.end():] if frontmatter else raw
+    visible = visible_markdown_links(body).strip()
+    reference = case.get('ground_truth_main_content') or ''
+    reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
+    hits = [hit for hit in blocked_page_hits(body) if hit.casefold() not in reference_hits]
+    # Standalone error headings in long technical documents are not gates.
+    gate = bool(hits and (metrics.get('blocked_page') or len(visible) <= 4000))
+    circle_gate = (len(visible) <= 1500 and re.search(
+        r'click (?:on )?the flickering circle to continue', visible, re.I)
+        and not re.search(r'click (?:on )?the flickering circle to continue', reference, re.I))
+    anubis = (len(visible) <= 6000 and (re.search(
+        r'protected by anubis|has set up anubis to protect', visible, re.I) or re.search(
+        r'/\.within\.website/x/cmd/anubis/|/\.cerberus/static/', raw, re.I))
+        and re.search(r'access denied|filtering rules|administrator has misconfigured|'
+                      r'why am i seeing this|making sure|calculating|click the circle|'
+                      r'protect.{0,60}(?:server|website)|not a bot|circle challenge|'
+                      r'this website is running anubis|difficulty\s*:', visible, re.I | re.S)
+        and not re.search(r'protected by anubis', reference, re.I))
+    if gate or anubis or circle_gate:
+        return {'category': t('returned_access_gate', 'Returned verification or access-block page'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': (hits[0] if hits else visible[:500]),
+                'certainty': t('returned_gate_boundary', 'The saved answer contains an access gate; this does not identify which remote component triggered it.')}
+    if len(visible) <= 5000 and re.search(
+            r'(?im)^\s*(?:#{1,6}\s*)?(?:sign in|log in|login|登录|登入)\s*[.!:：]?\s*$', visible):
+        if re.search(r'password|forgot password|email or username|邮箱|密码', visible, re.I):
+            return {'category': t('returned_login_page', 'Returned login page'),
+                    'stage': t('content_delivery', 'Content delivery'),
+                    'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if len(visible) <= 1000 and re.search(
+            r'(?im)^\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
+            r'you (?:need|must) (?:to )?enable javascript[^\n]*|'
+            r'please enable javascript[^\n]*)\s*$', visible):
+        return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if frontmatter and not body.strip():
+        return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': raw[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if len(visible) <= 1500 and re.search(
+            r"your browser (?:does not|doesn't) support html5 video", visible, re.I):
+        return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    return None
+
+
+def _stable_failure(metrics, case):
     """Describe measured contract errors; never infer a shortfall by default."""
     errors = metrics.get('stable_task_errors', [])
     if 'page_identity_mismatch' in errors or any(e.startswith('missing_stable_anchor:') for e in errors):
@@ -55,7 +111,14 @@ def _stable_failure(metrics):
     maximum = metrics.get('stable_maximum_records')
     if maximum is not None:
         counts += t('at_most_allowed', ', at most {maximum} allowed', maximum=maximum)
-    return label, t('content_validation', 'Content validation'), f"{counts}。规则：{', '.join(errors) or t('no_specific_error_provided', 'No specific error provided')}"
+    if metrics.get('stable_minimum_records') == 0:
+        counts = ''
+    anchors = {item['id']: item.get('alternatives', [])
+               for item in (case.get('acceptance_contract') or {}).get('stable_text_anchors', [])}
+    missing = [error.split(':', 1)[1] for error in errors if error.startswith('missing_stable_anchor:')]
+    details = [name + ': ' + ' / '.join(anchors.get(name, []))[:200] for name in missing]
+    proof = t('failed_contract_rules', 'Failed rules: {rules}', rules=', '.join(errors) or t('no_specific_error_provided', 'No specific error provided'))
+    return label, t('content_validation', 'Content validation'), ' '.join(x for x in [counts, proof, '; '.join(details)] if x)
 
 
 def _native_failure(payload):
@@ -102,6 +165,10 @@ def _native_failure(payload):
                 category = t('native_pdf_without_text', 'Native PDF returned without task text')
                 stage = t('content_delivery', 'Content delivery')
                 evidence = 'web_fetch_result; source.type=base64; source.media_type=application/pdf'
+            elif isinstance(source, dict) and source.get('type') == 'text' and source.get('data') == '':
+                category = t('body_extraction_empty', 'Body extraction empty')
+                stage = t('content_delivery', 'Content delivery')
+                evidence = 'web_fetch_result; source.type=text; source.data=""'
     return ({'category': category, 'stage': stage, 'evidence': evidence[:650], 'certainty': certainty}
             if category else None)
 
@@ -115,11 +182,17 @@ def diagnose(r,c,raw,*,native_raw=None):
     nested=payload.get('error') or {}
     if not isinstance(nested,dict):nested={}
     meta=r.get('provider_metadata',{});m=r['metrics']
+    if task_passed(r['ok'], m, c.get('task_kind')):
+        return None
     fragments=[str(r.get('error_type') or ''),str(r.get('error_message') or '')]
     if not r['ok']:fragments.extend([(native_raw if native_raw is not None else raw)[:3000],json.dumps(meta.get('errors') or [],ensure_ascii=False)[:1000]])
     message=' '.join(fragments);low=message.lower()
     upstream=nested.get('upstream_status_code') or meta.get('upstream_status')
     category=None;stage='';proof='';certainty=t('direct_response_basis', 'Direct-response basis')
+    if r['ok'] and not task_passed(r['ok'], m, c.get('task_kind')):
+        returned = _returned_page_failure(raw, c, m)
+        if returned and not m.get('deadline_overrun'):
+            return returned
     def set_result(label,where,evidence):return label,where,evidence
     if m.get('deadline_overrun'):
         category,stage,proof=set_result(t('end_to_end_deadline_exceeded', 'End-to-end deadline exceeded'),t('call_deadline', 'Call deadline'),t('the_actual_latency_exceeded_the_budget_registered', 'The actual latency exceeded the budget registered for this call; the original content and timing are kept, but it does not count as on-time delivery.'))
@@ -129,6 +202,22 @@ def diagnose(r,c,raw,*,native_raw=None):
         native = _native_failure(payload)
         if native:
             return native
+        api_status = meta.get('api_http_status')
+        if r.get('error_type') == 'empty_content':
+            return {'category': t('body_extraction_empty', 'Body extraction empty'),
+                    'stage': t('content_delivery', 'Content delivery'),
+                    'evidence': t('native_empty_content_evidence', 'The API response did not supply nonempty text in the declared answer field.'),
+                    'certainty': certainty}
+        if api_status == 400 and not upstream:
+            return {'category': t('api_rejected_request', 'API rejected the request'),
+                    'stage': t('service_interface', 'Service interface'),
+                    'evidence': (native_raw if native_raw is not None else raw)[:500],
+                    'certainty': t('api_bad_request_boundary', 'The API returned HTTP 400. This does not by itself establish that the caller used a malformed parameter or that the input type is unsupported.')}
+        if isinstance(api_status, int) and api_status >= 500 and not upstream:
+            return {'category': t('api_returned_server_error', 'API returned server error'),
+                    'stage': t('service_interface', 'Service interface'),
+                    'evidence': t('api_server_error_evidence', 'API HTTP {status}: {body}', status=api_status, body=(native_raw if native_raw is not None else raw)[:500]),
+                    'certainty': t('api_server_error_boundary', 'The API returned this server error; caller evidence does not identify the failing component behind it.')}
         output_error = _unsupported_output_error(message)
         if output_error:
             category,stage,proof=set_result(t('required_output_format_unsupported', 'Required output format unsupported'),t('content_delivery', 'Content delivery'),output_error.group(0)[:650])
@@ -189,9 +278,8 @@ def diagnose(r,c,raw,*,native_raw=None):
         category,stage,proof=set_result(
             t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),
             t('the_provider_explicitly_declares_that_the_returned', 'The provider explicitly declares that the returned body is truncated: {join}', join=', '.join(m['declared_truncation_hits'])))
-    elif 'stable_task_pass' in m:
-        if not m.get('stable_task_pass'):
-            category,stage,proof=_stable_failure(m)
+    elif 'stable_task_pass' in m and not m.get('stable_task_pass'):
+        category,stage,proof=_stable_failure(m,c)
     elif c.get('task_kind')=='structure':
         if m.get('named_entry_count',0) < m.get('minimum_entries',3):
             category,stage,proof=set_result(t('insufficient_valid_records', 'Insufficient valid records'),t('content_validation', 'Content validation'),t('found_named_detail_entries_at_least_required', 'Found {get} named detail entries; at least {get2} required', get=m.get('named_entry_count', 0), get2=m.get('minimum_entries', 3)))
@@ -237,5 +325,21 @@ def diagnose(r,c,raw,*,native_raw=None):
         elif any(not p['pass'] and p['count'] < p['minimum'] for p in m.get('pattern_results',[])):
             category,stage,proof=set_result(t('insufficient_valid_records', 'Insufficient valid records'),t('content_validation', 'Content validation'),t('count_checks_not_met', 'Count checks not met: {join}', join=', '.join((t('found_at_least_required', '{id} found {count}, at least {minimum} required', id=p['id'], count=p['count'], minimum=p['minimum']) for p in m['pattern_results'] if not p['pass']))))
         else:category,stage,proof=set_result(t('incomplete_content_structure', 'Incomplete content structure'),t('content_validation', 'Content validation'),t('this_task_s_field_or_count_rules', "This task's field or count rules were not met; see the item-by-item verdict"))
+    if not category or category == t('incomplete_content_structure', 'Incomplete content structure'):
+        checks = m.get('acceptance_checks') or {}
+        failed = [key for key, value in checks.items() if value is False]
+        if failed:
+            labels = {
+                'article_title': t('article_title_component_missing', 'Standalone article title not delivered'),
+                'article_comments': t('article_comments_incomplete', 'Required comments or replies incomplete'),
+                'article_posts': t('article_posts_incomplete', 'Required post records incomplete'),
+                'composite': t('required_components_incomplete', 'Required page components incomplete'),
+            }
+            category = next((labels[key] for key in failed if key in labels),
+                            t('required_components_incomplete', 'Required page components incomplete'))
+            stage = t('content_validation', 'Content validation')
+            proof = t('failed_contract_rules', 'Failed rules: {rules}', rules=', '.join(failed))
+            if 'article_title' in failed and r.get('title'):
+                proof += ' ' + t('generic_title_field_evidence', 'Returned page-title field: {title}. A generic document title is not the separately declared article-title component.', title=r['title'][:300])
     if not category:return None
     return {'category':category,'stage':stage,'evidence':proof,'certainty':certainty}

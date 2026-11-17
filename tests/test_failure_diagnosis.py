@@ -31,6 +31,67 @@ class FailureDiagnosisTests(unittest.TestCase):
  def test_unknown_remote_internals_remain_unknown(self):
   d=diagnose(self.record(error_type='CRAWL_UNKNOWN_ERROR'),{},'')
   self.assertEqual(d['category'],'服务取页失败');self.assertIn('未披露',d['certainty'])
+ def test_observed_gate_takes_precedence_over_missing_stable_anchors(self):
+  case={'url':'https://example.test','task_kind':'body','acceptance_contract':{
+   'version':1,'schema':'body_text','minimum_records':0,
+   'stable_text_anchors':[{'id':'description','alternatives':['Original target content']}],
+   'stable_text_role':'required'}}
+  raw="# Making sure you're not a bot!\nPlease complete the security verification."
+  metrics=score_attempt(case,raw.encode(),ok=True)
+  row=self.record(ok=True,status_code=200,metrics=metrics)
+  before=deepcopy(row)
+  for provider in ['first-method','second-method']:
+   row['provider']=provider
+   self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+  self.assertEqual(row['metrics'],before['metrics'])
+ def test_technical_document_failure_is_not_a_challenge_page(self):
+  raw='# HTTP reference\nThe status 403 Forbidden means access was refused.\n'
+  metrics=score_attempt({'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Other required content']}]},raw.encode(),ok=True)
+  self.assertNotEqual(diagnose(self.record(ok=True,metrics=metrics),{},raw)['category'],'返回拦截或验证页')
+ def test_linked_protection_footer_is_still_an_access_gate(self):
+  raw='Loading...\nYou are seeing this because the administrator has set up Anubis to protect the server.\nProtected by [Anubis](https://example.test/anubis).'
+  case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_plain_proof_of_work_page_without_footer_is_an_access_gate(self):
+  raw='Loading...\nWhy am I seeing this?\nThe administrator of this website has set up Anubis to protect the server against automated scraping.'
+  case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_reference_heading_does_not_turn_a_real_article_into_a_gate(self):
+  raw='# CAPTCHA\nA technical explanation of challenge systems.'
+  case={'url':'https://example.test','ground_truth_main_content':raw,'required_facts':[{'id':'missing','alternatives':['Additional detail']}]}
+  metrics=score_attempt(case,raw.encode(),ok=True)
+  self.assertNotEqual(diagnose(self.record(ok=True,metrics=metrics),case,raw)['category'],'返回拦截或验证页')
+ def test_login_loading_metadata_and_media_fallback_are_distinct(self):
+  examples=[('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
+   ('Please wait...','仅返回加载或 JavaScript 提示'),
+   ('---\ntitle: Application\n---\n','仅返回页面元信息，没有正文'),
+   ("Your browser doesn't support HTML5 video. Here is a link instead.",'返回媒体兼容提示，未交付目标内容')]
+  for raw,label in examples:
+   case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertEqual(diagnose(row,case,raw)['category'],label)
+ def test_api_server_error_is_not_attributed_to_target_site_or_client_dns(self):
+  row=self.record(error_type='api_error',provider_metadata={'api_http_status':504})
+  result=diagnose(row,{},'',native_raw='error code: 504\n')
+  self.assertEqual(result['category'],'API 接口返回服务错误')
+  self.assertEqual(result['stage'],'服务接口')
+  self.assertIn('504',result['evidence'])
+ def test_successful_stable_checks_do_not_hide_failed_body_checks(self):
+  row=self.record(ok=True,metrics={'stable_task_pass':True,'content_pass':False,
+   'body_coverage_pass':False,'body_region_results':[{'id':'tail','pass':False}],
+   'acceptance_checks':{'records_and_anchors':True,'body':False}})
+  result=diagnose(row,{'task_kind':'body'},'Partial page content')
+  self.assertEqual(result['category'],'正文范围不完整')
+  self.assertIn('tail',result['evidence'])
+ def test_component_failure_is_diagnosed_even_when_body_and_records_pass(self):
+  row=self.record(ok=True,title='Returned document title',metrics={
+   'stable_task_pass':True,'content_pass':True,
+   'acceptance_checks':{'records_and_anchors':True,'body':True,'article_title':False}})
+  result=diagnose(row,{'task_kind':'body'},'Complete article body')
+  self.assertEqual(result['category'],'未交付要求的独立文章标题')
+  self.assertIn('Returned document title',result['evidence'])
  def test_native_security_error_is_not_a_bad_key(self):
   row=self.record(status_code=403,error_type='authentication')
   before=deepcopy(row)
@@ -44,6 +105,18 @@ class FailureDiagnosisTests(unittest.TestCase):
   self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'模型输入容量限制')
   other=json.dumps({'error':{'type':'invalid_request_error','message':'Invalid parameter'}})
   self.assertNotEqual(diagnose(row,{},'',native_raw=other)['category'],'模型输入容量限制')
+ def test_native_empty_tool_text_is_delivery_failure_not_unknown_fetch_error(self):
+  raw=json.dumps({'content':[{'type':'web_fetch_tool_result','content':{
+   'type':'web_fetch_result','content':{'source':{'type':'text','data':''}}}}]})
+  row=self.record(status_code=200,error_type='tool_error')
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'正文提取为空')
+ def test_empty_answer_and_api_bad_request_have_specific_observed_categories(self):
+  empty=self.record(error_type='empty_content',provider_metadata={'api_http_status':200})
+  self.assertEqual(diagnose(empty,{},'')['category'],'正文提取为空')
+  rejected=self.record(error_type='api_error',provider_metadata={'api_http_status':400})
+  result=diagnose(rejected,{},'',native_raw='{"error":{"message":"invalid request parameters"}}')
+  self.assertEqual(result['category'],'API 拒绝请求')
+  self.assertIn('不能断定',result['certainty'])
  def test_native_tool_diagnosis_uses_final_result_without_scoring_model_text(self):
   def block(content):return {'type':'web_fetch_tool_result','content':content}
   binary={'type':'web_fetch_result','content':{'source':{'type':'base64','media_type':'application/pdf','data':'JVBERi0='}}}
