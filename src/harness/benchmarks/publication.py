@@ -232,7 +232,9 @@ class DatasetRelease:
         hub = subprocess.run(["git", "cat-file", "-e", revision + ":definitions"],
                              cwd=checkout, capture_output=True).returncode == 0
         if track == "headless-browser" and not hub:
-            return cls(track, revision, _headless_definitions(checkout, revision), HEADLESS_REPOSITORY)
+            files = _headless_definitions(checkout, revision)
+            files.update(_git_blobs(checkout, revision, ('VERSIONING.md',)))
+            return cls(track, revision, files, HEADLESS_REPOSITORY)
         if hub:
             committed = subprocess.run(
                 ["git", "show", revision + ":manifest.json"],

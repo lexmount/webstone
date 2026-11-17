@@ -52,6 +52,26 @@ def headless(tmp_path):
     return root, git(root, 'rev-parse', 'HEAD'), original
 
 
+def test_versioned_headless_source_retains_policy_without_changing_task_inventory(headless, tmp_path):
+    root, _, original = headless
+    (root / 'VERSIONING.md').write_text('Committed input version policy.\n', encoding='utf-8')
+    git(root, 'add', 'VERSIONING.md')
+    git(root, 'commit', '-qm', 'Dataset version policy')
+    revision = git(root, 'rev-parse', 'HEAD')
+    (root / 'VERSIONING.md').write_text('Uncommitted policy.\n', encoding='utf-8')
+    release = replace(DatasetRelease.from_git(root, 'headless-browser', revision),
+                      dataset_version='1.0.0')
+    manifest = release.build(tmp_path / 'versioned')
+    assert manifest['version'] == '1.0.0'
+    assert (tmp_path / 'versioned/VERSIONING.md').read_text(encoding='utf-8') == 'Committed input version policy.\n'
+    assert manifest['upstream']['file_count'] == len(original)
+    assert manifest['upstream']['task_count'] == 2
+    assert manifest['upstream']['scenario_count'] == 1
+    assert 'definitions/VERSIONING.md' not in release.files
+    for name, raw in original.items():
+        assert release.files['definitions/' + name] == raw
+
+
 def test_headless_git_export_preserves_every_original_byte_and_ignores_outputs(headless, tmp_path):
     root, revision, original = headless
     (root / 'tasks/L1/raw/one.json').write_text('uncommitted replacement', encoding='utf-8')
