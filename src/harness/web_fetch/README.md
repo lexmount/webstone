@@ -1648,6 +1648,24 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 
 ## Report method metadata
 
+A frozen published report can retain its existing pages while adding another
+saved report through the saved-matrix builder. The external specification binds
+`published_base` and `additional_report` roots and audit hashes, a `method_overview`
+path/hash binding, and a reader-facing `comparison_note`. This mode verifies equal
+task-name/URL populations, retains each source's recorded scores and contracts,
+and does not assign cross-edition ranks or winner highlights. It does not certify
+a common scorer or a controlled collection window. The additional report's full
+result, review and evidence pages remain accessible beneath `additional/`.
+
+Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
+`--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with
+`uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE
+--reuse-published PINNED_PACKAGE_DIRECTORY`. The package retains immutable remote
+pack locations, checks every appended file and uploads only new bytes. The
+publication profile also binds `extension_baseline.root` and the baseline shell
+file hashes in `extension_baseline.files`; the ordinary site publisher retains its
+explicit target and expected-version checks. Keep all instance bindings outside Git.
+
 Certified Web Fetch reports keep each registered provider's interface example and
 adoption data. `research/provider-adoption.json` holds the public-code adoption statistics. Refresh
 them with `uv run --frozen python -m harness.web_fetch.provider_adoption search`, or

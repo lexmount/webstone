@@ -59,6 +59,16 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
     if package_check is None and bound_check:
         package_check = partial(check, presentation_binding=config.presentation_binding,
                                 external_archives=attachments, snapshot_audit=config.snapshot_audit)
+    if (config.source / 'saved-extension.json').is_file():
+        from harness.web_fetch.report_package import check_extension_archive
+        profile = json.loads(config.profile.read_bytes())
+        baseline = Path(profile['extension_baseline']['root'])
+        for name, digest in profile['extension_baseline']['files'].items():
+            from harness.record_io import file_sha256
+            if file_sha256(baseline / name) != digest:
+                raise ValueError('Published extension baseline changed')
+        validation_inputs = (*validation_inputs, *(baseline / name for name in profile['extension_baseline']['files']))
+        package_check = partial(check_extension_archive, baseline=baseline)
     return publish_receipt_release(
         ReceiptRelease(
             config.profile, config.archive, config.source, config.receipt, config.journal,

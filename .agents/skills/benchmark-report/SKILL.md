@@ -64,6 +64,18 @@ For an explicitly requested full review, set `independent_result_review_scope: a
 14. When publication is requested and authorized, publish to the Artifact Site host and site bound by the track's current profile, following that host's current `for-agents.md`. Never embed a default deployment hostname or borrow a target from another report. Build and validate before the external write, bind the returned slug, share URL, and version in the current profile, use optimistic locking for later updates, and verify the unauthenticated share page. Use the track's `make` target or publish command when available (`uv run --frozen python -m harness.<track> --help` lists its commands); do not reconstruct a target from prose or an earlier receipt. Export the whole deployed tree only when the specific report publisher requires it or when diagnosing a release failure.
 15. Make summary and interpretation routes presentation-ready and run the language passes described in [presentation quality](references/presentation-quality.md#reader-facing-structure).
 
+## Frozen report extensions
+
+When adding saved methods to an existing publication, inspect both frozen task
+contracts and scorer identities before combining ranks. Different editions retain
+their own saved values and evidence; disclose the difference and omit shared ranks
+and winner highlights. Use the existing saved-report composition owner and its
+published-extension mode described in the Web Fetch guide. Bind source audits,
+method configurations, pricing sources and the exact publication baseline outside
+Git. Verify nested evidence loading and immutable data-pack reuse before updating
+the original site. Do not replace a historical contract merely to make reports
+look comparable.
+
 ## Stop conditions
 
 Do not publish while the exact method matrix is incomplete, references required for the claimed metrics are unverified, an explicitly requested review scope is incomplete, unresolved adjudications remain, output identities cannot be reproduced, or the publication target is ambiguous. Report unreviewed scope honestly; do not imply that failure-only review covered machine passes.

@@ -1903,6 +1903,9 @@ def _validate_record_public_views(source, destination, record, case, original_re
 def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     """Verify immutable sources and create a new portable report directory."""
     from harness.web_fetch.report import generate_saved_matrix
+    if _json(spec_path).get('published_base'):
+        from harness.web_fetch.report_saved_composition import build_published_extension
+        return build_published_extension(spec_path, output)
 
     if 'saved_reports' in _json(spec_path):
         from harness.web_fetch.report_saved_composition import build_composition
@@ -2623,6 +2626,11 @@ def check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
 def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
     """Check the complete portable tree and unchanged sources without rescoring."""
     output = _path(Path.cwd(), output).resolve()
+    if (output / 'saved-extension.json').is_file():
+        from harness.web_fetch.report_saved_composition import check_published_extension
+        if spec_path is not None and _sha(Path(spec_path)) != _json(output / 'saved-extension.json')['spec_sha256']:
+            raise ValueError('Published extension specification changed')
+        return check_published_extension(output)
     audit = _json(output / 'saved-matrix-audit.json')
     source_count = 0
     inputs = None

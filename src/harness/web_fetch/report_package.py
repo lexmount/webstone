@@ -54,6 +54,10 @@ def _require(condition, detail):
 
 
 def validate_release(source: Path, *, presentation_binding: Path | None = None, snapshot_audit=False) -> bool:
+    if (source / 'saved-extension.json').is_file():
+        from harness.web_fetch.report_saved_composition import check_published_extension
+        check_published_extension(source)
+        return False
     manifest_path = source / 'report-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.is_file() else {}
     model_path=source/'report.json'
@@ -867,9 +871,18 @@ def main(*, root: Path | None = None):
     parser.add_argument("--incremental", type=Path, help="Write an explanatory update against the baseline archive")
     parser.add_argument("--presentation-binding", type=Path, help="Validate a frozen diagnostic snapshot without certifying it")
     parser.add_argument("--cached-content", type=Path, help="Reuse cached public files and refresh source-bound result projections")
+    parser.add_argument("--reuse-published", type=Path, help="Reuse pinned public packs for a saved report extension")
     parser.add_argument("--refresh-privacy", action="store_true", help="Refresh cached public projections with the current privacy policy")
     parser.add_argument("--parts-directory", type=Path, help="Prepare capacity-bound data attachments before publication")
     args = parser.parse_args()
+    if args.reuse_published:
+        if args.cached_content or args.incremental or args.parts_directory or args.snapshot_audit:
+            parser.error('Published extensions select their own immutable packaging boundary')
+        content = args.archive.with_suffix('.content')
+        extend_published_content(args.source, args.reuse_published, content)
+        _write_archive(content, args.archive)
+        print(json.dumps(check_extension_archive(args.archive, args.source, baseline=args.reuse_published)))
+        return
     if args.incremental and args.snapshot_audit:
         parser.error('Snapshot score revisions require a complete package')
     if args.incremental:
@@ -898,6 +911,154 @@ def _save_wire_manifest(content, manifest):
             'manifest_sha256':hashlib.sha256(encoded).hexdigest()},separators=(',',':')), encoding="utf-8")
     else:
         (content/'manifest.json').write_bytes(raw)
+
+
+def extend_published_content(source, baseline, destination):
+    """Reuse a pinned publication's packs and append only new public bytes."""
+    from array import array
+    from harness.web_fetch.report_saved_composition import check_published_extension
+    check_published_extension(source)
+    original = _wire_manifest(baseline)
+    _require(original['schema_version'] == 3, 'Published extension requires a compact baseline')
+    normalized = read_packed_manifest(lambda name: (baseline/name).read_bytes())
+    sizes = array('H', normalized['blocks'].sizes)
+    refs = array('I')
+    packs, starts = list(original['packs']), list(original['pack_starts'])
+    files, payload, dedup = {}, bytearray(), {}
+    destination.mkdir(parents=True, exist_ok=False)
+    (destination/'data').mkdir()
+    start_id = len(sizes)
+
+    def flush():
+        nonlocal payload, start_id
+        if not payload:
+            return
+        name = f'data/extension-{len(packs):04d}.gz'
+        (destination/name).write_bytes(gzip.compress(payload, compresslevel=6, mtime=0))
+        packs.append(name)
+        starts.append(start_id)
+        start_id = len(sizes)
+        payload = bytearray()
+
+    def append(name, metadata, ids):
+        first, previous = len(refs), 0
+        for block in ids:
+            delta = block - previous
+            refs.append((delta << 1) ^ (delta >> 31))
+            previous = block
+        files[name] = {**metadata, 'parts': [first, len(refs)-first]}
+
+    for path in sorted(p for p in source.rglob('*') if p.is_file()):
+        name = path.relative_to(source).as_posix()
+        digest = _archive_identity(path)
+        old_name = 'index.html' if name == 'extension-base-home.txt' else name
+        old = normalized['files'].get(old_name)
+        if old and old['sha256'] == digest and old['size'] == path.stat().st_size:
+            append(name, {k:v for k,v in old.items() if k != 'parts'}, old['parts'])
+            continue
+        data = path.read_bytes()
+        _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
+        ids = []
+        for offset in range(0, len(data), 32768):
+            chunk = data[offset:offset+32768]
+            key = hashlib.sha256(chunk).digest()
+            if key not in dedup:
+                if len(payload)+len(chunk) > 16*1024*1024:
+                    flush()
+                dedup[key] = len(sizes)
+                sizes.append(len(chunk))
+                payload.extend(chunk)
+            ids.append(dedup[key])
+        append(name, {'size':len(data),'sha256':digest,
+                     'mime':mimetypes.guess_type(name)[0] or 'application/octet-stream'}, ids)
+    flush()
+    manifest = {**original, 'files':files, 'packs':packs, 'pack_starts':starts,
+                'block_count':len(sizes)}
+    manifest['architecture'] = {**original.get('architecture', {}),
+        'source_files':len(files), 'logical_routes':sum(name.endswith('.html') for name in files),
+        'content_packs':len(packs), 'reused_pack_slots':len(original['packs']),
+        'appended_pack_slots':len(packs)-len(original['packs'])}
+    referenced = {normalized['blocks'][i]['pack'] for entry in normalized['files'].values() for i in entry['parts']}
+    required_local = referenced - set(original.get('external_packs', {}))
+    retained_local = {name for name in original['packs']
+                      if name not in original.get('external_packs', {}) and (baseline/name).is_file()}
+    _require(required_local <= retained_local and all(not (baseline/name).is_symlink() for name in retained_local),
+             'Referenced baseline packs need immutable published locations')
+    for name in retained_local:
+        target = destination/name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(baseline/name, target)
+    for name in ('index.html', 'style.css'):
+        shutil.copyfile(baseline/name, destination/name)
+    (destination/'report.js').write_bytes((Path(__file__).parent/'assets/report.js').read_bytes())
+    (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
+    (destination/'catalog.bin.gz').write_bytes(gzip.compress(sizes.tobytes()+refs.tobytes(), mtime=0))
+    _save_wire_manifest(destination, manifest)
+    _install_home_catalog(destination, manifest, lambda name:(source/name).read_bytes())
+    check_extended_content(source, baseline, destination)
+    return manifest
+
+
+def check_extended_content(source, baseline, content):
+    """Verify reused ranges and every appended byte against the report tree."""
+    original = read_packed_manifest(lambda name:(baseline/name).read_bytes())
+    current = read_packed_manifest(lambda name:(content/name).read_bytes())
+    _require(current.get('external_packs') == original.get('external_packs'),
+             'Published extension changed immutable data locations')
+    count = len(original['blocks'])
+    _require(current['packs'][:len(original['packs'])] == original['packs']
+             and current['pack_starts'][:len(original['packs'])] == original['pack_starts']
+             and current['blocks'].sizes[:count] == original['blocks'].sizes,
+             'Published extension changed reused block ranges')
+    paths = {p.relative_to(source).as_posix():p for p in source.rglob('*') if p.is_file()}
+    _require(set(paths) == set(current['files']), 'Extension package file inventory differs')
+    reused, appended = 0, 0
+    with DecompressedPackCache(lambda name:(content/name).read_bytes()) as cache:
+        for name, path in paths.items():
+            entry = current['files'][name]
+            digest = _archive_identity(path)
+            _require(entry['sha256'] == digest and entry['size'] == path.stat().st_size,
+                     'Extension package file differs: '+name)
+            old_name = 'index.html' if name == 'extension-base-home.txt' else name
+            old = original['files'].get(old_name)
+            if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
+                reused += 1
+            else:
+                _require(all(i >= count for i in entry['parts']), 'Appended file uses undeclared old ranges')
+                _require(reconstruct_packed_file(current, name, cache) == path.read_bytes(),
+                         'Appended file reconstruction differs: '+name)
+                appended += 1
+    return {'valid':True, 'reused_files':reused, 'appended_files':appended,
+            'reused_packs':len(original['packs']), 'new_packs':len(current['packs'])-len(original['packs'])}
+
+
+def check_extension_archive(archive, source, *, baseline):
+    physical = archive_inventory(archive)
+    with tempfile.TemporaryDirectory(prefix='webfetch-extension-check-') as temporary:
+        content = Path(temporary)
+        with zipfile.ZipFile(archive) as bundle:
+            for name in physical:
+                target = contained_path(content, name, reject_symlinks=True)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(bundle.read(name))
+        manifest = _wire_manifest(content)
+        old = _wire_manifest(baseline)
+        local_packs = set(manifest['packs']) - set(old['packs'])
+        local_packs.update(name for name in old['packs']
+                           if name not in old.get('external_packs', {}) and (baseline/name).is_file())
+        home = BeautifulSoup((content/'index.html').read_text(), 'html.parser')
+        catalog = json.loads(home.select_one('#report-home').string)
+        assets = {item['asset_path'] for item in catalog['files'].values() if 'asset_path' in item}
+        expected = {'index.html','style.css','report.js','loader.js','manifest.json',
+                    'manifest.json.gz','catalog.bin.gz'} | local_packs | assets
+        _require(set(physical) == expected, 'Extension archive has undeclared physical files')
+        _require((content/'loader.js').read_bytes() == (Path(__file__).parent/'assets/report-loader.js').read_bytes(),
+                 'Extension archive loader differs')
+        _require((content/'report.js').read_bytes() == (Path(__file__).parent/'assets/report.js').read_bytes(),
+                 'Extension archive controls differ')
+        _require(catalog == home_catalog(manifest, lambda name:(source/name).read_bytes()),
+                 'Extension home snapshot differs from report')
+        return check_extended_content(source, baseline, content)
 
 
 def partition_content(content, output, *, max_bytes=300*1024*1024, max_files=2000):

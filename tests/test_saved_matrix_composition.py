@@ -131,3 +131,85 @@ def test_composition_preserves_shared_revision_attachments(tmp_path):
     attachment.write_text('{}', encoding='utf-8')
     with pytest.raises(ValueError):
         check_saved_matrix(output)
+
+
+def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_path):
+    from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
+    families = ['web', 'document']
+
+    def snapshot(name, order, values):
+        root = tmp_path / name
+        root.mkdir()
+        header = '<thead><tr>' + '<th>value</th>' * 9 + '</tr></thead>'
+        def table(identifier, numbers):
+            cells = '<td>1</td><td><a href="providers/' + name + '.html">' + name + '</a></td>'
+            cells += ''.join('<td data-sort="' + str(n) + '"><strong class="good">' + str(n) + '</strong></td>' for n in numbers)
+            return '<table id="' + identifier + '">' + header + '<tbody><tr>' + cells + '</tr></tbody></table>'
+        home = '<html><body><section id="overall-ranking"><h2>Ranking</h2>'
+        home += table('ranking-overall', [90, 80, *values, 10, 20, 30]) + '</section>'
+        for family in families:
+            home += table('ranking-' + family, [1])
+        home += '<div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></body></html>'
+        (root / 'index.html').write_text(home)
+        (root / 'providers').mkdir()
+        (root / 'providers' / (name + '.html')).write_text('<html>Saved provider evidence</html>')
+        (root / 'answer.txt').write_text('unchanged answer: ' + name)
+        model = {'providers': [{'id': name}], 'report_families': [{'id': f} for f in order],
+                 'rows': [{'provider': name, 'url': 'https://example.com/', 'passed': True}]}
+        (root / 'matrix.json').write_text(json.dumps(model))
+        audit = {'files': {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                           for p in root.rglob('*') if p.is_file()}}
+        binding = write(root / 'saved-matrix-audit.json', audit)
+        return {'root': str(root), 'audit': binding}
+
+    base = snapshot('base', families, [11, 22])
+    addition = snapshot('extra', list(reversed(families)), [33, 44])
+    overview = write(tmp_path / 'methods.json', [{'id': 'extra', 'label': 'Extra',
+        'execution': 'Remote API', 'configuration': '30 seconds', 'price': 'Unknown',
+        'billing': 'Undisclosed', 'sources': [{'url': 'https://example.com/prices', 'label': 'Official'}]}])
+    spec = write(tmp_path / 'extension.json', {'published_base': base, 'additional_report': addition,
+        'method_overview': overview, 'comparison_note': 'Different scoring editions; retained scores.'})
+    output = tmp_path / 'extended'
+    build_published_extension(Path(spec['path']), output)
+    assert check_published_extension(output)['providers'] == 2
+    assert (output / 'answer.txt').read_bytes() == (Path(base['root']) / 'answer.txt').read_bytes()
+    assert (output / 'additional/answer.txt').read_bytes() == (Path(addition['root']) / 'answer.txt').read_bytes()
+    from bs4 import BeautifulSoup
+    home = BeautifulSoup((output / 'index.html').read_text(), 'html.parser')
+    row = home.select('#ranking-overall tbody tr')[1]
+    assert [c.get_text() for c in row.find_all('td')][4:6] == ['44', '33']
+    assert row.a['href'] == 'additional/providers/extra.html'
+    assert not home.select('#ranking-overall .good, #ranking-overall strong')
+    assert home.select_one('[data-added-method="extra"]')
+    from harness.reporting.packs import write_compact_packs
+    from harness.web_fetch.report_package import extend_published_content, _save_wire_manifest, _write_archive, check_extension_archive
+    packed = tmp_path / 'baseline-package'
+    original_root = Path(base['root'])
+    entries = [(p.relative_to(original_root).as_posix(),
+                {'size':p.stat().st_size, 'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),
+                 'mime':'text/html' if p.suffix == '.html' else 'text/plain'}, p.read_bytes())
+               for p in original_root.rglob('*') if p.is_file()]
+    manifest = write_compact_packs(entries, packed)
+    manifest['external_packs'] = {name:{'url':'https://example.com/pinned/' + name,
+        'sha256':hashlib.sha256((packed/name).read_bytes()).hexdigest()} for name in manifest['packs']}
+    _save_wire_manifest(packed, manifest)
+    (packed/'index.html').write_text('<html><head></head><body></body></html>')
+    (packed/'style.css').write_text('body { color: black; }')
+    (packed/'report.js').write_text('/* synthetic report controls */')
+    content = tmp_path / 'extension-package'
+    extended = extend_published_content(output, packed, content)
+    assert extended['external_packs'] == manifest['external_packs']
+    assert not any((content/name).exists() for name in manifest['packs'])
+    archive = tmp_path / 'extension.zip'
+    _write_archive(content, archive)
+    checked = check_extension_archive(archive, output, baseline=packed)
+    assert checked['reused_packs'] == len(manifest['packs'])
+    assert checked['appended_files'] > 0
+    refreshed = tmp_path / 'refreshed-package'
+    extend_published_content(output, content, refreshed)
+    refreshed_archive = tmp_path / 'refreshed.zip'
+    _write_archive(refreshed, refreshed_archive)
+    assert check_extension_archive(refreshed_archive, output, baseline=packed)['valid']
+    (output / 'additional/answer.txt').write_text('changed')
+    with pytest.raises(ValueError, match='bytes changed'):
+        check_published_extension(output)
