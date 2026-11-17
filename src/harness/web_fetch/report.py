@@ -1613,6 +1613,10 @@ def failure_category(r,c):
  if r['metrics'].get('evaluation_excluded'):return t('evaluation_environment_defect_excluded_across_all_methods', 'Evaluation environment defect: excluded across all methods')
  if not measured(r,c):return t('undecidable_evidence_of_the_final_page_identity', 'Undecidable: evidence of the final page identity is missing') if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status')=='unavailable' else t('unmeasured_acceptance_evidence_is_missing', 'Unmeasured: acceptance evidence is missing')
  if succeeded(r,c):return '—'
+ # The evidence diagnosis owns the cause; downstream rule symptoms must not
+ # replace it in inventories, filters or same-task comparisons.
+ if r.get('diagnosis'):
+  return r['diagnosis']['category']
  if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status') != 'verified':
   return t('final_page_identity_is_not_verified', 'Final page identity is not verified')
  # Classification describes an already failed result; hints never veto success.

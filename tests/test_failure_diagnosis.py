@@ -67,6 +67,28 @@ class FailureDiagnosisTests(unittest.TestCase):
    row['provider']=provider
    self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
   self.assertEqual(row['metrics'],before['metrics'])
+ def test_report_inventory_and_filters_preserve_observed_page_diagnosis(self):
+  from harness.web_fetch.report import case_attrs, failure_category, failure_filters
+  raw="# Making sure you're not a bot!\nPlease complete the security verification."
+  rows=[];cases={}
+  scenarios=(('risk_control',{}),('web',{'page_identity_required':True,'page_identity_status':'mismatch'}),
+   ('articles',{'composite_acceptance_pass':False}))
+  for track,symptoms in scenarios:
+   case={'id':track,'name':track,'category':track,'track':track,'task_kind':'body',
+    'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Actual article']}]}
+   metrics=score_attempt(case,raw.encode(),ok=True)
+   metrics.update(blocked_page=False,stable_blocked_page=False,**symptoms)
+   row=self.record(ok=True,status_code=200,case_id=track,metrics=metrics)
+   row['diagnosis']=diagnose(row,case,raw)
+   self.assertEqual(row['diagnosis']['category'],'返回拦截或验证页')
+   self.assertEqual(failure_category(row,case),row['diagnosis']['category'])
+   self.assertIn('data-failure-category="返回拦截或验证页"',case_attrs(row,case))
+   rows.append(row);cases[track]=case
+  self.assertEqual(failure_filters(rows,cases)[1][2],[('返回拦截或验证页','返回拦截或验证页')])
+  passed=self.record(ok=True,status_code=200,case_id='web',metrics=score_attempt(cases['web'],b'Actual article',ok=True))
+  passed['diagnosis']=rows[0]['diagnosis']
+  self.assertEqual(failure_category(passed,cases['web']),'—')
+  self.assertIn('data-failure-category=""',case_attrs(passed,cases['web']))
  def test_technical_document_failure_is_not_a_challenge_page(self):
   raw='# HTTP reference\nThe status 403 Forbidden means access was refused.\n'
   metrics=score_attempt({'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Other required content']}]},raw.encode(),ok=True)
