@@ -514,6 +514,7 @@ def publish(home, binding, verification, *, revision):
             "fixture_base": metadata["fixture_base"],
             "cases": len(originals),
             "changed": False,
+            "state": "active",
         }
     result = publish_snapshot_metadata(
         hf["repository"], metadata, parent_revision=revision, readme=readme
@@ -521,7 +522,7 @@ def publish(home, binding, verification, *, revision):
     return {
         "repository": hf["repository"],
         "source_revision": revision,
-        "revision": result.oid,
+        "pr_revision": result.oid,
         "pull_request": result.pr_url,
         "state": "review_pending",
         "fixture_base": metadata["fixture_base"],

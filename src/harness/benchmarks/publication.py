@@ -20,10 +20,59 @@ CARDS = Path(__file__).with_name("cards")
 HEADLESS_REPOSITORY = "https://github.com/lexmount/Lexbench-Headless-Browser"
 HEADLESS_INPUTS = ("tasks", "fixtures", "config", "manifest.json", "harness_pins.json",
                    "LICENSE", "THIRD_PARTY_NOTICES.md")
+DATASET_VERSION = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
 
 
 def encoded(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
+
+
+def release_version(manifest: dict) -> str | None:
+    """Read the edition authority, accepting consistent historical root fields."""
+    edition = manifest.get('edition') or {}
+    if not isinstance(edition, dict):
+        raise ValueError('Dataset edition must be an object')
+    nested, legacy = edition.get('version'), manifest.get('version')
+    for value in (nested, legacy):
+        if value is not None and (not isinstance(value, str) or not re.fullmatch(DATASET_VERSION, value)):
+            raise ValueError('A dataset version must be MAJOR.MINOR.PATCH')
+    if nested is not None and legacy is not None and nested != legacy:
+        raise ValueError('Dataset version fields disagree')
+    if nested is not None and edition.get('tag', 'v' + nested) != 'v' + nested:
+        raise ValueError('Dataset version and edition tag disagree')
+    return nested if nested is not None else legacy
+
+
+def proposal_target(api, repository: str, version: str):
+    """Reject released, merged and pending version collisions before uploading."""
+    def number(value):
+        return tuple(map(int, value.split('.')))
+
+    tagged = [tag.name[1:] for tag in api.list_repo_refs(repository, repo_type='dataset').tags
+              if tag.name.startswith('v') and re.fullmatch(DATASET_VERSION, tag.name[1:])]
+    if tagged and number(version) <= max(map(number, tagged)):
+        raise ValueError('Dataset version must be newer than every released version')
+    info = api.repo_info(repo_id=repository, repo_type='dataset')
+
+    def read_version(revision):
+        from huggingface_hub import hf_hub_download
+        from huggingface_hub.errors import EntryNotFoundError
+
+        try:
+            path = hf_hub_download(repository, 'manifest.json', repo_type='dataset', revision=revision,
+                                   token=api.token, endpoint=api.endpoint)
+        except EntryNotFoundError:
+            return None
+        return release_version(json.loads(Path(path).read_bytes()))
+
+    current = read_version(info.sha) if any(x.rfilename == 'manifest.json' for x in info.siblings) else None
+    if current is not None and number(version) <= number(current):
+        raise ValueError('Dataset version must be newer than the main manifest version')
+    for discussion in api.get_repo_discussions(repository, repo_type='dataset'):
+        if discussion.is_pull_request and discussion.status in {'open', 'draft'}:
+            if read_version('refs/pr/' + str(discussion.num)) == version:
+                raise ValueError('Dataset version is already proposed in an open pull request')
+    return info
 
 
 def publish_snapshot_metadata(repository, metadata, *, parent_revision, readme, api=None):
@@ -287,7 +336,7 @@ class DatasetRelease:
                    scorer=settings.get('scorer'), default_dataset=settings.get('default_dataset'),
                    viewer_filters=filters, edition=identity.get('edition') if hub else None,
                    hub_files=_git_blobs(checkout, revision, ('tools', 'Makefile', 'snapshots.json'))
-                   if hub else None, dataset_version=identity.get('version') if hub else None)
+                   if hub else None, dataset_version=release_version(identity) if hub else None)
 
     def runtime_settings(self) -> dict:
         """Publish the execution choices bound to this dataset edition."""
@@ -417,9 +466,8 @@ class DatasetRelease:
         return selected
 
     def build(self, output: Path, *, selections: dict | None = None) -> dict:
-        if self.dataset_version is not None:
-            if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', self.dataset_version):
-                raise ValueError('A dataset version must be MAJOR.MINOR.PATCH')
+        version = release_version({'edition': self.edition, 'version': self.dataset_version})
+        if version is not None:
             if 'VERSIONING.md' not in self.files:
                 raise ValueError('A dataset version requires a committed VERSIONING.md policy')
         if output.exists() and any(output.iterdir()):
@@ -520,8 +568,6 @@ class DatasetRelease:
             "files": {name: {"sha256": bytes_sha256(raw), "size": len(raw)} for name, raw in sorted(files.items())},
         }
         manifest.update(settings)
-        if self.dataset_version is not None:
-            manifest['version'] = self.dataset_version
         manifest['viewer_filters'] = {
             key: filters.get(key, default) for key, default in
             [('viewer_exclude_datasets', []), ('viewer_exclude_tracks', {})]}
@@ -534,8 +580,10 @@ class DatasetRelease:
         if self.tooling_revision is not None:
             manifest["tooling"] = {"repository": "https://github.com/lexmount/webstone",
                                    "revision": self.tooling_revision}
-        if self.edition is not None:
-            manifest['edition'] = self.edition
+        if self.edition is not None or version is not None:
+            manifest['edition'] = dict(self.edition or {})
+            if version is not None:
+                manifest['edition'].update(version=version, tag='v' + version)
         if self.track == "headless-browser":
             manifest["upstream"] = json.loads(self.files["definitions/registry.json"])["source"]
         files["manifest.json"] = encoded(manifest)
@@ -615,8 +663,9 @@ class DatasetRelease:
         table = ["| Viewer group | Source suite | Tasks | Scope |", "| --- | --- | ---: | --- |"]
         table.extend(f"| `{row['config']}` | `{row['source_suite']}` | {row['count']:,} | {row['description']} |" for row in populations)
         body = body.replace("{{dataset_summary}}", "\n".join(table))
-        if self.dataset_version is not None:
-            version_section = ('## Dataset version\n\nThis dataset release is **v' + self.dataset_version
+        version = release_version(manifest)
+        if version is not None:
+            version_section = ('## Dataset version\n\nThis dataset release is **v' + version
                                + '**. See [version history and comparison rules](VERSIONING.md).\n\n')
             if re.search(r'(?m)^## Dataset version\s*$', body):
                 body = re.sub(r'(?ms)^## Dataset version\s*\n.*?(?=^## |\Z)', lambda _: version_section, body, count=1)
@@ -654,7 +703,8 @@ def main() -> None:
     args = parser.parse_args()
     release = DatasetRelease.from_git(args.checkout, args.track, args.revision)
     if args.dataset_version is not None:
-        release = replace(release, dataset_version=args.dataset_version)
+        edition = dict(release.edition or {}, version=args.dataset_version, tag='v' + args.dataset_version)
+        release = replace(release, dataset_version=args.dataset_version, edition=edition)
     if args.create_pr and release.dataset_version is None:
         parser.error('Publishing requires --dataset-version or a committed manifest version')
     if args.tooling_revision is not None:
@@ -664,17 +714,14 @@ def main() -> None:
     if args.create_pr:
         from huggingface_hub import HfApi
         api = HfApi()
-        tags = api.list_repo_refs(args.create_pr, repo_type='dataset').tags
-        if any(tag.name == 'v' + release.dataset_version for tag in tags):
-            raise ValueError('Dataset version is already released; published tags are immutable')
-        info = api.repo_info(repo_id=args.create_pr, repo_type="dataset")
+        info = proposal_target(api, args.create_pr, release.dataset_version)
         current = {p.relative_to(args.output).as_posix() for p in args.output.rglob("*") if p.is_file()}
         removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != ".gitattributes"]
         commit = api.upload_folder(repo_id=args.create_pr, repo_type="dataset", folder_path=args.output,
                                    parent_commit=info.sha, delete_patterns=removed,
                                    create_pr=True,
                                    commit_message="Publish verified " + args.track + " definitions")
-        print(json.dumps({"repository": args.create_pr, "revision": commit.oid,
+        print(json.dumps({"repository": args.create_pr, "pr_revision": commit.oid,
                           "pull_request": commit.pr_url, "state": "review_pending"}))
 
 

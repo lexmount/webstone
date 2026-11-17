@@ -15,6 +15,8 @@ Webstone owns benchmark scoring and input tooling as well as execution, evidence
 
 Hugging Face owns versioned public benchmark definitions and redistributable reference inputs. `src/harness/benchmarks/data-lock.json` selects their repositories, full commits and file hashes. Change a selection through `make pin-dataset DATASET=<track> REV=<full-HF-commit>`; keep import bindings aligned and historical snapshots intact. Do not copy datasets into Git or reintroduce retired standalone scorer repositories as execution dependencies. Official upstream evaluators retain their pinned code dependencies. Full third-party references without redistribution rights remain external approved inputs.
 
+Update Hugging Face benchmark tasks, references, acceptance contracts and execution bindings through PRs only. Never bypass this with direct uploads or commits to dataset `main`. Use the shared dataset publisher and its PR-only boundary tests. Repository creation, settings and documentation-only changes may use authorized writes; card configuration affecting dataset selection counts as data. Tokens may retain Lexmount create/write permissions for those operations. Follow [dataset revision rules](docs/benchmarks.md#historical-bindings-and-new-revisions); no publisher may merge a PR.
+
 Every track records full source commits and exact task, reference and scorer hashes ([benchmark editions](docs/benchmarks.md#benchmark-editions)). Documentation links to selection owners instead of repeating current versions. WebArena and WCXB retain their upstream authorities.
 
 # Language and names

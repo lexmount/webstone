@@ -62,7 +62,7 @@ def test_versioned_headless_source_retains_policy_without_changing_task_inventor
     release = replace(DatasetRelease.from_git(root, 'headless-browser', revision),
                       dataset_version='1.0.0')
     manifest = release.build(tmp_path / 'versioned')
-    assert manifest['version'] == '1.0.0'
+    assert manifest['edition']['version'] == '1.0.0'
     assert (tmp_path / 'versioned/VERSIONING.md').read_text(encoding='utf-8') == 'Committed input version policy.\n'
     assert manifest['upstream']['file_count'] == len(original)
     assert manifest['upstream']['task_count'] == 2

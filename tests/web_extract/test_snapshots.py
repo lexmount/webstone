@@ -606,9 +606,26 @@ def test_hf_cache_symlinks_are_read_but_changed_originals_block_publication(
         assert proposed["cases"] == 1
         assert proposed["state"] == "review_pending"
         assert proposed["pull_request"] == result.pr_url
+        assert proposed["pr_revision"] == result.oid
+        assert "revision" not in proposed
         assert "Original source and license" in publish.call_args.kwargs["readme"]
         assert "Keep this citation" in publish.call_args.kwargs["readme"]
         assert "Old address" not in publish.call_args.kwargs["readme"]
+        active_metadata = tmp_path / "snapshots.json"
+        active_metadata.write_text(json.dumps(publish.call_args.args[1]), encoding="utf-8")
+        readme.write_text(publish.call_args.kwargs["readme"], encoding="utf-8")
+    monkeypatch.setattr(
+        "huggingface_hub.hf_hub_download",
+        lambda repo, name, **kwargs: str(
+            {"README.md": readme, "snapshots.json": active_metadata}.get(name, cached)
+        ),
+    )
+    with patch("harness.benchmarks.publication.publish_snapshot_metadata") as publish:
+        active = snapshots.publish(home, value, receipt, revision="a" * 40)
+        assert active["state"] == "active"
+        assert active["revision"] == "a" * 40
+        assert "pr_revision" not in active
+        publish.assert_not_called()
     changed = "Another page"
     blob.write_text(
         json.dumps({"id": "case-a", "html": changed, "html_sha256": digest(changed.encode())})
