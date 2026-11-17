@@ -652,11 +652,14 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
                 if repairs else cases)
 
     indexed = {case['id']: case for case in dataset['cases']}
-    from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES
+    from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES, FULL_MIRROR_POLICY
 
     full = dataset.get('reference_equivalence', {}).get('method') in FULL_MIRROR_POLICIES
     if full and regression_ids is not None and 'reference-question-evidence' not in regression_ids:
         raise ValueError('Full reference revision requires question-evidence regression controls')
+    if (dataset.get('reference_equivalence', {}).get('method') == FULL_MIRROR_POLICY
+            and 'reference-answer-annotations' not in (regression_ids or [])):
+        raise ValueError('Annotated reference answers require paired mirror controls')
     for case in prepared.values():
         if 'reference_answer' not in case:
             continue

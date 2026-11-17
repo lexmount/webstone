@@ -170,3 +170,14 @@ def test_formatted_answers_on_frozen_factual_task(text, expected):
         == expected
     )
     assert results[0]["snippet"] == text
+@pytest.mark.parametrize(('text', 'expected'), [
+    ('It rained 6.9 mil\u00adlime\u00adtres.', True),
+    ('It rained 69 mil\u00adlime\u00adtres.', False),
+    ('It rained -6.9 mil\u00adlime\u00adtres.', False),
+    ('It rained 6.9 milli-metres.', False),
+])
+def test_discretionary_hyphens_do_not_change_quantities_or_remove_visible_signs(text, expected):
+    from lexbench_websearch.answer_rules import match_reference_answer
+
+    answer = '6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)'
+    assert match_reference_answer(answer, text) is expected

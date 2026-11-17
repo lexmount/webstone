@@ -8,8 +8,8 @@ from .inputs import digest
 
 
 MIRROR_POLICY = 'reference-title-lead/1'
-FULL_MIRROR_POLICY = 'reference-question-evidence/2'
-FULL_MIRROR_POLICIES = {'reference-question-evidence/1', FULL_MIRROR_POLICY}
+FULL_MIRROR_POLICY = 'reference-question-evidence/3'
+FULL_MIRROR_POLICIES = {'reference-question-evidence/1', 'reference-question-evidence/2', FULL_MIRROR_POLICY}
 MIRROR_LEAD_CHARACTERS = 4000
 MIRROR_MINIMUM_CHARACTERS = 200
 MIRROR_OVERLAP = .8
@@ -64,7 +64,7 @@ def repair_cases(cases, revision, *, reuse_calls=False):
         actual = {key: case.get(key) for key in item['before']}
         if actual == item['after']:
             continue
-        if actual != item['before']:
+        if not reuse_calls and actual != item['before']:
             raise ValueError('Task repair does not bind the captured task: ' + case['id'])
         if reuse_calls and actual['query'] != item['after']['query']:
             raise ValueError('Changed query requires a new provider call: ' + case['id'])
@@ -166,12 +166,17 @@ def qualify_question_mirror(reference, candidate, answer, *, policy=FULL_MIRROR_
                 or len(normalized_text(observation['article_text'])) < MIRROR_MINIMUM_CHARACTERS):
             raise ValueError('Mirror verification requires successful full article captures')
     left, right = [o['article_text'] for o in (reference, candidate)]
-    reference_has_answer = contains_answer(left, answer)
-    mirror_has_answer = contains_answer(right, answer)
+    matcher = contains_answer
+    if policy == FULL_MIRROR_POLICY:
+        from .answer_rules import match_reference_answer
+
+        matcher = lambda text, reference: match_reference_answer(reference, text)
+    reference_has_answer = matcher(left, answer)
+    mirror_has_answer = matcher(right, answer)
     title_matches = normalized_text(reference['title']) == normalized_text(candidate['title'])
     overlap = min(block_overlap(right, left), block_overlap(left, right))
     qualified = (mirror_has_answer if reference_has_answer else overlap >= MIRROR_OVERLAP)
-    if policy == FULL_MIRROR_POLICY:
+    if policy in {'reference-question-evidence/2', FULL_MIRROR_POLICY}:
         qualified = overlap >= MIRROR_OVERLAP and (not reference_has_answer or mirror_has_answer)
     elif policy not in FULL_MIRROR_POLICIES:
         raise ValueError('Unsupported full reference policy')
@@ -280,7 +285,7 @@ def validate_reference_extensions(case):
                 or proof.get('qualified') is not True or type(overlap) not in (float,int)
                 or not 0 <= overlap <= 1
                 or (not full and overlap < MIRROR_OVERLAP)
-                or (proof.get('method') == FULL_MIRROR_POLICY and overlap < MIRROR_OVERLAP)
+                or (proof.get('method') in {'reference-question-evidence/2', FULL_MIRROR_POLICY} and overlap < MIRROR_OVERLAP)
                 or (full and any(type(proof.get(field)) is not bool for field in ('reference_has_answer', 'mirror_has_answer')))
                 or (full and not (proof.get('mirror_has_answer') is True if proof.get('reference_has_answer') is True else overlap >= MIRROR_OVERLAP))
                 or any(not re.fullmatch('[0-9a-f]{64}',proof.get(field,'')) for field in

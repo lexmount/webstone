@@ -6,6 +6,14 @@ The collector resolves benchmark references before freezing run inputs. Keep eac
 
 ## Run a comparison
 
+Factual corrections use the dataset's versioned `case_repairs` receipt. Rebuild
+from the pinned publisher CSV, replay the repairs and retained reference captures,
+then compare the resulting task hash. Changed questions require new calls from
+every method; reference-only changes reuse the recorded requests and responses.
+The report revision replaces the references and recomputes scores uniformly.
+Mirror checks use the accepted answer aliases and numeric ranges. Discretionary
+word hyphens are ignored; visible signs and numeric boundaries remain significant.
+
 Put `LEXMOUNT_SEARCH_API_KEY`, `DEEPSEEK_API_KEY`, and `BOCHA_API_KEY` in the repository `.env`. Obtain a DeepSeek key from [its console](https://platform.deepseek.com/api_keys), a Bocha key from [its platform](https://open.bochaai.com/), and a Lexmount key from the service administrator. Never put credentials in profiles or evidence.
 
 ```sh

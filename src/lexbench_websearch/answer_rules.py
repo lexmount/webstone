@@ -20,6 +20,7 @@ _OPERATOR_TRANSLATION = str.maketrans(
 def _norm(value):
     return (
         unicodedata.normalize("NFKC", value)
+        .replace("\u00ad", "")  # Discretionary line-break hyphens are layout, not word content.
         .translate(_OPERATOR_TRANSLATION)
         .casefold()
         .strip()

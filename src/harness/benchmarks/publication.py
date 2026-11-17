@@ -44,7 +44,7 @@ def release_version(manifest: dict) -> str | None:
     return version
 
 
-def proposal_target(api, repository: str, version: str):
+def proposal_target(api, repository: str, version: str, *, exclude_pr=None):
     """Reject released, merged and pending version collisions before uploading."""
     def number(value):
         return tuple(map(int, value.split('.')))
@@ -70,7 +70,8 @@ def proposal_target(api, repository: str, version: str):
     if current is not None and number(version) <= number(current):
         raise ValueError('Dataset version must be newer than the main manifest version')
     for discussion in api.get_repo_discussions(repository, repo_type='dataset'):
-        if discussion.is_pull_request and discussion.status in {'open', 'draft'}:
+        if (discussion.is_pull_request and discussion.status in {'open', 'draft'}
+                and discussion.num != exclude_pr):
             if read_version('refs/pr/' + str(discussion.num)) == version:
                 raise ValueError('Dataset version is already proposed in an open pull request')
     return info
@@ -490,9 +491,12 @@ class DatasetRelease:
             for name, raw in files.items():
                 if name.startswith('definitions/datasets/') and name.endswith('.json'):
                     dataset = json.loads(raw)
-                    if dataset.get('case_repairs') and repair_cases(
-                            dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
-                        raise ValueError('Published task repairs must already be applied')
+                    if dataset.get('case_repairs'):
+                        from harness.web_search.revisions import validate_revision_controls
+
+                        validate_revision_controls(dataset['case_repairs'])
+                        if repair_cases(dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
+                            raise ValueError('Published task repairs must already be applied')
                     validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])
@@ -702,24 +706,36 @@ class DatasetRelease:
         return {**manifest, "archive": {"path": "definitions.tar.gz", "sha256": bytes_sha256(bundle), "size": len(bundle)}}
 
 
-def propose_release(release, output, repository, *, api=None, parent_revision=None):
+def propose_release(release, output, repository, *, api=None, parent_revision=None, pull_request=None):
     """Build a release and propose its exact files without updating main."""
     from huggingface_hub import HfApi
 
     if release.dataset_version is None:
         raise ValueError('Publishing requires an explicit dataset version')
+    if pull_request is not None and (type(pull_request) is not int or pull_request < 1):
+        raise ValueError('A dataset update must name a pull request number')
     result = release.build(output)
     client = api or HfApi()
-    info = proposal_target(client, repository, release.dataset_version)
+    if pull_request is None:
+        info = proposal_target(client, repository, release.dataset_version)
+        review = None
+    else:
+        proposal_target(client, repository, release.dataset_version, exclude_pr=pull_request)
+        review = client.get_discussion_details(repository, pull_request, repo_type='dataset')
+        if not review.is_pull_request or review.status not in {'open', 'draft'}:
+            raise ValueError('Dataset updates require an open pull request')
+        info = client.repo_info(repository, repo_type='dataset', revision='refs/pr/' + str(pull_request))
     if parent_revision is not None and info.sha != parent_revision:
         raise ValueError('Dataset main changed after the repair inputs were frozen')
     current = {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()}
     removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != '.gitattributes']
-    commit = client.upload_folder(repo_id=repository, repo_type='dataset', folder_path=output,
+    target = {} if review is None else dict(revision='refs/pr/' + str(pull_request))
+    commit = client.upload_folder(repo_id=repository, repo_type='dataset', folder_path=output, **target,
                                  parent_commit=info.sha, delete_patterns=removed,
-                                 create_pr=True, commit_message='Publish verified ' + release.track + ' definitions')
+                                 create_pr=review is None,
+                                 commit_message='Publish verified ' + release.track + ' definitions')
     return result, dict(repository=repository, pr_revision=commit.oid,
-                        pull_request=commit.pr_url, state='review_pending')
+                        pull_request=getattr(commit, 'pr_url', None) or review.url, state='review_pending')
 
 
 def main() -> None:

@@ -86197,6 +86197,214 @@
     }
   ],
   "web_search": {
+    "discretionary-text-hyphens": [
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "6.9 mil­lime­tres"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "69 mil­lime­tres"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "-6.9 mil­lime­tres"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "factual_dataset",
+        "case": {
+          "id": "discretionary-layout",
+          "reference_answer": "6.9 millimetres (acceptable range: anything between 6.83 and 6.97 millimetres)",
+          "answer_match_rule": "published-answers/2",
+          "reference_urls": [
+            "https://publisher.test/survey"
+          ]
+        },
+        "results": [
+          {
+            "url": "https://publisher.test/survey",
+            "snippet": "6.9 milli-metres"
+          }
+        ],
+        "expected": false
+      }
+    ],
+    "reference-answer-annotations": [
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "Alex Stone (also known as A. Stone)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "Alex Stone (also known as A. Stone)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. A. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. B. Stone wrote the book.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "20 m (acceptable range: anything between 19 and 21 m)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": true
+      },
+      {
+        "kind": "reference_mirror",
+        "full_capture": true,
+        "case": {
+          "id": "annotated-answer",
+          "reference_answer": "20 m (acceptable range: anything between 19 and 21 m)",
+          "reference_urls": [
+            "https://en.wikipedia.org/wiki/Survey"
+          ]
+        },
+        "reference": {
+          "url": "https://en.wikipedia.org/wiki/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 20 m tall.",
+          "status": 200,
+          "body_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "candidate": {
+          "url": "https://wiki2.org/en/Survey",
+          "title": "Survey",
+          "article_text": "Independent historical record 0 documents the survey and its background. Independent historical record 1 documents the survey and its background. Independent historical record 2 documents the survey and its background. Independent historical record 3 documents the survey and its background. Independent historical record 4 documents the survey and its background. Independent historical record 5 documents the survey and its background. Independent historical record 6 documents the survey and its background. Independent historical record 7 documents the survey and its background. Independent historical record 8 documents the survey and its background. Independent historical record 9 documents the survey and its background. Independent historical record 10 documents the survey and its background. Independent historical record 11 documents the survey and its background. The mast is 25 m tall.",
+          "status": 200,
+          "body_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "verified_at": "2026-11-17T00:00:00Z"
+        },
+        "results": [
+          {
+            "url": "https://wiki2.org/en/Survey"
+          }
+        ],
+        "expected": false
+      }
+    ],
     "corrected-factual-reference": [
       {
         "kind": "factual_dataset",

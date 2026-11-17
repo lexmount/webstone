@@ -58,6 +58,69 @@ def test_changed_query_requires_new_call_but_accepts_a_call_collected_with_the_r
     assert repair_cases([repaired], recipe, reuse_calls=True) == [repaired]
 
 
+def test_reference_amendment_reuses_the_same_question_across_annotation_versions():
+    from lexbench_websearch.simpleqa import repair_cases
+
+    case, recipe = repair_fixture()
+    # References are assessment inputs, never part of the provider request.
+    captured = dict(case, reference_urls=['https://archive.test/earlier-source'])
+    revised = repair_cases([captured], recipe, reuse_calls=True)[0]
+    assert revised['query'] == captured['query']
+    assert revised['reference_urls'] == ['https://archive.test/biography']
+    assert captured['reference_urls'] == ['https://archive.test/earlier-source']
+
+
+@pytest.mark.parametrize(('answer', 'supported', 'stale'), [
+    ('Alex Stone (also known as A. Stone)', 'A. Stone wrote the book.', 'B. Stone wrote the book.'),
+    ('20 m (acceptable range: anything between 19 and 21 m)', 'The mast is 20 m tall.', 'The mast is 25 m tall.'),
+])
+@pytest.mark.parametrize('copy_is_current', [False, True])
+def test_mirror_checks_the_accepted_answer_instead_of_its_annotation_text(answer, supported, stale, copy_is_current):
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+
+    common = ' '.join(f'Independent historical record {n} documents the survey and its background.' for n in range(40))
+    reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
+                     article_text=common + ' ' + supported, status=200, body_sha256='a'*64,
+                     verified_at='2026-11-17T00:00:00Z')
+    copy = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
+                article_text=common + ' ' + (supported if copy_is_current else stale))
+    result = qualify_question_mirror(reference, copy, answer)
+    assert result['article_overlap'] >= .8
+    assert result['reference_has_answer'] is True
+    assert result['qualified'] is copy_is_current
+
+
+@pytest.mark.parametrize('policy', ['reference-question-evidence/1', 'reference-question-evidence/2'])
+def test_historical_mirror_policies_keep_their_recorded_annotation_behavior(policy):
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+
+    text = 'Independent historical background for the author and this edition. ' * 20
+    reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
+                     article_text=text + 'A. Stone wrote the book.', status=200,
+                     body_sha256='a'*64, verified_at='2026-11-17T00:00:00Z')
+    copy = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
+                article_text=text + 'B. Stone wrote the book.')
+    result = qualify_question_mirror(reference, copy, 'Alex Stone (also known as A. Stone)', policy=policy)
+    assert result['method'] == policy
+    assert result['reference_has_answer'] is False
+    assert result['qualified'] is True
+
+
+def test_mirror_retains_the_same_fact_with_discretionary_word_hyphens():
+    from lexbench_websearch.simpleqa import qualify_question_mirror
+
+    text = 'Independent historical background for the survey and its measurements. ' * 20
+    reference = dict(url='https://en.wikipedia.org/wiki/Survey', title='Survey',
+                     article_text=text + 'The mast is 20 metres tall.', status=200,
+                     body_sha256='a'*64, verified_at='2026-11-17T00:00:00Z')
+    copy = dict(reference, url='https://wiki2.org/en/Survey', body_sha256='b'*64,
+                article_text=text + 'The mast is 20 me\u00adtres tall.')
+    result = qualify_question_mirror(reference, copy,
+                                   '20 metres (acceptable range: anything between 19 and 21 metres)')
+    assert result['reference_has_answer'] is result['mirror_has_answer'] is True
+    assert result['qualified'] is True
+
+
 def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monkeypatch):
     import json
     from copy import deepcopy
@@ -95,7 +158,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     assert rows == original
     assert all(r['elapsed_ms'] == 123 for r in updated)
     case['query'] = 'A query from an unrelated task'
-    with pytest.raises(ValueError, match='captured task'):
+    with pytest.raises(ValueError, match='new provider call'):
         apply_report_revision(profile, rows, revision)
 
 
@@ -136,7 +199,7 @@ def test_task_repair_rejects_unbound_or_incomplete_authority(defect):
     else:
         recipe['repairs'][0]['after']['query'] = 'x'*129
     with pytest.raises(ValueError):
-        repair_cases([case], recipe, reuse_calls=True)
+        repair_cases([case], recipe)
 
 
 def csv_fixture(questions):

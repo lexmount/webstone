@@ -649,7 +649,47 @@ def test_repair_proposal_rejects_main_advance_before_upload(tmp_path, monkeypatc
                                     api=object(), parent_revision='a'*40)
 
 
-@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence'])
+@pytest.mark.parametrize('defect', [None, 'closed', 'discussion', 'changed-parent'])
+def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch, defect):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    output = tmp_path / 'out'
+    def build(path):
+        path.mkdir()
+        (path / 'data.json').write_text('{}')
+        return {'edition': {'version': '2.0.0'}}
+    release = SimpleNamespace(dataset_version='2.0.0', track='simpleqa-verified', build=build)
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args, **kwargs: None)
+    uploads = []
+    class Api:
+        def get_discussion_details(self, repository, number, *, repo_type):
+            assert number == 5 and repo_type == 'dataset'
+            return SimpleNamespace(is_pull_request=defect != 'discussion',
+                                   status='closed' if defect == 'closed' else 'open',
+                                   url='https://huggingface.co/datasets/Lexmount/Test/discussions/5')
+        def repo_info(self, repository, *, repo_type, revision):
+            assert revision == 'refs/pr/5'
+            return SimpleNamespace(sha='c'*40 if defect == 'changed-parent' else 'b'*40, siblings=[])
+        def upload_folder(self, **kwargs):
+            assert kwargs['create_pr'] is False
+            assert kwargs['revision'] == 'refs/pr/5'
+            assert kwargs['parent_commit'] == 'b'*40
+            uploads.append(kwargs)
+            return SimpleNamespace(oid='d'*40, pr_url=None)
+    if defect:
+        with pytest.raises(ValueError):
+            publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                        pull_request=5, parent_revision='b'*40)
+        assert not uploads
+    else:
+        _, receipt = publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                                 pull_request=5, parent_revision='b'*40)
+        assert len(uploads) == 1 and receipt['pr_revision'] == 'd'*40
+        assert receipt['pull_request'].endswith('/discussions/5')
+
+
+@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls'])
 def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
     from copy import deepcopy
     from lexbench_websearch.simpleqa import extend_reference_urls
@@ -666,6 +706,8 @@ def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, de
         dataset['cases'][0]['reference_answer'] = before['reference_answer']
     elif defect == 'missing-evidence':
         dataset['case_repairs']['repairs'][0]['evidence'] = []
+    elif defect == 'unknown-controls':
+        dataset['case_repairs']['regression_ids'] = ['unknown-controls']
     raw = json.dumps(dataset).encode()
     registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
                                                sha256=hashlib.sha256(raw).hexdigest())})
