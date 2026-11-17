@@ -1095,16 +1095,14 @@ def check_current_browser_article(out, cases, records, binding):
 
 def _saved_failure_chapters(cases, records):
     """Explain the full failure population using recorded program evidence only."""
-    from harness.web_fetch.report import provider_label
-    heading = bilingual_text('各方法未通过的原因', 'Why each method did not pass')
-    note = bilingual_text(
-        '以下分类来自程序检查和返回内容，覆盖全部未通过结果。相同分类可能有不同原因；没有逐题人工复核的结果，不据此认定网站或提供商的根因。',
-        'These categories cover every failed result and come from program checks and returned evidence. One category can have different causes; unreviewed results do not establish a site or provider root cause.')
+    from harness.web_fetch.report import provider_label, measured, succeeded
+    heading = t('saved_failure_chapters', 'Why each method did not pass')
+    note = t('saved_failure_categories_note', 'These categories cover every failed result and come from program checks and returned evidence. One category can have different causes; unreviewed results do not establish a site or provider root cause.')
     chapters = []
     for provider in dict.fromkeys(row['provider'] for row in records):
         selected = [row for row in records if row['provider'] == provider]
-        failed = [row for row in selected if not task_passed(
-            row['ok'], row['metrics'], cases[row['case_id']].get('task_kind', 'body'))]
+        eligible = [row for row in selected if measured(row, cases[row['case_id']])]
+        failed = [row for row in eligible if not succeeded(row, cases[row['case_id']])]
         grouped = {}
         for row in failed:
             category = (row.get('diagnosis') or {}).get('category') or t(
@@ -1115,17 +1113,18 @@ def _saved_failure_chapters(cases, records):
             specimen = members[0]
             aid = specimen.get('attempt_id')
             target = ('../attempts/'+escape(aid, quote=True)+'.html') if aid else '../analysis/index.html'
-            evidence_link = '<a href="'+target+'">'+bilingual_text('查看实际返回与评分', 'Inspect response and scoring')+'</a>'
+            evidence_link = '<a href="'+target+'">'+t('inspect_response_scoring', 'Inspect response and scoring')+'</a>'
             rows.append((escape(category), str(len(members)), f'{len(members)/len(failed):.1%}', evidence_link))
             proof = (specimen.get('diagnosis') or {}).get('evidence')
             if proof:
                 examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
                     +'</p><p>'+escape(cases[specimen['case_id']].get('url', ''))+' · '+evidence_link+'</p></details>')
-        count = bilingual_text(
-            f'共 {len(selected)} 题，通过 {len(selected)-len(failed)} 题，未通过 {len(failed)} 题。',
-            f'{len(selected)} tasks: {len(selected)-len(failed)} passed and {len(failed)} failed.')
-        distribution = _table([('程序分类', 'Program category'), ('题数', 'Tasks'),
-            ('占该方法未通过结果', 'Share of this method’s failures'), ('示例证据', 'Example evidence')], rows,
+        count = t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
+                  total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))
+        if len(eligible) != len(selected):
+            count += ' ' + t('saved_method_unmeasured_count', '{count} results are unavailable and excluded from the pass-rate and failure denominators.', count=len(selected)-len(eligible))
+        distribution = _table([t('program_category', 'Program category'), t('saved_failure_tasks', 'Tasks'),
+            t('method_failure_share', 'Share of this method’s failures'), t('example_evidence', 'Example evidence')], rows,
             t('complete_failure_distribution', 'Complete failure distribution')) if failed else ''
         chapters.append('<section data-method-failures="'+escape(provider, quote=True)+'"><h3>'
             +escape(provider_label(provider))+'</h3><p>'+count+'</p>'+distribution+''.join(examples)+'</section>')
@@ -1146,22 +1145,24 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
     if dataset_path.is_file():
         scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
         if scope:
-            from harness.web_fetch.report import provider_label, comparative_rows, cell as report_cell, table as report_table
+            from harness.web_fetch.report import provider_label, measured, succeeded, comparative_rows, cell as report_cell, table as report_table
             rows = []
             for name in dict.fromkeys(row['provider'] for row in records):
                 selected = [row for row in records if row['provider'] == name]
-                passed = sum(task_passed(row['ok'], row['metrics'],
-                             cases[row['case_id']].get('task_kind', 'body')) for row in selected)
+                eligible = [row for row in selected if measured(row, cases[row['case_id']])]
+                passed = sum(succeeded(row, cases[row['case_id']]) for row in eligible)
+                rate = passed/len(eligible) if eligible else None
+                label = f'{rate:.1%}' if rate is not None else '—'
+                if eligible and len(eligible) != len(selected):
+                    label += f' ({passed}/{len(eligible)})'
                 rows.append(('',report_cell(escape(provider_label(name)))+report_cell(str(len(selected)))
-                    +report_cell(str(passed))+report_cell(f'{passed/len(selected):.1%}',passed/len(selected))))
+                    +report_cell(str(passed))+report_cell(label,rate)))
             title=t('method_comparison_for_this_round', 'Method comparison for this round')
             context = '<div role="region" aria-label="'+escape(title)+'">'+report_table(
-                [bilingual_text(*label) for label in [('方法','Method'),('保存结果','Saved results'),
-                 ('通过','Passed'),('通过率','Pass rate')]],
+                [t('method', 'Method'), t('saved_results', 'Saved results'),
+                 t('saved_passed', 'Passed'), t('saved_pass_rate', 'Pass rate')],
                 comparative_rows(rows,{3:('saved-guide-pass-rate','max')}),metrics=[])+'</div>'
-            context += '<p>'+bilingual_text(
-                '通过要求该题适用的检查全部满足。接口返回了内容，仍可能缺少题目要求的段落、记录、资源或文件；完整的实际返回和冻结参考保存在结果详情中。',
-                'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
+            context += '<p>'+t('saved_task_acceptance_note', 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
             context += _saved_failure_chapters(cases, records)
             context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'
             context += ''.join('<p>'+escape(note)+'</p>' for note in scope.get('limitations', []))

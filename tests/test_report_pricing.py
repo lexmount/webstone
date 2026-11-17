@@ -110,6 +110,32 @@ def test_native_fetch_prices_cover_model_billing_and_unavailable_quotes(tmp_path
     assert untranslated_english_narrative(english) == []
 
 
+def test_model_billing_explanation_does_not_depend_on_bound_catalog_translations(tmp_path):
+    data = json.loads(SOURCE.read_text(encoding='utf-8'))
+    provider = next(p for p in data['providers'] if p['id'] == 'claude-web-fetch')
+    translations = data['translations']
+
+    def english(value):
+        if isinstance(value, str):
+            return translations.get(value, value)
+        if isinstance(value, list):
+            return [english(item) for item in value]
+        if isinstance(value, dict):
+            return {key: english(item) for key, item in value.items()}
+        return value
+
+    assets = tmp_path / 'report-assets'
+    assets.mkdir()
+    (assets / 'provider-pricing.json').write_text(json.dumps({
+        'checked_at': data['checked_at'], 'providers': [english(provider)],
+        'other_methods': [],
+    }), encoding='utf-8')
+    rendered = render_pricing(tmp_path, ['claude-web-fetch'], table=table, cell=cell, link=link, esc=esc)
+    localized = localize_html(rendered, PurePosixPath('adoption/index.html'))
+    assert 'Model-backed tools also incur model token charges' in localized
+    assert untranslated_english_narrative(localized) == []
+
+
 def test_report_bound_pricing_overrides_legacy_catalog(tmp_path):
     bound = {
         "checked_at": "2026-10-16",

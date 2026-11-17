@@ -6,7 +6,7 @@ from html import escape
 
 from harness.distribution import repository_root
 from harness.web_fetch.methods import native_browser_engine
-from harness.web_fetch.report_components import bilingual_text
+from harness.web_fetch.report_i18n import t
 
 SOURCE = repository_root() / 'research/provider-pricing.json'
 
@@ -63,15 +63,12 @@ def render_pricing(out, names, *, table, cell, link, esc):
     body = '<h3>获取 1,000 个网页，究竟付哪一种费用？</h3>'
     selected = [p for p in data['providers'] if p['id'] in names]
     if any(p.get('billing_mode') == 'model_tokens' for p in selected):
-        body += '<p>' + esc('比较按给定 URL 返回内容的调用路线。模型工具还会产生模型 token 费用，工具无附加费不代表免费调用。按次、按时长和按 token 的报价分别列示；不能直接当作同一种每千页单价。') + '</p>'
+        body += '<p>' + t('model_tool_pricing_boundary', 'Compare routes that return content for a supplied URL. Model-backed tools also incur model token charges; no tool surcharge does not mean free requests. Per-call, duration and token quotes are listed separately and cannot be treated as equivalent per-thousand-page rates.') + '</p>'
     else:
         body += '<p>按给定 URL 获取正文比较，不包含搜索、研究 Agent 或聊天模型。按页产品可以换算为每千页；浏览器时长产品必须带上耗时假设。套餐价、超额价与试用额度分开列示。</p>'
     dates = sorted({p.get('verified_at', data['checked_at']) for p in selected}) or [data['checked_at']]
     checked = ' / '.join(dates)
-    body += '<p class="source-note">' + bilingual_text(
-        f'官方公开价格核验：{checked}；币种 USD，未加地区税费。以下为报价换算，不是本轮账单；供应商定义的提取成功不等于评测任务通过。',
-        f'Official public prices checked: {checked}; USD, excluding regional taxes. These are quote conversions, not the bill for this run. Provider-defined extraction success does not establish benchmark task acceptance.',
-    ) + link('pricing.json', '下载价格与来源数据') + '</p>'
+    body += '<p class="source-note">' + t('public_prices_checked', 'Official public prices checked: {checked}; USD, excluding regional taxes. These are quote conversions, not the bill for this run. Provider-defined extraction success does not establish benchmark task acceptance.', checked=esc(checked)) + link('pricing.json', '下载价格与来源数据') + '</p>'
     rows = []
     for p in data['providers']:
         if p['id'] not in names:
@@ -88,10 +85,7 @@ def render_pricing(out, names, *, table, cell, link, esc):
         body += '<details class="interface-panel" id="pricing-' + esc(p['id']) + '"><summary>' + esc(p['label']) + ' · ' + esc(p['headline']) + '</summary>'
         body += '<p>' + esc(p['scope']) + '</p>'
         if p.get('verified_at'):
-            body += '<p class="source-note">' + bilingual_text(
-                '本条官方资料核验：' + p['verified_at'] + '。',
-                'Official sources for this entry verified: ' + p['verified_at'] + '.',
-            ) + '</p>'
+            body += '<p class="source-note">' + t('price_entry_verified', 'Official sources for this entry verified: {date}.', date=esc(p['verified_at'])) + '</p>'
         body += '<p class="source-note">' + sources(p) + '</p>'
         if p.get('plans'):
             plans = []
