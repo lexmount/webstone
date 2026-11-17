@@ -56,6 +56,8 @@ def repair_cases(cases, revision, *, reuse_calls=False):
 
             canonical_url(source['url'])
         indexed[cid] = item
+    if set(indexed) - {case['id'] for case in cases}:
+        raise ValueError('Repair ID is absent from the task population')
     repaired = deepcopy(cases)
     for case in repaired:
         item = indexed.get(case['id'])

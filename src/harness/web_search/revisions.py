@@ -1,6 +1,7 @@
 """Re-evaluate saved evidence with explicit external correction authority."""
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 
@@ -626,21 +627,66 @@ def validate_revision_controls(revision, normalizer=None):
     normalization_regressions(revision.get("regressions_sha256"), normalizer)
 
 
-def apply_reference_dataset(cases, selected, *, regression_ids=None):
+def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=None, captured_contracts=None):
     """Apply only validated reference extensions from a locked dataset revision."""
     from harness.benchmarks.data import binding, definition_path, safe_path
     from lexbench_websearch.contracts import validate_cases
 
-    if (not isinstance(selected, dict) or set(selected) != {'track', 'revision', 'path', 'sha256'}
+    if (not isinstance(selected, dict) or set(selected) not in ({'track', 'revision', 'path', 'sha256'}, {'track', 'revision', 'path', 'sha256', 'proposal'})
             or selected['track'] != 'simpleqa-verified'
             or selected['path'] != 'datasets/factual-v1.json'):
         raise ValueError('Reference extensions require the canonical SimpleQA dataset binding')
-    source = binding(selected['track'], selected['revision'])
+    proposal = selected.get('proposal')
+    if 'proposal' in selected and not proposal:
+        raise ValueError('Invalid pending dataset proposal')
+    if proposal:
+        import io
+        import tarfile
+
+        if (set(proposal) != {'repository', 'pull_request', 'manifest', 'archive'}
+                or proposal['repository'] != 'Lexmount/LexBench-SimpleQA-Verified'
+                or type(proposal['pull_request']) is not int or proposal['pull_request'] < 1
+                or not re.fullmatch('[0-9a-f]{40}', selected['revision'])):
+            raise ValueError('Invalid pending dataset proposal')
+        def retained(item):
+            path = item.get('path', '')
+            if (not path or Path(path).is_absolute() or '..' in Path(path).parts
+                    or not artifacts or path not in artifacts or digest(artifacts[path]) != item['sha256']):
+                raise ValueError('Missing or changed pending dataset artifact')
+            return artifacts[path]
+        manifest = json.loads(retained(proposal['manifest']))
+        archive = retained(proposal['archive'])
+        if (manifest.get('track') != selected['track']
+                or manifest.get('archive', {}).get('sha256') != digest(archive)
+                or manifest['archive'].get('size') != len(archive)):
+            raise ValueError('Pending dataset archive differs from its manifest')
+        source = dict(repository=proposal['repository'], files=manifest['files'])
+        definition_files = {}
+        with tarfile.open(fileobj=io.BytesIO(archive), mode='r:gz') as bundle:
+            for member in bundle:
+                expected = source['files'].get(member.name)
+                if (not member.isfile() or member.name in definition_files or expected is None
+                        or member.size != expected['size']
+                        or not (member.name.startswith('definitions/') or member.name in
+                                {'LICENSE', 'NOTICE', 'THIRD_PARTY.md', 'THIRD_PARTY_NOTICES.md',
+                                 'LICENSE-annotations', 'VERSIONING.md'})
+                        or '..' in Path(member.name).parts):
+                    raise ValueError('Invalid pending dataset archive member')
+                content = bundle.extractfile(member).read()
+                if digest(content) != expected['sha256']:
+                    raise ValueError('Pending dataset member hash mismatch')
+                definition_files[member.name] = content
+        if {name for name in definition_files if name.startswith('definitions/')} != {name for name in source['files'] if name.startswith('definitions/')}:
+            raise ValueError('Pending dataset archive is incomplete')
+        dataset_path = None
+        raw = definition_files['definitions/' + selected['path']]
+    else:
+        source = binding(selected['track'], selected['revision'])
+        dataset_path = definition_path(selected['track'], selected['path'], selected['revision'])
+        raw = dataset_path.read_bytes()
     descriptor = source['files']['definitions/' + selected['path']]
-    if selected['sha256'] != descriptor['sha256']:
-        raise ValueError('Reference dataset hash differs from the locked snapshot')
-    dataset_path = definition_path(selected['track'], selected['path'], selected['revision'])
-    raw = dataset_path.read_bytes()
+    if selected['sha256'] != descriptor['sha256'] or digest(raw) != selected['sha256']:
+        raise ValueError('Reference dataset hash differs from the selected snapshot')
     dataset = json.loads(raw)
     validate_cases(dataset['cases'])
     from lexbench_websearch.simpleqa import repair_cases, validate_reference_evidence
@@ -663,7 +709,8 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
                     and {key: case.get(key) for key in item['after']} != item['after']):
                 raise ValueError('Source correction requires fresh provider calls: ' + case['id'])
             actual = {key: case.get(key) for key in item['after']}
-            if actual not in (item['before'], item['after']):
+            recorded = (captured_contracts or {}).get(case['id'])
+            if actual not in (item['before'], item['after']) and actual != recorded:
                 raise ValueError('Saved task differs from the approved repair contracts: ' + case['id'])
             # Calls bind queries; approved definitions own their scoring metadata.
             case.update(deepcopy(item['after']))
@@ -690,12 +737,16 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None):
         expected = source['files'].get('definitions/' + path)
         if expected is None:
             raise ValueError('Reference capture is outside the locked snapshot')
-        raw = safe_path(dataset_path.parent.parent, path).read_bytes()
+        raw = (definition_files['definitions/' + path] if proposal
+               else safe_path(dataset_path.parent.parent, path).read_bytes())
         if len(raw) != expected['size'] or digest(raw) != expected['sha256']:
             raise ValueError('Reference capture differs from the locked snapshot')
         return raw
 
     validate_reference_evidence(dataset, captured)
+    if repairs and proposal:
+        from lexbench_websearch.simpleqa import validate_repair_evidence
+        validate_repair_evidence(dataset, captured)
     if repairs:
         for cid, case in cases.items():
             case.clear()
@@ -763,7 +814,8 @@ def apply_report_revision(profile, rows, revision, *, artifacts=None, normalizer
         if not {'generic-document-urls', 'reference-mirror-title-and-lead'}.issubset(revision['regression_ids']):
             raise ValueError('Reference dataset revision requires URL and mirror regression controls')
         resolved = apply_reference_dataset(cases, revision['reference_dataset'],
-                                           regression_ids=revision['regression_ids'])
+                                           regression_ids=revision['regression_ids'], artifacts=artifacts,
+                                           captured_contracts=revision.get('captured_task_contracts'))
         if resolved:
             revised['factual_quality_exclusions'] = [
                 cid for cid in revised.get('factual_quality_exclusions', []) if cid not in resolved]

@@ -581,3 +581,14 @@ errors; successful calls with no usable output have their own Empty outputs colu
 P50 latency, price and request failures; remaining metrics stay in the same sortable
 table under All metrics. Rejected reference candidates belong in the dataset audit,
 not among unfinished scores in the leaderboard.
+
+### Reports for pending dataset revisions
+
+A report may bind an immutable HF proposal before a maintainer activates its main
+commit. Its `assessment_revision.reference_dataset.proposal` names the repository,
+PR number, and hash-bound manifest and definitions archive. Retain both as declared
+report assets. The shared reference reader verifies every archived definition and
+repair excerpt before scoring; the report check repeats this offline. Every HTML
+page identifies the pending dataset state. This mode does not change `data-lock.json`
+or present the proposal as an approved dataset release. After approval, rebuild with
+the ordinary locked main binding.

@@ -206,12 +206,21 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
             contaminated['cases'][0][field] = value
             with pytest.raises(ValueError, match='approved repair contracts'):
                 apply_report_revision(contaminated, rows, revision)
+        intermediate = deepcopy(profile)
+        intermediate['cases'][0]['reference_answer'] = 'Earlier frozen draft answer'
+        captured = {k: intermediate['cases'][0].get(k) for k in recipe['repairs'][0]['after']}
+        explicit = dict(revision, captured_task_contracts={case['id']: captured})
+        approved, _, _ = apply_report_revision(intermediate, rows, explicit)
+        assert approved['cases'][0]['reference_answer'] == corrected['reference_answer']
+        intermediate['cases'][0]['reference_answer'] = 'Another unrecorded answer'
+        with pytest.raises(ValueError, match='approved repair contracts'):
+            apply_report_revision(intermediate, rows, explicit)
     profile['cases'][0]['query'] = 'A query from an unrelated task'
     with pytest.raises(ValueError, match='new provider call'):
         apply_report_revision(profile, rows, revision)
 
 
-@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt'])
+@pytest.mark.parametrize('defect', [None, 'missing', 'corrupt', 'unknown-id'])
 def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inputs(defect):
     from lexbench_websearch import simpleqa
 
@@ -236,6 +245,11 @@ def test_rebuild_replays_repairs_from_the_pinned_csv_and_retained_reference_inpu
     artifacts = {'repair-evidence/q.json': excerpt}
     expected = simpleqa.extend_reference_urls(dict(original,
         cases=simpleqa.repair_cases(original['cases'], recipe), case_repairs=recipe), [])
+    if defect == 'unknown-id':
+        expected['case_repairs']['repairs'][0]['case_id'] = 'sqv-absent'
+        with pytest.raises(ValueError, match='absent from the task population'):
+            simpleqa.rebuild_dataset(raw, manifest=manifest, reference_dataset=expected, artifacts=artifacts)
+        return
     if defect:
         artifacts = {} if defect == 'missing' else {'repair-evidence/q.json': b'corrupt'}
         with pytest.raises(ValueError, match='repair evidence artifact|Repair evidence artifact'):
