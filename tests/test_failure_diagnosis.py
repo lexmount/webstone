@@ -220,6 +220,9 @@ class FailureDiagnosisTests(unittest.TestCase):
   self.assertNotEqual(diagnose(self.record(ok=True,metrics=metrics),case,raw)['category'],'返回拦截或验证页')
  def test_login_loading_metadata_and_media_fallback_are_distinct(self):
   examples=[('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
+   ('Please enable JavaScript','仅返回加载或 JavaScript 提示'),
+   ('Enable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('You need to enable JavaScript','仅返回加载或 JavaScript 提示'),
    ('Please wait...','仅返回加载或 JavaScript 提示'),
    ('# JS Rendering\nEnable JavaScript to see products','仅返回加载或 JavaScript 提示'),
    ('Javascript must be enabled to view our earthquake maps.','仅返回加载或 JavaScript 提示'),

@@ -102,7 +102,7 @@ def _returned_page_failure(raw, case, metrics):
         r'Chargement des statistiques[.…]*)\s*', full_visible)
     notice_lines = ([line.strip() for line in full_visible.split('\n') if line.strip()]
                     if len(full_visible) <= 1000 else [])
-    if notice_lines and re.fullmatch(r'[A-Za-z][A-Za-z \t]{0,50}', notice_lines[0]):
+    if len(notice_lines) > 1 and re.fullmatch(r'[A-Za-z][A-Za-z \t]{0,50}', notice_lines[0]):
         notice_lines = notice_lines[1:]
     while notice_lines and re.match(r'^#{1,6}[ \t]+', notice_lines[0]):
         notice_lines = notice_lines[1:]
