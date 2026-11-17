@@ -290,3 +290,5 @@ webstone results status 123 --verify-published
 ```
 
 Submissions create result-only PRs from personal forks. CI validates the format and immutable history; maintainers review evidence before merging. A merge is distinct from a completed deployment. See the [CLI/SDK and PyPI guide](docs/result-submissions.md) for authentication, version-conflict rebasing, public-data requirements and release setup. These commands are available from source until a PyPI release containing them is published; no software version or tag is changed by this feature.
+
+Result submissions use independently versioned `vMAJOR.MINOR.PATCH` editions with reviewed UTC publication dates; see [the result submission guide](docs/result-submissions.md#result-versions-and-dates). These do not bump the Python package version.

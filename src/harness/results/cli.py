@@ -58,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     template.add_argument("--benchmark", required=True)
     template.add_argument("--definition")
+    template.add_argument("--kind", choices=["protocol", "results", "metadata"], default="results")
     template.add_argument("--output", type=Path, required=True)
     for name, help_text in [
         ("validate", "Run local preflight; repository CI provides authoritative validation"),
@@ -96,7 +97,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         client = ResultsClient(repository=args.repo, website=args.website)
         if args.command == "template":
-            result = client.template(args.benchmark, args.definition)
+            result = client.template(args.benchmark, args.definition, kind=args.kind)
             with args.output.open("x", encoding="utf-8") as stream:
                 stream.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
             result = {

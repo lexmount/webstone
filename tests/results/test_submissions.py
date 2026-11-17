@@ -26,6 +26,7 @@ CATALOG = {
     ],
 }
 REPORT = {
+    "release": {"kind": "results", "summary": "Publish synthetic evaluation results."},
     "datasetDifference": "Synthetic fixture with two cases; no measured provider calls.",
     "source": {"kind": "report-page", "url": "https://example.com/evidence"},
     "benchmarks": [
@@ -91,7 +92,7 @@ class FakeGitHub:
         self.calls = []
         self.private = False
         self.catalog = copy.deepcopy(CATALOG)
-        self.versions = [1]
+        self.versions = ["v1"]
         self.refs = {}
         self.prs = []
         self.base = "a" * 40
@@ -145,8 +146,8 @@ class FakeGitHub:
         if method == "GET" and suffix == "contents/results/fixture-results":
             versions = self.versions
             if prefix == fork and self.saved_report:
-                versions = [int(self.saved_report["version"][1:])]
-            return [{"name": f"fixture-results-v{version}-report.json"} for version in versions]
+                versions = [self.saved_report["version"]]
+            return [{"name": f"fixture-results-{version}-report.json"} for version in versions]
         if method == "GET" and suffix.startswith("compare/"):
             changes = [
                 {
@@ -161,6 +162,11 @@ class FakeGitHub:
         if method == "GET" and suffix.startswith("contents/results/fixture-results/"):
             return encoded(self.saved_report)
         if method == "GET" and suffix == "pulls":
+            if query.get("head"):
+                return [
+                    pr for pr in self.prs
+                    if query["head"] == ["fixture-user:" + pr["head"]["ref"]]
+                ]
             return self.prs
         if method == "POST" and suffix == "git/trees":
             self.saved_report = json.loads(body["tree"][0]["content"])
@@ -201,7 +207,7 @@ class FakeGitHub:
         if method == "GET" and suffix == "pulls/7/files":
             return [
                 {
-                    "filename": "results/fixture-results/fixture-results-v2-report.json",
+                    "filename": "results/fixture-results/fixture-results-v1.1.0-report.json",
                     "status": "added",
                 }
             ]
@@ -222,9 +228,9 @@ def test_submit_uses_personal_fork_and_never_mutates_input_or_upstream_main(setu
     api, client = setup_client
     source = copy.deepcopy(REPORT)
     result = client.submit(source)
-    assert result["version"] == "v2"
+    assert result["version"] == "v1.1.0"
     assert source == REPORT
-    assert api.saved_report["id"] == "fixture-results-v2"
+    assert api.saved_report["id"] == "fixture-results-v1.1.0"
     assert api.saved_report["benchmarks"] == REPORT["benchmarks"]
     assert all(
         path.startswith(f"/repos/{api.fork}/") or path == f"/repos/{api.repository}/pulls"
@@ -237,7 +243,7 @@ def test_submit_uses_personal_fork_and_never_mutates_input_or_upstream_main(setu
 def test_dry_run_and_duplicate_submission_do_not_create_extra_prs(setup_client):
     api, client = setup_client
     preview = client.submit(REPORT, dry_run=True)
-    assert preview["files"] == ["results/fixture-results/fixture-results-v2-report.json"]
+    assert preview["files"] == ["results/fixture-results/fixture-results-v1.1.0-report.json"]
     assert all(method == "GET" for method, _, _ in api.calls)
     first = client.submit(REPORT)
     writes = sum(method != "GET" for method, _, _ in api.calls)
@@ -260,10 +266,10 @@ def test_retry_after_pr_creation_failure_reuses_the_existing_data_branch(setup_c
     api.fork_exists, api.fail_pr_once = False, True
     with pytest.raises(GitHubError):
         client.submit(REPORT)
-    api.versions, api.base = [1, 2], "e" * 40
+    api.versions, api.base = ["v1", "v1.1.0"], "e" * 40
     result = client.submit(REPORT)
     assert result["number"] == 7
-    assert result["version"] == "v2"
+    assert result["version"] == "v1.1.0"
     assert (
         sum(method == "POST" and path.endswith("/git/commits") for method, path, _ in api.calls)
         == 1
@@ -363,9 +369,9 @@ def test_new_provider_url_and_version_collision_rebase_preserve_measured_values(
     source["benchmarks"][0]["providers"][0]["id"] = "new-fixture"
     client.submit(source, {"new-fixture": "https://example.com/new-fixture"})
     api.catalog["providerUrls"]["new-fixture"] = "https://example.com/new-fixture"
-    api.versions, api.base = [1, 2], "e" * 40
+    api.versions, api.base = ["v1", "v1.1.0"], "e" * 40
     result = client.rebase(7)
-    assert result["version"] == "v3"
+    assert result["version"] == "v1.2.0"
     assert api.saved_report["benchmarks"] == source["benchmarks"]
     commits = [
         body
@@ -532,7 +538,7 @@ def test_cli_uses_shared_client_and_does_not_overwrite_templates(
 def test_repository_identity_is_case_insensitive_for_submission_and_rebase(setup_client):
     api, _ = setup_client
     client = ResultsClient(api, "Fixture-Owner/Fixture-Site", website="https://example.com")
-    assert client.submit(REPORT)["version"] == "v2"
-    api.versions = [1, 2]
-    assert client.rebase(7)["version"] == "v3"
+    assert client.submit(REPORT)["version"] == "v1.1.0"
+    api.versions = ["v1", "v1.1.0"]
+    assert client.rebase(7)["version"] == "v1.2.0"
     assert ResultsClient(api, "Lexmount/Webstone-Site").website == "https://webstone.dev.lexmount.net"
