@@ -22,7 +22,7 @@ def test_discovery_reads_selected_pins_without_fetching(monkeypatch, capsys, tmp
         "Web Fetch", "Web Search", "Web Extract", "Browser Trajectory Replay", "Browser Use"}
     from importlib.resources import files
 
-    lock = json.loads((files("harness.benchmarks") / "data-lock.json").read_text())
+    lock = json.loads((files("harness.benchmarks") / "data-lock.json").read_text(encoding="utf-8"))
     for name, binding in output["datasets"].items():
         assert binding["revision"] == lock["datasets"][name]["revision"]
     assert json.loads(invoke(["datasets", "list"], monkeypatch, capsys)) == output["datasets"]
@@ -32,17 +32,17 @@ def test_discovery_reads_selected_pins_without_fetching(monkeypatch, capsys, tmp
 def test_bundled_skill_install_is_offline_and_never_overwrites(tmp_path):
     skill = install_skill(tmp_path / "agent-skills")
     assert skill.name == "SKILL.md"
-    assert "name: webstone" in skill.read_text()
-    skill.write_text("user-maintained instructions")
+    assert "name: webstone" in skill.read_text(encoding="utf-8")
+    skill.write_text("user-maintained instructions", encoding="utf-8")
     with pytest.raises(FileExistsError):
         install_skill(tmp_path / "agent-skills")
-    assert skill.read_text() == "user-maintained instructions"
+    assert skill.read_text(encoding="utf-8") == "user-maintained instructions"
     other = tmp_path / "other"
     other.mkdir()
     (other / "webstone").symlink_to(skill.parent, target_is_directory=True)
     with pytest.raises(FileExistsError):
         install_skill(other)
-    assert skill.read_text() == "user-maintained instructions"
+    assert skill.read_text(encoding="utf-8") == "user-maintained instructions"
 
 
 def test_cli_installs_the_same_skill_as_the_library(tmp_path, monkeypatch, capsys):

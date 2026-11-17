@@ -61,7 +61,7 @@ def test_release_requires_matching_metadata_and_exact_tag(tmp_path, monkeypatch)
 def test_tag_publishing_keeps_exact_main_ci_and_protected_oidc_boundary():
     import yaml
 
-    workflow = yaml.load((ROOT / '.github/workflows/publish-pypi.yml').read_text(),
+    workflow = yaml.load((ROOT / '.github/workflows/publish-pypi.yml').read_text(encoding="utf-8"),
                          Loader=yaml.BaseLoader)
     assert workflow['on'] == {'push': {'tags': ['v*']}}
     assert workflow['permissions'] == {'contents': 'read'}

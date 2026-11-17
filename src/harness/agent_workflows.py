@@ -29,7 +29,7 @@ def dataset_inventory() -> dict:
     from importlib.resources import files
 
     # Read the package's authoritative lock without downloading datasets or changing caches.
-    lock = json.loads((files("harness.benchmarks") / "data-lock.json").read_text())
+    lock = json.loads((files("harness.benchmarks") / "data-lock.json").read_text(encoding="utf-8"))
     return {name: {key: item[key] for key in ("repository", "revision", "datasets") if key in item}
             for name, item in lock["datasets"].items()}
 
@@ -98,7 +98,7 @@ def datasets_main() -> None:
             parser.error("unrecognized arguments: " + " ".join(remaining))
         print(json.dumps(dataset_inventory(), indent=2))
         return
-    has_root = any(value == "--root" or value.startswith("--root=") for value in remaining)
+    has_root = any(value.partition("=")[0] == "--root" for value in remaining)
     wants_help = bool({"-h", "--help"}.intersection(remaining))
     if args.command == "pin" and not has_root and not wants_help:
         parser.error("pin requires an explicit --root Webstone source checkout")
