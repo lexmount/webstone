@@ -561,7 +561,7 @@ def test_proposals_respect_released_main_and_pending_versions(
             (f'refs/pr/{i}', v) for i, v in enumerate(pending, 1)]]:
         if version is not None:
             path = tmp_path / (revision.replace('/', '-') + '.json')
-            path.write_text(json.dumps({'edition': {'version': version, 'tag': 'v' + version}}))
+            path.write_text(json.dumps({'edition': {'version': version, 'tag': 'v' + version}}), encoding='utf-8')
             manifests[revision] = path
 
     def download(repo_id, filename, *, repo_type, revision, token, endpoint):
