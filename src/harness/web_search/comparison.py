@@ -380,37 +380,37 @@ def metric_definitions(panel, level, labels, zh=False):
     """Compact, folded definitions for the metrics beside each benchmark table."""
     t = partial(report_text, zh=zh)
     definitions = {
-        'ndcg': ('mean(DCG@5 / IDCG@5) × 100', 'Ranking quality. Grades 0–3 have gains 0, 1, 3 and 7; earlier ranks receive more weight. The ideal top five comes from the pooled, deduplicated candidates.'),
-        'precision': ('mean(useful slots / 5)', 'Useful-result fraction in five slots. Grades 2 and 3 count; missing slots and repeated documents count as zero.'),
-        'success': ('queries with grade 3 / all queries', 'Query fraction with at least one grade-3 result in the first five.'),
-        'source_rr': ('mean(1 / first matched rank)', 'First verified-source rank: first gives 1, second 0.5, fifth 0.2; a miss gives 0. Average over all queries.'),
-        'source_hit': ('matched queries / all queries', 'Query fraction with a verified reference page in the first five. URL equivalents and verified document copies count.'),
-        'answer_match': ('matched queries / all queries', 'Reference-answer text appears in a title or primary preview among the first five results. Explicit aliases and numeric ranges are accepted; this is not answer correctness.' if level == 'l1' else 'Reference-answer text appears in an additional excerpt among the first five. Titles and primary previews are excluded; this is not answer correctness.'),
-        'answer_grade': ('mean(grade), 0–3', 'Generated-answer usefulness is graded 0–3, then averaged over all scenario queries.'),
-        'correct': ('correct / all queries', 'Official SimpleQA grading: correct answers divided by every factual query. Incorrect, missing and not-attempted answers do not count as correct.'),
+        'ndcg': (t('mean(DCG@5 / IDCG@5) × 100'), t('Ranking quality. Grades 0–3 have gains 0, 1, 3 and 7; earlier ranks receive more weight. The ideal top five comes from the pooled, deduplicated candidates.')),
+        'precision': (t('mean(useful slots / 5)'), t('Useful-result fraction in five slots. Grades 2 and 3 count; missing slots and repeated documents count as zero.')),
+        'success': (t('queries with grade 3 / all queries'), t('Query fraction with at least one grade-3 result in the first five.')),
+        'source_rr': (t('mean(1 / first matched rank)'), t('First verified-source rank: first gives 1, second 0.5, fifth 0.2; a miss gives 0. Average over all queries.')),
+        'source_hit': (t('matched queries / all queries'), t('Query fraction with a verified reference page in the first five. URL equivalents and verified document copies count.')),
+        'answer_match': (t('matched queries / all queries'), t('Reference-answer text appears in a title or primary preview among the first five results. Explicit aliases and numeric ranges are accepted; this is not answer correctness.') if level == 'l1' else t('Reference-answer text appears in an additional excerpt among the first five. Titles and primary previews are excluded; this is not answer correctness.')),
+        'answer_grade': (t('mean(grade), 0–3'), t('Generated-answer usefulness is graded 0–3, then averaged over all scenario queries.')),
+        'correct': (t('correct / all queries'), t('Official SimpleQA grading: correct answers divided by every factual query. Incorrect, missing and not-attempted answers do not count as correct.')),
     }
-    definitions['publisher_rr'] = (definitions['source_rr'][0], 'Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.')
-    definitions['publisher_hit'] = (definitions['source_hit'][0], 'Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.')
+    definitions['publisher_rr'] = (definitions['source_rr'][0], t('Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.'))
+    definitions['publisher_hit'] = (definitions['source_hit'][0], t('Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.'))
     body = '<details class="metric-guide" data-metric-definitions><summary>' + t('Metric definitions') + '</summary>'
     body += '<p class="metric-caption">' + t('Calculations use every query, including failures and empty outputs. Higher quality values are better.') + '</p><div class="metric-definition-grid">'
     for metric in panel['metrics']:
         key = metric['key']
         formula, explanation = definitions[key]
         primary = key == panel['primary_metric']
-        body += '<article data-metric-definition="' + key + '"' + (' data-primary-definition="' + key + '"' if primary else '') + '><h4>' + esc(labels[key]) + (' <span class="metric-primary">' + t('Primary metric') + '</span>' if primary else '') + '</h4><code>' + esc(t(formula)) + '</code><p>' + t(explanation) + '</p></article>'
+        body += '<article data-metric-definition="' + key + '"' + (' data-primary-definition="' + key + '"' if primary else '') + '><h4>' + esc(labels[key]) + (' <span class="metric-primary">' + t('Primary metric') + '</span>' if primary else '') + '</h4><code>' + esc(formula) + '</code><p>' + explanation + '</p></article>'
     body += '</div>'
     if any(metric['key'] == 'ndcg' for metric in panel['metrics']):
         body += '<p class="metric-caption">' + t('Relevance grades') + ': ' + t('0 unrelated · 1 topical · 2 useful · 3 directly satisfies') + '</p>'
     body += '<details class="measurement-definitions" data-measurement-definitions><summary>' + t('Citation and delivery metrics') + '</summary><dl>'
     pairs = [
-        ('Failed requests / empty outputs', 'Transport, API or invalid-response failures / all calls. Successful calls with no usable output are counted separately.'),
-        ('Mean / P50 / P95 latency', 'Milliseconds per declared logical call, including failed calls. P50 is the median; 95% of calls finish within P95. Collection windows accompany the measurements.'),
-        ('Price / text length', 'USD per 1,000 calls at the stated billing unit. Text length is the average delivered characters per query and has no better direction.'),
+        (t('Failed requests / empty outputs'), t('Transport, API or invalid-response failures / all calls. Successful calls with no usable output are counted separately.')),
+        (t('Mean / P50 / P95 latency'), t('Milliseconds per declared logical call, including failed calls. P50 is the median; 95% of calls finish within P95. Collection windows accompany the measurements.')),
+        (t('Price / text length'), t('USD per 1,000 calls at the stated billing unit. Text length is the average delivered characters per query and has no better direction.')),
     ]
     if level == 'l3':
-        pairs.insert(0, ('Citation support / cited URLs in results', 'Supported cited claims / all citations; citations linked to returned source URLs / all citations. No citations means unavailable.'))
+        pairs.insert(0, (t('Citation support / cited URLs in results'), t('Supported cited claims / all citations; citations linked to returned source URLs / all citations. No citations means unavailable.')))
     for name, description in pairs:
-        body += '<dt>' + t(name) + '</dt><dd>' + t(description) + '</dd>'
+        body += '<dt>' + name + '</dt><dd>' + description + '</dd>'
     return body + '</dl></details></details>'
 
 
