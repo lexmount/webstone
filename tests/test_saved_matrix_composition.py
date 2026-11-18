@@ -149,7 +149,7 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
         home += table('ranking-overall', [90, 80, *values, 10, 20, 30]) + '</section>'
         for family in families:
             home += table('ranking-' + family, [1])
-        home += '<div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></body></html>'
+        home += '<section id="method-overview-section"><p>Old billing disclaimer</p><div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></section></body></html>'
         (root / 'index.html').write_text(home, encoding='utf-8')
         (root / 'providers').mkdir()
         (root / 'providers' / (name + '.html')).write_text('<html>Saved provider evidence</html>', encoding='utf-8')
@@ -219,6 +219,7 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     refresh_published_extension(output, spec_path=ranked_spec)
     ranked_home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     assert not ranked_home.select('[data-composition-scope]')
+    assert 'Old billing disclaimer' not in ranked_home.get_text()
     assert ranked_home.select_one('#ranking-overall th').get_text() == '排名'
     assert ranked_home.select_one('#ranking-overall .metric-best')
     assert all(r.find('td').get_text() == '1' for r in ranked_home.select('#ranking-overall tbody tr'))

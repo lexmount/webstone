@@ -188,6 +188,9 @@ def _unified_home(page, base_model, added_model):
     providers = base_model['providers'] + added_model['providers']
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
+    method_section = page.find(id='method-overview-section')
+    if method_section and method_section.find('p'):
+        method_section.find('p').string = '价格单位：美元。'
     page.select_one('#overall-ranking h2').string = '任务通过率排名'
     for table in page.select('table[id^="ranking-"]'):
         width = len(table.tbody.tr.find_all('td', recursive=False))
