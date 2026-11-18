@@ -181,7 +181,9 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
     base = snapshot('base', families, [11, 22])
     addition = snapshot('extra', list(reversed(families)), [33, 44])
     overview = write(tmp_path / 'methods.json', [{'id': 'extra', 'label': 'Extra',
-        'execution': 'Remote API', 'configuration': '30 seconds', 'price': 'Unknown',
+        'execution': 'Remote API', 'configuration': '30 seconds',
+        'configurations': [{'category': 'All task families', 'parameters': [
+            {'label': 'Target URL', 'name': 'url', 'value': '<target-url>'}]}], 'price': 'Unknown',
         'billing': 'Undisclosed', 'sources': [{'url': 'https://example.com/prices', 'label': 'Official'}]}])
     spec = write(tmp_path / 'extension.json', {'published_base': base, 'additional_report': addition,
         'method_overview': overview, 'comparison_note': 'Different scoring editions; retained scores.'})
@@ -197,6 +199,7 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
     assert row.a['href'] == 'additional/providers/extra.html'
     assert not home.select('#ranking-overall .good, #ranking-overall strong')
     assert home.select_one('[data-added-method="extra"]')
+    assert home.select_one('[data-added-method="extra"] .method-parameters code').get_text() == 'url="<target-url>"'
     from harness.reporting.packs import write_compact_packs
     from harness.web_fetch.report_package import extend_published_content, _save_wire_manifest, _write_archive, check_extension_archive
     packed = tmp_path / 'baseline-package'
@@ -333,6 +336,7 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path):
     rendered = _shared_presentations(output)
     overall = BeautifulSoup(rendered['overall'], 'html.parser')
     assert len(overall.select('#ranking-overall tbody tr')) == 2
+    assert all(cell.select_one('strong.comparison-winner.good') for row in overall.select('#ranking-overall tbody tr') for cell in row.find_all('td')[-3:])
     assert [r.find('td').get_text() for r in overall.select('#ranking-overall tbody tr')] == ['1', '1']
     assert overall.select('.comparison-winner')
     timing = BeautifulSoup(rendered['timing'], 'html.parser')

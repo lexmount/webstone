@@ -2073,6 +2073,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
+ directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,directions)

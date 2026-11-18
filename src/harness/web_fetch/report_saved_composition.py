@@ -135,6 +135,14 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
     for method in overview:
         row = old.new_tag('tr', attrs={'data-added-method': method['id']})
         settings = '<p>' + escape(method['configuration']) + '</p>'
+        if method.get('configurations'):
+            settings = '<dl class="method-settings">' + ''.join(
+                '<div><dt>' + escape(group['category']) + '</dt><dd><ul class="method-parameters">'
+                + ''.join('<li><span>' + escape(parameter['label']) + '</span><code>'
+                    + escape(parameter['name'] + '=' + json.dumps(parameter['value'], ensure_ascii=False, separators=(',', ':')))
+                    + '</code></li>' for parameter in group['parameters'])
+                + '</ul>' + ('<p>' + escape(group['note']) + '</p>' if group.get('note') else '')
+                + '</dd></div>' for group in method['configurations']) + '</dl>'
         sources = ' · '.join('<a href="' + escape(s['url'], quote=True) + '">' + escape(s['label']) + '</a>' for s in method['sources'])
         fragment = BeautifulSoup('<td><a href="additional/providers/' + escape(method['id']) + '.html">' + escape(method['label']) + '</a><small class="method-execution">' + escape(method['execution']) + '</small></td><td>' + settings + '</td><td>' + escape(method['price']) + '<p>' + escape(method['billing']) + '</p>' + sources + '</td>', 'html.parser')
         for cell in list(fragment.contents):
