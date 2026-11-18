@@ -413,6 +413,43 @@ _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
                      'guide/index.html', 'accounts/index.html')
 
 
+def _review_source_sections(old, new, base_model, added_model):
+    # Review scopes and protocols belong to their source, including prose
+    # without a table. Keep complete sections instead of joining by schema.
+    used = {tag['id'] for tag in old.select('[id]')}
+    renamed = {}
+    for tag in new.select('[id]'):
+        original = tag['id']
+        identifier = 'additional-' + original
+        while identifier in used:
+            identifier = 'additional-' + identifier
+        used.add(identifier)
+        renamed[original] = tag['id'] = identifier
+    for tag in new.find_all(True):
+        if tag.get('href', '').startswith('#'):
+            tag['href'] = '#' + renamed.get(tag['href'][1:], tag['href'][1:])
+        for attribute in list(tag.attrs):
+            if attribute.startswith('on'):
+                tag[attribute] = re.sub(r'''(['"])([^'"]+)\1''',
+                    lambda m: m[1] + renamed.get(m[2], m[2]) + m[1], tag[attribute])
+            elif attribute in {'for', 'aria-controls', 'aria-labelledby', 'aria-describedby'}:
+                tag[attribute] = ' '.join(renamed.get(value, value) for value in tag[attribute].split())
+    for page, model in ((old, base_model), (new, added_model)):
+        labels = ', '.join(provider.get('label', provider['id']) for provider in model['providers'])
+        for section in page.select('main section'):
+            heading = section.find('h2')
+            if heading:
+                label = page.new_tag('span', attrs={'class': 'source-note'})
+                label.string = ' · ' + labels
+                heading.append(label)
+    container = old.find('main') or old.body
+    for child in list((new.find('main') or new.body).children):
+        if not isinstance(child, str) and (child.name == 'h1' or child.find('h1')):
+            continue
+        container.append(child)
+    return str(old)
+
+
 def _extension_page(base, addition, route, base_model, added_model, overview, note):
     """Merge public comparisons and method inventories, preserving source evidence."""
     from bs4 import BeautifulSoup
@@ -446,6 +483,8 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                 tag[attribute] += '?' + resolved.query
             if resolved.fragment:
                 tag[attribute] += '#' + resolved.fragment
+    if route == 'review/index.html':
+        return _review_source_sections(old, new, base_model, added_model)
     if route == 'adoption/index.html':
         interfaces = old.find(id='method-guide-interfaces')
         if interfaces:

@@ -987,3 +987,52 @@ def test_frozen_combined_scope_banner_translates_without_regeneration():
     english = localize_html(html, PurePosixPath('index.html'))
     assert _SAVED_MATRIX_SOURCES['coverage_banner_counts'].format(**counts) in english
     assert _SAVED_MATRIX_SOURCES['coverage_banner_note'] in english
+
+
+def test_extension_preserves_each_source_review_scope(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report import write_review_page
+    from harness.record_io import load_jsonl
+    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
+    _, entries = reports(tmp_path, families=True)
+    originals = []
+    for index, entry in enumerate(entries):
+        root = Path(entry['root'])
+        records = load_jsonl(root/'results.jsonl')
+        write(root/'score-revision.json', {'steps': [{'rule_revision': True, 'task_verdict_changes': []}]*2,
+                                          'changed_cases': []})
+        audit = {'reviewed_attempts': 1-index, 'expected_attempts': 1, 'total_attempts': 1,
+                 'unresolved': 0, 'review_protocol': {'scope': 'all', 'machine_judgments_withheld': not index},
+                 'attempts': [{'attempt_id': records[0]['attempt_id'], 'final_verdict': 'pass'}] if not index else [],
+                 'review_rounds': []}
+        write(root/'result-review.json', audit)
+        write_review_page(root, records)
+        originals.append((root/'review/index.html').read_bytes())
+    output, path = _real_extension(tmp_path, source_reports=entries, source_languages=('bilingual', 'bilingual'))
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    for language in ('', 'en/'):
+        page = BeautifulSoup((output/(language+'review/index.html')).read_text(encoding='utf-8'), 'html.parser')
+        scopes = [s for s in page.select('section') if s.get('id', '').endswith('current-result-review')]
+        assert len(scopes) == 2
+        assert 'method-0' in scopes[0].h2.get_text() and 'method-1' in scopes[1].h2.get_text()
+        assert '1/1' in scopes[0].get_text() and '0/1' in scopes[1].get_text()
+        assert ('../../' if language else '../')+'result-review.json' in [a['href'] for a in scopes[0].select('a')]
+        target = ('../../' if language else '../')+'additional/result-review.json'
+        assert target in [a['href'] for a in scopes[1].select('a')]
+        assert ('not an independent blind review' if language else '不是独立盲审') in scopes[1].get_text()
+        ids = [s['id'] for s in page.select('[id]')]
+        assert len(ids) == len(set(ids))
+        tables = page.select('table[id$="score-revision-steps"]')
+        assert len(tables) == 2
+        for table in tables:
+            assert len(table.select('tbody tr')) == 2
+            assert all("sortTable('"+table['id']+"'," in button['onclick']
+                       for button in table.select('thead button'))
+        if language:
+            assert all('Current status' in scope.h2.get_text() for scope in scopes)
+    assert check_published_extension(output)['valid']
+    assert (output/'extension-base-pages/review/index.html').read_bytes() == originals[0]
+    assert (output/'additional/review/index.html').read_bytes() == originals[1]

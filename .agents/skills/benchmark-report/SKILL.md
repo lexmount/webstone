@@ -81,6 +81,8 @@ look comparable.
 Keep generated language editions aligned on comparison populations and evidence
 links; retain each original language edition as a frozen source when rebuilding
 extended views through the maintained localization owner.
+Retain each source's review coverage and protocol with source labels, including
+paragraph-only disclosures; matching section titles do not establish shared review scope.
 
 ## Stop conditions
 
