@@ -15,7 +15,13 @@ RANKING_STICKY = """
 #ranking-overall tbody tr > :nth-child(-n+2) { background: var(--panel); }
 #ranking-overall tbody tr:hover > :nth-child(-n+2) { background: var(--panel2); }
 @media (max-width: 640px) {
-  #ranking-overall tr > :nth-child(2) { max-width: 8rem; overflow-wrap: anywhere; white-space: normal; }
+  #ranking-overall tr > :nth-child(2) {
+    width: 8rem;
+    min-width: 8rem;
+    max-width: 8rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
 }
 """
 

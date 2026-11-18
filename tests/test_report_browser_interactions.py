@@ -447,6 +447,8 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
             after = table.evaluate(coordinates)
             assert after[:2] == pytest.approx(start[:2], abs=1)
             assert after[2] < start[2] - 100
+            if display['viewport']['width'] < 640:
+                assert table.locator('tbody td:nth-child(2)').first.bounding_box()['width'] <= 129
         finally:
             page.close()
 
