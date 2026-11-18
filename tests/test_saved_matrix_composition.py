@@ -210,6 +210,65 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     refreshed_archive = tmp_path / 'refreshed.zip'
     _write_archive(refreshed, refreshed_archive)
     assert check_extension_archive(refreshed_archive, output, baseline=packed)['valid']
+    # Explicit unified presentation changes views, never saved verdicts or outputs.
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    ranked = json.loads(Path(spec['path']).read_bytes())
+    ranked['presentation'] = 'ranked'
+    ranked_spec = tmp_path / 'ranked.json'
+    ranked_spec.write_text(json.dumps(ranked), encoding='utf-8')
+    refresh_published_extension(output, spec_path=ranked_spec)
+    ranked_home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert not ranked_home.select('[data-composition-scope]')
+    assert ranked_home.select_one('#ranking-overall th').get_text() == '排名'
+    assert ranked_home.select_one('#ranking-overall .metric-best')
+    assert all(r.find('td').get_text() == '1' for r in ranked_home.select('#ranking-overall tbody tr'))
+    assert (output / 'answer.txt').read_text(encoding='utf-8') == 'unchanged answer: base'
+    assert check_published_extension(output)['valid']
     (output / 'additional/answer.txt').write_text('changed', encoding='utf-8')
     with pytest.raises(ValueError, match='bytes changed'):
         check_published_extension(output)
+
+
+def test_extension_rankings_ties_and_latency_use_all_methods():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _unified_home
+    page = BeautifulSoup('''<section id="overall-ranking"><h2>Saved</h2></section>
+        <section id="overall-matched-latency"><div class="wrap">old ten-method timing</div></section>''', 'html.parser')
+    def model(provider, times, passed):
+        return {'providers': [{'id': provider, 'label': provider}], 'report_families': [],
+                'rows': [{'provider': provider, 'url': 'https://example.com/' + str(i),
+                          'name': str(i), 'passed': i in passed, 'elapsed_ms': ms}
+                         for i, ms in enumerate(times)]}
+    _unified_home(page, model('deepseek-fetch-api', [10, 500], {0, 1}),
+                  model('kimi-fetch', [20, 900], {0}))
+    rows = page.select('#overall-matched-latency-table tbody tr')
+    assert len(rows) == 2
+    assert [r.find_all('td')[2]['data-sort'] for r in rows] == ['10', '20']
+    assert '1/2' in page.get_text()
+    assert rows[0].select_one('.metric-best')
+    assert len(page.select('.model-fetch-badge')) == 2
+    assert '模型 Fetch' in page.get_text()
+
+
+def test_extension_unifies_selectors_and_same_task_outcomes():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def page(provider, task):
+        return f'''<html><body><main><select id="compare-a"><option value="{provider}">{provider}</option></select>
+        <div class="method-checks"><label><input data-compare-method value="{provider}">{provider}</label></div>
+        <table><thead><tr><th>序号</th><th>任务</th><th>成功方法</th><th>失败方法</th></tr></thead>
+        <tbody id="compare-rows"><tr data-pass="{provider}" data-fail=""><td>1</td><td><a href="../datasets/{task}.html">Task</a></td><td><a href="../providers/{provider}.html">{provider}</a></td><td>—</td></tr></tbody></table>
+        <table id="filtered-table"><thead><tr><th>序号</th><th>方法</th></tr></thead><tbody><tr data-provider="{provider}"><td>1</td><td>{provider}</td></tr></tbody></table>
+        </main></body></html>'''
+    def model(provider, suite):
+        return {'providers': [{'id': provider}], 'rows': [{'provider': provider, 'suite': suite,
+            'case_id': 'one', 'url': 'https://example.com', 'name': 'Task'}]}
+    html = _extension_page(page('base', 'old--one'), page('kimi-fetch', 'new--one'),
+        'analysis/index.html', model('base', 'old'), model('kimi-fetch', 'new'), [], '')
+    h = BeautifulSoup(html, 'html.parser')
+    assert len(h.select('#compare-a option')) == 2
+    assert len(h.select('[data-compare-method]')) == 2
+    assert len(h.select('#compare-rows tr')) == 1
+    assert h.select_one('#compare-rows tr')['data-pass'] == 'base kimi-fetch'
+    assert h.select_one('#compare-rows a[href*="kimi-fetch"]')['href'] == '../additional/providers/kimi-fetch.html'
+    assert len(h.select('#filtered-table tbody tr')) == 2

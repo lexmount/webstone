@@ -1653,7 +1653,13 @@ saved report through the saved-matrix builder. The external specification binds
 `published_base` and `additional_report` roots and audit hashes, a `method_overview`
 path/hash binding, and a reader-facing `comparison_note`. This mode verifies equal
 task-name/URL populations, retains each source's recorded scores and contracts,
-and does not assign cross-edition ranks or winner highlights. It does not certify
+and defaults to no cross-edition ranks or winner highlights. An explicit
+`presentation: ranked` selects descriptive unified ranks and tied extrema over
+all displayed methods, without altering source scores. It also combines analysis
+controls and result rows, method inventories, review history and failure summaries;
+shared-pass latency is recalculated on the complete method intersection. Scoring
+provenance remains on the methodology page. Original pages are retained as
+hash-bound presentation sources. This does not certify
 a common scorer or a controlled collection window. The additional report's full
 result, review and evidence pages remain accessible beneath `additional/`.
 

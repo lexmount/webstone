@@ -68,8 +68,11 @@ For an explicitly requested full review, set `independent_result_review_scope: a
 
 When adding saved methods to an existing publication, inspect both frozen task
 contracts and scorer identities before combining ranks. Different editions retain
-their own saved values and evidence; disclose the difference and omit shared ranks
-and winner highlights. Use the existing saved-report composition owner and its
+their own saved values and evidence. Default to unranked presentation; when the user
+explicitly requests unified descriptive ranks, select the composition owner's
+ranked presentation, retain scoring provenance on the methodology page, and derive
+ranks and directional highlights from all displayed methods. Do not label stored
+numeric comparisons as common-scorer certification. Use the existing saved-report composition owner and its
 published-extension mode described in the Web Fetch guide. Bind source audits,
 method configurations, pricing sources and the exact publication baseline outside
 Git. Verify nested evidence loading and immutable data-pack reuse before updating
