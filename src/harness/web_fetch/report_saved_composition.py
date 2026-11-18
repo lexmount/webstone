@@ -160,7 +160,7 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
         cells = [row.find_all('td', recursive=False)[column] for row in rows]
         values = [number(cell) for cell in cells]
         best = direction(values)
-        for cell, value in zip(cells, values):
+        for cell, value in zip(cells, values, strict=True):
             if value == best:
                 from bs4 import BeautifulSoup
                 emphasis = BeautifulSoup('', 'html.parser').new_tag('strong')
@@ -232,7 +232,7 @@ def _unified_home(page, base_model, added_model):
         if table:
             _rank_extension_table(table, 2, minimize=[2, 3, 4], ascending=True)
     cards = page.select('#overview .card')
-    for card, family in zip(cards, base_model['report_families']):
+    for card, family in zip(cards, base_model['report_families'], strict=False):
         table = page.find('table', id='ranking-' + family['id'])
         if table:
             winners = [r for r in table.tbody.find_all('tr', recursive=False) if r.find('td').get_text() == '1']
@@ -291,12 +291,12 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                   for r in base_model['rows']}
     task_ids = {r['suite'] + '--' + r['case_id']: base_tasks[(r['url'], r.get('name', ''))]
                 for r in added_model['rows']}
-    def task_key(row):
+    def task_key(row, *, added=False):
         anchor = row.select_one('a[href*="datasets/"]')
         if not anchor:
             return None
         value = posixpath.basename(urlsplit(anchor['href']).path).removesuffix('.html')
-        return task_ids.get(value, value)
+        return task_ids.get(value, value) if added else value
     for identifier in ('compare-a',):
         target, source = old.find(id=identifier), new.find(id=identifier)
         if target and source:
@@ -321,13 +321,13 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     if target and source:
         by_task = {task_key(row): row for row in target.find_all('tr', recursive=False)}
         for row in source.find_all('tr', recursive=False):
-            key = task_key(row)
+            key = task_key(row, added=True)
             if key not in by_task:
                 raise ValueError('Added comparison has an unmatched task')
             dest = by_task[key]
             for attr in ('data-pass', 'data-fail'):
                 dest[attr] = ' '.join(filter(None, [dest.get(attr), row.get(attr)]))
-            for dest_cell, source_cell in zip(dest.find_all('td')[2:], row.find_all('td')[2:]):
+            for dest_cell, source_cell in zip(dest.find_all('td')[2:], row.find_all('td')[2:], strict=True):
                 incoming = source_cell.select('a')
                 if incoming:
                     if not dest_cell.select('a'):
@@ -374,7 +374,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
             for provider in added_model['providers']:
                 settings = [s for group in added_model.get('execution_settings', [])
                             if group['provider'] == provider['id'] for s in group['settings']]
-                def observed(key):
+                def observed(key, settings=settings):
                     values = sorted({str(s[key]) for s in settings if key in s})
                     return ' / '.join(values) if values else '未记录'
                 row = old.new_tag('tr')
@@ -393,11 +393,20 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
         paragraph.string = note
         details.append(paragraph)
         container.append(details)
-    for node in list(old.find_all(string=True)):
-        text = re.sub(r'\b10 种(已测)?方法', lambda m: '13 种' + (m[1] or '') + '方法', str(node))
-        text = text.replace(str(len(base_model['rows'])), str(len(base_model['rows']) + len(added_model['rows'])))
-        if text != str(node):
-            node.replace_with(text)
+    # Only the population summary owns these counts; never rewrite evidence,
+    # prices, dates, elapsed times or identifiers elsewhere in the document.
+    before_methods = len(base_model['providers'])
+    after_methods = before_methods + len(added_model['providers'])
+    before_results = len(base_model['rows'])
+    after_results = before_results + len(added_model['rows'])
+    for summary in old.select('.hero .lead'):
+        for node in list(summary.find_all(string=True)):
+            text = re.sub(r'\b' + str(before_methods) + r' 种(已测)?方法',
+                          lambda match: str(after_methods) + ' 种' + (match[1] or '') + '方法', str(node))
+            text = re.sub(r'(?<!\d)' + str(before_results) + r'(?= 个逻辑结果)',
+                          str(after_results), text)
+            if text != str(node):
+                node.replace_with(text)
     _model_fetch_badges(old)
     return str(old)
 
@@ -610,6 +619,11 @@ def refresh_published_extension(output, *, spec_path=None):
         atomic_write(output / route, content.encode())
         proof['files'][route] = _hash(output / route)
         proof['files']['extension-base-pages/' + route] = _hash(retained)
+    if not ranked:
+        for route in proof.get('presentation_pages', []):
+            retained = output/'extension-base-pages'/route
+            atomic_write(output/route, retained.read_bytes())
+            proof['files'][route] = _hash(output/route)
     proof['presentation_pages'] = list(pages)
     proof['presentation'] = 'ranked' if ranked else 'audit'
     proof['comparison_note'] = note

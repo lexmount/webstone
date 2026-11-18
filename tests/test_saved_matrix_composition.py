@@ -156,10 +156,18 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
         (root / 'logo.png').write_bytes(b'synthetic public image')
         (root / 'index.html').write_text(home, encoding='utf-8')
         (root / 'providers').mkdir()
-        (root / 'providers' / (name + '.html')).write_text('<html><pre data-file="answer.txt"></pre></html>', encoding='utf-8')
+        provider_html = '<html lang="en"><head><script defer src="../assets/report.js"></script></head><body><button data-call-log-open="evidence" onclick="openCallLog(this)">Evidence</button><dialog id="evidence" aria-label="Evidence"><button data-call-log-close onclick="closeCallLog(this)">Close</button><pre data-file="answer.txt"></pre></dialog></body></html>'
+        (root / 'providers' / (name + '.html')).write_text(provider_html, encoding='utf-8')
+        (root/'assets').mkdir()
+        (root/'assets/report.js').write_bytes((Path(__file__).resolve().parents[1]/'src/harness/web_fetch/assets/report.js').read_bytes())
+        (root/'analysis').mkdir()
+        analysis = f'<html><body><main><section id="scope-{name}"><h2>Source</h2><p>{name}</p></section>'
+        analysis += f'<select id="compare-a"><option value="{name}">{name}</option></select><div class="method-checks"><input data-compare-method value="{name}"></div>'
+        analysis += f'<table id="filtered-table"><thead><tr><th>No.</th><th>Method</th></tr></thead><tbody><tr data-provider="{name}"><td>1</td><td>{name}</td></tr></tbody></table></main></body></html>'
+        (root/'analysis/index.html').write_text(analysis, encoding='utf-8')
         (root / 'answer.txt').write_text('unchanged answer: ' + name, encoding='utf-8')
         model = {'providers': [{'id': name}], 'report_families': [{'id': f} for f in order],
-                 'rows': [{'provider': name, 'url': 'https://example.com/', 'passed': True}]}
+                 'rows': [{'provider': name, 'suite': 'suite', 'case_id': 'one', 'url': 'https://example.com/', 'passed': True}]}
         (root / 'matrix.json').write_text(json.dumps(model), encoding='utf-8')
         audit = {'files': {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                            for p in root.rglob('*') if p.is_file()}}
@@ -218,7 +226,7 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
     from harness.web_fetch.report_saved_composition import check_published_extension
     output, packed, content, _ = _published_extension(tmp_path, external=external, reviewed=reviewed)
-    assert (output/'additional/providers/extra.html').read_text(encoding='utf-8') == '<html><pre data-file="answer.txt"></pre></html>'
+    assert (output/'additional/providers/extra.html').read_bytes() == (tmp_path/'extra/providers/extra.html').read_bytes()
     from harness.reporting.packs import read_packed_file
     import zipfile
     with zipfile.ZipFile(tmp_path/'extension.zip') as bundle:
@@ -345,3 +353,53 @@ def test_extension_publication_checks_sensitive_appended_content_at_boundary(tmp
     _write_archive(malicious, archive)
     with pytest.raises(ValueError, match='Private content in extension'):
         check_extension_archive(archive, output, baseline=baseline)
+
+
+
+def test_extension_matches_reassigned_task_ids_by_each_sources_identity():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def model(provider, paths):
+        return {'providers': [{'id': provider}], 'rows': [
+            {'provider': provider, 'suite': 'suite', 'case_id': str(i),
+             'url': 'https://example.com/'+path, 'name': path} for i, path in enumerate(paths, 1)]}
+    def page(provider, labels):
+        rows = ''.join(f'<tr data-pass="{provider}-{label}" data-fail=""><td>{i}</td><td><a href="../datasets/suite--{i}.html">{label}</a></td><td></td><td></td></tr>'
+                       for i, label in enumerate(labels, 1))
+        return '<html><body><table><tbody id="compare-rows">'+rows+'</tbody></table></body></html>'
+    result = BeautifulSoup(_extension_page(page('base', ['A', 'B']), page('added', ['B', 'A']),
+        'analysis/index.html', model('base', ['A', 'B']), model('added', ['B', 'A']), [], ''), 'html.parser')
+    rows = result.select('#compare-rows tr')
+    assert rows[0]['data-pass'] == 'base-A added-A'
+    assert rows[1]['data-pass'] == 'base-B added-B'
+
+
+def test_extension_updates_only_explicit_population_summary():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    base = {'providers': [{'id': 'one'}, {'id': 'two'}], 'rows': [
+        {'suite': 'suite', 'case_id': str(i), 'url': 'https://example.com/'+str(i)} for i in range(3)]}
+    added = {'providers': [{'id': 'three'}], 'rows': base['rows']}
+    raw = '<html><body><section class="hero"><p class="lead">2 种方法，3 个逻辑结果。</p></section><p id="evidence">13 ms, $3, 2023-03-03, task-3; 10 种方法</p></body></html>'
+    result = BeautifulSoup(_extension_page(raw, '<html><body></body></html>',
+        'analysis/index.html', base, added, [], ''), 'html.parser')
+    assert result.select_one('.lead').get_text() == '3 种方法，6 个逻辑结果。'
+    assert result.select_one('#evidence').get_text() == '13 ms, $3, 2023-03-03, task-3; 10 种方法'
+
+
+def test_extension_refresh_restores_baseline_pages_when_leaving_ranked_mode(tmp_path):
+    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
+    output, _, _, _ = _published_extension(tmp_path)
+    spec_path = tmp_path/'extension.json'
+    spec = json.loads(spec_path.read_bytes())
+    original = (Path(spec['published_base']['root'])/'analysis/index.html').read_bytes()
+    spec['presentation'] = 'ranked'
+    write(spec_path, spec)
+    refresh_published_extension(output, spec_path=spec_path)
+    assert (output/'analysis/index.html').read_bytes() != original
+    spec['presentation'] = 'audit'
+    write(spec_path, spec)
+    assert refresh_published_extension(output, spec_path=spec_path)['valid']
+    assert (output/'analysis/index.html').read_bytes() == original
+    assert json.loads((output/'saved-extension.json').read_bytes())['presentation_pages'] == []
+    assert check_published_extension(output)['valid']

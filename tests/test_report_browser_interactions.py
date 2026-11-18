@@ -523,3 +523,22 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
         finally:
             page.close()
+
+
+
+def test_webfetch_extension_standalone_evidence_dialog(tmp_path, browser, display):
+    from tests.test_saved_matrix_composition import _published_extension
+    output, _, _, _ = _published_extension(tmp_path)
+    with local_report_server(output) as origin:
+        page = local_page(browser, origin, **display)
+        requests = []
+        page.on('request', lambda request: requests.append(request.url))
+        try:
+            page.goto(origin+'/additional/providers/extra.html')
+            page.get_by_role('button', name='Evidence', exact=True).click()
+            expect(page.get_by_role('dialog', name='Evidence')).to_be_visible()
+            expect(page.locator('dialog pre')).to_have_text('unchanged answer: extra')
+            assert any(url.endswith('/additional/answer.txt') for url in requests)
+            assert not any('/additional/additional/' in url for url in requests)
+        finally:
+            page.close()
