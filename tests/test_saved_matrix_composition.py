@@ -723,3 +723,82 @@ def test_extension_adoption_keeps_added_interface_examples(unmeasured_panel):
     assert panels[1].pre['data-file'] == 'additional/adoption/interfaces/extra.json'
     assert [a['href'] for a in panels[1].select('a')] == [
         '../additional/adoption/interfaces/extra.json', '../additional/attempts/extra.html']
+
+
+@pytest.mark.parametrize('added_review', ['unresolved', 'unreviewed', 'absent'])
+def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path, added_review):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    from harness.record_io import load_jsonl
+    output, path = _real_extension(tmp_path)
+    # Bind synthetic historical review states beside each source. Frozen input
+    # audits may retain unresolved judgments; composing them cannot upgrade it.
+    proof = json.loads((output/'saved-extension.json').read_bytes())
+    originals = {}
+    for prefix, state in [('', 'pass'), ('additional/', added_review)]:
+        if state == 'absent':
+            continue
+        root = output/prefix
+        records = load_jsonl(root/'results.jsonl')
+        attempts = [] if state == 'unreviewed' else [{'attempt_id': records[0]['attempt_id'],
+            'final_verdict': None if state == 'unresolved' else 'pass'}]
+        review = root/'result-review.json'
+        write(review, {'attempts': attempts})
+        originals[prefix] = review.read_bytes()
+        source_audit = json.loads((root/'saved-matrix-audit.json').read_bytes())
+        source_audit['files']['result-review.json'] = hashlib.sha256(review.read_bytes()).hexdigest()
+        binding = write(root/'saved-matrix-audit.json', source_audit)
+        proof['files'][prefix+'saved-matrix-audit.json'] = binding['sha256']
+        proof['files'][prefix+'result-review.json'] = source_audit['files']['result-review.json']
+        proof['additional_audit_sha256' if prefix else 'base_audit_sha256'] = binding['sha256']
+    write(output/'saved-extension.json', proof)
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    spec['published_base']['audit']['sha256'] = proof['base_audit_sha256']
+    spec['additional_report']['audit']['sha256'] = proof['additional_audit_sha256']
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    rows = {Path(r.a['href']).stem: r for r in page.select('#ranking-overall tbody tr')}
+    assert '1/1' in rows['method-0'].find_all('td')[-1].get_text()
+    extra = rows['method-1'].find_all('td')[-1]
+    assert ('1/1' if added_review == 'unresolved' else '0/1') in extra.get_text()
+    if added_review == 'unresolved':
+        assert '未决 1' in extra.get_text()
+        from pathlib import PurePosixPath
+        from harness.web_fetch.report_i18n import localize_html
+        english = BeautifulSoup(localize_html(str(page), PurePosixPath('index.html')), 'html.parser')
+        english_row = next(r for r in english.select('#ranking-overall tbody tr')
+                           if Path(r.a['href']).stem == 'method-1')
+        assert '1 unresolved' in english_row.find_all('td')[-1].get_text()
+        assert '未决' not in english_row.find_all('td')[-1].get_text()
+        assert 'Coverage of recorded result reviews' in english.get_text()
+        assert 'Coverage of the independent blind review' not in english.get_text()
+    assert extra.a['href'] == 'additional/review/index.html'
+    timing = page.select('#successful-final-call-latency tbody tr')
+    assert {Path(r.a['href']).stem for r in timing} == {'method-0', 'method-1'}
+    assert next(r for r in timing if Path(r.a['href']).stem == 'method-1').a['href'] == 'additional/providers/method-1.html'
+    for prefix, original in originals.items():
+        assert (output/prefix/'result-review.json').read_bytes() == original
+
+
+def test_extension_successful_latency_includes_all_methods(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    output, path = _real_extension(tmp_path)
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    rows = page.select('#successful-final-call-latency tbody tr')
+    assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
+    assert all('1/1' in r.get_text() for r in rows)
+
+
+def test_archived_unresolved_review_cell_localizes_without_live_rendering():
+    from pathlib import PurePosixPath
+    from harness.web_fetch.report_i18n import localize_html
+    html = '<html lang="zh-CN"><body><a>7/11 · 复核记录 · 未决 2</a></body></html>'
+    english = localize_html(html, PurePosixPath('index.html'))
+    assert '7/11 · review records · 2 unresolved' in english

@@ -288,13 +288,34 @@ def _joined_presentation(output):
 def _shared_presentations(output):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
+    from harness.record_io import load_jsonl
+    from bs4 import BeautifulSoup
     cases, records, providers, suites = _joined_presentation(output)
+    review_cells = {}
+    if any((output/prefix/'result-review.json').is_file() for prefix in ('', 'additional')):
+        for prefix in ('', 'additional/'):
+            root = output/prefix
+            path = root/'result-review.json'
+            audit = _read(path) if path.is_file() else {'attempts': []}
+            source_records = load_jsonl(root/'results.jsonl')
+            for provider in _read(root/'matrix.json')['providers']:
+                selected = [r for r in source_records if r['provider'] == provider['id']]
+                review_cells[provider['id']] = renderer.review_cell(audit, selected, base=prefix)
     labels = {p['id']: p.get('label', p['id']) for p in providers}
     tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
               (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True)))]
     try:
-        return {'overall': renderer.overall_ranking(records, cases),
+        # Let the shared renderer own the review column and metric offsets,
+        # then retain each source's review scope without merging audit identities.
+        overall = renderer.overall_ranking(records, cases, {'attempts': []} if review_cells else None)
+        if review_cells:
+            page = BeautifulSoup(overall, 'html.parser')
+            for row in page.select('#ranking-overall tbody tr'):
+                provider = Path(row.a['href']).stem
+                row.find_all('td')[-1].replace_with(BeautifulSoup(review_cells[provider], 'html.parser').td)
+            overall = str(page)
+        return {'overall': overall,
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
@@ -318,12 +339,23 @@ def _unified_home(page, base_model, added_model, presentation):
                                 *[('ranking-' + key, value) for key, value in presentation['families'].items()]]:
         rendered = BeautifulSoup(content, 'html.parser')
         fragment = rendered.find('table', id=identifier)
-        page.find('table', id=identifier).replace_with(fragment)
+        if identifier == 'ranking-overall':
+            owner = page.find(id='overall-ranking')
+            container = owner.select_one('.wrap') or owner
+            heading = owner.find('h2').extract()
+            container.clear()
+            container.append(heading)
+            # Install the whole component, including conditional latency and
+            # metric explanations, rather than retaining base-only siblings.
+            container.append(rendered)
+        else:
+            page.find('table', id=identifier).replace_with(fragment)
         if fragment.get('data-row-index') != 'false':
             fragment.thead.tr.find('th').string = '排名'
         else:
-            for note in rendered.select('p.callout'):
-                fragment.parent.insert_before(note)
+            if identifier != 'ranking-overall':
+                for note in rendered.select('p.callout'):
+                    fragment.parent.insert_before(note)
             if identifier == 'ranking-overall':
                 page.select_one('#overall-ranking h2').string = '各方法已保存结果'
         fragment['data-row-index'] = 'false'

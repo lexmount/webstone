@@ -1196,7 +1196,7 @@ def review_cell(audit, rows, base=''):
  indexed=review_index(audit);items=[indexed[r['attempt_id']] for r in rows if r['attempt_id'] in indexed]
  unresolved=sum(not x.get('final_verdict') for x in items)
  label=t('review_records', '{count}/{count2} · review records', count=len(items), count2=len(rows))
- if unresolved:label+=f' · 未决 {unresolved}'
+ if unresolved:label=saved_matrix_text('review_coverage_unresolved',reviewed=len(items),total=len(rows),unresolved=unresolved)
  return cell(link(base+'review/index.html',label),len(items)/len(rows) if rows else -1)
 
 def _evidence_chunks(text, width=620, overlap=100):
@@ -2069,7 +2069,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
        + '<div><dt>'+saved_matrix_text('final_call_timing_title')+'</dt><dd>'+saved_matrix_text('final_call_timing_help')+'</dd></div>' +
-       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of the independent blind review, its protocol, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
+       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
