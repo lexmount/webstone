@@ -762,6 +762,7 @@ class RenderContext:
  coverage_plan: dict | None = None
  scope_presentation: dict | None = None
  descriptive_ranks: bool = False
+ result_views: dict | None = None
 
 
 _RENDER_CONTEXT=ContextVar('webfetch_render_context',default=RenderContext())
@@ -1125,15 +1126,33 @@ def generate_public_benchmark_research(out:Path,research:dict,*,include_english:
  write_language_contract(out,include_english=include_english)
  return out/'index.html'
 
+def result_view(record):
+ views=_RENDER_CONTEXT.get().result_views
+ return views.get((record['provider'],record['case_id']),{}) if views else {}
+
+def result_case(record,fallback):
+ """Keep each saved result's own rules separate from its comparison identity."""
+ return result_view(record).get('case',fallback)
+
+def result_href(record,kind,base=''):
+ """Resolve a retained evidence route relative to the report root."""
+ if kind=='task':default='datasets/'+record['case_id']+'.html'
+ elif kind=='attempt':default='attempts/'+record['attempt_id']+'.html'
+ else:raise ValueError('Unknown result evidence route: '+kind)
+ return base+result_view(record).get(kind+'_href',default)
+
 def succeeded(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_passed(r['ok'],r['metrics'],c.get('task_kind','body'))
 
 def measured(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_measured(r['metrics'],c.get('task_kind','body'))
 
 def result_label(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected')
  if r['metrics'].get('evaluation_excluded'):return t('excluded_from_comparison', 'Excluded from comparison')
@@ -1610,6 +1629,7 @@ def stable_anchor_evidence(metrics,output,metadata=None,base_url='',contract=Non
  return note+f'<div class="anchor-grid"{scroll}>'+''.join(cards)+'</div>'
 
 def failure_category(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return result_label(r,c)
  if r['metrics'].get('evaluation_excluded'):return t('evaluation_environment_defect_excluded_across_all_methods', 'Evaluation environment defect: excluded across all methods')
  if not measured(r,c):return t('undecidable_evidence_of_the_final_page_identity', 'Undecidable: evidence of the final page identity is missing') if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status')=='unavailable' else t('unmeasured_acceptance_evidence_is_missing', 'Unmeasured: acceptance evidence is missing')
@@ -1674,6 +1694,7 @@ def stable_failure_summary(metrics):
  return '；'.join(parts) or t('stable_text_or_record_structure_did_not', 'Stable text or record structure did not meet the task requirements')
 
 def reason(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected_note')
  if r['metrics'].get('evaluation_excluded'):
@@ -2120,14 +2141,20 @@ def failure_filters(records,cases):
 
 def comparison_rows(cases,bycase,names):
  rows=[]
+ def definition(case):return {key:value for key,value in case.items() if key!='id'}
  for case_id,c in cases.items():
   attempts={r['provider']:r for r in bycase.get(case_id,[])}
   passed=[name for name in names if name in attempts and measured(attempts[name],c) and succeeded(attempts[name],c)]
   failed=[name for name in names if name in attempts and measured(attempts[name],c) and not succeeded(attempts[name],c)]
-  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href("../attempts/"+attempts[name]["attempt_id"]+".html"))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
+  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href(result_href(attempts[name],"attempt","../")))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
   attrs=(dataset_attrs(c)+f' data-pass="{esc(" ".join(passed))}" data-fail="{esc(" ".join(failed))}"')
   task=(f'<div class="task-cell">{link("../datasets/"+case_id+".html",c["name"])}<div class="task-meta"><code class="tiny">{esc(case_id)}</code>'
         f'<span class="track-badge">{esc(case_track_label(c))}</span></div></div>')
+  # Different editions may retain different requirements for the same task.
+  # Expose each original definition without changing scores or comparison IDs.
+  if any(definition(result_case(r,c))!=definition(c) for r in attempts.values()):
+   sources=' · '.join(link(result_href(attempts[name],'task','../'),model_text(provider_label(name),browser_method_label(name,language='en'))) for name in names if name in attempts)
+   task+='<details class="task-contracts"><summary>'+saved_matrix_text('task_rules_by_method')+'</summary>'+sources+'</details>'
   values=cell(task)+cell(method_links(passed,'pass'))+cell(method_links(failed,'fail'))
   rows.append((attrs,values))
  return rows
@@ -2150,6 +2177,8 @@ def dataset_attrs(c):
  return f' data-track="{esc(report_family(c))}" data-category="{esc(c["category"])}"'
 
 def case_attrs(r,c):
+ comparison=c
+ c=result_case(r,c)
  not_called=r.get('report_invocation_status') == 'adapter_rejected'
  content='na' if c.get('task_kind','body')!='body' else 'pass' if r['ok'] and r['metrics']['content_pass'] else 'fail'
  resources='na' if not c.get('expected_resources') else 'pass' if r['ok'] and r['metrics'].get('resource_pass') else 'fail'
@@ -2158,13 +2187,17 @@ def case_attrs(r,c):
  stage='' if succeeded(r,c) or not measured(r,c) else 'task' if r['ok'] else 'request'
  category='' if not stage else failure_category(r,c)
  result='excluded' if r['metrics'].get('evaluation_excluded') else 'unmeasured' if not measured(r,c) else 'pass' if succeeded(r,c) else 'fail'
- return dataset_attrs(c)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(str(c.get("id",r.get("case_id","")))+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
+ identifier=str(c.get('id',r.get('case_id','')))
+ if r.get('case_id') and r['case_id']!=identifier:identifier+=' '+r['case_id']
+ return dataset_attrs(comparison)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(identifier+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
 
 def attempt_row(r,c,base='../',*,label=None):
+ comparison=c
+ c=result_case(r,c)
  state=result_label(r,c)
- values=cell(link(base+'attempts/'+r['attempt_id']+'.html',c['name'] if label is None else label))+cell(case_track_label(c))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
+ values=cell(link(result_href(r,'attempt',base),c['name'] if label is None else label))+cell(case_track_label(comparison))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
  values+=cell(f'<code class="tiny break">{esc(r.get("run_id") or execution_id(r))}</code>')
- return case_attrs(r,c),values
+ return case_attrs(r,comparison),values
 
 def local_call_chain_section(dataset, prefix="../"):
  audit=dataset.get('comparison',{}).get('call_chain_audit')

@@ -250,16 +250,30 @@ def _joined_presentation(output):
     from harness.record_io import load_jsonl
     base = _read(output / 'dataset.json')
     cases = {c['id']: c for c in base['cases']}
-    records = load_jsonl(output / 'results.jsonl')
+    base_records = load_jsonl(output / 'results.jsonl')
     extra = _read(output / 'additional/dataset.json')
     routes = _extension_case_routes(cases, extra['cases'])
     if any(c.get('task_kind', 'body') != cases[routes[c['id']]].get('task_kind', 'body') for c in extra['cases']):
         raise ValueError('Joined presentation requires the same task kinds')
     audit = _read(output / 'additional/saved-matrix-audit.json')
     paths = {name: 'additional/' + name for name in audit['files']}
-    for record in _project(load_jsonl(output / 'additional/results.jsonl'), paths):
-        record['case_id'] = routes[record['case_id']]
-        records.append(record)
+    added_records = _project(load_jsonl(output / 'additional/results.jsonl'), paths)
+    records, views = [], {}
+    for prefix, dataset, source_records, mapping in (
+            ('', base, base_records, {key: key for key in cases}),
+            ('additional/', extra, added_records, routes)):
+        source_cases = {case['id']: case for case in dataset['cases']}
+        for record in source_records:
+            source_id = record['case_id']
+            comparison_id = mapping[source_id]
+            key = record['provider'], comparison_id
+            if key in views:
+                raise ValueError('Joined presentation repeats a saved task result')
+            views[key] = {'case': source_cases[source_id],
+                'task_href': prefix+'datasets/'+source_id+'.html',
+                'attempt_href': prefix+'attempts/'+record['attempt_id']+'.html'}
+            record['case_id'] = comparison_id
+            records.append(record)
     base_model, added_model = _read(output/'matrix.json'), _read(output/'additional/matrix.json')
     providers = base_model['providers'] + added_model['providers']
     from harness.web_fetch.report import succeeded, measured
@@ -274,7 +288,8 @@ def _joined_presentation(output):
         raise ValueError('Joined presentation result population differs')
     for record in records:
         row = expected[record['provider'], record['case_id']]
-        verdict = succeeded(record, cases[record['case_id']]) if measured(record, cases[record['case_id']]) else None
+        case = views[record['provider'], record['case_id']]['case']
+        verdict = succeeded(record, case) if measured(record, case) else None
         # Adapter rejection retains its saved failure value without claiming a
         # product call or entering the measurable-result denominator.
         if row.get('status') == 'adapter_rejected':
@@ -282,7 +297,7 @@ def _joined_presentation(output):
         if (verdict != row['passed']
                 or record['elapsed_ms'] != row['elapsed_ms']):
             raise ValueError('Joined presentation changed saved scores or latency')
-    return cases, records, providers, base.get('report_suites', [])
+    return cases, records, providers, base.get('report_suites', []), views
 
 
 def _shared_presentations(output):
@@ -290,7 +305,7 @@ def _shared_presentations(output):
     from harness.web_fetch import report as renderer
     from harness.record_io import load_jsonl
     from bs4 import BeautifulSoup
-    cases, records, providers, suites = _joined_presentation(output)
+    cases, records, providers, suites, views = _joined_presentation(output)
     review_cells = {}
     if any((output/prefix/'result-review.json').is_file() for prefix in ('', 'additional')):
         for prefix in ('', 'additional/'):
@@ -304,7 +319,7 @@ def _shared_presentations(output):
     labels = {p['id']: p.get('label', p['id']) for p in providers}
     tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
-              (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True)))]
+              (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
     try:
         # Let the shared renderer own the review column and metric offsets,
         # then retain each source's review scope without merging audit identities.
@@ -438,18 +453,31 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                         container.append(panel)
     def headers(table):
         return tuple(c.get_text(' ', strip=True) for c in table.select('thead th'))
+    def indexed(table):
+        head = headers(table)
+        rows = table.select('tbody tr')
+        return (table.get('data-row-index') != 'false' and head
+                and head[0] in {'序号', 'No.', 'No', '#'}
+                and all(row.find('td') and not row.find('td').find('a')
+                        and not row.find('td').has_attr('data-rank')
+                        and row.find('td').get_text(strip=True) == str(index)
+                        for index, row in enumerate(rows, 1)))
     tables = list(old.select('table'))
     unmatched = []
     for source_table in list(new.select('table')):
         candidates = [t for t in tables if headers(t) == headers(source_table)]
         if len(candidates) == 1:
             target_table = candidates[0]
+            renumber = indexed(target_table) and indexed(source_table)
             if len(headers(source_table)) > 1 and headers(source_table)[1] in {'任务类别', '核对点', '参数'}:
                 continue
             for row in list(source_table.tbody.find_all('tr', recursive=False)):
                 target_table.tbody.append(row)
-            for index, row in enumerate(target_table.tbody.find_all('tr', recursive=False), 1):
-                row.find('td').string = str(index)
+            if renumber:
+                for index, row in enumerate(target_table.tbody.find_all('tr', recursive=False), 1):
+                    row.find('td').string = str(index)
+            else:
+                target_table['data-row-index'] = 'false'
         elif source_table.tbody and source_table.tbody.find('tr'):
             unmatched.append(source_table)
     # Include interface/settings/review sections that have no corresponding base section.
@@ -533,8 +561,6 @@ def _extension_views(output, base_model, added_model, overview, note):
     from bs4 import BeautifulSoup
     presentation = _shared_presentations(output)
     added_providers = {p['id'] for p in added_model['providers']}
-    from harness.record_io import load_jsonl
-    added_attempts = {r['attempt_id'] for r in load_jsonl(output / 'additional/results.jsonl')}
     for route, key in [('analysis/index.html', 'analysis'), ('guide/index.html', 'guide')]:
         if route not in result:
             continue
@@ -543,10 +569,9 @@ def _extension_views(output, base_model, added_model, overview, note):
         container.clear()
         container.append(BeautifulSoup(presentation[key], 'html.parser'))
         for link in page.select('a[href]'):
-            match = re.search(r'(providers|attempts)/([^/]+)\.html', link['href'])
+            match = re.search(r'providers/([^/]+)\.html', link['href'])
             if match and ('/additional/' not in '/' + link['href']):
-                ids = added_providers if match[1] == 'providers' else added_attempts
-                if match[2] in ids:
+                if match[1] in added_providers:
                     link['href'] = link['href'][:match.start()] + 'additional/' + link['href'][match.start():]
         _model_fetch_badges(page)
         result[route] = str(page)

@@ -797,6 +797,7 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
 
 # Saved-source presentation uses the shared localization owner.
 _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · review records · {unresolved} unresolved',
+ 'task_rules_by_method': 'Task requirements by method',
  'parameter_rerun_title': 'Parameter reruns and result selection',
  'changes_scope': 'Parameter reruns and offline revisions are recorded separately. Parameter reruns include '
                   'new calls; offline revisions use retained responses only.',

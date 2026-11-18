@@ -2216,6 +2216,7 @@
     "saved_matrix_completion_title": "完成情况与未完成项",
     "saved_matrix_completion_note": "本表按原案例集区分同名案例。已有分数全部保留；未入库项没有分数。适配器提前拒绝属于未调用，原始记录中的旧分数保留，不计为产品失败，也不计入通过率分母。详情页中的任务编号带案例集前缀，仅用于避免报告链接冲突，原始任务和结果见证据文件。",
     "saved_matrix_review_coverage_unresolved": "{reviewed}/{total} · 复核记录 · 未决 {unresolved}",
+    "saved_matrix_task_rules_by_method": "各方法采用的任务规则",
     "saved_matrix_completion_headers_0": "方法",
     "saved_matrix_completion_headers_1": "计划",
     "saved_matrix_completion_headers_2": "实际调用",

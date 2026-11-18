@@ -1095,7 +1095,7 @@ def check_current_browser_article(out, cases, records, binding):
 
 def _saved_failure_chapters(cases, records):
     """Explain the full failure population using recorded program evidence only."""
-    from harness.web_fetch.report import provider_label, measured, succeeded
+    from harness.web_fetch.report import provider_label, measured, succeeded, result_case, result_href
     heading = t('saved_failure_chapters', 'Why each method did not pass')
     note = t('saved_failure_categories_note', 'These categories cover every failed result and come from program checks and returned evidence. One category can have different causes; unreviewed results do not establish a site or provider root cause.')
     chapters = []
@@ -1112,13 +1112,13 @@ def _saved_failure_chapters(cases, records):
         for category, members in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
             specimen = members[0]
             aid = specimen.get('attempt_id')
-            target = ('../attempts/'+escape(aid, quote=True)+'.html') if aid else '../analysis/index.html'
+            target = escape(result_href(specimen, 'attempt', '../'), quote=True) if aid else '../analysis/index.html'
             evidence_link = '<a href="'+target+'">'+t('inspect_response_scoring', 'Inspect response and scoring')+'</a>'
             rows.append((escape(category), str(len(members)), f'{len(members)/len(failed):.1%}', evidence_link))
             proof = (specimen.get('diagnosis') or {}).get('evidence')
             if proof:
                 examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
-                    +'</p><p>'+escape(cases[specimen['case_id']].get('url', ''))+' · '+evidence_link+'</p></details>')
+                    +'</p><p>'+escape(result_case(specimen, cases[specimen['case_id']]).get('url', ''))+' · '+evidence_link+'</p></details>')
         count = '<p>'+t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
                   total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))+'</p>'
         if len(eligible) != len(selected):

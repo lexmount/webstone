@@ -331,7 +331,7 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path):
     output = tmp_path / 'presentation'
     shutil.copytree(entries[0]['root'], output)
     shutil.copytree(entries[1]['root'], output / 'additional')
-    cases, records, providers, _ = _joined_presentation(output)
+    cases, records, providers, _, _ = _joined_presentation(output)
     assert len(cases) == 1 and len(records) == len(providers) == 2
     rendered = _shared_presentations(output)
     overall = BeautifulSoup(rendered['overall'], 'html.parser')
@@ -420,9 +420,11 @@ def test_extension_writer_uses_little_endian_on_native_big_endian_host(tmp_path)
     assert report_package.check_extended_content(source, baseline, output)['valid']
 
 
-def _real_extension(tmp_path, *, undecidable=False):
+def _real_extension(tmp_path, *, undecidable=False, source_reports=None):
     from harness.web_fetch.report_saved_composition import build_published_extension
-    _, entries = reports(tmp_path, undecidable=undecidable, families=True)
+    entries = source_reports
+    if entries is None:
+        _, entries = reports(tmp_path, undecidable=undecidable, families=True)
     # Frozen public reports include a method metadata section alongside the
     # standard renderer. Keep real records, datasets and comparison tables.
     for entry in entries:
@@ -685,7 +687,7 @@ def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, ide
         with pytest.raises(ValueError, match='ambiguous or unmatched task identities'):
             _joined_presentation(output)
         return
-    cases, records, _, _ = _joined_presentation(output)
+    cases, records, _, _, _ = _joined_presentation(output)
     assert len(cases) == 2 and len(records) == 4
     per_method = {p: {r['case_id']: r['elapsed_ms'] for r in records if r['provider'] == p}
                   for p in ('method-0', 'method-1')}
@@ -698,6 +700,9 @@ def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, ide
     analysis = BeautifulSoup(_shared_presentations(output)['analysis'], 'html.parser')
     assert len(analysis.select('#compare-rows tr')) == 2
     assert len(analysis.select('#filtered-table tbody tr')) == 4
+    if renamed:
+        searches = [r['data-search'] for r in analysis.select('#filtered-table tr[data-provider="method-1"]')]
+        assert any('first--second' in text and 'first--new-second' in text for text in searches)
 
 
 @pytest.mark.parametrize('unmeasured_panel', [False, True])
@@ -802,3 +807,85 @@ def test_archived_unresolved_review_cell_localizes_without_live_rendering():
     html = '<html lang="zh-CN"><body><a>7/11 · 复核记录 · 未决 2</a></body></html>'
     english = localize_html(html, PurePosixPath('index.html'))
     assert '7/11 · review records · 2 unresolved' in english
+
+
+@pytest.mark.parametrize('explicit_flag', [False, True])
+def test_extension_does_not_renumber_unindexed_data_cells(explicit_flag):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def page(provider):
+        flag = ' data-row-index="false"' if explicit_flag else ''
+        return f'<html><body><main><table{flag}><thead><tr><th>Method</th><th>Value</th></tr></thead><tbody><tr><td><a href="../providers/{provider}.html">{provider}</a></td><td>Kept</td></tr></tbody></table></main></body></html>'
+    base, added = ({'providers': [{'id': p}], 'rows': []} for p in ('base', 'extra'))
+    result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
+        base, added, [], ''), 'html.parser')
+    rows = result.select('tbody tr')
+    assert [r.find('td').get_text() for r in rows] == ['base', 'extra']
+    assert [r.a['href'] for r in rows] == ['../providers/base.html', '../additional/providers/extra.html']
+
+
+def test_extension_keeps_each_edition_task_rules_and_classification(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch import report as renderer
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    from harness.record_io import load_jsonl
+    entries = []
+    for index in range(2):
+        folder = tmp_path/str(index)
+        spec, source, record, _ = fixture(folder)
+        provider = 'method-'+str(index)
+        track = 'risk_control' if index else 'web'
+        case = json.loads((source/'dataset.json').read_bytes())['cases'][0]
+        case.update(track=track, min_content_chars=20 if index else 10)
+        spec['suites'][0]['dataset'] = write(source/'dataset.json', {'cases': [case]})
+        spec['report_families'] = [{'id': 'web', 'label': 'Source family', 'task_family': track}]
+        spec['providers'] = [{'id': provider, 'label': provider}]
+        # Both editions truthfully fail the same six-character saved answer;
+        # their task rules and diagnosis categories nevertheless differ.
+        record.update(provider=provider, attempt_id='source-call')
+        record['metrics'].update(content_pass=False, length_pass=False, content_chars=6)
+        raw = (json.dumps(record)+'\n').encode()
+        (source/'results.jsonl').write_bytes(raw)
+        spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+        root = build(folder, spec).parent
+        entries.append({'root': str(root), 'audit': {'path': str(root/'saved-matrix-audit.json'),
+            'sha256': hashlib.sha256((root/'saved-matrix-audit.json').read_bytes()).hexdigest()}})
+    output, path = _real_extension(tmp_path, source_reports=entries)
+    native_cases = json.loads((output/'additional/dataset.json').read_bytes())['cases']
+    native_record = load_jsonl(output/'additional/results.jsonl')[0]
+    expected_category = renderer.failure_category(native_record, native_cases[0])
+    base_case = json.loads((output/'dataset.json').read_bytes())['cases'][0]
+    assert expected_category != renderer.failure_category(native_record, base_case)
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    original = (output/'additional/dataset.json').read_bytes()
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
+    row = page.select_one('#filtered-table tr[data-provider="method-1"]')
+    assert row['data-failure-category'] == expected_category
+    task = page.select_one('#compare-rows tr')
+    links = {a['href'] for a in task.select('a')}
+    assert '../additional/datasets/first--same.html' in links
+    assert '../datasets/first--same.html' in links
+    # Native attempt IDs may overlap between independent reports. Each method
+    # must still open its own retained result and requirement definition.
+    base_result = page.select_one('#filtered-table tr[data-provider="method-0"] a[href*="attempts/"]')
+    added_result = row.select_one('a[href*="attempts/"]')
+    assert base_result['href'] == '../attempts/first--source-call.html'
+    assert added_result['href'] == '../additional/attempts/first--source-call.html'
+    guide = BeautifulSoup((output/'guide/index.html').read_text(encoding='utf-8'), 'html.parser')
+    evidence_links = {a['href'] for a in guide.select('a[href*="attempts/"]')}
+    assert {'../attempts/first--source-call.html', '../additional/attempts/first--source-call.html'} <= evidence_links
+    assert (output/'additional/dataset.json').read_bytes() == original
+
+
+def test_extension_keeps_rank_values_separate_from_row_numbers():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def page(provider):
+        return f'<html><body><main><table><thead><tr><th>Rank</th><th>Method</th></tr></thead><tbody><tr><td>1</td><td>{provider}</td></tr></tbody></table></main></body></html>'
+    base, added = ({'providers': [{'id': p}], 'rows': []} for p in ('base', 'extra'))
+    result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
+        base, added, [], ''), 'html.parser')
+    assert [r.find('td').get_text() for r in result.select('tbody tr')] == ['1', '1']
