@@ -315,11 +315,15 @@ def _shared_presentations(output):
         for prefix in ('', 'additional/'):
             root = output/prefix
             path = root/'result-review.json'
-            audit = _read(path) if path.is_file() else {'attempts': []}
+            audit = _read(path) if path.is_file() else None
+            reviewed = renderer.review_index(audit)
             source_records = load_jsonl(root/'results.jsonl')
             for provider in _read(root/'matrix.json')['providers']:
                 selected = [r for r in source_records if r['provider'] == provider['id']]
-                review_cells[provider['id']] = renderer.review_cell(audit, selected, base=prefix)
+                if audit is None or (reviewed and not any(r['attempt_id'] in reviewed for r in selected)):
+                    review_cells[provider['id']] = renderer.cell(_text('extension_review_unbound'), -1)
+                else:
+                    review_cells[provider['id']] = renderer.review_cell(audit, selected, base=prefix)
     labels = {p['id']: p.get('label', p['id']) for p in providers}
     tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),

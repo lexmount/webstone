@@ -2229,6 +2229,7 @@
     "saved_matrix_extension_shared_latency": "全部方法共同成功任务的耗时",
     "saved_matrix_extension_ordering": "按任务通过率排序。",
     "saved_matrix_extension_scoring_versions": "评分来源与版本",
+    "saved_matrix_extension_review_unbound": "未绑定逐条复核记录",
     "saved_matrix_extension_unrecorded": "未记录",
     "saved_matrix_extension_prices_headers_0": "方法",
     "saved_matrix_extension_prices_headers_1": "价格",

@@ -925,7 +925,7 @@ def test_extension_adoption_keeps_added_interface_examples(unmeasured_panel):
         '../additional/adoption/interfaces/extra.json', '../additional/attempts/extra.html']
 
 
-@pytest.mark.parametrize('added_review', ['unresolved', 'unreviewed', 'absent'])
+@pytest.mark.parametrize('added_review', ['unresolved', 'unreviewed', 'absent', 'outside_scope'])
 def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path, added_review):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
@@ -940,7 +940,8 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
             continue
         root = output/prefix
         records = load_jsonl(root/'results.jsonl')
-        attempts = [] if state == 'unreviewed' else [{'attempt_id': records[0]['attempt_id'],
+        attempt_id = 'other-source-attempt' if state == 'outside_scope' else records[0]['attempt_id']
+        attempts = [] if state == 'unreviewed' else [{'attempt_id': attempt_id,
             'final_verdict': None if state == 'unresolved' else 'pass'}]
         review = root/'result-review.json'
         write(review, {'attempts': attempts})
@@ -962,7 +963,12 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
     rows = {Path(r.a['href']).stem: r for r in page.select('#ranking-overall tbody tr')}
     assert '1/1' in rows['method-0'].find_all('td')[-1].get_text()
     extra = rows['method-1'].find_all('td')[-1]
-    assert ('1/1' if added_review == 'unresolved' else '0/1') in extra.get_text()
+    if added_review in {'absent', 'outside_scope'}:
+        assert extra.get_text() == '未绑定逐条复核记录'
+        assert extra.a is None
+    else:
+        assert ('1/1' if added_review == 'unresolved' else '0/1') in extra.get_text()
+        assert extra.a['href'] == 'additional/review/index.html'
     if added_review == 'unresolved':
         assert '未决 1' in extra.get_text()
         from pathlib import PurePosixPath
@@ -974,7 +980,6 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
         assert '未决' not in english_row.find_all('td')[-1].get_text()
         assert 'Coverage of recorded result reviews' in english.get_text()
         assert 'Coverage of the independent blind review' not in english.get_text()
-    assert extra.a['href'] == 'additional/review/index.html'
     timing = page.select('#successful-final-call-latency tbody tr')
     assert {Path(r.a['href']).stem for r in timing} == {'method-0', 'method-1'}
     assert next(r for r in timing if Path(r.a['href']).stem == 'method-1').a['href'] == 'additional/providers/method-1.html'
