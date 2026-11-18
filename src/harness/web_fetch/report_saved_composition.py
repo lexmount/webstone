@@ -207,7 +207,7 @@ def _model_fetch_badges(page):
         badge = page.new_tag('sup', attrs={'class': 'model-fetch-badge',
             'title': '大模型提供的网页抓取工具或 API',
             'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
-        badge.string = '模型 Fetch'
+        badge.string = '大模型公司'
         link.append(badge)
 
 
