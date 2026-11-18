@@ -35,6 +35,11 @@ def _namespace_extension_evidence(text):
     return re.sub(r'\bdata-file="([^"]+)"', r'data-file="additional/\1"', text)
 
 
+def _restore_extension_evidence(text):
+    """Recover only the namespace projection used by frozen older extensions."""
+    return re.sub(r'\bdata-file="additional/([^"]+)"', r'data-file="\1"', text)
+
+
 def _extended_home(base, addition, base_model, added_model, overview, note, *, ranked=False, presentation=None):
     """Use saved comparison cells; never recompute scores across scorer editions."""
     from bs4 import BeautifulSoup
@@ -51,6 +56,29 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
             raise ValueError('Missing comparison table: ' + identifier)
         if ranked:
             continue
+        # An unranked source has no index column. Add one before merging so
+        # the same schema preserves provider links and all saved metric cells.
+        for table in (target, source):
+            if table.get('data-row-index') == 'false':
+                table.thead.tr.insert(0, old.new_tag('th'))
+                if table.has_attr('data-col'):
+                    table['data-col'] = str(int(table['data-col']) + 1)
+                for row in table.tbody.find_all('tr', recursive=False):
+                    row.insert(0, old.new_tag('td'))
+        if identifier == 'ranking-overall':
+            # Sortable headers may wrap their labels in a button.
+            unknown_headers = [next((h for h in table.select('thead th')
+                                    if re.search('无法判定|Undecidable', h.get_text())), None)
+                               for table in (target, source)]
+            if any(h is not None for h in unknown_headers):
+                header = next(h for h in unknown_headers if h is not None)
+                for table, present in zip((target, source), unknown_headers, strict=True):
+                    if present is None:
+                        table.thead.tr.insert(4, deepcopy(header))
+                        for row in table.tbody.find_all('tr', recursive=False):
+                            cell = old.new_tag('td', attrs={'data-sort': '0'})
+                            cell.string = '0'
+                            row.insert(4, cell)
         old_rows, new_rows = target.tbody.find_all('tr', recursive=False), source.tbody.find_all('tr', recursive=False)
         if len(old_rows) != len(base_model['providers']) or len(new_rows) != len(added_model['providers']):
             raise ValueError('Comparison table provider population differs')
@@ -78,7 +106,8 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
             if identifier == 'ranking-overall':
                 if len(cells) != len(source_headers):
                     raise ValueError('Unexpected overall metric columns')
-                reordered = cells[:4] + [cells[4 + added_order.index(f)] for f in family_order] + cells[4 + len(added_order):]
+                offset = 4 + int(any(h is not None for h in unknown_headers))
+                reordered = cells[:offset] + [cells[offset + added_order.index(f)] for f in family_order] + cells[offset + len(added_order):]
                 row.clear()
                 for cell in reordered:
                     row.append(cell)
@@ -92,6 +121,14 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
                 cell['class'] = [c for c in cell['class'] if c not in {'good', 'bad'} and not re.search(r'best|worst|winner', c)]
         for emphasis in target.find_all('strong'):
             emphasis.unwrap()
+        for index, header in enumerate(target.select('thead th')):
+            button = header.find('button', class_='sort-button')
+            if button:
+                button['onclick'] = f"sortTable('{identifier}',{index})"
+    if not ranked:
+        explanation = old.new_tag('p', attrs={'class': 'source-note', 'data-composition-scope': 'scoring'})
+        explanation.string = note
+        old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
     if methods is None:
         raise ValueError('Published base has no method overview')
@@ -183,14 +220,19 @@ def _joined_presentation(output):
         record['case_id'] = routes[record['case_id']]
         records.append(record)
     providers = _read(output / 'matrix.json')['providers'] + _read(output / 'additional/matrix.json')['providers']
-    from harness.web_fetch.report import succeeded
+    from harness.web_fetch.report import succeeded, measured
     source_rows = _read(output / 'matrix.json')['rows'] + _read(output / 'additional/matrix.json')['rows']
     expected = {(r['provider'], identities[r['url'], r.get('name', '')]): r for r in source_rows}
     if len(records) != len(expected):
         raise ValueError('Joined presentation result population differs')
     for record in records:
         row = expected[record['provider'], record['case_id']]
-        if (succeeded(record, cases[record['case_id']]) != row['passed']
+        verdict = succeeded(record, cases[record['case_id']]) if measured(record, cases[record['case_id']]) else None
+        # Adapter rejection retains its saved failure value without claiming a
+        # product call or entering the measurable-result denominator.
+        if row.get('status') == 'adapter_rejected':
+            verdict = False
+        if (verdict != row['passed']
                 or record['elapsed_ms'] != row['elapsed_ms']):
             raise ValueError('Joined presentation changed saved scores or latency')
     return cases, records, providers, base.get('report_suites', [])
@@ -227,10 +269,17 @@ def _unified_home(page, base_model, added_model, presentation):
     page.select_one('#overall-ranking h2').string = '任务通过率排名'
     for identifier, content in [('ranking-overall', presentation['overall']),
                                 *[('ranking-' + key, value) for key, value in presentation['families'].items()]]:
-        fragment = BeautifulSoup(content, 'html.parser').find('table', id=identifier)
+        rendered = BeautifulSoup(content, 'html.parser')
+        fragment = rendered.find('table', id=identifier)
         page.find('table', id=identifier).replace_with(fragment)
+        if fragment.get('data-row-index') != 'false':
+            fragment.thead.tr.find('th').string = '排名'
+        else:
+            for note in rendered.select('p.callout'):
+                fragment.parent.insert_before(note)
+            if identifier == 'ranking-overall':
+                page.select_one('#overall-ranking h2').string = '各方法已保存结果'
         fragment['data-row-index'] = 'false'
-        fragment.thead.tr.find('th').string = '排名'
     timing = page.select_one('#overall-matched-latency .wrap')
     if timing:
         timing.clear()
@@ -330,7 +379,14 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
         for table in old.select('table'):
             if '外层超时' not in headers(table):
                 continue
+            represented = {Path(link['href']).stem for link in table.select('tbody a[href]')}
+            for row in table.select('tbody tr'):
+                cells = row.find_all('td')
+                if len(cells) > 1:
+                    represented.add(cells[1].get_text(strip=True))
             for provider in added_model['providers']:
+                if provider['id'] in represented or provider.get('label', provider['id']) in represented:
+                    continue
                 settings = [s for group in added_model.get('execution_settings', [])
                             if group['provider'] == provider['id'] for s in group['settings']]
                 def observed(key, settings=settings):
@@ -338,7 +394,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                     return ' / '.join(values) if values else '未记录'
                 row = old.new_tag('tr')
                 values = [str(len(table.select('tbody tr')) + 1), provider.get('label', provider['id']),
-                          '—', observed('timeout_seconds'), '未记录', '未记录', '1', observed('max_failure_retries')]
+                          '—', observed('timeout_seconds'), '未记录', '未记录', '未记录', observed('max_failure_retries')]
                 for value in values:
                     cell = old.new_tag('td')
                     cell.string = value
@@ -482,7 +538,11 @@ def check_published_extension(output):
     additional = _read(output / 'additional/saved-matrix-audit.json')
     for name, digest in additional['files'].items():
         if proof['files'].get('additional/' + name) != digest:
-            raise ValueError('Published extension changed added evidence: ' + name)
+            import hashlib
+            path = output/'additional'/name
+            if (not name.endswith('.html') or hashlib.sha256(_restore_extension_evidence(
+                    path.read_text(encoding='utf-8')).encode()).hexdigest() != digest):
+                raise ValueError('Published extension changed added evidence: ' + name)
     expected = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
@@ -526,6 +586,35 @@ def check_published_extension(output):
 
 
 def refresh_published_extension(output, *, spec_path=None):
+    """Validate a complete replacement before installing it; restore on failure."""
+    import os
+    import tempfile
+    from harness.web_fetch.safety import evidence_tree_identity, unlinked_path
+    output = unlinked_path(output)
+    before = evidence_tree_identity(output)
+    with tempfile.TemporaryDirectory(prefix='.' + output.name + '-refresh-', dir=output.parent) as work:
+        staging = Path(work)/'report'
+        # All changes below use atomic replacement; unchanged evidence can share
+        # inodes instead of copying potentially large immutable provider files.
+        shutil.copytree(output, staging, copy_function=os.link)
+        result = _refresh_published_extension(staging, spec_path=spec_path)
+        if evidence_tree_identity(output) != before:
+            raise ValueError('Published extension changed during refresh')
+        previous = output.parent/(Path(work).name + '-previous')
+        output.rename(previous)
+        try:
+            staging.rename(output)
+        except BaseException:
+            try:
+                previous.rename(output)
+            except OSError as error:
+                raise RuntimeError('Refresh rollback failed; prior report retained at ' + str(previous)) from error
+            raise
+        shutil.rmtree(previous)
+    return result
+
+
+def _refresh_published_extension(output, *, spec_path=None):
     """Rebuild the home view from the same hash-bound, immutable source trees."""
     from harness.reporting.publication import atomic_write
     from harness.record_io import json_bytes

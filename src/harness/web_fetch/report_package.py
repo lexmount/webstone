@@ -44,7 +44,7 @@ from harness.web_fetch.reference_lifecycle import require_certifiable_evidence
 from harness.web_fetch.report_build import validate_local_presentation
 from harness.web_fetch.report_explainer import current_browser_article_model
 from harness.web_fetch.report_version import check_release
-from harness.web_fetch.report_saved_composition import _namespace_extension_evidence
+from harness.web_fetch.report_saved_composition import _namespace_extension_evidence, _restore_extension_evidence
 from harness.web_fetch.result_review import require_result_review
 from harness.web_fetch.safety import evidence_tree_identity, unlinked_path
 
@@ -654,7 +654,15 @@ def _archive_identity(path: Path):
     return file_sha256(path)
 
 
-def build(source: Path, archive: Path, *, presentation_binding: Path | None = None, cached_content: Path | None = None, parts_directory: Path | None = None, refresh_privacy=False, snapshot_audit=False):
+def build(source: Path, archive: Path, *, presentation_binding: Path | None = None, cached_content: Path | None = None, parts_directory: Path | None = None, refresh_privacy=False, snapshot_audit=False, reuse_published: Path | None = None):
+    if reuse_published is not None:
+        if presentation_binding or cached_content or parts_directory or refresh_privacy or snapshot_audit:
+            raise ValueError('Published extensions select their own immutable packaging boundary')
+    elif (source/'saved-extension.json').exists():
+        raise ValueError('Published extensions require --reuse-published PINNED_PACKAGE_DIRECTORY')
+    archive = unlinked_path(archive)
+    if reuse_published is not None and archive.is_relative_to(reuse_published.resolve()):
+        raise ValueError('Publication archive must be outside the immutable baseline')
     if parts_directory is not None:
         parts_directory = unlinked_path(parts_directory)
         if (parts_directory.exists() or parts_directory.is_relative_to(source.resolve())
@@ -663,6 +671,7 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
             raise ValueError('Data parts directory must be new and outside the report and archive')
         parts_directory.parent.mkdir(parents=True,exist_ok=True)
     before = evidence_tree_identity(source)
+    baseline_before = evidence_tree_identity(reuse_published) if reuse_published is not None else None
     if archive.is_symlink() or (archive.exists() and not archive.is_file()):
         raise ValueError("Publication archive must be a regular file")
     if archive.resolve().is_relative_to(source.resolve()):
@@ -674,7 +683,11 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
     with tempfile.TemporaryDirectory(prefix=".webfetch-package-", dir=archive.parent) as work:
         staging = Path(work)
         staged_archive = staging / "package.zip"
-        if cached_content is None:
+        if reuse_published is not None:
+            manifest = extend_published_content(source, reuse_published, staging/'content')
+            _write_archive(staging/'content', staged_archive)
+            check_extension_archive(staged_archive, source, baseline=reuse_published)
+        elif cached_content is None:
             manifest = _build(source, staging / "content", staged_archive, webmainbench=sampled,
                               defer_archive=parts_directory is not None)
         else:
@@ -696,6 +709,8 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
             manifest = _wire_manifest(staging/'content')
         if evidence_tree_identity(source) != before:
             raise ValueError("Report source changed during packaging")
+        if reuse_published is not None and evidence_tree_identity(reuse_published) != baseline_before:
+            raise ValueError('Publication baseline changed during packaging')
         if (
             archive.is_symlink()
             or archive.resolve() != target
@@ -882,19 +897,15 @@ def main(*, root: Path | None = None):
     parser.add_argument("--parts-directory", type=Path, help="Prepare capacity-bound data attachments before publication")
     args = parser.parse_args()
     if args.reuse_published:
-        if args.cached_content or args.incremental or args.parts_directory or args.snapshot_audit:
+        if (args.cached_content or args.incremental or args.parts_directory or args.snapshot_audit
+                or args.presentation_binding or args.refresh_privacy):
             parser.error('Published extensions select their own immutable packaging boundary')
-        content = args.archive.with_suffix('.content')
-        extend_published_content(args.source, args.reuse_published, content)
-        _write_archive(content, args.archive)
-        print(json.dumps(check_extension_archive(args.archive, args.source, baseline=args.reuse_published)))
-        return
     if args.incremental and args.snapshot_audit:
         parser.error('Snapshot score revisions require a complete package')
     if args.incremental:
         print(json.dumps(build_incremental(args.source, args.archive, args.incremental, presentation_binding=args.presentation_binding), ensure_ascii=False))
         return
-    build(args.source, args.archive, presentation_binding=args.presentation_binding, cached_content=args.cached_content, parts_directory=args.parts_directory, refresh_privacy=args.refresh_privacy, snapshot_audit=args.snapshot_audit)
+    build(args.source, args.archive, presentation_binding=args.presentation_binding, cached_content=args.cached_content, parts_directory=args.parts_directory, refresh_privacy=args.refresh_privacy, snapshot_audit=args.snapshot_audit, reuse_published=args.reuse_published)
     print(args.archive.resolve())
 
 
@@ -919,17 +930,23 @@ def _save_wire_manifest(content, manifest):
         (content/'manifest.json').write_bytes(raw)
 
 
-def _extension_file_bytes(name, path):
+def _extension_file_bytes(name, path, originals):
     """Namespace packed lazy evidence while preserving standalone source pages."""
     data = path.read_bytes()
     if name.startswith('additional/') and name.endswith('.html'):
-        data = _namespace_extension_evidence(data.decode('utf-8')).encode('utf-8')
+        text = data.decode('utf-8')
+        expected = originals[name.removeprefix('additional/')]
+        if hashlib.sha256(data).hexdigest() == expected:
+            data = _namespace_extension_evidence(text).encode('utf-8')
+        else:
+            _require(hashlib.sha256(_restore_extension_evidence(text).encode('utf-8')).hexdigest() == expected,
+                     'Nested evidence differs from its frozen source: '+name)
     return data
 
 
-def _extension_file_identity(name, path):
+def _extension_file_identity(name, path, originals):
     if name.startswith('additional/') and name.endswith('.html'):
-        data = _extension_file_bytes(name, path)
+        data = _extension_file_bytes(name, path, originals)
         return hashlib.sha256(data).hexdigest(), len(data)
     return _archive_identity(path), path.stat().st_size
 
@@ -938,7 +955,11 @@ def extend_published_content(source, baseline, destination):
     """Reuse a pinned publication's packs and append only new public bytes."""
     from array import array
     from harness.web_fetch.report_saved_composition import check_published_extension
+    destination = unlinked_path(destination)
+    if any(destination.is_relative_to(root.resolve()) for root in (source, baseline)):
+        raise ValueError('Extension content must be outside its immutable inputs')
     check_published_extension(source)
+    originals = json.loads((source/'additional/saved-matrix-audit.json').read_bytes())['files']
     original = _wire_manifest(baseline)
     _require(original['schema_version'] == 3, 'Published extension requires a compact baseline')
     normalized = read_packed_manifest(lambda name: (baseline/name).read_bytes())
@@ -971,13 +992,13 @@ def extend_published_content(source, baseline, destination):
 
     for path in sorted(p for p in source.rglob('*') if p.is_file()):
         name = path.relative_to(source).as_posix()
-        digest, size = _extension_file_identity(name, path)
+        digest, size = _extension_file_identity(name, path, originals)
         old_name = 'index.html' if name == 'extension-base-home.txt' else name
         old = normalized['files'].get(old_name)
         if old and old['sha256'] == digest and old['size'] == size:
             append(name, {k:v for k,v in old.items() if k != 'parts'}, old['parts'])
             continue
-        data = _extension_file_bytes(name, path)
+        data = _extension_file_bytes(name, path, originals)
         _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
         ids = []
         for offset in range(0, len(data), 32768):
@@ -1025,6 +1046,7 @@ def extend_published_content(source, baseline, destination):
 
 def check_extended_content(source, baseline, content):
     """Verify reused ranges and every appended byte against the report tree."""
+    originals = json.loads((source/'additional/saved-matrix-audit.json').read_bytes())['files']
     original = read_packed_manifest(lambda name:(baseline/name).read_bytes())
     current = read_packed_manifest(lambda name:(content/name).read_bytes())
     _require(current.get('external_packs') == original.get('external_packs'),
@@ -1049,17 +1071,17 @@ def check_extended_content(source, baseline, content):
             _require(len(cache(name)) == expected_size, 'Appended pack has undeclared bytes: '+name)
         for name, path in paths.items():
             entry = current['files'][name]
-            digest, size = _extension_file_identity(name, path)
+            digest, size = _extension_file_identity(name, path, originals)
             _require(entry['sha256'] == digest and entry['size'] == size,
                      'Extension package file differs: '+name)
             old_name = 'index.html' if name == 'extension-base-home.txt' else name
             old = original['files'].get(old_name)
             if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
                 if all(current['blocks'][i]['pack'] not in original.get('external_packs', {}) for i in entry['parts']):
-                    _require(reconstruct_packed_file(current, name, cache) == _extension_file_bytes(name, path), 'Reused file reconstruction differs: '+name)
+                    _require(reconstruct_packed_file(current, name, cache) == _extension_file_bytes(name, path, originals), 'Reused file reconstruction differs: '+name)
                 reused += 1
             else:
-                data = _extension_file_bytes(name, path)
+                data = _extension_file_bytes(name, path, originals)
                 _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
                 _require(all(i >= count for i in entry['parts']), 'Appended file uses undeclared old ranges')
                 _require(reconstruct_packed_file(current, name, cache) == data,

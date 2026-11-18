@@ -9,14 +9,18 @@ from harness.web_fetch.report_saved_matrix import build_saved_matrix, check_save
 from tests.test_saved_matrix_evidence import build, fixture, write
 
 
-def reports(tmp_path, *, different_task=False, duplicate=False):
+def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
         spec, source, record, _ = fixture(folder)
+        if families:
+            spec['report_families'] = [{'id': 'web', 'label': 'Static websites'}]
         provider = 'method' if duplicate else 'method-' + str(i)
         spec['providers'] = [{'id': provider, 'label': provider}]
         record.update(provider=provider, attempt_id='run-' + str(i))
+        if i and undecidable:
+            record['metrics']['acceptance_checks'] = {'content': None}
         raw = (json.dumps(record) + '\n').encode()
         (source / 'results.jsonl').write_bytes(raw)
         spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
@@ -341,3 +345,301 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path):
     assert len(analysis.select('[data-compare-method]')) == 2
     assert len(analysis.select('#filtered-table tbody tr')) == 2
     assert len(analysis.select('#compare-rows tr')) == 1
+
+
+def test_extension_refresh_restores_baseline_pages_when_leaving_ranked_mode(tmp_path):
+    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
+    output, spec_path = _real_extension(tmp_path)
+    spec = json.loads(spec_path.read_bytes())
+    original = (Path(spec['published_base']['root'])/'analysis/index.html').read_bytes()
+    spec['presentation'] = 'ranked'
+    write(spec_path, spec)
+    refresh_published_extension(output, spec_path=spec_path)
+    assert (output/'analysis/index.html').read_bytes() != original
+    spec['presentation'] = 'audit'
+    write(spec_path, spec)
+    assert refresh_published_extension(output, spec_path=spec_path)['valid']
+    assert (output/'analysis/index.html').read_bytes() == original
+    assert json.loads((output/'saved-extension.json').read_bytes())['presentation_pages'] == []
+    assert check_published_extension(output)['valid']
+
+
+
+def test_frozen_namespaced_extension_keeps_verifying_without_double_prefix(tmp_path):
+    from harness.web_fetch.report_saved_composition import _namespace_extension_evidence, check_published_extension
+    from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
+    from harness.reporting.packs import read_packed_file
+    import zipfile
+    output, baseline, _, _ = _published_extension(tmp_path)
+    proof_path = output/'saved-extension.json'
+    proof = json.loads(proof_path.read_bytes())
+    # Reproduce the older producer's declared presentation projection.
+    for page in (output/'additional').rglob('*.html'):
+        page.write_text(_namespace_extension_evidence(page.read_text(encoding='utf-8')), encoding='utf-8')
+        proof['files'][page.relative_to(output).as_posix()] = hashlib.sha256(page.read_bytes()).hexdigest()
+    write(proof_path, proof)
+    assert check_published_extension(output)['valid']
+    content = tmp_path/'legacy-package'
+    extend_published_content(output, baseline, content)
+    archive = tmp_path/'legacy.zip'
+    _write_archive(content, archive)
+    assert check_extension_archive(archive, output, baseline=baseline)['valid']
+    with zipfile.ZipFile(archive) as bundle:
+        page = read_packed_file(bundle, 'additional/providers/extra.html')
+        assert b'data-file="additional/answer.txt"' in page
+        assert b'data-file="additional/additional/answer.txt"' not in page
+
+
+
+def test_extension_writer_uses_little_endian_on_native_big_endian_host(tmp_path):
+    import array
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import patch
+    from harness.web_fetch import report_package
+    source, baseline, _, _ = _published_extension(tmp_path)
+    native_array = array.array
+
+    class BigEndianArray(native_array):
+        def tobytes(self):
+            copy = native_array(self.typecode, self)
+            if sys.byteorder == 'little':
+                copy.byteswap()
+            return copy.tobytes()
+
+    output = tmp_path/'big-endian-package'
+    # Emulate native writer byte order; the independent wire-format reader
+    # remains on this machine's real byte order and reads little-endian bytes.
+    with patch.object(array, 'array', BigEndianArray), \
+         patch.object(report_package, 'sys', SimpleNamespace(byteorder='big')):
+        report_package.extend_published_content(source, baseline, output)
+    assert report_package.check_extended_content(source, baseline, output)['valid']
+
+
+def _real_extension(tmp_path, *, undecidable=False):
+    from harness.web_fetch.report_saved_composition import build_published_extension
+    _, entries = reports(tmp_path, undecidable=undecidable, families=True)
+    # Frozen public reports include a method metadata section alongside the
+    # standard renderer. Keep real records, datasets and comparison tables.
+    for entry in entries:
+        root = Path(entry['root'])
+        home = root/'index.html'
+        home.write_text(home.read_text(encoding='utf-8').replace('</main>',
+            '<section id="method-overview-section"><table id="method-overview"><tbody></tbody></table></section></main>'), encoding='utf-8')
+        audit = json.loads((root/'saved-matrix-audit.json').read_bytes())
+        audit['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+        entry['audit'] = write(root/'saved-matrix-audit.json', audit)
+    overview = write(tmp_path/'methods.json', [{'id': 'method-1', 'label': 'Method 1',
+        'execution': 'Fixture', 'configuration': 'Default', 'price': 'Unavailable',
+        'billing': 'Synthetic test', 'sources': [{'url': 'https://example.com/', 'label': 'Source'}]}])
+    path = tmp_path/'extension.json'
+    write(path, {'published_base': entries[0], 'additional_report': entries[1],
+                 'method_overview': overview, 'comparison_note': 'Different scoring editions.'})
+    output = tmp_path/'extension'
+    build_published_extension(path, output)
+    return output, path
+
+
+@pytest.mark.parametrize('option', ['--presentation-binding', '--refresh-privacy'])
+def test_extension_cli_rejects_ignored_options(tmp_path, monkeypatch, option):
+    from harness.web_fetch.report_package import main
+    output, baseline, _, _ = _published_extension(tmp_path)
+    archive = tmp_path/'requested.zip'
+    args = ['package', str(output), str(archive), '--reuse-published', str(baseline), option]
+    if option == '--presentation-binding':
+        args.append(str(tmp_path/'nonexistent.json'))
+    monkeypatch.setattr('sys.argv', args)
+    with pytest.raises(SystemExit):
+        main()
+    assert not archive.exists() and not archive.with_suffix('.content').exists()
+
+
+@pytest.mark.parametrize('destination', ['source', 'baseline', 'symlink', 'directory'])
+def test_extension_cli_rejects_unsafe_outputs_without_changing_inputs(tmp_path, monkeypatch, destination):
+    from harness.web_fetch.report_package import main
+    from harness.web_fetch.safety import evidence_tree_identity
+    output, baseline, _, _ = _published_extension(tmp_path)
+    archive = tmp_path/'requested.zip'
+    retained = tmp_path/'retained.txt'
+    retained.write_bytes(b'retained original')
+    if destination in {'source', 'baseline'}:
+        archive = (output if destination == 'source' else baseline)/'requested.zip'
+    elif destination == 'symlink':
+        archive.symlink_to(retained)
+    else:
+        archive.mkdir()
+    before = [evidence_tree_identity(p) for p in (output, baseline)]
+    monkeypatch.setattr('sys.argv', ['package', str(output), str(archive), '--reuse-published', str(baseline)])
+    with pytest.raises(ValueError):
+        main()
+    assert [evidence_tree_identity(p) for p in (output, baseline)] == before
+    assert retained.read_bytes() == b'retained original'
+    assert not archive.with_suffix('.content').exists()
+
+
+def test_extension_cli_keeps_previous_archive_on_validation_failure(tmp_path, monkeypatch):
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path)
+    archive = tmp_path/'requested.zip'
+    archive.write_bytes(b'previous release')
+    def reject(*args, **kwargs):
+        raise ValueError('injected archive rejection')
+    monkeypatch.setattr(report_package, 'check_extension_archive', reject)
+    monkeypatch.setattr('sys.argv', ['package', str(output), str(archive), '--reuse-published', str(baseline)])
+    with pytest.raises(ValueError, match='injected archive rejection'):
+        report_package.main()
+    assert archive.read_bytes() == b'previous release'
+    assert not archive.with_suffix('.content').exists()
+
+
+def test_ordinary_packager_requires_extension_mode(tmp_path):
+    from harness.web_fetch.report_package import build as package
+    output, _, _, _ = _published_extension(tmp_path)
+    with pytest.raises(ValueError, match='--reuse-published'):
+        package(output, tmp_path/'ordinary.zip')
+
+
+@pytest.mark.parametrize('unranked', ['base', 'extra', 'both'])
+def test_extension_audit_keeps_method_links_in_unranked_tables(tmp_path, unranked):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extended_home
+    output, _, _, _ = _published_extension(tmp_path)
+    pages = []
+    for name in ('base', 'extra'):
+        page = BeautifulSoup((tmp_path/name/'index.html').read_text(encoding='utf-8'), 'html.parser')
+        if unranked in {name, 'both'}:
+            for table in page.select('table[id^="ranking-"]'):
+                table['data-row-index'] = 'false'
+                table.thead.tr.find('th').decompose()
+                for row in table.tbody.find_all('tr'):
+                    row.find('td').decompose()
+        pages.append(str(page))
+    result = BeautifulSoup(_extended_home(*pages,
+        json.loads((output/'matrix.json').read_bytes()),
+        json.loads((output/'additional/matrix.json').read_bytes()),
+        json.loads((output/'extension-methods.json').read_bytes()), 'Different scoring editions.'), 'html.parser')
+    rows = result.select('#ranking-overall tbody tr')
+    assert [r.a['href'] for r in rows] == ['providers/base.html', 'additional/providers/extra.html']
+    assert [c.get_text() for c in rows[1].find_all('td')][4:6] == ['44', '33']
+
+
+def test_extension_audit_shows_escaped_comparison_note(tmp_path):
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    from bs4 import BeautifulSoup
+    output, _, _, _ = _published_extension(tmp_path)
+    path = tmp_path/'extension.json'
+    spec = json.loads(path.read_bytes())
+    spec['comparison_note'] = 'Different editions <not a tag> & retained scores.'
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert spec['comparison_note'] in page.get_text()
+    assert page.find('not') is None
+
+
+def test_extension_methodology_retains_each_execution_row_once():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def page(provider):
+        return '<html><body><main><table><thead><tr><th>序号</th><th>方法</th><th>外层超时</th><th>计划轮次</th></tr></thead><tbody><tr><td>1</td><td><a href="../providers/'+provider+'.html">'+provider+'</a></td><td>90</td><td>3</td></tr></tbody></table></main></body></html>'
+    def model(p):
+        return {'providers': [{'id': p}], 'rows': []}
+    result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
+        model('base'), model('extra'), [], ''), 'html.parser')
+    rows = result.select('tbody tr')
+    assert len(rows) == 2
+    assert [c.get_text() for c in rows[1].find_all('td')] == ['2', 'extra', '90', '3']
+
+
+@pytest.mark.parametrize('failure', ['render', 'link'])
+def test_extension_refresh_rejection_preserves_prior_tree(tmp_path, monkeypatch, failure):
+    from harness.web_fetch import report_saved_composition as composition
+    from harness.web_fetch.safety import evidence_tree_identity
+    output, _, _, _ = _published_extension(tmp_path)
+    before = evidence_tree_identity(output)
+    path = tmp_path/'extension.json'
+    spec = json.loads(path.read_bytes())
+    if failure == 'render':
+        spec['presentation'] = 'ranked'
+        monkeypatch.setattr(composition, '_shared_presentations', lambda _: {})
+        monkeypatch.setattr(composition, '_unified_home', lambda *args: None)
+        def reject(*args):
+            raise ValueError('injected render rejection')
+        monkeypatch.setattr(composition, '_extension_views', reject)
+        spec['comparison_note'] = 'Changed note for new home'
+    else:
+        methods = json.loads((tmp_path/'methods.json').read_bytes())
+        methods[0]['sources'][0]['url'] = 'missing.html'
+        spec['method_overview'] = write(tmp_path/'methods.json', methods)
+    write(path, spec)
+    with pytest.raises(ValueError, match='injected render rejection|broken page link'):
+        composition.refresh_published_extension(output, spec_path=path)
+    assert evidence_tree_identity(output) == before
+    assert composition.check_published_extension(output)['valid']
+
+
+def test_extension_shared_guide_excludes_undecidable_from_denominator(tmp_path):
+    import shutil
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _shared_presentations
+    _, entries = reports(tmp_path, undecidable=True)
+    output = tmp_path/'presentation'
+    shutil.copytree(entries[0]['root'], output)
+    shutil.copytree(entries[1]['root'], output/'additional')
+    result = _shared_presentations(output)
+    guide = BeautifulSoup(result['guide'], 'html.parser').get_text(' ', strip=True)
+    assert '1/2' not in guide
+    assert ('1 measurable' in guide or '1 条可判定' in guide)
+    assert 'unavailable' in guide or '无法判定' in guide
+
+
+@pytest.mark.parametrize('ranked', [False, True])
+def test_extension_real_unmeasured_report_preserves_methods_and_metrics(tmp_path, ranked):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
+    output, spec_path = _real_extension(tmp_path, undecidable=True)
+    if ranked:
+        spec = json.loads(spec_path.read_bytes())
+        spec['presentation'] = 'ranked'
+        write(spec_path, spec)
+        refresh_published_extension(output, spec_path=spec_path)
+    page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    rows = page.select('#ranking-overall tbody tr')
+    assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
+    assert '排名' not in page.select_one('#ranking-overall thead').get_text()
+    assert check_published_extension(output)['valid']
+    for index, header in enumerate(page.select('#ranking-overall thead th')):
+        button = header.find('button', class_='sort-button')
+        if button:
+            assert button['onclick'] == f"sortTable('ranking-overall',{index})"
+
+
+def test_extension_refresh_restores_prior_tree_on_install_failure(tmp_path, monkeypatch):
+    from harness.web_fetch import report_saved_composition as composition
+    from harness.web_fetch.safety import evidence_tree_identity
+    output, _, _, _ = _published_extension(tmp_path)
+    before = evidence_tree_identity(output)
+    path = tmp_path/'extension.json'
+    spec = json.loads(path.read_bytes())
+    spec['comparison_note'] = 'New explanation, same frozen inputs.'
+    write(path, spec)
+    original = Path.rename
+    def fail_install(source, target):
+        if source.name == 'report' and target == output:
+            raise OSError('injected install failure')
+        return original(source, target)
+    monkeypatch.setattr(Path, 'rename', fail_install)
+    with pytest.raises(OSError, match='injected install failure'):
+        composition.refresh_published_extension(output, spec_path=path)
+    assert evidence_tree_identity(output) == before
+    assert composition.check_published_extension(output)['valid']
+
+
+def test_extension_public_command_builds_verified_archive(tmp_path, monkeypatch):
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path)
+    archive = tmp_path/'requested.zip'
+    monkeypatch.setattr('sys.argv', ['package', str(output), str(archive), '--reuse-published', str(baseline)])
+    report_package.main()
+    assert report_package.check_extension_archive(archive, output, baseline=baseline)['valid']
+    assert not archive.with_suffix('.content').exists()
