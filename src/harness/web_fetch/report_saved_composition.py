@@ -331,7 +331,8 @@ def _shared_presentations(output):
     try:
         # Let the shared renderer own the review column and metric offsets,
         # then retain each source's review scope without merging audit identities.
-        overall = renderer.overall_ranking(records, cases, {'attempts': []} if review_cells else None)
+        overall = renderer.overall_ranking(records, cases, {'attempts': []} if review_cells else None,
+                                           passing_latency=True)
         if review_cells:
             page = BeautifulSoup(overall, 'html.parser')
             for row in page.select('#ranking-overall tbody tr'):
@@ -342,7 +343,7 @@ def _shared_presentations(output):
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': renderer.analysis_body(records, cases),
+                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
     finally:
         for variable, token in reversed(tokens):
@@ -352,6 +353,7 @@ def _shared_presentations(output):
 def _unified_home(page, base_model, added_model, presentation):
     """Install shared-renderer views without grouping contestants by source."""
     from bs4 import BeautifulSoup
+    from harness.web_fetch.report_style import RANKING_STICKY
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
     method_section = page.find(id='method-overview-section')
@@ -385,6 +387,10 @@ def _unified_home(page, base_model, added_model, presentation):
             if identifier == 'ranking-overall':
                 page.select_one('#overall-ranking h2').string = _text('extension_audit_title')
         fragment['data-row-index'] = 'false'
+    if page.head and page.select_one('#ranking-overall td[data-rank]'):
+        style = page.new_tag('style')
+        style.string = RANKING_STICKY
+        page.head.append(style)
     timing = page.select_one('#overall-matched-latency .wrap')
     if timing:
         timing.clear()

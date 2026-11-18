@@ -2043,7 +2043,24 @@ def successful_final_call_latency(records,cases):
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
 
 
-def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True):
+def all_final_call_latency(records):
+ groups=defaultdict(list)
+ for record in records:
+  if record.get('report_invocation_status') != 'adapter_rejected':
+   groups[record['provider']].append(record['elapsed_ms'])
+ rows=[]
+ for name,times in sorted(groups.items()):
+  values=cell(link(f'../providers/{name}.html',provider_label(name)))+cell(str(len(times)))
+  for value in (statistics.mean(times),percentile(times,.5),percentile(times,.95)):
+   values+=cell(ms(value),value)
+  rows.append(('',values))
+ return section(saved_matrix_text('all_final_call_timing_title'),
+  '<p>'+saved_matrix_text('final_call_timing_help')+'</p>' +
+  table([t('method', 'Method'),saved_matrix_text('final_call_count'),*saved_matrix_text('final_call_timing_headers')],
+   rows,'all-final-call-latency',metrics=[]),'all-final-call-timing')
+
+
+def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False):
  records,cases=comparison_population(records,cases)
  has_unknown=any(not measured(r,cases[r["case_id"]]) for r in records)
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
@@ -2065,7 +2082,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   for track,_ in active_tracks(cases):
    subset=[r for r in rs if report_family(cases[r['case_id']])==track and measured(r,cases[r['case_id']])]
    values+=cell(f'{sum(succeeded(r,cases[r["case_id"]]) for r in subset)}/{len(subset)}',sum(succeeded(r,cases[r['case_id']]) for r in subset)/len(subset) if subset else -1)
-  times=[r['elapsed_ms'] for r in called]
+  times=[r['elapsed_ms'] for r in called if not passing_latency or succeeded(r,cases[r['case_id']])]
   mean_time=statistics.mean(times) if times else None
   values+=cell(ms(mean_time),mean_time)
   values+=cell(ms(percentile(times,.5)),percentile(times,.5))
@@ -2074,7 +2091,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   rows.append((passed/n if n else -1,name,('',values)))
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases)
- timing_heads=saved_matrix_text('final_call_timing_headers')
+ timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
  heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _REPORT_SUITES.get() else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
@@ -2089,19 +2106,21 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
-       + '<div><dt>'+saved_matrix_text('final_call_timing_title')+'</dt><dd>'+saved_matrix_text('final_call_timing_help')+'</dd></div>' +
+       + '<div><dt>'+saved_matrix_text('passing_final_call_title' if passing_latency else 'final_call_timing_title')+'</dt><dd>'+saved_matrix_text('passing_final_call_help' if passing_latency else 'final_call_timing_help')+'</dd></div>' +
        ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
  # Mixed outcomes make all-call timing observational: a quicker failure is
  # not a better delivery. Successful-call comparisons have their own owner.
- if records and all(succeeded(r,cases[r['case_id']]) for r in records):
+ if passing_latency or (records and all(succeeded(r,cases[r['case_id']]) for r in records)):
   directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,directions)
  timing_note='<p>'+saved_matrix_text('final_call_timing_note')
+ if passing_latency:
+  timing_note+=' '+saved_matrix_text('passing_final_call_help')+' '+link('analysis/index.html#all-final-call-timing',saved_matrix_text('all_final_call_timing_title'))
  if call_budget_seconds is not None:
   timing_note+=model_text(*pair('report_each_physical_call_has_a_value_g_second_053250', 'Each physical call has a {value0:g}-second budget.', value0=call_budget_seconds))
  timing_note+='</p>'
@@ -2115,7 +2134,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+successful_final_call_latency(records,cases)
+ return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""

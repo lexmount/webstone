@@ -980,14 +980,13 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
         assert '未决' not in english_row.find_all('td')[-1].get_text()
         assert 'Coverage of recorded result reviews' in english.get_text()
         assert 'Coverage of the independent blind review' not in english.get_text()
-    timing = page.select('#successful-final-call-latency tbody tr')
-    assert {Path(r.a['href']).stem for r in timing} == {'method-0', 'method-1'}
-    assert next(r for r in timing if Path(r.a['href']).stem == 'method-1').a['href'] == 'additional/providers/method-1.html'
+    assert page.select_one('#successful-final-call-latency') is None
+    assert rows['method-1'].a['href'] == 'additional/providers/method-1.html'
     for prefix, original in originals.items():
         assert (output/prefix/'result-review.json').read_bytes() == original
 
 
-def test_extension_successful_latency_includes_all_methods(tmp_path):
+def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
     output, path = _real_extension(tmp_path)
@@ -996,9 +995,19 @@ def test_extension_successful_latency_includes_all_methods(tmp_path):
     write(path, spec)
     refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
-    rows = page.select('#successful-final-call-latency tbody tr')
+    assert page.select_one('#successful-final-call-latency') is None
+    ranking = page.select_one('#ranking-overall')
+    assert ranking.select_one('td[data-rank]')
+    assert any('--rank-column' in style.get_text() for style in page.head.select('style'))
+    assert len(ranking.select('[data-metric^="final_call_latency"]')) == 6
+    assert '通过项耗时' in ranking.thead.get_text()
+    assert page.select_one('a[href="analysis/index.html#all-final-call-timing"]')
+    rows = ranking.select('tbody tr')
     assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
-    assert all('1/1' in r.get_text() for r in rows)
+    analysis = BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
+    rows = analysis.select('#all-final-call-latency tbody tr')
+    assert {r.a['href'] for r in rows} == {'../providers/method-0.html', '../additional/providers/method-1.html'}
+    assert not analysis.select('#all-final-call-latency .comparison-winner')
 
 
 def test_archived_unresolved_review_cell_localizes_without_live_rendering():

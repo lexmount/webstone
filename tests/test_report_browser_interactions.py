@@ -410,6 +410,7 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
 def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
     from pathlib import Path
     from harness.web_fetch import report
+    from harness.web_fetch.report_style import RANKING_STICKY
     from tests.test_report_body_scope import case, record
     c = case('sample', kind='body', track='web')
     records = []
@@ -417,11 +418,12 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
         row = record(c, passed=passed, elapsed=elapsed)
         row['provider'] = provider
         records.append(row)
-    markup = report.overall_ranking(records, {c['id']: c})
+    markup = report.overall_ranking(records, {c['id']: c}, passing_latency=True)
     js = Path(report.__file__).with_name('assets').joinpath('report.js').read_text(encoding='utf-8')
     (tmp_path/'app.js').write_text(js, encoding='utf-8')
     (tmp_path/'index.html').write_text(
         '<!doctype html><html><head><meta charset="utf-8">'
+        '<style>'+report.STYLE+RANKING_STICKY+'#ranking-overall{min-width:1500px}</style>'
         '<script defer src="app.js"></script></head><body>'+markup+'</body></html>', encoding='utf-8')
     with local_report_server(tmp_path) as origin:
         page = local_page(browser, origin, **display)
@@ -434,6 +436,17 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
             for row in page.locator('#ranking-overall tbody tr').all():
                 expected = '3' if 'providers/c.html' in row.inner_html() else '1'
                 assert row.locator('td').first.inner_text() == expected
+            table = page.locator('#ranking-overall')
+            coordinates = '''table => {
+                const cells = [...table.tBodies[0].rows[0].cells];
+                return cells.slice(0, 3).map(cell => cell.getBoundingClientRect().left);
+            }'''
+            table.evaluate('table => { table.parentElement.scrollLeft = 0; }')
+            start = table.evaluate(coordinates)
+            table.evaluate('table => { table.parentElement.scrollLeft = 120; }')
+            after = table.evaluate(coordinates)
+            assert after[:2] == pytest.approx(start[:2], abs=1)
+            assert after[2] < start[2] - 100
         finally:
             page.close()
 
