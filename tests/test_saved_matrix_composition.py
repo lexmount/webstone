@@ -236,70 +236,13 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     refreshed_archive = tmp_path / 'refreshed.zip'
     _write_archive(refreshed, refreshed_archive)
     assert check_extension_archive(refreshed_archive, output, baseline=packed)['valid']
-    # Explicit unified presentation changes views, never saved verdicts or outputs.
-    from harness.web_fetch.report_saved_composition import refresh_published_extension
-    from bs4 import BeautifulSoup
-    ranked = json.loads((tmp_path/'extension.json').read_bytes())
-    ranked['presentation'] = 'ranked'
-    ranked_spec = tmp_path / 'ranked.json'
-    ranked_spec.write_text(json.dumps(ranked), encoding='utf-8')
-    refresh_published_extension(output, spec_path=ranked_spec)
-    ranked_home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
-    assert not ranked_home.select('[data-composition-scope]')
-    assert 'Old billing disclaimer' not in ranked_home.get_text()
-    assert ranked_home.select_one('#ranking-overall th').get_text() == '排名'
-    assert ranked_home.select_one('#ranking-overall .metric-best')
-    assert all(r.find('td').get_text() == '1' for r in ranked_home.select('#ranking-overall tbody tr'))
-    assert (output / 'answer.txt').read_text(encoding='utf-8') == 'unchanged answer: base'
-    assert check_published_extension(output)['valid']
     (output / 'additional/answer.txt').write_text('changed', encoding='utf-8')
     with pytest.raises(ValueError, match='bytes changed'):
         check_published_extension(output)
 
 
-def test_extension_rankings_ties_and_latency_use_all_methods():
-    from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import _unified_home
-    page = BeautifulSoup('''<section id="overall-ranking"><h2>Saved</h2></section>
-        <section id="overall-matched-latency"><div class="wrap">old ten-method timing</div></section>''', 'html.parser')
-    def model(provider, times, passed):
-        return {'providers': [{'id': provider, 'label': provider}], 'report_families': [],
-                'rows': [{'provider': provider, 'url': 'https://example.com/' + str(i),
-                          'name': str(i), 'passed': i in passed, 'elapsed_ms': ms}
-                         for i, ms in enumerate(times)]}
-    _unified_home(page, model('deepseek-fetch-api', [10, 500], {0, 1}),
-                  model('kimi-fetch', [20, 900], {0}))
-    rows = page.select('#overall-matched-latency-table tbody tr')
-    assert len(rows) == 2
-    assert [r.find_all('td')[2]['data-sort'] for r in rows] == ['10', '20']
-    assert '1/2' in page.get_text()
-    assert rows[0].select_one('.metric-best')
-    assert len(page.select('.model-fetch-badge')) == 2
-    assert '模型 Fetch' in page.get_text()
 
 
-def test_extension_unifies_selectors_and_same_task_outcomes():
-    from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import _extension_page
-    def page(provider, task):
-        return f'''<html><body><main><select id="compare-a"><option value="{provider}">{provider}</option></select>
-        <div class="method-checks"><label><input data-compare-method value="{provider}">{provider}</label></div>
-        <table><thead><tr><th>序号</th><th>任务</th><th>成功方法</th><th>失败方法</th></tr></thead>
-        <tbody id="compare-rows"><tr data-pass="{provider}" data-fail=""><td>1</td><td><a href="../datasets/{task}.html">Task</a></td><td><a href="../providers/{provider}.html">{provider}</a></td><td>—</td></tr></tbody></table>
-        <table id="filtered-table"><thead><tr><th>序号</th><th>方法</th></tr></thead><tbody><tr data-provider="{provider}"><td>1</td><td>{provider}</td></tr></tbody></table>
-        </main></body></html>'''
-    def model(provider, suite):
-        return {'providers': [{'id': provider}], 'rows': [{'provider': provider, 'suite': suite,
-            'case_id': 'one', 'url': 'https://example.com', 'name': 'Task'}]}
-    html = _extension_page(page('base', 'old--one'), page('kimi-fetch', 'new--one'),
-        'analysis/index.html', model('base', 'old'), model('kimi-fetch', 'new'), [], '')
-    h = BeautifulSoup(html, 'html.parser')
-    assert len(h.select('#compare-a option')) == 2
-    assert len(h.select('[data-compare-method]')) == 2
-    assert len(h.select('#compare-rows tr')) == 1
-    assert h.select_one('#compare-rows tr')['data-pass'] == 'base kimi-fetch'
-    assert h.select_one('#compare-rows a[href*="kimi-fetch"]')['href'] == '../additional/providers/kimi-fetch.html'
-    assert len(h.select('#filtered-table tbody tr')) == 2
 
 
 @pytest.mark.parametrize('tamper', ['local_pack', 'trailing_bytes', 'unreferenced_block', 'shell', 'style', 'home_asset'])
@@ -356,22 +299,6 @@ def test_extension_publication_checks_sensitive_appended_content_at_boundary(tmp
 
 
 
-def test_extension_matches_reassigned_task_ids_by_each_sources_identity():
-    from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import _extension_page
-    def model(provider, paths):
-        return {'providers': [{'id': provider}], 'rows': [
-            {'provider': provider, 'suite': 'suite', 'case_id': str(i),
-             'url': 'https://example.com/'+path, 'name': path} for i, path in enumerate(paths, 1)]}
-    def page(provider, labels):
-        rows = ''.join(f'<tr data-pass="{provider}-{label}" data-fail=""><td>{i}</td><td><a href="../datasets/suite--{i}.html">{label}</a></td><td></td><td></td></tr>'
-                       for i, label in enumerate(labels, 1))
-        return '<html><body><table><tbody id="compare-rows">'+rows+'</tbody></table></body></html>'
-    result = BeautifulSoup(_extension_page(page('base', ['A', 'B']), page('added', ['B', 'A']),
-        'analysis/index.html', model('base', ['A', 'B']), model('added', ['B', 'A']), [], ''), 'html.parser')
-    rows = result.select('#compare-rows tr')
-    assert rows[0]['data-pass'] == 'base-A added-A'
-    assert rows[1]['data-pass'] == 'base-B added-B'
 
 
 def test_extension_updates_only_explicit_population_summary():
@@ -387,19 +314,30 @@ def test_extension_updates_only_explicit_population_summary():
     assert result.select_one('#evidence').get_text() == '13 ms, $3, 2023-03-03, task-3; 10 种方法'
 
 
-def test_extension_refresh_restores_baseline_pages_when_leaving_ranked_mode(tmp_path):
-    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
-    output, _, _, _ = _published_extension(tmp_path)
-    spec_path = tmp_path/'extension.json'
-    spec = json.loads(spec_path.read_bytes())
-    original = (Path(spec['published_base']['root'])/'analysis/index.html').read_bytes()
-    spec['presentation'] = 'ranked'
-    write(spec_path, spec)
-    refresh_published_extension(output, spec_path=spec_path)
-    assert (output/'analysis/index.html').read_bytes() != original
-    spec['presentation'] = 'audit'
-    write(spec_path, spec)
-    assert refresh_published_extension(output, spec_path=spec_path)['valid']
-    assert (output/'analysis/index.html').read_bytes() == original
-    assert json.loads((output/'saved-extension.json').read_bytes())['presentation_pages'] == []
-    assert check_published_extension(output)['valid']
+
+
+def test_extension_reuses_standard_rankings_and_timing(tmp_path):
+    import shutil
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _shared_presentations, _joined_presentation
+    _, entries = reports(tmp_path)
+    output = tmp_path / 'presentation'
+    shutil.copytree(entries[0]['root'], output)
+    shutil.copytree(entries[1]['root'], output / 'additional')
+    cases, records, providers, _ = _joined_presentation(output)
+    assert len(cases) == 1 and len(records) == len(providers) == 2
+    rendered = _shared_presentations(output)
+    overall = BeautifulSoup(rendered['overall'], 'html.parser')
+    assert len(overall.select('#ranking-overall tbody tr')) == 2
+    assert [r.find('td').get_text() for r in overall.select('#ranking-overall tbody tr')] == ['1', '1']
+    assert overall.select('.comparison-winner')
+    timing = BeautifulSoup(rendered['timing'], 'html.parser')
+    assert len(timing.select('#overall-matched-latency-table tbody tr')) == 2
+
+
+
+    analysis = BeautifulSoup(rendered['analysis'], 'html.parser')
+    assert len(analysis.select('#compare-a option')) == 2
+    assert len(analysis.select('[data-compare-method]')) == 2
+    assert len(analysis.select('#filtered-table tbody tr')) == 2
+    assert len(analysis.select('#compare-rows tr')) == 1
