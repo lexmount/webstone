@@ -813,6 +813,39 @@ def test_retired_baseline_pack_is_absent_and_its_files_are_rebuilt(tmp_path, ext
         report_package.check_extension_archive(archive, output, baseline=baseline)
 
 
+@pytest.mark.parametrize('tampered', [False, True])
+def test_mixed_reuse_verifies_the_local_slice(tmp_path, monkeypatch, tampered):
+    import gzip
+    import shutil
+    from types import SimpleNamespace
+    from harness.reporting import packs
+    from harness.web_fetch import report_package
+    source, baseline, _, _ = _published_extension(tmp_path)
+    shutil.rmtree(baseline/'data')
+    answer = (tmp_path/'base/answer.txt').read_bytes()
+    cut = len(answer)//2
+    def two_blocks(raw, **_):
+        return [SimpleNamespace(data=chunk, length=len(chunk)) for chunk in (raw[:cut], raw[cut:]) if chunk]
+    monkeypatch.setattr(packs, 'fastcdc', two_blocks)
+    entry = ('answer.txt', {'size':len(answer), 'sha256':hashlib.sha256(answer).hexdigest(),
+                            'mime':'text/plain'}, answer)
+    manifest = packs.write_compact_packs([entry], baseline, pack_limit=1)
+    local, external = manifest['packs']
+    manifest['external_packs'] = {external:{'url':'https://example.com/pinned/'+external}}
+    report_package._save_wire_manifest(baseline, manifest)
+    if tampered:
+        payload = gzip.decompress((baseline/local).read_bytes())
+        (baseline/local).write_bytes(gzip.compress(bytes([payload[0]^1])+payload[1:], mtime=0))
+    archive = tmp_path/'mixed.zip'
+    if tampered:
+        with pytest.raises(ValueError, match='Local block differs from the frozen source: answer.txt'):
+            report_package.build(source, archive, reuse_published=baseline)
+        assert not archive.exists()
+    else:
+        report_package.build(source, archive, reuse_published=baseline)
+        assert report_package.check_extension_archive(archive, source, baseline=baseline)['valid']
+
+
 @pytest.mark.parametrize('renamed', [False, True])
 @pytest.mark.parametrize('identical', [False, True])
 def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, identical):

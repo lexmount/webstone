@@ -1136,13 +1136,18 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
             if old is None and name == 'extension-base-home.txt':
                 old = original['files'].get('index.html')
             if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
-                packs = {current['blocks'][i]['pack'] for i in entry['parts']}
-                if packs & reused_physical_packs:
-                    # Re-uploaded evidence must pass the current privacy policy.
+                blocks = [current['blocks'][i] for i in entry['parts']]
+                if any(block['pack'] in reused_physical_packs for block in blocks):
                     data = _extension_file_bytes(name, path, originals)
                     _require(not publication_file_risk(name, data), 'Private content in re-uploaded pack: '+name)
-                if not packs.intersection(external):
-                    _require(reconstruct_packed_file(current, name, cache) == _extension_file_bytes(name, path, originals), 'Reused file reconstruction differs: '+name)
+                    offset = 0
+                    for block in blocks:
+                        length, start = block['size'], block['offset']
+                        if block['pack'] in reused_physical_packs:
+                            _require(cache(block['pack'])[start:start+length] == data[offset:offset+length],
+                                     'Local block differs from the frozen source: '+name)
+                        offset += length
+                    _require(offset == len(data), 'Reused file ranges differ from the frozen size: '+name)
                 reused += 1
             else:
                 data = _extension_file_bytes(name, path, originals)
