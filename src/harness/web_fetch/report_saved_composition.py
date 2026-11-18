@@ -4,10 +4,11 @@ import json
 import shutil
 import re
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from lexbench_webfetch.paths import contained_path, safe_identifier
 from harness.record_io import file_sha256 as _hash
+from harness.web_fetch.report_i18n import saved_matrix_text as _text
 
 
 def _frozen_report(root, binding):
@@ -83,24 +84,27 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         if len(old_rows) != len(base_model['providers']) or len(new_rows) != len(added_model['providers']):
             raise ValueError('Comparison table provider population differs')
         target['data-row-index'] = 'false'
-        target.thead.tr.find(['th', 'td']).string = '序号'
-        extra_review = False
+        target.thead.tr.find(['th', 'td']).string = _text('extension_index')
         if identifier == 'ranking-overall':
             target_headers = target.thead.tr.find_all('th', recursive=False)
             source_headers = source.thead.tr.find_all('th', recursive=False)
-            if len(source_headers) == len(target_headers) + 1 and source_headers[-1].get_text().startswith('审查结果'):
-                target.thead.tr.append(source_headers[-1])
-                extra_review = True
-            elif len(source_headers) != len(target_headers):
+            if len(source_headers) != len(target_headers):
+                longer, shorter = ((source, target) if len(source_headers) > len(target_headers)
+                                   else (target, source))
+                headers = longer.thead.tr.find_all('th', recursive=False)
+                if abs(len(source_headers) - len(target_headers)) != 1 or not re.match(
+                        r'^(审查结果|Review coverage)', headers[-1].get_text(strip=True)):
+                    raise ValueError('Incompatible overall comparison metrics')
+                shorter.thead.tr.append(deepcopy(headers[-1]))
+                for row in shorter.tbody.find_all('tr', recursive=False):
+                    cell = old.new_tag('td', attrs={'data-sort': '-1'})
+                    cell.string = _text('extension_unrecorded')
+                    row.append(cell)
+                source_headers = source.thead.tr.find_all('th', recursive=False)
+            if len(source_headers) != len(target.thead.tr.find_all('th', recursive=False)):
                 raise ValueError('Incompatible overall comparison metrics')
         for index, row in enumerate(old_rows, 1):
             row.find('td').string = str(index)
-            if extra_review:
-                cell = old.new_tag('td')
-                link = old.new_tag('a', href='review/index.html')
-                link.string = '核验记录'
-                cell.append(link)
-                row.append(cell)
         for index, row in enumerate(new_rows, len(old_rows) + 1):
             cells = row.find_all('td', recursive=False)
             if identifier == 'ranking-overall':
@@ -150,7 +154,7 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         methods.tbody.append(row)
     heading = old.find(id='overall-ranking')
     if heading and heading.find('h2'):
-        heading.find('h2').string = '各方法已保存结果'
+        heading.find('h2').string = _text('extension_audit_title')
     before_count = len(base_model['providers'])
     after_count = before_count + len(added_model['providers'])
     for node in old.find_all(string=True):
@@ -159,11 +163,11 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         text = str(node)
         updated = re.sub(r'\b' + str(before_count) + r' 种(已测)?方法',
                          lambda match: str(after_count) + ' 种' + (match[1] or '') + '方法', text)
-        updated = updated.replace('按本轮任务通过率排序。', '保留各轮已保存结果；评分口径见下方说明。')
+        updated = updated.replace('按本轮任务通过率排序。', _text('extension_audit_basis'))
         if updated != text:
             node.replace_with(updated)
     entry = old.new_tag('p', attrs={'class': 'source-note', 'data-added-report': 'true'})
-    entry.append(BeautifulSoup('<a href="additional/index.html">查看方法详情与逐例证据 →</a>', 'html.parser'))
+    entry.append(BeautifulSoup('<a href="additional/index.html">' + escape(_text('extension_method_details')) + '</a>', 'html.parser'))
     methods.parent.insert_after(entry)
     if ranked:
         _unified_home(old, base_model, added_model, presentation)
@@ -192,7 +196,7 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
         row.find('td').string = str(rank)
         table.tbody.append(row)
     table['data-row-index'] = 'false'
-    table.thead.tr.find('th').string = '排名'
+    table.thead.tr.find('th').string = _text('extension_rank')
 
 
 def _model_fetch_badges(page):
@@ -205,9 +209,9 @@ def _model_fetch_badges(page):
         if link.select_one('.model-fetch-badge'):
             continue
         badge = page.new_tag('sup', attrs={'class': 'model-fetch-badge',
-            'title': '大模型提供的网页抓取工具或 API',
+            'title': _text('extension_model_fetch_title'),
             'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
-        badge.string = '大模型公司'
+        badge.string = _text('extension_model_fetch')
         link.append(badge)
 
 
@@ -347,9 +351,12 @@ def _unified_home(page, base_model, added_model, presentation):
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
     method_section = page.find(id='method-overview-section')
-    if method_section and method_section.find('p'):
-        method_section.find('p').string = '价格单位：美元。'
-    page.select_one('#overall-ranking h2').string = '任务通过率排名'
+    if method_section:
+        owner = method_section.select_one('.wrap') or method_section
+        intro = owner.find('p', recursive=False)
+        if intro:
+            intro.string = _text('extension_price_units')
+    page.select_one('#overall-ranking h2').string = _text('extension_ranking_title')
     for identifier, content in [('ranking-overall', presentation['overall']),
                                 *[('ranking-' + key, value) for key, value in presentation['families'].items()]]:
         rendered = BeautifulSoup(content, 'html.parser')
@@ -366,18 +373,18 @@ def _unified_home(page, base_model, added_model, presentation):
         else:
             page.find('table', id=identifier).replace_with(fragment)
         if fragment.get('data-row-index') != 'false':
-            fragment.thead.tr.find('th').string = '排名'
+            fragment.thead.tr.find('th').string = _text('extension_rank')
         else:
             if identifier != 'ranking-overall':
                 for note in rendered.select('p.callout'):
                     fragment.parent.insert_before(note)
             if identifier == 'ranking-overall':
-                page.select_one('#overall-ranking h2').string = '各方法已保存结果'
+                page.select_one('#overall-ranking h2').string = _text('extension_audit_title')
         fragment['data-row-index'] = 'false'
     timing = page.select_one('#overall-matched-latency .wrap')
     if timing:
         timing.clear()
-        timing.append(BeautifulSoup('<h2>全部方法共同成功任务的耗时</h2>' + presentation['timing'], 'html.parser'))
+        timing.append(BeautifulSoup('<h2>' + _text('extension_shared_latency') + '</h2>' + presentation['timing'], 'html.parser'))
         for note in timing.select('p.source-note'):
             note.decompose()
         table = timing.find('table')
@@ -391,7 +398,7 @@ def _unified_home(page, base_model, added_model, presentation):
         cards.append(BeautifulSoup(presentation['cards'], 'html.parser'))
     for node in list(page.find_all(string=True)):
         text = str(node)
-        text = text.replace('保留各轮已保存结果；评分口径见下方说明。', '按任务通过率排序。')
+        text = text.replace(_text('extension_audit_basis'), _text('extension_ordering'))
         if text != str(node):
             node.replace_with(text)
     added_ids = {provider['id'] for provider in added_model['providers']}
@@ -420,7 +427,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
         from html import escape
         prices = old.select_one('#method-guide-pricing .wrap')
         if prices:
-            fragment = '<div class="table-wrap"><table id="model-fetch-pricing"><thead><tr><th>方法</th><th>价格</th><th>计费方式</th><th>来源</th></tr></thead><tbody>'
+            fragment = '<div class="table-wrap"><table id="model-fetch-pricing"><thead><tr>' + ''.join('<th>' + escape(label) + '</th>' for label in _text('extension_prices_headers')) + '</tr></thead><tbody>'
             for method in overview:
                 fragment += '<tr><td><a href="../additional/providers/' + method['id'] + '.html">' + escape(method['label']) + '</a></td><td>' + escape(method['price']) + '</td><td>' + escape(method['billing']) + '</td><td>' + ' · '.join('<a href="' + escape(s['url'], quote=True) + '">' + escape(s['label']) + '</a>' for s in method['sources']) + '</td></tr>'
             prices.append(BeautifulSoup(fragment + '</tbody></table></div>', 'html.parser'))
@@ -510,10 +517,10 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                             if group['provider'] == provider['id'] for s in group['settings']]
                 def observed(key, settings=settings):
                     values = sorted({str(s[key]) for s in settings if key in s})
-                    return ' / '.join(values) if values else '未记录'
+                    return ' / '.join(values) if values else _text('extension_unrecorded')
                 row = old.new_tag('tr')
                 values = [str(len(table.select('tbody tr')) + 1), provider.get('label', provider['id']),
-                          '—', observed('timeout_seconds'), '未记录', '未记录', '未记录', observed('max_failure_retries')]
+                          '—', observed('timeout_seconds'), *([_text('extension_unrecorded')]*3), observed('max_failure_retries')]
                 for value in values:
                     cell = old.new_tag('td')
                     cell.string = value
@@ -521,7 +528,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                 table.tbody.append(row)
         details = old.new_tag('details')
         summary = old.new_tag('summary')
-        summary.string = '评分来源与版本'
+        summary.string = _text('extension_scoring_versions')
         details.append(summary)
         paragraph = old.new_tag('p')
         paragraph.string = note
@@ -545,9 +552,46 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     return str(old)
 
 
-def _extension_views(output, base_model, added_model, overview, note):
+def _extension_english_views(output, primary):
+    """Use the shared localizer; frozen source editions remain immutable."""
+    from harness.report_languages import generated_languages, language_metadata_path
+    from harness.web_fetch.report_i18n import localize_html, release_translations
+    from bs4 import BeautifulSoup
+    def english_available(root):
+        index = root/'extension-base-pages/en/index.html'
+        if not index.is_file():
+            index = root/'en/index.html'
+        exists = index.is_file() and not BeautifulSoup(index.read_text(encoding='utf-8'),
+            'html.parser').find(attrs={'data-english-not-generated': True})
+        declared = 'en' in generated_languages(root) if language_metadata_path(root).is_file() else exists
+        if declared and not exists:
+            raise ValueError('Declared English source has no generated homepage')
+        return declared
+    if not english_available(output):
+        return {}
+    targets = {}
+    for prefix in ('', 'additional/'):
+        root = output/prefix
+        files = _read(root/'saved-matrix-audit.json')['files']
+        has_english = english_available(root)
+        for name in files:
+            if not name.endswith('.html'):
+                continue
+            counterpart = 'en/' + name
+            targets[prefix + name] = prefix + (counterpart if has_english and counterpart in files else name)
+    targets.update({route: 'en/' + route for route in primary})
+    history = output/'report-changes.json'
+    translations = release_translations(_read(history)) if history.is_file() else {}
+    return {'en/' + route: localize_html(content, PurePosixPath(route),
+                translations=translations, route_targets=targets)
+            for route, content in primary.items()}
+
+
+def _extension_views(output, base_model, added_model, overview, note, *, ranked=True):
     """Return deterministic non-home views; source pages remain hash-bound copies."""
     result = {}
+    if not ranked:
+        return _extension_english_views(output, {'index.html': (output/'index.html').read_text(encoding='utf-8')})
     for route in _EXTENSION_ROUTES:
         retained = output / 'extension-base-pages' / route
         source = retained if retained.exists() else output / route
@@ -576,6 +620,8 @@ def _extension_views(output, base_model, added_model, overview, note):
         _model_fetch_badges(page)
         result[route] = str(page)
 
+    result.update(_extension_english_views(output,
+        {'index.html': (output/'index.html').read_text(encoding='utf-8'), **result}))
     return result
 
 
@@ -610,11 +656,13 @@ def build_published_extension(spec_path, output):
     (output / 'index.html').write_text(_extended_home(
         (base_root / 'index.html').read_text(encoding='utf-8'), (added_root / 'index.html').read_text(encoding='utf-8'),
         base, added, overview, spec['comparison_note'], ranked=ranked, presentation=_shared_presentations(output) if ranked else None), encoding='utf-8')
-    pages = _extension_views(output, base, added, overview, spec['comparison_note']) if ranked else {}
+    pages = _extension_views(output, base, added, overview, spec['comparison_note'], ranked=ranked)
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
-        retained.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(output / route, retained)
+        if (output/route).is_file():
+            retained.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(output / route, retained)
+        (output/route).parent.mkdir(parents=True, exist_ok=True)
         (output / route).write_text(content, encoding='utf-8')
     _write(output / 'extension-methods.json', overview)
     _write(output / 'saved-extension.json', {
@@ -666,16 +714,17 @@ def check_published_extension(output):
         presentation=_shared_presentations(output) if proof.get('presentation') == 'ranked' else None)
     if (output / 'index.html').read_text(encoding='utf-8') != expected:
         raise ValueError('Published extension comparison differs from source metrics')
-    if proof.get('presentation') == 'ranked':
-        views = _extension_views(output, _read(output / 'matrix.json'),
-            _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'), proof['comparison_note'])
-        if set(views) != set(proof.get('presentation_pages', [])):
-            raise ValueError('Published extension omitted comparison pages')
-        for route, content in views.items():
-            if (output / route).read_text(encoding='utf-8') != content:
-                raise ValueError('Published comparison page differs from its frozen sources: ' + route)
-        if 'analysis/index.html' in views:
-            analysis = BeautifulSoup(views['analysis/index.html'], 'html.parser')
+    views = _extension_views(output, _read(output / 'matrix.json'),
+        _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
+        proof['comparison_note'], ranked=proof.get('presentation') == 'ranked')
+    if set(views) != set(proof.get('presentation_pages', [])):
+        raise ValueError('Published extension omitted comparison pages')
+    for route, content in views.items():
+        if (output / route).read_text(encoding='utf-8') != content:
+            raise ValueError('Published comparison page differs from its frozen sources: ' + route)
+    for route in ('analysis/index.html', 'en/analysis/index.html'):
+        if route in views:
+            analysis = BeautifulSoup(views[route], 'html.parser')
             provider_count = len(proof['providers'])
             for selector in ('#compare-a option', '[data-compare-method]'):
                 if len(analysis.select(selector)) != provider_count:
@@ -685,11 +734,15 @@ def check_published_extension(output):
                 raise ValueError('Unified result inventory omitted saved results')
     home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     count = len(proof['providers'])
-    for table in home.select('table[id^="ranking-"]'):
-        if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
-            raise ValueError('Published extension comparison population differs')
-    if len(home.select('[data-added-method]')) != len(_read(output / 'extension-methods.json')):
-        raise ValueError('Published extension omitted method configurations')
+    homes = [home]
+    if 'en/index.html' in views:
+        homes.append(BeautifulSoup(views['en/index.html'], 'html.parser'))
+    for page in homes:
+        for table in page.select('table[id^="ranking-"]'):
+            if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
+                raise ValueError('Published extension comparison population differs')
+        if len(page.select('[data-added-method]')) != len(_read(output / 'extension-methods.json')):
+            raise ValueError('Published extension omitted method configurations')
     from urllib.parse import urljoin, urlsplit, unquote
     for route in ['index.html', *proof.get('presentation_pages', [])]:
         page = home if route == 'index.html' else BeautifulSoup((output / route).read_text(encoding='utf-8'), 'html.parser')
@@ -764,20 +817,24 @@ def _refresh_published_extension(output, *, spec_path=None):
         raise ValueError('Cannot refresh changed base home')
     atomic_write(output / 'index.html', home.encode())
     pages = _extension_views(output, _read(output / 'matrix.json'),
-        _read(output / 'additional/matrix.json'), overview, note) if ranked else {}
+        _read(output / 'additional/matrix.json'), overview, note, ranked=ranked)
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
-        if not retained.exists():
+        if route in baseline['files'] and not retained.exists():
             retained.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(output / route, retained)
         atomic_write(output / route, content.encode())
         proof['files'][route] = _hash(output / route)
-        proof['files']['extension-base-pages/' + route] = _hash(retained)
-    if not ranked:
-        for route in proof.get('presentation_pages', []):
+        if retained.is_file():
+            proof['files']['extension-base-pages/' + route] = _hash(retained)
+    for route in set(proof.get('presentation_pages', [])) - set(pages):
+        if route in baseline['files']:
             retained = output/'extension-base-pages'/route
             atomic_write(output/route, retained.read_bytes())
             proof['files'][route] = _hash(output/route)
+        else:
+            (output/route).unlink()
+            proof['files'].pop(route)
     proof['presentation_pages'] = list(pages)
     proof['presentation'] = 'ranked' if ranked else 'audit'
     proof['comparison_note'] = note

@@ -78,6 +78,9 @@ method configurations, pricing sources and the exact publication baseline outsid
 Git. Verify nested evidence loading and immutable data-pack reuse before updating
 the original site. Do not replace a historical contract merely to make reports
 look comparable.
+Keep generated language editions aligned on comparison populations and evidence
+links; retain each original language edition as a frozen source when rebuilding
+extended views through the maintained localization owner.
 
 ## Stop conditions
 

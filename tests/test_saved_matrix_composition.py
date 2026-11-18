@@ -144,11 +144,12 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
     def snapshot(name, order, values):
         root = tmp_path / name
         root.mkdir()
-        header = '<thead><tr>' + '<th>value</th>' * 9 + ('<th>审查结果</th>' if reviewed else '') + '</tr></thead>'
+        has_review = reviewed if isinstance(reviewed, bool) else reviewed[name == 'extra']
+        header = '<thead><tr>' + '<th>value</th>' * 9 + ('<th>审查结果</th>' if has_review else '') + '</tr></thead>'
         def table(identifier, numbers):
             cells = '<td>1</td><td><a href="providers/' + name + '.html">' + name + '</a></td>'
             cells += ''.join('<td data-sort="' + str(n) + '"><strong class="good">' + str(n) + '</strong></td>' for n in numbers)
-            if reviewed and identifier == 'ranking-overall':
+            if has_review and identifier == 'ranking-overall':
                 cells += '<td>Reviewed</td>'
             return '<table id="' + identifier + '">' + header + '<tbody><tr>' + cells + '</tr></tbody></table>'
         home = '<html><body><section id="overall-ranking"><h2>Ranking</h2>'
@@ -228,11 +229,22 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
 
 
 @pytest.mark.parametrize('external', [False, True])
-@pytest.mark.parametrize('reviewed', [False, True])
+@pytest.mark.parametrize('reviewed', [False, True, (True, False), (False, True)])
 def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_path, external, reviewed):
     from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
     from harness.web_fetch.report_saved_composition import check_published_extension
     output, packed, content, _ = _published_extension(tmp_path, external=external, reviewed=reviewed)
+    if isinstance(reviewed, tuple):
+        from bs4 import BeautifulSoup
+        page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
+        table = page.select_one('#ranking-overall')
+        rows = table.select('tbody tr')
+        assert all(len(r.find_all('td', recursive=False)) == len(table.select('thead th')) for r in rows)
+        for row, present in zip(rows, reviewed, strict=True):
+            review = row.find_all('td', recursive=False)[-1]
+            assert review.get_text() == ('Reviewed' if present else '未记录')
+            if not present:
+                assert review.find('a') is None
     assert (output/'additional/providers/extra.html').read_bytes() == (tmp_path/'extra/providers/extra.html').read_bytes()
     from harness.reporting.packs import read_packed_file
     import zipfile
@@ -420,20 +432,31 @@ def test_extension_writer_uses_little_endian_on_native_big_endian_host(tmp_path)
     assert report_package.check_extended_content(source, baseline, output)['valid']
 
 
-def _real_extension(tmp_path, *, undecidable=False, source_reports=None):
+def _real_extension(tmp_path, *, undecidable=False, source_reports=None, source_languages=('zh', 'zh')):
     from harness.web_fetch.report_saved_composition import build_published_extension
     entries = source_reports
     if entries is None:
         _, entries = reports(tmp_path, undecidable=undecidable, families=True)
     # Frozen public reports include a method metadata section alongside the
     # standard renderer. Keep real records, datasets and comparison tables.
-    for entry in entries:
+    for entry, language in zip(entries, source_languages, strict=True):
         root = Path(entry['root'])
         home = root/'index.html'
         home.write_text(home.read_text(encoding='utf-8').replace('</main>',
             '<section id="method-overview-section"><table id="method-overview"><tbody></tbody></table></section></main>'), encoding='utf-8')
         audit = json.loads((root/'saved-matrix-audit.json').read_bytes())
-        audit['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+        if language != 'zh':
+            from harness.web_fetch.report_i18n import write_english_report
+            from harness.report_languages import REPORT_PAGE_MARKER, write_language_contract, select_report_language
+            routes = [p.relative_to(root).as_posix() for p in root.rglob('*.html')
+                      if 'en' not in p.relative_to(root).parts
+                      and REPORT_PAGE_MARKER in p.read_text(encoding='utf-8')]
+            write_english_report(root, source_routes=routes)
+            write_language_contract(root, include_english=True)
+            if language == 'en':
+                select_report_language(root, 'en')
+        audit['files'] = {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                          for p in root.rglob('*') if p.is_file() and p.name != 'saved-matrix-audit.json'}
         entry['audit'] = write(root/'saved-matrix-audit.json', audit)
     overview = write(tmp_path/'methods.json', [{'id': 'method-1', 'label': 'Method 1',
         'execution': 'Fixture', 'configuration': 'Default', 'price': 'Unavailable',
@@ -569,7 +592,7 @@ def test_extension_refresh_rejection_preserves_prior_tree(tmp_path, monkeypatch,
         spec['presentation'] = 'ranked'
         monkeypatch.setattr(composition, '_shared_presentations', lambda _: {})
         monkeypatch.setattr(composition, '_unified_home', lambda *args: None)
-        def reject(*args):
+        def reject(*args, **kwargs):
             raise ValueError('injected render rejection')
         monkeypatch.setattr(composition, '_extension_views', reject)
         spec['comparison_note'] = 'Changed note for new home'
@@ -581,6 +604,7 @@ def test_extension_refresh_rejection_preserves_prior_tree(tmp_path, monkeypatch,
     with pytest.raises(ValueError, match='injected render rejection|broken page link'):
         composition.refresh_published_extension(output, spec_path=path)
     assert evidence_tree_identity(output) == before
+    monkeypatch.undo()
     assert composition.check_published_extension(output)['valid']
 
 
@@ -889,3 +913,77 @@ def test_extension_keeps_rank_values_separate_from_row_numbers():
     result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
         base, added, [], ''), 'html.parser')
     assert [r.find('td').get_text() for r in result.select('tbody tr')] == ['1', '1']
+
+
+@pytest.mark.parametrize('source_languages', [('bilingual', 'bilingual'), ('en', 'en'), ('bilingual', 'zh')])
+def test_bilingual_extension_build_refresh_and_mode_change(tmp_path, source_languages):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import build_published_extension, refresh_published_extension, check_published_extension
+    output, path = _real_extension(tmp_path, source_languages=source_languages)
+    spec = json.loads(path.read_bytes())
+    base = Path(spec['published_base']['root'])
+    original_english = (base/'en/index.html').read_bytes()
+    def check_home(root):
+        page = BeautifulSoup((root/'en/index.html').read_text(encoding='utf-8'), 'html.parser')
+        assert len(page.select('#ranking-overall tbody tr')) == 2
+        assert page.html['lang'] == 'en'
+        assert not page.select('script[data-report-language-entry]')
+        if source_languages[0] == 'en':
+            assert 'report-language=zh' in page.select_one('a[hreflang="zh-CN"]')['href']
+        return page
+    page = check_home(output)
+    assert (output/'extension-base-pages/en/index.html').read_bytes() == original_english
+    target = '../additional/en/providers/method-1.html' if source_languages[1] != 'zh' else '../additional/providers/method-1.html'
+    assert page.select_one('#ranking-overall a[href*="method-1"]')['href'] == target
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    ranked = tmp_path/'ranked'
+    build_published_extension(path, ranked)
+    check_home(ranked)
+    english = BeautifulSoup((ranked/'en/analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert len(english.select('#compare-a option')) == 2
+    assert len(english.select('#filtered-table tbody tr')) == 2
+    native_result = '../../additional/en/attempts/first--run-1.html' if source_languages[1] != 'zh' else '../../additional/attempts/first--run-1.html'
+    assert english.select_one('#filtered-table tr[data-provider="method-1"] a[href*="attempts/"]')['href'] == native_result
+    methods = json.loads((tmp_path/'methods.json').read_bytes())
+    methods[0]['configuration'] = 'Refreshed configuration'
+    spec['method_overview'] = write(tmp_path/'methods.json', methods)
+    write(path, spec)
+    refresh_published_extension(ranked, spec_path=path)
+    assert 'Refreshed configuration' in check_home(ranked).get_text()
+    assert check_published_extension(ranked)['valid']
+    spec['presentation'] = 'audit'
+    write(path, spec)
+    refresh_published_extension(ranked, spec_path=path)
+    check_home(ranked)
+    assert (ranked/'analysis/index.html').read_bytes() == (base/'analysis/index.html').read_bytes()
+    assert (ranked/'en/analysis/index.html').read_bytes() == (base/'en/analysis/index.html').read_bytes()
+    assert check_published_extension(ranked)['valid']
+
+
+@pytest.mark.parametrize('tamper', ['stale', 'omit'])
+def test_bilingual_extension_rejects_rebound_base_only_english(tmp_path, tamper):
+    from harness.web_fetch.report_saved_composition import check_published_extension
+    output, path = _real_extension(tmp_path, source_languages=('bilingual', 'bilingual'))
+    spec = json.loads(path.read_bytes())
+    original = (Path(spec['published_base']['root'])/'en/index.html').read_bytes()
+    (output/'en/index.html').write_bytes(original)
+    proof = json.loads((output/'saved-extension.json').read_bytes())
+    proof['files']['en/index.html'] = hashlib.sha256(original).hexdigest()
+    if tamper == 'omit':
+        proof['presentation_pages'].remove('en/index.html')
+    write(output/'saved-extension.json', proof)
+    with pytest.raises(ValueError, match='differs from its frozen sources|omitted comparison pages'):
+        check_published_extension(output)
+
+
+def test_frozen_combined_scope_banner_translates_without_regeneration():
+    from pathlib import PurePosixPath
+    from harness.web_fetch.report_i18n import localize_html, translate, MESSAGES, _SAVED_MATRIX_SOURCES
+    counts = {'planned': 6, 'saved': 4, 'uncommitted': 1, 'not_called': 1, 'rejected': 0}
+    raw = ' '.join(translate(MESSAGES, 'saved_matrix_'+key, 'zh', **counts)
+                   for key in ('coverage_banner_counts', 'coverage_banner_note'))
+    html = '<html lang="zh-CN"><body><span>'+raw+'</span></body></html>'
+    english = localize_html(html, PurePosixPath('index.html'))
+    assert _SAVED_MATRIX_SOURCES['coverage_banner_counts'].format(**counts) in english
+    assert _SAVED_MATRIX_SOURCES['coverage_banner_note'] in english

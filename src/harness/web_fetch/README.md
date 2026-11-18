@@ -1662,6 +1662,11 @@ provenance remains on the methodology page. Original pages are retained as
 hash-bound presentation sources. This does not certify
 a common scorer or a controlled collection window. The additional report's full
 result, review and evidence pages remain accessible beneath `additional/`.
+Existing English comparison views are rebuilt through the shared localization
+owner, retaining the original English pages as frozen sources. Every generated
+language must show the same comparison population and valid evidence links;
+evidence uses its frozen English edition when available, otherwise its original
+language.
 
 Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
 `--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with

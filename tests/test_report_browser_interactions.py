@@ -542,3 +542,33 @@ def test_webfetch_extension_standalone_evidence_dialog(tmp_path, browser, displa
             assert not any('/additional/additional/' in url for url in requests)
         finally:
             page.close()
+
+
+def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
+    from tests.test_saved_matrix_composition import _real_extension, write
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    output, spec_path = _real_extension(tmp_path, source_languages=('en', 'en'))
+    spec = json.loads(spec_path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(spec_path, spec)
+    refresh_published_extension(output, spec_path=spec_path)
+    with local_report_server(output) as origin:
+        page = local_page(browser, origin, **display)
+        try:
+            page.goto(origin+'/index.html')
+            expect(page).to_have_url(origin+'/en/index.html')
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('a[hreflang="zh-CN"]').click()
+            expect(page).to_have_url(origin+'/index.html?report-language=zh')
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('a[hreflang="en"]').click()
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('header.top').get_by_role('link', name='Analysis', exact=True).click()
+            expect(page).to_have_url(origin+'/en/analysis/index.html')
+            page.locator('[data-filter="result"]').select_option('')
+            expect(page.locator('#filtered-table tbody tr')).to_have_count(2)
+            page.locator('#filtered-table tr[data-provider="method-1"] a[href*="attempts/"]').click()
+            expect(page).to_have_url(origin+'/additional/en/attempts/first--run-1.html')
+            assert page.locator('html').get_attribute('lang') == 'en'
+        finally:
+            page.close()

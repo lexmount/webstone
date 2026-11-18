@@ -2264,7 +2264,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   counts={key:sum(row[key] for row in saved_scope['providers']) for key in ('planned','saved','uncommitted','not_called','rejected')}
   reliability_banner=('<div class="wrap reliability failure" role="status" data-saved-completion>'
       '<strong>'+saved_matrix_text('coverage_banner_title')+'</strong><span>'
-      +esc(saved_matrix_text('coverage_banner_counts', **counts))+' '
+      +esc(saved_matrix_text('coverage_banner_counts', **counts))+'</span><span>'
       +esc(saved_matrix_text('coverage_banner_note'))+'</span></div>')
   if saved_scope.get('parameter_reruns'):
    reliability_banner+='<div class="wrap callout" data-parameter-reruns>'+esc(saved_matrix_text('parameter_family_banner' if saved_scope['parameter_reruns'].get('family_selection') else 'parameter_rerun_banner', **saved_scope['parameter_reruns']))+'</div>'
