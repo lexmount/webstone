@@ -203,15 +203,48 @@ def _model_fetch_badges(page):
         link.append(badge)
 
 
+def _extension_case_routes(cases, added):
+    """Match every task once, retaining duplicate URLs with distinct case IDs."""
+    remaining = dict(cases)
+    pending = {case['id']: case for case in added}
+    routes = {}
+    def key(case):
+        return case['url'], case.get('name', '')
+    def contract(case):
+        return {k: v for k, v in case.items() if k != 'id'}
+    def bind(source, target):
+        routes[source] = target
+        pending.pop(source)
+        remaining.pop(target)
+    # Stable task IDs take precedence even when the frozen editions differ.
+    for identifier, case in list(pending.items()):
+        if identifier in remaining and key(case) == key(remaining[identifier]):
+            bind(identifier, identifier)
+    # Renamed IDs require a uniquely matching frozen definition. Never guess
+    # how indistinguishable repeated tasks correspond across editions.
+    for identifier, case in list(pending.items()):
+        matches = sorted(i for i, candidate in remaining.items()
+                         if key(candidate) == key(case) and contract(candidate) == contract(case))
+        if len(matches) == 1:
+            bind(identifier, matches[0])
+    for identifier, case in list(pending.items()):
+        matches = [i for i, candidate in remaining.items() if key(candidate) == key(case)]
+        if len(matches) != 1:
+            raise ValueError('Report extension has ambiguous or unmatched task identities')
+        bind(identifier, matches[0])
+    if remaining:
+        raise ValueError('Report extension omitted task identities')
+    return routes
+
+
 def _joined_presentation(output):
-    """Join the standard frozen renderer inputs by task URL and name."""
+    """Join frozen renderer inputs through a one-to-one task identity mapping."""
     from harness.record_io import load_jsonl
     base = _read(output / 'dataset.json')
     cases = {c['id']: c for c in base['cases']}
-    identities = {(c['url'], c.get('name', '')): key for key, c in cases.items()}
     records = load_jsonl(output / 'results.jsonl')
     extra = _read(output / 'additional/dataset.json')
-    routes = {c['id']: identities[c['url'], c.get('name', '')] for c in extra['cases']}
+    routes = _extension_case_routes(cases, extra['cases'])
     if any(c.get('task_kind', 'body') != cases[routes[c['id']]].get('task_kind', 'body') for c in extra['cases']):
         raise ValueError('Joined presentation requires the same task kinds')
     audit = _read(output / 'additional/saved-matrix-audit.json')
@@ -219,10 +252,16 @@ def _joined_presentation(output):
     for record in _project(load_jsonl(output / 'additional/results.jsonl'), paths):
         record['case_id'] = routes[record['case_id']]
         records.append(record)
-    providers = _read(output / 'matrix.json')['providers'] + _read(output / 'additional/matrix.json')['providers']
+    base_model, added_model = _read(output/'matrix.json'), _read(output/'additional/matrix.json')
+    providers = base_model['providers'] + added_model['providers']
     from harness.web_fetch.report import succeeded, measured
-    source_rows = _read(output / 'matrix.json')['rows'] + _read(output / 'additional/matrix.json')['rows']
-    expected = {(r['provider'], identities[r['url'], r.get('name', '')]): r for r in source_rows}
+    expected = {}
+    for model, mapping in ((base_model, {key: key for key in cases}), (added_model, routes)):
+        for row in model['rows']:
+            key = row['provider'], mapping[row['suite'] + '--' + row['case_id']]
+            if key in expected:
+                raise ValueError('Joined presentation repeats a saved task result')
+            expected[key] = row
     if len(records) != len(expected):
         raise ValueError('Joined presentation result population differs')
     for record in records:
@@ -345,6 +384,18 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                 tag[attribute] += '?' + resolved.query
             if resolved.fragment:
                 tag[attribute] += '#' + resolved.fragment
+    if route == 'adoption/index.html':
+        interfaces = old.find(id='method-guide-interfaces')
+        if interfaces:
+            container = interfaces.select_one('.wrap') or interfaces
+            for provider in added_model['providers']:
+                panel = new.find(id='interface-' + provider['id'])
+                if panel:
+                    existing = interfaces.find(id=panel['id'])
+                    if existing:
+                        existing.replace_with(panel)
+                    else:
+                        container.append(panel)
     def headers(table):
         return tuple(c.get_text(' ', strip=True) for c in table.select('thead th'))
     tables = list(old.select('table'))

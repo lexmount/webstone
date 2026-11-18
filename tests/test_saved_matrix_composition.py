@@ -643,3 +643,79 @@ def test_extension_public_command_builds_verified_archive(tmp_path, monkeypatch)
     report_package.main()
     assert report_package.check_extension_archive(archive, output, baseline=baseline)['valid']
     assert not archive.with_suffix('.content').exists()
+
+
+@pytest.mark.parametrize('renamed', [False, True])
+@pytest.mark.parametrize('identical', [False, True])
+def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, identical):
+    import shutil
+    from harness.web_fetch.report_saved_composition import _joined_presentation
+    roots = []
+    for index in range(2):
+        folder = tmp_path/str(index)
+        spec, source, record, _ = fixture(folder)
+        case = json.loads((source/'dataset.json').read_bytes())['cases'][0]
+        provider = 'method-'+str(index)
+        spec['providers'] = [{'id': provider, 'label': provider}]
+        record.update(provider=provider, attempt_id='original-'+str(index))
+        second = json.loads(json.dumps(record))
+        second.update(case_id='second', attempt_id='second-'+str(index), elapsed_ms=900+index)
+        cases = [case, {**case, 'id': 'second', 'category': case['category'] if identical else 'repeat'}]
+        if index and renamed:
+            cases = [{**c, 'id': 'new-'+c['id']} for c in cases]
+            record['case_id'], second['case_id'] = [c['id'] for c in cases]
+        # Reverse both the case and result order in the added report. Mapping
+        # must follow task identities/contracts, never file order or outcomes.
+        if index:
+            cases.reverse()
+        spec['suites'][0]['dataset'] = write(source/'dataset.json', {'cases': cases})
+        spec['sources'][0]['case_ids'] = [c['id'] for c in cases]
+        records = [record, second] if not index else [second, record]
+        (source/'results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in records), encoding='utf-8')
+        spec['sources'][0]['results']['sha256'] = hashlib.sha256((source/'results.jsonl').read_bytes()).hexdigest()
+        roots.append(build(folder, spec).parent)
+    output = tmp_path/'presentation'
+    shutil.copytree(roots[0], output)
+    shutil.copytree(roots[1], output/'additional')
+    if identical and renamed:
+        with pytest.raises(ValueError, match='ambiguous or unmatched task identities'):
+            _joined_presentation(output)
+        return
+    cases, records, _, _ = _joined_presentation(output)
+    assert len(cases) == 2 and len(records) == 4
+    per_method = {p: {r['case_id']: r['elapsed_ms'] for r in records if r['provider'] == p}
+                  for p in ('method-0', 'method-1')}
+    assert set(per_method['method-0']) == set(per_method['method-1'])
+    assert sorted(per_method['method-1'].values()) == [12, 901]
+    if not identical or not renamed:
+        assert per_method['method-1']['first--second'] == 901
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _shared_presentations
+    analysis = BeautifulSoup(_shared_presentations(output)['analysis'], 'html.parser')
+    assert len(analysis.select('#compare-rows tr')) == 2
+    assert len(analysis.select('#filtered-table tbody tr')) == 4
+
+
+@pytest.mark.parametrize('unmeasured_panel', [False, True])
+def test_extension_adoption_keeps_added_interface_examples(unmeasured_panel):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    def page(provider):
+        return f'''<html><body><main><section id="method-guide-interfaces"><div class="wrap">
+        <h2>Interfaces</h2><details class="interface-panel" id="interface-{provider}">
+        <summary>{provider}</summary><dl><dt>Request</dt><dd>Native request</dd></dl>
+        <pre data-file="adoption/interfaces/{provider}.json"></pre>
+        <a href="interfaces/{provider}.json">Example JSON</a>
+        <a href="../attempts/{provider}.html">Saved call</a></details></div></section></main></body></html>'''
+    model = {'providers': [{'id': 'base'}], 'rows': []}
+    added = {'providers': [{'id': 'extra'}], 'rows': []}
+    base = page('base')
+    if unmeasured_panel:
+        base = base.replace('</div>', '<details class="interface-panel" id="interface-extra"><summary>Not measured</summary></details></div>')
+    result = BeautifulSoup(_extension_page(base, page('extra'), 'adoption/index.html',
+        model, added, [], ''), 'html.parser')
+    panels = result.select('#method-guide-interfaces details.interface-panel')
+    assert [p['id'] for p in panels] == ['interface-base', 'interface-extra']
+    assert panels[1].pre['data-file'] == 'additional/adoption/interfaces/extra.json'
+    assert [a['href'] for a in panels[1].select('a')] == [
+        '../additional/adoption/interfaces/extra.json', '../additional/attempts/extra.html']
