@@ -97,6 +97,8 @@ def test_claude_tool_body_only_and_frozen_request():
     with patch.object(provider, '_remote_request', return_value=HttpResponse(200, '', {}, raw)):
         result = provider.fetch(case(), 30, native_route_ledger=ledger)
     assert result.ok and result.content == 'Tool body'
+    assert result.metadata['execution_location'] == 'configured_ssh_worker'
+    assert '192.0.2.83' not in json.dumps(result.metadata)
     require_native_answer_projection(result.content, result.metadata, raw, request_url=case().url,
                                      title=result.title, final_url=result.final_url)
 
@@ -329,7 +331,8 @@ def test_verified_remote_transport_error_is_not_a_local_adapter_or_api_error():
         result = provider.fetch(case(), 30)
     call.assert_called_once()
     assert not result.ok and result.error_type == 'network' and result.content == ''
-    assert result.metadata['execution_ssh_server'] == '192.0.2.83'
+    assert result.metadata['execution_location'] == 'configured_ssh_worker'
+    assert '192.0.2.83' not in json.dumps(result.metadata)
     assert result.metadata['remote_transport_error']['reason_type'] == 'SSLEOFError'
     assert result.metadata['client_retries'] == 0
     assert 'api_http_status' not in result.metadata

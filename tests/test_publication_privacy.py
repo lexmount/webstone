@@ -24,6 +24,17 @@ from harness.web_fetch.publication_privacy import (
 )
 
 
+def test_publication_rejects_execution_addresses_without_filtering_source_prose():
+    import html
+    private = json.dumps({'provider_metadata': {'execution_ssh_server': '10.0.0.42'}})
+    assert publication_risk(private.encode()) == 'internal execution address'
+    assert publication_risk(f'<pre>{html.escape(private)}</pre>'.encode()) == 'internal execution address'
+    assert publication_risk(b'{"execution_server":"fd00::42"}') == 'internal execution address'
+    assert publication_risk(b'{"remote_execution_server":"10.0.0.42"}') == 'internal execution address'
+    assert publication_risk(b'{"execution_location":"configured_ssh_worker"}') is None
+    assert publication_risk(b'A network example uses address 10.0.0.42.') is None
+
+
 def test_nested_response_urls_in_json_keys_are_redacted_in_real_log_views():
     from harness.web_fetch.publication_privacy import project_evidence_view
     url = 'https://example.test/player?token=synthetic-secret&format=video'

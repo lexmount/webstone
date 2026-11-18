@@ -1,6 +1,7 @@
 """Read the existing report export and optionally verify exact uploaded files."""
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -65,6 +66,51 @@ def verify_metadata(slug, base):
     }
 
 
+def verify_external_packs(archive, base, *, target_slug=None, attachment_bindings=None):
+    """Check the pinned URLs that readers will use, without publication credentials."""
+    base = validate_service_base(base)
+    with zipfile.ZipFile(archive) as bundle:
+        if 'manifest.json.gz' in bundle.namelist():
+            manifest = json.loads(gzip.decompress(bundle.read('manifest.json.gz')))
+        elif 'manifest.json' in bundle.namelist():
+            manifest = json.loads(bundle.read('manifest.json'))
+        else:
+            manifest = {}
+    requested = {}
+    attachment_bindings = dict(attachment_bindings or {})
+    for name, item in manifest.get('external_packs', {}).items():
+        slug, version = item.get('site_slug'), item.get('version_id')
+        if not isinstance(slug, str) or not slug or not isinstance(version, str) or not version.startswith('ver_'):
+            raise ValueError('External pack lacks a pinned site version: ' + name)
+        url = base + '/api/preview/' + quote(slug, safe='') + '/' + quote(name, safe='/')
+        url += '?' + urlencode({'__artifact_version': version})
+        if item.get('url') != url:
+            raise ValueError('External pack URL differs from its pinned site: ' + name)
+        if slug == target_slug:
+            raise ValueError('External pack depends on the publication target: ' + name)
+        binding = attachment_bindings.pop(name, None)
+        if binding is not None and (slug, version) != (binding['site_slug'], binding['version_id']):
+            raise ValueError('External pack differs from the approved data attachment: ' + name)
+        requested[name] = url
+    if attachment_bindings:
+        raise ValueError('Package omitted approved external data attachments')
+
+    def probe(entry):
+        name, url = entry
+        request = urllib.request.Request(url, headers={'Range': 'bytes=0-1'})
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                if response.status not in (200, 206) or response.read(2) != b'\x1f\x8b':
+                    raise ValueError('External pack is not accessible: ' + name)
+        except (URLError, TimeoutError, OSError) as error:
+            raise ValueError('External pack is not accessible: ' + name) from error
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        for _ in pool.map(probe, requested.items()):
+            pass
+    return len(requested)
+
+
 def verify_public_files(slug, expected_archive, base):
     base = validate_service_base(base)
     endpoint = base + "/api/sites/" + quote(slug, safe="")
@@ -79,6 +125,7 @@ def verify_public_files(slug, expected_archive, base):
         return data
 
     wanted = archive_inventory(expected_archive)
+    verify_external_packs(expected_archive, base, target_slug=slug)
     before = metadata()
     with zipfile.ZipFile(expected_archive) as expected:
         expected_html = {}

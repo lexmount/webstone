@@ -15,8 +15,44 @@ from harness.web_fetch.publication_verify import (
     download_export,
     main,
     verify_metadata,
+    verify_external_packs,
     verify_public_files,
 )
+
+
+@pytest.mark.parametrize('status', [206, 200, 404])
+def test_external_pack_probe_uses_anonymous_range(tmp_path, monkeypatch, status):
+    from urllib.error import HTTPError
+    url = 'https://reports.example/api/preview/data-site/data/one.gz?__artifact_version=ver_one'
+    archive = tmp_path/'report.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('manifest.json', json.dumps({'external_packs': {'data/one.gz': {
+            'url': url, 'site_slug': 'data-site', 'version_id': 'ver_one'}}}))
+    seen = []
+
+    def open_request(request, *, timeout):
+        seen.append(request.full_url)
+        assert request.get_header('Range') == 'bytes=0-1'
+        assert request.get_header('Authorization') is None
+        if status == 404:
+            raise HTTPError(url, 404, 'Not found', None, None)
+        response = io.BytesIO(b'\x1f\x8b' if status == 206 else b'<html>')
+        response.status = status
+        return response
+
+    monkeypatch.setattr(urllib.request, 'urlopen', open_request)
+    with pytest.raises(ValueError, match='depends on the publication target'):
+        verify_external_packs(archive, 'https://reports.example', target_slug='data-site')
+    with pytest.raises(ValueError, match='differs from the approved data attachment'):
+        verify_external_packs(archive, 'https://reports.example', attachment_bindings={
+            'data/one.gz': {'site_slug': 'data-site', 'version_id': 'ver_other'}})
+    assert not seen
+    if status != 206:
+        with pytest.raises(ValueError, match='External pack is not accessible: data/one.gz'):
+            verify_external_packs(archive, 'https://reports.example', target_slug='report-site')
+    else:
+        assert verify_external_packs(archive, 'https://reports.example', target_slug='report-site') == 1
+    assert seen == [url]
 
 
 class PublicationVerifyTests(unittest.TestCase):

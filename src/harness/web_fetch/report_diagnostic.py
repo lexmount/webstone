@@ -385,9 +385,9 @@ def diagnostic_findings(row, files):
                 t('at_least_characters_3','At least {get} characters',get=metrics['document_minimum_body_chars']),
                 t('characters_3','{get} characters',get=metrics.get('document_body_chars',0)))
     if metrics.get('article_title_pass') is False:
-        add('text',t('article_title_missing','Article title missing'),
-            t('article_title_in_body','Article title retained as a body component'),
-            t('article_title_not_found','No qualifying article title in the returned body'))
+        add('text',t('article_title_requirement_not_met','Article title requirement not met'),
+            t('article_title_expected_surface','The expected title in the article or an eligible extracted field'),
+            t('article_title_no_qualifying_match','No title matched on an accepted surface. A document title in metadata alone does not establish an article title.'))
     for resource in metrics.get('resource_results') or []:
         if resource.get('pass') is False:
             add('resource',t('required_resource_missing','Required resource missing'),

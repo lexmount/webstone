@@ -12,9 +12,10 @@ from pathlib import Path
 
 from harness.record_io import json_bytes
 from harness.reporting.publication import PublicationClient, atomic_write
-from harness.reporting.publication_target import validate_service_base
+from harness.reporting.publication_target import publication_document, validate_service_base
 from harness.reporting.publish import ReceiptRelease, publish_receipt_release
 from harness.web_fetch.publication_check import check
+from harness.web_fetch.publication_verify import verify_external_packs
 from harness.web_fetch.report_package import part_archives, validate_release
 from harness.web_fetch.safety import unlinked_path
 
@@ -43,18 +44,18 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
     """Validate the Web Fetch release, then submit it through the receipt lifecycle."""
     validate_release(config.source, presentation_binding=config.presentation_binding, snapshot_audit=config.snapshot_audit)
     validation_inputs = () if config.presentation_binding is None else (config.presentation_binding,)
-    attachments, check_target = {}, None
+    attachments, parts_plan = {}, None
     if config.parts_manifest is not None:
         attachments = part_archives(config.parts_manifest)
         parts_plan = json.loads(config.parts_manifest.read_text(encoding="utf-8"))
         validation_inputs = (*validation_inputs, config.parts_manifest, *attachments.values())
 
-        def check_target(profile, base):
+    def check_target(profile, base):
+        if parts_plan is not None:
             if parts_plan.get('publications') != profile.get('data_publications'):
                 raise ValueError('Data attachment targets differ from the publication authority')
             if any(target.get('base_url') != base for target in parts_plan['publications'].values()):
                 raise ValueError('Data attachments must use the profile-bound publication service')
-
     bound_check = config.presentation_binding is not None or config.parts_manifest is not None or config.snapshot_audit
     if package_check is None and bound_check:
         package_check = partial(check, presentation_binding=config.presentation_binding,
@@ -68,7 +69,17 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
             if file_sha256(baseline / name) != digest:
                 raise ValueError('Published extension baseline changed')
         validation_inputs = (*validation_inputs, *(baseline / name for name in profile['extension_baseline']['files']))
-        package_check = partial(check_extension_archive, baseline=baseline)
+        target_site = publication_document(profile).get('artifact_hub_site')
+        package_check = partial(check_extension_archive, baseline=baseline, replace_site=target_site,
+                                external_archives=attachments,
+                                retire_packs=profile['extension_baseline'].get('retired_packs', ()))
+    def check_delivery(archive, profile, base):
+        bindings = ({name: parts_plan['publications'][label]
+                     for label, part in parts_plan['parts'].items() for name in part['packs']}
+                    if parts_plan is not None else None)
+        verify_external_packs(archive, base, target_slug=profile.get('artifact_hub_site'),
+                              attachment_bindings=bindings)
+
     return publish_receipt_release(
         ReceiptRelease(
             config.profile, config.archive, config.source, config.receipt, config.journal,
@@ -77,6 +88,7 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
             expected_version=config.expected_version, visibility=config.visibility,
             inputs=validation_inputs, check_reuse=package_check is not None,
             check_target=check_target,
+            check_delivery=check_delivery,
         ),
         transport=transport,
     )

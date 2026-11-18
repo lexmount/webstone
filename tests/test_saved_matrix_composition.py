@@ -675,6 +675,113 @@ def test_extension_public_command_builds_verified_archive(tmp_path, monkeypatch)
     assert not archive.with_suffix('.content').exists()
 
 
+@pytest.mark.parametrize('change', [None, 'missing', 'altered'])
+def test_extension_replaces_self_hosted_pack_using_exact_saved_bytes(tmp_path, change):
+    import zipfile
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path)
+    manifest = report_package._wire_manifest(baseline)
+    name = manifest['packs'][0]
+    pack = baseline/name
+    original = pack.read_bytes()
+    manifest['external_packs'][name].update(site_slug='the-report', bytes=len(original))
+    report_package._save_wire_manifest(baseline, manifest)
+    archive = tmp_path/'replacement.zip'
+    if change:
+        if change == 'missing':
+            pack.unlink()
+        else:
+            pack.write_bytes(bytes([original[0] ^ 1])+original[1:])
+        with pytest.raises(ValueError, match='requires its original pack bytes'):
+            report_package.build(output, archive, reuse_published=baseline, replace_site='the-report')
+        assert not archive.exists()
+        return
+    report_package.build(output, archive, reuse_published=baseline, replace_site='the-report')
+    with zipfile.ZipFile(archive) as bundle:
+        assert bundle.read(name) == original
+    assert report_package.check_extension_archive(archive, output, baseline=baseline, replace_site='the-report')['valid']
+    assert report_package._wire_manifest(baseline) == manifest
+
+
+@pytest.mark.parametrize('replace_site', [None, 'the-report'])
+def test_extension_partitions_local_packs_and_keeps_other_sites(tmp_path, monkeypatch, replace_site):
+    import gzip
+    import zipfile
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path)
+    old = report_package._wire_manifest(baseline)
+    name = old['packs'][0]
+    old['external_packs'][name].update(site_slug='the-report', bytes=(baseline/name).stat().st_size)
+    report_package._save_wire_manifest(baseline, old)
+    partition = report_package.partition_content
+    def force_detach(content, parts):
+        packs = set(report_package._wire_manifest(content)['packs'])
+        resources = sum(p.is_file() and p.relative_to(content).as_posix() not in packs
+                        for p in content.rglob('*'))
+        return partition(content, parts, max_files=resources)
+    monkeypatch.setattr(report_package, 'partition_content', force_detach)
+    archive = tmp_path/'partitioned.zip'
+    plan = tmp_path/'parts'/'parts.json'
+    report_package.build(output, archive, reuse_published=baseline, replace_site=replace_site,
+                         parts_directory=plan.parent)
+    attachments = report_package.part_archives(plan)
+    assert attachments
+    with pytest.raises(ValueError, match='has no published URL'):
+        report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site,
+                                               external_archives=attachments)
+    bindings = {label: {'base_url': 'https://reports.example', 'site_slug': label, 'version_id': 'ver_data'}
+                for label in attachments}
+    report_package.bind_data_parts(archive, plan, bindings)
+    with zipfile.ZipFile(archive) as bundle:
+        manifest = json.loads(gzip.decompress(bundle.read('manifest.json.gz')))
+        assert name not in bundle.namelist()
+    if replace_site:
+        assert manifest['external_packs'][name]['site_slug'] in bindings
+    else:
+        assert manifest['external_packs'][name] == old['external_packs'][name]
+    assert report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site,
+                                                  external_archives=attachments)['valid']
+    with pytest.raises(ValueError, match='lacks its data attachment'):
+        report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site)
+
+
+@pytest.mark.parametrize('still_referenced', [False, True])
+def test_partition_allows_only_unreferenced_sparse_baseline_slots(tmp_path, still_referenced):
+    import gzip
+    from harness.web_fetch import report_package
+    _, content, _, _ = _published_extension(tmp_path, external=False)
+    manifest = report_package._wire_manifest(content)
+    (content/manifest['packs'][0]).unlink()
+    if not still_referenced:
+        manifest['files'].clear()
+        report_package._save_wire_manifest(content, manifest)
+        catalog = content/'catalog.bin.gz'
+        sizes = gzip.decompress(catalog.read_bytes())[:manifest['block_count']*2]
+        catalog.write_bytes(gzip.compress(sizes, mtime=0))
+    if still_referenced:
+        with pytest.raises(ValueError, match='Referenced pack is absent'):
+            report_package.partition_content(content, tmp_path/'parts')
+    else:
+        assert not report_package.partition_content(content, tmp_path/'parts')['parts']
+
+
+@pytest.mark.parametrize('external', [False, True])
+def test_retired_baseline_pack_is_absent_and_its_files_are_rebuilt(tmp_path, external):
+    import zipfile
+    from harness.reporting.packs import read_packed_file
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path, external=external)
+    retired = report_package._wire_manifest(baseline)['packs'][0]
+    archive = tmp_path/'retired.zip'
+    report_package.build(output, archive, reuse_published=baseline, retire_packs=[retired])
+    with zipfile.ZipFile(archive) as bundle:
+        assert retired not in bundle.namelist()
+        assert read_packed_file(bundle, 'answer.txt') == (output/'answer.txt').read_bytes()
+    assert report_package.check_extension_archive(archive, output, baseline=baseline, retire_packs=[retired])['valid']
+    with pytest.raises(ValueError):
+        report_package.check_extension_archive(archive, output, baseline=baseline)
+
+
 @pytest.mark.parametrize('renamed', [False, True])
 @pytest.mark.parametrize('identical', [False, True])
 def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, identical):

@@ -1672,7 +1672,17 @@ Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
 `--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with
 `uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE
 --reuse-published PINNED_PACKAGE_DIRECTORY`. The package retains immutable remote
-pack locations, checks every appended file and uploads only new bytes. The
+pack locations and checks every appended file. For an in-place update, pass
+`--replace-site SITE_SLUG` and materialize that site's referenced packs under
+their original paths in the pinned baseline. Packaging verifies their sizes and
+hashes before removing the self references. The uploader rejects surviving self
+references and probes external packs anonymously before sending the package. If
+the restored content exceeds the service limit, use `--parts-directory` to
+prepare data attachments and follow the same version binding steps as other
+partitioned reports. Already pinned data on other sites retains its binding. The
+`--retire-pack PACK` option omits a superseded pack entirely and rebuilds every
+file that referenced it from the validated source. Bind the same list in
+`extension_baseline.retired_packs` when publishing a privacy correction. The
 publication profile also binds `extension_baseline.root` and the baseline shell
 file hashes in `extension_baseline.files`; the ordinary site publisher retains its
 explicit target and expected-version checks. Keep all instance bindings outside Git.

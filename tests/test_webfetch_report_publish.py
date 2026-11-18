@@ -112,7 +112,7 @@ def with_data_attachment(config, root, *, planned, bound):
     part.write_bytes(b"part bytes")
     manifest = root / "parts.json"
     manifest.write_text(
-        json.dumps({"parts": {"data": {"archive": part.name, "sha256": file_sha256(part)}}, "publications": planned}),
+        json.dumps({"parts": {"data": {"archive": part.name, "sha256": file_sha256(part), "packs": []}}, "publications": planned}),
         encoding="utf-8",
     )
     profile = json.loads(config.profile.read_bytes())
