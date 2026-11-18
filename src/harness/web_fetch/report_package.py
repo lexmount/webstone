@@ -1028,8 +1028,9 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
     for path in sorted(p for p in source.rglob('*') if p.is_file()):
         name = path.relative_to(source).as_posix()
         digest, size = _extension_file_identity(name, path, originals)
-        old_name = 'index.html' if name == 'extension-base-home.txt' else name
-        old = normalized['files'].get(old_name)
+        old = normalized['files'].get(name)
+        if old is None and name == 'extension-base-home.txt':
+            old = normalized['files'].get('index.html')
         if (old and old['sha256'] == digest and old['size'] == size and
                 (not retire_packs or not any(normalized['blocks'][i]['pack'] in retire_packs for i in old['parts']))):
             append(name, {k:v for k,v in old.items() if k != 'parts'}, old['parts'])
@@ -1105,36 +1106,41 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
              'Published extension changed reused block ranges')
     paths = {p.relative_to(source).as_posix():p for p in source.rglob('*') if p.is_file()}
     _require(set(paths) == set(current['files']), 'Extension package file inventory differs')
+    retained_local = set()
     for name in original['packs']:
         if name not in original.get('external_packs', {}) and name not in retire_packs and (baseline/name).is_file():
             _require((content/name).is_file() and _archive_identity(content/name) == _archive_identity(baseline/name),
                      'Retained local pack differs from pinned baseline: '+name)
+            retained_local.add(name)
+    reused_physical_packs = retained_local | materialized
     used = {i for entry in current['files'].values() for i in entry['parts']}
     _require(not retire_packs or not any(current['blocks'][i]['pack'] in retire_packs for i in used),
              'Extension still references a retired pack')
     _require(set(range(count, len(current['blocks']))) <= used, 'Extension has unreferenced appended blocks')
-    if materialized:
+    if reused_physical_packs:
         for idx, block in enumerate(current['blocks'].values()):
-            _require(block['pack'] not in materialized or idx in used,
-                     'Restored pack contains unreferenced blocks; retire and rebuild it: '+block['pack'])
+            _require(block['pack'] not in reused_physical_packs or idx in used,
+                     'Re-uploaded pack contains unreferenced blocks; retire and rebuild it: '+block['pack'])
     reused, appended = 0, 0
     with DecompressedPackCache(lambda name:(content/name).read_bytes()) as cache:
-        for name in {*current['packs'][len(original['packs']):], *materialized}:
+        for name in {*current['packs'][len(original['packs']):], *reused_physical_packs}:
             expected_size = sum(block['size'] for block in current['blocks'].for_pack(name))
-            _require(len(cache(name)) == expected_size, 'Appended pack has undeclared bytes: '+name)
+            kind = 'Re-uploaded' if name in reused_physical_packs else 'Appended'
+            _require(len(cache(name)) == expected_size, kind+' pack has undeclared bytes: '+name)
         for name, path in paths.items():
             entry = current['files'][name]
             digest, size = _extension_file_identity(name, path, originals)
             _require(entry['sha256'] == digest and entry['size'] == size,
                      'Extension package file differs: '+name)
-            old_name = 'index.html' if name == 'extension-base-home.txt' else name
-            old = original['files'].get(old_name)
+            old = original['files'].get(name)
+            if old is None and name == 'extension-base-home.txt':
+                old = original['files'].get('index.html')
             if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
                 packs = {current['blocks'][i]['pack'] for i in entry['parts']}
-                if packs & materialized:
+                if packs & reused_physical_packs:
                     # Re-uploaded evidence must pass the current privacy policy.
                     data = _extension_file_bytes(name, path, originals)
-                    _require(not publication_file_risk(name, data), 'Private content in restored pack: '+name)
+                    _require(not publication_file_risk(name, data), 'Private content in re-uploaded pack: '+name)
                 if not packs.intersection(external):
                     _require(reconstruct_packed_file(current, name, cache) == _extension_file_bytes(name, path, originals), 'Reused file reconstruction differs: '+name)
                 reused += 1

@@ -745,26 +745,30 @@ def test_extension_partitions_local_packs_and_keeps_other_sites(tmp_path, monkey
         report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site)
 
 
-def test_restored_pack_rejects_unreferenced_private_block(tmp_path):
+@pytest.mark.parametrize('external', [False, True])
+@pytest.mark.parametrize('declared', [False, True])
+def test_reuploaded_pack_rejects_unreferenced_private_bytes(tmp_path, external, declared):
     import gzip
     from harness.web_fetch import report_package
-    output, baseline, _, _ = _published_extension(tmp_path)
+    output, baseline, _, _ = _published_extension(tmp_path, external=external)
     manifest = report_package._wire_manifest(baseline)
     name = manifest['packs'][-1]
     pack = baseline/name
     obsolete = b'Authorization: Bearer obsolete-private-example'
     packed = gzip.compress(gzip.decompress(pack.read_bytes()) + obsolete, mtime=0)
     pack.write_bytes(packed)
-    catalog = baseline/'catalog.bin.gz'
-    binary = gzip.decompress(catalog.read_bytes())
-    offset = manifest['block_count']*2
-    catalog.write_bytes(gzip.compress(binary[:offset]+len(obsolete).to_bytes(2,'little')+binary[offset:], mtime=0))
-    manifest['block_count'] += 1
-    manifest['external_packs'][name].update(site_slug='the-report', bytes=len(packed),
-                                           sha256=hashlib.sha256(packed).hexdigest())
+    if declared:
+        catalog = baseline/'catalog.bin.gz'
+        binary = gzip.decompress(catalog.read_bytes())
+        offset = manifest['block_count']*2
+        catalog.write_bytes(gzip.compress(binary[:offset]+len(obsolete).to_bytes(2,'little')+binary[offset:], mtime=0))
+        manifest['block_count'] += 1
+    if external:
+        manifest['external_packs'][name].update(site_slug='the-report', bytes=len(packed),
+                                               sha256=hashlib.sha256(packed).hexdigest())
     report_package._save_wire_manifest(baseline, manifest)
     archive = tmp_path/'replacement.zip'
-    with pytest.raises(ValueError, match='Restored pack contains unreferenced blocks'):
+    with pytest.raises(ValueError, match='Re-uploaded pack (contains unreferenced blocks|has undeclared bytes)'):
         report_package.build(output, archive, reuse_published=baseline, replace_site='the-report')
     assert not archive.exists()
     report_package.build(output, archive, reuse_published=baseline, replace_site='the-report', retire_packs=[name])
