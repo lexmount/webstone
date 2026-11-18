@@ -133,26 +133,30 @@ def test_composition_preserves_shared_revision_attachments(tmp_path):
         check_saved_matrix(output)
 
 
-def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_path):
+def _published_extension(tmp_path, *, external=True, reviewed=False):
     from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
     families = ['web', 'document']
 
     def snapshot(name, order, values):
         root = tmp_path / name
         root.mkdir()
-        header = '<thead><tr>' + '<th>value</th>' * 9 + '</tr></thead>'
+        header = '<thead><tr>' + '<th>value</th>' * 9 + ('<th>审查结果</th>' if reviewed else '') + '</tr></thead>'
         def table(identifier, numbers):
             cells = '<td>1</td><td><a href="providers/' + name + '.html">' + name + '</a></td>'
             cells += ''.join('<td data-sort="' + str(n) + '"><strong class="good">' + str(n) + '</strong></td>' for n in numbers)
+            if reviewed and identifier == 'ranking-overall':
+                cells += '<td>Reviewed</td>'
             return '<table id="' + identifier + '">' + header + '<tbody><tr>' + cells + '</tr></tbody></table>'
         home = '<html><body><section id="overall-ranking"><h2>Ranking</h2>'
         home += table('ranking-overall', [90, 80, *values, 10, 20, 30]) + '</section>'
         for family in families:
             home += table('ranking-' + family, [1])
         home += '<section id="method-overview-section"><p>Old billing disclaimer</p><div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></section></body></html>'
+        home = home.replace('</body>', '<img src="logo.png"></body>')
+        (root / 'logo.png').write_bytes(b'synthetic public image')
         (root / 'index.html').write_text(home, encoding='utf-8')
         (root / 'providers').mkdir()
-        (root / 'providers' / (name + '.html')).write_text('<html>Saved provider evidence</html>', encoding='utf-8')
+        (root / 'providers' / (name + '.html')).write_text('<html><pre data-file="answer.txt"></pre></html>', encoding='utf-8')
         (root / 'answer.txt').write_text('unchanged answer: ' + name, encoding='utf-8')
         model = {'providers': [{'id': name}], 'report_families': [{'id': f} for f in order],
                  'rows': [{'provider': name, 'url': 'https://example.com/', 'passed': True}]}
@@ -191,7 +195,7 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
                for p in original_root.rglob('*') if p.is_file()]
     manifest = write_compact_packs(entries, packed)
     manifest['external_packs'] = {name:{'url':'https://example.com/pinned/' + name,
-        'sha256':hashlib.sha256((packed/name).read_bytes()).hexdigest()} for name in manifest['packs']}
+        'sha256':hashlib.sha256((packed/name).read_bytes()).hexdigest()} for name in manifest['packs']} if external else {}
     _save_wire_manifest(packed, manifest)
     (packed/'index.html').write_text('<html><head></head><body></body></html>', encoding='utf-8')
     (packed/'style.css').write_text('body { color: black; }', encoding='utf-8')
@@ -199,12 +203,26 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     content = tmp_path / 'extension-package'
     extended = extend_published_content(output, packed, content)
     assert extended['external_packs'] == manifest['external_packs']
-    assert not any((content/name).exists() for name in manifest['packs'])
+    assert all((content/name).is_file() is (not external) for name in manifest['packs'])
     archive = tmp_path / 'extension.zip'
     _write_archive(content, archive)
     checked = check_extension_archive(archive, output, baseline=packed)
     assert checked['reused_packs'] == len(manifest['packs'])
     assert checked['appended_files'] > 0
+    return output, packed, content, archive
+
+
+@pytest.mark.parametrize('external', [False, True])
+@pytest.mark.parametrize('reviewed', [False, True])
+def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_path, external, reviewed):
+    from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
+    from harness.web_fetch.report_saved_composition import check_published_extension
+    output, packed, content, _ = _published_extension(tmp_path, external=external, reviewed=reviewed)
+    assert (output/'additional/providers/extra.html').read_text(encoding='utf-8') == '<html><pre data-file="answer.txt"></pre></html>'
+    from harness.reporting.packs import read_packed_file
+    import zipfile
+    with zipfile.ZipFile(tmp_path/'extension.zip') as bundle:
+        assert b'data-file="additional/answer.txt"' in read_packed_file(bundle, 'additional/providers/extra.html')
     refreshed = tmp_path / 'refreshed-package'
     extend_published_content(output, content, refreshed)
     refreshed_archive = tmp_path / 'refreshed.zip'
@@ -212,7 +230,8 @@ def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_p
     assert check_extension_archive(refreshed_archive, output, baseline=packed)['valid']
     # Explicit unified presentation changes views, never saved verdicts or outputs.
     from harness.web_fetch.report_saved_composition import refresh_published_extension
-    ranked = json.loads(Path(spec['path']).read_bytes())
+    from bs4 import BeautifulSoup
+    ranked = json.loads((tmp_path/'extension.json').read_bytes())
     ranked['presentation'] = 'ranked'
     ranked_spec = tmp_path / 'ranked.json'
     ranked_spec.write_text(json.dumps(ranked), encoding='utf-8')
@@ -273,3 +292,56 @@ def test_extension_unifies_selectors_and_same_task_outcomes():
     assert h.select_one('#compare-rows tr')['data-pass'] == 'base kimi-fetch'
     assert h.select_one('#compare-rows a[href*="kimi-fetch"]')['href'] == '../additional/providers/kimi-fetch.html'
     assert len(h.select('#filtered-table tbody tr')) == 2
+
+
+@pytest.mark.parametrize('tamper', ['local_pack', 'trailing_bytes', 'unreferenced_block', 'shell', 'style', 'home_asset'])
+def test_extension_publication_rejects_tampered_physical_bytes(tmp_path, tamper):
+    import gzip
+    import struct
+    from harness.web_fetch.report_package import _wire_manifest, _save_wire_manifest, _write_archive, check_extension_archive
+    output, baseline, content, _ = _published_extension(tmp_path, external=False)
+    manifest = _wire_manifest(content)
+    old = _wire_manifest(baseline)
+    if tamper == 'local_pack':
+        (content/old['packs'][0]).write_bytes(b'corrupted retained pack')
+    elif tamper in {'trailing_bytes', 'unreferenced_block'}:
+        target = content/manifest['packs'][-1]
+        target.write_bytes(gzip.compress(gzip.decompress(target.read_bytes())+b'X'))
+        if tamper == 'unreferenced_block':
+            catalog = content/'catalog.bin.gz'
+            raw = gzip.decompress(catalog.read_bytes())
+            split = manifest['block_count']*2
+            catalog.write_bytes(gzip.compress(raw[:split]+struct.pack('<H', 1)+raw[split:]))
+            manifest['block_count'] += 1
+            _save_wire_manifest(content, manifest)
+    elif tamper == 'shell':
+        path = content/'index.html'
+        path.write_bytes(path.read_bytes()+b'<script>untrusted()</script>')
+    elif tamper == 'style':
+        (content/'style.css').write_bytes(b'body { display: none; }')
+    else:
+        next((content/'home-assets').iterdir()).write_bytes(b'changed image')
+    archive = tmp_path/'tampered.zip'
+    _write_archive(content, archive)
+    with pytest.raises(ValueError, match='Retained local pack differs|undeclared bytes|unreferenced appended blocks|physical home|physical stylesheet'):
+        check_extension_archive(archive, output, baseline=baseline)
+
+
+def test_extension_publication_checks_sensitive_appended_content_at_boundary(tmp_path):
+    from unittest.mock import patch
+    from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
+    output, baseline, _, _ = _published_extension(tmp_path)
+    path = output/'note.txt'
+    path.write_bytes(b'Authorization: Bearer synthetic-private-value')
+    proof_path = output/'saved-extension.json'
+    proof = json.loads(proof_path.read_bytes())
+    proof['files']['note.txt'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    proof_path.write_text(json.dumps(proof), encoding='utf-8')
+    malicious = tmp_path/'supplied-package'
+    # Model a supplied archive that bypassed the trusted builder's privacy check.
+    with patch('harness.web_fetch.report_package.publication_file_risk', return_value=None):
+        extend_published_content(output, baseline, malicious)
+    archive = tmp_path/'supplied.zip'
+    _write_archive(malicious, archive)
+    with pytest.raises(ValueError, match='Private content in extension'):
+        check_extension_archive(archive, output, baseline=baseline)

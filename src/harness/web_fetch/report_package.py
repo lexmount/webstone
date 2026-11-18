@@ -44,6 +44,7 @@ from harness.web_fetch.reference_lifecycle import require_certifiable_evidence
 from harness.web_fetch.report_build import validate_local_presentation
 from harness.web_fetch.report_explainer import current_browser_article_model
 from harness.web_fetch.report_version import check_release
+from harness.web_fetch.report_saved_composition import _namespace_extension_evidence
 from harness.web_fetch.result_review import require_result_review
 from harness.web_fetch.safety import evidence_tree_identity, unlinked_path
 
@@ -178,13 +179,18 @@ def _install_home_catalog(destination, manifest, read_file):
             target = destination/entry['asset_path']
             target.parent.mkdir(exist_ok=True)
             target.write_bytes(read_file(name))
-    shell = (destination/'index.html').read_text(encoding='utf-8')
+    shell = _home_catalog_shell((destination/'index.html').read_text(encoding='utf-8'), catalog)
+    (destination/'index.html').write_text(shell, encoding='utf-8')
+
+
+def _home_catalog_shell(shell, catalog):
+    """Replace only the embedded home catalog in a trusted publication shell."""
     shell = re.sub(r'<script id="report-home" type="application/json">.*?</script>',
                    '', shell, flags=re.S)
     data = json.dumps(catalog, separators=(',',':')).replace('<', r'\u003c')
     shell = shell.replace('</head>', '<script id="report-home" type="application/json">'
                           + data + '</script></head>')
-    (destination/'index.html').write_text(shell, encoding='utf-8')
+    return shell
 
 
 def _build(source: Path, destination: Path, archive: Path, *, webmainbench: bool, defer_archive=False):
@@ -913,6 +919,21 @@ def _save_wire_manifest(content, manifest):
         (content/'manifest.json').write_bytes(raw)
 
 
+def _extension_file_bytes(name, path):
+    """Namespace packed lazy evidence while preserving standalone source pages."""
+    data = path.read_bytes()
+    if name.startswith('additional/') and name.endswith('.html'):
+        data = _namespace_extension_evidence(data.decode('utf-8')).encode('utf-8')
+    return data
+
+
+def _extension_file_identity(name, path):
+    if name.startswith('additional/') and name.endswith('.html'):
+        data = _extension_file_bytes(name, path)
+        return hashlib.sha256(data).hexdigest(), len(data)
+    return _archive_identity(path), path.stat().st_size
+
+
 def extend_published_content(source, baseline, destination):
     """Reuse a pinned publication's packs and append only new public bytes."""
     from array import array
@@ -950,13 +971,13 @@ def extend_published_content(source, baseline, destination):
 
     for path in sorted(p for p in source.rglob('*') if p.is_file()):
         name = path.relative_to(source).as_posix()
-        digest = _archive_identity(path)
+        digest, size = _extension_file_identity(name, path)
         old_name = 'index.html' if name == 'extension-base-home.txt' else name
         old = normalized['files'].get(old_name)
-        if old and old['sha256'] == digest and old['size'] == path.stat().st_size:
+        if old and old['sha256'] == digest and old['size'] == size:
             append(name, {k:v for k,v in old.items() if k != 'parts'}, old['parts'])
             continue
-        data = path.read_bytes()
+        data = _extension_file_bytes(name, path)
         _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
         ids = []
         for offset in range(0, len(data), 32768):
@@ -992,6 +1013,9 @@ def extend_published_content(source, baseline, destination):
         shutil.copyfile(baseline/name, destination/name)
     (destination/'report.js').write_bytes((Path(__file__).parent/'assets/report.js').read_bytes())
     (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
+    if sys.byteorder != 'little':
+        sizes.byteswap()
+        refs.byteswap()
     (destination/'catalog.bin.gz').write_bytes(gzip.compress(sizes.tobytes()+refs.tobytes(), mtime=0))
     _save_wire_manifest(destination, manifest)
     _install_home_catalog(destination, manifest, lambda name:(source/name).read_bytes())
@@ -1012,20 +1036,33 @@ def check_extended_content(source, baseline, content):
              'Published extension changed reused block ranges')
     paths = {p.relative_to(source).as_posix():p for p in source.rglob('*') if p.is_file()}
     _require(set(paths) == set(current['files']), 'Extension package file inventory differs')
+    for name in original['packs']:
+        if name not in original.get('external_packs', {}) and (baseline/name).is_file():
+            _require((content/name).is_file() and _archive_identity(content/name) == _archive_identity(baseline/name),
+                     'Retained local pack differs from pinned baseline: '+name)
+    used = {i for entry in current['files'].values() for i in entry['parts']}
+    _require(set(range(count, len(current['blocks']))) <= used, 'Extension has unreferenced appended blocks')
     reused, appended = 0, 0
     with DecompressedPackCache(lambda name:(content/name).read_bytes()) as cache:
+        for name in current['packs'][len(original['packs']):]:
+            expected_size = sum(block['size'] for block in current['blocks'].for_pack(name))
+            _require(len(cache(name)) == expected_size, 'Appended pack has undeclared bytes: '+name)
         for name, path in paths.items():
             entry = current['files'][name]
-            digest = _archive_identity(path)
-            _require(entry['sha256'] == digest and entry['size'] == path.stat().st_size,
+            digest, size = _extension_file_identity(name, path)
+            _require(entry['sha256'] == digest and entry['size'] == size,
                      'Extension package file differs: '+name)
             old_name = 'index.html' if name == 'extension-base-home.txt' else name
             old = original['files'].get(old_name)
             if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
+                if all(current['blocks'][i]['pack'] not in original.get('external_packs', {}) for i in entry['parts']):
+                    _require(reconstruct_packed_file(current, name, cache) == _extension_file_bytes(name, path), 'Reused file reconstruction differs: '+name)
                 reused += 1
             else:
+                data = _extension_file_bytes(name, path)
+                _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
                 _require(all(i >= count for i in entry['parts']), 'Appended file uses undeclared old ranges')
-                _require(reconstruct_packed_file(current, name, cache) == path.read_bytes(),
+                _require(reconstruct_packed_file(current, name, cache) == data,
                          'Appended file reconstruction differs: '+name)
                 appended += 1
     return {'valid':True, 'reused_files':reused, 'appended_files':appended,
@@ -1056,8 +1093,17 @@ def check_extension_archive(archive, source, *, baseline):
                  'Extension archive loader differs')
         _require((content/'report.js').read_bytes() == (Path(__file__).parent/'assets/report.js').read_bytes(),
                  'Extension archive controls differ')
-        _require(catalog == home_catalog(manifest, lambda name:(source/name).read_bytes()),
-                 'Extension home snapshot differs from report')
+        expected_catalog = home_catalog(manifest, lambda name:(source/name).read_bytes())
+        _require(catalog == expected_catalog, 'Extension home snapshot differs from report')
+        expected_shell = _home_catalog_shell((baseline/'index.html').read_text(encoding='utf-8'), expected_catalog)
+        _require((content/'index.html').read_text(encoding='utf-8') == expected_shell,
+                 'Extension physical home shell differs')
+        _require((content/'style.css').read_bytes() == (baseline/'style.css').read_bytes(),
+                 'Extension physical stylesheet differs')
+        for name, entry in expected_catalog['files'].items():
+            if 'asset_path' in entry:
+                _require((content/entry['asset_path']).read_bytes() == (source/name).read_bytes(),
+                         'Extension physical home asset differs: '+name)
         return check_extended_content(source, baseline, content)
 
 

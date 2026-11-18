@@ -219,18 +219,21 @@ def verify_public_files(slug, expected_archive, base):
     after = metadata()
     if before["version"]["id"] != after["version"]["id"]:
         raise ValueError("Remote version changed during verification")
-    exact = sum(layer in {"byte_identical", "delivery_original"} for layer in verification.values())
+    exact = sum(layer == "byte_identical" for layer in verification.values())
+    delivered = sum(layer == "delivery_original" for layer in verification.values())
     injected = sum(layer == "injected_html" for layer in verification.values())
     return {
         "version": after["version"]["id"],
         "files": len(actual),
         "anonymous_byte_identical_files": exact,
         "anonymous_injected_html_files": injected,
+        "anonymous_delivery_original_files": delivered,
+        "anonymous_unverified_html_files": delivered,
         "anonymous_all_files_byte_identical": exact == len(actual),
         "authenticated_original_entry_verified": authenticated_entry,
         "submitted_bytes_verified_by_layer": exact + injected == len(actual),
         "method": (
-            "anonymous_file_bytes (including version-bound delivery originals); injected HTML requires an exact submitted "
+            "anonymous_file_bytes; delivery originals verify downloadable inputs only, not the served HTML wrapper; injected HTML requires an exact submitted "
             "document around validated Artifact Site bootstrap scripts; authenticated "
             "metadata verifies the original entry"
         ),

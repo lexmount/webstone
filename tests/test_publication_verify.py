@@ -408,7 +408,7 @@ def test_original_json_attachment_is_data_even_when_it_contains_download_keys(tm
     with zipfile.ZipFile(path) as archive:
         assert archive.read('answer.json') == original
 
-@pytest.mark.parametrize('changed', ['none', 'bytes', 'version', 'root'])
+@pytest.mark.parametrize('changed', ['none', 'bytes', 'version', 'root', 'wrapper'])
 def test_delivery_wrapper_requires_exact_original_and_version(tmp_path, changed):
     base = 'https://reports.example'
     original = b'<html>original report</html>'
@@ -422,6 +422,8 @@ def test_delivery_wrapper_requires_exact_original_and_version(tmp_path, changed)
         config['root'] = 'https://foreign.example/api/delivery/d1.fixture/'
     wrapper = ('<script id="artifact-delivery-config" type="application/json">'
                + json.dumps(config) + '</script>').encode()
+    if changed == 'wrapper':
+        wrapper += b'<p>Different report results</p><script>untrusted()</script>'
     def response(request, timeout):
         if not isinstance(request, str):
             return io.BytesIO(json.dumps({'files': ['index.html'], 'file': 'index.html',
@@ -435,9 +437,12 @@ def test_delivery_wrapper_requires_exact_original_and_version(tmp_path, changed)
     with patch('harness.web_fetch.publication_verify.load_token', return_value='fixture'), \
          patch('urllib.request.build_opener', lambda *args: SimpleNamespace(open=response)), \
          patch('urllib.request.urlopen', side_effect=response):
-        if changed == 'none':
+        if changed in {'none', 'wrapper'}:
             result = verify_public_files('test', archive, base)
-            assert result['anonymous_all_files_byte_identical']
+            assert result['anonymous_delivery_original_files'] == 1
+            assert result['anonymous_unverified_html_files'] == 1
+            assert not result['anonymous_all_files_byte_identical']
+            assert not result['submitted_bytes_verified_by_layer']
         else:
             with pytest.raises(ValueError):
                 verify_public_files('test', archive, base)

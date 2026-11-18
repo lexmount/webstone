@@ -28,6 +28,13 @@ def _frozen_report(root, binding):
     return _read(root / 'matrix.json')
 
 
+def _namespace_extension_evidence(text):
+    """Qualify lazy sources only in views rendered beneath the outer report root."""
+    if re.search(r'\bdata-record=', text):
+        raise ValueError('Nested report requires explicit evidence-file bindings')
+    return re.sub(r'\bdata-file="([^"]+)"', r'data-file="additional/\1"', text)
+
+
 def _extended_home(base, addition, base_model, added_model, overview, note, *, ranked=False):
     """Use saved comparison cells; never recompute scores across scorer editions."""
     from bs4 import BeautifulSoup
@@ -67,7 +74,7 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         for row in new_rows:
             cells = row.find_all('td', recursive=False)
             if identifier == 'ranking-overall':
-                if len(cells) != len(family_order) + 7 + int(extra_review):
+                if len(cells) != len(source_headers):
                     raise ValueError('Unexpected overall metric columns')
                 reordered = cells[:4] + [cells[4 + added_order.index(f)] for f in family_order] + cells[4 + len(added_order):]
                 row.clear()
@@ -251,7 +258,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     from bs4 import BeautifulSoup
     from urllib.parse import urljoin, urlsplit
     import posixpath
-    old, new = BeautifulSoup(base, 'html.parser'), BeautifulSoup(addition, 'html.parser')
+    old, new = BeautifulSoup(base, 'html.parser'), BeautifulSoup(_namespace_extension_evidence(addition), 'html.parser')
     if route == 'accounts/index.html':
         for paragraph in old.find_all('p'):
             if paragraph.get_text().strip().startswith('需要供应商账号的方法：'):
@@ -469,15 +476,6 @@ def build_published_extension(spec_path, output):
         raise ValueError('Method overview must cover every added provider')
     shutil.copytree(base_root, output)
     shutil.copytree(added_root, output / 'additional')
-    # Lazy evidence paths are relative to a report root, rather than the page.
-    # Namespace them when a report is hosted beneath another report's loader.
-    for page in (output / 'additional').rglob('*.html'):
-        original = page.read_text(encoding='utf-8')
-        if re.search(r'\bdata-record=', original):
-            raise ValueError('Nested report requires explicit evidence-file bindings')
-        rewritten = re.sub(r'\bdata-file="([^"]+)"', r'data-file="additional/\1"', original)
-        if rewritten != original:
-            page.write_text(rewritten, encoding='utf-8')
     shutil.copyfile(base_root / 'index.html', output / 'extension-base-home.txt')
     ranked = spec.get('presentation') == 'ranked'
     (output / 'index.html').write_text(_extended_home(
@@ -526,16 +524,8 @@ def check_published_extension(output):
             raise ValueError('Published extension changed original evidence: ' + name)
     additional = _read(output / 'additional/saved-matrix-audit.json')
     for name, digest in additional['files'].items():
-        retained = 'additional/' + name
-        if proof['files'].get(retained) == digest:
-            continue
-        if not name.endswith('.html'):
+        if proof['files'].get('additional/' + name) != digest:
             raise ValueError('Published extension changed added evidence: ' + name)
-        import hashlib
-        original = re.sub(r'\bdata-file="additional/([^"]+)"', r'data-file="\1"',
-                          (output / retained).read_text(encoding='utf-8'))
-        if hashlib.sha256(original.encode()).hexdigest() != digest:
-            raise ValueError('Published extension changed added page beyond its evidence namespace: ' + name)
     expected = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
