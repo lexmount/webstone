@@ -1,6 +1,24 @@
 # Dependency sources and versions
 
-Install the base CLI with `uv sync --frozen`. Add only the extras needed by your method.
+## Install Webstone
+
+Use Python 3.11 or newer, preferably in a virtual environment.
+
+```sh
+pip install webstone
+```
+
+In a fresh environment, this installs the latest compatible [PyPI release](https://pypi.org/project/webstone/). Use `pip install --upgrade webstone` to upgrade an existing installation or `pip install webstone==0.8.0` to pin a release.
+
+To try unreleased changes, install directly from GitHub's `main` branch. This requires Git and builds from the commit at the tip of the branch when you install it.
+
+```sh
+pip install "git+https://github.com/lexmount/webstone.git@main"
+```
+
+For development in a source checkout, run `uv sync --frozen` to use the repository lockfile. Add only the extras needed by your method. See the [contribution guide](../CONTRIBUTING.md#run-the-checks) for test setup.
+
+## Dependency locks
 
 | File | What it fixes |
 | --- | --- |

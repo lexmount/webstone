@@ -20,17 +20,17 @@
 
 ## 快速开始
 
-安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，运行离线示例：
+使用 Python 3.11 或更新版本，从 [PyPI](https://pypi.org/project/webstone/) 安装 Webstone，再运行离线示例：
 
 ```sh
-git clone https://github.com/lexmount/webstone.git
-cd webstone
-uv sync --frozen
-uv run --frozen webstone validate
-uv run --frozen webstone run --delay 0
+pip install webstone
+webstone validate
+webstone run --delay 0
 ```
 
-打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。需要 Python 3.11 或更高版本；CI 在 3.11 上测试。
+在新环境中，pip 会安装 PyPI 上兼容的最新正式版。已有安装可用 `pip install --upgrade webstone` 更新。要固定版本或试用 GitHub `main` 分支上尚未发布的代码，见[安装选项](dependencies.md#install-webstone)。
+
+打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。
 
 接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。可选适配器、服务凭据和在线评测命令见上面的各流程指南。
 
@@ -289,6 +289,6 @@ webstone results submit report.json --provider-url your-method=https://example.c
 webstone results status 123 --verify-published
 ```
 
-模板的空值需要填写真实测量与公开证据，不是生成的评测分数。新版本追加发布，不覆盖历史；版本冲突可用 `webstone results rebase 123` 更新后重新审核。详见 [CLI／SDK 与 PyPI 发布指南](result-submissions.md)。包含该功能的 PyPI 版本发布前，可从维护中的源码安装；本次功能变更不自动修改软件版本或创建标签。
+在模板中填入实测结果和公开证据。新版本追加发布，历史版本保留。遇到版本冲突，运行 `webstone results rebase 123` 后重新提交审核。详见[结果提交指南](result-submissions.md)。
 
 评测结果独立使用 `vMAJOR.MINOR.PATCH`，发布时记录经审批的 UTC 日期；历史导入日期不会冒充发布日期。结果版本与 Python 包版本分别管理，见[结果提交规范](result-submissions.md#result-versions-and-dates)。
