@@ -499,7 +499,9 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
     assets = Path(report_package.__file__).parent/'assets'
     (source/'assets/report.js').write_bytes((assets/'report.js').read_bytes())
     (source/'index.html').write_text(
-        '<html><body><main><h1>Summary 80.8%</h1><img src="assets/chart.svg">'
+        '<html><head><style>h1{display:none}</style>'
+        '<style data-report-page-style>h1{padding-left:17px}</style></head>'
+        '<body><main><h1>Summary 80.8%</h1><img src="assets/chart.svg">'
         '<a href="detail.html">Details</a></main></body></html>', encoding='utf-8')
     (source/'assets/chart.svg').write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
@@ -523,12 +525,14 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             page.route('**/data/**', lambda route:route.abort())
             page.goto(origin)
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_have_css('padding-left', '17px')
             page.wait_for_function('document.querySelector("img")?.naturalWidth>0')
             assert not any('/manifest.json' in url or '/data/' in url for url in requests)
             page.unroute('**/manifest.json')
             page.unroute('**/data/**')
             page.get_by_role('link', name='Details', exact=True).click()
             expect(page.get_by_role('heading', name='Detail', exact=True)).to_be_visible()
+            expect(page.locator('head style[data-report-page-style]')).to_have_count(0)
             assert any('/manifest.json' in url for url in requests)
             expect(page.locator('pre')).to_have_attribute('role', 'button')
             page.locator('pre').click()
@@ -536,6 +540,7 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             assert any('/data/' in url for url in requests)
             page.get_by_role('link', name='Back', exact=True).click()
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_have_css('padding-left', '17px')
         finally:
             page.close()
 

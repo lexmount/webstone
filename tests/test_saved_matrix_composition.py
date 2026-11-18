@@ -998,7 +998,7 @@ def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tm
     assert page.select_one('#successful-final-call-latency') is None
     ranking = page.select_one('#ranking-overall')
     assert ranking.select_one('td[data-rank]')
-    assert any('--rank-column' in style.get_text() for style in page.head.select('style'))
+    assert '--rank-column' in page.head.select_one('style[data-report-page-style]').get_text()
     assert len(ranking.select('[data-metric^="final_call_latency"]')) == 6
     assert '通过项耗时' in ranking.thead.get_text()
     assert page.select_one('a[href="analysis/index.html#all-final-call-timing"]')

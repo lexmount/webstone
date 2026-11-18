@@ -388,7 +388,7 @@ def _unified_home(page, base_model, added_model, presentation):
                 page.select_one('#overall-ranking h2').string = _text('extension_audit_title')
         fragment['data-row-index'] = 'false'
     if page.head and page.select_one('#ranking-overall td[data-rank]'):
-        style = page.new_tag('style')
+        style = page.new_tag('style', attrs={'data-report-page-style': ''})
         style.string = RANKING_STICKY
         page.head.append(style)
     timing = page.select_one('#overall-matched-latency .wrap')

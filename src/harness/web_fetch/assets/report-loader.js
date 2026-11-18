@@ -137,6 +137,8 @@ async function render(){
   if(page.documentElement?.lang&&document.documentElement)document.documentElement.lang=page.documentElement.lang;
   imageUrls=await fillImages(page.body,path,m);
   if(token!==renderId)return;
+  document.head.querySelectorAll('style[data-report-page-style]').forEach(style=>style.remove());
+  page.head.querySelectorAll('style[data-report-page-style]').forEach(style=>document.head.append(style.cloneNode(true)));
   document.title=page.title;currentPage=path;fixLinks(page.body,path,m);document.body.innerHTML=page.body.innerHTML;
   currentImageUrls.forEach(url=>URL.revokeObjectURL(url));currentImageUrls=imageUrls;imageUrls=[];
   window.dispatchEvent(new Event('report-ready'));
