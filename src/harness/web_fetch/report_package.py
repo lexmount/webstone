@@ -1113,9 +1113,13 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
     _require(not retire_packs or not any(current['blocks'][i]['pack'] in retire_packs for i in used),
              'Extension still references a retired pack')
     _require(set(range(count, len(current['blocks']))) <= used, 'Extension has unreferenced appended blocks')
+    if materialized:
+        for idx, block in enumerate(current['blocks'].values()):
+            _require(block['pack'] not in materialized or idx in used,
+                     'Restored pack contains unreferenced blocks; retire and rebuild it: '+block['pack'])
     reused, appended = 0, 0
     with DecompressedPackCache(lambda name:(content/name).read_bytes()) as cache:
-        for name in current['packs'][len(original['packs']):]:
+        for name in {*current['packs'][len(original['packs']):], *materialized}:
             expected_size = sum(block['size'] for block in current['blocks'].for_pack(name))
             _require(len(cache(name)) == expected_size, 'Appended pack has undeclared bytes: '+name)
         for name, path in paths.items():

@@ -1,3 +1,5 @@
+import gzip
+import hashlib
 import io
 import json
 import tempfile
@@ -53,6 +55,32 @@ def test_external_pack_probe_uses_anonymous_range(tmp_path, monkeypatch, status)
     else:
         assert verify_external_packs(archive, 'https://reports.example', target_slug='report-site') == 1
     assert seen == [url]
+
+
+@pytest.mark.parametrize('delivery', ['exact', 'truncated', 'wrong'])
+@pytest.mark.parametrize('pinned_size', [True, False])
+def test_exact_external_pack_verification_checks_full_bytes(tmp_path, monkeypatch, delivery, pinned_size):
+    url = 'https://reports.example/api/preview/data-site/data/one.gz?__artifact_version=ver_one'
+    expected = gzip.compress(b'original', mtime=0)
+    actual = {'exact': expected, 'truncated': expected[:-1], 'wrong': gzip.compress(b'tampered', mtime=0)}[delivery]
+    archive = tmp_path/'report.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('manifest.json', json.dumps({'external_packs': {'data/one.gz': {
+            'url': url, 'site_slug': 'data-site', 'version_id': 'ver_one',
+            **({'bytes': len(expected)} if pinned_size else {}), 'sha256': hashlib.sha256(expected).hexdigest()}}}))
+
+    def open_request(request, *, timeout):
+        assert request.get_header('Range') is None and request.get_header('Authorization') is None
+        response = io.BytesIO(actual)
+        response.status = 200
+        return response
+
+    monkeypatch.setattr(urllib.request, 'urlopen', open_request)
+    if delivery == 'exact':
+        assert verify_external_packs(archive, 'https://reports.example', exact=True) == 1
+    else:
+        with pytest.raises(ValueError, match='bytes differ from the pinned file'):
+            verify_external_packs(archive, 'https://reports.example', exact=True)
 
 
 class PublicationVerifyTests(unittest.TestCase):

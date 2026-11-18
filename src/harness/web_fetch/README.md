@@ -1676,7 +1676,10 @@ pack locations and checks every appended file. For an in-place update, pass
 `--replace-site SITE_SLUG` and materialize that site's referenced packs under
 their original paths in the pinned baseline. Packaging verifies their sizes and
 hashes before removing the self references. The uploader rejects surviving self
-references and probes external packs anonymously before sending the package. If
+references and probes external packs anonymously before sending the package.
+The full published-file check downloads and verifies each pinned external pack.
+Restored packs must contain only blocks referenced by the current report. If
+an old pack contains unused blocks, retire it and rebuild the files it served. If
 the restored content exceeds the service limit, use `--parts-directory` to
 prepare data attachments and follow the same version binding steps as other
 partitioned reports. Already pinned data on other sites retains its binding. The

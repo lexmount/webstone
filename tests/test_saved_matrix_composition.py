@@ -745,6 +745,33 @@ def test_extension_partitions_local_packs_and_keeps_other_sites(tmp_path, monkey
         report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site)
 
 
+def test_restored_pack_rejects_unreferenced_private_block(tmp_path):
+    import gzip
+    from harness.web_fetch import report_package
+    output, baseline, _, _ = _published_extension(tmp_path)
+    manifest = report_package._wire_manifest(baseline)
+    name = manifest['packs'][-1]
+    pack = baseline/name
+    obsolete = b'Authorization: Bearer obsolete-private-example'
+    packed = gzip.compress(gzip.decompress(pack.read_bytes()) + obsolete, mtime=0)
+    pack.write_bytes(packed)
+    catalog = baseline/'catalog.bin.gz'
+    binary = gzip.decompress(catalog.read_bytes())
+    offset = manifest['block_count']*2
+    catalog.write_bytes(gzip.compress(binary[:offset]+len(obsolete).to_bytes(2,'little')+binary[offset:], mtime=0))
+    manifest['block_count'] += 1
+    manifest['external_packs'][name].update(site_slug='the-report', bytes=len(packed),
+                                           sha256=hashlib.sha256(packed).hexdigest())
+    report_package._save_wire_manifest(baseline, manifest)
+    archive = tmp_path/'replacement.zip'
+    with pytest.raises(ValueError, match='Restored pack contains unreferenced blocks'):
+        report_package.build(output, archive, reuse_published=baseline, replace_site='the-report')
+    assert not archive.exists()
+    report_package.build(output, archive, reuse_published=baseline, replace_site='the-report', retire_packs=[name])
+    assert report_package.check_extension_archive(archive, output, baseline=baseline, replace_site='the-report',
+                                                  retire_packs=[name])['valid']
+
+
 @pytest.mark.parametrize('still_referenced', [False, True])
 def test_partition_allows_only_unreferenced_sparse_baseline_slots(tmp_path, still_referenced):
     import gzip

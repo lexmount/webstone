@@ -66,7 +66,7 @@ def verify_metadata(slug, base):
     }
 
 
-def verify_external_packs(archive, base, *, target_slug=None, attachment_bindings=None):
+def verify_external_packs(archive, base, *, target_slug=None, attachment_bindings=None, exact=False):
     """Check the pinned URLs that readers will use, without publication credentials."""
     base = validate_service_base(base)
     with zipfile.ZipFile(archive) as bundle:
@@ -91,18 +91,36 @@ def verify_external_packs(archive, base, *, target_slug=None, attachment_binding
         binding = attachment_bindings.pop(name, None)
         if binding is not None and (slug, version) != (binding['site_slug'], binding['version_id']):
             raise ValueError('External pack differs from the approved data attachment: ' + name)
-        requested[name] = url
+        if exact and (not re.fullmatch('[0-9a-f]{64}', str(item.get('sha256', '')))
+                      or ('bytes' in item and (type(item['bytes']) is not int or item['bytes'] <= 0))):
+            raise ValueError('External pack lacks a pinned hash or has an invalid size: ' + name)
+        requested[name] = (url, item)
     if attachment_bindings:
         raise ValueError('Package omitted approved external data attachments')
 
     def probe(entry):
-        name, url = entry
-        request = urllib.request.Request(url, headers={'Range': 'bytes=0-1'})
+        name, (url, item) = entry
+        request = urllib.request.Request(url, headers={} if exact else {'Range': 'bytes=0-1'})
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
-                if response.status not in (200, 206) or response.read(2) != b'\x1f\x8b':
+                if exact:
+                    digest = hashlib.sha256()
+                    count = 0
+                    size = item.get('bytes')
+                    limit = size if size is not None else 300*1024*1024
+                    if response.status != 200:
+                        raise ValueError('External pack did not return the whole file: ' + name)
+                    while chunk := response.read(1024*1024):
+                        count += len(chunk)
+                        if count > limit:
+                            break
+                        digest.update(chunk)
+                    if (count > limit or (size is not None and count != size)
+                            or digest.hexdigest() != item['sha256']):
+                        raise ValueError('External pack bytes differ from the pinned file: ' + name)
+                elif response.status not in (200, 206) or response.read(2) != b'\x1f\x8b':
                     raise ValueError('External pack is not accessible: ' + name)
-        except (URLError, TimeoutError, OSError) as error:
+        except (OSError, IncompleteRead) as error:
             raise ValueError('External pack is not accessible: ' + name) from error
 
     with ThreadPoolExecutor(max_workers=12) as pool:
@@ -125,7 +143,7 @@ def verify_public_files(slug, expected_archive, base):
         return data
 
     wanted = archive_inventory(expected_archive)
-    verify_external_packs(expected_archive, base, target_slug=slug)
+    verify_external_packs(expected_archive, base, target_slug=slug, exact=True)
     before = metadata()
     with zipfile.ZipFile(expected_archive) as expected:
         expected_html = {}
