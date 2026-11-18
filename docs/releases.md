@@ -74,6 +74,7 @@ this table is the index.
 | [0.5.0](https://github.com/lexmount/webstone/releases/tag/v0.5.0) | The Webstone version names the Web Fetch benchmark edition; score-changing scorer fixes; corrected references | Web Fetch dataset v2.2.0 (`c12559d2`); Web Search dataset `76d9c2b6` |
 | [0.6.0](https://github.com/lexmount/webstone/releases/tag/v0.6.0) | Rename the project to Webstone: the `webstone` command, `WEBSTONE_*` variables and the `~/.webstone` data home replace the Browser Eval names; scoring is unchanged | Web Fetch dataset v2.2.0 (`c12559d2`); Web Search dataset `76d9c2b6` |
 | [0.7.0](https://github.com/lexmount/webstone/releases/tag/v0.7.0) | Web Fetch edition v3.0.0 (530 tasks, breaking: compare separately from v2.x); main and full content scopes scored from the same saved calls | Web Fetch dataset v3.0.0 (`def0249d`); Web Search dataset `76d9c2b6` |
+| [0.8.0](https://github.com/lexmount/webstone/releases/tag/v0.8.0) | Yuanbao and Bocha Search adapters; L1/L2/L3 output comparisons; source-backed SimpleQA repairs; reviewed result submissions and PyPI publishing | Web Fetch dataset v3.0.0; Web Search dataset v2.0.0 (`3f7b9f2f`); SimpleQA Verified v2.0.0 (`270cb2a4`). Factual queries and references change; compare the complete revised edition separately from v1.x. |
 
 Historical 0.1.0 and 0.2.0 tags retain their original commits. A software release
 can support several separately selected benchmarks. Its version never changes

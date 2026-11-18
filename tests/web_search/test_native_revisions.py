@@ -653,11 +653,14 @@ def test_explorer_and_review_accept_only_effective_ranked_preview_grades(first_g
 
 def reference_dataset_revision():
     from harness.benchmarks.data import binding
+    from lexbench_websearch.inputs import load_dataset
 
     selected = binding('simpleqa-verified')
+    controls = ['generic-document-urls', 'reference-mirror-title-and-lead', 'reference-question-evidence']
+    controls += load_dataset('factual-v1').get('case_repairs', {}).get('regression_ids', [])
     return dict(schema='web-search-assessment-revision/1', provider_calls=0,
                 root_cause='Reference-only source verification supplies missing same-document URLs',
-                regression_ids=['generic-document-urls', 'reference-mirror-title-and-lead', 'reference-question-evidence'],
+                regression_ids=list(dict.fromkeys(controls)),
                 reference_dataset=dict(track='simpleqa-verified', revision=selected['revision'],
                                        path='datasets/factual-v1.json',
                                        sha256=selected['datasets']['factual-v1']['sha256']))
@@ -711,9 +714,13 @@ def test_reference_dataset_revision_rejects_unbound_or_changed_inputs(defect):
         case['reference_answer'] = 'Another answer'
     elif defect == 'second-authority':
         revision['factual_source_identities'] = [{'case_id': case['id']}]
+        revision['regression_ids'].append('verified-factual-source-identities')
     else:
         revision['regression_ids'] = ['generic-document-urls']
-    with pytest.raises(ValueError):
+    expected = {'wrong-hash': 'hash differs', 'unknown-revision': 'not recorded',
+                'changed-query': 'changes a frozen question', 'changed-gold': 'changes a frozen question',
+                'second-authority': 'second URL authority', 'missing-controls': 'regression controls'}
+    with pytest.raises(ValueError, match=expected[defect]):
         apply_report_revision(dict(cases=[case], methods=[], protocol={'top_k': 5}), [], revision)
 
 
