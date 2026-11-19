@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 PROG = "python -m harness.web_search"
 COMMANDS = {
+    "run": ("harness.web_search.runner", "main", "Collect and score a profile-bound Web Search cohort"),
     "report": ("harness.web_search.report", "main",
                "Build, check, release-check or export a report"),
     "visual": ("harness.web_search.visual", "main",
@@ -22,7 +23,8 @@ COMMANDS = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=PROG, description=__doc__)
+    prog = sys.argv[0] if sys.argv[0].startswith("webstone ") else PROG
+    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True, metavar="command")
     for name, (_, _, summary) in COMMANDS.items():
         # The owning module parses the remaining arguments, including its own --help.
@@ -31,13 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args, remaining = build_parser().parse_known_args(argv)
+    parser = build_parser()
+    args, remaining = parser.parse_known_args(argv)
     module, function, _ = COMMANDS[args.command]
     # Import on selection so each command and top-level help load only what they use.
     handler = getattr(importlib.import_module(module), function)
     invoked_as = sys.argv[0]
     # The owner's parser takes its usage name from argv[0].
-    sys.argv[0] = f"{PROG} {args.command}"
+    sys.argv[0] = f"{parser.prog} {args.command}"
     try:
         handler(remaining)
     finally:

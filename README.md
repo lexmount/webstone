@@ -18,6 +18,14 @@ Assayers tested gold on a touchstone: rub the metal on the dark stone and the st
 
 Benchmark browsers and Web tools for AI agents through Web Fetch, Web Search, Web Extract and Browser Trajectory Replay. Compare correctness, latency, resource use and recorded cost. Optionally turn saved results into local reports you can inspect, rebuild and share, with drilldown to every individual result.
 
+## For agents
+
+Install the [Webstone workflow skill](.agents/skills/webstone/SKILL.md) to help your agent choose a Track/benchmark, execute and score evidence, build or share a report, submit leaderboard results and propose dataset updates. [Agent workflows](docs/agent-workflows.md) lists the actual supported commands, optional dependencies and remaining manual steps.
+
+Install the CLI with `python -m pip install --upgrade webstone`. Check for `webstone skills --help`, then run `webstone skills install --directory "$HOME/.codex/skills"` (or use your agent's skills directory). For a release that predates the skill installer, use a checkout of the source that contains it and run `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`. Use `webstone tracks` to inspect supported commands and pinned datasets.
+
+Already have measured results? The [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) opens a reviewed result PR using GitHub and Node.js; installing Webstone is optional. The `webstone results` helpers automate the same contract when the package is already part of your pipeline.
+
 ## Quickstart
 
 With Python 3.11 or newer, install Webstone from [PyPI](https://pypi.org/project/webstone/) and run the offline example:
@@ -276,7 +284,7 @@ Project citation: [CITATION.cff](CITATION.cff).
 }
 ```
 
-## Submit benchmark results
+## Optional CLI: submit benchmark results
 
 Internal and external contributors use the same reviewed publication flow in [webstone-site](https://github.com/lexmount/webstone-site). Install GitHub CLI and use your existing GitHub account; no separate website account is required.
 

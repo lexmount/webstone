@@ -18,6 +18,14 @@
 
 面向 AI Agent，评测浏览器与 Web 工具，覆盖内容抓取、搜索、商品字段提取和 Browser Trajectory Replay。比较正确性、延迟、资源使用和已记录的成本，并可按需将保存的结果生成本地报告，下钻检查每一个结果，重建或分享报告。
 
+## 面向 Agent 的入口
+
+安装 [webstone Skill](../.agents/skills/webstone/SKILL.md)，让用户的 Agent 选择 Track 和 benchmark，执行推理/工具调用、评分、生成或分享报告、提交成绩 PR，以及提出数据集更新。[完整流程指南](agent-workflows.md) 列出实际可用命令、可选依赖和仍需人工或源码环境的步骤。
+
+运行 `python -m pip install --upgrade webstone` 安装 CLI。用 `webstone skills --help` 确认当前版本支持安装 Skill，再运行 `webstone skills install --directory "$HOME/.codex/skills"`，或指定你的 Agent 所用的 Skill 目录。如果当前版本还没有安装命令，可在包含该功能的源码目录运行 `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`。`webstone tracks` 会列出支持的命令和锁定的数据集版本。
+
+已有评测结果时，使用 [网站提交 Skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) 即可通过 GitHub PR 提交至 webstone-site，不要求安装 Webstone；`webstone results` 是评测流程中的可选辅助工具。
+
 ## 快速开始
 
 使用 Python 3.11 或更新版本，从 [PyPI](https://pypi.org/project/webstone/) 安装 Webstone，再运行离线示例：
@@ -277,7 +285,7 @@ make ci
 }
 ```
 
-## 提交评测结果
+## 可选 CLI：提交评测结果
 
 内部和外部贡献者通过同一 CLI／SDK 向 [webstone-site](https://github.com/lexmount/webstone-site) 提交结果 PR。复用 GitHub 账号，无需另建网站账号。结果应只含可公开且不敏感的数据；先通过校验和维护者审核，合入后再由网站自动部署。
 

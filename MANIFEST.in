@@ -1,3 +1,4 @@
+include .agents/skills/webstone/SKILL.md
 # Inputs of the bundled-data build step; keep equal to tool.webstone.bundled-data.
 include uv.lock
 include configs/providers.headless.json

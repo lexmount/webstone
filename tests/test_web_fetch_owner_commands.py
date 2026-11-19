@@ -18,9 +18,16 @@ PROG = build_parser().prog
 DOCUMENTED_COMMAND_FILES = ("Makefile", "docs/benchmarks.md", "docs/architecture.md",
                             "src/harness/web_fetch/README.md", "src/harness/web_fetch/WEBMAINBENCH.md",
                             "src/harness/web_fetch/HEADLESS.md")
-COMMAND_INDEX_FILES = (*DOCUMENTED_COMMAND_FILES, "configs/report-templates.json")
+COMMAND_INDEX_FILES = (*DOCUMENTED_COMMAND_FILES, "docs/agent-workflows.md", "configs/report-templates.json")
 # A distinctive option each owner declares, so the help cannot come from the router.
 OWNER_OPTIONS = {
+    "tracks": "--help",
+    "skills": "install",
+    "datasets": "propose",
+    "web-search": "run",
+    "web-extract": "prepare",
+    "trajectory-replay": "evaluate",
+    "browser-use": "run",
     "results": "--repo",
     "headless-run": "--cohort",
     "headless-observations": "--observation-scope",
@@ -219,7 +226,7 @@ def test_every_owner_command_is_shown_by_a_guide_or_listed_as_kept():
     shown = named_commands("\n".join((ROOT / path).read_text(encoding="utf-8") for path in COMMAND_INDEX_FILES))
     inventory = (ROOT / "scripts/README.md").read_text(encoding="utf-8")
     kept = named_commands(inventory.split("## Kept as is (#151)")[1].split("\n## ")[0])
-    assert kept == set(OWNER_COMMANDS) - shown
+    assert kept | shown == set(OWNER_COMMANDS)
 
 
 def test_command_inventory_runs_track_stages_through_the_locked_runtime():

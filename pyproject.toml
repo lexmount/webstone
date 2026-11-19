@@ -115,6 +115,7 @@ include = [
   "src/harness/container_isolation.py",
   "src/harness/benchmark_execution.py",
   "src/harness/data_home.py",
+  "src/harness/agent_workflows.py",
   "src/harness/distribution.py",
   "src/harness/env_file.py",
   "src/harness/fix_log.py",
@@ -199,6 +200,7 @@ include = ["harness*", "lexbench_webfetch*", "lexbench_websearch*"]
 # Copied to harness/distribution_data/ by setup.py; MANIFEST.in keeps them in the sdist.
 [tool.webstone]
 bundled-data = [
+  ".agents/skills/webstone/SKILL.md",
   "pyproject.toml",
   "uv.lock",
   "configs/providers.headless.json",

@@ -62,6 +62,9 @@ def check_distribution(root: Path, *, uv: str = "uv", run: Callable = subprocess
         call(pip_python, "-m", "pip", "check")
         call(str(venv / "bin/webstone"), "validate")
         call(str(venv / "bin/webstone"), "results", "--help")
+        call(str(venv / "bin/webstone"), "tracks")
+        call(str(venv / "bin/webstone"), "skills", "install", "--directory",
+             str(work_dir / "sdist-skills"))
         call(pip_python, "-m", "pip", "install", "--force-reinstall", "--no-deps", str(wheel))
         call(pip_python, "-m", "pip", "check")
         call(
@@ -69,6 +72,10 @@ def check_distribution(root: Path, *, uv: str = "uv", run: Callable = subprocess
             "from harness.results import ResultsClient; assert callable(ResultsClient.submit)",
         )
         call(str(venv / "bin/webstone"), "results", "--help")
+        call(str(venv / "bin/webstone"), "tracks")
+        call(str(venv / "bin/webstone"), "datasets", "list")
+        call(str(venv / "bin/webstone"), "skills", "install", "--directory",
+             str(work_dir / "wheel-skills"))
         call(pip_python, *smoke)
         for extra, flag in OPTIONAL_PROFILES:
             call(*tool, "run", "--no-project", "--isolated", "--python", python,
