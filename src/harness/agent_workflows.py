@@ -16,7 +16,7 @@ ROOT_URL = "https://github.com/lexmount/webstone/blob/main/"
 TRACKS = (
     ("web-fetch", "Web Fetch", "webstone", "src/harness/web_fetch/README.md", None),
     ("web-search", "Web Search", "webstone web-search", "src/harness/web_search/README.md", None),
-    ("web-extract", "Web Extract", "webstone web-extract", 
+    ("web-extract", "Web Extract", "webstone web-extract",
      "examples/web_extract/README.md", "web-extract-eval"),
     ("trajectory-replay", "Browser Trajectory Replay", "webstone trajectory-replay",
      "examples/trajectory_replay/README.md", "browser-use-eval"),
