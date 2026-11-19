@@ -1418,3 +1418,67 @@ def test_supplementary_collection_recovers_with_the_same_current_selector(tmp_pa
                  '--finalize-references-from',str(source)],certified=True)
     assert load_run(output)[2]['certified'] is True
     assert state['provider_calls']==1
+
+
+@pytest.mark.parametrize('supersede_success', [False, True])
+def test_explicit_version_recovery_retains_other_paid_calls(tmp_path, monkeypatch, supersede_success):
+    from copy import deepcopy
+    from harness.record_io import bytes_sha256, read_completed_records
+    from harness.web_search import runner
+
+    profile = execution_profile()
+    profile['cases'] = profile['cases'][:1]
+    profile['methods'] = [dict(profile['methods'][0], id=mid, adapter='tencent-wsa',
+        endpoint='https://' + mid + '.invalid', key_env='FIXTURE_' + mid.upper(), output_options={'edition': edition},
+        expected_response_version=edition) for mid, edition in [('good', 'standard'), ('wrong', 'lite')]]
+    profile['protocol'].update(order='bounded calls', rounds=1, concurrency=1, interval_s=0, retry=False,
+                               max_calls_per_method=1)
+    profile['execution_policy'] = dict(purpose='quality', max_in_flight=1,
+        serial_reason='Synthetic shared account', resources={m['id']:dict(capacity=1,
+            reason='Synthetic provider lane') for m in profile['methods']})
+    source, output = tmp_path / 'profile.json', tmp_path / 'run'
+    source.write_text(json.dumps(profile), encoding='utf-8')
+    sent = []
+    state = {'recover': False}
+
+    def http(url, body=None, *args, **kwargs):
+        receipt = dict(http_status=200, elapsed_ms=1, transport_exit=0, transport_error='')
+        if body is None:
+            return receipt, b'reference ' * 20
+        sent.append(url)
+        version = 'lite' if state['recover'] and 'wrong' in url else 'standard'
+        return receipt, json.dumps({'Response': {'Version': version, 'Pages': []}}).encode()
+
+    monkeypatch.setattr(runner, 'http_call', http)
+    monkeypatch.setattr(runner, 'load_runtime_env', lambda: None)
+    for m in profile['methods']:
+        monkeypatch.setenv(m['key_env'], 'fixture')
+    with pytest.raises(ValueError, match='Provider account error'):
+        runner.run(source, output, certified=True)
+    old = (output / 'profile.json').read_bytes()
+    retained = [r for r in read_completed_records(output / 'results.jsonl') if r['method']=='good']
+    assert len(retained)==1
+    frozen = (output / retained[0]['evidence']['path']).read_bytes()
+    changed = deepcopy(profile)
+    changed['protocol']['max_calls_per_method'] = {'good': 2 if supersede_success else 1, 'wrong': 2}
+    revised = tmp_path / 'revised.json'
+    revised.write_text(json.dumps(changed), encoding='utf-8')
+    proof = tmp_path / 'proof.json';proof.write_text('{"account_edition_corrected":true}', encoding='utf-8')
+    revision = tmp_path / 'revision.json'
+    revision.write_text(json.dumps(dict(schema='web-search-execution-revision/1',
+        root_cause='Console edition differed from the frozen expected edition',
+        superseded_methods=['good'] if supersede_success else ['wrong'],
+        previous_profile_sha256=bytes_sha256(old), profile_sha256=bytes_sha256(revised.read_bytes()),
+        evidence=[dict(path=proof.name, sha256=bytes_sha256(proof.read_bytes()))])), encoding='utf-8')
+    state['recover'] = True
+    if supersede_success:
+        with pytest.raises(ValueError, match='version mismatch'):
+            runner.run(revised, output, certified=True, resume=True, execution_revision=revision)
+        assert len(sent)==2 and not (output/'resume-1').exists()
+        return
+    runner.run(revised, output, certified=True, resume=True, execution_revision=revision)
+    assert len(sent)==3 and sent.count('https://good.invalid')==1
+    assert (output / retained[0]['evidence']['path']).read_bytes()==frozen
+    assert runner.physical_call_counts(changed, output)=={'good':1, 'wrong':2}
+    assert json.loads((output/'receipt.json').read_bytes())['certified']
+    assert 'ResponseVersionMismatch' in (output/'resume-1/previous-results.jsonl').read_text(encoding='utf-8')

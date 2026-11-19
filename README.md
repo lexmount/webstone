@@ -22,23 +22,23 @@ Benchmark browsers and Web tools for AI agents through Web Fetch, Web Search, We
 
 Install the [Webstone workflow skill](.agents/skills/webstone/SKILL.md) to help your agent choose a Track/benchmark, execute and score evidence, build or share a report, submit leaderboard results and propose dataset updates. [Agent workflows](docs/agent-workflows.md) lists the actual supported commands, optional dependencies and remaining manual steps.
 
-The Python package provides the `webstone` CLI. After the reviewed release is available on PyPI, install with `python -m pip install webstone`, then run `webstone skills install --directory "$HOME/.codex/skills"` (or your agent's skills root). Until that release is published, use the source quickstart below and `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`. `webstone tracks` prints capabilities and pinned dataset suites as JSON; track commands reuse the existing execution/scoring/report owners.
+Install the CLI with `python -m pip install --upgrade webstone`. Check for `webstone skills --help`, then run `webstone skills install --directory "$HOME/.codex/skills"` (or use your agent's skills directory). For a release that predates the skill installer, use a checkout of the source that contains it and run `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`. Use `webstone tracks` to inspect supported commands and pinned datasets.
 
 Already have measured results? The [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) opens a reviewed result PR using GitHub and Node.js; installing Webstone is optional. The `webstone results` helpers automate the same contract when the package is already part of your pipeline.
 
 ## Quickstart
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run the offline example:
+With Python 3.11 or newer, install Webstone from [PyPI](https://pypi.org/project/webstone/) and run the offline example:
 
 ```sh
-git clone https://github.com/lexmount/webstone.git
-cd webstone
-uv sync --frozen
-uv run --frozen webstone validate
-uv run --frozen webstone run --delay 0
+pip install webstone
+webstone validate
+webstone run --delay 0
 ```
 
-Open the report path printed in the terminal. The example has one expected pass and one expected failure; it needs no browser, Docker or API key. Python 3.11 or newer is required; CI tests 3.11.
+In a fresh environment, pip installs the latest compatible PyPI release. Use `pip install --upgrade webstone` to upgrade an existing installation. See [installation options](docs/dependencies.md#install-webstone) to pin a release or try unreleased code from GitHub's `main` branch.
+
+Open the report path printed in the terminal. The example has one expected pass and one expected failure. It needs no browser, Docker or API key.
 
 Next, [try HTTP, Moli or Chromium on a local article](examples/web_fetch/README.md). Optional adapters, service credentials and live evaluation commands are covered in the track guides.
 
@@ -297,6 +297,6 @@ webstone results submit report.json --provider-url your-method=https://example.c
 webstone results status 123 --verify-published
 ```
 
-Submissions create result-only PRs from personal forks. CI validates the format and immutable history; maintainers review evidence before merging. A merge is distinct from a completed deployment. See the [CLI/SDK and PyPI guide](docs/result-submissions.md) for authentication, version-conflict rebasing, public-data requirements and release setup. These commands are available from source until a PyPI release containing them is published; no software version or tag is changed by this feature.
+Submissions create result-only PRs from personal forks. CI validates the format and immutable history, and maintainers review the evidence. See the [submission guide](docs/result-submissions.md) for authentication, version-conflict rebasing and how to check whether a merged result is live.
 
 Result submissions use independently versioned `vMAJOR.MINOR.PATCH` editions with reviewed UTC publication dates; see [the result submission guide](docs/result-submissions.md#result-versions-and-dates). These do not bump the Python package version.

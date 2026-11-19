@@ -1086,3 +1086,61 @@ def test_native_answer_substitution_is_rejected_at_every_input_boundary(tmp_path
         path.write_text(json.dumps(value), encoding="utf-8")
         with pytest.raises(ValueError, match='answer'):
             check(output, evidence_only=boundary == 'evidence-only')
+
+
+def test_pending_dataset_report_replays_offline_and_cannot_hide_review_state(tmp_path):
+    import io
+    import tarfile
+    from lexbench_websearch.simpleqa import extend_reference_urls
+    from tests.web_search.test_native_revisions import revision_instance
+
+    example(tmp_path)
+    case = dict(id='q', query='Who wrote the book?', reference_answer='Author',
+                reference_urls=['https://publisher.test/book'])
+    raw = json.dumps(extend_reference_urls(dict(cases=[case]), [])).encode()
+    member = 'definitions/datasets/factual-v1.json'
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w:gz') as archive:
+        item = tarfile.TarInfo(member);item.size=len(raw)
+        archive.addfile(item, io.BytesIO(raw))
+    compressed = stream.getvalue()
+    manifest_raw = json.dumps(dict(track='simpleqa-verified', files={member:dict(
+        size=len(raw), sha256=bytes_sha256(raw))}, archive=dict(size=len(compressed),
+        sha256=bytes_sha256(compressed)))).encode()
+    assets=[];proposal=dict(repository='Lexmount/LexBench-SimpleQA-Verified',pull_request=5)
+    for key,name,data in [('manifest','proposal.json',manifest_raw),('archive','proposal.tar.gz',compressed)]:
+        (tmp_path/name).write_bytes(data)
+        proposal[key]=dict(path=name,sha256=bytes_sha256(data))
+        assets.append(dict(source=name,**proposal[key]))
+    revision=dict(schema='web-search-assessment-revision/1',provider_calls=0,
+        root_cause='Inspect a fully bound pending dataset without changing main selection',
+        regression_ids=['generic-document-urls','reference-mirror-title-and-lead',
+                        'reference-question-evidence','reference-answer-annotations'],
+        reference_dataset=dict(track='simpleqa-verified',revision='a'*40,
+            path='datasets/factual-v1.json',sha256=bytes_sha256(raw),proposal=proposal))
+    instance=revision_instance(tmp_path,revision)
+    content=tmp_path/'content.json';content.write_text(json.dumps(dict(assets=assets,
+        assessment_revision=revision)),encoding='utf-8')
+    out=tmp_path/'report';build(out,source=tmp_path/'fixture',content=content,profile_path=instance,language='zh')
+    assert check(out)
+    path=out/'index.html';dom=BeautifulSoup(path.read_text(encoding='utf-8'),'html.parser')
+    assert dom.select_one('[data-dataset-proposal]')
+    dom.select_one('[data-dataset-proposal]').decompose();path.write_text(str(dom),encoding='utf-8')
+    manifest=json.loads((out/'manifest.json').read_bytes())
+    for item in manifest['bundle']:
+        if item['path']=='index.html':item['sha256']=bytes_sha256(path.read_bytes())
+    (out/'manifest.json').write_text(json.dumps(manifest),encoding='utf-8')
+    with pytest.raises(ValueError,match='review state'):
+        check(out)
+
+
+@pytest.mark.parametrize('selector', ['[data-metric-definitions]', '[data-primary-definition]', '[data-metric-definitions] code'])
+def test_release_check_rejects_missing_metric_explanations(tmp_path, selector):
+    example(tmp_path, levels=True)
+    output = tmp_path / 'report'
+    path = output / 'index.html'
+    page = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
+    page.select_one(selector).decompose()
+    path.write_text(str(page), encoding='utf-8')
+    with pytest.raises(ValueError, match='Output-level presentation'):
+        check(output)

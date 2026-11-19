@@ -133,7 +133,9 @@ def prepare_execution_revision(profile_path, output, revision_path, *, cohort="p
     new_methods = {m["id"]: m for m in new["methods"]}
     if list(old_methods) != list(new_methods) or not methods.issubset(old_methods):
         raise ValueError("Execution revision cannot change the participant set")
-    if {mid for mid in old_methods if old_methods[mid] != new_methods[mid]} != methods:
+    changed_methods = {mid for mid in old_methods if old_methods[mid] != new_methods[mid]}
+    version_recovery = not changed_methods
+    if changed_methods and changed_methods != methods:
         raise ValueError("Execution revision must supersede every changed method")
     for mid in methods:
         if {k: v for k, v in old_methods[mid].items() if k not in {"endpoint", "output_options"}} != {k: v for k, v in new_methods[mid].items() if k not in {"endpoint", "output_options"}}:
@@ -165,6 +167,21 @@ def prepare_execution_revision(profile_path, output, revision_path, *, cohort="p
         if row["request"] != request_body(method["adapter"], cases[row["case_id"]], old["protocol"], method.get("output_options")):
             raise ValueError("Interrupted request differs from the frozen contract")
         verify_bundle(output, [a["evidence"] for a in row.get("attempts", [row])])
+    if version_recovery:
+        # Budget-only recovery is limited to retained, native version failures.
+        # It cannot replace a successful result or change the expected edition.
+        for mid in methods:
+            failed = [row for row in rows if row["method"] == mid]
+            if not failed:
+                raise ValueError("Budget-only recovery requires a recorded version mismatch")
+            for row in failed:
+                native = json.loads((output / row["evidence"]["path"]).read_bytes())
+                error = adapter_for(old_methods[mid]["adapter"]).account_error(
+                    native, old_methods[mid], http_status=row["http_status"])
+                if (row.get("transport_exit") or not error
+                        or not error.startswith("ResponseVersionMismatch:")
+                        or row.get("account_error") != error):
+                    raise ValueError("Budget-only recovery requires a native version mismatch")
     partial, _ = reconcile_incomplete_results(old, output, rows)
     retained = [r for r in rows if r["method"] not in methods and r["id"] not in partial]
     retained_partial = {key: row for key, row in partial.items() if row["method"] not in methods}

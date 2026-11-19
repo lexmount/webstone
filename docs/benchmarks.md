@@ -50,18 +50,18 @@ Dataset cards explain scope, schema, source terms and loading. Configuration cou
 Install Webstone, then prepare its pinned public definitions:
 
 ```sh
-uv sync --frozen
-uv run --frozen python -m harness.benchmarks.data
-uv run --frozen lexbench-webfetch list
-uv run --frozen lexbench-webfetch validate
-uv run --frozen lexbench-websearch list
+pip install webstone
+python -m harness.benchmarks.data
+lexbench-webfetch list
+lexbench-webfetch validate
+lexbench-websearch list
 ```
 
-When upgrading an existing checkout, `uv sync --frozen` removes the retired standalone scorer distributions before installing the shared distribution.
+See [installation options](dependencies.md#install-webstone) for version pinning and source checkout setup.
 
 Downloads use full Hugging Face commits and verify the archive and every file. Public downloads need no access key. Cached definitions work with `HF_HUB_OFFLINE=1`; `WEBSTONE_DATASET_CACHE` overrides the default `~/.webstone/datasets/`. Changing the evidence directory does not change the selected dataset cache.
 
-If validation reports extra, missing or corrupted cached files, run `uv run --frozen python -m harness.benchmarks.data --repair <track>` while online. Repair preserves the invalid directory beside the snapshot, then downloads and verifies the locked edition again. Offline repair leaves the existing files intact.
+If validation reports extra, missing or corrupted cached files, run `python -m harness.benchmarks.data --repair <track>` while online. Repair preserves the invalid directory beside the snapshot, then downloads and verifies the locked edition again. Offline repair leaves the existing files intact.
 
 The public Fetch definitions contain compact task contracts and reference hashes. Full third-party captures still require an approved matching input copy:
 
@@ -92,6 +92,8 @@ make pin-dataset DATASET=webfetch REV=<full-Hugging-Face-commit>
 The same command selects the other dataset keys registered in the lock, including `websearch`, `simpleqa-verified`, `webmainbench`, `wcxb`, `web-extract`, `trajectory-replay` and `webarena-replay`. The command rejects a commit that is not on the dataset's `main` history, such as an unmerged Hugging Face pull-request ref or a force-pushed commit, and verifies the release before updating the lock and applicable import bindings. It reads the history through `HF_ENDPOINT` with optional `HF_TOKEN`. Keep current-version selections in these files, not in README prose.
 
 Author dataset changes in a checkout of the corresponding Hugging Face dataset. Commit the definitions and materialize any Git LFS files, then use `uv run --frozen python -m harness.benchmarks.publication --help` to build the inspected commit. `--create-pr HF_REPOSITORY` opens a Hugging Face pull request for review; it does not update dataset main or create a release tag. Install the optional `dataset-publish` extra and authenticate with `HF_TOKEN` for uploads; readers need no token. Preserve upstream attribution and redistribution terms. Scores, provider responses, model grades and private run directories do not belong in a dataset release.
+
+Use `--parent-revision FULL_COMMIT` to guard the expected target commit. To amend an existing open proposal, also pass `--pull-request NUMBER`; the same command writes only to that PR and checks its head instead of main. These options require `--create-pr`.
 
 Web Fetch revisions preserve their original task files. `score_only_annotation_revision`
 cannot change the request. An explicitly selected `task_scope_revision` may also

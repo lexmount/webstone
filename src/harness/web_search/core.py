@@ -28,6 +28,11 @@ def request_body(adapter, case, protocol, options=None):
     return adapter_for(adapter).request(case, protocol, options)
 
 
+def method_contract(method):
+    """Compare execution and billing declarations independently of display names."""
+    return {key: value for key, value in method.items() if key != 'label'}
+
+
 def normalize(payload, adapter=None, top_k=None, *, base_url=None, project_slots=False,
               preserve_invalid_slots=False):
     payload = normalize_envelope(payload, adapter, top_k=top_k, project_slots=project_slots,

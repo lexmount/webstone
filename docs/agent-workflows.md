@@ -4,18 +4,17 @@ Webstone is designed for agents working on a user's behalf. The **skill plans th
 
 ## Install software and skill
 
-After the reviewed release is published to PyPI, Python 3.11+ users can install:
+On Python 3.11+, install the current PyPI release and check whether it includes the skill installer:
 
 ```sh
-python -m pip install webstone
-webstone --help
-webstone tracks
+python -m pip install --upgrade webstone
+webstone skills --help
 webstone skills install --directory "$HOME/.codex/skills"
 ```
 
 `webstone` is the CLI shipped by the Python package. The skill installer copies the packaged, version-matched skill offline. It refuses an existing `webstone` destination instead of overwriting user instructions. Inspect/remove or back up an older installation deliberately before upgrading. Other agents can select their supported skills root with `--directory`.
 
-These new commands are currently main-branch source features, not a claim that PyPI already hosts them. Until the release is actually published, use a clean source checkout:
+If your installed release predates these commands, use a source checkout that contains the skill:
 
 ```sh
 git clone https://github.com/lexmount/webstone.git

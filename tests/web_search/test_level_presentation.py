@@ -27,11 +27,27 @@ def test_collection_context_is_available_without_expanding_comparison_rows():
     selected = view(n=2)
     selected['profile']['method_collections'] = [dict(id='old', methods=['a', 'b'],
         started_at='2026-11-13T10:00:00Z', protocol={'concurrency': 4})]
+    for row in selected['rows']:
+        row['collection'] = 'old'
     doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
     contexts = doc.select('details.measurement-context')
     assert len(contexts) == 2
     assert all(not node.has_attr('open') for node in contexts)
     assert all('2026-11-13' in node.get_text() and 'concurrency 4' in node.get_text() for node in contexts)
+
+
+def test_collection_context_excludes_batches_outside_the_displayed_population():
+    selected = view(n=2)
+    selected['profile']['method_collections'] = [
+        dict(id='original', methods=['a', 'b'], started_at='2026-10-01', protocol={'concurrency': 1}),
+        dict(id='facts-only', methods=['a', 'b'], started_at='2026-11-17', protocol={'concurrency': 7})]
+    for row in selected['rows']:
+        row.update(collection='original', timestamp='2026-10-02T00:00:00Z')
+    doc = BeautifulSoup(render_level_summary(selected), 'html.parser')
+    contexts = [node.get_text() for node in doc.select('details.measurement-context')]
+    assert len(contexts) == 2
+    assert all('2026-10-02' in text and 'concurrency 1' in text for text in contexts)
+    assert all('2026-11-17' not in text and 'concurrency 7' not in text for text in contexts)
 
 
 def test_context_size_counts_titles_when_the_provider_has_no_primary_excerpt():
@@ -460,3 +476,17 @@ def test_successful_empty_searches_are_not_labeled_request_failures():
     assert all(float(cell['data-value']) == 0 for cell in doc.select('[data-metric$="-failed_calls"]'))
     assert all(cell.get_text() == '2/2' for cell in doc.select('[data-metric$="-empty_outputs"]'))
     assert not doc.select('[data-request-failures]')
+
+
+@pytest.mark.parametrize('zh', [False, True])
+def test_every_layered_benchmark_has_a_folded_metric_guide(zh):
+    selected = view()
+    doc = BeautifulSoup(render_level_summary(selected, zh), 'html.parser')
+    for panel in doc.select('[data-level-benchmark]'):
+        guide = panel.select_one('details[data-metric-definitions]')
+        assert guide is not None and not guide.has_attr('open')
+        assert guide.select_one('[data-primary-definition="source_rr"]')
+        assert {node['data-metric-definition'] for node in guide.select('[data-metric-definition]')} >= {
+            'source_rr', 'source_hit', 'answer_match'}
+        assert guide.select_one('[data-measurement-definitions]')
+        assert guide.select_one('code')

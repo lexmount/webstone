@@ -1,16 +1,13 @@
 # Reviewed result submissions
 
-This is the **optional CLI/SDK** path for an existing evaluation pipeline. A [direct result PR](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md) and the site's submission skill need no Webstone installation. See [agent workflows](agent-workflows.md) for the complete lifecycle and installable skill.
-
-
 `webstone results` and `harness.results.ResultsClient` share one publication path. Internal and external contributors submit public data as pull requests to `lexmount/webstone-site`; neither can write results directly to main through this interface. The website requires no separate account and no submission database.
 
 ## CLI
 
-Install GitHub CLI, authenticate with your own GitHub account, and use Webstone from the maintained source until a PyPI release containing these commands is available:
+Install [GitHub CLI](https://cli.github.com/) and Webstone, then sign in to GitHub:
 
 ```sh
-pip install "git+https://github.com/lexmount/webstone.git"
+pip install webstone
 gh auth login
 webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
 # Fill actual measurements and public evidence; templates intentionally contain placeholders.
@@ -68,16 +65,7 @@ pip install "webstone[browser-use-eval]"
 
 Do not substitute the upstream registry evaluator: its source and scoring may differ. `uv sync --frozen --extra browser-use-eval` from the source checkout continues to use the pinned fork.
 
-The package already declares the `webstone` command and an installable wheel/sdist configuration. The PyPI workflow uses Trusted Publishing, not a stored PyPI token. An account owner must configure a publisher for:
-
-- PyPI project: `webstone`
-- GitHub owner/repository: `lexmount/webstone`
-- Workflow: `publish-pypi.yml`
-- GitHub environment: `pypi`
-
-Configure a pending Trusted Publisher if the PyPI project does not yet exist. The `pypi` environment should require maintainer approval. Organization ownership is optional for publishing; a commercial PyPI organization needs separate application, billing and administrator approval.
-
-Publishing requires a separately approved software version and immutable `vMAJOR.MINOR.PATCH` tag, matching `pyproject.toml` and `uv.lock`, successful full CI on that exact main commit, and approval of the protected `pypi` environment. Pushing the tag triggers the workflow, which verifies these boundaries, builds both distributions, checks metadata and publishes with attestations. Record its changelog in the matching GitHub release; creating that release alone does not trigger another upload. Adding this workflow does not itself bump a version, create a tag, publish a package or certify benchmark numbers. Follow [Software releases](releases.md).
+Maintainers publish the wheel and source distribution through GitHub Actions and PyPI Trusted Publishing. See the [publishing setup](pypi-publishing-setup.md) and [software release policy](releases.md).
 
 ## Result versions and dates
 

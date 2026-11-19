@@ -1,4 +1,4 @@
-<!-- Shared section copied from lexmount/ai-template-py@70e2653aa062f7af7524001ac1dcd76ded54fd56 (docs/references/review-guidelines.md); change it upstream, then copy it here. The Webstone supplement at the end is maintained in this repository. -->
+<!-- Shared section copied from lexmount/ai-template-py@e09a9224a0da82bc1ea2ce51e35fa54857968d87 (docs/references/review-guidelines.md); change it upstream, then copy it here. The Webstone supplement at the end is maintained in this repository. -->
 
 # Review Guidelines
 
@@ -75,7 +75,11 @@ Apply these questions to the current changes and affected behavior. Use the
 evidence and ownership conditions above when reporting findings or requesting fixes.
 
 1. **Goal and approach.** What real problem does the PR solve, which user scenarios
-   does it affect, and what behavior should change or remain unchanged? Does the
+   does it affect, and what behavior should change or remain unchanged? Is each
+   requirement needed, including those inherited from issues and earlier review
+   comments: what need or threat does it address, what happens without it, and what
+   does it cost in code, configuration and operation? Report an unnecessary
+   requirement with evidence and recommend that the maintainer remove it. Does the
    description match the existing code? Is the approach necessary, and does it
    implement the whole goal?
 2. **Acceptance criteria.** Are all success criteria covered? Has a review with no
@@ -205,6 +209,13 @@ findings do not hold, and leave unrelated old defects to their own tasks. Read
 replies as well as thread roots. A valid finding does not make its suggested fix
 correct: do not delete correct test expectations or change agreed requirements
 merely to eliminate a comment.
+
+Before reporting a doubt or asking a question, answer it yourself: think it through
+and test it where you can, by running the code, reproducing the case or trying the
+simpler alternative, using code, documentation, configuration and history as
+evidence. Check the answer against the strongest counter-case before relying on it.
+Ask the maintainer only about product intent that remains open, with the evidence
+and a recommended default.
 
 Keep summaries and execution records out of inline findings. The rules do not
 themselves authorize a model to publish comments. With no findings, return the

@@ -43,6 +43,7 @@ from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
     aggregate,
     execution_resources,
+    method_contract,
     normalize_response,
     normalized_answer,
     request_body,
@@ -521,7 +522,8 @@ def _load_method_runs(inputs, labels, method_ids, *, source_methods=None, source
                     raise ValueError('Matrix collections contain conflicting task definitions')
                 case_definitions.setdefault(case['id'],copy.deepcopy(case))
             for method in current['methods']:
-                if method['id'] in method_definitions and method_definitions[method['id']] != method:
+                if (method['id'] in method_definitions
+                        and method_contract(method_definitions[method['id']]) != method_contract(method)):
                     raise ValueError('Matrix collections contain conflicting method definitions')
                 method_definitions.setdefault(method['id'],copy.deepcopy(method))
             cells = {(r['case_id'],r['method'],r['round']) for r in calls}
@@ -817,6 +819,15 @@ def _load_report_inputs(
         relevance_scope(profile, rows)
     collection_profile = profile
     rows, public_files, redactions, billing_corrections = public_calls(profile, rows, source, sources)
+    proposal = authored.get('assessment_revision', {}).get('reference_dataset', {}).get('proposal')
+    if proposal:
+        for item in (proposal['manifest'], proposal['archive']):
+            asset = next((a for a in authored.get('assets', []) if a['path'] == item['path']
+                          and a['sha256'] == item['sha256']), None)
+            if asset is None:
+                raise ValueError('Pending dataset inputs must be retained report assets')
+            verify_bundle(content.parent, [dict(path=asset['source'], sha256=item['sha256'])])
+            public_files[item['path']] = (content.parent / asset['source']).read_bytes()
     profile, rows, scoring_revision, assessment_revision = _apply_revisions(correction, authored, authority, profile, rows, public_files)
     profile, rows = project_comparison(profile, rows, authored)
     materialized_paths = {e["path"] for r in rows for e in [r["evidence"], *[a["evidence"] for a in r.get("attempts", [])]]}
@@ -1026,6 +1037,11 @@ def _write_page(inputs: ReportInputs, edition: ReportEdition, route: str, title:
     notice_html = f'<p class="notice" data-state>{state}</p>'
     if authored.get("presentation") == "comparison-report" and receipt.get("certified") and not receipt.get("synthetic"):
         notice_html = ''
+    proposal = authored.get('assessment_revision', {}).get('reference_dataset', {}).get('proposal')
+    if proposal:
+        label = t('Dataset revision awaiting review')
+        url = 'https://huggingface.co/datasets/' + proposal['repository'] + '/discussions/' + str(proposal['pull_request'])
+        notice_html += '<p class="notice" data-dataset-proposal><a href="' + esc(url) + '">' + label + '</a></p>'
     document = BeautifulSoup(
         f'''<!doctype html><html lang="{lang}"><head><base href="{depth or './'}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · {t("Web Search")}</title><style>{STYLE}</style></head><body><nav>{navigation}</nav><main><p class="muted">{t("Webstone / Web Search")}</p><h1>{esc(title)}</h1>{notice_html}{body}</main><dialog aria-label="{t("Response evidence")}"><button data-close>{t("Close")}</button><pre></pre><a hidden>{t("Full result")}</a></dialog><script>{SCRIPT}</script></body></html>''',
         "html.parser",
@@ -2029,6 +2045,15 @@ def check(output, *, return_data=False, evidence_only=False):
         }
         if sensitivity.get("results") != expected_sensitivity:
             raise ValueError("Factual sensitivity disagrees with preserved responses")
+    proposal = (manifest.get('authored') or {}).get('assessment_revision', {}).get('reference_dataset', {}).get('proposal')
+    proposal_artifacts = {}
+    if proposal:
+        for item in (proposal['manifest'], proposal['archive']):
+            verify_bundle(output, [item])
+            proposal_artifacts[item['path']] = (output / item['path']).read_bytes()
+        for route in manifest['routes']:
+            if route.endswith('.html') and not BeautifulSoup((output / route).read_text(encoding='utf-8'), 'html.parser').select_one('[data-dataset-proposal]'):
+                raise ValueError('Pending dataset report must display its review state')
     groups = manifest["profile"].get("report_cohorts", [])
     if groups:
         declared = [(g["id"], cid) for g in groups for cid in g["case_ids"]]
@@ -2154,7 +2179,7 @@ def check(output, *, return_data=False, evidence_only=False):
         if changes != expected_changes:
             raise ValueError("Scoring revision provenance mismatch")
         if manifest.get("assessment_revision"):
-            revised, _, _ = apply_report_revision(revised, [], manifest["assessment_revision"]["contract"], normalizer=normalize_response)
+            revised, _, _ = apply_report_revision(revised, [], manifest["assessment_revision"]["contract"], artifacts=proposal_artifacts, normalizer=normalize_response)
         revised, _ = project_comparison(revised, [], manifest.get("authored") or {})
         if manifest.get("report_assessment"):
             revised = assessment_profile(revised, relevance_data, review_data)
@@ -2164,6 +2189,7 @@ def check(output, *, return_data=False, evidence_only=False):
         revision = manifest["assessment_revision"]
         if revision["contract"].get("normalization"):
             artifacts = {r["evidence"]["path"]: (output / r["evidence"]["path"]).read_bytes() for r in manifest["rows"]}
+            artifacts.update(proposal_artifacts)
             collected = collected_projection(manifest["collection_profile"], manifest["rows"], artifacts, normalize_response)
             revised, corrected, changes = apply_report_revision(manifest["collection_profile"], collected, revision["contract"], artifacts=artifacts, normalizer=normalize_response)
             if changes != revision["changes"] or any(
@@ -2172,7 +2198,7 @@ def check(output, *, return_data=False, evidence_only=False):
             ):
                 raise ValueError("Native normalization correction provenance mismatch")
         else:
-            revised, _, _ = apply_report_revision(manifest["collection_profile"], [], manifest["assessment_revision"]["contract"], normalizer=normalize_response)
+            revised, _, _ = apply_report_revision(manifest["collection_profile"], [], manifest["assessment_revision"]["contract"], artifacts=proposal_artifacts, normalizer=normalize_response)
         revised, _ = project_comparison(revised, [], manifest.get("authored") or {})
         if manifest.get("report_assessment"):
             revised = assessment_profile(revised, relevance_data, review_data)

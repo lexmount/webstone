@@ -2,7 +2,7 @@
 
 Short name: **LB-SQAV**.
 
-A {{total_records}}-question retrieval edition of [Google SimpleQA Verified](https://huggingface.co/datasets/google/simpleqa-verified), used by [Webstone](https://github.com/lexmount/webstone) to compare search tools. It retains publisher questions, reference answers and supporting URLs so a search result list can be checked for reference-page retrieval and answer-bearing text.
+A {{total_records}}-question retrieval edition of [Google SimpleQA Verified](https://huggingface.co/datasets/google/simpleqa-verified), used by [Webstone](https://github.com/lexmount/webstone) to compare search tools. Its versioned questions, reference answers and supporting URLs let a search result list be checked for reference-page retrieval and answer-bearing text.
 
 Google DeepMind and Google Research designed the original benchmark to measure a model's factual knowledge without search tools. This derivative changes the task to retrieval evaluation. Its retrieval metrics are not official SimpleQA Verified accuracy or evidence of a model's closed-book factual knowledge.
 
@@ -12,9 +12,13 @@ This dataset owns the factual retrieval inputs used alongside [LexBench-Web-Sear
 
 ## Selection and changes
 
-The `factual-v1` configuration contains every question in the pinned 1,000-row publisher CSV whose `problem` has at most 128 Unicode code points, measured by Python's `len()` on the decoded string. This selects {{total_records}} questions; longer questions are excluded before collection. There is no truncation, rewriting or selection based on search results.
+The `factual-v1` configuration starts with every question in the pinned 1,000-row publisher CSV whose `problem` has at most 128 Unicode code points, measured by Python's `len()` on the decoded string. This selects {{total_records}} questions; longer questions are excluded before collection. Questions are not truncated or selected by search results.
 
-Publisher row order, question text and reference answer text are retained. Case IDs use `sqv-` followed by the publisher's `original_index`, preserving the link to OpenAI SimpleQA. Supporting URLs are split from the CSV field, deduplicated in order, and stripped of unmatched trailing closing parentheses. Topic and answer-type labels are retained. The publisher's `multi_step` and `requires_reasoning` fields are not part of these derived task records.
+Publisher row order and case IDs are retained. IDs use `sqv-` followed by the publisher's `original_index`, preserving the link to OpenAI SimpleQA. Supporting URLs are split from the CSV field, deduplicated in order, and stripped of unmatched trailing closing parentheses. The publisher's `multi_step` and `requires_reasoning` fields are not part of these derived task records.
+
+Editions may correct questions, answers, sources or labels after checking independent references. The task definition's `case_repairs` receipt records each old and new contract, the resolution, cause, source discovery, evidence and predecessor commit. A changed question requires a new search call. A reference-only correction can reuse a saved response when its source authority is independent of that response; repairs marked `requires_fresh_calls` require new calls from every method. See [version history](VERSIONING.md) for each edition's scope.
+
+Repair evidence includes stored source excerpts whose hashes and quotations are checked at publication. Translations, calculations, dated context and visual records identify their original source form and interpretation explicitly. Each `source_sha256` attests to a privately retained full capture; it cannot be replayed from the public excerpt. The excerpt's own SHA-256 and any page-image hashes can be checked against the distributed files. Supporting URLs retain attribution; an excerpt does not grant redistribution rights over the complete source document.
 
 [The source manifest](definitions/factual-source.json) records the exact publisher CSV revision and SHA-256, selection rule and expected counts. [The selection implementation](https://github.com/lexmount/webstone/blob/main/src/lexbench_websearch/simpleqa.py) rebuilds the population from that input. This release contains no search-provider rankings, relevance grades or measured results.
 
@@ -27,9 +31,9 @@ Publisher row order, question text and reference answer text are retained. Case 
 | `definitions/factual-source.json` | Upstream input and deterministic selection contract |
 | `manifest.json` | Release source commit, file sizes and SHA-256 hashes |
 
-The viewer's `input` is the unchanged question. Parse `task` as JSON for `id`, `query`, `reference_answer`, `reference_urls`, `topic`, `answer_type`, provenance and derivation. Records have `family: web`, `category: factual` and `language: en`.
+The viewer's `input` is the edition's question. Parse `task` as JSON for `id`, `query`, `reference_answer`, `reference_urls`, `topic`, `answer_type`, provenance and derivation. Records have `family: web`, `category: factual` and `language: en`.
 
-`reference_urls` retains the publisher's URLs. `equivalent_reference_urls` adds verified copies for each question. Candidates come from fixed URL templates applied to publisher references, without consulting search results. Current revisions store hash-bound full captures of both pages and require matching article titles. If the reference answer occurs in the original capture, it must also occur in the mirror. At least 80% of each full article must also match the other in contiguous blocks of 12 characters. Both captures need at least 200 normalized characters.
+`reference_urls` retains the publisher's URLs except where the repair receipt records a correction. `equivalent_reference_urls` adds verified copies for each question. Candidates come from fixed URL templates applied to publisher references, without consulting search results. Current revisions store hash-bound full captures of both pages and require matching article titles. If the reference answer occurs in the original capture, it must also occur in the mirror. At least 80% of each full article must also match the other in contiguous blocks of 12 characters. Both captures need at least 200 normalized characters.
 
 Every candidate has one outcome: verified, title mismatch, evidence mismatch or capture failed. Only verified candidates enter the accepted URLs. The dataset includes every case's coverage, the complete candidate audit and capture bindings for offline replay. Failed or incomplete captures establish no equivalence. `equivalent_reference_provenance` binds each accepted copy to its original URL, verification rule, observation date and capture hashes. Historical revisions retain their recorded lead-only policy; `reference_equivalence` identifies the selected rule and `url_equivalence` selects document-URL folding.
 

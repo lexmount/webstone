@@ -44,7 +44,7 @@ def release_version(manifest: dict) -> str | None:
     return version
 
 
-def proposal_target(api, repository: str, version: str):
+def proposal_target(api, repository: str, version: str, *, exclude_pr=None):
     """Reject released, merged and pending version collisions before uploading."""
     def number(value):
         return tuple(map(int, value.split('.')))
@@ -70,7 +70,8 @@ def proposal_target(api, repository: str, version: str):
     if current is not None and number(version) <= number(current):
         raise ValueError('Dataset version must be newer than the main manifest version')
     for discussion in api.get_repo_discussions(repository, repo_type='dataset'):
-        if discussion.is_pull_request and discussion.status in {'open', 'draft'}:
+        if (discussion.is_pull_request and discussion.status in {'open', 'draft'}
+                and discussion.num != exclude_pr):
             if read_version('refs/pr/' + str(discussion.num)) == version:
                 raise ValueError('Dataset version is already proposed in an open pull request')
     return info
@@ -485,11 +486,23 @@ class DatasetRelease:
         definition_files = {name: raw for name, raw in self.files.items() if name not in external}
         files = dict(definition_files)
         if self.track == 'simpleqa-verified':
-            from lexbench_websearch.simpleqa import validate_reference_evidence
+            from lexbench_websearch.simpleqa import (
+                repair_cases,
+                validate_reference_evidence,
+                validate_repair_evidence,
+            )
 
             for name, raw in files.items():
                 if name.startswith('definitions/datasets/') and name.endswith('.json'):
-                    validate_reference_evidence(json.loads(raw), lambda path: files['definitions/' + path])
+                    dataset = json.loads(raw)
+                    if dataset.get('case_repairs'):
+                        from harness.web_search.revisions import validate_revision_controls
+
+                        validate_revision_controls(dataset['case_repairs'])
+                        if repair_cases(dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
+                            raise ValueError('Published task repairs must already be applied')
+                        validate_repair_evidence(dataset, lambda path: files['definitions/' + path])
+                    validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])
             for name, binding in registry["source_files"].items():
@@ -698,6 +711,39 @@ class DatasetRelease:
         return {**manifest, "archive": {"path": "definitions.tar.gz", "sha256": bytes_sha256(bundle), "size": len(bundle)}}
 
 
+def propose_release(release, output, repository, *, api=None, parent_revision=None, pull_request=None):
+    """Build a release and propose its exact files without updating main."""
+    from huggingface_hub import HfApi
+
+    if release.dataset_version is None:
+        raise ValueError('Publishing requires an explicit dataset version')
+    if pull_request is not None and (type(pull_request) is not int or pull_request < 1):
+        raise ValueError('A dataset update must name a pull request number')
+    result = release.build(output)
+    client = api or HfApi()
+    if pull_request is None:
+        info = proposal_target(client, repository, release.dataset_version)
+        review = None
+    else:
+        proposal_target(client, repository, release.dataset_version, exclude_pr=pull_request)
+        review = client.get_discussion_details(repository, pull_request, repo_type='dataset')
+        if not review.is_pull_request or review.status not in {'open', 'draft'}:
+            raise ValueError('Dataset updates require an open pull request')
+        info = client.repo_info(repository, repo_type='dataset', revision='refs/pr/' + str(pull_request))
+    if parent_revision is not None and info.sha != parent_revision:
+        target_name = 'main' if review is None else 'PR head'
+        raise ValueError('Dataset ' + target_name + ' changed after the repair inputs were frozen')
+    current = {p.relative_to(output).as_posix() for p in output.rglob('*') if p.is_file()}
+    removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != '.gitattributes']
+    target = {} if review is None else dict(revision='refs/pr/' + str(pull_request))
+    commit = client.upload_folder(repo_id=repository, repo_type='dataset', folder_path=output, **target,
+                                 parent_commit=info.sha, delete_patterns=removed,
+                                 create_pr=review is None,
+                                 commit_message='Publish verified ' + release.track + ' definitions')
+    return result, dict(repository=repository, pr_revision=commit.oid,
+                        pull_request=getattr(commit, 'pr_url', None) or review.url, state='review_pending')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -707,7 +753,11 @@ def main() -> None:
     parser.add_argument("--tooling-revision", help="Full Webstone commit for executable examples and code links")
     parser.add_argument("--dataset-version", help="Explicit dataset release number, MAJOR.MINOR.PATCH")
     parser.add_argument("--create-pr", metavar="HF_REPOSITORY", help="Open a Hugging Face pull request for the built dataset")
+    parser.add_argument('--parent-revision', help='Expected immutable main or existing PR head commit')
+    parser.add_argument('--pull-request', type=int, help='Update this open dataset PR instead of creating one')
     args = parser.parse_args()
+    if (args.parent_revision or args.pull_request is not None) and not args.create_pr:
+        parser.error('--parent-revision and --pull-request require --create-pr')
     release = DatasetRelease.from_git(args.checkout, args.track, args.revision)
     if args.dataset_version is not None:
         edition = dict(release.edition or {}, version=args.dataset_version, tag='v' + args.dataset_version)
@@ -716,20 +766,14 @@ def main() -> None:
         parser.error('Publishing requires --dataset-version or a committed manifest version')
     if args.tooling_revision is not None:
         release = replace(release, tooling_revision=args.tooling_revision)
-    result = release.build(args.output)
+    if args.create_pr:
+        result, proposal = propose_release(release, args.output, args.create_pr,
+                                          parent_revision=args.parent_revision, pull_request=args.pull_request)
+    else:
+        result = release.build(args.output)
     print(json.dumps({"track": result["track"], "source_revision": result["source_revision"], "archive": result["archive"]}))
     if args.create_pr:
-        from huggingface_hub import HfApi
-        api = HfApi()
-        info = proposal_target(api, args.create_pr, release.dataset_version)
-        current = {p.relative_to(args.output).as_posix() for p in args.output.rglob("*") if p.is_file()}
-        removed = [p.rfilename for p in info.siblings if p.rfilename not in current and p.rfilename != ".gitattributes"]
-        commit = api.upload_folder(repo_id=args.create_pr, repo_type="dataset", folder_path=args.output,
-                                   parent_commit=info.sha, delete_patterns=removed,
-                                   create_pr=True,
-                                   commit_message="Publish verified " + args.track + " definitions")
-        print(json.dumps({"repository": args.create_pr, "pr_revision": commit.oid,
-                          "pull_request": commit.pr_url, "state": "review_pending"}))
+        print(json.dumps(proposal))
 
 
 if __name__ == "__main__":
