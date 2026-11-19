@@ -31,8 +31,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           sha="$(git rev-parse HEAD)"
-          succeeded="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=$sha&status=completed&per_page=100" --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success")] | length')"
-          test "$succeeded" -gt 0
+          run_id="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&branch=main&head_sha=$sha&status=completed&per_page=100" --jq '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success")] | first | .id // empty')"
+          if [[ -z "$run_id" ]]; then
+            echo "No successful main CI run for $sha." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=latest" --jq '.jobs[] | select(.name == "Installation and packaging") | .conclusion' | grep -Fxq success
       - run: uv lock --check
       - run: uv sync --frozen
       - name: Verify approved tag and package metadata
