@@ -52,18 +52,16 @@ def test_diagnostic_status_is_localized():
     assert not re.search('[\u3400-\u9fff]', english)
 
 
-def test_table_header_gate_accepts_explicit_unranked_methods_only_locally():
+def test_table_header_gate_accepts_explicit_unranked_methods():
     from harness.web_fetch.report_check import Tables, require_table_index_headers
     for english, label in [(False, '方法 ↕'), (True, 'Method ↕')]:
         parser = Tables()
         parser.feed('<table data-row-index="false"><th>'+label+'</th></table>')
-        require_table_index_headers(parser, english=english, diagnostic=True)
-        with pytest.raises(ValueError, match='index header'):
-            require_table_index_headers(parser, english=english, diagnostic=False)
+        require_table_index_headers(parser, english=english)
         missing_flag = Tables()
         missing_flag.feed('<table><th>'+label+'</th></table>')
         with pytest.raises(ValueError, match='index header'):
-            require_table_index_headers(missing_flag, english=english, diagnostic=True)
+            require_table_index_headers(missing_flag, english=english)
 
 
 def test_home_gate_requires_diagnostic_summary_and_rejects_winner_claims():
