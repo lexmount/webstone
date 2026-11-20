@@ -92,3 +92,7 @@ repository's issue template. Keep report-specific findings outside this guidance
 All code changes go through a feature branch and pull request. Never push directly to main. Do not merge unless the owner authorized it for that work. PR titles and commit subjects follow `CONTRIBUTING.md#pr-and-commit-titles`; a squash merge copies the PR title onto `main`.
 
 Software release names, version increments and metadata must follow [Software releases](docs/releases.md). Version changes require an explicit human release request. Code synchronization, review fixes, tests and report rebuilds must not automatically bump package, benchmark or report edition numbers, rewrite frozen release catalogs, or create/push release tags. Reuse existing build versions and record source hashes; keep unreleased changes separate from a certified edition.
+
+## Review and merge
+
+Hand ready PRs to the hosted maintainer with `/review-merge` from the [lex-maintainer plugin](https://github.com/lexmount/lex-agent-plugins/tree/main/plugins/lex-maintainer). An agent without the plugin installs it and runs its `onboard` skill first; the skill configures what it can and asks for the rest.
