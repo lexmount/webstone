@@ -45,8 +45,16 @@ def test_release_requires_matching_metadata_and_exact_tag(tmp_path, monkeypatch)
     git("update-ref", "refs/remotes/origin/main", "HEAD")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("RELEASE_TAG", "v0.7.0")
+    from lexbench_webfetch import versions
+
+    scorer = {"version": "0.7.0", "status": "released", "scoring_source_sha256": "fixture-hash"}
+    monkeypatch.setattr(versions, "installed_version", lambda: scorer)
     check = runpy.run_path(str(ROOT / "scripts/check_pypi_release.py"))["main"]
     check()
+    scorer.update(version="0.7.0+unreleased", status="unreleased")
+    with pytest.raises(SystemExit, match="fixture-hash"):
+        check()
+    scorer.update(version="0.7.0", status="released")
     monkeypatch.setenv("RELEASE_TAG", "v0.8.0")
     with pytest.raises(SystemExit, match="must agree"):
         check()

@@ -7,6 +7,16 @@ import tomllib
 from pathlib import Path
 
 
+def require_released_scorer(version: str) -> None:
+    from lexbench_webfetch.versions import installed_version
+
+    scorer = installed_version()
+    if scorer["version"] != version or scorer["status"] != "released":
+        raise SystemExit(
+            f"Bind the current Web Fetch scorer ({scorer['scoring_source_sha256']}) to release {version}."
+        )
+
+
 def main() -> None:
     tag = os.environ.get("RELEASE_TAG", "")
     if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
@@ -24,6 +34,7 @@ def main() -> None:
     if head != tagged:
         raise SystemExit("Build the exact tagged commit, not a moving branch.")
     subprocess.run(["git", "merge-base", "--is-ancestor", head, "origin/main"], check=True)
+    require_released_scorer(version)
     print(f"Verified {name} {version} at {head}")
 
 

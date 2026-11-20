@@ -116,7 +116,7 @@
         },
         "versions.py": {
           "before_sha256": "be877ddbdefb9df073483b63400400301c59a05a86cffbd6efc721575149cd0f",
-          "after_sha256": "77011be18090bd8fa062270619c0858d43826b731e5c825768f014c294ccd9f7"
+          "after_sha256": "394f7b3ee9d00a3020c6a8317a66ead4040017bb7c943c69c9dfb865e72f47ad"
         },
         "annotation_revisions.py": {
           "before_sha256": "98792092a82af477cf2b975c62e37378e75c083bf8370d75d65e08fd25f3d843",
