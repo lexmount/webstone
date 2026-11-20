@@ -1018,8 +1018,16 @@ def test_method_presentation_rejects_mixed_prose_and_ranked_diagnostics(defect):
             '<table id="overall-matched-latency-table" data-row-index="false"><tr><td' +
             (' data-rank="1"' if defect == 'rank' else '') + '>' +
             ('<strong>1 ms</strong>' if defect == 'highlight' else '1 ms') + '</td></tr></table>')
+    page = BeautifulSoup(body, 'html.parser')
     with pytest.raises(ValueError):
-        _check_method_presentation(BeautifulSoup(body, 'html.parser'))
+        _check_method_presentation(page)
+    if defect == 'english':
+        paragraph = page.select_one('p')
+        quoted = page.new_tag('code')
+        quoted.string = paragraph.get_text()
+        paragraph.clear()
+        paragraph.append(quoted)
+        _check_method_presentation(page)
 
 
 def test_price_notes_keep_translations_local_to_each_method():

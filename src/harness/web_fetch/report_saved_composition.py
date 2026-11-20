@@ -504,9 +504,13 @@ def _home_method_summary(page, prices=None):
 
 def _check_method_presentation(page):
     """Check authored method prose and diagnostic tables, excluding evidence/code."""
+    from bs4 import BeautifulSoup
     if not (page.html and str(page.html.get('lang', '')).startswith('en')):
         for paragraph in page.select('#method-overview td:nth-child(2) p'):
-            prose = re.sub(r'https?://\S+', '', paragraph.get_text(' ', strip=True))
+            authored = BeautifulSoup(str(paragraph), 'html.parser')
+            for source in authored.select('code, pre, q, blockquote, [data-evidence]'):
+                source.decompose()
+            prose = re.sub(r'https?://\S+', '', authored.get_text(' ', strip=True))
             if re.search(r"(?:[A-Za-z][A-Za-z’'_-]*[ ,;:]+){12}[A-Za-z]", prose):
                 raise ValueError('Chinese method explanation contains English prose')
     table = page.select_one('#overall-matched-latency-table')
