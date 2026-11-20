@@ -446,7 +446,7 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
                 expected = '3' if 'providers/c.html' in row.inner_html() else '1'
                 assert row.locator('td').first.inner_text() == expected
             table = page.locator('#ranking-overall')
-            assert table.locator('.method-price-note').count() == 3
+            assert table.locator('.method-price-note').count() == 2
             for amount in table.locator('.method-price-amount').all():
                 assert amount.bounding_box()['width'] >= 100
             if display['viewport']['width'] >= 640:

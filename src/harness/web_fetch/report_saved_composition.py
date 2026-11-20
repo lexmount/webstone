@@ -430,20 +430,34 @@ def _home_method_summary(page, prices=None):
             price = '—'
         elif native:
             price = native[1]
-            note = _text('extension_price_duration' if native[2].lower() == 'hour' else
-                         'extension_price_tokens' if '/' in price else 'extension_price_token_unit')
+            if native[2].lower() == 'hour':
+                price = _text('extension_price_hour_amount', amount=price)
+                note = _text('extension_price_duration')
+            else:
+                if '/' in price:
+                    incoming, outgoing = (part.strip() for part in price.split('/'))
+                    price = _text('extension_price_tokens', incoming=incoming, outgoing=outgoing)
+                note = _text('extension_price_token_unit')
         elif amount and per_request:
             price = '$' + '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
                              for value in amount.groups() if value is not None)
-            note = _text('extension_price_requests')
+            price = _text('extension_price_requests', amount=price)
         elif amount and per_thousand:
             price = '$' + amount[1] + ('–' + amount[2] if amount[2] else '')
-            note = _text('extension_price_difficulty' if override and override.get('billing_mode') == 'difficulty'
-                         else 'extension_price_requests')
+            if override and override.get('billing_mode') == 'difficulty':
+                price = _text('extension_price_pages', amount=price)
+                note = _text('extension_price_difficulty')
+            else:
+                price = _text('extension_price_requests', amount=price)
         elif override and override.get('billing_mode') == 'unpublished':
             price = _text('extension_price_unpublished')
         else:
             price = '—'
+        if override and override.get('note') and not local:
+            from harness.web_fetch.report_i18n import TEXT
+            translation = override['note']
+            note = translation['zh']
+            TEXT[note] = translation['en']
         route = _text('extension_local') if local else 'API' if remote else None
         methods[Path(link['href']).stem] = (price, note, route)
     if set(prices) - set(methods):
@@ -742,6 +756,10 @@ def _selected_method_prices(spec_path, spec):
             raise ValueError('Method prices require a quote, sources and verification date')
         if quote.get('billing_mode', 'request') not in {'request', 'duration', 'tokens', 'difficulty', 'unpublished'}:
             raise ValueError('Unknown method billing mode')
+        if 'note' in quote and (not isinstance(quote['note'], dict) or
+                any(not isinstance(quote['note'].get(language), str) or not quote['note'][language].strip()
+                    for language in ('en', 'zh'))):
+            raise ValueError('Price notes require English and Chinese text')
     return prices
 
 
