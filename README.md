@@ -8,23 +8,19 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](pyproject.toml)
 
-[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
+[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Submit results](#submit-benchmark-results) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 **The touchstone for your agent's web tools.**
 
-Assayers tested gold on a touchstone: rub the metal on the dark stone and the streak shows what it is. Webstone does the same for the browsers and web tools that AI agents rely on. Every tool runs the same frozen tasks, every call is kept as evidence, and the report shows what each one left behind.
-
-Benchmark browsers and Web tools for AI agents through Web Fetch, Web Search, Web Extract and Browser Trajectory Replay. Compare correctness, latency, resource use and recorded cost. Optionally turn saved results into local reports you can inspect, rebuild and share, with drilldown to every individual result.
+Webstone runs the same benchmark tasks across browsers and web tools for AI agents. Compare correctness, latency, resource use, and recorded cost, with per-task evidence in the reports.
 
 ## For agents
 
-Install the [Webstone workflow skill](.agents/skills/webstone/SKILL.md) to help your agent choose a Track/benchmark, execute and score evidence, build or share a report, submit leaderboard results and propose dataset updates. [Agent workflows](docs/agent-workflows.md) lists the actual supported commands, optional dependencies and remaining manual steps.
+The [Webstone evaluation skill](.agents/skills/webstone/SKILL.md) guides benchmark and participant selection, environment setup, runs, and scoring for each Track. The CLI executes those steps. Build or share a report and submit leaderboard results as needed.
 
-Install the CLI with `python -m pip install --upgrade webstone`. Check for `webstone skills --help`, then run `webstone skills install --directory "$HOME/.codex/skills"` (or use your agent's skills directory). For a release that predates the skill installer, use a checkout of the source that contains it and run `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`. Use `webstone tracks` to inspect supported commands and pinned datasets.
-
-Already have measured results? The [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) opens a reviewed result PR using GitHub and Node.js; installing Webstone is optional. The `webstone results` helpers automate the same contract when the package is already part of your pipeline.
+Already have measurements? Use the [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) to open a result PR directly. No Webstone CLI required.
 
 ## Quickstart
 
@@ -40,7 +36,15 @@ In a fresh environment, pip installs the latest compatible PyPI release. Use `pi
 
 Open the report path printed in the terminal. The example has one expected pass and one expected failure. It needs no browser, Docker or API key.
 
-Next, [try HTTP, Moli or Chromium on a local article](examples/web_fetch/README.md). Optional adapters, service credentials and live evaluation commands are covered in the track guides.
+Next, [try HTTP, Moli or Chromium on a local article](examples/web_fetch/README.md). The track guides cover adapters, credentials, and live evaluation commands.
+
+Install the evaluation skill for Codex. For another agent, use its skills directory.
+
+```sh
+webstone skills install --directory "$HOME/.codex/skills"
+```
+
+If your installed package lacks the `skills` command, see the [source installation instructions](docs/agent-workflows.md#install-software-and-skill).
 
 ## Evaluation tracks
 
@@ -160,13 +164,13 @@ See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scori
 
 ## Reports
 
-Results and evidence are saved locally under `~/.webstone/runs/`; use `--output /absolute/path/new-run` to choose another directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
+Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
 
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Build or rebuild a report later from saved evidence without repeating calls:
+The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
 ```sh
-uv run --frozen webstone run --delay 0 --no-report
-uv run --frozen webstone report /absolute/path/to/run
+webstone run --delay 0 --no-report --output ./fixture-run
+webstone report ./fixture-run
 ```
 
 English is the default; add `--language zh` when running or rebuilding for Chinese. A rebuild without that option keeps the saved language.
@@ -284,19 +288,6 @@ Project citation: [CITATION.cff](CITATION.cff).
 }
 ```
 
-## Optional CLI: submit benchmark results
+## Submit benchmark results
 
-Internal and external contributors use the same reviewed publication flow in [webstone-site](https://github.com/lexmount/webstone-site). Install GitHub CLI and use your existing GitHub account; no separate website account is required.
-
-```sh
-webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
-# Fill actual measurements, sample scope and public evidence before validation.
-webstone results validate report.json
-webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
-webstone results submit report.json --provider-url your-method=https://example.com/project
-webstone results status 123 --verify-published
-```
-
-Submissions create result-only PRs from personal forks. CI validates the format and immutable history, and maintainers review the evidence. See the [submission guide](docs/result-submissions.md) for authentication, version-conflict rebasing and how to check whether a merged result is live.
-
-Result submissions use independently versioned `vMAJOR.MINOR.PATCH` editions with reviewed UTC publication dates; see [the result submission guide](docs/result-submissions.md#result-versions-and-dates). These do not bump the Python package version.
+Add a result edition to a personal fork and open a PR to [webstone-site](https://github.com/lexmount/webstone-site) with your measurements and public evidence. Site CI checks the format and published history. Maintainers review the evidence. See the [site submission guide](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md) for versioning, conflicts, and post-merge verification. Existing CLI integrations can use the [command reference](docs/result-submissions.md).

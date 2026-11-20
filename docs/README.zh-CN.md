@@ -8,23 +8,19 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
 
-[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
+[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [数据集与代码](#数据集与代码) · [版本](#版本) · [提交结果](#提交评测结果) · [参与贡献](../CONTRIBUTING.md)
 
 </div>
 
 **检验 Agent Web 工具的试金石。**
 
-古人验金，把金子在黑色的试金石上一划，看留下的痕迹便知成色。Webstone 用同样的办法检验 AI Agent 所依赖的浏览器和 Web 工具：所有工具运行同一组冻结任务，每次调用都保存为证据，报告展示每个工具留下的“痕迹”。
-
-面向 AI Agent，评测浏览器与 Web 工具，覆盖内容抓取、搜索、商品字段提取和 Browser Trajectory Replay。比较正确性、延迟、资源使用和已记录的成本，并可按需将保存的结果生成本地报告，下钻检查每一个结果，重建或分享报告。
+Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
 
 ## 面向 Agent 的入口
 
-安装 [webstone Skill](../.agents/skills/webstone/SKILL.md)，让用户的 Agent 选择 Track 和 benchmark，执行推理/工具调用、评分、生成或分享报告、提交成绩 PR，以及提出数据集更新。[完整流程指南](agent-workflows.md) 列出实际可用命令、可选依赖和仍需人工或源码环境的步骤。
+[Webstone 评测 Skill](../.agents/skills/webstone/SKILL.md) 按 Track 指引 Agent 选择评测集和参评工具、准备环境、运行与评分。CLI 执行具体步骤。报告生成、分享和排行榜投稿按需进行。
 
-运行 `python -m pip install --upgrade webstone` 安装 CLI。用 `webstone skills --help` 确认当前版本支持安装 Skill，再运行 `webstone skills install --directory "$HOME/.codex/skills"`，或指定你的 Agent 所用的 Skill 目录。如果当前版本还没有安装命令，可在包含该功能的源码目录运行 `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`。`webstone tracks` 会列出支持的命令和锁定的数据集版本。
-
-已有评测结果时，使用 [网站提交 Skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) 即可通过 GitHub PR 提交至 webstone-site，不要求安装 Webstone；`webstone results` 是评测流程中的可选辅助工具。
+已有实测数据？用 [webstone-site 投稿 Skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) 直接提 PR，无需安装 Webstone CLI。
 
 ## 快速开始
 
@@ -40,7 +36,15 @@ webstone run --delay 0
 
 打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。
 
-接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。可选适配器、服务凭据和在线评测命令见上面的各流程指南。
+接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。各 Track 指南列出了适配器、凭据和在线评测命令。
+
+把评测 Skill 安装到 Codex。其他 Agent 可指定自己的 Skill 目录。
+
+```sh
+webstone skills install --directory "$HOME/.codex/skills"
+```
+
+当前包没有 `skills` 命令时，见[源码安装说明](agent-workflows.md#install-software-and-skill)。
 
 ## 评测流程
 
@@ -160,13 +164,13 @@ flowchart LR
 
 ## 报告
 
-结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output /absolute/path/new-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
+结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。之后可从保存的证据生成或重建报告，无需重复调用浏览器或服务：
+`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
-uv run --frozen webstone run --delay 0 --no-report
-uv run --frozen webstone report /absolute/path/to/run
+webstone run --delay 0 --no-report --output ./fixture-run
+webstone report ./fixture-run
 ```
 
 默认生成英文；运行或重建时加 `--language zh` 可选中文。重建时不传该选项，会沿用已保存的语言。
@@ -285,18 +289,6 @@ make ci
 }
 ```
 
-## 可选 CLI：提交评测结果
+## 提交评测结果
 
-内部和外部贡献者通过同一 CLI／SDK 向 [webstone-site](https://github.com/lexmount/webstone-site) 提交结果 PR。复用 GitHub 账号，无需另建网站账号。结果应只含可公开且不敏感的数据；先通过校验和维护者审核，合入后再由网站自动部署。
-
-```sh
-webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
-webstone results validate report.json
-webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
-webstone results submit report.json --provider-url your-method=https://example.com/project
-webstone results status 123 --verify-published
-```
-
-在模板中填入实测结果和公开证据。新版本追加发布，历史版本保留。遇到版本冲突，运行 `webstone results rebase 123` 后重新提交审核。详见[结果提交指南](result-submissions.md)。
-
-评测结果独立使用 `vMAJOR.MINOR.PATCH`，发布时记录经审批的 UTC 日期；历史导入日期不会冒充发布日期。结果版本与 Python 包版本分别管理，见[结果提交规范](result-submissions.md#result-versions-and-dates)。
+在个人 fork 新增一个结果版本，附上实测数据和公开证据，再向 [webstone-site](https://github.com/lexmount/webstone-site) 提 PR。网站 CI 校验格式和历史版本，维护者审核证据。格式、版本冲突和上线核验见[网站投稿指南](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md)。已有 CLI 集成可查阅[命令参考](result-submissions.md)。

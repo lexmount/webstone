@@ -4,11 +4,10 @@ Webstone is designed for agents working on a user's behalf. The **skill plans th
 
 ## Install software and skill
 
-On Python 3.11+, install the current PyPI release and check whether it includes the skill installer:
+In a Python 3.11+ virtual environment, install the CLI and copy the skill to your agent’s skills directory:
 
 ```sh
-python -m pip install --upgrade webstone
-webstone skills --help
+pip install --upgrade webstone
 webstone skills install --directory "$HOME/.codex/skills"
 ```
 
@@ -42,7 +41,7 @@ All routes below reuse existing implementations. `--help` is the argument author
 | Browser Use | `webstone browser-use run`, `report`, `check`, `package`, `publish` | Experimental; model, isolated sites and `browser-use-eval` dependencies required |
 | Local report rebuild | Selected track's report/check commands | Reuses saved evidence; does not execute provider calls or share publicly |
 | Share a report | Selected track's publish/verify commands | Requires an explicitly selected, authorized host/profile and live verification |
-| Leaderboard results | Site submission skill; optionally `webstone results --help` | Public result-only GitHub PR to webstone-site, never direct main writes |
+| Leaderboard results | [Site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) | Public result-only PR to webstone-site; never direct main writes |
 | Dataset proposal | `webstone datasets propose --help` | Existing dataset publisher; explicit source checkout/revision; `dataset-publish` extra for HF PR upload; never merges PRs |
 | Adopt a dataset commit | `webstone datasets pin --help` | Explicit `--root` Webstone checkout, inspected diff and code PR after data review |
 
@@ -62,7 +61,7 @@ Use a new output path; never overwrite existing evidence. Synthetic fixture resu
 
 ## Submit and maintain
 
-Existing results can be submitted without installing this Python package. Install the [site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md), let the agent read the current catalog and version rules, and open a public fork PR with real measurements and evidence. `webstone results` optionally automates the same PR protocol during evaluation workflows. Skill and CLI do not bypass trusted CI, immutable history or maintainer control. A source report and a leaderboard JSON edition are separate deliverables; review their mapping explicitly.
+Use the [site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) to prepare a result edition from the current catalog and open a fork PR with public evidence. Git, GitHub, and Node.js are enough. Existing `webstone results` integrations can use the [CLI reference](result-submissions.md).
 
 Dataset definitions belong in Hugging Face PRs. `datasets propose` may build a local bundle or open an HF PR with `--create-pr`; it cannot merge it or release tags. Review and merge data first, then propose a new exact pin through a Webstone code PR. Software, dataset, result and report versions remain independent. No result/dataset operation authorizes a software release.
 
