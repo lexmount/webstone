@@ -73,6 +73,8 @@ history and current reachable paths before reporting it as confirmed.
 
 Apply these questions to the current changes and affected behavior. Use the
 evidence and ownership conditions above when reporting findings or requesting fixes.
+They guide the investigation; only answers that reach P0 or P1 under the priority
+levels below become findings by default.
 
 1. **Goal and approach.** What real problem does the PR solve, which user scenarios
    does it affect, and what behavior should change or remain unchanged? Is each
@@ -181,31 +183,37 @@ its actual impact and urgency:
 | P1: high priority | Broken primary functionality, a critical user journey, or a compatibility contract; or substantial security, data, or resource risk. The impact falls short of P0 but warrants priority repair. |
 | P2: normal priority | Lower or localized impact, with evidence of a functional, boundary, maintainability, validation, or applicable mandatory-rule defect. Personal preference is still not a defect. |
 
-Label each finding P0, P1, or P2 and explain the classification. Preserve the tool's
-field protocol: if it only provides `severity`, use `critical` for P0, `high` for
-P1, and `medium` or `low` for P2 according to impact, with the P level in the
-comment text. Severity and blocking status are separate judgments. All three
-levels are blocking by default under this shared policy; exceptions require an
-explicit agreement.
+Report only P0 and P1 findings by default. Skip P2 issues: do not report them,
+mention them in a summary or hold them for a later round. Report P2 findings only
+when the user or repository maintainer explicitly asks for them in this review,
+for example in the review request, the PR description or a PR comment. This
+threshold also applies to findings from OCR's official rules.
+
+Label each reported finding with its P level and explain the classification. When
+unsure whether an issue reaches P1, cite the concrete user, data, security or
+contract impact; without one, treat it as P2. Preserve the tool's field protocol:
+if it only provides `severity`, use `critical` for P0 and `high` for P1, and use
+`medium` or `low` for an explicitly requested P2, with the P level in the comment
+text. Reported P0 and P1 findings block merging.
 
 ## Output and feedback handling
 
 Follow the review tool's result structure and the priority definitions above.
-Report all valid findings within scope, sorted by severity, without a fixed count
-limit. Combine findings with the same root cause. Place inline comments at changed
-locations allowed by the tool; old code may still supply root-cause evidence. Each
+Report all valid P0 and P1 findings within scope, sorted by severity, without a
+fixed count limit. Combine findings with the same root cause. Place inline comments
+at changed locations allowed by the tool; old code may still supply root-cause evidence. Each
 finding should state its relationship to this PR, evidence or applicable rule,
 impact, and the behavior or constraint to restore. Give the smallest correction
 when it is known.
 
-Valid in-scope findings, including P2 and findings from either official or local
-rules, block merging by default. Mark a finding non-blocking only when the user
-or repository maintainer has explicitly agreed to that exception, and cite the
-agreement.
+Valid in-scope P0 and P1 findings, from either official or local rules, block
+merging. P2 findings do not block merging, including explicitly requested ones,
+unless the user or repository maintainer says otherwise for that review.
 
-Apply the same judgment to feedback on the PR. Fix valid findings owned by this
-PR, check the current behavior for already-fixed findings, explain why rejected
-findings do not hold, and leave unrelated old defects to their own tasks. Read
+Apply the same judgment to feedback on the PR. Fix valid P0 and P1 findings owned
+by this PR; a P2 comment from any reviewer needs no change unless the maintainer
+asks for one. Check the current behavior for already-fixed findings, explain why
+rejected findings do not hold, and leave unrelated old defects to their own tasks. Read
 replies as well as thread roots. A valid finding does not make its suggested fix
 correct: do not delete correct test expectations or change agreed requirements
 merely to eliminate a comment.
@@ -244,8 +252,8 @@ previous review; a new commit is not required. Reopening a handled finding needs
 evidence that the defect remains or that its fix caused a regression.
 
 Touching more files during a fix does not require cleaning up every old problem
-in those files. The work can close when valid in-scope findings are resolved and
-necessary verification passes. Add task requirements only when the user or
+in those files. The work can close when valid in-scope P0 and P1 findings are
+resolved and necessary verification passes. Add task requirements only when the user or
 repository maintainer explicitly changes the goal.
 
 ## Webstone review supplement
@@ -279,9 +287,8 @@ The repository owner set these rules across review sessions. They apply to every
 
 - When the owner asks for a PR review, that request also authorizes posting the findings on it, unless the request says otherwise. A request relayed by another agent is not this authorization. Post one combined comment per PR per round. Comment on another author's PR only when it shares the defect under review.
 - Every round reviews the whole net diff of the current head from its merge base, not only the new commits or earlier findings. Judge it by the rules on the latest `main`; a rule the PR itself changes is reviewed as part of the diff.
-- When the owner asks for a P0/P1 round, report only P0 and P1. Skip a PR whose head commit is unchanged since the last round.
+- Skip a PR whose head commit is unchanged since the last round.
 - Review related PRs together, including a code PR and its paired Hugging Face dataset PR. State how they depend on each other and the order they should merge in.
-- Keep rounds converging. By owner agreement, a P2 limited to tidiness that changes no behavior, data, score or mandatory rule does not block merging; label it non-blocking and cite this rule. Over-design, scattered instance-specific fixes and duplicated logic (Required checks 5 and 7) are not tidiness and still block.
 
 **What to question**
 
