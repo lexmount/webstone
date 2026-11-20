@@ -427,13 +427,18 @@ def _home_method_summary(page, prices=None):
             per_thousand = True
         if local:
             price = '—'
-        elif override and override.get('billing_mode') in billing_labels:
-            price = _text(billing_labels[override['billing_mode']])
+        elif override and 'workload' in override:
+            from harness.reporting.pricing import usd_per_thousand
+            workload = override['workload']
+            bounds = usd_per_thousand(workload['calls'], workload['components'])
+            price = '≈' + '–'.join(dict.fromkeys(format(value, '.2f') for value in bounds))
         elif amount and per_request:
             price = '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
                              for value in amount.groups() if value is not None)
         elif amount and per_thousand:
             price = amount[1] + ('–' + amount[2] if amount[2] else '')
+        elif override and override.get('billing_mode') in billing_labels:
+            price = _text(billing_labels[override['billing_mode']])
         else:
             price = '—'
         route = _text('extension_local') if local else 'API' if remote else None

@@ -983,7 +983,7 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
     ('$0.10 / million tokens', '—', None),
     ('$0.09 / hour', '按时长计费', 'duration'),
     ('$0.10 / million tokens', '按 token 计费', 'tokens'),
-    ('$0.05–$2.00 / 1,000 requests', '按难度计费', 'difficulty'),
+    ('$0.05–$2.00 / 1,000 requests', '0.05–2.00', 'difficulty'),
     ('No public quote', '未公布单价', 'unpublished'),
 ])
 def test_home_price_column_requires_a_per_thousand_request_unit(price, expected, billing_mode):
@@ -1000,14 +1000,23 @@ def test_home_price_column_requires_a_per_thousand_request_unit(price, expected,
     assert page.select_one('.method-route-badge').get_text() == 'API'
 
 
-def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path):
+@pytest.mark.parametrize('quote,expected', [
+    ({'price': '$0.002 / request'}, '2'),
+    ({'price': '$0.09 / hour', 'billing_mode': 'duration',
+      'workload': {'calls': 2, 'components': [{'quantity': 12 / 3600, 'usd_per_unit': 0.09}]}}, '≈0.15'),
+    ({'price': 'Model token rates', 'billing_mode': 'tokens',
+      'workload': {'calls': 2, 'components': [
+          {'quantity': 0.02, 'usd_per_unit': 0.10},
+          {'quantity': 0.004, 'usd_per_unit': 0.50}]}}, '≈2.00'),
+])
+def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path, quote, expected):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
     output, path = _real_extension(tmp_path)
     spec = json.loads(path.read_bytes())
     spec['presentation'] = 'ranked'
     prices = tmp_path/'prices.json'
-    spec['method_prices'] = write(prices, {'method-1': {'price': '$0.002 / request',
+    spec['method_prices'] = write(prices, {'method-1': {**quote,
         'sources': [{'url': 'https://example.com/pricing', 'label': 'Official pricing'}],
         'checked_at': '2026-11-20'}})
     write(path, spec)
@@ -1015,7 +1024,7 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path)
     refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
     row = next(row for row in page.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
-    assert row.select_one('.method-unit-price').get_text() == '2'
+    assert row.select_one('.method-unit-price').get_text() == expected
     assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
     assert (output/'additional/results.jsonl').read_bytes() == records
     before = (output/'index.html').read_bytes()
