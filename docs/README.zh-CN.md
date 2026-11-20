@@ -8,7 +8,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
 
-[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [数据集与代码](#数据集与代码) · [版本](#版本) · [提交结果](#提交评测结果) · [参与贡献](../CONTRIBUTING.md)
+[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
 
 </div>
 
@@ -18,9 +18,11 @@ Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，�
 
 ## 面向 Agent 的入口
 
-[Webstone 评测 Skill](../.agents/skills/webstone/SKILL.md) 按 Track 指引 Agent 选择评测集和参评工具、准备环境、运行与评分。CLI 执行具体步骤。报告生成、分享和排行榜投稿按需进行。
+复制下面这句话发给你的 Agent：
 
-已有实测数据？用 [webstone-site 投稿 Skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) 直接提 PR，无需安装 Webstone CLI。
+```text
+请安装并使用 https://github.com/lexmount/webstone/blob/main/.agents/skills/webstone/SKILL.md 里的 Webstone 评测 Skill，帮我评测［想比较的工具或模型］。
+```
 
 ## 快速开始
 
@@ -201,6 +203,10 @@ flowchart LR
 
 </details>
 
+## 提交评测结果
+
+需要把成绩提交到排行榜时，评测 Skill 会把实测结果交给投稿流程，向 [webstone-site](https://github.com/lexmount/webstone-site) 提 PR。已有结果也可以[直接提 PR](https://github.com/lexmount/webstone-site/blob/main/README.md#for-agents)。
+
 ## 数据集与代码
 
 首次引用写 **LexBench-Web-Fetch（LB-WF）**，后续正文、表格和图中可直接用 **LB-WF**。`LB` 代表 LexBench。引用评测结果时附上数据集链接和版本；引用第三方来源时保留上游原名。
@@ -288,7 +294,3 @@ make ci
   url = {https://github.com/lexmount/webstone}
 }
 ```
-
-## 提交评测结果
-
-在个人 fork 新增一个结果版本，附上实测数据和公开证据，再向 [webstone-site](https://github.com/lexmount/webstone-site) 提 PR。网站 CI 校验格式和历史版本，维护者审核证据。格式、版本冲突和上线核验见[网站投稿指南](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md)。已有 CLI 集成可查阅[命令参考](result-submissions.md)。
