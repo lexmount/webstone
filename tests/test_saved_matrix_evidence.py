@@ -156,6 +156,359 @@ def build(tmp_path, spec, name='report'):
     return build_saved_matrix(path, tmp_path / name)
 
 
+def test_public_result_diagnostics_preserve_measurements_and_original_authority(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    record['metrics']['resource_candidate_urls'] = ['https://example.test/image?token=synthetic-secret']
+    record['metrics']['body_region_results'] = [{'passed':True,'coverage':0.75,
+        'matched_output_passages':[{'start':0,'end':34,'text':'Authorization: Bearer synthetic-secret'}]}]
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    assert (source/'results.jsonl').read_bytes() == raw
+    path = output/'evidence/first/method/same/record.json'
+    public = json.loads(path.read_bytes())
+    assert public['metrics']['body_region_results'][0]['coverage'] == 0.75
+    assert public['metrics']['content_pass'] is True and public['elapsed_ms'] == record['elapsed_ms']
+    assert 'synthetic-secret' not in path.read_text(encoding='utf-8')
+    receipt = json.loads((path.parent/'result-diagnostics-view.json').read_bytes())
+    assert receipt['original_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert receipt['published_sha256'] == hashlib.sha256(path.read_bytes()).hexdigest()
+    assert receipt['measurements_unchanged'] is True
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    assert projected[0]['provider_metadata']['public_result_diagnostics_receipt'].endswith('/result-diagnostics-view.json')
+    page = output/'attempts'/(projected[0]['attempt_id']+'.html')
+    assert 'result-diagnostics-view.json' in page.read_text(encoding='utf-8')
+    public['metrics']['body_region_results'][0]['coverage'] = 1.0
+    audit_path = output/'saved-matrix-audit.json'
+    audit = json.loads(audit_path.read_bytes())
+    audit['files'][path.relative_to(output).as_posix()] = write(path,public)['sha256']
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='Saved record differs from validated source selection'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+
+
+@pytest.mark.parametrize('scope', [None, 'all'])
+def test_saved_matrix_binds_known_outcome_review_and_rejects_stale_inputs(tmp_path, scope):
+    spec, _, _, _ = fixture(tmp_path)
+    baseline = build(tmp_path,spec,name='baseline').parent
+    if scope is not None:
+        from harness.web_fetch.report_saved_matrix import json_bytes
+        dataset = json.loads((baseline/'dataset.json').read_bytes())
+        dataset['comparison']['independent_result_review_scope'] = scope
+        (baseline/'dataset.json').write_bytes(json_bytes(dataset))
+        spec['independent_result_review_scope'] = scope
+    result = json.loads((baseline/'results.jsonl').read_text(encoding='utf-8'))
+    review = {'schema_version':1,'kind':'local_evidence_audit',
+        'bindings':{'dataset_sha256':hashlib.sha256((baseline/'dataset.json').read_bytes()).hexdigest(),
+                    'results_sha256':hashlib.sha256((baseline/'results.jsonl').read_bytes()).hexdigest()},
+        'reviewer':{'agent':'Evidence auditor'},
+        'review_protocol':{'scope':'machine-failures','machine_judgments_withheld':False,
+                           'additional_attempt_ids':[result['attempt_id']]},
+        'attempts':[{'attempt_id':result['attempt_id'],'machine_verdict':'pass',
+                     'agent_verdict':'pass','final_verdict':'pass','agent_evidence':'Checked synthetic content.'}],
+        'reviewed_attempts':1,'expected_attempts':1,'total_attempts':1,
+        'accepted_unreviewed_passes':0,'disagreements':0,'unresolved':0,
+        'review_rounds':[{'date':'2026-11-17','title':'Saved evidence audit','scope':'One saved result',
+                         'finding':'Content retained','fix':'No scoring change','pending':'None'}]}
+    spec['result_review'] = write(tmp_path/'review.json',review)
+    if scope == 'all':
+        with pytest.raises(ValueError, match='declared full review'):
+            build(tmp_path, spec, name='failure-only')
+        review['review_protocol']['scope'] = 'all'
+        review['review_protocol'].pop('additional_attempt_ids')
+        spec['result_review'] = write(tmp_path/'review.json', review)
+    output = build(tmp_path,spec).parent
+    assert json.loads((output/'dataset.json').read_bytes())['comparison'].get(
+        'independent_result_review_scope') == scope
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    page = (output/'review/index.html').read_text(encoding='utf-8')
+    assert '已知程序判定' in page
+    assert 'Machine verdicts and scores are hidden' not in page
+    detail = (output/'attempts'/(result['attempt_id']+'.html')).read_text(encoding='utf-8')
+    assert 'Checked synthetic content.' in detail
+    assert '证据审查判定' in detail
+    altered = deepcopy(review)
+    altered['attempts'][0]['agent_evidence'] = 'Unbound replacement opinion'
+    bound = write(output/'result-review.json',altered)
+    audit = json.loads((output/'saved-matrix-audit.json').read_bytes())
+    audit['files']['result-review.json'] = bound['sha256']
+    write(output/'saved-matrix-audit.json',audit)
+    with pytest.raises(ValueError,match='Result review differs from validated source'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+    review['bindings']['results_sha256'] = 'a'*64
+    spec['result_review'] = write(tmp_path/'stale-review.json',review)
+    with pytest.raises(ValueError,match='bound to different results'):
+        build(tmp_path,spec,name='stale')
+
+
+@pytest.mark.parametrize('scope', ['all', 'machine-failures', 'unsupported'])
+def test_saved_review_requirement_cannot_silently_omit_evidence(tmp_path, scope):
+    spec, _, _, _ = fixture(tmp_path)
+    spec['independent_result_review_scope'] = scope
+    with pytest.raises(ValueError, match='declared result review scope|requires bound result review'):
+        build(tmp_path, spec)
+
+
+def test_saved_pricing_is_source_bound_covers_participants_and_renders_only_the_cohort(tmp_path):
+    from harness.web_fetch.report_pricing import SOURCE
+    spec, _, _, _ = fixture(tmp_path)
+    data = json.loads(SOURCE.read_bytes())
+    price = next(item for item in data['providers'] if item['id']=='kimi-fetch')
+    data['providers'] = [{**price,'id':'method','label':'Synthetic fetch API'}]
+    data['other_methods'] = []
+    spec['pricing'] = write(tmp_path/'pricing.json',data)
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    page = (output/'adoption/index.html').read_text(encoding='utf-8')
+    assert 'Synthetic fetch API' in page and '$2' in page
+    assert 'id="interface-method"' in page
+    assert 'id="interface-firecrawl"' not in page
+    assert '未绑定价格资料' not in page
+    price_path = output/'report-assets/provider-pricing.json'
+    assert price_path.read_bytes() == (tmp_path/'pricing.json').read_bytes()
+    audit_path = output/'saved-matrix-audit.json'
+    audit = json.loads(audit_path.read_bytes())
+    altered = deepcopy(data)
+    altered['providers'][0]['comparison'] = 'altered price'
+    audit['files']['report-assets/provider-pricing.json'] = write(price_path,altered)['sha256']
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='Pricing catalog differs from validated source'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+    data['providers'] = []
+    spec['pricing'] = write(tmp_path/'missing-price.json',data)
+    with pytest.raises(ValueError,match='omits selected participants'):
+        build(tmp_path,spec,name='missing-pricing')
+
+
+@pytest.mark.parametrize(('native', 'ok'), [
+    (b'%PDF-1.7\n%\xff\xfe\xfd\nretained PDF', True),
+    (b'failed API response\xff Authorization: Bearer synthetic-secret', False),
+])
+def test_public_views_withhold_non_utf8_native_bytes_without_losing_identity(tmp_path, native, ok):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    path = source/'private_artifacts/response.bin'
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(native)
+    record['provider_metadata'].update(raw_response_path='private_artifacts/response.bin',
+        raw_response_sha256=hashlib.sha256(native).hexdigest(), raw_response_bytes=len(native))
+    record['ok'] = ok
+    record['metrics'].update(content_pass=ok,request_ok=ok)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    projected = json.loads((output/'results.jsonl').read_text(encoding='utf-8'))
+    notice = json.loads((output/projected['provider_metadata']['public_response_path']).read_bytes())
+    assert notice['kind'] == 'withheld_non_utf8_native_response'
+    assert notice['original_sha256'] == hashlib.sha256(native).hexdigest()
+    assert notice['original_bytes'] == len(native)
+    assert 'synthetic-secret' not in json.dumps(notice)
+    assert projected['metrics'] == record['metrics']
+    assert path.read_bytes() == native
+
+
+@pytest.mark.parametrize('mode', ['missing_inputs', 'changed_verdict', 'unchanged_verdict', 'historical'])
+def test_changed_retry_public_answer_requires_its_own_scoring_contract(tmp_path, mode):
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import score_attempt
+    _, source, record, _ = fixture(tmp_path)
+    secret = 'synthetic-csrf-value'
+    case = {'url':'https://example.test', 'expected_any':['answer']}
+    if mode == 'changed_verdict':
+        case['forbidden_any'] = [secret]
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    early = source/'artifacts/early.txt'
+    early.write_bytes(answer)
+    metrics = score_attempt(case,answer,ok=True)
+    call = {'artifact_path':'artifacts/early.txt','content_sha256':hashlib.sha256(answer).hexdigest(),
+            'artifact_paths':['artifacts/early.txt'],
+            'artifact_sha256':{'artifacts/early.txt':hashlib.sha256(answer).hexdigest()},
+            'task_pass':mode != 'changed_verdict', 'ok':True,'status_code':200}
+    if mode != 'missing_inputs':
+        call.update(metrics=metrics,provider_metadata={},title=None,final_url=None)
+    if mode == 'historical':
+        call['metrics']['scoring_source_sha256'] = 'b'*64
+    record['provider_metadata']['retry'] = {'attempts':[call]}
+    if mode == 'unchanged_verdict':
+        views = _record_public_views(source,record,case)
+        assert len(views) == 2
+        assert secret.encode() not in views[1][1]
+    else:
+        reason = ('original scoring inputs' if mode == 'missing_inputs' else
+                  'bound scoring version' if mode == 'historical' else 'changes task acceptance')
+        with pytest.raises(ValueError,match=reason):
+            _record_public_views(source,record,case)
+    assert early.read_bytes() == answer
+
+
+def test_changed_final_public_answer_requires_current_scoring_version(tmp_path):
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import score_attempt
+    _, source, record, _ = fixture(tmp_path)
+    case = {'url':'https://example.test', 'expected_any':['answer']}
+    answer = b'meta-csrf-token: synthetic-csrf-value\nanswer'
+    (source/record['artifact_path']).write_bytes(answer)
+    record['metrics'] = score_attempt(case, answer, ok=True)
+    record['metrics']['scoring_source_sha256'] = 'b'*64
+    with pytest.raises(ValueError, match='bound scoring version'):
+        _record_public_views(source, record, case)
+
+
+@pytest.mark.parametrize('mode', ['unchanged', 'changed', 'language_invariant', 'language_ambiguous', 'tampered'])
+def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_path, mode):
+    from harness.web_fetch.native_projection import native_projection_policy, native_projection_source
+    from harness.web_fetch.report_saved_matrix import _record_public_views
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+    _, source, record, _ = fixture(tmp_path)
+    case = {'url':'https://example.test', 'expected_any':['missing section']}
+    secret = 'synthetic-csrf-value'
+    if mode in {'changed', 'language_ambiguous'}:
+        case['expected_any'] = ['answer']
+    if mode == 'changed':
+        case['forbidden_any'] = [secret]
+    if mode.startswith('language_'):
+        case.update(expected_document_language='en',expected_final_url=case['url'],page_identity_required=True)
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    early = source/'artifacts/early.txt'
+    early.write_bytes(answer)
+    record.update(provider_type='kimi_fetch')
+    record['metrics']['scoring_source_sha256'] = SCORING_SOURCE_SHA256
+    policy = native_projection_policy('kimi_fetch')
+    policy_path = source/policy['source_path']
+    policy_path.parent.mkdir()
+    policy_path.write_bytes(native_projection_source())
+    raw = write(source/'private_artifacts/early.response.bin',
+                {'markdown':answer.decode(),'title':'Example','url':case['url']})
+    events = write(source/'private_artifacts/early.stderr.log',
+                   {'event':'http_response_received','status':200})
+    digest = hashlib.sha256(answer).hexdigest()
+    log = write(source/'call-logs/early.json', {'output':{'sha256':digest},
+        'timing':{'elapsed_ms':1,'deadline_budget_ms':30000,'deadline_overrun':False},
+        'response':{'final_url':case['url']}})
+    for binding in (raw,events,log):
+        binding['bytes'] = Path(binding['path']).stat().st_size
+        binding['path'] = Path(binding['path']).relative_to(source).as_posix()
+    call = {'artifact_path':'artifacts/early.txt','content_sha256':digest,
+        'artifact_paths':['artifacts/early.txt'],'artifact_sha256':{'artifacts/early.txt':digest},
+        'elapsed_ms':1,'task_pass':False,'ok':True,'status_code':None,'private_artifacts':[raw,events],
+        'call_log':log,'native_route_receipt':{'answer_selection_policy':policy,
+            'answer_fields':['markdown','title','url'],
+            'requests':[{'signature':{'interface':'fetch'}}]}}
+    record['provider_metadata']['retry'] = {'attempts':[call]}
+    if mode == 'tampered':
+        (source/raw['path']).write_bytes(b'altered response')
+    if mode in {'unchanged', 'language_invariant'}:
+        views = _record_public_views(source,record,case)
+        assert secret.encode() not in next(public for binding,public,_ in views if binding['path']==call['artifact_path'])
+    else:
+        reason = {'changed':'changes task acceptance','language_ambiguous':'unretained language',
+                  'tampered':'original scoring inputs'}[mode]
+        with pytest.raises(ValueError,match=reason):
+            _record_public_views(source,record,case)
+    assert early.read_bytes() == answer
+
+
+def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    binary = b'%PDF-1.7\n%\xff\xfe\xfd\nretained binary attachment'
+    path = source/'artifacts/download.bin'
+    path.write_bytes(binary)
+    record['provider_metadata']['file_evaluation'] = {'files':[{
+        'artifact_path':'artifacts/download.bin','sha256':hashlib.sha256(binary).hexdigest(),
+        'bytes':len(binary),'mime':'application/pdf','pass':False}]}
+    log = source/'private_artifacts/call.stderr.log'
+    log.parent.mkdir()
+    log.write_text('Observed native failure\n--- native log ---\n/Users/fixture/worker.py\n',encoding='utf-8')
+    record['provider_metadata'].update(diagnostic_log_path='private_artifacts/call.stderr.log',
+        diagnostic_log_sha256=hashlib.sha256(log.read_bytes()).hexdigest(),diagnostic_log_bytes=log.stat().st_size)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    scope = output/'evidence/first/method/same'
+    assert (scope/'artifacts/download.bin').read_bytes() == binary
+    assert (source/'artifacts/download.bin').read_bytes() == binary
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    log_view = output/projected[0]['provider_metadata']['public_debug_log_path']
+    assert log_view.suffix == '.txt'
+    assert 'Observed native failure' in log_view.read_text(encoding='utf-8')
+    assert '/Users/fixture' not in log_view.read_text(encoding='utf-8')
+
+
+def test_public_views_preserve_scores_sources_and_real_debug_logs(tmp_path):
+    from lexbench_webfetch.scoring import score_attempt
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    secret = 'synthetic-csrf-value'
+    answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
+    (source/record['artifact_path']).write_bytes(answer)
+    case = json.loads((source/'dataset.json').read_text(encoding='utf-8'))['cases'][0]
+    record['metrics'] = score_attempt(case, answer, ok=True)
+    private = source/'private_artifacts/response.bin'
+    private.parent.mkdir()
+    private.write_text(json.dumps({'markdown':answer.decode()}), encoding='utf-8')
+    diagnostic = source/'private_artifacts/call.stderr.log'
+    diagnostic.write_text(json.dumps({'source':'caller','event':'request_failed',
+        'message':'Actual observed failure at /Users/fixture/worker.py'})+'\n', encoding='utf-8')
+    for prefix, path in [('raw_response',private),('diagnostic_log',diagnostic)]:
+        record['provider_metadata'].update({prefix+'_path':path.relative_to(source).as_posix(),
+            prefix+'_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),prefix+'_bytes':path.stat().st_size})
+    record['provider_metadata']['diagnostic_log_truncated'] = False
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path,spec).parent
+    assert check_saved_matrix(output,spec_path=tmp_path/'spec.json')['valid']
+    scope = output/'evidence/first/method/same'
+    assert (scope/'record.json').read_bytes() == raw
+    assert (source/record['artifact_path']).read_bytes() == answer
+    assert secret not in (scope/record['artifact_path']).read_text(encoding='utf-8')
+    assert (scope/'presentation-binding.json').is_file()
+    projected = [json.loads(line) for line in (output/'results.jsonl').open(encoding='utf-8')]
+    assert projected[0]['metrics'] == record['metrics']
+    metadata = projected[0]['provider_metadata']
+    assert 'Actual observed failure' in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
+    assert '/Users/fixture' not in (output/metadata['public_debug_log_path']).read_text(encoding='utf-8')
+    assert (output/metadata['public_response_path']).is_file()
+    with pytest.raises(ValueError,match='original source specification'):
+        check_saved_matrix(output)
+    inventory=json.loads((scope/'PUBLIC-EVIDENCE-VIEWS.json').read_text(encoding='utf-8'))
+    receipt_path=scope/inventory['files'][0]['view_receipt']['path']
+    receipt=json.loads(receipt_path.read_text(encoding='utf-8'))
+    public=scope/receipt['path']
+    public.write_bytes(public.read_bytes()+b' altered')
+    audit_path=output/'saved-matrix-audit.json'
+    audit=json.loads(audit_path.read_text(encoding='utf-8'))
+    audit['files'][public.relative_to(output).as_posix()]=hashlib.sha256(public.read_bytes()).hexdigest()
+    write(audit_path,audit)
+    with pytest.raises(ValueError,match='artifact differs|binding changed|view bytes|projection'):
+        check_saved_matrix(output,spec_path=tmp_path/'spec.json')
+
+
+def test_public_view_cannot_silently_change_task_acceptance(tmp_path):
+    from lexbench_webfetch.scoring import score_attempt
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    case = json.loads((source/'dataset.json').read_text(encoding='utf-8'))['cases'][0]
+    case['expected_any'] = ['synthetic-csrf-value']
+    spec['suites'][0]['dataset'] = write(source/'dataset.json',{'cases':[case]})
+    answer = b'meta-csrf-token: synthetic-csrf-value\nanswer'
+    (source/record['artifact_path']).write_bytes(answer)
+    record['metrics'] = score_attempt(case, answer, ok=True)
+    spec['sources'][0]['results'] = write(source/'results.jsonl',record)
+    with pytest.raises(ValueError,match='changes task acceptance'):
+        build(tmp_path,spec)
+    assert (source/record['artifact_path']).read_bytes() == answer
+    assert not (tmp_path/'report').exists()
+
+
 @pytest.mark.parametrize('separator', ['\u2028', '\u2029', '\u0085'])
 def test_jsonl_unicode_separators_are_content(tmp_path, separator):
     spec, root, record, _ = fixture(tmp_path)
@@ -1796,6 +2149,18 @@ def test_saved_records_reject_private_metadata_before_publication(tmp_path, extr
     assert (root/'results.jsonl').read_bytes() == original
 
 
+def test_site_entry_paths_are_contract_rules_while_local_paths_stay_private():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    for rule in [{'kind':'named_link'}, {'kind':'linked_table'}, {'schema':'named_link'},
+                 {'mode':'dynamic_list_structure'}, {'version':1,'minimum_posts':3}]:
+        _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/weibo'})
+        with pytest.raises(ValueError,match='private content'):
+            _require_public_json({**rule,'hosts':['example.com'],'entry_path':'/Users/private/data'})
+    for value in [{'entry_path':'/tmp/private-run/log'}, {'debug_path':'/tmp/private-run/log'}]:
+        with pytest.raises(ValueError,match='private content'):
+            _require_public_json(value)
+
+
 def test_portable_checker_scans_auxiliary_json_even_with_updated_hash(tmp_path):
     spec, _, _, _ = fixture(tmp_path)
     output = build(tmp_path, spec).parent
@@ -1850,6 +2215,8 @@ def test_saved_interface_catalog_has_frozen_page_translations():
     from harness.web_fetch.report_i18n import _SAVED_MATRIX_SOURCES, MESSAGES, translate, translate_text
     values = {'evaluated': 17, 'selected': 3, 'before': 'yes', 'candidate': 'no',
               'valid': 'yes', 'count': 20, 'before_passed': 4, 'candidate_passed': 5,
+              'reviewed': 17, 'total': 20, 'unresolved': 1,
+              'amount': '$1.00', 'incoming': '$0.10', 'outgoing': '$0.50',
               'planned': 20, 'saved': 17, 'uncommitted': 1, 'not_called': 1, 'rejected': 1}
     for key, source in _SAVED_MATRIX_SOURCES.items():
         entries = [(f'saved_matrix_{key}_{index}', text) for index, text in enumerate(source)] if isinstance(source, list) else [('saved_matrix_' + key, source)]

@@ -544,6 +544,110 @@ def check_revision_references(dataset: dict, review: dict, source: Path, *,
             'cases': results}
 
 
+def restore_annotations(identifier: str, source: Path, output: Path) -> Path:
+    """Restore public annotation contracts from their hash-bound source tasks.
+
+    This produces explicitly derived inputs, not a claimed byte-for-byte copy
+    of the private export. Every source task and omitted reference string must
+    match the public annotation's independent hashes. No provider output is
+    consulted and the complete public acceptance projection must remain exact.
+    """
+    from .content_scopes import REQUIREMENT_DEFAULTS
+
+    entry, root = suite(identifier)
+    if entry.get('kind') != 'annotation_cohort':
+        raise ValueError('Restoration requires an annotation cohort')
+    annotations = read(root / 'tasks.json')
+    original = read(source)
+    rows = original.get('cases', [])
+    indexed = {case['id']: case for case in rows}
+    if len(indexed) != len(rows) or set(indexed) != {case['id'] for case in annotations['cases']}:
+        raise ValueError('Annotation source task population differs')
+    strings = {}
+
+    def index(value):
+        if isinstance(value, str):
+            strings[hashlib.sha256(value.encode()).hexdigest()] = value
+        elif isinstance(value, dict):
+            for item in value.values():
+                index(item)
+        elif isinstance(value, list):
+            for item in value:
+                index(item)
+
+    index(original)
+
+    def restore(value):
+        if isinstance(value, list):
+            return [restore(item) for item in value]
+        if not isinstance(value, dict):
+            return deepcopy(value)
+        result = {}
+        for key, item in value.items():
+            if key in {'text_binding', 'source_text_binding'}:
+                text = strings.get(item['sha256'])
+                if text is None or len(text) != item['chars']:
+                    raise ValueError('Missing hash-bound annotation reference text')
+                result[key.removesuffix('_binding')] = text
+            else:
+                result[key] = restore(item)
+        return result
+
+    components = {'title_contract', 'comment_contract', 'post_contract',
+                  'comment_qualification_proof', 'comment_presence_review', 'post_qualification_proof'}
+    cases = []
+    for public in annotations['cases']:
+        base = indexed[public['id']]
+        source_hash = hashlib.sha256(json.dumps(base, ensure_ascii=False, sort_keys=True,
+                                                separators=(',', ':')).encode()).hexdigest()
+        profiles = public['content_scopes']
+        if any(profiles[scope]['evidence']['source_sha256'] != source_hash for scope in ('main', 'full')):
+            raise ValueError('Annotation source task hash differs: ' + public['id'])
+        case = deepcopy(base)
+        case.update({key: restore(value) for key, value in public.items() if key != 'content_scopes'})
+        case['source_benchmark'] = {**deepcopy(base.get('source_benchmark', {})),
+                                    **deepcopy(public.get('source_benchmark', {}))}
+        case['content_scopes'] = {'version': 1}
+        for scope in ('main', 'full'):
+            requirements = {key: deepcopy(base.get(key, default)) for key, default in REQUIREMENT_DEFAULTS.items()}
+            requirements.update(restore(profiles[scope]['requirements']))
+            requirements['source_benchmark'] = {
+                **{key: deepcopy(value) for key, value in base.get('source_benchmark', {}).items()
+                   if key not in components},
+                **deepcopy(profiles[scope]['requirements'].get('source_benchmark', {}))}
+            case['content_scopes'][scope] = {'requirements': requirements,
+                                            'evidence': deepcopy(profiles[scope]['evidence'])}
+        if public_task(case) != public:
+            raise ValueError('Restored public acceptance contract differs: ' + public['id'])
+        # Saved-report presentation fields are not executable task fields.
+        case.pop('report_family', None)
+        case.pop('report_family_label', None)
+        cases.append(case)
+    dataset = {'schema_version': 1, 'id': annotations['id'], 'name': annotations['name'],
+               'tool': 'web_fetch', 'cases': cases, 'comparison': {
+                   'kind': 'restored_annotation_inputs',
+                   'reference_policy': 'hash_bound_frozen_source_tasks_and_public_annotations'}}
+    if output.exists() or output.is_symlink() or not output.parent.is_dir():
+        raise ValueError('Restored output must be a new directory with an existing parent')
+    stage = Path(tempfile.mkdtemp(prefix='.annotation-inputs-', dir=output.parent))
+    try:
+        path = stage / 'dataset.json'
+        path.write_text(json.dumps(dataset, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        provenance = {'schema_version': 1, 'kind': 'restored_annotation_inputs',
+                      'source_dataset_sha256': digest(source),
+                      'public_tasks_sha256': digest(root / 'tasks.json'),
+                      'restored_dataset_sha256': digest(path), 'verified_source_tasks': len(cases),
+                      'verified_public_contracts': len(cases),
+                      'private_export_bytes_reproduced': False,
+                      'private_export_sha256': read(root / 'source-inputs.json')['dataset_sha256']}
+        (stage / 'input-provenance.json').write_text(json.dumps(provenance, indent=2) + '\n', encoding='utf-8')
+        os.rename(stage, output)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+    return output / 'dataset.json'
+
+
 def export(identifier: str, source: Path, output: Path, *, revision: str | None = None,
            review_source: Path | None = None) -> Path:
     """Copy only declared inputs after verification; never overwrite a run or input tree."""

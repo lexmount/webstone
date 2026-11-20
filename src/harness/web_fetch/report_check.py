@@ -115,10 +115,10 @@ class Tables(HTMLParser):
             self.in_th = False
 
 
-def require_table_index_headers(parser, *, english=False, diagnostic=False):
+def require_table_index_headers(parser, *, english=False):
     expected = report_text('en' if english else 'zh')('no', 'No.')
     for header, unindexed in zip(parser.headers, parser.unindexed_headers, strict=True):
-        if diagnostic and unindexed and header in {t('method', 'Method'), t('method_4', 'Method ↕'), 'Method', 'Method ↕'}:
+        if unindexed and header in {t('method', 'Method'), t('method_4', 'Method ↕'), 'Method', 'Method ↕'}:
             continue
         if header != expected:
             raise ValueError('Unexpected table index header: ' + header)
@@ -696,8 +696,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
         parser.feed(text)
         relative_parts = p.relative_to(page_root).parts
         if "browser-use" not in relative_parts:
-            require_table_index_headers(parser, english=relative_parts[0] == 'en',
-                                        diagnostic=page_diagnostic)
+            require_table_index_headers(parser, english=relative_parts[0] == 'en')
         if p.parent.name == "attempts":
             record = next(r for r in page_records if r["attempt_id"] == p.stem)
             case = page_cases[record["case_id"]]

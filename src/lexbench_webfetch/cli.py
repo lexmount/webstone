@@ -23,12 +23,13 @@ def main() -> None:
     compare.add_argument("right", type=Path)
     check = sub.add_parser("validate", help="Check all public definitions and bindings")
     check.add_argument("--suite")
-    for name in ("verify-inputs", "export"):
+    for name in ("verify-inputs", "export", "restore-annotations"):
         command = sub.add_parser(name)
         command.add_argument("--suite", required=True)
         command.add_argument("--source", type=Path, required=True)
-        if name == "export":
+        if name in {"export", "restore-annotations"}:
             command.add_argument("--output", type=Path, required=True)
+        if name == "export":
             command.add_argument("--revision", help="Apply a registered annotation or explicitly declared task-scope revision")
             command.add_argument("--review-source", type=Path,
                                  help="Optional evidence directory; verify and include declared review sources")
@@ -58,8 +59,8 @@ def main() -> None:
     articles.add_argument("--evidence-home", type=Path, required=True)
     args = parser.parse_args()
     try:
-        if args.command in {"list", "validate", "verify-inputs", "export", "inspect-revision"}:
-            from .benchmark import export, inspect_annotation_revision, registry, validate, verify_inputs
+        if args.command in {"list", "validate", "verify-inputs", "export", "inspect-revision", "restore-annotations"}:
+            from .benchmark import export, inspect_annotation_revision, registry, validate, verify_inputs, restore_annotations
         if args.command == "version":
             from .versions import installed_version
             result = installed_version()
@@ -116,6 +117,8 @@ def main() -> None:
                 raise ValueError(f"Unknown suite: {args.suite}")
         elif args.command == "verify-inputs":
             result = verify_inputs(args.suite, args.source)
+        elif args.command == "restore-annotations":
+            result = {'dataset': str(restore_annotations(args.suite, args.source, args.output).resolve())}
         else:
             result = {"dataset": str(export(args.suite, args.source, args.output, revision=args.revision,
                                              review_source=args.review_source).resolve())}

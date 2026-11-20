@@ -34,7 +34,10 @@ def test_catalog_has_sources_dates_and_no_invented_annual_prices():
     data = json.loads(SOURCE.read_text(encoding='utf-8'))
     assert data['checked_at'] == '2026-09-03'
     providers = {p['id']:p for p in data['providers']}
-    assert set(providers) == {'firecrawl','tavily','exa','cloudflare-markdown'}
+    assert set(providers) == {
+        'firecrawl', 'tavily', 'exa', 'cloudflare-markdown',
+        'kimi-fetch', 'zai-reader', 'claude-web-fetch',
+    }
     firecrawl = providers['firecrawl']
     assert firecrawl['verified_at'] == '2026-09-11'
     assert 'proxy=auto' in firecrawl['scope']
@@ -86,6 +89,51 @@ def test_render_only_registered_providers():
         rendered = render_pricing(Path(directory), ['exa'], table=table, cell=cell, link=link, esc=esc)
     assert 'id="pricing-exa"' in rendered
     assert 'id="pricing-firecrawl"' not in rendered
+
+
+def test_native_fetch_prices_cover_model_billing_and_unavailable_quotes(tmp_path):
+    names = ['kimi-fetch', 'zai-reader', 'claude-web-fetch']
+    rendered = render_pricing(tmp_path, names, table=table, cell=cell, link=link, esc=esc)
+    for name in names:
+        assert f'id="pricing-{name}"' in rendered
+        assert f'href="#pricing-{name}"' in rendered
+    assert '不包含搜索、研究 Agent 或聊天模型' not in rendered
+    assert '$2 / 千次符合计费条件的调用' in rendered
+    assert '未知：官方价格页未列明 Web Reader' in rendered
+    assert '模型 token 仍收费' in rendered
+    assert '$0.10' in rendered and '$2.50' in rendered
+    english = localize_html(
+        '<html lang="zh-CN"><body>' + rendered + '</body></html>',
+        PurePosixPath('adoption/index.html'),
+    )
+    assert 'No extra fetch-tool fee; model tokens are still billed' in english
+    assert untranslated_english_narrative(english) == []
+
+
+def test_model_billing_explanation_does_not_depend_on_bound_catalog_translations(tmp_path):
+    data = json.loads(SOURCE.read_text(encoding='utf-8'))
+    provider = next(p for p in data['providers'] if p['id'] == 'claude-web-fetch')
+    translations = data['translations']
+
+    def english(value):
+        if isinstance(value, str):
+            return translations.get(value, value)
+        if isinstance(value, list):
+            return [english(item) for item in value]
+        if isinstance(value, dict):
+            return {key: english(item) for key, item in value.items()}
+        return value
+
+    assets = tmp_path / 'report-assets'
+    assets.mkdir()
+    (assets / 'provider-pricing.json').write_text(json.dumps({
+        'checked_at': data['checked_at'], 'providers': [english(provider)],
+        'other_methods': [],
+    }), encoding='utf-8')
+    rendered = render_pricing(tmp_path, ['claude-web-fetch'], table=table, cell=cell, link=link, esc=esc)
+    localized = localize_html(rendered, PurePosixPath('adoption/index.html'))
+    assert 'Model-backed tools also incur model token charges' in localized
+    assert untranslated_english_narrative(localized) == []
 
 
 def test_report_bound_pricing_overrides_legacy_catalog(tmp_path):

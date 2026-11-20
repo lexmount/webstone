@@ -88,7 +88,12 @@ def _require_public_json(receipt, *, label="Missing receipt"):
 
     def local_path(value):
         if isinstance(value, dict):
-            return any((key.endswith('path') and isinstance(item, str)
+            # Task rules and their provenance pair entry_path with hosts to
+            # describe a web route. It is not an evidence-file location; the shared privacy
+            # scan above still rejects actual home paths and secrets there.
+            web_route = (isinstance(value.get('hosts'), list) and bool(value['hosts'])
+                         and all(isinstance(host, str) and host for host in value['hosts']))
+            return any((key.endswith('path') and not (key == 'entry_path' and web_route) and isinstance(item, str)
                         and (item.startswith(('/', '~', '\\')) or re.match(r'^[A-Za-z]:', item)))
                        or local_path(item) for key, item in value.items())
         if isinstance(value, list):
@@ -475,6 +480,17 @@ def _saved_revision(spec, sources, cases, selected, completed=()):
                                    'task_verdict_changes': r['task_verdict_changes']} for r in reversed(receipts)]}}
 
 
+def _declared_review_scope(document):
+    """Preserve an explicit review requirement through saved report projection."""
+    scope = document.get('independent_result_review_scope')
+    if scope is not None:
+        if not isinstance(scope, str) or scope not in {'all', 'machine-failures'}:
+            raise ValueError('Unsupported declared result review scope')
+        if not document.get('result_review'):
+            raise ValueError('Declared result review scope requires bound result review evidence')
+    return scope
+
+
 def _load_saved_matrix(spec_path):
     """Validate selection and immutable sources without writing a report."""
     spec_path = Path(spec_path)
@@ -486,6 +502,9 @@ def _load_saved_matrix(spec_path):
         raise ValueError('Unsupported saved-matrix ranking selection')
     if spec.get('presentation', 'audit') not in {'audit', 'final'}:
         raise ValueError('Unknown saved-matrix presentation')
+    _declared_review_scope(spec)
+    if 'public_evidence_views' in spec and type(spec['public_evidence_views']) is not bool:
+        raise ValueError('Public evidence views must be explicitly enabled or disabled')
     sources = _SourceBindings(spec_path.parent)
     bind, binding, tracked = sources.bind, sources.binding, sources.tracked
     def registry(items):
@@ -500,6 +519,15 @@ def _load_saved_matrix(spec_path):
     bind(spec_path)
     if spec.get('native_policy_registry'):
         binding(spec['native_policy_registry'])
+    if spec.get('result_review'):
+        _require_public_json(_json(binding(spec['result_review'])), label='Result review')
+    if spec.get('pricing'):
+        pricing = _json(binding(spec['pricing']))
+        _require_public_json(pricing, label='Pricing catalog')
+        priced = {item['id'] for item in pricing.get('providers', [])}
+        priced.update(name for item in pricing.get('other_methods', []) for name in item['ids'])
+        if not (set(providers)-set(spec.get('excluded_report_providers', []))) <= priced:
+            raise ValueError('Pricing catalog omits selected participants')
     for suite in spec['suites']:
         dataset = _json(binding(suite['dataset']))
         cases[suite['id']] = _index_cases(dataset)
@@ -1612,9 +1640,272 @@ def build_saved_matrix(spec_path: Path, output: Path) -> Path:
         return output / entry.relative_to(staged)
 
 
+def _native_retry_scoring_record(source, record, call, case):
+    """Replay missing text-only retry inputs from its frozen native evidence.
+
+    Earlier runner receipts omitted per-call metrics/title. Never borrow the
+    final call's returned fields. Unsupported or incomplete evidence fails closed.
+    """
+    from harness.web_fetch.native_projection import (
+        native_answer_projection, native_projection_policy_version,
+        project_native_answer, project_native_result_fields, require_native_answer_projection,
+    )
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
+    def reject():
+        raise ValueError('Changed retry answer requires its original scoring inputs')
+    if (record['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256
+            or case.get('task_kind') == 'file'):
+        reject()
+    receipt = call.get('native_route_receipt', {})
+    policy = receipt.get('answer_selection_policy')
+    if not policy or receipt.get('protocol_errors') or len(receipt.get('requests', [])) != 1:
+        reject()
+    version = native_projection_policy_version(policy, record['provider_type'])
+    if _sha(contained_path(source, policy['source_path'], reject_symlinks=True)) != policy['source_sha256']:
+        reject()
+    private = call.get('private_artifacts', [])
+    responses = [item for item in private if item['path'].endswith('.response.bin')]
+    logs = [item for item in private if item['path'].endswith('.stderr.log')]
+    if len(responses) != 1 or len(logs) != 1 or not call.get('call_log'):
+        reject()
+    def read(binding):
+        raw = contained_path(source, binding['path'], reject_symlinks=True).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding['sha256']:
+            reject()
+        return raw
+    native = read(responses[0])
+    events = []
+    for line in read(logs[0]).splitlines():
+        try:
+            event = json.loads(line)
+        except (ValueError, UnicodeError):
+            continue
+        if isinstance(event, dict) and str(event.get('event', '')).endswith('http_response_received'):
+            events.append(event)
+    log = json.loads(read(call['call_log']))
+    if (len(events) != 1 or type(events[0].get('status')) is not int
+            or log.get('output', {}).get('sha256') != call['content_sha256']
+            or log.get('timing', {}).get('elapsed_ms') != call['elapsed_ms']
+            or type(log.get('timing', {}).get('deadline_overrun')) is not bool):
+        reject()
+    payload = json.loads(native)
+    interface = receipt['requests'][0]['signature']['interface']
+    declaration = native_answer_projection(record['provider_type'], case, payload,
+        events[0]['status'], interface=interface, policy_version=version)
+    if (not declaration or declaration.get('content_format') != 'text'
+            or declaration.get('files') or declaration.get('source_format') == 'bytes'):
+        reject()
+    content, metadata = project_native_answer(payload, declaration)
+    answer = read({'path':call['artifact_path'], 'sha256':call['content_sha256']})
+    if content.encode('utf-8') != answer:
+        reject()
+    fields = project_native_result_fields(payload, declaration, request_url=case['url'])
+    if fields['final_url'] != log.get('response', {}).get('final_url'):
+        reject()
+    metadata.update(native_answer_projection=declaration, native_route_receipt=receipt,
+                    raw_response_sha256=responses[0]['sha256'])
+    require_native_answer_projection(content, metadata, native, request_url=case['url'], **fields)
+    prior = {key:log['timing'][key] for key in ('deadline_overrun', 'deadline_budget_ms')}
+    metrics = score_attempt(case, answer, ok=call['ok'], status_code=call.get('status_code'),
+        metadata=metadata, previous_metrics=prior, **fields)
+    if task_passed(call['ok'], metrics, case.get('task_kind', 'body')) is not call.get('task_pass'):
+        raise ValueError('Native retry replay differs from its retained task verdict')
+    variants = [metadata]
+    if any(key in case for key in ('target_language', 'expected_document_language',
+                                   'expected_document_language_present')):
+        # Old receipts do not bind the language metadata. Check every outcome
+        # class of that field instead of assuming it was absent: missing,
+        # explicitly absent, matching, and mismatching. Only an invariant task
+        # verdict can authorize a public view with this incomplete context.
+        expected = case.get('expected_document_language') or case.get('target_language')
+        for language in dict.fromkeys(('', expected, '__unmatched_language__')):
+            if language is not None:
+                variants.append({**metadata, 'document_language':language})
+        for variant in variants[1:]:
+            alternate = score_attempt(case, answer, ok=call['ok'], status_code=call.get('status_code'),
+                metadata=variant, previous_metrics=prior, **fields)
+            if task_passed(call['ok'], alternate, case.get('task_kind', 'body')) is not call['task_pass']:
+                raise ValueError('Retry acceptance depends on unretained language metadata')
+    return {**call, **fields, 'provider_metadata':metadata, 'metrics':metrics,
+            '_public_acceptance_variants':variants}
+
+
+def _record_public_views(source, record, case):
+    """Use the shared post-score projection, retaining every original identity."""
+    from harness.web_fetch.publication_privacy import project_evidence_view
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
+    answers = {record['artifact_path']}
+    answers.update(attempt['artifact_path'] for attempt in
+                   record.get('provider_metadata', {}).get('retry', {}).get('attempts', []))
+    bindings = [(dict(path=name, sha256=digest), 'scored_answer')
+                for name, digest in artifact_bindings(record)
+                if name in answers]
+    bindings += [(binding, 'diagnostic_log' if binding['path'].endswith('.stderr.log')
+                  else 'native_response') for binding in record_private_bindings(record)]
+    views = []
+    for binding, role in bindings:
+        raw = contained_path(source, binding['path'], reject_symlinks=True).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != binding['sha256']:
+            raise ValueError('Public view original changed')
+        identifier = hashlib.sha256(binding['path'].encode()).hexdigest()
+        extension = '.txt'
+        if role == 'diagnostic_log':
+            try:
+                for line in raw.splitlines():
+                    if line.strip():
+                        json.loads(line)
+            except (ValueError, UnicodeError):
+                pass  # Native stderr and appended native logs are plain/mixed text.
+            else:
+                extension = '.jsonl'
+        name = 'public-evidence/' + identifier + extension
+        try:
+            public, receipt = project_evidence_view(name, raw, role=role,
+                content_format='text' if role == 'scored_answer' else 'auto')
+        except ValueError as exc:
+            raise ValueError(f'Public evidence projection failed: {record["provider"]}/{case["id"]}/{role}/{Path(binding["path"]).name}: {exc}') from exc
+        if role == 'scored_answer' and public != raw:
+            call = record
+            if binding['path'] != record['artifact_path']:
+                calls = [attempt for attempt in record.get('provider_metadata', {}).get('retry', {}).get('attempts', [])
+                         if attempt['artifact_path'] == binding['path']]
+                if len(calls) != 1:
+                    raise ValueError('Changed retry answer requires its original scoring inputs')
+                call = calls[0]
+                if not all(key in call for key in
+                        ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
+                    call = _native_retry_scoring_record(source, record, call, case)
+            kind = case.get('task_kind', 'body')
+            if call['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256:
+                raise ValueError('Changed public answer requires its bound scoring version')
+            before = task_passed(call['ok'], call['metrics'], kind)
+            if 'task_pass' in call and call['task_pass'] is not before:
+                raise ValueError('Retry answer verdict differs from its scoring inputs')
+            for metadata in call.get('_public_acceptance_variants', [call.get('provider_metadata')]):
+                metrics = score_attempt(case, public, ok=call['ok'],
+                    status_code=call.get('status_code'), metadata=metadata,
+                    previous_metrics=call['metrics'], title=call.get('title'),
+                    final_url=call.get('final_url'))
+                if task_passed(call['ok'], metrics, kind) != before:
+                    raise ValueError('Public answer projection changes task acceptance')
+        views.append((binding, public, receipt))
+    return views
+
+
+def _display_record_bytes(settings, name, raw):
+    if not settings.get('public_evidence_views'):
+        return raw
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    return project_result_diagnostics(name, raw)[0]
+
+
+def _require_public_fixed_selection(inputs, candidates, adoptions):
+    """Public views may accompany scoring-only corrections of unchanged calls."""
+    revision = inputs['revision']
+    if candidates or adoptions or inputs['historical'] or revision and revision['cases']:
+        raise ValueError('Public evidence views require fixed calls and unchanged task contracts')
+    if revision:
+        for key, after in revision['records'].items():
+            before = inputs['selected'][key][1]
+            ignored = {'metrics', 'scoring', 'diagnosis', 'failure_category'}
+            if ({k: v for k, v in before.items() if k not in ignored}
+                    != {k: v for k, v in after.items() if k not in ignored}
+                    or before['metrics']['content_sha256'] != after['metrics']['content_sha256']):
+                raise ValueError('Public score revision changes call inputs or answer bytes')
+
+
+def _score_revision_proof(prefix, public):
+    return {'receipt_path': 'score-revision.json',
+            'before_case_path': prefix+'/score-before-case.json',
+            ('before_summary_path' if public else 'before_record_path'):
+                prefix+('/score-before-summary.json' if public
+                        else '/score-before/score-before-record.json')}
+
+
+def _historical_score_summary(record, raw, case):
+    """Keep the old verdict identifiable without republishing old private inputs."""
+    return {'kind': 'historical_task_score_summary',
+            'original_record_sha256': hashlib.sha256(raw).hexdigest(),
+            'content_sha256': record['metrics']['content_sha256'],
+            'scoring_source_sha256': record['metrics'].get('scoring_source_sha256'),
+            'task_passed': task_passed(record['ok'], record['metrics'], case.get('task_kind', 'body')),
+            'provider_calls_added': 0,
+            'answer_evidence': 'Unchanged answer bytes are shown with the current result. '
+                'This summary identifies the retained historical score; it is not a replay of the historical scorer.'}
+
+
+def _materialize_record_public_views(source, destination, record, case, original_record, record_name):
+    files = []
+    for binding, public, receipt in _record_public_views(source, record, case):
+        _write_bytes(destination / receipt['path'], public)
+        receipt_path = receipt['path'] + '.receipt.json'
+        _write(destination / receipt_path, receipt)
+        files.append({'original_path': binding['path'], 'original_sha256': binding['sha256'],
+                      'view_receipt': {'path': receipt_path, 'sha256': _sha(destination / receipt_path)}})
+        if receipt['role'] == 'scored_answer':
+            alias = contained_path(destination, binding['path'], reject_symlinks=True)
+            original = contained_path(source, binding['path'], reject_symlinks=True)
+            if alias.resolve() == original.resolve() or _sha(alias) != binding['sha256']:
+                raise ValueError('Public answer alias is not a verified report copy')
+            alias.write_bytes(public)
+    index = destination / 'PUBLIC-EVIDENCE-VIEWS.json'
+    _write(index, {'kind': 'post_score_public_evidence_view_inventory',
+                   'provider_calls_added': 0, 'files': files})
+    _write(destination / 'presentation-binding.json',
+           {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    if receipt:
+        target = destination/record_name
+        if target.read_bytes() != original_record:
+            raise ValueError('Result diagnostics alias differs from original source')
+        target.write_bytes(public_record)
+        _write(destination/'result-diagnostics-view.json', receipt)
+
+
+def _public_view_sources(inputs, keys):
+    """Resolve fixed current records and their declared split retry predecessors."""
+    for relative, raw in _source_record_inventory(inputs, {}, {}, {}, keys).items():
+        key = tuple(Path(relative).parts[1:4])
+        prefix = 'evidence/'+'/'.join(key)
+        source = (inputs['selected'][key][0] if relative == prefix+'/record.json'
+                  else inputs['continuations'][key][1][0])
+        yield relative, source, json.loads(raw), inputs['cases'][key[0]][key[2]], raw
+
+
+def _validate_record_public_views(source, destination, record, case, original_record, record_name):
+    """Reproduce every public byte from the verified original source."""
+    from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
+    profile = _json(destination/'presentation-binding.json')
+    binding = profile['publication_evidence_views']
+    index = require_public_evidence_view_inventory(destination, binding, [record])
+    expected = []
+    for original, public, receipt in _record_public_views(source, record, case):
+        name = receipt['path']+'.receipt.json'
+        if (_json(destination/name) != receipt
+                or (destination/receipt['path']).read_bytes() != public):
+            raise ValueError('Public evidence view differs from original-source projection')
+        if receipt['role'] == 'scored_answer' and (destination/original['path']).read_bytes() != public:
+            raise ValueError('Displayed answer differs from source-backed public view')
+        expected.append({'original_path': original['path'], 'original_sha256': original['sha256'],
+                         'view_receipt': {'path': name, 'sha256': _sha(destination/name)}})
+    if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
+        raise ValueError('Public evidence view inventory differs from original sources')
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    path = destination/'result-diagnostics-view.json'
+    if ((destination/record_name).read_bytes() != public_record
+            or bool(receipt) != path.is_file()
+            or receipt and _json(path) != receipt):
+        raise ValueError('Result diagnostics differ from original-source projection')
+
+
 def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     """Verify immutable sources and create a new portable report directory."""
     from harness.web_fetch.report import generate_saved_matrix
+    if _json(spec_path).get('published_base'):
+        from harness.web_fetch.report_saved_composition import build_published_extension
+        return build_published_extension(spec_path, output)
 
     if 'saved_reports' in _json(spec_path):
         from harness.web_fetch.report_saved_composition import build_composition
@@ -1629,6 +1920,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     _validate_completion_retention(inputs, candidates, decisions)
     adoptions = _adopted_groups(inputs, candidates)
     spec = inputs['spec']
+    if spec.get('public_evidence_views'):
+        _require_public_fixed_selection(inputs, candidates, adoptions)
     execution_settings = _matrix_execution_settings(inputs, candidates, decisions, adoptions)
     if spec.get('presentation') == 'final':
         _require_final_selection(inputs)
@@ -1726,12 +2019,15 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
                     revised = bool(revision and key in revision['records'])
                     if revised:
                         _write(output/(prefix+'/score-before-case.json'), original_case)
-                        _write_bytes(output/(prefix+'/score-before/score-before-record.json'), raw_line)
-                        for relative, digest in artifact_bindings(record):
-                            copy(contained_path(root, relative, reject_symlinks=True), prefix+'/score-before/'+relative)
-                        item['score_revision'] = {'receipt_path':'score-revision.json',
-                            'before_case_path':prefix+'/score-before-case.json',
-                            'before_record_path':prefix+'/score-before/score-before-record.json'}
+                        public = spec.get('public_evidence_views', False)
+                        if public:
+                            _write(output/(prefix+'/score-before-summary.json'),
+                                   _historical_score_summary(record, raw_line, original_case))
+                        else:
+                            _write_bytes(output/(prefix+'/score-before/score-before-record.json'), raw_line)
+                            for relative, digest in artifact_bindings(record):
+                                copy(contained_path(root, relative, reject_symlinks=True), prefix+'/score-before/'+relative)
+                        item['score_revision'] = _score_revision_proof(prefix, public)
                         item['score_revision_history'] = deepcopy(item['score_revision'])
                         record = revision['records'][key]
                         raw_line = (json.dumps(record, ensure_ascii=False)+'\n').encode()
@@ -1877,11 +2173,22 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
              'execution_settings': execution_settings,
              'source_bindings': [{'sha256': digest, 'name': path.name} for path, digest in tracked.items()],
              'limitations': spec.get('limitations', [])}
+    if _declared_review_scope(spec) is not None:
+        model['independent_result_review_scope'] = spec['independent_result_review_scope']
     if spec.get('native_policy_registry'):
         approved = binding(spec['native_policy_registry'])
         relative = 'native-policy-registry.json'
         copy(approved, relative)
         model['native_policy_registry'] = {'path': relative, 'sha256': _sha(approved)}
+    if spec.get('pricing'):
+        source = binding(spec['pricing'])
+        relative = 'report-assets/provider-pricing.json'
+        copy(source, relative)
+        model['pricing'] = {'path': relative, 'sha256': _sha(source)}
+    if spec.get('result_review'):
+        source = binding(spec['result_review'])
+        copy(source, 'result-review.json')
+        model['result_review'] = {'path':'result-review.json', 'sha256':_sha(source)}
     if 'report_families' in spec:
         model['report_families'] = [deepcopy(group) for group in spec['report_families']
                                     if group['id'] not in spec.get('excluded_report_families', [])]
@@ -1898,6 +2205,11 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     if revision:
         model['offline_revision'] = revision['receipt']
     model['scores_changed'] = bool(revision) or any(row.get('score_revision') for row in model_rows)
+    if spec.get('public_evidence_views'):
+        model['public_evidence_views'] = True
+        keys = [(row['suite'], row['provider'], row['case_id']) for row in model_rows]
+        for relative, source, record, case, raw in _public_view_sources(inputs, keys):
+            _materialize_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
     _write(output / 'matrix.json', model)
     with _source_validated_render(output, model):
         entry = generate_saved_matrix(output, model)
@@ -1913,7 +2225,7 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         'sources': [{'name': path.name, 'sha256': digest} for path, digest in tracked.items()],
         'files': copies, 'totals': model['totals'], 'provider_calls_added': 0, 'scores_changed': model['scores_changed'],
         'private_debug_policy': 'Private raw responses and debug files verified at source, not copied.'})
-    check_saved_matrix(output, spec_path=spec_path if model.get('presentation') == 'final' else None)
+    check_saved_matrix(output, spec_path=spec_path if model.get('presentation') == 'final' or model.get('public_evidence_views') else None)
     return entry
 
 
@@ -1942,7 +2254,7 @@ def _source_record_inventory(inputs, candidates, decisions, adoptions, keys):
             base = ((json.dumps(revision['records'][key], ensure_ascii=False)+'\n').encode()
                     if key in revision['records'] else selected[2])
             final = base
-            if key in revision['records']:
+            if key in revision['records'] and not inputs['spec'].get('public_evidence_views'):
                 expected[prefix+'/score-before/score-before-record.json'] = selected[2]
             if key in candidates:
                 expected[prefix+'/parameter-rerun/before/record.json'] = base
@@ -1980,6 +2292,7 @@ def _validate_source_disclosures(output, model, inputs, adoptions, keys):
                       if p['id'] not in spec.get('excluded_report_providers', [])],
         'suites': [{'id': p['id'], 'label': p['label']} for p in spec['suites']],
         'limitations': spec.get('limitations', []), 'ranking': spec.get('ranking', 'diagnostic'), 'combined_ranking': spec.get('combined_ranking', True),
+        'independent_result_review_scope': _declared_review_scope(spec),
         'report_families': ([g for g in spec['report_families']
                             if g['id'] not in spec.get('excluded_report_families', [])]
                            if 'report_families' in spec else None),
@@ -2057,9 +2370,13 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
     revision = inputs['revision'] or {'records': {}}
     score = None
     if key in revision['records']:
-        score = {'receipt_path': 'score-revision.json',
-                 'before_case_path': prefix+'/score-before-case.json',
-                 'before_record_path': prefix+'/score-before/score-before-record.json'}
+        public = inputs['spec'].get('public_evidence_views', False)
+        score = _score_revision_proof(prefix, public)
+        if public:
+            _, original, raw, _ = inputs['selected'][key]
+            summary = _json(contained_path(output, score['before_summary_path'], reject_symlinks=True))
+            if summary != _historical_score_summary(original, raw, inputs['cases'][key[0]][key[2]]):
+                raise ValueError('Historical score summary differs from validated source')
     if row.get('score_revision_history') != score:
         raise ValueError('Saved historical revision proof differs from validated source')
     if decisions.get(key, {}).get('selected_new'):
@@ -2110,7 +2427,8 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
             **({'score_revision': score} if revised else {})}
         if (row.get('receipt_path') != prefix+'/receipt.json'
                 or _json(output/row['receipt_path']) != json.loads(json.dumps(expected_receipt))
-                or _sha(output/row['record_path']) != expected_receipt['record_sha256']):
+                or (output/row['record_path']).read_bytes() != _display_record_bytes(
+                    inputs['spec'], Path(row['record_path']).name, raw)):
             raise ValueError('Saved result receipt differs from validated source')
 
     if key in inputs['historical']:
@@ -2187,10 +2505,12 @@ def _validate_selection_proofs(output, row, inputs, candidates, decisions, adopt
 
 
 def _validate_record_artifacts(path):
+    from harness.web_fetch.publication_privacy import read_evidence_binding
     for artifact, expected in artifact_bindings(_json(path)):
-        target = contained_path(path.parent, artifact, reject_symlinks=True)
-        if not target.is_file() or _sha(target) != expected:
-            raise ValueError('Portable saved record artifact differs')
+        try:
+            read_evidence_binding(path.parent, {'path': artifact, 'sha256': expected})
+        except (ValueError, OSError) as exc:
+            raise ValueError('Portable saved record artifact differs') from exc
 
 
 def _validate_record_links(output, value):
@@ -2249,6 +2569,20 @@ def _validate_rendered_pages(output, model):
             source = output/name
             if source.is_file():
                 shutil.copy2(source, expected/name)
+        if model.get('pricing'):
+            pricing = model['pricing']
+            source = contained_path(output, pricing['path'], reject_symlinks=True)
+            if _sha(source) != pricing['sha256']:
+                raise ValueError('Bound pricing catalog changed')
+            target = contained_path(expected, pricing['path'])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        if model.get('result_review'):
+            review = model['result_review']
+            source = contained_path(output, review['path'], reject_symlinks=True)
+            if _sha(source) != review['sha256']:
+                raise ValueError('Bound result review changed')
+            shutil.copy2(source, expected/review['path'])
         _write(expected/'matrix.json', model)
         with _source_validated_render(expected, model):
             render_saved_with_standard_generator(expected, model)
@@ -2292,6 +2626,11 @@ def check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
 def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
     """Check the complete portable tree and unchanged sources without rescoring."""
     output = _path(Path.cwd(), output).resolve()
+    if (output / 'saved-extension.json').is_file():
+        from harness.web_fetch.report_saved_composition import check_published_extension
+        if spec_path is not None and _sha(Path(spec_path)) != _json(output / 'saved-extension.json')['spec_sha256']:
+            raise ValueError('Published extension specification changed')
+        return check_published_extension(output)
     audit = _json(output / 'saved-matrix-audit.json')
     source_count = 0
     inputs = None
@@ -2347,8 +2686,37 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 # The shared text privacy scan above still applies to their bytes.
                 values = []
             for value in values:
-                _require_public_json(value, label='Saved report file')
+                try:
+                    _require_public_json(value, label='Saved report file')
+                except ValueError as exc:
+                    raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if inputs is not None:
+        pricing = inputs['spec'].get('pricing')
+        expected = ({'path':'report-assets/provider-pricing.json','sha256':pricing['sha256']}
+                    if pricing else None)
+        if model.get('pricing') != expected:
+            raise ValueError('Pricing catalog binding differs from source specification')
+        if (output/'report-assets/provider-pricing.json').is_file() != bool(expected):
+            raise ValueError('Saved report has missing or unbound pricing data')
+        if pricing and contained_path(output, expected['path']).read_bytes() != _path(
+                inputs['sources'].base, pricing['path']).read_bytes():
+            raise ValueError('Pricing catalog differs from validated source')
+    if inputs is not None:
+        review = inputs['spec'].get('result_review')
+        expected_review = {'path':'result-review.json','sha256':review['sha256']} if review else None
+        if (model.get('result_review') != expected_review
+                or (output/'result-review.json').is_file() != bool(review)):
+            raise ValueError('Result review binding differs from source specification')
+        if review and (output/'result-review.json').read_bytes() != _path(
+                inputs['sources'].base, review['path']).read_bytes():
+            raise ValueError('Result review differs from validated source')
+    if model.get('public_evidence_views'):
+        if inputs is None or inputs['spec'].get('public_evidence_views') is not True:
+            raise ValueError('Public evidence views require the original source specification')
+        _require_public_fixed_selection(inputs, candidates, adoptions)
+    elif inputs is not None and inputs['spec'].get('public_evidence_views'):
+        raise ValueError('Report omits the declared public evidence views')
     if model.get('presentation') == 'final' and (inputs is None or inputs['spec'].get('presentation') != 'final'):
         raise ValueError('Final saved results require the original final source specification')
     if inputs is not None and model.get('execution_settings') != execution_settings:
@@ -2424,7 +2792,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             if identity in adoptions:
                 expected_record = adoptions[identity]['selected'][1]
             if expected_record is not None:
-                if not row.get('record_path') or record != expected_record:
+                if not row.get('record_path') or record != json.loads(_display_record_bytes(
+                        model, Path(row['record_path']).name, json_bytes(expected_record))):
                     raise ValueError('Saved record differs from validated source selection')
             elif (row.get('record_path') or row['status'] != inputs['missing'][identity][0]['status']
                     or receipt != _json(inputs['missing'][identity][1])
@@ -2458,9 +2827,12 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             if (previous['provider'], previous['case_id']) != (row['provider'], row['case_id']):
                 raise ValueError('Superseded evidence identity differs')
     if inputs is not None:
+        if model.get('public_evidence_views'):
+            for relative, source, record, case, raw in _public_view_sources(inputs, keys):
+                _validate_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
-            if not path.is_file() or path.read_bytes() != expected_record:
+            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):
                 raise ValueError('Published provenance record differs from validated source: '+relative)
             _validate_record_artifacts(path)
     with _source_validated_render(output, model):
@@ -2581,6 +2953,35 @@ def _saved_renderer_projection(output, model):
                     return candidate
             return value
         record = project(raw)
+        if model.get('public_evidence_views'):
+            from harness.web_fetch.publication_privacy import public_render_views, read_evidence_binding
+            from harness.web_fetch.failure_diagnosis import diagnose
+            local_root = contained_path(output, prefix, reject_symlinks=True)
+            views = public_render_views(local_root, [raw])[raw['attempt_id']]
+            for view in views.values():
+                view['path'] = prefix+'/'+view['path']
+                view['receipt'] = prefix+'/'+view['receipt']
+            metadata = record.setdefault('provider_metadata', {})
+            metadata['publication_views'] = views
+            diagnostics_receipt = local_root/'result-diagnostics-view.json'
+            if diagnostics_receipt.is_file():
+                metadata['public_result_diagnostics_receipt'] = prefix+'/'+diagnostics_receipt.name
+            native = views.get('native_response')
+            native_text = None
+            if native:
+                metadata.update(public_response_path=native['path'], public_response_sha256=native['published_sha256'])
+                native_text = contained_path(output, native['path']).read_text(encoding='utf-8')
+            profile = _json(local_root/'presentation-binding.json')
+            inventory = _json(read_evidence_binding(local_root, profile['publication_evidence_views']))
+            original = raw.get('provider_metadata', {})
+            for entry in inventory['files']:
+                if (entry['original_path'], entry['original_sha256']) != (original.get('diagnostic_log_path'), original.get('diagnostic_log_sha256')):
+                    continue
+                receipt = _json(local_root/entry['view_receipt']['path'])
+                metadata.update(public_debug_log_path=prefix+'/'+receipt['path'],
+                                public_debug_log_sha256=receipt['published_sha256'])
+            answer = contained_path(output, row['answer_path']).read_text(encoding='utf-8', errors='replace')
+            record['diagnosis'] = diagnose(record, case, answer, native_raw=native_text)
         if row.get('completion_note'):
             record['report_completion_note'] = row['completion_note']
         record['report_invocation_status'] = row['status']
@@ -2620,6 +3021,8 @@ def _saved_renderer_projection(output, model):
         'saved_matrix_scope': scope}
     if model.get('offline_revision'):
         dataset['comparison']['offline_revision'] = model['offline_revision']
+    if _declared_review_scope(model) is not None:
+        dataset['comparison']['independent_result_review_scope'] = model['independent_result_review_scope']
     dataset['report_suites'] = [dict(id=s['id'], label=s['label'],
         case_ids=[key for key, case in cases.items() if case['report_family'] == s['id']]) for s in groups]
     grouped=[key for s in dataset['report_suites'] for key in s['case_ids']]
@@ -2643,6 +3046,13 @@ def render_saved_with_standard_generator(output, model):
     providers = [p['id'] for p in model['providers']]
     _write(output/'dataset.json', dataset)
     (output/'results.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records), encoding='utf-8')
+    if model.get('result_review'):
+        from harness.web_fetch.result_review import require_result_review
+        review = _json(output/'result-review.json')
+        original = deepcopy(review)
+        require_result_review(output, dataset, records, review)
+        if review != original:
+            raise ValueError('Bound result review must contain verified coverage counts')
     _write(output/'summary.json', scope)
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})

@@ -741,7 +741,7 @@ def comparative_rows(rows, directions):
    if column[row_number] is None:opening=re.sub(r' data-sort="[^"]+"','',opening)
    opening+=' data-metric="'+metric+'" data-metric-direction="'+direction+'"'
    content=body[:-5]
-   if unique and column[row_number] is not None and column[row_number]==extreme:
+   if (unique or _RENDER_CONTEXT.get().descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
     content='<strong class="comparison-winner good">'+content+'</strong>'
    values=values[:cells[index].start()]+opening+'>'+content+'</td>'+values[cells[index].end():]
   result.append((attrs,values))
@@ -761,6 +761,8 @@ class RenderContext:
  score_audit: dict | None = None
  coverage_plan: dict | None = None
  scope_presentation: dict | None = None
+ descriptive_ranks: bool = False
+ result_views: dict | None = None
 
 
 _RENDER_CONTEXT=ContextVar('webfetch_render_context',default=RenderContext())
@@ -1124,15 +1126,33 @@ def generate_public_benchmark_research(out:Path,research:dict,*,include_english:
  write_language_contract(out,include_english=include_english)
  return out/'index.html'
 
+def result_view(record):
+ views=_RENDER_CONTEXT.get().result_views
+ return views.get((record['provider'],record['case_id']),{}) if views else {}
+
+def result_case(record,fallback):
+ """Keep each saved result's own rules separate from its comparison identity."""
+ return result_view(record).get('case',fallback)
+
+def result_href(record,kind,base=''):
+ """Resolve a retained evidence route relative to the report root."""
+ if kind=='task':default='datasets/'+record['case_id']+'.html'
+ elif kind=='attempt':default='attempts/'+record['attempt_id']+'.html'
+ else:raise ValueError('Unknown result evidence route: '+kind)
+ return base+result_view(record).get(kind+'_href',default)
+
 def succeeded(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_passed(r['ok'],r['metrics'],c.get('task_kind','body'))
 
 def measured(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_measured(r['metrics'],c.get('task_kind','body'))
 
 def result_label(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected')
  if r['metrics'].get('evaluation_excluded'):return t('excluded_from_comparison', 'Excluded from comparison')
@@ -1168,6 +1188,8 @@ def review_summary(out, prefix='', *, highlight=True):
  path=out/'result-review.json'
  if not path.is_file():return ''
  audit=json.loads(path.read_text(encoding='utf-8'))
+ if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+  return '<p class="callout">'+t('known_outcome_audit_scope', 'Evidence audit with known machine outcomes: {reviewed}/{total} results; {unreviewed} machine passes were not individually reviewed.', reviewed=audit.get('reviewed_attempts',0),total=audit.get('total_attempts',0),unreviewed=audit.get('accepted_unreviewed_passes',0))+' '+link(prefix+'review/index.html',t('view_review_rounds', 'View review rounds →'))+'</p>'
  if audit.get('retained_reviews'):
   mode_note = (model_text(*pair('this_round_checked_evidence_with_known_machine', ' This round checked evidence with known machine outcomes; it was not an independent blind review.')) if audit.get('review_protocol',{}).get('blind_initial_verdict') is False else '')
   if audit.get('review_protocol',{}).get('fresh_blind_initial_verdict') is True:
@@ -1193,7 +1215,7 @@ def review_cell(audit, rows, base=''):
  indexed=review_index(audit);items=[indexed[r['attempt_id']] for r in rows if r['attempt_id'] in indexed]
  unresolved=sum(not x.get('final_verdict') for x in items)
  label=t('review_records', '{count}/{count2} · review records', count=len(items), count2=len(rows))
- if unresolved:label+=f' · 未决 {unresolved}'
+ if unresolved:label=saved_matrix_text('review_coverage_unresolved',reviewed=len(items),total=len(rows),unresolved=unresolved)
  return cell(link(base+'review/index.html',label),len(items)/len(rows) if rows else -1)
 
 def _evidence_chunks(text, width=620, overlap=100):
@@ -1607,10 +1629,15 @@ def stable_anchor_evidence(metrics,output,metadata=None,base_url='',contract=Non
  return note+f'<div class="anchor-grid"{scroll}>'+''.join(cards)+'</div>'
 
 def failure_category(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return result_label(r,c)
  if r['metrics'].get('evaluation_excluded'):return t('evaluation_environment_defect_excluded_across_all_methods', 'Evaluation environment defect: excluded across all methods')
  if not measured(r,c):return t('undecidable_evidence_of_the_final_page_identity', 'Undecidable: evidence of the final page identity is missing') if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status')=='unavailable' else t('unmeasured_acceptance_evidence_is_missing', 'Unmeasured: acceptance evidence is missing')
  if succeeded(r,c):return '—'
+ # The evidence diagnosis owns the cause; downstream rule symptoms must not
+ # replace it in inventories, filters or same-task comparisons.
+ if r.get('diagnosis'):
+  return r['diagnosis']['category']
  if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status') != 'verified':
   return t('final_page_identity_is_not_verified', 'Final page identity is not verified')
  # Classification describes an already failed result; hints never veto success.
@@ -1667,6 +1694,7 @@ def stable_failure_summary(metrics):
  return '；'.join(parts) or t('stable_text_or_record_structure_did_not', 'Stable text or record structure did not meet the task requirements')
 
 def reason(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected_note')
  if r['metrics'].get('evaluation_excluded'):
@@ -1758,8 +1786,8 @@ def ranking_readiness(records,cases,*,participants=None):
  same_scorer=bool(identities) and all(isinstance(value,str) and re.fullmatch(r'[0-9a-f]{64}',value) for value in identities) and len(set(identities))==1
  notes=[]
  if not complete:notes.append(model_text(*pair('report_results_do_not_cover_the_same_complete_task_1be98a', 'Results do not cover the same complete task population; scores are shown without ranks.')))
- if not same_scorer:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
- return complete and same_scorer, ''.join('<p class="callout">'+n+'</p>' for n in notes)
+ if not same_scorer and not _RENDER_CONTEXT.get().descriptive_ranks:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
+ return complete and (same_scorer or _RENDER_CONTEXT.get().descriptive_ranks), ''.join('<p class="callout">'+n+'</p>' for n in notes)
 
 
 def shared_ranks(scores):
@@ -1904,21 +1932,20 @@ def overview_matched_latency(records,cases):
  if not common:return ('<p>' + t('no_task_is_yet_passed_by_every', 'No task is yet passed by every method, so shared-task latency is not calculated.') + '</p>')
  population=_article_speed_population(cases,records,names,execution_scope='Main-evaluation historical calls across batches; all registered methods and configurations, not a same-window controlled experiment.')
  metrics=['mean_ms','p50_ms','p95_ms'];rows=[]
- minima={key:min(row[key] for row in population['rows']) for key in metrics}
  for row in population['rows']:
   values=cell(link('providers/'+row['provider']+'.html',provider_label(row['provider']),browser_method_label(row['provider'],language='en')))
   for key in metrics:
-   value=ms(row[key]);values+=cell('<strong>'+value+'</strong>' if row[key]==minima[key] else value,row[key])
+   value=ms(row[key]);values+=cell(value,row[key])
   rows.append(('',values))
  count=population['common_pass_count']
- note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set; the lowest mean, P50, and P95 are shown in bold.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
+ note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
  dates=[]
  for row in population['rows']:
   observed=row['recorded_start_dates']
   if observed:
    dates.append(model_text(provider_label(row['provider']),browser_method_label(row['provider'],language="en"))+model_text('：'+'、'.join(f'{date}（{number} 题）' for date,number in observed.items()),': '+', '.join(f'{date} ({number} tasks)' for date,number in observed.items())))
  links='、'.join(link('datasets/'+cid+'.html',cases[cid].get('name',cid)) for cid in population['common_pass_cases'])
- content=((f"{note}{table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks'), t('p95_on_shared_tasks', 'P95 on shared tasks')], rows, 'overall-matched-latency-table', metrics=[])}<details><summary>" + t('shared_tasks_and_call_dates', 'Shared tasks and call dates') + f"</summary><p>{links}</p><p>{'<br>'.join(dates)}</p></details>"))
+ content=((f"{note}{table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks'), t('p95_on_shared_tasks', 'P95 on shared tasks')], rows, 'overall-matched-latency-table', metrics=[], include_index=False)}<details><summary>" + t('shared_tasks_and_call_dates', 'Shared tasks and call dates') + f"</summary><p>{links}</p><p>{'<br>'.join(dates)}</p></details>"))
  return ('<details class="ranking-metric-help"><summary>' + t('view_shared_pass_latency_on_demand', 'View shared-pass latency on demand') + f'</summary>{content}</details>')
 
 def overview_resources(out):
@@ -2015,7 +2042,24 @@ def successful_final_call_latency(records,cases):
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
 
 
-def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True):
+def all_final_call_latency(records):
+ groups=defaultdict(list)
+ for record in records:
+  if record.get('report_invocation_status') != 'adapter_rejected':
+   groups[record['provider']].append(record['elapsed_ms'])
+ rows=[]
+ for name,times in sorted(groups.items()):
+  values=cell(link(f'../providers/{name}.html',provider_label(name)))+cell(str(len(times)))
+  for value in (statistics.mean(times),percentile(times,.5),percentile(times,.95)):
+   values+=cell(ms(value),value)
+  rows.append(('',values))
+ return section(saved_matrix_text('all_final_call_timing_title'),
+  '<p>'+saved_matrix_text('final_call_timing_help')+'</p>' +
+  table([t('method', 'Method'),saved_matrix_text('final_call_count'),*saved_matrix_text('final_call_timing_headers')],
+   rows,'all-final-call-latency',metrics=[]),'all-final-call-timing')
+
+
+def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False):
  records,cases=comparison_population(records,cases)
  has_unknown=any(not measured(r,cases[r["case_id"]]) for r in records)
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
@@ -2037,7 +2081,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   for track,_ in active_tracks(cases):
    subset=[r for r in rs if report_family(cases[r['case_id']])==track and measured(r,cases[r['case_id']])]
    values+=cell(f'{sum(succeeded(r,cases[r["case_id"]]) for r in subset)}/{len(subset)}',sum(succeeded(r,cases[r['case_id']]) for r in subset)/len(subset) if subset else -1)
-  times=[r['elapsed_ms'] for r in called]
+  times=[r['elapsed_ms'] for r in called if not passing_latency or succeeded(r,cases[r['case_id']])]
   mean_time=statistics.mean(times) if times else None
   values+=cell(ms(mean_time),mean_time)
   values+=cell(ms(percentile(times,.5)),percentile(times,.5))
@@ -2046,7 +2090,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   rows.append((passed/n if n else -1,name,('',values)))
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases)
- timing_heads=saved_matrix_text('final_call_timing_headers')
+ timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
  heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _REPORT_SUITES.get() else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
@@ -2061,15 +2105,21 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
-       + '<div><dt>'+saved_matrix_text('final_call_timing_title')+'</dt><dd>'+saved_matrix_text('final_call_timing_help')+'</dd></div>' +
-       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of the independent blind review, its protocol, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
+       + '<div><dt>'+saved_matrix_text('passing_final_call_title' if passing_latency else 'final_call_timing_title')+'</dt><dd>'+saved_matrix_text('passing_final_call_help' if passing_latency else 'final_call_timing_help')+'</dd></div>' +
+       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
+ # Mixed outcomes make all-call timing observational: a quicker failure is
+ # not a better delivery. Successful-call comparisons have their own owner.
+ if passing_latency or (records and all(succeeded(r,cases[r['case_id']]) for r in records)):
+  directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,directions)
  timing_note='<p>'+saved_matrix_text('final_call_timing_note')
+ if passing_latency:
+  timing_note+=' '+saved_matrix_text('passing_final_call_help')+' '+link('analysis/index.html#all-final-call-timing',saved_matrix_text('all_final_call_timing_title'))
  if call_budget_seconds is not None:
   timing_note+=model_text(*pair('report_each_physical_call_has_a_value_g_second_053250', 'Each physical call has a {value0:g}-second budget.', value0=call_budget_seconds))
  timing_note+='</p>'
@@ -2083,7 +2133,18 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+successful_final_call_latency(records,cases)
+ return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
+
+def analysis_body(records,cases,headers=None,tracks=None):
+ """Render every participant through the shared comparison and result controls."""
+ names=sorted(set(_REPORT_PROVIDER_LABELS.get()) | {r['provider'] for r in records})
+ bycase=defaultdict(list)
+ for record in records:bycase[record['case_id']].append(record)
+ tracks=active_tracks(cases) if tracks is None else tracks
+ if headers is None:headers=[t('task_2', 'Task'),t('family', 'Family'),t('result', 'Result'),t('failure_class', 'Failure class'),t('elapsed_time', 'Elapsed time'),t('run_id', 'Run ID')]
+ controls=filter_controls([('provider',t('method', 'Method'),[(n,provider_label(n)) for n in names]),('track',t('family', 'Family'),tracks),('result',t('result', 'Result'),[('pass',t('pass', 'Pass')),('fail',t('fail', 'Fail'))])]+failure_filters(records,cases))
+ comparison=section(t('method_comparison', 'Method comparison'),('<p class="source-note">' + t('methods_are_compared_task_by_task_conclusions', 'Methods are compared task by task; conclusions never splice together different success samples. Pass and fail states use the primary program verdicts. Open a method to inspect its reference, output, and rationale.') + f'</p>{method_comparisons(cases, bycase, names)}'),'method-comparison')
+ return hero(t('analysis', 'Analysis'),t('compare_methods_on_the_same_tasks_first', 'Compare methods on the same tasks first, then filter the complete execution record.'))+comparison+section(t('all_execution_records', 'All execution records'),controls+table([t('method', 'Method')]+headers,[(case_attrs(r,cases[r['case_id']]),cell(link('../providers/'+r['provider']+'.html',provider_label(r['provider']),browser_method_label(r['provider'],language='en')))+attempt_row(r,cases[r['case_id']])[1]) for r in records],'filtered-table',cls='all-method-results'))
 
 def filter_controls(options,all_first=()):
  controls=''
@@ -2098,14 +2159,20 @@ def failure_filters(records,cases):
 
 def comparison_rows(cases,bycase,names):
  rows=[]
+ def definition(case):return {key:value for key,value in case.items() if key!='id'}
  for case_id,c in cases.items():
   attempts={r['provider']:r for r in bycase.get(case_id,[])}
   passed=[name for name in names if name in attempts and measured(attempts[name],c) and succeeded(attempts[name],c)]
   failed=[name for name in names if name in attempts and measured(attempts[name],c) and not succeeded(attempts[name],c)]
-  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href("../attempts/"+attempts[name]["attempt_id"]+".html"))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
+  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href(result_href(attempts[name],"attempt","../")))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
   attrs=(dataset_attrs(c)+f' data-pass="{esc(" ".join(passed))}" data-fail="{esc(" ".join(failed))}"')
   task=(f'<div class="task-cell">{link("../datasets/"+case_id+".html",c["name"])}<div class="task-meta"><code class="tiny">{esc(case_id)}</code>'
         f'<span class="track-badge">{esc(case_track_label(c))}</span></div></div>')
+  # Different editions may retain different requirements for the same task.
+  # Expose each original definition without changing scores or comparison IDs.
+  if any(definition(result_case(r,c))!=definition(c) for r in attempts.values()):
+   sources=' · '.join(link(result_href(attempts[name],'task','../'),model_text(provider_label(name),browser_method_label(name,language='en'))) for name in names if name in attempts)
+   task+='<details class="task-contracts"><summary>'+saved_matrix_text('task_rules_by_method')+'</summary>'+sources+'</details>'
   values=cell(task)+cell(method_links(passed,'pass'))+cell(method_links(failed,'fail'))
   rows.append((attrs,values))
  return rows
@@ -2128,6 +2195,8 @@ def dataset_attrs(c):
  return f' data-track="{esc(report_family(c))}" data-category="{esc(c["category"])}"'
 
 def case_attrs(r,c):
+ comparison=c
+ c=result_case(r,c)
  not_called=r.get('report_invocation_status') == 'adapter_rejected'
  content='na' if c.get('task_kind','body')!='body' else 'pass' if r['ok'] and r['metrics']['content_pass'] else 'fail'
  resources='na' if not c.get('expected_resources') else 'pass' if r['ok'] and r['metrics'].get('resource_pass') else 'fail'
@@ -2136,13 +2205,17 @@ def case_attrs(r,c):
  stage='' if succeeded(r,c) or not measured(r,c) else 'task' if r['ok'] else 'request'
  category='' if not stage else failure_category(r,c)
  result='excluded' if r['metrics'].get('evaluation_excluded') else 'unmeasured' if not measured(r,c) else 'pass' if succeeded(r,c) else 'fail'
- return dataset_attrs(c)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(str(c.get("id",r.get("case_id","")))+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
+ identifier=str(c.get('id',r.get('case_id','')))
+ if r.get('case_id') and r['case_id']!=identifier:identifier+=' '+r['case_id']
+ return dataset_attrs(comparison)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(identifier+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
 
 def attempt_row(r,c,base='../',*,label=None):
+ comparison=c
+ c=result_case(r,c)
  state=result_label(r,c)
- values=cell(link(base+'attempts/'+r['attempt_id']+'.html',c['name'] if label is None else label))+cell(case_track_label(c))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
+ values=cell(link(result_href(r,'attempt',base),c['name'] if label is None else label))+cell(case_track_label(comparison))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
  values+=cell(f'<code class="tiny break">{esc(r.get("run_id") or execution_id(r))}</code>')
- return case_attrs(r,c),values
+ return case_attrs(r,comparison),values
 
 def local_call_chain_section(dataset, prefix="../"):
  audit=dataset.get('comparison',{}).get('call_chain_audit')
@@ -2209,7 +2282,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   counts={key:sum(row[key] for row in saved_scope['providers']) for key in ('planned','saved','uncommitted','not_called','rejected')}
   reliability_banner=('<div class="wrap reliability failure" role="status" data-saved-completion>'
       '<strong>'+saved_matrix_text('coverage_banner_title')+'</strong><span>'
-      +esc(saved_matrix_text('coverage_banner_counts', **counts))+' '
+      +esc(saved_matrix_text('coverage_banner_counts', **counts))+'</span><span>'
       +esc(saved_matrix_text('coverage_banner_note'))+'</span></div>')
   if saved_scope.get('parameter_reruns'):
    reliability_banner+='<div class="wrap callout" data-parameter-reruns>'+esc(saved_matrix_text('parameter_family_banner' if saved_scope['parameter_reruns'].get('family_selection') else 'parameter_rerun_banner', **saved_scope['parameter_reruns']))+'</div>'
@@ -2518,12 +2591,15 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
    if continuation.get('prior_answer_path'):evidence+=' · '+link('../'+continuation['prior_answer_path'],saved_matrix_text('answer_link'))
    body+=section(saved_matrix_text('continuation_title'),'<p>'+saved_matrix_text('continuation_note')+'</p><p>'+saved_matrix_text('continuation_cost')+esc(cost)+'</p>'+evidence,'retry-continuation')
   body+=section((t('report_target_coverage_and_additional_content_e66c3d', 'Target coverage and additional content')),render_quality_observations(r,c,output,esc=esc),'quality-diagnostics')
+  diagnostic_view=r.get('provider_metadata',{}).get('public_result_diagnostics_receipt')
+  if diagnostic_view:
+   body+='<p class="source-note">'+t('result_diagnostics_redacted_note', 'Quoted output and resource-URL diagnostics are redacted in this public copy. Scores, counts, timings and verdicts are unchanged; original records remain private.')+' '+link('../'+diagnostic_view,t('result_diagnostics_view_receipt', 'Original/public diagnostic verification record'))+'</p>'
   reviewed=audited_attempts.get(r['attempt_id'])
   if reviewed:
    independent={'pass':t('pass_2', 'Pass'),'fail':t('fail_2', 'Fail'),'insufficient':t('insufficient_evidence', 'Insufficient evidence')}.get(reviewed.get('agent_verdict'),t('not_recorded', 'Not recorded'))
    final={'pass':t('pass_2', 'Pass'),'fail':t('fail_2', 'Fail'),'unavailable':t('undecidable', 'Undecidable')}.get(reviewed.get('final_verdict'),t('not_adjudicated_the_current_score_stands', 'Not adjudicated; the current score stands'))
    review_rows=[
-    (t('independent_review_verdict', 'Independent review verdict'),independent),
+    (t('evidence_audit_verdict', 'Evidence audit verdict') if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False else t('independent_review_verdict', 'Independent review verdict'),independent),
     (t('direct_evidence', 'Direct evidence'),reviewed.get('agent_evidence') or '—'),
     (t('final_verdict', 'Final verdict'),final),
    ]
@@ -2534,7 +2610,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
     if not adjudication_en and proof.get('rule_assertions'):
      adjudication_en=adjudication_reason(proof['rule_assertions'],language='en')
     review_rows.append((t('disagreement_adjudication', 'Disagreement adjudication'),proof.get('summary_zh',reviewed['adjudication'])))
-   body+=section(t('independent_result_review', 'Independent result review'),table(
+   body+=section(t('known_outcome_evidence_audit', 'Evidence audit with known machine outcomes') if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False else t('independent_result_review', 'Independent result review'),table(
        [t('field_2', 'Field'),t('review_record', 'Review record')],
        [('',cell(esc(label))+cell(
            model_text(value,adjudication_en) if label==t('disagreement_adjudication', 'Disagreement adjudication')
@@ -2654,9 +2730,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
    file_rows=[('',cell(link('../'+f['artifact_path'],t('download_delivered_file', 'Download delivered file')))+cell(esc(f.get('mime')))+cell(str(f['bytes']))+cell('<code class="break">'+esc(f['sha256'])+'</code>')+cell(t('match', 'Match') if f.get('pass') else t('not_matched_2', 'Not matched'))) for f in delivered]
    body+=section(t('original_file_byte_evidence', 'Original-file byte evidence'),table([t('file', 'File'),t('format_signature', 'Format signature'),t('bytes_2', 'Bytes'),'SHA-256',t('target_check', 'Target check')],file_rows,metrics=[]))
   write(out,'attempts/'+r['attempt_id']+'.html',c['name']+' · '+r['provider'],body)
- controls=filter_controls([('provider',t('method', 'Method'),[(n,provider_label(n)) for n in names]),('track',t('family', 'Family'),tracks),('result',t('result', 'Result'),[('pass',t('pass', 'Pass')),('fail',t('fail', 'Fail'))])]+failure_filters(records,cases))
- comparison=section(t('method_comparison', 'Method comparison'),('<p class="source-note">' + t('methods_are_compared_task_by_task_conclusions', 'Methods are compared task by task; conclusions never splice together different success samples. Pass and fail states use the primary program verdicts. Open a method to inspect its reference, output, and rationale.') + f'</p>{method_comparisons(cases, bycase, names)}'),'method-comparison')
- write(out,'analysis/index.html',t('analysis', 'Analysis'),hero(t('analysis', 'Analysis'),t('compare_methods_on_the_same_tasks_first', 'Compare methods on the same tasks first, then filter the complete execution record.'))+comparison+section(t('all_execution_records', 'All execution records'),controls+table([t('method', 'Method')]+headers,[(case_attrs(r,cases[r['case_id']]),cell(link('../providers/'+r['provider']+'.html',provider_label(r['provider']),browser_method_label(r['provider'],language='en')))+attempt_row(r,cases[r['case_id']])[1]) for r in records],'filtered-table',cls='all-method-results')))
+ write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks))
  write_support(out,records,manifests,authored_interpretation=authored_interpretation)
  if score_audit:
   render_score_audit(out,score_audit,score_binding)
@@ -2784,6 +2858,16 @@ def write_saved_changes(out):
  write(out,'changes/index.html',(t('report_changelog_6a4481', 'Changelog')),hero((t('report_changelog_6a4481', 'Changelog')),saved_matrix_text('changes_scope'))+section((t('report_corrections_to_this_run_ff4ddd', 'Corrections to this run')),'<div class="review-rounds">'+updates+'</div>')+section((t('report_supporting_evidence_f9035c', 'Supporting evidence')),'<p>'+link('../review/index.html',(t('report_review_scope_and_corrections_e82445', 'Review scope and corrections')))+' · '+link('../analysis/index.html',(t('report_per_task_results_and_evidence_ddad92', 'Per-task results and evidence')))+' · '+link('../reproduce/index.html',(t('report_run_parameters_and_versions_be2f2a', 'Run parameters and versions')))+'</p>'))
 
 
+def review_rounds_html(rounds):
+ return ''.join(
+  '<article class="review-round"><div class="round-label">'+t('round','Round {i}',i=i)+
+  '<br><small>'+esc(row.get('date',''))+'</small></div><div><h3>'+model_text(row.get('title',''),row.get('title_en'))+'</h3>'+''.join(
+   '<p><b>'+label+'</b>'+model_text(row.get(key,''),row.get(key+'_en'))+'</p>'
+   for key,label in [('scope',t('scope_2','Scope:')),('finding',t('finding','Finding:')),
+                     ('fix',t('correction','Correction:')),('pending',t('outstanding','Outstanding:'))])+ '</div></article>'
+  for i,row in enumerate(rounds,1))
+
+
 def write_review_page(out,records):
  revision_path=out/'score-revision.json'
  matrix=json.loads((out/'matrix.json').read_text(encoding='utf-8')) if (out/'matrix.json').is_file() else {}
@@ -2796,6 +2880,16 @@ def write_review_page(out,records):
   page=hero((t('report_review_record_efa815', 'Review record')),saved_matrix_text('offline_review_scope'))
   count,results=saved_current_revision_scope(out,matrix)
   page+=section((t('report_revision_scope_0a5c51', 'Revision scope')),'<p>'+model_text(*pair('report_in_the_current_report_value_cases_revised_and_adefb1', 'In the current report, {value0} cases revised and {value1} saved results rescored. Original rules, results, answers and call timings are retained.', value0=count, value1=results))+'</p><p>'+link(revision_link,(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p>','current-revision-scope')
+  audit_path=out/'result-review.json'
+  if audit_path.is_file():
+   audit=json.loads(audit_path.read_text(encoding='utf-8'))
+   note=review_summary(out,'../')
+   if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+    note+='<p>'+t('known_outcome_audit_protocol', 'This evidence audit knew the machine outcomes. It checked saved responses, frozen requirements, native field selection and call evidence; it is not an independent blind review and added no provider calls.')+'</p>'
+   note+='<p>'+link('../result-review.json',t('review_records', '{count}/{count2} · review records',count=audit.get('reviewed_attempts',0),count2=audit.get('total_attempts',0)))+'</p>'
+   page+=section(t('current_status', 'Current status'),note,'current-result-review')
+   if audit.get('review_rounds'):
+    page+=section(t('review_rounds','Review rounds'),'<div class="review-rounds">'+review_rounds_html(audit['review_rounds'])+'</div>')
   if adopted:
    sections=[]
    for group in adopted:
@@ -2828,30 +2922,45 @@ def write_review_page(out,records):
    page+=section((t('report_per_case_decisions_b7f78d', 'Per-case decisions')),table([(t('report_task_suite_863437', 'Task suite')),(t('report_task_6603e1', 'Task')),(t('report_rules_removed_eb1112', 'Rules removed')),(t('report_removed_requirements_ae3ca3', 'Removed requirements')),(t('report_evidence_2e9f01', 'Evidence'))],rows,'score-revision-decisions'))
   matrix=json.loads((out/'matrix.json').read_text(encoding='utf-8')) if (out/'matrix.json').is_file() else {}
   rows=[]
+  revisions=[revision,*[group['receipt'] for group in adopted]]
+  changed_cases={case for item in revisions for case in item.get('changed_cases',[])}
+  changed_attempts={change['attempt_id'] for item in revisions for step in item.get('steps',[])
+                    for change in step.get('task_verdict_changes',[])}
   for row in matrix.get('rows',[]):
    proof=row.get('score_revision')
    if proof:
+    current=json.loads(contained_path(out,row['record_path']).read_text(encoding='utf-8'))
+    if (row['suite']+'--'+row['case_id'] not in changed_cases
+        and row['suite']+'--'+current['attempt_id'] not in changed_attempts):
+     continue
     rows.append(('', ''.join([cell(esc(row['suite'])),cell(esc(row['case_id'])),cell(esc(row['provider'])),
-                 cell(link('../'+proof['before_case_path'],(t('report_original_rules_3a92e4', 'Original rules')))),cell(link('../'+proof['before_record_path'],(t('report_original_result_b302a6', 'Original result')))),
+                 cell(link('../'+proof['before_case_path'],(t('report_original_rules_3a92e4', 'Original rules')))),cell(link('../'+(proof.get('before_summary_path') or proof['before_record_path']),
+                     t('historical_score_summary', 'Historical score summary') if proof.get('before_summary_path') else t('report_original_result_b302a6', 'Original result'))),
                  cell(link('../'+row['case_path'],(t('report_revised_rules_36d7de', 'Revised rules')))),cell(link('../'+row['record_path'],(t('report_rescored_result_f1f6a8', 'Rescored result'))))])))
   if rows:page+=section((t('report_before_and_after_evidence_de3fc6', 'Before and after evidence')),table([(t('report_task_suite_863437', 'Task suite')),(t('report_task_6603e1', 'Task')),(t('report_method_22b9f0', 'Method')),(t('report_original_rules_3a92e4', 'Original rules')),(t('report_original_result_b302a6', 'Original result')),(t('report_revised_rules_36d7de', 'Revised rules')),(t('report_rescored_result_f1f6a8', 'Rescored result'))],rows,'score-revision-evidence'))
+  if matrix:
+   page+='<p>'+link('../matrix.json',t('complete_revision_inventory','Complete revision sources, including historical score summaries'))+'</p>'
   write(out,'review/index.html',(t('report_review_record_efa815', 'Review record')),page)
   return
  path=out/'result-review.json'
  if not path.is_file():
-  write(out,'review/index.html',t('review_record', 'Review record'),hero(t('review_record', 'Review record'),t('no_independent_review_record_is_bound_to', 'No independent review record is bound to this build.')))
+  dataset_path=out/'dataset.json'
+  cases={c['id']:c for c in json.loads(dataset_path.read_text(encoding='utf-8')).get('cases',[])} if dataset_path.is_file() else {}
+  accepted=sum(task_passed(r['ok'],r['metrics'],cases.get(r['case_id'],{}).get('task_kind','body')) for r in records)
+  coverage='<p data-review-scope="none">'+t('unreviewed_result_coverage', 'Independent review: 0/{total} results. {accepted} machine passes remain independently unreviewed.',total=len(records),accepted=accepted)+'</p>'
+  write(out,'review/index.html',t('review_record', 'Review record'),hero(t('review_record', 'Review record'),t('no_independent_review_record_is_bound_to', 'No independent review record is bound to this build.'))+section(t('review_scope', 'Review scope'),coverage))
   return
  audit=json.loads(path.read_text(encoding='utf-8'));reviewer=audit.get('reviewer',{})
  dataset_path=out/'dataset.json'
  dataset=json.loads(dataset_path.read_text(encoding='utf-8')) if dataset_path.is_file() else {}
- metadata_path=repository_root()/'research/report-changes.json'
- if not metadata_path.is_file():
-  raise ValueError('A reviewed report requires research/report-changes.json')
- changes=json.loads(metadata_path.read_text(encoding='utf-8'))
- rounds=(audit['review_rounds'] if audit.get('kind')=='local_independent_review' else require_review_rounds(changes))
- rounds_html=''.join(
-  ('<article class="review-round"><div class="round-label">' + t('round', 'Round {i}', i=i) + f"<br><small>{esc(row.get('date', ''))}</small></div><div><h3>{model_text(row.get('title', ''), row.get('title_en'))}</h3><p><b>" + t('scope_2', 'Scope:') + f"</b>{model_text(row.get('scope', ''), row.get('scope_en'))}</p><p><b>" + t('finding', 'Finding:') + f"</b>{model_text(row.get('finding', ''), row.get('finding_en'))}</p><p><b>" + t('correction', 'Correction:') + f"""</b>{model_text(row.get('fix', ''), row.get('fix_en'))}</p><p class="round-result"><b>""" + t('outstanding', 'Outstanding:') + f"</b>{model_text(row.get('pending', ''), row.get('pending_en'))}</p></div></article>")
-  for i,row in enumerate(rounds,1))
+ if 'review_rounds' in audit:
+  rounds=audit['review_rounds']
+ else:
+  metadata_path=repository_root()/'research/report-changes.json'
+  if not metadata_path.is_file():
+   raise ValueError('A reviewed report requires bound review rounds or legacy research/report-changes.json')
+  rounds=require_review_rounds(json.loads(metadata_path.read_text(encoding='utf-8')))
+ rounds_html=review_rounds_html(rounds)
  page=hero(t('review_record', 'Review record'),t('each_review_round_records_its_scope_findings', 'Each review round records its scope, findings, corrections, and unresolved items.'))
  reviewed_attempts=audit.get('attempts',[])
  disagreements=[row for row in reviewed_attempts
@@ -2861,7 +2970,8 @@ def write_review_page(out,records):
  def coverage(label,item):
   scope=item.get('review_protocol',{}).get('scope','all')
   if scope=='machine-failures':
-   return (f'{label}机器失败 {item.get("reviewed_attempts",0):,}/{item.get("expected_attempts",0):,}；'
+   subject=t('review_failures_and_selected_passes', 'Machine failures and selected passes') if item.get('review_protocol',{}).get('additional_attempt_ids') else '机器失败'
+   return (f'{label}{subject} {item.get("reviewed_attempts",0):,}/{item.get("expected_attempts",0):,}；'
            f'机器通过未逐条审查 {item.get("accepted_unreviewed_passes",0):,}')
   return f'{label}全量 {item.get("reviewed_attempts",0):,}/{item.get("total_attempts",item.get("expected_attempts",0)):,}'
  conclusion=(f"""<p class="callout success">{coverage('主结果', audit)}；代理分歧 {len(disagreements)}；已裁定 {len(adjudicated)}；未决 {unresolved}。</p>""")
@@ -2873,6 +2983,8 @@ def write_review_page(out,records):
  method=(('<details class="technical-details"><summary>' + t('review_protocol_and_reviewer', 'Review protocol and reviewer') + '</summary><p>' + t('reviewer', 'Reviewer:') + f"{esc(reviewer.get('agent', t('independent_agent', 'Independent agent')))}" + t('model', '; model: ') + f"{esc(reviewer.get('model', '—'))}" + t('reasoning_effort', '; reasoning effort: ') + f"{esc(reviewer.get('effort', '—'))}" + t('machine_verdicts_and_scores_are_hidden_during', '. Machine verdicts and scores are hidden during review; only the task contract, reference answer, and complete actual output are provided. Disagreements are adjudicated from original evidence, and any unresolved item blocks publication. Existing reviews are retained when task and output are unchanged; changed calls require a new blind review.') + '</p></details>'))
  if audit.get('adjudication_revision'):
   method='<p>'+model_text(*pair('original_independent_and_supplemental_opinions_remain_in', 'Original independent and supplemental opinions remain in the per-result records. This supplemental adjudication inspected saved scores, contracts and original answers; it is not a new full blind review. Each adjudication records specific rules and original excerpts. Completing adjudication does not certify source validity.'))+'</p>'
+ if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
+  method='<p>'+t('known_outcome_audit_protocol', 'This evidence audit knew the machine outcomes. It checked saved responses, frozen requirements, native field selection and call evidence; it is not an independent blind review and added no provider calls.')+'</p>'
  if audit.get('review_protocol',{}).get('blind_initial_verdict') is False and audit.get('retained_reviews'):
   method='<p>'+model_text(*pair('the_newly_checked_records_received_evidence_review', 'The newly checked records received evidence review with known machine outcomes, checking complete saved answers, task requirements and native fields. Other records retain prior opinions after dependency checks. The two scopes are reported separately; this evidence review is not a new independent blind review and does not complete historical source certification.'))+'</p>'
  if audit.get('review_protocol',{}).get('fresh_blind_initial_verdict') is True and audit.get('retained_reviews'):
@@ -2955,6 +3067,8 @@ def render_account_requirements(records):
 
 def render_execution_contract(dataset,records,manifests):
  """Render recorded budgets and scheduling without inferring missing values."""
+ if not manifests and dataset.get('saved_matrix_scope',{}).get('execution_settings'):
+  return '<p><a href="#execution-settings">'+t('saved_settings_budget_link', 'Verified call budgets, retry limits and native parameters are listed below by method and task family.')+'</a></p>'
  def seconds(value):
   if not nonnegative_number(value):
    return model_text(*pair('not_recorded', 'Not recorded'))
@@ -3118,7 +3232,10 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
  if (out/'resource-cohort/resource-comparison.json').is_file():
   support+=section(t('isolated_resource_evidence', 'Isolated resource evidence'),'<p>'+link('../resource-cohort/resource-comparison.json',t('cpu_memory_and_network_summary_with_shared', 'CPU, memory, and network summary with shared-success cases'))+' · '+link('../resource-cohort/results.jsonl',t('per_call_resource_cohort_records', 'Per-call resource-cohort records'))+' · '+link('../resource-cohort/execution.json',t('container_environment_and_image_identity', 'Container environment and image identity'))+'</p>')
  conditions=(t('the_final_report_includes_calls_execution_began', 'The final report includes {count:,} calls. Execution began after tasks and references were frozen; calls were sequential within each method and did not reuse personal login state.', count=len(records)) if authored_interpretation else t('this_report_includes_logical_results_run_parameters', 'This report includes {count:,} logical results. Run parameters are listed below; each result detail contains its retained physical calls and outputs.', count=len(records)))
- support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+conditions+'</p>'+table([t('parameter', 'Parameter'),t('value', 'Value')],common,metrics=[]))
+ if not manifests and dataset.get('saved_matrix_scope'):
+  support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+t('saved_reproduction_settings_link', 'Execution settings and collection periods are verified from original call receipts; inspect them on the methodology page.')+' '+link('../methodology/index.html#execution-settings',t('runtime_configuration', 'Runtime configuration:'))+'</p>')
+ else:
+  support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+conditions+'</p>'+table([t('parameter', 'Parameter'),t('value', 'Value')],common,metrics=[]))
  if local_matrix:
   support+=section(t('method_versions', 'Method versions'),('<p>' + t('software_versions_or_source_commits_used_for', 'Software versions or source commits used for this run. Undisclosed cloud backend versions are stated explicitly; this does not mean the service has no version.') + f"</p>{table([t('method', 'Method'), t('version_source_commit_used_in_this_run', 'Version / source commit used in this run')], provider_rows, metrics=[])}"))
  else:
@@ -3155,6 +3272,9 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
    reproduce+='<p>'+model_text(*pair('this_public_copy_omits_host_paths_the', 'This public copy omits host paths. The manifest distinguishes original and public file hashes; public hashes do not claim to be original call identities. Scores, timings and review decisions are unchanged.'))+' '+link('../'+public_profile['publication_projection']['path'],'PUBLICATION-PROJECTION.json')+'</p>'
   if public_profile.get('publication_evidence_views'):
    reproduce+='<p>'+model_text(*pair('scoring_originals_remain_private_public_answers_and', 'Scoring originals remain private. Public answers and complete native responses hide paths or sensitive values. The inventory preserves original scoring identities and separately binds public views. Public files rebuild this report but cannot reconstruct omitted content. Text-quality diagnostics retain the original calculations and may not reproduce exactly from redacted text. Review coordinates refer to originals; public views verify only the visible excerpts.'))+' '+link('../'+public_profile['publication_evidence_views']['path'],'PUBLIC-EVIDENCE-VIEWS.json')+'</p>'
+ if dataset.get('saved_matrix_scope'):
+  commands='uv run --frozen python scripts/build_report.py --saved-matrix /absolute/report-input-spec.json --output /absolute/new-report --language zh\nuv run --frozen python scripts/build_report.py --check-saved-matrix /absolute/new-report --source-spec /absolute/report-input-spec.json'
+  reproduce='<p>'+t('saved_matrix_reproduction_note', 'Build and verify this report from its original saved-matrix specification and retained source evidence. These commands add no provider calls; private originals are required to reproduce source-backed checks.')+'</p><pre>'+esc(commands)+'</pre>'
  support+=section(t('core_reproduction_commands', 'Core reproduction commands'),reproduce)
  write(out,'reproduce/index.html',t('reproduction', 'Reproduction'),support)
  write(out,'accounts/index.html',t('access_setup', 'Access & setup'),render_account_requirements(records))

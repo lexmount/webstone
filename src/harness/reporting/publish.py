@@ -258,6 +258,7 @@ class ReceiptRelease:
     inputs: tuple = ()
     check_reuse: bool = True
     check_target: Callable | None = None
+    check_delivery: Callable | None = None
 
     def __post_init__(self):
         if self.mode not in {"create", "update", "reuse"}:
@@ -403,6 +404,9 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
         release_guard = release.check
         config.package_check(release.archive, config.source)
         release.check()
+        if config.check_delivery is not None:
+            config.check_delivery(release.archive, profile, base)
+            release.check()
         original_send = send
 
         def guarded_send(*args, **kwargs):

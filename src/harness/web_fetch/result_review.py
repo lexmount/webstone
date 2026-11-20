@@ -187,6 +187,13 @@ def _require_result_review(source, dataset, records, review_document=None, *, an
                     r['ok'], r['metrics'],
                     next(c for c in dataset['cases'] if c['id']==r['case_id']).get('task_kind','body')) is False
                 or r['attempt_id'] in anomaly_attempts}
+    additional = protocol.get('additional_attempt_ids', [])
+    record_ids = {r['attempt_id'] for r in records}
+    if (not isinstance(additional, list) or any(not isinstance(item, str) for item in additional)
+            or len(additional) != len(set(additional)) or not set(additional) <= record_ids
+            or scope == 'all' and additional):
+        raise ValueError('Additional review attempts must name distinct saved results in failure-only scope')
+    expected.update(additional)
     attempts = review.get('attempts', [])
     ids = [row.get('attempt_id') for row in attempts]
     if len(ids) != len(set(ids)) or set(ids) != expected:

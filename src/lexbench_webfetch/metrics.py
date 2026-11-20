@@ -883,6 +883,9 @@ def _normalize_visible_typography(normalized: str, *, literal=False) -> str:
     # Preserve an existing quoted scalar's exact key/value while unifying
     # JSON and YAML notation before layout whitespace is folded away.
     normalized = quoted_scalar_equivalence(normalized)
+    # Fold inline rights-mark gaps before collapsing whitespace, so a newline
+    # or paragraph break cannot become an apparently inline gap afterward.
+    normalized = re.sub(r'([©®™])[ \t]+(?=[^\W\d_])', r'\1', normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     # A serializer may leave layout whitespace before sentence punctuation at
     # an inline-link boundary. Never bridge a digit to punctuation: doing so

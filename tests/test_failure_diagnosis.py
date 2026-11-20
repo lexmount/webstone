@@ -8,6 +8,160 @@ from lexbench_webfetch.stable_tasks import evaluate_stable_task
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_repeated_headings_do_not_stall_or_hide_article_content(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for count in [30,3000]:
+   raw=('# Heading\n\n'*count)+'Actual article content.'
+   self.assertIsNone(_returned_page_failure(raw,{},{}))
+  self.assertEqual(_returned_page_failure('# Heading\n\n'*30+'Enable JavaScript to see products',{}, {})['category'],
+                   '仅返回加载或 JavaScript 提示')
+ def test_move_and_deployment_notices_with_delivered_code_are_not_notice_only(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for notice in ['This page has moved to https://example.test/new','This deployment is temporarily paused']:
+   self.assertIsNotNone(_returned_page_failure(notice,{},{}))
+   for code in ['```python\nprint("Delivered content")\n```','    print("Delivered content")']:
+    self.assertIsNone(_returned_page_failure(notice+'\n\n'+code,{},{}))
+ def test_unicode_separators_do_not_shift_markdown_code_line_maps(self):
+  for separator in ['\n','\u2028','\u0085']:
+   for ending in ['\n','\r\n','\r']:
+    raw=('# Guide'+separator+'a'+separator+'b'+separator+'c\n\n```text\nAccess denied\n```\nExplanation.').replace('\n',ending)
+    case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    with self.subTest(separator=separator,ending=ending):
+     self.assertNotEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_error_heading_with_delivered_implementation_is_not_gate_only(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  for code in ['```python\n'+('print("Delivered content")\n'*100)+'```', '    print("Delivered content")']:
+   raw='# HTTP reference\n\n## Access denied\n\n'+code
+   self.assertIsNone(_returned_page_failure(raw,{},{}))
+  self.assertIsNotNone(_returned_page_failure('# Access denied\nSecurity verification required.',{},{}))
+ def test_real_access_gate_with_incidental_identifier_code_remains_a_gate(self):
+  from harness.web_fetch.failure_diagnosis import _returned_page_failure
+  gate='Loading...\nWhy am I seeing this?\nThe administrator of this website has set up Anubis to protect the server against automated scraping.'
+  for identifier in ['request-id: abc','trace_id = xyz','CF-Ray: abc-123']:
+   for code in ['```text\n'+identifier+'\n```','    '+identifier]:
+    self.assertEqual(_returned_page_failure(gate+'\n\n'+code,{}, {})['category'],'返回拦截或验证页')
+ def test_unbound_native_tool_errors_do_not_explain_the_requested_page(self):
+  call={'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}}
+  result={'type':'web_fetch_tool_result','tool_use_id':'fetch','content':{'type':'web_fetch_tool_result_error','error_code':'too_many_requests'}}
+  variants=[[{**call,'input':{'url':'https://other.test'}},result],
+   [call,{**result,'tool_use_id':'other'}],[call,call,result],[result,call],
+   [call,{k:v for k,v in result.items() if k!='tool_use_id'}]]
+  row=self.record(status_code=200,error_type='tool_error')
+  for blocks in variants:
+   self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=json.dumps({'content':blocks}))['category'],'返回结果校验失败')
+ def test_anubis_asset_example_does_not_make_documentation_a_gate(self):
+  for asset in ['/.within.website/x/cmd/anubis/static/example.js','/.cerberus/static/example.js']:
+   for code in ['```text\n'+asset+'\n```','    '+asset]:
+    raw='# Configuration\nUse this configuration to protect the website.\n\n'+code
+    case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    with self.subTest(asset=asset,code=code):
+     self.assertNotEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+   raw='Making sure you are not a bot to protect this website.\n![Check]('+asset+')'
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_loading_label_with_delivered_code_is_not_a_shell(self):
+  for listing in ["```python\nprint('Delivered example')\n```", "    print('Delivered example')"]:
+   for label in ['Loading...', '# Loading', 'Please enable JavaScript']:
+    for same_reference in [False, True]:
+     raw=label+'\n\n'+listing
+     with self.subTest(listing=listing,label=label,same_reference=same_reference):
+      case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Additional required section']}],
+            'ground_truth_main_content':raw if same_reference else ''}
+      row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+      self.assertNotEqual(diagnose(row,case,raw)['category'],'仅返回加载或 JavaScript 提示')
+ def test_video_fallback_beside_real_content_does_not_replace_contract_failure(self):
+  raw="# Product details\nModel Alpha costs $20.\nYour browser doesn't support HTML5 video."
+  case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Specifications']} ]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertNotEqual(diagnose(row,case,raw)['category'],'返回媒体兼容提示，未交付目标内容')
+ def test_complete_compatibility_notices_are_distinct_from_delivered_content(self):
+  notices=[
+   ("# Video\n\nYour browser doesn't support HTML5 video. Here is a link to the video instead.",'返回媒体兼容提示，未交付目标内容'),
+   ('# 您的浏览器版本过低哦\n\n亲爱的小伙伴，您当前使用的浏览器版本过低，已无法正常访问此页面。您可以通过 升级浏览器 或 下载桌面端 继续访问，感谢您的支持与陪伴～\n\n下载桌面客户端\n支持Win7以上系统\n升级您的浏览器\n- Chrome 谷歌浏览器\n- Firefox 火狐浏览器\n©2023 Example','返回媒体兼容提示，未交付目标内容'),
+   ('Example Course\n\n# JS Rendering\n\n## Challenge\n\nEnable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('The Map application supports most recent browsers, view supported browsers.\n\nJavascript must be enabled to view our maps. To access earthquake information without using javascript, use our ATOM Feed or our other feeds.','仅返回加载或 JavaScript 提示')]
+  for raw,label in notices:
+   for extra in ['', '\n\nProduct Alpha costs $20.', '\n\n```text\nDelivered example\n```']:
+    with self.subTest(raw=raw,extra=extra):
+     case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+     row=self.record(ok=True,metrics=score_attempt(case,(raw+extra).encode(),ok=True))
+     self.assertEqual(diagnose(row,case,raw+extra)['category']==label,not extra)
+   # A notice quoted as part of the task's actual reference is target content.
+   case={'url':'https://example.test','ground_truth_main_content':raw+'\n\nAdditional reference content.',
+    'required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertNotEqual(diagnose(row,case,raw)['category'],label)
+ def test_code_example_gate_exclusion_applies_to_long_documents(self):
+  for count in [10,1000]:
+   for raw,expected in [('# Reference\n'+('Ordinary documentation.\n'*count)+'\n```text\nAccess denied\n```','content'),
+                        ('# Access denied\nSecurity verification required.','gate')]:
+    with self.subTest(count=count,expected=expected):
+     case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Required additional section']}]}
+     row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+     label=diagnose(row,case,raw)['category']
+     self.assertEqual(label=='返回拦截或验证页',expected=='gate')
+ def test_error_examples_and_javascript_widgets_do_not_replace_content_failure(self):
+  for raw in ['# HTTP reference\n\n```text\n403 Forbidden\n```\nCheck credentials.',
+              '# HTTP reference\n\n    Access denied\n\nExample response.',
+              '# Product\nModel Alpha costs $20.\n\nPlease enable JavaScript to view charts.']:
+   with self.subTest(raw=raw):
+    row=self.record(ok=True,metrics={'content_pass':False,'blocked_page':False,'forbidden_requirement_hits':[]})
+    category=diagnose(row,{},raw)['category']
+    self.assertNotIn(category,['返回拦截或验证页','仅返回加载或 JavaScript 提示'])
+ def test_login_navigation_and_footer_do_not_establish_login_gate(self):
+  examples=[
+   '# Product directory\n\n登录\n\n## Products\nAvailable products and descriptions.\n\n忘记密码？',
+   '# Dictionary\n\n登录\n\nTranslation products\n举报邮箱：contact@example.test',
+   '# Sign in\nThis article explains password management and account recovery.',
+   '# Directory\n\n登录\n\nEmail address\nPassword\n## Latest articles\nPublic content',
+  ]
+  for raw in examples:
+   with self.subTest(raw=raw):
+    row=self.record(ok=True,metrics={'content_pass':False})
+    before=deepcopy(row)
+    self.assertNotEqual(diagnose(row,{},raw)['category'],'返回登录页')
+    self.assertEqual(row,before)
+ def test_login_gate_requires_leading_heading_and_credential_field(self):
+  for raw in ['# Sign in\nEmail address\nPassword\nForgot password?',
+              '登录\n邮箱：\n密码：\n忘记密码？']:
+   with self.subTest(raw=raw):
+    self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'返回登录页')
+ def test_loading_indicator_beside_real_content_is_not_loading_only(self):
+  for raw in ['Loading...\n\n## Statistics\nCompleted requests: 1200',
+              'Chargement des statistiques…\n\nDemandes soumises\n\n**1200**',
+              '# Search plugin\nSet search to true.\n\nLoading...\n\nUse the selector to customize cells.']:
+   with self.subTest(raw=raw):
+    self.assertNotEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'仅返回加载或 JavaScript 提示')
+  for raw in ['Loading...', 'Chargement des statistiques…']:
+   self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'仅返回加载或 JavaScript 提示')
+ def test_loading_with_explicit_bot_challenge_is_access_gate(self):
+  raw='![Challenge](/.within.website/x/cmd/anubis/static/img/pensive.webp)\n\nLoading...\n\nThis is a measure against bots and malicious requests similar to a CAPTCHA.'
+  self.assertEqual(diagnose(self.record(ok=True,metrics={'content_pass':False}),{},raw)['category'],'返回拦截或验证页')
+ def test_body_region_target_count_explains_failure_above_floor(self):
+  metrics={'content_pass':False,'body_coverage_pass':False,'body_target_regions':4,
+   'body_required_target_regions':5,'body_region_results':[{'id':'footer','pass':False}]}
+  d=diagnose(self.record(ok=True,metrics=metrics),{'task_kind':'body'},'Actual article body')
+  self.assertEqual(d['category'],'正文范围不完整')
+  self.assertIn('4',d['evidence']);self.assertIn('5',d['evidence']);self.assertIn('footer',d['evidence'])
+ def test_document_heading_failure_names_declared_section(self):
+  metrics={'content_pass':False,'body_coverage_pass':True,'document_structure_pass':False,
+   'document_heading_results':[{'id':'section-1','present':False,'pass':False}]}
+  case={'task_kind':'body','document_structure':{'headings':[{'text':'Parameters','level':2}]}}
+  d=diagnose(self.record(ok=True,metrics=metrics),case,'## Jump to heading: Parameters Parameters\nActual parameter table')
+  self.assertEqual(d['category'],'要求的文档章节未被识别')
+  self.assertIn('Parameters',d['evidence'])
+ def test_horizontal_rules_around_real_listing_are_not_metadata(self):
+  raw='---\n\n```\n../\nmovie.mp4.zip 24-Nov-2023 275524128\n```\n\n---'
+  r=self.record(ok=True,metrics={'content_pass':False,'resource_pass':False,
+   'resource_results':[{'id':'video','pass':False}]})
+  d=diagnose(r,{'task_kind':'resource'},raw)
+  self.assertEqual(d['category'],'缺少目标资源')
+ def test_browser_compatibility_page_precedes_missing_video_link(self):
+  raw='# 您的浏览器版本过低哦\n亲爱的小伙伴，您当前使用的浏览器版本过低，已无法正常访问此页面。请升级浏览器。'
+  d=diagnose(self.record(ok=True,metrics={'content_pass':False}),{'task_kind':'resource'},raw)
+  self.assertEqual(d['category'],'返回媒体兼容提示，未交付目标内容')
  def test_nested_upstream_not_generic_502(self):
   r=self.record();d=diagnose(r,{},json.dumps({'error':{'upstream_status_code':403,'message':'unexpected status code: 403'}}))
   self.assertEqual(d['category'],'源站拒绝该次访问')
@@ -31,6 +185,160 @@ class FailureDiagnosisTests(unittest.TestCase):
  def test_unknown_remote_internals_remain_unknown(self):
   d=diagnose(self.record(error_type='CRAWL_UNKNOWN_ERROR'),{},'')
   self.assertEqual(d['category'],'服务取页失败');self.assertIn('未披露',d['certainty'])
+ def test_observed_gate_takes_precedence_over_missing_stable_anchors(self):
+  case={'url':'https://example.test','task_kind':'body','acceptance_contract':{
+   'version':1,'schema':'body_text','minimum_records':0,
+   'stable_text_anchors':[{'id':'description','alternatives':['Original target content']}],
+   'stable_text_role':'required'}}
+  raw="# Making sure you're not a bot!\nPlease complete the security verification."
+  metrics=score_attempt(case,raw.encode(),ok=True)
+  row=self.record(ok=True,status_code=200,metrics=metrics)
+  before=deepcopy(row)
+  for provider in ['first-method','second-method']:
+   row['provider']=provider
+   self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+  self.assertEqual(row['metrics'],before['metrics'])
+ def test_report_inventory_and_filters_preserve_observed_page_diagnosis(self):
+  from harness.web_fetch.report import case_attrs, failure_category, failure_filters
+  raw="# Making sure you're not a bot!\nPlease complete the security verification."
+  rows=[];cases={}
+  scenarios=(('risk_control',{}),('web',{'page_identity_required':True,'page_identity_status':'mismatch'}),
+   ('articles',{'composite_acceptance_pass':False}))
+  for track,symptoms in scenarios:
+   case={'id':track,'name':track,'category':track,'track':track,'task_kind':'body',
+    'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Actual article']}]}
+   metrics=score_attempt(case,raw.encode(),ok=True)
+   metrics.update(blocked_page=False,stable_blocked_page=False,**symptoms)
+   row=self.record(ok=True,status_code=200,case_id=track,metrics=metrics)
+   row['diagnosis']=diagnose(row,case,raw)
+   self.assertEqual(row['diagnosis']['category'],'返回拦截或验证页')
+   self.assertEqual(failure_category(row,case),row['diagnosis']['category'])
+   self.assertIn('data-failure-category="返回拦截或验证页"',case_attrs(row,case))
+   rows.append(row);cases[track]=case
+  self.assertEqual(failure_filters(rows,cases)[1][2],[('返回拦截或验证页','返回拦截或验证页')])
+  passed=self.record(ok=True,status_code=200,case_id='web',metrics=score_attempt(cases['web'],b'Actual article',ok=True))
+  passed['diagnosis']=rows[0]['diagnosis']
+  self.assertEqual(failure_category(passed,cases['web']),'—')
+  self.assertIn('data-failure-category=""',case_attrs(passed,cases['web']))
+ def test_technical_document_failure_is_not_a_challenge_page(self):
+  raw='# HTTP reference\nThe status 403 Forbidden means access was refused.\n'
+  metrics=score_attempt({'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Other required content']}]},raw.encode(),ok=True)
+  self.assertNotEqual(diagnose(self.record(ok=True,metrics=metrics),{},raw)['category'],'返回拦截或验证页')
+ def test_linked_protection_footer_is_still_an_access_gate(self):
+  raw='Loading...\nYou are seeing this because the administrator has set up Anubis to protect the server.\nProtected by [Anubis](https://example.test/anubis).'
+  case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_plain_proof_of_work_page_without_footer_is_an_access_gate(self):
+  raw='Loading...\nWhy am I seeing this?\nThe administrator of this website has set up Anubis to protect the server against automated scraping.'
+  case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertEqual(diagnose(row,case,raw)['category'],'返回拦截或验证页')
+ def test_reference_heading_does_not_turn_a_real_article_into_a_gate(self):
+  raw='# CAPTCHA\nA technical explanation of challenge systems.'
+  case={'url':'https://example.test','ground_truth_main_content':raw,'required_facts':[{'id':'missing','alternatives':['Additional detail']}]}
+  metrics=score_attempt(case,raw.encode(),ok=True)
+  self.assertNotEqual(diagnose(self.record(ok=True,metrics=metrics),case,raw)['category'],'返回拦截或验证页')
+ def test_login_loading_metadata_and_media_fallback_are_distinct(self):
+  examples=[('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
+   ('Please enable JavaScript','仅返回加载或 JavaScript 提示'),
+   ('Enable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('You need to enable JavaScript','仅返回加载或 JavaScript 提示'),
+   ('Please wait...','仅返回加载或 JavaScript 提示'),
+   ('# JS Rendering\nEnable JavaScript to see products','仅返回加载或 JavaScript 提示'),
+   ('Javascript must be enabled to view our earthquake maps.','仅返回加载或 JavaScript 提示'),
+   ('This deployment is temporarily paused\n`request-id`','返回站点部署暂停提示'),
+   ('---\ntitle: Application\n---\n','仅返回页面元信息，没有正文'),
+   ("Your browser doesn't support HTML5 video. Here is a link instead.",'返回媒体兼容提示，未交付目标内容')]
+  for raw,label in examples:
+   case={'url':'https://example.test','required_facts':[{'id':'body','alternatives':['Original target content']}]}
+   row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+   self.assertEqual(diagnose(row,case,raw)['category'],label)
+ def test_move_stub_is_not_a_missing_table_or_proven_redirect_failure(self):
+  case={'url':'https://example.test/old','required_facts':[{'id':'target','alternatives':['Target table']} ]}
+  stub='This page has moved to [https://example.test/new](https://example.test/new).'
+  raw='---\ntitle: This page has moved\n---\n\n'+stub
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  before=deepcopy(row)
+  result=diagnose(row,case,raw)
+  self.assertEqual(result['category'],'仅返回页面迁移提示，未交付目标内容')
+  self.assertIn('不能确定',result['certainty'])
+  self.assertEqual(row,before)
+  article=stub+'\n\n# Target table\nThe content continues here.'
+  # A real article can mention a move without being only a move notice.
+  row=self.record(ok=True,metrics=score_attempt(case,b'Other incomplete content',ok=True))
+  self.assertNotEqual(diagnose(row,case,article)['category'],result['category'])
+ def test_reference_articles_and_fenced_examples_are_not_shells(self):
+  examples=[('# Loading example\n```text\nLoading...\n```\nExplanation of the loading state.','仅返回加载或 JavaScript 提示'),
+   ('# Sign in\nEmail address\nPassword\nForgot password?','返回登录页'),
+   ("Your browser doesn't support HTML5 video. Here is a link instead.",'返回媒体兼容提示，未交付目标内容')]
+  for raw,label in examples:
+   with self.subTest(label=label):
+    case={'url':'https://example.test','ground_truth_main_content':raw,
+     'required_facts':[{'id':'missing','alternatives':['Additional required section']}]}
+    row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+    self.assertNotEqual(diagnose(row,case,raw)['category'],label)
+  raw=examples[0][0]
+  case={'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Additional required section']}]}
+  row=self.record(ok=True,metrics=score_attempt(case,raw.encode(),ok=True))
+  self.assertNotEqual(diagnose(row,case,raw)['category'],examples[0][1])
+ def test_api_server_error_is_not_attributed_to_target_site_or_client_dns(self):
+  row=self.record(error_type='api_error',provider_metadata={'api_http_status':504})
+  result=diagnose(row,{},'',native_raw='error code: 504\n')
+  self.assertEqual(result['category'],'API 接口返回服务错误')
+  self.assertEqual(result['stage'],'服务接口')
+  self.assertIn('504',result['evidence'])
+ def test_successful_stable_checks_do_not_hide_failed_body_checks(self):
+  row=self.record(ok=True,metrics={'stable_task_pass':True,'content_pass':False,
+   'body_coverage_pass':False,'body_region_results':[{'id':'tail','pass':False}],
+   'acceptance_checks':{'records_and_anchors':True,'body':False}})
+  result=diagnose(row,{'task_kind':'body'},'Partial page content')
+  self.assertEqual(result['category'],'正文范围不完整')
+  self.assertIn('tail',result['evidence'])
+ def test_component_failure_is_diagnosed_even_when_body_and_records_pass(self):
+  row=self.record(ok=True,title='Returned document title',metrics={
+   'stable_task_pass':True,'content_pass':True,
+   'acceptance_checks':{'records_and_anchors':True,'body':True,'article_title':False}})
+  result=diagnose(row,{'task_kind':'body'},'Complete article body')
+  self.assertEqual(result['category'],'未交付要求的独立文章标题')
+  self.assertIn('Returned document title',result['evidence'])
+ def test_native_security_error_is_not_a_bad_key(self):
+  row=self.record(status_code=403,error_type='authentication')
+  before=deepcopy(row)
+  raw=json.dumps({'error':{'type':'security_risk','message':'URL rejected'}})
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'方法安全限制')
+  self.assertEqual(diagnose(row,{},'')['category'],'接口鉴权失败')
+  self.assertEqual(row,before)
+ def test_native_model_context_limit_is_distinct_from_other_bad_requests(self):
+  row=self.record(status_code=400,error_type='api_error')
+  raw=json.dumps({'error':{'type':'invalid_request_error','message':'prompt is too long: 1660951 tokens > 1000000 maximum'}})
+  self.assertEqual(diagnose(row,{},'',native_raw=raw)['category'],'模型输入容量限制')
+  other=json.dumps({'error':{'type':'invalid_request_error','message':'Invalid parameter'}})
+  self.assertNotEqual(diagnose(row,{},'',native_raw=other)['category'],'模型输入容量限制')
+ def test_native_empty_tool_text_is_delivery_failure_not_unknown_fetch_error(self):
+  raw=json.dumps({'content':[{'type':'web_fetch_tool_result','content':{
+   'type':'web_fetch_result','content':{'source':{'type':'text','data':''}}}}]})
+  payload=json.loads(raw);payload['content'][0]['tool_use_id']='fetch';payload['content'].insert(0,{'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}});raw=json.dumps(payload)
+  row=self.record(status_code=200,error_type='tool_error')
+  self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],'正文提取为空')
+ def test_empty_answer_and_api_bad_request_have_specific_observed_categories(self):
+  empty=self.record(error_type='empty_content',provider_metadata={'api_http_status':200})
+  self.assertEqual(diagnose(empty,{},'')['category'],'正文提取为空')
+  rejected=self.record(error_type='api_error',provider_metadata={'api_http_status':400})
+  result=diagnose(rejected,{},'',native_raw='{"error":{"message":"invalid request parameters"}}')
+  self.assertEqual(result['category'],'API 拒绝请求')
+  self.assertIn('不能断定',result['certainty'])
+ def test_native_tool_diagnosis_uses_final_result_without_scoring_model_text(self):
+  def block(content):return {'type':'web_fetch_tool_result','tool_use_id':'fetch','content':content}
+  call={'type':'server_tool_use','id':'fetch','name':'web_fetch','input':{'url':'https://example.test'}}
+  binary={'type':'web_fetch_result','content':{'source':{'type':'base64','media_type':'application/pdf','data':'JVBERi0='}}}
+  error={'type':'web_fetch_tool_result_error','error_code':'url_not_accessible'}
+  row=self.record(status_code=200,error_type='tool_error')
+  for blocks,expected in [([block(error),block(binary)],'返回原生 PDF，未提供所需文字'),([block(binary),block(error)],'抓取工具报告网址无法访问')]:
+   raw=json.dumps({'content':[call]+blocks+[{'type':'text','text':'Everything worked'}]})
+   self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],expected)
+  raw=json.dumps({'content':[call,block({'type':'web_fetch_tool_result_error','error_code':'too_many_requests'})]})
+  self.assertEqual(diagnose(row,{'url':'https://example.test'},'',native_raw=raw)['category'],'抓取工具报告限流')
  def test_timeout_option_name_is_not_timeout_error(self):
   raw=json.dumps({'errors':[{'message':'Execution context was destroyed. Check waitForTimeout options.'}]})
   self.assertEqual(diagnose(self.record(),{},raw)['category'],'浏览器执行上下文中断')

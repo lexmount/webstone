@@ -32,7 +32,7 @@
         },
         "benchmark.py": {
           "before_sha256": "c8951a2425441ac334ab126f2b7c9196d980b0cf1b904a7e8621c2a8aab15977",
-          "after_sha256": "f1c151720cf83c549a4e47ed2acb54d77919b0b0b3839a9184c0f6b7783e047f"
+          "after_sha256": "6b18f1a1a7c4eda1d2c34a3d22d37726cf57e4f12737f2639977bcbd7747a355"
         },
         "body_coverage.py": {
           "before_sha256": "a349a1db3d5de9d63d33443572c4d8f48afb8a7f88d03090625407fddf7b6137",
@@ -40,7 +40,7 @@
         },
         "cli.py": {
           "before_sha256": "46b7bd246e8b56bc03c7d35309a7ec48419c37f54bb05bc6a144cfd3c527e194",
-          "after_sha256": "95abb118452111ca92c50a510e740aef44d0910f7a704a076518596eac46b856"
+          "after_sha256": "d46ffa7e8bdc15ff54e4b8345404abce4bcbc00a01f0c82db452ce3d9486c15e"
         },
         "composite_tasks.py": {
           "before_sha256": "b3281beb921bbfbddb1ca69f17cedc7af303965eb9039c383d602287c85b1e3d",
@@ -72,7 +72,7 @@
         },
         "metrics.py": {
           "before_sha256": "f9281d535fd8830069019fcc918f4a02a60471ee20f2e61069ee3d1696ba51ba",
-          "after_sha256": "fcbfc2bb99e295003ab7e9e28a18e10d6fa74274cef9f773bd1217c54e0aaada"
+          "after_sha256": "92f8618f6b67c217cbfbc825cec0f2480f620411a85b0766aa8e17a0edea3014"
         },
         "models.py": {
           "before_sha256": "1900f2691f29a87696bcdd13a226b7e6f4f1c593ec20cae120c844b1963c96fe",
@@ -84,7 +84,7 @@
         },
         "reference_quality.py": {
           "before_sha256": "b381c5c8d303df9259fa2a7ddddd808de7a0974a36a895211a6aeae371b3a34c",
-          "after_sha256": "545b29444dc0019f50112bd96b3bb4f76ed032c2d59c53e3c5853953dc426913"
+          "after_sha256": "0eaeb337cc8bb9e0fe52c12572a2ab7531ee2d5e278bb8f273d2ef65a2d6303e"
         },
         "required_components.py": {
           "before_sha256": "30ef963a179248ff9ce5addd9e2a3e26693508a921f42c5145477995a42f2e07",
@@ -108,7 +108,7 @@
         },
         "stable_tasks.py": {
           "before_sha256": "f12632c4ce8d0d2ed7f07a1725534f903913db7f121c5f941d071d3c47b83787",
-          "after_sha256": "df423d9ba568dd39bcf49949d52e77eed5d687978853c2dfc9e069c36f73b349"
+          "after_sha256": "099c6f32f0179ebcae89279703f663455c96b3a3ae1a61559a8e94cdbde1598e"
         },
         "structured_tables.py": {
           "before_sha256": "16f0f9295b92fd25f43e2474be445380d85f5259b364c99c9be93154e98d8ba8",
@@ -4309,6 +4309,84 @@
             "tests/benchmarks/webfetch/test_benchmark.py"
           ],
           "reason": "Revision export scored descriptive reference text, record-task ground truth and body-only main content as full answers, so contracts that also need records, anchors, titles, comments, links or files failed the frozen-reference gate. Score dataset reference text as plain text; a rejected text that cannot carry every declared requirement and still meets its body requirement is unavailable, while any failed text check (body, facts, patterns, literals, length, content), text-only failures and accepted error pages still fail. Reviews may inherit predecessor entries for byte-identical change rows. score_attempt is unchanged."
+        },
+        {
+          "modules": [
+            "metrics.py",
+            "stable_tasks.py",
+            "reference_quality.py"
+          ],
+          "root_cause": "Rendered Markdown soft breaks and nested emphasis were treated as literal text, and horizontal layout gaps after rights marks prevented equivalent visible phrases from matching. Preserve paragraph boundaries, plain-text literals, missing words and separate labels; cache only immutable parse results.",
+          "regression_ids": [
+            "body-cjk-markdown-softbreak",
+            "body-cjk-softbreak-missing-phrase",
+            "body-cjk-softbreak-plain-text-boundary",
+            "body-cjk-softbreak-distinct-paragraphs",
+            "body-nested-emphasis-visible-credit",
+            "body-nested-emphasis-equivalent-html",
+            "body-nested-emphasis-missing-word",
+            "body-nested-emphasis-escaped-literal",
+            "body-nested-emphasis-plain-literal",
+            "body-cjk-inline-copyright-gap",
+            "body-mixed-language-word-gap-rejected",
+            "body-cjk-inline-gap-missing-word"
+          ],
+          "tests": [
+            "tests/benchmarks/test_current_scoring_controls.py",
+            "tests/test_reference_quality.py"
+          ]
+        },
+        {
+          "modules": [
+            "metrics.py",
+            "stable_tasks.py"
+          ],
+          "root_cause": "Rights-mark folding after global whitespace collapse bridged paragraphs; quoted scalar matching after soft-break joining lost line anchors; literal code and explicit Markdown hard breaks lost boundaries, including CRLF/CR and tasks with unrelated exclusions. Normalize line endings before hard-break detection and preserve anchor layout without changing pattern/record parsers. Apply identical anchor-layout protection to the escaped-punctuation prose fallback.",
+          "regression_ids": [
+            "rights-layout-boundary-inline",
+            "rights-layout-boundary-tab",
+            "rights-layout-boundary-paragraph",
+            "rights-layout-boundary-plain-newline",
+            "rights-layout-boundary-missing-owner",
+            "rights-layout-boundary-markdown-softbreak",
+            "quoted-scalar-line-boundary-multiple-lines",
+            "quoted-scalar-line-boundary-code-lines",
+            "quoted-scalar-line-boundary-wrong-value",
+            "quoted-scalar-line-boundary-wrong-key",
+            "quoted-scalar-line-boundary-single-line",
+            "cjk-literal-line-boundary-soft",
+            "cjk-literal-line-boundary-inline",
+            "cjk-literal-line-boundary-two-spaces",
+            "cjk-literal-line-boundary-backslash",
+            "cjk-literal-line-boundary-fenced",
+            "cjk-literal-line-boundary-indented",
+            "cjk-literal-line-boundary-paragraph",
+            "cjk-literal-line-boundary-inline-code",
+            "cjk-literal-line-boundary-exact-code",
+            "cjk-literal-line-boundary-wrong-code",
+            "body-explicit-line-ending-crlf-soft",
+            "body-explicit-line-ending-crlf-spaces",
+            "body-explicit-line-ending-crlf-backslash",
+            "body-explicit-line-ending-cr-soft",
+            "body-explicit-line-ending-cr-spaces",
+            "body-explicit-line-ending-cr-backslash",
+            "body-exclusion-line-boundary-pattern-soft",
+            "body-exclusion-line-boundary-pattern-hard",
+            "body-exclusion-line-boundary-pattern-fenced",
+            "body-exclusion-line-boundary-pattern-indented",
+            "body-exclusion-line-boundary-target-soft",
+            "body-exclusion-line-boundary-target-hard",
+            "body-exclusion-line-boundary-target-fenced",
+            "body-exclusion-line-boundary-target-indented",
+            "escaped-prose-rights-boundary-inline",
+            "escaped-prose-rights-boundary-soft",
+            "escaped-prose-rights-boundary-hard-spaces",
+            "escaped-prose-rights-boundary-hard-backslash"
+          ],
+          "tests": [
+            "tests/test_scoring_regressions.py",
+            "tests/benchmarks/webfetch/test_stable_tasks.py"
+          ]
         }
       ],
       "extensions": [
@@ -4330,6 +4408,16 @@
             "tests/benchmarks/webfetch/test_release_versions.py::test_catalog_still_validates_extra_suites",
             "tests/test_dual_content_scopes.py::test_selected_scope_scores_only_its_contract",
             "tests/test_dual_content_scopes.py::test_run_and_offline_rescore_can_select_one_scope_or_both"
+          ]
+        },
+        {
+          "modules": [
+            "benchmark.py",
+            "cli.py"
+          ],
+          "behavior": "Restore scope annotations from independently acquired frozen task bytes only after verifying every public task contract, source hash and bound reference text; scoring and acceptance rules are unchanged.",
+          "tests": [
+            "tests/benchmarks/webfetch/test_annotation_restore.py"
           ]
         }
       ]

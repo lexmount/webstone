@@ -409,7 +409,10 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
 
 def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
     from pathlib import Path
+    from bs4 import BeautifulSoup
     from harness.web_fetch import report
+    from harness.web_fetch.report_saved_composition import _home_method_summary
+    from harness.web_fetch.report_style import RANKING_STICKY
     from tests.test_report_body_scope import case, record
     c = case('sample', kind='body', track='web')
     records = []
@@ -417,11 +420,19 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
         row = record(c, passed=passed, elapsed=elapsed)
         row['provider'] = provider
         records.append(row)
-    markup = report.overall_ranking(records, {c['id']: c})
+    markup = report.overall_ranking(records, {c['id']: c}, passing_latency=True)
+    overview = '<table id="method-overview"><tbody>' + ''.join(
+        f'<tr><td><a href="providers/{provider}.html">{provider}</a><small class="method-execution">API</small></td>'
+        '<td>Default</td><td>$2 / 1,000 requests</td></tr>' for provider in ('a', 'b', 'c')) + '</tbody></table>'
+    page_model = BeautifulSoup(markup + overview, 'html.parser')
+    _home_method_summary(page_model, {'b': {'price': '$0.09 / hour'},
+        'c': {'price': '$0.10–$0.50 / $0.50–$2.50 / million tokens'}})
+    markup = str(page_model)
     js = Path(report.__file__).with_name('assets').joinpath('report.js').read_text(encoding='utf-8')
     (tmp_path/'app.js').write_text(js, encoding='utf-8')
     (tmp_path/'index.html').write_text(
         '<!doctype html><html><head><meta charset="utf-8">'
+        '<style>'+report.STYLE+RANKING_STICKY+'#ranking-overall{min-width:1500px}</style>'
         '<script defer src="app.js"></script></head><body>'+markup+'</body></html>', encoding='utf-8')
     with local_report_server(tmp_path) as origin:
         page = local_page(browser, origin, **display)
@@ -434,6 +445,25 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
             for row in page.locator('#ranking-overall tbody tr').all():
                 expected = '3' if 'providers/c.html' in row.inner_html() else '1'
                 assert row.locator('td').first.inner_text() == expected
+            table = page.locator('#ranking-overall')
+            assert table.locator('.method-price-note').count() == 2
+            for amount in table.locator('.method-price-amount').all():
+                assert amount.bounding_box()['width'] >= 100
+            if display['viewport']['width'] >= 640:
+                for note in table.locator('.method-price-note').all():
+                    assert note.bounding_box()['height'] < 20
+            coordinates = '''table => {
+                const cells = [...table.tBodies[0].rows[0].cells];
+                return cells.slice(0, 3).map(cell => cell.getBoundingClientRect().left);
+            }'''
+            table.evaluate('table => { table.parentElement.scrollLeft = 0; }')
+            start = table.evaluate(coordinates)
+            table.evaluate('table => { table.parentElement.scrollLeft = 120; }')
+            after = table.evaluate(coordinates)
+            assert after[:2] == pytest.approx(start[:2], abs=1)
+            assert after[2] < start[2] - 100
+            if display['viewport']['width'] < 640:
+                assert table.locator('tbody td:nth-child(2)').first.bounding_box()['width'] <= 129
         finally:
             page.close()
 
@@ -484,7 +514,9 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
     assets = Path(report_package.__file__).parent/'assets'
     (source/'assets/report.js').write_bytes((assets/'report.js').read_bytes())
     (source/'index.html').write_text(
-        '<html><body><main><h1>Summary 80.8%</h1><img src="assets/chart.svg">'
+        '<html><head><style>h1{display:none}</style>'
+        '<style data-report-page-style>h1{padding-left:17px}</style></head>'
+        '<body><main><h1>Summary 80.8%</h1><img src="assets/chart.svg">'
         '<a href="detail.html">Details</a></main></body></html>', encoding='utf-8')
     (source/'assets/chart.svg').write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
@@ -508,12 +540,14 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             page.route('**/data/**', lambda route:route.abort())
             page.goto(origin)
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_have_css('padding-left', '17px')
             page.wait_for_function('document.querySelector("img")?.naturalWidth>0')
             assert not any('/manifest.json' in url or '/data/' in url for url in requests)
             page.unroute('**/manifest.json')
             page.unroute('**/data/**')
             page.get_by_role('link', name='Details', exact=True).click()
             expect(page.get_by_role('heading', name='Detail', exact=True)).to_be_visible()
+            expect(page.locator('head style[data-report-page-style]')).to_have_count(0)
             assert any('/manifest.json' in url for url in requests)
             expect(page.locator('pre')).to_have_attribute('role', 'button')
             page.locator('pre').click()
@@ -521,5 +555,55 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             assert any('/data/' in url for url in requests)
             page.get_by_role('link', name='Back', exact=True).click()
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_be_visible()
+            expect(page.get_by_role('heading', name='Summary 80.8%')).to_have_css('padding-left', '17px')
+        finally:
+            page.close()
+
+
+
+def test_webfetch_extension_standalone_evidence_dialog(tmp_path, browser, display):
+    from tests.test_saved_matrix_composition import _published_extension
+    output, _, _, _ = _published_extension(tmp_path)
+    with local_report_server(output) as origin:
+        page = local_page(browser, origin, **display)
+        requests = []
+        page.on('request', lambda request: requests.append(request.url))
+        try:
+            page.goto(origin+'/additional/providers/extra.html')
+            page.get_by_role('button', name='Evidence', exact=True).click()
+            expect(page.get_by_role('dialog', name='Evidence')).to_be_visible()
+            expect(page.locator('dialog pre')).to_have_text('unchanged answer: extra')
+            assert any(url.endswith('/additional/answer.txt') for url in requests)
+            assert not any('/additional/additional/' in url for url in requests)
+        finally:
+            page.close()
+
+
+def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
+    from tests.test_saved_matrix_composition import _real_extension, write
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    output, spec_path = _real_extension(tmp_path, source_languages=('en', 'en'))
+    spec = json.loads(spec_path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(spec_path, spec)
+    refresh_published_extension(output, spec_path=spec_path)
+    with local_report_server(output) as origin:
+        page = local_page(browser, origin, **display)
+        try:
+            page.goto(origin+'/index.html')
+            expect(page).to_have_url(origin+'/en/index.html')
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('a[hreflang="zh-CN"]').click()
+            expect(page).to_have_url(origin+'/index.html?report-language=zh')
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('a[hreflang="en"]').click()
+            expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
+            page.locator('header.top').get_by_role('link', name='Analysis', exact=True).click()
+            expect(page).to_have_url(origin+'/en/analysis/index.html')
+            page.locator('[data-filter="result"]').select_option('')
+            expect(page.locator('#filtered-table tbody tr')).to_have_count(2)
+            page.locator('#filtered-table tr[data-provider="method-1"] a[href*="attempts/"]').click()
+            expect(page).to_have_url(origin+'/additional/en/attempts/first--run-1.html')
+            assert page.locator('html').get_attribute('lang') == 'en'
         finally:
             page.close()

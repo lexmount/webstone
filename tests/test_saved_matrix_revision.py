@@ -128,6 +128,81 @@ def revision_fixture(tmp_path, *, multiple=False, second_provider=False, uncalle
     return spec, source, revision
 
 
+def test_public_views_retain_scoring_only_revision_and_verify_old_summary(tmp_path):
+    from tests.test_saved_matrix_comparability import matrix
+    from tests.test_saved_matrix_evidence import build
+    spec = matrix(tmp_path)
+    for source in spec['sources']:
+        root = Path(source['root'])
+        record = json.loads((root/'results.jsonl').read_bytes())
+        (root/'artifacts').mkdir()
+        (root/record['artifact_path']).rename(root/'artifacts/answer.txt')
+        record['artifact_path'] = 'artifacts/answer.txt'
+        source['results'] = write(root/'results.jsonl', record)
+    spec['presentation'] = 'audit'
+    snapshot = build(tmp_path, spec, 'revision').parent
+    records = [json.loads(line) for line in (snapshot/'results.jsonl').read_bytes().splitlines()]
+    config = snapshot/'config.json'
+    write(config, {'cases': [], 'rule_revision': False,
+        'rescore_attempt_ids': [row['attempt_id'] for row in records],
+        'authority': {'description': 'Recompute scores without changing calls or answers'},
+        'regression_ids': ['article-primary-scope-complete-without-shell',
+                           'article-primary-scope-shell-cannot-replace-body']})
+    revise_local_snapshot(snapshot, config)
+    receipt = next((snapshot/'local-evidence/offline-revisions').glob('*/receipt.json'))
+    spec['offline_revision'] = {'root': str(snapshot), 'receipt': write(receipt, json.loads(receipt.read_bytes()))}
+    spec['public_evidence_views'] = True
+    spec['presentation'] = 'final'
+    output = build(tmp_path, spec, 'public-revision').parent
+    assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['valid']
+    model = json.loads((output/'matrix.json').read_bytes())
+    proof = model['rows'][0]['score_revision']
+    assert 'before_record_path' not in proof
+    target = output/proof['before_summary_path']
+    summary = json.loads(target.read_bytes())
+    assert summary['kind'] == 'historical_task_score_summary'
+    assert summary['task_passed'] is True
+    assert not (target.parent/'score-before').exists()
+    summary['task_passed'] = False
+    binding = write(target, summary)
+    audit = json.loads((output/'saved-matrix-audit.json').read_bytes())
+    audit['files'][proof['before_summary_path']] = binding['sha256']
+    write(output/'saved-matrix-audit.json', audit)
+    with pytest.raises(ValueError, match='Historical score summary differs'):
+        check_saved_matrix(output, spec_path=tmp_path/'spec.json')
+    results=[json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines()]
+    review={'schema_version':1,'kind':'local_evidence_audit',
+        'bindings':{'dataset_sha256':hashlib.sha256((output/'dataset.json').read_bytes()).hexdigest(),
+                    'results_sha256':hashlib.sha256((output/'results.jsonl').read_bytes()).hexdigest()},
+        'reviewer':{'agent':'Evidence auditor'},
+        'review_protocol':{'scope':'machine-failures','machine_judgments_withheld':False,
+                           'additional_attempt_ids':[r['attempt_id'] for r in results]},
+        'attempts':[{'attempt_id':r['attempt_id'],'machine_verdict':'pass','agent_verdict':'pass',
+                     'final_verdict':'pass','agent_evidence':'Checked unchanged native answer.'} for r in results],
+        'reviewed_attempts':2,'expected_attempts':2,'total_attempts':2,
+        'accepted_unreviewed_passes':0,'disagreements':0,'unresolved':0,
+        'review_rounds':[{'date':'2026-11-17','title':'Evidence audit','scope':'Two saved results',
+                         'finding':'Native answer retained','fix':'Scoring-only revision','pending':'None'}]}
+    spec['result_review']=write(tmp_path/'review.json',review)
+    reviewed=build(tmp_path,spec,'reviewed-public-revision').parent
+    page=(reviewed/'review/index.html').read_text(encoding='utf-8')
+    assert 'current-result-review' in page and '已知程序判定' in page
+    assert '原评分摘要' in page
+    assert 'Evidence audit' in page and 'Native answer retained' in page
+    assert 'score-revision-evidence' not in page
+    assert '../matrix.json' in page
+    assert check_saved_matrix(reviewed,spec_path=tmp_path/'spec.json')['valid']
+
+
+def test_public_views_reject_changed_task_contract_revision(tmp_path):
+    spec, _, _ = revision_fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    write(tmp_path/'spec.json', spec)
+    with pytest.raises(ValueError, match='unchanged task contracts'):
+        build_saved_matrix(tmp_path/'spec.json', tmp_path/'unsupported')
+    assert not (tmp_path/'unsupported').exists()
+
+
 def test_revision_accepts_hash_verified_nested_artifacts(tmp_path):
     spec, _, revision = revision_fixture(tmp_path, nested_artifacts=True)
     output = build_saved_matrix(tmp_path/'spec.json', tmp_path/'revised').parent

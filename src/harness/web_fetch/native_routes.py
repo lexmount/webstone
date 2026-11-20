@@ -192,6 +192,9 @@ def normalized_http_parameters(case, arguments):
         body['url'] = '<input-url>'
     elif slots == ['urls'] and body['urls'] in ([case.url], [encode_http_target_url(case.url)]):
         body['urls'] = ['<input-url>']
+    elif (not slots and body.get('messages') == [{'role': 'user', 'content': case.url}]
+          and body.get('tool_choice') == {'type': 'tool', 'name': 'web_fetch'}):
+        body['messages'][0]['content'] = '<input-url>'
     elif (not slots and isinstance(body.get('extract'), dict)
           and 'dom_id' not in body['extract']
           and body['extract'].get('url') in (case.url, encode_http_target_url(case.url))):
@@ -516,7 +519,7 @@ def native_cases_by_id(root):
 
 
 # Adapters that declare no answer for a malformed (non-object JSON) envelope.
-_MALFORMED_ENVELOPE_IS_EVIDENCE = frozenset({'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'crawl4ai_cloud',
+_MALFORMED_ENVELOPE_IS_EVIDENCE = frozenset({'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'kimi_fetch', 'zai_reader', 'claude_web_fetch', 'crawl4ai_cloud',
                                     'lexmount', 'lexmount_cn'})
 
 

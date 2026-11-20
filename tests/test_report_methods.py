@@ -308,7 +308,7 @@ def test_hosted_interfaces_follow_adapter_identity_in_external_cohorts():
             spec = method_spec('external-participant', record, language=language)
             assert spec['entry'] == method_info(adapter, language=language)['endpoint']
             assert spec['request']['url'] == 'https://example.com/'
-            assert spec['source'] == 'harness/web_fetch/providers/hosted_fetch.py'
+            assert spec['source'] == 'src/harness/web_fetch/providers/hosted_fetch.py'
             assert spec['fields']
             assert 'API_KEY' in spec['auth']
         english = method_spec('external-participant', record, language='en')

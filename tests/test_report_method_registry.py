@@ -14,6 +14,32 @@ from harness.web_fetch.methods import method_access
 from harness.web_fetch.report_interfaces import method_spec, render_interfaces
 
 
+def test_claude_setup_and_example_keep_credentials_on_the_remote_host():
+    method = report_method_catalog('en')['methods']['claude-web-fetch']
+    assert method['access']['env_vars'] == ['ANTHROPIC_API_KEY']
+    assert 'only' in method['access']['configuration']
+    assert 'SSH host' in method['access']['configuration']
+    interface = method_spec('claude-web-fetch', {'provider_type':'claude_web_fetch'}, language='en')
+    assert interface['entry'].startswith('SSH')
+    assert interface['request']['model']
+    assert interface['request']['tool_choice'] == {'type':'tool','name':'web_fetch'}
+    assert interface['request']['tools'][0]['allowed_callers'] == ['direct']
+    assert 'no local API fallback' in interface['notes']
+    assert 'Model input limits' in interface['notes']
+    for name in ('kimi-fetch','zai-reader'):
+        assert method_spec(name, None, language='en')['request'] == {'url':'https://example.com/'}
+
+
+def test_hosted_media_descriptions_distinguish_resource_checks_from_file_delivery():
+    for name in ('kimi-fetch','zai-reader','claude-web-fetch'):
+        capabilities = report_method_catalog('en')['methods'][name]['capabilities']
+        for kind in ('image','av'):
+            assert capabilities[kind]['status'] == 'Limited support'
+            assert 'native text or Markdown' in capabilities[kind]['detail']
+            assert 'original-file delivery' in capabilities[kind]['detail']
+        assert 'verifiable original bytes' in capabilities['file']['detail']
+
+
 @pytest.fixture
 def custom_catalog(monkeypatch):
     from harness.web_fetch.methods import _raw_report_method_catalog, _catalog_value

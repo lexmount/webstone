@@ -7,6 +7,32 @@ from harness.web_fetch.models import execution_id
 
 
 class ReferenceQualityTests(unittest.TestCase):
+    def test_literal_span_results_do_not_share_mutable_state(self):
+        from lexbench_webfetch.reference_quality import markdown_literal_spans
+        text = 'Source prose\n```html\n<div>Example</div>\n```\nMore prose'
+        expected = markdown_literal_spans(text)
+        self.assertTrue(expected)
+        changed = markdown_literal_spans(text)
+        changed.clear()
+        self.assertEqual(markdown_literal_spans(text), expected)
+        self.assertNotEqual(markdown_literal_spans('Unrelated prose'), expected)
+
+    def test_code_rich_page_with_many_facts_scores_within_budget(self):
+        code = """
+from lexbench_webfetch.scoring import score_attempt
+from lexbench_webfetch.metrics import task_passed
+case = {'url':'https://example.test/', 'min_content_chars':1,
+        'required_facts':[{'id':str(i),'alternatives':['Required fact '+str(i)+'.']} for i in range(70)]}
+text = '\\n'.join('Section '+str(i)+'\\n```html\\n<div title="<!-- quoted -->">Example '+str(i)+'</div>\\n```\\nRequired fact '+str(i)+'.\\n' for i in range(70))
+for present in (True,False):
+    actual = text if present else text.replace('Required fact 69.','Missing final fact.')
+    metrics = score_attempt(case,actual.encode(),ok=True)
+    assert task_passed(True,metrics) is present
+"""
+        result = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                                text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_unmatched_markdown_brackets_preserve_body_scoring_within_budget(self):
         code = """
 from lexbench_webfetch.scoring import score_attempt

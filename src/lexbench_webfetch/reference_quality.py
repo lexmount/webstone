@@ -50,6 +50,39 @@ def clean_reference_text(text: str) -> str:
     return text.translate({0x200B:None, 0xFEFF:None, 0x00AD:None})
 
 
+def nested_markdown_emphasis_text(text: str) -> str:
+    """Render nested inline emphasis without stripping literal punctuation.
+
+    Call after link/code/escape ownership has been preserved. Only lines with
+    nested emphasis and text tokens are changed; other syntax keeps its owner.
+    """
+    if '**' not in text and '__' not in text:
+        return text
+    from markdown_it import MarkdownIt
+    parser = MarkdownIt('commonmark')
+    result = []
+    for line in text.splitlines(keepends=True):
+        if '**' not in line and '__' not in line:
+            result.append(line)
+            continue
+        ending = '\r\n' if line.endswith('\r\n') else '\n' if line.endswith('\n') else ''
+        value = line[:-len(ending)] if ending else line
+        tokens = parser.parseInline(value)[0].children or []
+        depth = 0
+        nested = False
+        allowed = {'text', 'em_open', 'em_close', 'strong_open', 'strong_close'}
+        for token in tokens:
+            if token.type in {'em_open', 'strong_open'}:
+                depth += 1
+                nested = nested or depth > 1
+            elif token.type in {'em_close', 'strong_close'}:
+                depth -= 1
+        if nested and all(token.type in allowed for token in tokens):
+            value = ''.join(token.content for token in tokens if token.type == 'text')
+        result.append(value + ending)
+    return ''.join(result)
+
+
 
 def markdown_body_content(text: str) -> str:
     """Exclude a declared leading YAML metadata mapping from page prose.
@@ -865,10 +898,18 @@ def _markdown_html_block_spans(text, *, excluded_spans=()):
 
 def markdown_literal_spans(text: str) -> list[tuple[int, int]]:
     """Locate block and inline literals before interpreting Markdown syntax."""
+    # Required facts repeatedly inspect the same complete page. Caching only
+    # the intermediate HTML masks still reparses every fence/list combination.
+    # Return a fresh list so callers cannot modify a later scoring input.
+    return list(_cached_markdown_literal_spans(text))
+
+
+@lru_cache(maxsize=16)
+def _cached_markdown_literal_spans(text: str) -> tuple[tuple[int, int], ...]:
     spans, comments = _markdown_fenced_and_comment_spans(text)
     spans += markdown_indented_code_spans(text, excluded_spans=spans + comments)
     html_blocks = _markdown_html_block_spans(text, excluded_spans=spans)
-    return sorted(spans + markdown_inline_code_spans(text, excluded_spans=spans + html_blocks + comments))
+    return tuple(sorted(spans + markdown_inline_code_spans(text, excluded_spans=spans + html_blocks + comments)))
 
 
 def markdown_comment_spans(text: str) -> list[tuple[int, int]]:
@@ -881,6 +922,7 @@ def markdown_comment_spans(text: str) -> list[tuple[int, int]]:
     return comments
 
 
+@lru_cache(maxsize=16)
 def visible_markdown_links(text: str, *, include_image_alt: bool = False) -> str:
     """Keep labels and adjacent link boundaries, consuming balanced destinations.
 

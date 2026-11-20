@@ -6,6 +6,7 @@ from html import escape
 
 from harness.distribution import repository_root
 from harness.web_fetch.methods import native_browser_engine
+from harness.web_fetch.report_i18n import t
 
 SOURCE = repository_root() / 'research/provider-pricing.json'
 
@@ -49,7 +50,10 @@ def render_pricing(out, names, *, table, cell, link, esc):
     (dest / 'pricing.json').write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
     def sources(p):
-        return ' · '.join(link(s['url'], s['label'] + ' ↗') for s in p['sources'])
+        return ' · '.join(
+            link(s['url'], s['label'] + ' ↗', translations[s['label']] + ' ↗')
+            if s['label'] in translations else link(s['url'], s['label'] + ' ↗')
+            for s in p['sources'])
 
     if all(native_browser_engine(name) for name in names):
         rows=[('',cell(esc(p['label']))+cell(esc(p['status']))+cell(esc(p['note']))+cell(sources(p)))
@@ -57,8 +61,14 @@ def render_pricing(out, names, *, table, cell, link, esc):
         return '<h3>本轮执行模式的成本边界</h3><p>这是客户端实测，不是计费或同机 CPU / 内存测试；各方法的资料核验日期见表内说明。</p>'+table(['方法','价格状态','成本边界','官方来源'],rows,cls='pricing-table',metrics=[])
 
     body = '<h3>获取 1,000 个网页，究竟付哪一种费用？</h3>'
-    body += '<p>按给定 URL 获取正文比较，不包含搜索、研究 Agent 或聊天模型。按页产品可以换算为每千页；浏览器时长产品必须带上耗时假设。套餐价、超额价与试用额度分开列示。</p>'
-    body += '<p class="source-note">官方公开价格核验：' + esc(data['checked_at']) + '；币种 USD，未加地区税费。以下为报价换算，不是本轮账单；供应商定义的提取成功不等于评测任务通过。' + link('pricing.json', '下载价格与来源数据') + '</p>'
+    selected = [p for p in data['providers'] if p['id'] in names]
+    if any(p.get('billing_mode') == 'model_tokens' for p in selected):
+        body += '<p>' + t('model_tool_pricing_boundary', 'Compare routes that return content for a supplied URL. Model-backed tools also incur model token charges; no tool surcharge does not mean free requests. Per-call, duration and token quotes are listed separately and cannot be treated as equivalent per-thousand-page rates.') + '</p>'
+    else:
+        body += '<p>按给定 URL 获取正文比较，不包含搜索、研究 Agent 或聊天模型。按页产品可以换算为每千页；浏览器时长产品必须带上耗时假设。套餐价、超额价与试用额度分开列示。</p>'
+    dates = sorted({p.get('verified_at', data['checked_at']) for p in selected}) or [data['checked_at']]
+    checked = ' / '.join(dates)
+    body += '<p class="source-note">' + t('public_prices_checked', 'Official public prices checked: {checked}; USD, excluding regional taxes. These are quote conversions, not the bill for this run. Provider-defined extraction success does not establish benchmark task acceptance.', checked=esc(checked)) + link('pricing.json', '下载价格与来源数据') + '</p>'
     rows = []
     for p in data['providers']:
         if p['id'] not in names:
@@ -75,7 +85,7 @@ def render_pricing(out, names, *, table, cell, link, esc):
         body += '<details class="interface-panel" id="pricing-' + esc(p['id']) + '"><summary>' + esc(p['label']) + ' · ' + esc(p['headline']) + '</summary>'
         body += '<p>' + esc(p['scope']) + '</p>'
         if p.get('verified_at'):
-            body += '<p class="source-note">本条官方资料核验：' + esc(p['verified_at']) + '。</p>'
+            body += '<p class="source-note">' + t('price_entry_verified', 'Official sources for this entry verified: {date}.', date=esc(p['verified_at'])) + '</p>'
         body += '<p class="source-note">' + sources(p) + '</p>'
         if p.get('plans'):
             plans = []
@@ -92,7 +102,7 @@ def render_pricing(out, names, *, table, cell, link, esc):
                               cell(esc(plan['overage']))))
             body += table(['套餐', '每月积分', '月付原价', '年付总额与优惠', '满额每千页（月付 / 年付）', '额度外用量'], plans, cls='pricing-table', metrics=[])
         if p.get('rates'):
-            body += table(p['rate_headers'], [('', ''.join(cell(esc(v)) for v in row)) for row in p['rates']], cls='pricing-table', metrics=[])
+            body += table([esc(value) for value in p['rate_headers']], [('', ''.join(cell(esc(v)) for v in row)) for row in p['rates']], cls='pricing-table', metrics=[])
         body += '<dl class="interface-fields">' + ''.join('<div><dt>' + esc(title) + '</dt><dd>' + esc(text) + '</dd></div>' for title, text in p['terms']) + '</dl>'
         for offer in p.get('offers', []):
             body += '<p><strong>' + esc(offer['label']) + '</strong>：' + esc(offer['text']) + ' ' + link(offer['url'], '官方资格与条款 ↗') + '</p>'

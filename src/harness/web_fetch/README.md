@@ -28,6 +28,39 @@ uv run --frozen lexbench-webfetch export --suite content-scopes-530 --source <ap
 uv run --frozen webstone validate --dataset <new-directory>/dataset.json --content-scope main
 ```
 
+When the approved private export is unavailable, a saved source dataset can
+restore the annotation inputs only if every task matches the annotations' source
+hash. `lexbench-webfetch restore-annotations --suite content-scopes-530 --source
+<source-dataset.json> --output <new-directory>` restores omitted reference text
+by SHA-256, checks the complete public acceptance projection, and retains an
+`input-provenance.json` receipt. These are explicitly derived inputs; the command
+does not claim to reproduce the private export's byte hash.
+
+### Hosted fetch APIs
+
+The existing hosted adapter supports `kimi_fetch` (international URL-only Fetch)
+and `zai_reader` (international Web Reader). Example configurations are optional
+entries in `configs/providers.example.json`; they are not added to its default
+cohort. Z.AI's `embedded_media_keep_img_data_url` applies to image/video web tasks
+only, including body tasks; direct files keep the ordinary setting.
+
+`claude_web_fetch` runs Messages API calls exclusively through its configured
+SSH server; loopback targets are rejected. Install
+`src/harness/web_fetch/workers/claude_fetch_worker.py` at the configured absolute
+remote worker path. Its parent directory must contain the same checkout's `src/`,
+`pyproject.toml`, `uv.lock`, and `.python-version`; prepare core dependencies there
+with `uv sync --frozen --no-dev --no-install-project`. The adapter runs this frozen
+environment with `--no-sync`. Declare the remote repository `.env` and `uv` paths.
+The worker uses the shared dotenv parser and HTTP client, refuses HTTP redirects,
+and checks its source hash, shared runtime hashes, and SSH server address before reading the remote
+repository's `.env`. It never transfers the API key or falls back to local HTTP.
+SSH startup and API work share one caller deadline. The ready handshake anchors
+the remote hard deadline without cross-host clock assumptions or a fixed
+one-second deduction. Cancellation cleanup never extends answer time.
+A fresh message forces the declared Web Fetch tool;
+the final tool result's native text is scored, while all model text remains
+diagnostic. Base64 document results are not replaced by model-generated text.
+
 Use `--score-scope main`, `--score-scope full` or `--score-scope both` with
 `webstone run`, `webstone rescore` or `lexbench-webfetch score`. A single scope
 computes only that rule set and builds a single-view report. When omitted,
@@ -1567,6 +1600,15 @@ it does not upload attachments.
 
 Use `scripts/build_report.py --saved-matrix /absolute/input-spec.json --output /absolute/new-report --language zh` to display saved results across suites.
 
+The specification may bind `result_review` with an explicit path and SHA-256.
+It must use the shared result-review schema, bind the projected dataset and
+results, and include validated coverage counts. The builder checks the review
+before rendering and reproduces its exact source bytes during verification.
+For a failure-only review, `review_protocol.additional_attempt_ids` may explicitly
+include selected saved passes; all other passes remain counted as unreviewed.
+Set `machine_judgments_withheld: false` for an audit with known machine outcomes;
+the report labels that evidence audit separately from independent blind review.
+
 Final presentation requires verified settings for every displayed method/family,
 including unchanged and completion-only groups. Request options must be uniform
 within each declared input class; DNS, timeout and retry budgets must also agree
@@ -1586,6 +1628,9 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 
 - The hash-bound specification declares datasets, providers, selected results and evidenced missing outcomes. Suite-qualified identities preserve original cases and scores. No provider calls, rescoring or certification are added.
 - This mode uses the existing Web Fetch renderer, including datasets, method pages and result/reference comparisons. Missing outcomes have a separate inventory. Keep the HTML pages and evidence directories together.
+- Set `public_evidence_views: true` for a fixed text-output selection when native responses or diagnostic logs need inspectable public copies. The shared privacy owner creates separately hash-bound post-score views; original result records, source artifacts and scores remain immutable. A changed displayed answer must preserve task acceptance. Each evidence scope retains its view inventory and original/public identities, including declared split retries. The source-spec check reproduces these views from originals and rejects altered or missing copies. Scoring-only revisions with unchanged task contracts, call inputs and answer bytes are supported: the public predecessor is an explicitly labeled historical score summary bound to the original record hash, not a historical scorer replay. Original predecessor records remain in private evidence. Parameter candidates, adoptions, changed answer fields and superseded histories are excluded; this option does not weaken acquisition checks or add provider calls.
+- When quoted output passages or resource-URL diagnostics contain sensitive values, the same public-view mode projects only those diagnostic strings in the report copy of `record.json`. A separate `result-diagnostics-view.json` binds its original/public hashes and exact changed fields. All scores, counts, timings, verdicts and other result authority must remain identical; source-backed checks reproduce the projection and reject unrelated changes. Result pages disclose the projection and link its receipt. Original source records remain private and immutable.
+- Optional `pricing` binds an external public price catalog by path and SHA-256. It must cover every selected participant. The report copies it to `report-assets/provider-pricing.json`, renders prices and registered interfaces for the measured cohort, and checks the source bytes again during rebuild validation. Without this binding, historical saved reports retain their explicit unavailable-price state.
 - Optional `report_families` lists ordered `{id, label}` entries for every observed task family. It groups the presentation by task content (including embedded media versus direct files), while preserving suite-qualified evidence identities and all saved scores.
 - A family may set `task_family` and `source_suites` to keep independently frozen populations separate. Selectors must partition all cases exactly once. Set `combined_ranking: false` when cross-population aggregation is not meaningful; the summary then shows per-group results without a combined pass-rate column or rank.
 - Optional `offline_revision` binds a revision `root` and a path/hash `receipt` produced by the existing local revision owner. Its complete predecessor cases and results must match this matrix. The report preserves original rules/results beside revised scores and labels the offline change. Optional `review_files` maps attachment names to JSON path/hash bindings; no provider calls occur during assembly.
@@ -1602,6 +1647,48 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 - Keep complete suite definitions when selecting methods and bind a receipt for every skipped cell. Retain physical retries for each selected logical result. Current-only selection does not establish why earlier results were replaced; corrections still require disclosure of scope and score, denominator and latency effects. Instance specifications, captures and HTML remain outside Git.
 
 ## Report method metadata
+
+A frozen published report can retain its existing pages while adding another
+saved report through the saved-matrix builder. The external specification binds
+`published_base` and `additional_report` roots and audit hashes, a `method_overview`
+path/hash binding, and a reader-facing `comparison_note`. This mode verifies equal
+task-name/URL populations, retains each source's recorded scores and contracts,
+and defaults to no cross-edition ranks or winner highlights. An explicit
+`presentation: ranked` selects descriptive unified ranks and tied extrema over
+all displayed methods, without altering source scores. It also combines analysis
+controls and result rows, method inventories, review history and failure summaries;
+shared-pass latency is recalculated on the complete method intersection. Scoring
+provenance remains on the methodology page. Original pages are retained as
+hash-bound presentation sources. This does not certify
+a common scorer or a controlled collection window. The additional report's full
+result, review and evidence pages remain accessible beneath `additional/`.
+Existing English comparison views are rebuilt through the shared localization
+owner, retaining the original English pages as frozen sources. Every generated
+language must show the same comparison population and valid evidence links;
+evidence uses its frozen English edition when available, otherwise its original
+language.
+
+Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
+`--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with
+`uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE
+--reuse-published PINNED_PACKAGE_DIRECTORY`. The package retains immutable remote
+pack locations and checks every appended file. For an in-place update, pass
+`--replace-site SITE_SLUG` and materialize that site's referenced packs under
+their original paths in the pinned baseline. Packaging verifies their sizes and
+hashes before removing the self references. The uploader rejects surviving self
+references and probes external packs anonymously before sending the package.
+The full published-file check downloads and verifies each pinned external pack.
+Re-uploaded packs must contain only blocks referenced by the current report. If
+an old pack contains unused blocks, retire it and rebuild the files it served. If
+the restored content exceeds the service limit, use `--parts-directory` to
+prepare data attachments and follow the same version binding steps as other
+partitioned reports. Already pinned data on other sites retains its binding. The
+`--retire-pack PACK` option omits a superseded pack entirely and rebuilds every
+file that referenced it from the validated source. Bind the same list in
+`extension_baseline.retired_packs` when publishing a privacy correction. The
+publication profile also binds `extension_baseline.root` and the baseline shell
+file hashes in `extension_baseline.files`; the ordinary site publisher retains its
+explicit target and expected-version checks. Keep all instance bindings outside Git.
 
 Certified Web Fetch reports keep each registered provider's interface example and
 adoption data. `research/provider-adoption.json` holds the public-code adoption statistics. Refresh

@@ -63,8 +63,18 @@ def test_view_rejects_paths_that_could_confuse_original_and_public_evidence(name
 def test_view_does_not_accept_unknown_roles_or_binary_guessing():
     with pytest.raises(ValueError, match='role'):
         project_evidence_view('public-evidence/a.txt', b'a', role='reference')
-    with pytest.raises(UnicodeDecodeError):
-        project_evidence_view('public-evidence/a.txt', b'\xff\xfe', role='native_response')
+    original = b'\xff\xfe'
+    public, receipt = project_evidence_view('public-evidence/a.txt', original, role='native_response')
+    notice = json.loads(public)
+    assert notice['kind'] == 'withheld_non_utf8_native_response'
+    assert notice['original_sha256'] == hashlib.sha256(original).hexdigest()
+    assert notice['original_bytes'] == len(original)
+    assert receipt['redactions']['non_utf8_native_bytes_omitted'] == 1
+    assert receipt['original_sha256'] != receipt['published_sha256']
+    with pytest.raises(ValueError, match='Non-UTF-8 evidence'):
+        project_evidence_view('public-evidence/a.txt', original, role='scored_answer')
+    with pytest.raises(ValueError, match='Non-UTF-8 evidence'):
+        project_evidence_view('public-evidence/a.txt', original, role='native_response', content_format='text')
 
 
 def test_redaction_cannot_merge_distinct_native_metadata_fields():

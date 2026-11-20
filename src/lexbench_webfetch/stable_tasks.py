@@ -165,9 +165,10 @@ def _mark_html_headings(soup, *, include=None):
             heading.insert(0, _HTML_HEADING + heading.name[1] + _HTML_HEADING + ' ')
 
 
-def _visible(text, schema=None, *, normalized_html=False, representation=None):
+def _visible(text, schema=None, *, normalized_html=False, representation=None, anchor_layout=False):
     if representation == 'plain_text':
         return clean_reference_text(text).replace('\r\n', '\n')
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
     from .reference_quality import is_html_document_or_fragment
 
     projected_html = (
@@ -267,8 +268,16 @@ def _visible(text, schema=None, *, normalized_html=False, representation=None):
     spans = _markdown_code_payloads(text, preserve_delimiters=not body_view)
     for start, end, payload in reversed(spans):
         token = marker + str(len(literals)) + '\ue027'
+        # Code line endings are literal, never Markdown soft breaks. Keep
+        # them opaque to the later prose-only newline folding.
+        if body_view and anchor_layout:
+            payload = payload.replace('\n', '\n\n')
         literals[token] = payload
         text = text[:start] + token + text[end:]
+    if body_view and anchor_layout:
+        # Preserve explicit hard breaks before escape decoding and visible
+        # projection erase their trailing-space/backslash syntax.
+        text = re.sub(r'(?: {2,}|\\{1,2})[ \t]*\n', '\n\n', text)
     from .reference_quality import _markdown_unescape
     def rendered_literal(match):
         raw = match[0]
@@ -317,6 +326,9 @@ def _visible(text, schema=None, *, normalized_html=False, representation=None):
         text = "\n".join(line if line.strip() in boundaries
                          else line.replace(_CARD_BOUNDARY, "").replace(_MEDIA_BOUNDARY, "")
                          for line in text.splitlines())
+    if body_view and not normalized_html and not projected_html:
+        from .reference_quality import nested_markdown_emphasis_text
+        text = nested_markdown_emphasis_text(text)
     text = re.sub(r"\*\*|__" if schema in {None, "body_text", "page_identity"} else r"\*\*|__|`", "", text)
     # Link unwrapping may insert boundary spaces inside surrounding emphasis
     # (``*[label](url)*`` becomes ``* label *``). Treat that as the same visible
@@ -1074,13 +1086,19 @@ def _stable_literal_match(surface, value, registered_words=(), *, phrase_boundar
     from .reference_quality import visible_markdown_links
     def normalize_for_match(text):
         if rendered and representation not in {'plain_text', 'html'}:
+            # A Markdown soft break renders as a space, not a new paragraph.
+            # Resolve it before the literal-view normalizer preserves paragraph
+            # boundaries and folds gaps after CJK punctuation.
             text = quoted_scalar_equivalence(unicodedata.normalize('NFKC', text).casefold())
+            text = re.sub(r'(?<=\S)[ \t]*\n(?=[ \t]*\S)', ' ', text)
         text = normalize(text, representation='plain_text' if rendered or representation == 'html' else representation)
         return _LETTER_SPACED_CJK.sub(lambda match: re.sub(r'[ \t]+', '', match[0]), text)
     if not rendered and representation not in {'plain_text', 'html'}:
         surface = visible_markdown_links(surface)
     surface = re.sub(r'(?<=[^\W\d_])(?=\d+\s+of\s+\d+\b)', ' ', surface)
-    expected_value = value if literal else _visible(value, representation='plain_text' if representation == 'html' else representation)
+    expected_value = value if literal else _visible(value,
+        representation='plain_text' if representation == 'html' else representation,
+        anchor_layout=rendered)
     expected = normalize_for_match(expected_value)
     # Only an explicit heading with a trailing fragment URL can supply this
     # additional surface; ordinary word suffixes remain significant.
@@ -1265,7 +1283,7 @@ def _escaped_prose_surface(content, schema):
     prose = content
     for start, end in reversed(markdown_literal_spans(content)):
         prose = prose[:start] + '\u01bb' + prose[end:]
-    return _visible(prose, schema) if escape.search(prose) else ''
+    return _visible(prose, schema, anchor_layout=True) if escape.search(prose) else ''
 
 
 def _native_link_label_surface(content, exclusions):
@@ -1975,6 +1993,24 @@ def evaluate_stable_task(content: str, contract: dict, base_url: str = "", eligi
         anchor_records = _structured_record_view(non_record_content, contract, representation=representation,
             allow_closed_title_cards=allow_closed_title_cards,
             text_patterns=exclusions.get('text_patterns', []))
+    # Literal line boundaries matter to prose-anchor equivalence. Pattern and
+    # record parsers above retain the original visible code line endings.
+    if completed_body_view and not native_html and representation != 'plain_text':
+        visible = _visible(content, schema, representation=representation, anchor_layout=True)
+        if exclusions:
+            from .reference_quality import markdown_heading_text
+            anchor_source = (markdown_heading_text(non_record_content)
+                             if original_markdown_visible is not None else non_record_content)
+            anchor_visible = _visible(anchor_source, schema, representation=representation, anchor_layout=True)
+            if original_markdown_visible is not None:
+                original_markdown_visible = visible
+            for pattern in exclusions.get('text_patterns', []):
+                anchor_visible = re.sub(pattern, ' ', anchor_visible, flags=re.I | re.M)
+                if original_markdown_visible is not None:
+                    original_markdown_visible = re.sub(pattern, ' ', original_markdown_visible, flags=re.I | re.M)
+        elif original_markdown_visible is not None:
+            original_markdown_visible = visible
+            anchor_visible = _visible(heading_text, schema, anchor_layout=True)
     anchors = []
     control_soup = None
     if representation != 'plain_text' and any("visible_control" in a for a in contract.get("stable_text_anchors", [])):

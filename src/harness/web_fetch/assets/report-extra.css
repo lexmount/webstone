@@ -46,6 +46,8 @@
 .change-log section{padding:24px 0}.change-log h2{font-size:24px}.change-log p{margin:10px 0;line-height:1.75}.change-log summary{font-weight:650;color:var(--accent)}.change-log .table-wrap{overflow-x:auto}
 
 #filtered-table.all-method-results{min-width:1280px}
+.table-wrap:has(>#filtered-table){max-height:70vh;overflow:auto;scrollbar-gutter:stable}
+#filtered-table thead th{position:sticky;top:0;z-index:2}
 #filtered-table.all-method-results td:nth-child(2){min-width:180px;white-space:nowrap}
 #filtered-table.all-method-results td:nth-child(3){min-width:260px}
 #filtered-table.all-method-results td:nth-child(4){min-width:120px;white-space:nowrap}

@@ -1,6 +1,7 @@
 """Read the existing report export and optionally verify exact uploaded files."""
 
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -65,6 +66,69 @@ def verify_metadata(slug, base):
     }
 
 
+def verify_external_packs(archive, base, *, target_slug=None, attachment_bindings=None, exact=False):
+    """Check the pinned URLs that readers will use, without publication credentials."""
+    base = validate_service_base(base)
+    with zipfile.ZipFile(archive) as bundle:
+        if 'manifest.json.gz' in bundle.namelist():
+            manifest = json.loads(gzip.decompress(bundle.read('manifest.json.gz')))
+        elif 'manifest.json' in bundle.namelist():
+            manifest = json.loads(bundle.read('manifest.json'))
+        else:
+            manifest = {}
+    requested = {}
+    attachment_bindings = dict(attachment_bindings or {})
+    for name, item in manifest.get('external_packs', {}).items():
+        slug, version = item.get('site_slug'), item.get('version_id')
+        if not isinstance(slug, str) or not slug or not isinstance(version, str) or not version.startswith('ver_'):
+            raise ValueError('External pack lacks a pinned site version: ' + name)
+        url = base + '/api/preview/' + quote(slug, safe='') + '/' + quote(name, safe='/')
+        url += '?' + urlencode({'__artifact_version': version})
+        if item.get('url') != url:
+            raise ValueError('External pack URL differs from its pinned site: ' + name)
+        if slug == target_slug:
+            raise ValueError('External pack depends on the publication target: ' + name)
+        binding = attachment_bindings.pop(name, None)
+        if binding is not None and (slug, version) != (binding['site_slug'], binding['version_id']):
+            raise ValueError('External pack differs from the approved data attachment: ' + name)
+        if exact and (not re.fullmatch('[0-9a-f]{64}', str(item.get('sha256', '')))
+                      or ('bytes' in item and (type(item['bytes']) is not int or item['bytes'] <= 0))):
+            raise ValueError('External pack lacks a pinned hash or has an invalid size: ' + name)
+        requested[name] = (url, item)
+    if attachment_bindings:
+        raise ValueError('Package omitted approved external data attachments')
+
+    def probe(entry):
+        name, (url, item) = entry
+        request = urllib.request.Request(url, headers={} if exact else {'Range': 'bytes=0-1'})
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                if exact:
+                    digest = hashlib.sha256()
+                    count = 0
+                    size = item.get('bytes')
+                    limit = size if size is not None else 300*1024*1024
+                    if response.status != 200:
+                        raise ValueError('External pack did not return the whole file: ' + name)
+                    while chunk := response.read(1024*1024):
+                        count += len(chunk)
+                        if count > limit:
+                            break
+                        digest.update(chunk)
+                    if (count > limit or (size is not None and count != size)
+                            or digest.hexdigest() != item['sha256']):
+                        raise ValueError('External pack bytes differ from the pinned file: ' + name)
+                elif response.status not in (200, 206) or response.read(2) != b'\x1f\x8b':
+                    raise ValueError('External pack is not accessible: ' + name)
+        except (OSError, IncompleteRead) as error:
+            raise ValueError('External pack is not accessible: ' + name) from error
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        for _ in pool.map(probe, requested.items()):
+            pass
+    return len(requested)
+
+
 def verify_public_files(slug, expected_archive, base):
     base = validate_service_base(base)
     endpoint = base + "/api/sites/" + quote(slug, safe="")
@@ -79,6 +143,7 @@ def verify_public_files(slug, expected_archive, base):
         return data
 
     wanted = archive_inventory(expected_archive)
+    verify_external_packs(expected_archive, base, target_slug=slug, exact=True)
     before = metadata()
     with zipfile.ZipFile(expected_archive) as expected:
         expected_html = {}
@@ -148,6 +213,34 @@ def verify_public_files(slug, expected_archive, base):
         injected = served[len(prefix) : len(served) - len(suffix) if suffix else None]
         return known_injection(injected)
 
+    def delivered_html(name, served):
+        """Resolve the host's navigation wrapper, then verify the original bytes."""
+        match = re.search(
+            rb'<script id="artifact-delivery-config" type="application/json">(.*?)</script>',
+            served, re.S,
+        )
+        if not match:
+            return None
+        config = json.loads(match.group(1))
+        root = config.get('root', '')
+        if (not isinstance(root, str) or not root.startswith(base + '/api/delivery/d1.')
+                or not re.fullmatch(r'[A-Za-z0-9._-]+/', root[len(base + '/api/delivery/'):])
+                or config.get('file') != name
+                or config.get('manifestUrl') != root.rstrip('/') + '?__manifest=1'):
+            raise ValueError('Invalid delivery configuration')
+        with urllib.request.urlopen(config['manifestUrl'], timeout=180) as response:
+            manifest = json.load(response)
+        if manifest.get('versionId') != before['version']['id']:
+            raise ValueError('Delivery version differs')
+        matches = [item for item in manifest.get('files', []) if item.get('path') == name]
+        if len(matches) != 1:
+            raise ValueError('Delivery omitted requested HTML')
+        target = urlsplit(matches[0]['url'])
+        if target.scheme != 'https' or not target.hostname or target.username or target.password:
+            raise ValueError('Invalid delivery file URL')
+        with urllib.request.urlopen(matches[0]['url'], timeout=180) as response:
+            return response.read()
+
     def digest(name):
         url = base + "/api/preview/" + quote(slug, safe="") + "/" + quote(name, safe="/")
         for attempt in range(3):
@@ -158,6 +251,9 @@ def verify_public_files(slug, expected_archive, base):
                         digest = hashlib.sha256(served).hexdigest()
                         if digest == wanted[name]:
                             return name, digest, "byte_identical"
+                        delivered = delivered_html(name, served)
+                        if delivered is not None:
+                            return name, hashlib.sha256(delivered).hexdigest(), "delivery_original"
                         if injected_html_matches(name, served):
                             return name, wanted[name], "injected_html"
                         return name, digest, "different"
@@ -189,17 +285,20 @@ def verify_public_files(slug, expected_archive, base):
     if before["version"]["id"] != after["version"]["id"]:
         raise ValueError("Remote version changed during verification")
     exact = sum(layer == "byte_identical" for layer in verification.values())
+    delivered = sum(layer == "delivery_original" for layer in verification.values())
     injected = sum(layer == "injected_html" for layer in verification.values())
     return {
         "version": after["version"]["id"],
         "files": len(actual),
         "anonymous_byte_identical_files": exact,
         "anonymous_injected_html_files": injected,
+        "anonymous_delivery_original_files": delivered,
+        "anonymous_unverified_html_files": delivered,
         "anonymous_all_files_byte_identical": exact == len(actual),
         "authenticated_original_entry_verified": authenticated_entry,
         "submitted_bytes_verified_by_layer": exact + injected == len(actual),
         "method": (
-            "anonymous_file_bytes; injected HTML requires an exact submitted "
+            "anonymous_file_bytes; delivery originals verify downloadable inputs only, not the served HTML wrapper; injected HTML requires an exact submitted "
             "document around validated Artifact Site bootstrap scripts; authenticated "
             "metadata verifies the original entry"
         ),

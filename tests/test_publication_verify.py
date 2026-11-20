@@ -1,3 +1,5 @@
+import gzip
+import hashlib
 import io
 import json
 import tempfile
@@ -15,8 +17,70 @@ from harness.web_fetch.publication_verify import (
     download_export,
     main,
     verify_metadata,
+    verify_external_packs,
     verify_public_files,
 )
+
+
+@pytest.mark.parametrize('status', [206, 200, 404])
+def test_external_pack_probe_uses_anonymous_range(tmp_path, monkeypatch, status):
+    from urllib.error import HTTPError
+    url = 'https://reports.example/api/preview/data-site/data/one.gz?__artifact_version=ver_one'
+    archive = tmp_path/'report.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('manifest.json', json.dumps({'external_packs': {'data/one.gz': {
+            'url': url, 'site_slug': 'data-site', 'version_id': 'ver_one'}}}))
+    seen = []
+
+    def open_request(request, *, timeout):
+        seen.append(request.full_url)
+        assert request.get_header('Range') == 'bytes=0-1'
+        assert request.get_header('Authorization') is None
+        if status == 404:
+            raise HTTPError(url, 404, 'Not found', None, None)
+        response = io.BytesIO(b'\x1f\x8b' if status == 206 else b'<html>')
+        response.status = status
+        return response
+
+    monkeypatch.setattr(urllib.request, 'urlopen', open_request)
+    with pytest.raises(ValueError, match='depends on the publication target'):
+        verify_external_packs(archive, 'https://reports.example', target_slug='data-site')
+    with pytest.raises(ValueError, match='differs from the approved data attachment'):
+        verify_external_packs(archive, 'https://reports.example', attachment_bindings={
+            'data/one.gz': {'site_slug': 'data-site', 'version_id': 'ver_other'}})
+    assert not seen
+    if status != 206:
+        with pytest.raises(ValueError, match='External pack is not accessible: data/one.gz'):
+            verify_external_packs(archive, 'https://reports.example', target_slug='report-site')
+    else:
+        assert verify_external_packs(archive, 'https://reports.example', target_slug='report-site') == 1
+    assert seen == [url]
+
+
+@pytest.mark.parametrize('delivery', ['exact', 'truncated', 'wrong'])
+@pytest.mark.parametrize('pinned_size', [True, False])
+def test_exact_external_pack_verification_checks_full_bytes(tmp_path, monkeypatch, delivery, pinned_size):
+    url = 'https://reports.example/api/preview/data-site/data/one.gz?__artifact_version=ver_one'
+    expected = gzip.compress(b'original', mtime=0)
+    actual = {'exact': expected, 'truncated': expected[:-1], 'wrong': gzip.compress(b'tampered', mtime=0)}[delivery]
+    archive = tmp_path/'report.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('manifest.json', json.dumps({'external_packs': {'data/one.gz': {
+            'url': url, 'site_slug': 'data-site', 'version_id': 'ver_one',
+            **({'bytes': len(expected)} if pinned_size else {}), 'sha256': hashlib.sha256(expected).hexdigest()}}}))
+
+    def open_request(request, *, timeout):
+        assert request.get_header('Range') is None and request.get_header('Authorization') is None
+        response = io.BytesIO(actual)
+        response.status = 200
+        return response
+
+    monkeypatch.setattr(urllib.request, 'urlopen', open_request)
+    if delivery == 'exact':
+        assert verify_external_packs(archive, 'https://reports.example', exact=True) == 1
+    else:
+        with pytest.raises(ValueError, match='bytes differ from the pinned file'):
+            verify_external_packs(archive, 'https://reports.example', exact=True)
 
 
 class PublicationVerifyTests(unittest.TestCase):
@@ -407,3 +471,42 @@ def test_original_json_attachment_is_data_even_when_it_contains_download_keys(tm
         _, path = download_export(request, tmp_path)
     with zipfile.ZipFile(path) as archive:
         assert archive.read('answer.json') == original
+
+@pytest.mark.parametrize('changed', ['none', 'bytes', 'version', 'root', 'wrapper'])
+def test_delivery_wrapper_requires_exact_original_and_version(tmp_path, changed):
+    base = 'https://reports.example'
+    original = b'<html>original report</html>'
+    archive = tmp_path / 'site.zip'
+    with zipfile.ZipFile(archive, 'w') as bundle:
+        bundle.writestr('index.html', original)
+    root = base + '/api/delivery/d1.fixture/'
+    config = {'root': root, 'file': 'index.html',
+              'manifestUrl': root.rstrip('/') + '?__manifest=1'}
+    if changed == 'root':
+        config['root'] = 'https://foreign.example/api/delivery/d1.fixture/'
+    wrapper = ('<script id="artifact-delivery-config" type="application/json">'
+               + json.dumps(config) + '</script>').encode()
+    if changed == 'wrapper':
+        wrapper += b'<p>Different report results</p><script>untrusted()</script>'
+    def response(request, timeout):
+        if not isinstance(request, str):
+            return io.BytesIO(json.dumps({'files': ['index.html'], 'file': 'index.html',
+                'content': original.decode(), 'version': {'id': 'ver_first'}}).encode())
+        if request == config['manifestUrl']:
+            return io.BytesIO(json.dumps({'versionId': 'ver_other' if changed == 'version' else 'ver_first',
+                'files': [{'path': 'index.html', 'url': base + '/raw/index.html'}]}).encode())
+        if request == base + '/raw/index.html':
+            return io.BytesIO(b'wrong' if changed == 'bytes' else original)
+        return io.BytesIO(wrapper)
+    with patch('harness.web_fetch.publication_verify.load_token', return_value='fixture'), \
+         patch('urllib.request.build_opener', lambda *args: SimpleNamespace(open=response)), \
+         patch('urllib.request.urlopen', side_effect=response):
+        if changed in {'none', 'wrapper'}:
+            result = verify_public_files('test', archive, base)
+            assert result['anonymous_delivery_original_files'] == 1
+            assert result['anonymous_unverified_html_files'] == 1
+            assert not result['anonymous_all_files_byte_identical']
+            assert not result['submitted_bytes_verified_by_layer']
+        else:
+            with pytest.raises(ValueError):
+                verify_public_files('test', archive, base)

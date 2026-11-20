@@ -13,6 +13,41 @@
     "crawl4ai-cloud"
   ],
   "providers": {
+    "kimi-fetch": {
+      "type": "kimi_fetch",
+      "log_level": "debug",
+      "api_key": "${MOONSHOT_API_KEY}",
+      "dns_mode": "system",
+      "uniform_native_parameters": true
+    },
+    "zai-reader": {
+      "type": "zai_reader",
+      "log_level": "debug",
+      "api_key": "${ZAI_API_KEY}",
+      "no_cache": true,
+      "return_format": "markdown",
+      "retain_images": true,
+      "no_gfm": false,
+      "keep_img_data_url": false,
+      "embedded_media_keep_img_data_url": true,
+      "with_images_summary": false,
+      "with_links_summary": false,
+      "dns_mode": "system",
+      "uniform_native_parameters": true
+    },
+    "claude-web-fetch": {
+      "type": "claude_web_fetch",
+      "log_level": "debug",
+      "ssh_host": "${CLAUDE_FETCH_SSH_HOST}",
+      "ssh_server_ip": "${CLAUDE_FETCH_SSH_SERVER_IP}",
+      "remote_worker": "${CLAUDE_FETCH_REMOTE_WORKER}",
+      "remote_env_file": "${CLAUDE_FETCH_REMOTE_ENV}",
+      "remote_uv": "${CLAUDE_FETCH_REMOTE_UV}",
+      "model": "claude-haiku-5-5",
+      "max_tokens": 1024,
+      "dns_mode": "system",
+      "uniform_native_parameters": true
+    },
     "crawl4ai-cloud": {
       "type": "crawl4ai_cloud",
       "api_key": "${CRAWL4AI_CLOUD_API_KEY}",

@@ -24,6 +24,77 @@ from harness.web_fetch.publication_privacy import (
 )
 
 
+def test_publication_rejects_execution_addresses_without_filtering_source_prose():
+    import html
+    private = json.dumps({'provider_metadata': {'execution_ssh_server': '10.0.0.42'}})
+    assert publication_risk(private.encode()) == 'internal execution address'
+    assert publication_risk(f'<pre>{html.escape(private)}</pre>'.encode()) == 'internal execution address'
+    assert publication_risk(b'{"execution_server":"fd00::42"}') == 'internal execution address'
+    assert publication_risk(b'{"remote_execution_server":"10.0.0.42"}') == 'internal execution address'
+    assert publication_risk(b'{"execution_location":"configured_ssh_worker"}') is None
+    assert publication_risk(b'A network example uses address 10.0.0.42.') is None
+
+
+def test_nested_response_urls_in_json_keys_are_redacted_in_real_log_views():
+    from harness.web_fetch.publication_privacy import project_evidence_view
+    url = 'https://example.test/player?token=synthetic-secret&format=video'
+    nested = {url:{'status':'denied','code':403}}
+    raw = (json.dumps({'source':'caller','body':json.dumps(nested)})+'\n').encode()
+    public, receipt = project_evidence_view('public-evidence/debug.jsonl',raw,role='diagnostic_log')
+    decoded = json.loads(json.loads(public)['body'])
+    assert list(decoded.values()) == list(nested.values())
+    assert 'synthetic-secret' not in public.decode()
+    assert '&format=video' in next(iter(decoded))
+    assert receipt['original_sha256'] == hashlib.sha256(raw).hexdigest()
+    assert receipt['published_sha256'] == hashlib.sha256(public).hexdigest()
+    assert publication_risk(public) is None
+
+
+def test_redaction_rejects_colliding_json_keys_instead_of_dropping_a_response():
+    raw = json.dumps({'https://example.test/?token=first':1,
+                      'https://example.test/?token=second':2}).encode()
+    with pytest.raises(ValueError,match='merge distinct JSON keys'):
+        project_file('response.json',raw)
+
+
+def test_multiline_debug_views_redact_decoded_nested_responses():
+    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    rows = [{'event':'request_started'}, {'body': json.dumps({'token':'synthetic-secret',
+        'data':{'status':403,'reason':'retained failure'}})}, {'event':'request_finished'}]
+    raw = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
+    public, receipt = project_evidence_view('public-evidence/debug.jsonl',raw,role='diagnostic_log')
+    decoded = [json.loads(line) for line in public.splitlines()]
+    assert decoded[0] == rows[0] and decoded[-1] == rows[-1]
+    assert json.loads(decoded[1]['body'])['data'] == {'status':403,'reason':'retained failure'}
+    assert 'synthetic-secret' not in public.decode()
+    assert publication_file_risk('debug.jsonl',public) is None
+    assert all(publication_risk(json.dumps(row).encode()) is None for row in decoded)
+    assert receipt['provider_calls_added'] == 0
+
+
+def test_result_diagnostic_views_reject_changes_outside_quoted_output():
+    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    raw = json.dumps({'metrics':{'content_pass':True,'authorization':'Bearer synthetic-secret'}}).encode()
+    with pytest.raises(ValueError,match='non-diagnostic authority'):
+        project_result_diagnostics('record.json',raw)
+    with pytest.raises(ValueError,match='non-diagnostic authority'):
+        project_result_diagnostics('record.json',json.dumps({'error_message':'Authorization: Bearer synthetic-secret'}).encode())
+
+
+def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
+    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    event = json.dumps({'event':'native_response','body':json.dumps({'token':'synthetic-secret',
+        'message':'first\u2028second'},ensure_ascii=False)},ensure_ascii=False)
+    raw = (event+'\n--- native file log ---\nActual native failure at /Users/fixture/worker.py\n').encode()
+    public, receipt = project_evidence_view('public-evidence/debug.txt',raw,role='diagnostic_log')
+    first = json.loads(public.split(b'\n',1)[0])
+    assert json.loads(first['body'])['message'] == 'first\u2028second'
+    assert 'synthetic-secret' not in public.decode() and '/Users/fixture' not in public.decode()
+    assert '--- native file log ---\nActual native failure' in public.decode()
+    assert publication_file_risk('debug.txt',public) is None
+    assert receipt['role'] == 'diagnostic_log'
+
+
 @pytest.mark.parametrize('scheme', ['https', 'http', 'wss', 'ws'])
 def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme):
     from harness.web_fetch.publication_privacy import project_evidence_view

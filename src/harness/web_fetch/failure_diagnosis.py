@@ -3,7 +3,10 @@
 import json
 import re
 
-from lexbench_webfetch.metrics import task_measured
+from markdown_it import MarkdownIt
+
+from lexbench_webfetch.metrics import task_measured, task_passed
+from lexbench_webfetch.reference_quality import blocked_page_hits, visible_markdown_links
 
 from harness.web_fetch.report_i18n import t
 
@@ -36,7 +39,131 @@ def _timeout_error(message, error_type):
     return bool(re.search(r'timed out|\btimeout\b(?!["\']?\s*[:=])|deadline exceeded', message, re.I))
 
 
-def _stable_failure(metrics):
+def _returned_page_failure(raw, case, metrics):
+    """Identify an observed gate or shell before downstream contract failures.
+
+    These labels explain a failed delivery; they never change task acceptance.
+    A title inside a documentation example is not evidence of an access gate.
+    """
+    frontmatter = re.match(r'\A\s*---\s*\n.*?\n---\s*(?:\n|$)', raw, re.S)
+    # Horizontal rules can enclose a real directory/code listing. Require a
+    # metadata key before treating the entire enclosure as front matter.
+    if frontmatter and not re.search(r'(?m)^[\w.-]+\s*:\s*\S', frontmatter.group()):
+        frontmatter = None
+    body = raw[frontmatter.end():] if frontmatter else raw
+    body = body.replace('\r\n', '\n').replace('\r', '\n')
+    reference = case.get('ground_truth_main_content') or ''
+    full_visible = visible_markdown_links(body).strip()
+    # Short examples in technical articles are content, not proof of a shell.
+    # Keep original line boundaries while removing fenced/indented code blocks.
+    lines = body.split('\n')
+    has_code = False
+    for token in MarkdownIt('commonmark').parse(body):
+        if token.type in {'fence', 'code_block'} and token.map:
+            code_lines = [line.strip() for line in token.content.split('\n') if line.strip()]
+            # Identifier-only diagnostics accompany real gates too; they do
+            # not establish delivery of the requested implementation/content.
+            diagnostic_only = bool(code_lines) and all(re.fullmatch(
+                r'(?i)(?:(?:request|trace|correlation)[-_ ]?id|cf-ray)\s*[:=]\s*\S+', line)
+                for line in code_lines)
+            has_code = has_code or bool(code_lines and not diagnostic_only)
+            for index in range(*token.map):
+                lines[index] = ''
+    diagnostic_body = '\n'.join(lines)
+    visible = visible_markdown_links(diagnostic_body).strip()
+    normalize = lambda value: re.sub(r'\s+', ' ', value).strip().casefold()
+    if full_visible and normalize(full_visible) in normalize(visible_markdown_links(reference)):
+        return None
+    reference_hits = {hit.casefold() for hit in blocked_page_hits(reference)}
+    hits = [hit for hit in blocked_page_hits(diagnostic_body) if hit.casefold() not in reference_hits]
+    # Standalone error headings in long technical documents are not gates.
+    gate = bool(hits and (metrics.get('blocked_page') or len(visible) <= 4000))
+    circle_gate = (len(visible) <= 1500 and re.search(
+        r'click (?:on )?the flickering circle to continue', visible, re.I)
+        and not re.search(r'click (?:on )?the flickering circle to continue', reference, re.I))
+    anubis = (len(visible) <= 6000 and (re.search(
+        r'protected by anubis|has set up anubis to protect', visible, re.I) or re.search(
+        r'/\.within\.website/x/cmd/anubis/|/\.cerberus/static/', diagnostic_body, re.I))
+        and re.search(r'access denied|filtering rules|administrator has misconfigured|'
+                      r'why am i seeing this|making sure|calculating|click the circle|'
+                      r'protect.{0,60}(?:server|website)|not a bot|circle challenge|'
+                      r'this website is running anubis|measure against bots|difficulty\s*:', visible, re.I | re.S)
+        and not re.search(r'protected by anubis', reference, re.I))
+    if not has_code and (gate or anubis or circle_gate):
+        return {'category': t('returned_access_gate', 'Returned verification or access-block page'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': (hits[0] if hits else visible[:500]),
+                'certainty': t('returned_gate_boundary', 'The saved answer contains an access gate; this does not identify which remote component triggered it.')}
+    # A navigation login link and a footer email address do not establish a
+    # login gate. Require the returned page to lead with the login heading and
+    # contain a standalone credential field, not a keyword anywhere in its body.
+    if not has_code and len(full_visible) <= 5000 and re.match(
+            r'(?im)\A\s*(?:#{1,6}\s*)?(?:sign in|log in|login|登录|登入)[ \t]*[.!:：]?[ \t]*(?:\n|$)', visible):
+        if re.search(r'(?im)^[ \t]*(?:password|email address|email or username|邮箱|密码)[ \t]*[:：]?[ \t]*$', visible):
+            return {'category': t('returned_login_page', 'Returned login page'),
+                    'stage': t('content_delivery', 'Content delivery'),
+                    'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    loading_only = re.fullmatch(
+        r'(?i)\s*(?:#{1,6}\s*)?(?:please wait\.{0,3}|loading\.{0,3}|'
+        r'Chargement des statistiques[.…]*)\s*', full_visible)
+    notice_lines = ([line.strip() for line in full_visible.split('\n') if line.strip()]
+                    if len(full_visible) <= 1000 else [])
+    if len(notice_lines) > 1 and re.fullmatch(r'[A-Za-z][A-Za-z \t]{0,50}', notice_lines[0]):
+        notice_lines = notice_lines[1:]
+    while notice_lines and re.match(r'^#{1,6}[ \t]+', notice_lines[0]):
+        notice_lines = notice_lines[1:]
+    js_only = len(notice_lines) == 1 and re.fullmatch(
+            r'(?i)(?:you (?:need|must) (?:to )?enable javascript[^\n]*|'
+            r'please enable javascript[^\n]*|javascript must be enabled[^\n]*|'
+            r'enable javascript to (?:see|view)[^\n]*)', notice_lines[0])
+    browser_notice = re.fullmatch(
+            r'(?is)\s*The [^\n.]{1,100} application supports [^\n.]*browsers[^\n.]*\.'
+            r'\s*Javascript must be enabled[^\n.]*\.'
+            r'\s*To access [^\n]*without using javascript[^\n]*\s*', full_visible)
+    if not has_code and len(full_visible) <= 1000 and (loading_only or js_only or browser_notice):
+        return {'category': t('returned_loading_shell', 'Returned loading or JavaScript prompt only'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if frontmatter and not body.strip():
+        return {'category': t('returned_metadata_only', 'Returned page metadata without body'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': raw[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    if not has_code and len(full_visible) <= 700 and re.fullmatch(
+            r'This page has moved to\s+https?://\S+\.?', visible, re.I):
+        return {'category': t('returned_move_notice', 'Returned page-moved notice without target content'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible,
+                'certainty': t('move_notice_boundary', 'The answer contains a move notice, not the requested page content. This alone does not establish whether the provider followed an HTTP redirect.')}
+    if not has_code and len(full_visible) <= 500 and re.match(
+            r'\AThis deployment is temporarily paused(?:\s|$)', visible, re.I):
+        return {'category': t('returned_deployment_paused', 'Returned deployment-paused notice'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible,
+                'certainty': t('direct_response_basis', 'Direct-response basis')}
+    media_text = re.sub(r'(?m)^#{1,6}[ \t]+[^\n]*$', '', full_visible).strip()
+    browser_page = (len(full_visible) <= 1500 and re.match(
+        r'\A\s*(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*\n', full_visible)
+        and re.search(r'已无法正常访问此页面', full_visible)
+        and re.search(r'升级(?:您的)?浏览器|下载[^\n]*客户端', full_visible)
+        and all(re.fullmatch(
+            r'(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*|'
+            r'(?:亲爱的小伙伴[，,]\s*)?您(?:当前使用的)?浏览器版本过低[^\n]*|'
+            r'下载[^\n]*客户端|支持[^\n]*系统|升级(?:您的)?浏览器|'
+            r'[-*]\s*(?:Chrome|Firefox|Edge|Opera)[^\n]*|©[^\n]*', line.strip())
+            for line in full_visible.split('\n') if line.strip()))
+    if not has_code and (browser_page or re.fullmatch(
+            r"\s*(?:your browser (?:does not|doesn't) support html5 video[.!]?"
+            r'(?:\s*Here is a link(?: to the video)? instead[.!]?)?|'
+            r'(?:#{1,6}\s*)?您的浏览器版本过低[^\n]*\n\s*'
+            r'(?:亲爱的小伙伴[，,]\s*)?您(?:当前使用的)?浏览器版本过低[，,]\s*'
+            r'已无法正常访问此页面[。.]\s*请升级浏览器[。.]?)\s*', media_text, re.I)):
+        return {'category': t('returned_media_fallback', 'Returned media compatibility fallback'),
+                'stage': t('content_delivery', 'Content delivery'),
+                'evidence': visible[:500], 'certainty': t('direct_response_basis', 'Direct-response basis')}
+    return None
+
+
+def _stable_failure(metrics, case):
     """Describe measured contract errors; never infer a shortfall by default."""
     errors = metrics.get('stable_task_errors', [])
     if 'page_identity_mismatch' in errors or any(e.startswith('missing_stable_anchor:') for e in errors):
@@ -55,29 +182,129 @@ def _stable_failure(metrics):
     maximum = metrics.get('stable_maximum_records')
     if maximum is not None:
         counts += t('at_most_allowed', ', at most {maximum} allowed', maximum=maximum)
-    return label, t('content_validation', 'Content validation'), f"{counts}。规则：{', '.join(errors) or t('no_specific_error_provided', 'No specific error provided')}"
+    if metrics.get('stable_minimum_records') == 0:
+        counts = ''
+    anchors = {item['id']: item.get('alternatives', [])
+               for item in (case.get('acceptance_contract') or {}).get('stable_text_anchors', [])}
+    missing = [error.split(':', 1)[1] for error in errors if error.startswith('missing_stable_anchor:')]
+    details = [name + ': ' + ' / '.join(anchors.get(name, []))[:200] for name in missing]
+    proof = t('failed_contract_rules', 'Failed rules: {rules}', rules=', '.join(errors) or t('no_specific_error_provided', 'No specific error provided'))
+    return label, t('content_validation', 'Content validation'), ' '.join(x for x in [counts, proof, '; '.join(details)] if x)
 
 
-def diagnose(r,c,raw):
+def _native_failure(payload, case):
+    """Describe explicit native errors without inferring hidden service causes."""
+    error = payload.get('error')
+    certainty = t('direct_response_basis', 'Direct-response basis')
+    category = stage = evidence = None
+    if isinstance(error, dict) and error.get('type') == 'security_risk':
+        category = t('method_safety_restriction', 'Method safety restriction')
+        stage = t('method_security_policy', 'Method security policy')
+        evidence = json.dumps(error, ensure_ascii=False)
+    elif (isinstance(error, dict) and error.get('type') == 'invalid_request_error'
+          and re.search(r'prompt is too long:\s*\d+\s*tokens\s*>\s*\d+', str(error.get('message', '')), re.I)):
+        category = t('model_input_limit_exceeded', 'Model input limit exceeded')
+        stage = t('model_context', 'Model context')
+        evidence = str(error['message'])
+    elif isinstance(error, dict) and error.get('type') == 'markdown_not_found':
+        category = t('body_extraction_empty', 'Body extraction empty')
+        stage = t('content_extraction', 'Content extraction')
+        evidence = json.dumps(error, ensure_ascii=False)
+    else:
+        blocks = payload.get('content', [])
+        results = [(index, block) for index, block in enumerate(blocks)
+                   if isinstance(block, dict) and block.get('type') == 'web_fetch_tool_result'] if isinstance(blocks, list) else []
+        result = None
+        if results:
+            selected, envelope = results[-1]
+            identifier = envelope.get('tool_use_id')
+            calls = [(index, block) for index, block in enumerate(blocks)
+                     if isinstance(block, dict) and block.get('type') == 'server_tool_use']
+            matches = [index for index, block in calls if block.get('id') == identifier]
+            if (any(not isinstance(block, dict) for block in blocks)
+                    or not isinstance(identifier, str) or not identifier or len(matches) != 1
+                    or matches[0] >= selected or not case.get('url')
+                    or any(block.get('name') != 'web_fetch' or not isinstance(block.get('input'), dict)
+                           or block['input'].get('url') != case['url'] for _, block in calls)):
+                return {'category': t('response_validation_failed', 'Response validation failed'),
+                        'stage': t('response_validation', 'Response validation'),
+                        'evidence': 'web_fetch result is not bound to one preceding invocation for the requested URL',
+                        'certainty': certainty}
+            result = envelope.get('content')
+        if isinstance(result, dict) and result.get('type') == 'web_fetch_tool_result_error':
+            code = result.get('error_code')
+            if code == 'url_not_allowed':
+                category = t('method_safety_restriction', 'Method safety restriction')
+                stage = t('method_security_policy', 'Method security policy')
+            elif code == 'too_many_requests':
+                category = t('fetch_tool_rate_limit', 'Fetch tool reported a rate limit')
+                stage = t('provider_retrieval', 'Provider retrieval')
+            elif code == 'url_not_accessible':
+                category = t('fetch_tool_http_failure', 'Fetch tool could not access URL')
+                stage = t('provider_retrieval', 'Provider retrieval')
+            if category:
+                evidence = json.dumps(result, ensure_ascii=False)
+                certainty = t('native_tool_error_boundary', 'The native tool reported this code; it does not identify the responsible internal component or establish that the origin is unavailable to everyone.')
+        elif isinstance(result, dict) and result.get('type') == 'web_fetch_result':
+            document = result.get('content')
+            source = document.get('source') if isinstance(document, dict) else None
+            if isinstance(source, dict) and source.get('type') == 'base64' and source.get('media_type') == 'application/pdf':
+                category = t('native_pdf_without_text', 'Native PDF returned without task text')
+                stage = t('content_delivery', 'Content delivery')
+                evidence = 'web_fetch_result; source.type=base64; source.media_type=application/pdf'
+            elif isinstance(source, dict) and source.get('type') == 'text' and source.get('data') == '':
+                category = t('body_extraction_empty', 'Body extraction empty')
+                stage = t('content_delivery', 'Content delivery')
+                evidence = 'web_fetch_result; source.type=text; source.data=""'
+    return ({'category': category, 'stage': stage, 'evidence': evidence[:650], 'certainty': certainty}
+            if category else None)
+
+
+def diagnose(r,c,raw,*,native_raw=None):
     if not task_measured(r['metrics'], c.get('task_kind')):
         return None
-    try:payload=json.loads(raw)
+    try:payload=json.loads(native_raw if native_raw is not None else raw)
     except (ValueError,TypeError):payload={}
     if not isinstance(payload,dict):payload={}
     nested=payload.get('error') or {}
     if not isinstance(nested,dict):nested={}
     meta=r.get('provider_metadata',{});m=r['metrics']
+    if task_passed(r['ok'], m, c.get('task_kind')):
+        return None
     fragments=[str(r.get('error_type') or ''),str(r.get('error_message') or '')]
-    if not r['ok']:fragments.extend([raw[:3000],json.dumps(meta.get('errors') or [],ensure_ascii=False)[:1000]])
+    if not r['ok']:fragments.extend([(native_raw if native_raw is not None else raw)[:3000],json.dumps(meta.get('errors') or [],ensure_ascii=False)[:1000]])
     message=' '.join(fragments);low=message.lower()
     upstream=nested.get('upstream_status_code') or meta.get('upstream_status')
     category=None;stage='';proof='';certainty=t('direct_response_basis', 'Direct-response basis')
+    if r['ok'] and not task_passed(r['ok'], m, c.get('task_kind')):
+        returned = _returned_page_failure(raw, c, m)
+        if returned and not m.get('deadline_overrun'):
+            return returned
     def set_result(label,where,evidence):return label,where,evidence
     if m.get('deadline_overrun'):
         category,stage,proof=set_result(t('end_to_end_deadline_exceeded', 'End-to-end deadline exceeded'),t('call_deadline', 'Call deadline'),t('the_actual_latency_exceeded_the_budget_registered', 'The actual latency exceeded the budget registered for this call; the original content and timing are kept, but it does not count as on-time delivery.'))
     elif meta.get('empty_content'):
         category,stage,proof=set_result(t('body_extraction_empty', 'Body extraction empty'),t('content_extraction', 'Content extraction'),t('the_interface_succeeded_but_the_returned_result', 'The interface succeeded, but the returned result is empty; response type: {value}', value=str(meta.get('content_type') or t('not_provided', 'Not provided'))))
     elif not r['ok']:
+        native = _native_failure(payload, c)
+        if native:
+            return native
+        api_status = meta.get('api_http_status')
+        if r.get('error_type') == 'empty_content':
+            return {'category': t('body_extraction_empty', 'Body extraction empty'),
+                    'stage': t('content_delivery', 'Content delivery'),
+                    'evidence': t('native_empty_content_evidence', 'The API response did not supply nonempty text in the declared answer field.'),
+                    'certainty': certainty}
+        if api_status == 400 and not upstream:
+            return {'category': t('api_rejected_request', 'API rejected the request'),
+                    'stage': t('service_interface', 'Service interface'),
+                    'evidence': (native_raw if native_raw is not None else raw)[:500],
+                    'certainty': t('api_bad_request_boundary', 'The API returned HTTP 400. This does not by itself establish that the caller used a malformed parameter or that the input type is unsupported.')}
+        if isinstance(api_status, int) and api_status >= 500 and not upstream:
+            return {'category': t('api_returned_server_error', 'API returned server error'),
+                    'stage': t('service_interface', 'Service interface'),
+                    'evidence': t('api_server_error_evidence', 'API HTTP {status}: {body}', status=api_status, body=(native_raw if native_raw is not None else raw)[:500]),
+                    'certainty': t('api_server_error_boundary', 'The API returned this server error; caller evidence does not identify the failing component behind it.')}
         output_error = _unsupported_output_error(message)
         if output_error:
             category,stage,proof=set_result(t('required_output_format_unsupported', 'Required output format unsupported'),t('content_delivery', 'Content delivery'),output_error.group(0)[:650])
@@ -138,9 +365,8 @@ def diagnose(r,c,raw):
         category,stage,proof=set_result(
             t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),
             t('the_provider_explicitly_declares_that_the_returned', 'The provider explicitly declares that the returned body is truncated: {join}', join=', '.join(m['declared_truncation_hits'])))
-    elif 'stable_task_pass' in m:
-        if not m.get('stable_task_pass'):
-            category,stage,proof=_stable_failure(m)
+    elif 'stable_task_pass' in m and not m.get('stable_task_pass'):
+        category,stage,proof=_stable_failure(m,c)
     elif c.get('task_kind')=='structure':
         if m.get('named_entry_count',0) < m.get('minimum_entries',3):
             category,stage,proof=set_result(t('insufficient_valid_records', 'Insufficient valid records'),t('content_validation', 'Content validation'),t('found_named_detail_entries_at_least_required', 'Found {get} named detail entries; at least {get2} required', get=m.get('named_entry_count', 0), get2=m.get('minimum_entries', 3)))
@@ -173,7 +399,20 @@ def diagnose(r,c,raw):
         else:category,stage,proof=set_result(t('required_resource_missing', 'Required resource missing'),t('resource_validation', 'Resource validation'),t('no_registered_target_resource_was_found', 'No registered target resource was found.'))
     elif c.get('task_kind','body')=='body' and not m.get('content_pass'):
         if m.get('body_coverage_pass') is False:
-            category,stage,proof=set_result(t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),(t('body_region_coverage_requirement_not_met', 'Body-region coverage requirement not met:') + f"{', '.join((x['id'] for x in m.get('body_region_results', []) if not x['pass']))}"))
+            regions = [x['id'] for x in m.get('body_region_results', []) if not x['pass']]
+            proof = t('body_region_coverage_requirement_not_met', 'Body-region coverage requirement not met:') + ', '.join(regions)
+            if m.get('body_required_target_regions') is not None:
+                proof += ' ' + t('body_target_region_count', 'Regions reaching target coverage: {actual}/{required} required.',
+                    actual=m.get('body_target_regions'), required=m['body_required_target_regions'])
+            category,stage,proof=set_result(t('incomplete_body_coverage', 'Incomplete body coverage'),t('content_validation', 'Content validation'),proof)
+        elif m.get('document_structure_pass') is False:
+            headings = c.get('document_structure', {}).get('headings', [])
+            failed = [x['id'] for x in m.get('document_heading_results', []) if not x['pass']]
+            labels = {h.get('id', f'section-{i+1}'): h['text'] for i, h in enumerate(headings)}
+            category,stage,proof=set_result(t('document_sections_incomplete', 'Required document sections not recognized'),
+                t('content_validation', 'Content validation'),
+                t('document_section_evidence', 'Section heading/body checks failed: {sections}. Returned headings may differ; inspect the complete answer.',
+                  sections=', '.join(labels.get(item, item) for item in failed)))
         elif not m.get('length_pass'):
             category,stage,proof=set_result(t('insufficient_body_text', 'Insufficient body text'),t('content_validation', 'Content validation'),t('extracted_body_text_did_not_reach_this', "Extracted body text did not reach this task's minimum length"))
         elif any(not f['pass'] for f in m.get('fact_results',[])):
@@ -186,5 +425,21 @@ def diagnose(r,c,raw):
         elif any(not p['pass'] and p['count'] < p['minimum'] for p in m.get('pattern_results',[])):
             category,stage,proof=set_result(t('insufficient_valid_records', 'Insufficient valid records'),t('content_validation', 'Content validation'),t('count_checks_not_met', 'Count checks not met: {join}', join=', '.join((t('found_at_least_required', '{id} found {count}, at least {minimum} required', id=p['id'], count=p['count'], minimum=p['minimum']) for p in m['pattern_results'] if not p['pass']))))
         else:category,stage,proof=set_result(t('incomplete_content_structure', 'Incomplete content structure'),t('content_validation', 'Content validation'),t('this_task_s_field_or_count_rules', "This task's field or count rules were not met; see the item-by-item verdict"))
+    if not category or category == t('incomplete_content_structure', 'Incomplete content structure'):
+        checks = m.get('acceptance_checks') or {}
+        failed = [key for key, value in checks.items() if value is False]
+        if failed:
+            labels = {
+                'article_title': t('article_title_component_missing', 'Standalone article title not delivered'),
+                'article_comments': t('article_comments_incomplete', 'Required comments or replies incomplete'),
+                'article_posts': t('article_posts_incomplete', 'Required post records incomplete'),
+                'composite': t('required_components_incomplete', 'Required page components incomplete'),
+            }
+            category = next((labels[key] for key in failed if key in labels),
+                            t('required_components_incomplete', 'Required page components incomplete'))
+            stage = t('content_validation', 'Content validation')
+            proof = t('failed_contract_rules', 'Failed rules: {rules}', rules=', '.join(failed))
+            if 'article_title' in failed and r.get('title'):
+                proof += ' ' + t('generic_title_field_evidence', 'Returned page-title field: {title}. A generic document title is not the separately declared article-title component.', title=r['title'][:300])
     if not category:return None
     return {'category':category,'stage':stage,'evidence':proof,'certainty':certainty}

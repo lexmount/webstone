@@ -169,6 +169,49 @@ def native_answer_projection(provider_type, case, payload, status_code=None, *, 
                     **({'files': {'format': 'raw_bytes'}} if successful_http else {})}
         return {'schema_version': 2, 'source_format': 'bytes',
                 'content_format': 'utf8' if successful_http else 'empty'}
+    if provider_type == 'claude_web_fetch':
+        blocks = payload.get('content', [])
+        malformed = not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks)
+        blocks = [] if malformed else blocks
+        selected = None
+        target_url = case.get('url') if isinstance(case, dict) else case.url
+        for index, block in enumerate(blocks if isinstance(blocks, list) else []):
+            if block.get('type') != 'web_fetch_tool_result':
+                continue
+            # The final tool result is authoritative, including a failed retry.
+            selected = None
+            result = _object(block.get('content'))
+            source = _object(_object(result.get('content')).get('source'))
+            if (block.get('type') == 'web_fetch_tool_result' and result.get('type') == 'web_fetch_result'
+                    and source.get('type') == 'text' and isinstance(source.get('data'), str)):
+                selected = index
+        result_id = blocks[selected].get('tool_use_id') if selected is not None else None
+        invocations = [index for index, block in enumerate(blocks)
+                       if block.get('type') == 'server_tool_use' and block.get('id') == result_id]
+        invalid = (not successful_http or selected is None
+                   or malformed
+                   or not isinstance(result_id, str) or not result_id
+                   or len(invocations) != 1 or invocations[0] >= selected
+                   or not any(b.get('type') == 'server_tool_use' for b in blocks)
+                   or any(b.get('name') != 'web_fetch' or not isinstance(b.get('input'), dict)
+                          or _object(b.get('input')).get('url') != target_url
+                          for b in blocks if b.get('type') == 'server_tool_use'))
+        return {'schema_version': 2, 'content_format': 'empty' if invalid else 'text',
+                **({'content_pointer': ['content', selected, 'content', 'content', 'source', 'data']}
+                   if not invalid else {}), 'optional_content': True,
+                **({'result_fields': {
+                    'title': {'pointer': ['content', selected, 'content', 'content', 'title'], 'format': 'text_or_none'},
+                    'final_url': {'pointer': ['content', selected, 'content', 'url'], 'format': 'text_or_none'}}}
+                   if not invalid else {})}
+    if provider_type in {'kimi_fetch', 'zai_reader'}:
+        prefix = ['reader_result'] if provider_type == 'zai_reader' else []
+        answer = _object(payload.get('reader_result')) if prefix else payload
+        field = 'markdown' if provider_type == 'kimi_fetch' else 'content'
+        return {'schema_version': 2, 'content_pointer': [*prefix, field],
+                'content_format': 'text' if successful_http and isinstance(answer.get(field), str) else 'empty',
+                'optional_content': True, 'result_fields': {
+                    key: {'pointer': [*prefix, source], 'format': 'text_or_none'}
+                    for key, source in (('title', 'title'), ('final_url', 'url'))}}
     if provider_type in {'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'crawl4ai_cloud'}:
         field = ('body' if provider_type == 'browser_use_fetch' else
                  'markdown' if provider_type == 'crawl4ai_cloud' else 'content')
