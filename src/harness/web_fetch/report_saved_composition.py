@@ -452,7 +452,7 @@ def _home_method_summary(page, prices=None):
             price = '—'
         if override and override.get('billing'):
             billing = override['billing']
-            paragraph = cells[-1].find('p')
+            paragraph = cells[-1].select_one('.method-billing p') or cells[-1].find('p')
             if paragraph is None:
                 paragraph = page.new_tag('p')
                 cells[-1].append(paragraph)
@@ -460,6 +460,9 @@ def _home_method_summary(page, prices=None):
             translated = page.new_tag('span', attrs={'data-report-en': billing['en']})
             translated.string = billing['zh']
             paragraph.append(translated)
+            scope = cells[-1].select_one('.method-price-scope')
+            if scope and scope is not paragraph:
+                scope.decompose()
             overview_price = cells[-1].select_one('.method-price')
             if overview_price:
                 overview_price.string = price

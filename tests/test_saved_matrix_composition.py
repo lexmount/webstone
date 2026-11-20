@@ -1051,7 +1051,8 @@ def test_bound_billing_replaces_stale_method_overview_price_and_terms():
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import _home_method_summary
     page = BeautifulSoup('<table id="method-overview"><tbody><tr><td><a href="providers/example.html">Example</a>API</td>'
-        '<td>Default</td><td><span class="method-price">$0.25</span><p>Old billing</p><a href="https://example.com">Source</a></td>'
+        '<td>Default</td><td><span class="method-price">$0.25</span><p class="method-price-scope">Old scope</p>'
+        '<details class="method-billing"><p>Old billing</p><a href="https://example.com">Source</a></details></td>'
         '</tr></tbody></table><table id="ranking-overall"><thead><tr></tr></thead>'
         '<tbody><tr><td><a href="providers/example.html">Example</a></td></tr></tbody></table>', 'html.parser')
     _home_method_summary(page, {'example': {'price': '$0.05–$2.00 / 1,000 requests', 'billing_mode': 'difficulty',
