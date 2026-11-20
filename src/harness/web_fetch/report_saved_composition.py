@@ -316,6 +316,7 @@ def _shared_presentations(output):
     try:
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall,
+                'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
@@ -392,12 +393,13 @@ def _unified_home(page, base_model, added_model, presentation):
         if Path(link['href']).stem in added_ids:
             link['href'] = 'additional/' + link['href']
     _model_fetch_badges(page)
-    _home_method_summary(page)
+    _home_method_summary(page, presentation.get('method_prices', {}))
 
 
-def _home_method_summary(page):
+def _home_method_summary(page, prices=None):
     """Reuse the saved method overview for compact ranking prices and routes."""
     methods = {}
+    prices = prices or {}
     overview = page.select_one('#method-overview')
     heading = overview.select_one('thead') if overview else None
     overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
@@ -412,6 +414,10 @@ def _home_method_summary(page):
         remote = bool(re.search(r'API|云端|远程|remote|hosted|HTTP', execution, re.I))
         price_node = cells[-1].select_one('.method-price')
         price = price_node.get_text(strip=True) if price_node else next(cells[-1].stripped_strings, '')
+        override = prices.get(Path(link['href']).stem)
+        if override is not None:
+            price = override['price']
+            price_node = None
         amount = re.match(r'\$([\d,.]+)(?:[–−-]\$?([\d,.]+))?', price)
         per_thousand = bool(re.search(r'/\s*(?:千次|1,?000\s*(?:requests?|calls?|fetches|次))', price, re.I))
         per_request = bool(re.search(r'/\s*(?:次(?:调用)?|requests?|calls?|fetch(?:es)?)(?!\w)', price, re.I))
@@ -428,6 +434,8 @@ def _home_method_summary(page):
             price = '—'
         route = _text('extension_local') if local else 'API' if remote else None
         methods[Path(link['href']).stem] = (price, route)
+    if set(prices) - set(methods):
+        raise ValueError('Method price quote names an unknown method')
     ranking = page.select_one('#ranking-overall')
     if ranking is None:
         return
@@ -703,6 +711,19 @@ def _extension_views(output, base_model, added_model, overview, note, *, ranked=
     return result
 
 
+def _selected_method_prices(spec_path, spec):
+    from harness.web_fetch.report_saved_matrix import _path
+    binding = spec['method_prices']
+    path = _path(spec_path.parent, binding['path'])
+    if _hash(path) != binding['sha256']:
+        raise ValueError('Method price binding changed')
+    prices = _read(path)
+    for quote in prices.values():
+        if not isinstance(quote.get('price'), str) or not quote.get('sources') or not quote.get('checked_at'):
+            raise ValueError('Method prices require a quote, sources and verification date')
+    return prices
+
+
 def build_published_extension(spec_path, output):
     """Extend a frozen publication while retaining each scoring edition verbatim."""
     from harness.web_fetch.report_saved_matrix import _path, _write
@@ -730,6 +751,8 @@ def build_published_extension(spec_path, output):
     shutil.copytree(base_root, output)
     shutil.copytree(added_root, output / 'additional')
     shutil.copyfile(base_root / 'index.html', output / 'extension-base-home.txt')
+    if 'method_prices' in spec:
+        _write(output/'extension-prices.json', _selected_method_prices(spec_path, spec))
     ranked = spec.get('presentation') == 'ranked'
     (output / 'index.html').write_text(_extended_home(
         (base_root / 'index.html').read_text(encoding='utf-8'), (added_root / 'index.html').read_text(encoding='utf-8'),
@@ -868,6 +891,7 @@ def _refresh_published_extension(output, *, spec_path=None):
     import hashlib
     proof = _read(output / 'saved-extension.json')
     overview = _read(output / 'extension-methods.json')
+    prices = _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {}
     if spec_path is not None:
         spec = _read(spec_path)
         if (spec['published_base']['audit']['sha256'] != proof['base_audit_sha256']
@@ -880,12 +904,17 @@ def _refresh_published_extension(output, *, spec_path=None):
         overview = _read(path)
         if {p['id'] for p in overview} != {p['id'] for p in _read(output / 'extension-methods.json')}:
             raise ValueError('Refresh cannot replace methods')
+        if 'method_prices' in spec:
+            prices = _selected_method_prices(spec_path, spec)
     ranked = (spec.get('presentation') if spec_path is not None else proof.get('presentation')) == 'ranked'
     note = spec['comparison_note'] if spec_path is not None else proof['comparison_note']
+    presentation = _shared_presentations(output) if ranked else None
+    if presentation is not None:
+        presentation['method_prices'] = prices
     home = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview,
-        note, ranked=ranked, presentation=_shared_presentations(output) if ranked else None)
+        note, ranked=ranked, presentation=presentation)
     for name, digest in proof['files'].items():
         actual = _hash(contained_path(output, name, reject_symlinks=True))
         if actual != digest and not (name == 'index.html' and actual == hashlib.sha256(home.encode()).hexdigest()):
@@ -894,6 +923,9 @@ def _refresh_published_extension(output, *, spec_path=None):
     if _hash(output / 'extension-base-home.txt') != baseline['files']['index.html']:
         raise ValueError('Cannot refresh changed base home')
     atomic_write(output / 'index.html', home.encode())
+    if prices:
+        atomic_write(output/'extension-prices.json', json_bytes(prices))
+        proof['files']['extension-prices.json'] = _hash(output/'extension-prices.json')
     pages = _extension_views(output, _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview, note, ranked=ranked)
     for route, content in pages.items():

@@ -995,6 +995,31 @@ def test_home_price_column_requires_a_per_thousand_request_unit(price, expected)
     assert page.select_one('.method-route-badge').get_text() == 'API'
 
 
+def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    output, path = _real_extension(tmp_path)
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    prices = tmp_path/'prices.json'
+    spec['method_prices'] = write(prices, {'method-1': {'price': '$0.002 / request',
+        'sources': [{'url': 'https://example.com/pricing', 'label': 'Official pricing'}],
+        'checked_at': '2026-11-20'}})
+    write(path, spec)
+    records = (output/'additional/results.jsonl').read_bytes()
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
+    row = next(row for row in page.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
+    assert row.select_one('.method-unit-price').get_text() == '2'
+    assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
+    assert (output/'additional/results.jsonl').read_bytes() == records
+    before = (output/'index.html').read_bytes()
+    prices.write_text('{}')
+    with pytest.raises(ValueError, match='Method price binding changed'):
+        refresh_published_extension(output, spec_path=path)
+    assert (output/'index.html').read_bytes() == before
+
+
 def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
