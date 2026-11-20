@@ -336,3 +336,30 @@ def test_export_rejects_inconsistent_original_page_hashes(tmp_path, field):
     manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
     with pytest.raises(ValueError, match='binding|hash|changed'):
         export_level_bundle(manifest_path, tmp_path / 'public')
+
+
+def test_l1_scenario_mrr_uses_first_direct_match_and_keeps_misses():
+    from harness.web_search.output_levels import level_benchmarks
+    from lexbench_websearch.relevance import query_metrics
+
+    profile = {
+        'protocol': {'relevance_level': 'l1'},
+        'methods': [{'id': 'search'}],
+        'cases': [{'id': cid} for cid in ('first', 'later', 'useful_only', 'empty')],
+    }
+    rankings = {
+        'first': [3, 3],
+        'later': [2, 0, 3, 3],
+        'useful_only': [2, 2, 1, 0, 2],
+        'empty': [],
+    }
+    rows, scores = [], []
+    for cid, grades in rankings.items():
+        ranking = list(range(len(grades)))
+        scores.append(dict(query_metrics(ranking, dict(enumerate(grades))),
+                           case_id=cid, method='search'))
+        rows.append(dict(case_id=cid, method='search', results=[]))
+    result = level_benchmarks(dict(profile=profile, rows=rows, relevance_scores=scores))['scenario']
+    assert result['primary_metric'] == 'ndcg'
+    assert [row['direct_rr'] for row in result['scores']] == [1, 1 / 3, 0, 0]
+    assert [row['success'] for row in result['scores']] == [1, 1, 0, 0]

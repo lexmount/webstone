@@ -383,6 +383,7 @@ def metric_definitions(panel, level, labels, zh=False):
         'ndcg': (t('mean(DCG@5 / IDCG@5) × 100'), t('Ranking quality. Grades 0–3 have gains 0, 1, 3 and 7; earlier ranks receive more weight. The ideal top five comes from the pooled, deduplicated candidates.')),
         'precision': (t('mean(useful slots / 5)'), t('Useful-result fraction in five slots. Grades 2 and 3 count; missing slots and repeated documents count as zero.')),
         'success': (t('queries with grade 3 / all queries'), t('Query fraction with at least one grade-3 result in the first five.')),
+        'direct_rr': (t('mean(1 / first matched rank)'), t('Rank of the first result graded 3 within the first five. A first-place match scores 1 and a miss scores 0.')),
         'source_rr': (t('mean(1 / first matched rank)'), t('First verified-source rank: first gives 1, second 0.5, fifth 0.2; a miss gives 0. Average over all queries.')),
         'source_hit': (t('matched queries / all queries'), t('Query fraction with a verified reference page in the first five. URL equivalents and verified document copies count.')),
         'answer_match': (t('matched queries / all queries'), t('Reference-answer text appears in a title or primary preview among the first five results. Explicit aliases and numeric ranges are accepted; this is not answer correctness.') if level == 'l1' else t('Reference-answer text appears in an additional excerpt among the first five. Titles and primary previews are excluded; this is not answer correctness.')),
@@ -391,24 +392,42 @@ def metric_definitions(panel, level, labels, zh=False):
     }
     definitions['publisher_rr'] = (definitions['source_rr'][0], t('Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.'))
     definitions['publisher_hit'] = (definitions['source_hit'][0], t('Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.'))
+    reader_questions = {
+        'ndcg': t('Are the most useful results near the top? A page that answers the question counts more at position 1 than at position 5.'),
+        'precision': t('How many of the first five results are useful? Three useful results out of five give that query 60%.'),
+        'success': t('How often does the top five contain at least one result that fully meets the request?'),
+        'direct_rr': t('Where does the first result that fully meets the request appear? First place earns 1, second earns 0.5, and no match in the first five earns 0.'),
+        'source_rr': t('Where does the first verified reference page appear? First place earns 1, second earns 0.5, and no match in the first five earns 0.'),
+        'source_hit': t('How often does the top five contain a verified reference page? A verified copy of the same document counts.'),
+        'answer_grade': t('How well does the answer returned by the API meet the request? Each answer gets a usefulness grade from 0 to 3.'),
+        'correct': t('What share of the factual questions did the API answer correctly? For example, 80 correct answers out of 100 questions gives 80%.'),
+        'publisher_rr': t('How early does a reference page from its original publisher appear in the first five results?'),
+        'publisher_hit': t('How often does the top five include a reference page from its original publisher?'),
+        'answer_match': t('Does any of the first five titles or main snippets contain the reference answer?') if level == 'l1' else t('Does any of the first five additional excerpts contain the reference answer?'),
+    }
     body = '<details class="metric-guide" data-metric-definitions><summary>' + t('Metric definitions') + '</summary>'
-    body += '<p class="metric-caption">' + t('Calculations use every query, including failures and empty outputs. Higher quality values are better.') + '</p><div class="metric-definition-grid">'
+    body += '<p class="metric-caption">' + t('Each score summarizes the whole benchmark. Failed requests and empty results count as misses. Higher quality scores are better.') + '</p><div class="metric-definition-grid">'
+    for metric in panel['metrics']:
+        key = metric['key']
+        primary = key == panel['primary_metric']
+        heading = esc(labels[key]) + (' <span class="metric-primary">' + t('Primary metric') + '</span>' if primary else '')
+        body += '<article data-metric-definition="' + key + '"' + (' data-primary-definition="' + key + '"' if primary else '') + '><h4>' + heading + '</h4><p>' + reader_questions[key] + '</p></article>'
+    body += '</div><details class="measurement-definitions" data-scoring-details><summary>' + t('How the scores are calculated') + '</summary><dl>'
     for metric in panel['metrics']:
         key = metric['key']
         formula, explanation = definitions[key]
-        primary = key == panel['primary_metric']
-        body += '<article data-metric-definition="' + key + '"' + (' data-primary-definition="' + key + '"' if primary else '') + '><h4>' + esc(labels[key]) + (' <span class="metric-primary">' + t('Primary metric') + '</span>' if primary else '') + '</h4><code>' + esc(formula) + '</code><p>' + explanation + '</p></article>'
-    body += '</div>'
+        body += '<dt>' + esc(labels[key]) + '</dt><dd><code>' + esc(formula) + '</code><p>' + explanation + '</p></dd>'
+    body += '</dl>'
     if any(metric['key'] == 'ndcg' for metric in panel['metrics']):
         body += '<p class="metric-caption">' + t('Relevance grades') + ': ' + t('0 unrelated · 1 topical · 2 useful · 3 directly satisfies') + '</p>'
-    body += '<details class="measurement-definitions" data-measurement-definitions><summary>' + t('Citation and delivery metrics') + '</summary><dl>'
+    body += '</details><details class="measurement-definitions" data-measurement-definitions><summary>' + (t('Citation and delivery metrics') if level == 'l3' else t('Request, latency and pricing metrics')) + '</summary><dl>'
     pairs = [
-        (t('Failed requests / empty outputs'), t('Transport, API or invalid-response failures / all calls. Successful calls with no usable output are counted separately.')),
-        (t('Mean / P50 / P95 latency'), t('Milliseconds per declared logical call, including failed calls. P50 is the median; 95% of calls finish within P95. Collection windows accompany the measurements.')),
-        (t('Price / text length'), t('USD per 1,000 calls at the stated billing unit. Text length is the average delivered characters per query and has no better direction.')),
+        (t('Failed requests / empty outputs'), t('Failed requests include timeouts, connection problems and API errors. An empty output means the API responded successfully but delivered no result for this output type.')),
+        (t('Mean / P50 / P95 latency'), t('Times are in milliseconds and include failed requests. Half of requests took at most the P50 time. About 95 in 100 took at most the P95 time.')),
+        (t('Price / text length'), t('The price column gives US dollars per 1,000 calls on the stated billing basis. Text length shows the average number of characters returned per query.')),
     ]
     if level == 'l3':
-        pairs.insert(0, (t('Citation support / cited URLs in results'), t('Supported cited claims / all citations; citations linked to returned source URLs / all citations. No citations means unavailable.')))
+        pairs.insert(0, (t('Citation support / cited URLs in results'), t('Citation support asks whether a cited page backs up the claim. Cited URLs in results measures how often cited links also appear in the search results. Empty citation lists have no score.')))
     for name, description in pairs:
         body += '<dt>' + name + '</dt><dd>' + description + '</dd>'
     return body + '</dl></details></details>'
@@ -436,7 +455,7 @@ def render_level_summary(view, zh=False, *, content=None):
     titles = dict(l1=t('Result lists: finding pages'), l2=t('Extra text: supplying evidence'),
                   l3=t('Generated answers: answering correctly'))
     labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
-                  source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
+                  direct_rr=t('Direct-match MRR@5'), source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
                   publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
                   failed_calls=t('Failed requests'), empty_outputs=t('Empty outputs'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
@@ -446,8 +465,10 @@ def render_level_summary(view, zh=False, *, content=None):
                   p50_ms=t('P50 ms'), p95_ms=t('P95 ms'))
     body = '<section class="level-summary" data-level-panel="' + level + '" data-output-level="' + level + '" id="' + level + '">'
     body += '<h2>' + level.upper() + ' · ' + titles[level] + '</h2>'
+    if level == 'l1' and set(view['benchmarks']) == {'scenario', 'factual'}:
+        body += '<p class="metric-caption">' + t('Both benchmarks show how early the first match appears in the top five. For scenarios, look for a result that fully meets the request. For SimpleQA, look for a verified reference page.') + '</p>'
     if len(methods) > 1:
-        body += '<p class="metric-caption">' + t('Green marks the best observed value; a star also requires a statistically supported lead.') + '</p>'
+        body += '<p class="metric-caption">' + t('Green marks the best observed score. A star means the lead also passed the statistical test.') + '</p>'
     prices_content = dict(content or {})
     if prices_content.get('catalog_pricing'):
         prices_content['catalog_pricing'] = {mid: prices_content['catalog_pricing'][mid] for mid in method_ids}
@@ -504,7 +525,7 @@ def render_level_summary(view, zh=False, *, content=None):
         directions = {i: d['direction'] if len(methods) > 1 else 'neutral'
                       for i, d in enumerate(definitions)}
         winners = numeric_winners(columns, directions)
-        core = {panel['primary_metric'], 'source_hit', 'answer_match', 'precision', 'success', 'citation_support', 'failed_calls', 'empty_outputs', 'p50_ms', 'price'}
+        core = {panel['primary_metric'], 'source_hit', 'answer_match', 'precision', 'success', 'direct_rr', 'citation_support', 'failed_calls', 'empty_outputs', 'p50_ms', 'price'}
         rendered = []
         for method, values in sorted(records, key=lambda row: (row[1][panel['primary_metric']] is None,
                                                                -(row[1][panel['primary_metric']] or 0))):
@@ -514,7 +535,7 @@ def render_level_summary(view, zh=False, *, content=None):
             for index, metric in enumerate(definitions):
                 key, value = metric['key'], values[metric['key']]
                 label = '—' if value is None else (f'{value * 100:.1f}' if key == 'ndcg' else
-                         f'{value:.3f}' if key in ('source_rr', 'publisher_rr') else
+                         f'{value:.3f}' if key in ('direct_rr', 'source_rr', 'publisher_rr') else
                          f'{value:.2f}' if key == 'answer_grade' else
                          f'{value:.1%}' if key in quality_keys or key in ('citation_support', 'cited_urls_in_results') else fmt(value))
                 if key == 'empty_outputs':

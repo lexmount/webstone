@@ -113,7 +113,7 @@ def guide_views():
     del scene['reference_answer']
     base['profile']['cases'].append(scene)
     base['rows'] += [dict(deepcopy(row), case_id='scene') for row in base['rows'][:2]]
-    base['relevance_scores'] = [dict(case_id='scene', method=m['id'], ndcg=.5, precision=.2, success=1)
+    base['relevance_scores'] = [dict(case_id='scene', method=m['id'], ndcg=.5, precision=.2, success=1, ranked_grades=[3])
                                 for m in base['profile']['methods']]
     for level in ('l1', 'l2', 'l3'):
         selected = deepcopy(base)
@@ -480,13 +480,18 @@ def test_successful_empty_searches_are_not_labeled_request_failures():
 
 @pytest.mark.parametrize('zh', [False, True])
 def test_every_layered_benchmark_has_a_folded_metric_guide(zh):
-    selected = view()
+    selected = guide_views()['l1']
     doc = BeautifulSoup(render_level_summary(selected, zh), 'html.parser')
     for panel in doc.select('[data-level-benchmark]'):
         guide = panel.select_one('details[data-metric-definitions]')
         assert guide is not None and not guide.has_attr('open')
-        assert guide.select_one('[data-primary-definition="source_rr"]')
-        assert {node['data-metric-definition'] for node in guide.select('[data-metric-definition]')} >= {
-            'source_rr', 'source_hit', 'answer_match'}
+        expected = 'ndcg' if panel['data-level-benchmark'] == 'scenario' else 'source_rr'
+        primary = guide.select_one(f'[data-primary-definition="{expected}"]')
+        assert primary.select_one('p').get_text().split('？' if zh else '?')[0]
+        assert not guide.select('.metric-definition-grid code')
+        scoring = guide.select_one('details[data-scoring-details]')
+        assert scoring is not None and not scoring.has_attr('open')
+        assert len(scoring.select('code')) == len(guide.select('[data-metric-definition]'))
         assert guide.select_one('[data-measurement-definitions]')
-        assert guide.select_one('code')
+    main = doc.select_one('[data-metric-definition="ndcg"] p').get_text()
+    assert ('排第 1 比排第 5' if zh else 'position 1 than at position 5') in main
