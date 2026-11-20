@@ -1019,7 +1019,7 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path)
     assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
     assert (output/'additional/results.jsonl').read_bytes() == records
     before = (output/'index.html').read_bytes()
-    prices.write_text('{}')
+    prices.write_text('{}', encoding='utf-8')
     with pytest.raises(ValueError, match='Method price binding changed'):
         refresh_published_extension(output, spec_path=path)
     assert (output/'index.html').read_bytes() == before
