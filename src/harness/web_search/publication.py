@@ -28,6 +28,7 @@ from lexbench_webfetch.paths import contained_path
 
 
 def prepare(report, visual, content, sources, work, *, profile):
+    """Validate the release once and freeze a locally publishable package."""
     search_report.check(report)
     report_visual.verify(report, visual)
     manifest = json.loads((report / "manifest.json").read_bytes())
@@ -56,10 +57,14 @@ def prepare(report, visual, content, sources, work, *, profile):
         ("report_manifest", report / "manifest.json", "manifest.json"),
         ("content", content, "reader-content.json"),
         ("visual_acceptance", visual, "visual-acceptance.json"),
-        ("relevance", report / "relevance-judgments.json", "relevance.json"),
-        ("independent_review", report / "independent-review.json", "independent-review.json"),
     ):
         bind(name, source, filename)
+    for name, field, filename in (
+        ("relevance", "relevance_sha256", "relevance-judgments.json"),
+        ("independent_review", "independent_review_sha256", "independent-review.json"),
+    ):
+        if manifest.get(field):
+            bind(name, report / filename, name.replace("_", "-") + ".json")
     receipts = collection_receipts(manifest)
     if set(sources) != {r["cohort"] for r in receipts}:
         raise ValueError("Publication requires the exact checked cohort sources")
@@ -75,7 +80,6 @@ def prepare(report, visual, content, sources, work, *, profile):
         bind(cohort + "_receipt", source / "receipt.json", cohort + "-receipt.json")
         bind(cohort + "_frozen_profile", source / "profile.json", cohort + "-profile.json")
     report_delivery.export(report, work / "delivery")
-    report_delivery.verify(report, work / "delivery")
     bind("delivery_index", work / "delivery/delivery-index.json", "delivery-index.json")
     archive = work / "report.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
@@ -84,8 +88,8 @@ def prepare(report, visual, content, sources, work, *, profile):
                 raise ValueError("Publication archive contains a symlink")
             if file.is_file():
                 output.write(file, file.relative_to(work / "delivery"))
-    review = json.loads((inputs / "independent-review.json").read_bytes())
-    relevance = json.loads((inputs / "relevance.json").read_bytes())
+    review = json.loads((inputs / "independent-review.json").read_bytes()) if manifest.get("independent_review_sha256") else None
+    relevance = json.loads((inputs / "relevance.json").read_bytes()) if manifest.get("relevance_sha256") else None
     profile = manifest["profile"]
     candidate = dict(target, bindings=bindings, methods=[m["id"] for m in profile["methods"]], cases=len(profile["cases"]), logical_results=len(manifest["rows"]),
                      physical_calls=sum(len(r.get("attempts", [r])) for r in manifest["rows"]),
@@ -189,9 +193,16 @@ def main(argv=None):
     parser.add_argument("--source", action="append", default=[], metavar="COHORT=RUN")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--prepare-only", action="store_true",
+                        help="Validate and freeze the release without uploading; publish later with --resume")
     args = parser.parse_args(argv)
+    if args.resume and args.prepare_only:
+        parser.error("--prepare-only and --resume are mutually exclusive")
     if not args.resume:
         if not args.visual_receipt or not args.content or not args.profile:
             parser.error("A new publication requires --profile, --visual-receipt and --content")
         prepare(args.report, args.visual_receipt, args.content, {v.split("=", 1)[0]: Path(v.split("=", 1)[1]) for v in args.source}, args.output, profile=args.profile)
+    if args.prepare_only:
+        print(args.output / "publication-plan.json")
+        return
     print(publish(args.report, args.output))

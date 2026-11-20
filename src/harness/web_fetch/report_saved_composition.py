@@ -4,10 +4,12 @@ import json
 import shutil
 import re
 from collections import Counter
-from pathlib import Path
+from decimal import Decimal
+from pathlib import Path, PurePosixPath
 
 from lexbench_webfetch.paths import contained_path, safe_identifier
 from harness.record_io import file_sha256 as _hash
+from harness.web_fetch.report_i18n import saved_matrix_text as _text
 
 
 def _frozen_report(root, binding):
@@ -83,24 +85,27 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         if len(old_rows) != len(base_model['providers']) or len(new_rows) != len(added_model['providers']):
             raise ValueError('Comparison table provider population differs')
         target['data-row-index'] = 'false'
-        target.thead.tr.find(['th', 'td']).string = '序号'
-        extra_review = False
+        target.thead.tr.find(['th', 'td']).string = _text('extension_index')
         if identifier == 'ranking-overall':
             target_headers = target.thead.tr.find_all('th', recursive=False)
             source_headers = source.thead.tr.find_all('th', recursive=False)
-            if len(source_headers) == len(target_headers) + 1 and source_headers[-1].get_text().startswith('审查结果'):
-                target.thead.tr.append(source_headers[-1])
-                extra_review = True
-            elif len(source_headers) != len(target_headers):
+            if len(source_headers) != len(target_headers):
+                longer, shorter = ((source, target) if len(source_headers) > len(target_headers)
+                                   else (target, source))
+                headers = longer.thead.tr.find_all('th', recursive=False)
+                if abs(len(source_headers) - len(target_headers)) != 1 or not re.match(
+                        r'^(审查结果|Review coverage)', headers[-1].get_text(strip=True)):
+                    raise ValueError('Incompatible overall comparison metrics')
+                shorter.thead.tr.append(deepcopy(headers[-1]))
+                for row in shorter.tbody.find_all('tr', recursive=False):
+                    cell = old.new_tag('td', attrs={'data-sort': '-1'})
+                    cell.string = _text('extension_unrecorded')
+                    row.append(cell)
+                source_headers = source.thead.tr.find_all('th', recursive=False)
+            if len(source_headers) != len(target.thead.tr.find_all('th', recursive=False)):
                 raise ValueError('Incompatible overall comparison metrics')
         for index, row in enumerate(old_rows, 1):
             row.find('td').string = str(index)
-            if extra_review:
-                cell = old.new_tag('td')
-                link = old.new_tag('a', href='review/index.html')
-                link.string = '核验记录'
-                cell.append(link)
-                row.append(cell)
         for index, row in enumerate(new_rows, len(old_rows) + 1):
             cells = row.find_all('td', recursive=False)
             if identifier == 'ranking-overall':
@@ -150,7 +155,7 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         methods.tbody.append(row)
     heading = old.find(id='overall-ranking')
     if heading and heading.find('h2'):
-        heading.find('h2').string = '各方法已保存结果'
+        heading.find('h2').string = _text('extension_audit_title')
     before_count = len(base_model['providers'])
     after_count = before_count + len(added_model['providers'])
     for node in old.find_all(string=True):
@@ -159,11 +164,11 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         text = str(node)
         updated = re.sub(r'\b' + str(before_count) + r' 种(已测)?方法',
                          lambda match: str(after_count) + ' 种' + (match[1] or '') + '方法', text)
-        updated = updated.replace('按本轮任务通过率排序。', '保留各轮已保存结果；评分口径见下方说明。')
+        updated = updated.replace('按本轮任务通过率排序。', _text('extension_audit_basis'))
         if updated != text:
             node.replace_with(updated)
     entry = old.new_tag('p', attrs={'class': 'source-note', 'data-added-report': 'true'})
-    entry.append(BeautifulSoup('<a href="additional/index.html">查看方法详情与逐例证据 →</a>', 'html.parser'))
+    entry.append(BeautifulSoup('<a href="additional/index.html">' + escape(_text('extension_method_details')) + '</a>', 'html.parser'))
     methods.parent.insert_after(entry)
     if ranked:
         _unified_home(old, base_model, added_model, presentation)
@@ -192,7 +197,7 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
         row.find('td').string = str(rank)
         table.tbody.append(row)
     table['data-row-index'] = 'false'
-    table.thead.tr.find('th').string = '排名'
+    table.thead.tr.find('th').string = _text('extension_rank')
 
 
 def _model_fetch_badges(page):
@@ -205,9 +210,9 @@ def _model_fetch_badges(page):
         if link.select_one('.model-fetch-badge'):
             continue
         badge = page.new_tag('sup', attrs={'class': 'model-fetch-badge',
-            'title': '大模型提供的网页抓取工具或 API',
+            'title': _text('extension_model_fetch_title'),
             'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
-        badge.string = '大模型公司'
+        badge.string = _text('extension_model_fetch')
         link.append(badge)
 
 
@@ -250,16 +255,30 @@ def _joined_presentation(output):
     from harness.record_io import load_jsonl
     base = _read(output / 'dataset.json')
     cases = {c['id']: c for c in base['cases']}
-    records = load_jsonl(output / 'results.jsonl')
+    base_records = load_jsonl(output / 'results.jsonl')
     extra = _read(output / 'additional/dataset.json')
     routes = _extension_case_routes(cases, extra['cases'])
     if any(c.get('task_kind', 'body') != cases[routes[c['id']]].get('task_kind', 'body') for c in extra['cases']):
         raise ValueError('Joined presentation requires the same task kinds')
     audit = _read(output / 'additional/saved-matrix-audit.json')
     paths = {name: 'additional/' + name for name in audit['files']}
-    for record in _project(load_jsonl(output / 'additional/results.jsonl'), paths):
-        record['case_id'] = routes[record['case_id']]
-        records.append(record)
+    added_records = _project(load_jsonl(output / 'additional/results.jsonl'), paths)
+    records, views = [], {}
+    for prefix, dataset, source_records, mapping in (
+            ('', base, base_records, {key: key for key in cases}),
+            ('additional/', extra, added_records, routes)):
+        source_cases = {case['id']: case for case in dataset['cases']}
+        for record in source_records:
+            source_id = record['case_id']
+            comparison_id = mapping[source_id]
+            key = record['provider'], comparison_id
+            if key in views:
+                raise ValueError('Joined presentation repeats a saved task result')
+            views[key] = {'case': source_cases[source_id],
+                'task_href': prefix+'datasets/'+source_id+'.html',
+                'attempt_href': prefix+'attempts/'+record['attempt_id']+'.html'}
+            record['case_id'] = comparison_id
+            records.append(record)
     base_model, added_model = _read(output/'matrix.json'), _read(output/'additional/matrix.json')
     providers = base_model['providers'] + added_model['providers']
     from harness.web_fetch.report import succeeded, measured
@@ -274,7 +293,8 @@ def _joined_presentation(output):
         raise ValueError('Joined presentation result population differs')
     for record in records:
         row = expected[record['provider'], record['case_id']]
-        verdict = succeeded(record, cases[record['case_id']]) if measured(record, cases[record['case_id']]) else None
+        case = views[record['provider'], record['case_id']]['case']
+        verdict = succeeded(record, case) if measured(record, case) else None
         # Adapter rejection retains its saved failure value without claiming a
         # product call or entering the measurable-result denominator.
         if row.get('status') == 'adapter_rejected':
@@ -282,23 +302,25 @@ def _joined_presentation(output):
         if (verdict != row['passed']
                 or record['elapsed_ms'] != row['elapsed_ms']):
             raise ValueError('Joined presentation changed saved scores or latency')
-    return cases, records, providers, base.get('report_suites', [])
+    return cases, records, providers, base.get('report_suites', []), views
 
 
 def _shared_presentations(output):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
-    cases, records, providers, suites = _joined_presentation(output)
+    cases, records, providers, suites, views = _joined_presentation(output)
     labels = {p['id']: p.get('label', p['id']) for p in providers}
     tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
-              (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True)))]
+              (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
     try:
-        return {'overall': renderer.overall_ranking(records, cases),
+        overall = renderer.overall_ranking(records, cases, passing_latency=True)
+        return {'overall': overall,
+                'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': renderer.analysis_body(records, cases),
+                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
     finally:
         for variable, token in reversed(tokens):
@@ -308,34 +330,50 @@ def _shared_presentations(output):
 def _unified_home(page, base_model, added_model, presentation):
     """Install shared-renderer views without grouping contestants by source."""
     from bs4 import BeautifulSoup
+    from harness.web_fetch.report_style import RANKING_STICKY
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
     method_section = page.find(id='method-overview-section')
-    if method_section and method_section.find('p'):
-        method_section.find('p').string = '价格单位：美元。'
-    page.select_one('#overall-ranking h2').string = '任务通过率排名'
+    if method_section:
+        owner = method_section.select_one('.wrap') or method_section
+        intro = owner.find('p', recursive=False)
+        if intro:
+            intro.string = _text('extension_price_units')
+    page.select_one('#overall-ranking h2').string = _text('extension_ranking_title')
     for identifier, content in [('ranking-overall', presentation['overall']),
                                 *[('ranking-' + key, value) for key, value in presentation['families'].items()]]:
         rendered = BeautifulSoup(content, 'html.parser')
         fragment = rendered.find('table', id=identifier)
-        page.find('table', id=identifier).replace_with(fragment)
-        if fragment.get('data-row-index') != 'false':
-            fragment.thead.tr.find('th').string = '排名'
+        if identifier == 'ranking-overall':
+            owner = page.find(id='overall-ranking')
+            container = owner.select_one('.wrap') or owner
+            heading = owner.find('h2').extract()
+            container.clear()
+            container.append(heading)
+            # Install the whole component, including conditional latency and
+            # metric explanations, rather than retaining base-only siblings.
+            container.append(rendered)
         else:
-            for note in rendered.select('p.callout'):
-                fragment.parent.insert_before(note)
+            page.find('table', id=identifier).replace_with(fragment)
+        if fragment.get('data-row-index') != 'false':
+            fragment.thead.tr.find('th').string = _text('extension_rank')
+        else:
+            if identifier != 'ranking-overall':
+                for note in rendered.select('p.callout'):
+                    fragment.parent.insert_before(note)
             if identifier == 'ranking-overall':
-                page.select_one('#overall-ranking h2').string = '各方法已保存结果'
+                page.select_one('#overall-ranking h2').string = _text('extension_audit_title')
         fragment['data-row-index'] = 'false'
+    if page.head and page.select_one('#ranking-overall td[data-rank]'):
+        style = page.new_tag('style', attrs={'data-report-page-style': ''})
+        style.string = RANKING_STICKY
+        page.head.append(style)
     timing = page.select_one('#overall-matched-latency .wrap')
     if timing:
         timing.clear()
-        timing.append(BeautifulSoup('<h2>全部方法共同成功任务的耗时</h2>' + presentation['timing'], 'html.parser'))
+        timing.append(BeautifulSoup('<h2>' + _text('extension_shared_latency') + '</h2>' + presentation['timing'], 'html.parser'))
         for note in timing.select('p.source-note'):
             note.decompose()
-        table = timing.find('table')
-        if table:
-            _rank_extension_table(table, 2, minimize=[2, 3, 4], ascending=True)
         if timing.find('details'):
             timing.find('details')['open'] = ''
     cards = page.select_one('#overview .grid')
@@ -344,7 +382,7 @@ def _unified_home(page, base_model, added_model, presentation):
         cards.append(BeautifulSoup(presentation['cards'], 'html.parser'))
     for node in list(page.find_all(string=True)):
         text = str(node)
-        text = text.replace('保留各轮已保存结果；评分口径见下方说明。', '按任务通过率排序。')
+        text = text.replace(_text('extension_audit_basis'), _text('extension_ordering'))
         if text != str(node):
             node.replace_with(text)
     added_ids = {provider['id'] for provider in added_model['providers']}
@@ -352,11 +390,178 @@ def _unified_home(page, base_model, added_model, presentation):
         if Path(link['href']).stem in added_ids:
             link['href'] = 'additional/' + link['href']
     _model_fetch_badges(page)
+    _home_method_summary(page, presentation.get('method_prices', {}))
+
+
+def _home_method_summary(page, prices=None):
+    """Reuse the saved method overview for compact ranking prices and routes."""
+    methods = {}
+    prices = prices or {}
+    overview = page.select_one('#method-overview')
+    heading = overview.select_one('thead') if overview else None
+    overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
+    for row in page.select('#method-overview tbody tr'):
+        cells = row.find_all('td', recursive=False)
+        link = row.select_one('a[href*="providers/"]')
+        if len(cells) < 3 or link is None:
+            continue
+        execution = cells[0].select_one('.method-execution')
+        execution = execution.get_text(' ', strip=True) if execution else cells[0].get_text(' ', strip=True)
+        local = bool(re.search(r'本地|local|CLI', execution, re.I))
+        remote = bool(re.search(r'API|云端|远程|remote|hosted|HTTP', execution, re.I))
+        price_node = cells[-1].select_one('.method-price')
+        price = price_node.get_text(strip=True) if price_node else next(cells[-1].stripped_strings, '')
+        override = prices.get(Path(link['href']).stem)
+        if override is not None:
+            price = override['price']
+            price_node = None
+        amount = re.match(r'\$([\d,.]+)(?:[–−-]\$?([\d,.]+))?', price)
+        per_thousand = bool(re.search(r'/\s*(?:千次|1,?000\s*(?:requests?|calls?|fetches|次))', price, re.I))
+        per_request = bool(re.search(r'/\s*(?:次(?:调用)?|requests?|calls?|fetch(?:es)?)(?!\w)', price, re.I))
+        if price_node and overview_unit and amount and amount.end() == len(price):
+            per_thousand = True
+        money = r'\$[\d,.]+(?:[–−-]\$?[\d,.]+)?'
+        native = re.fullmatch(rf'({money}(?:\s*/\s*{money})?)\s*/\s*(hour|million tokens)', price, re.I)
+        note = None
+        if local:
+            price = '—'
+        elif native:
+            price = native[1]
+            if native[2].lower() == 'hour':
+                price = _text('extension_price_hour_amount', amount=price)
+                note = _text('extension_price_duration')
+            else:
+                if '/' in price:
+                    incoming, outgoing = (part.strip() for part in price.split('/'))
+                    price = _text('extension_price_tokens', incoming=incoming, outgoing=outgoing)
+                note = _text('extension_price_token_unit')
+        elif amount and per_request:
+            price = '$' + '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
+                             for value in amount.groups() if value is not None)
+            price = _text('extension_price_requests', amount=price)
+        elif amount and per_thousand:
+            price = '$' + amount[1] + ('–' + amount[2] if amount[2] else '')
+            if override and override.get('billing_mode') == 'difficulty':
+                price = _text('extension_price_pages', amount=price)
+                note = _text('extension_price_difficulty')
+            else:
+                price = _text('extension_price_requests', amount=price)
+        elif override and override.get('billing_mode') == 'unpublished':
+            price = _text('extension_price_unpublished')
+        else:
+            price = '—'
+        if override and override.get('billing'):
+            billing = override['billing']
+            paragraph = cells[-1].select_one('.method-billing p') or cells[-1].find('p')
+            if paragraph is None:
+                paragraph = page.new_tag('p')
+                cells[-1].append(paragraph)
+            paragraph.clear()
+            translated = page.new_tag('span', attrs={'data-report-en': billing['en']})
+            translated.string = billing['zh']
+            paragraph.append(translated)
+            scope = cells[-1].select_one('.method-price-scope')
+            if scope and scope is not paragraph:
+                scope.decompose()
+            overview_price = cells[-1].select_one('.method-price')
+            if overview_price:
+                overview_price.string = price
+            elif cells[-1].contents and isinstance(cells[-1].contents[0], str):
+                cells[-1].contents[0].replace_with(price)
+        if override and override.get('note') and not local:
+            note = override['note']
+        route = _text('extension_local') if local else 'API' if remote else None
+        methods[Path(link['href']).stem] = (price, note, route)
+    if set(prices) - set(methods):
+        raise ValueError('Method price quote names an unknown method')
+    ranking = page.select_one('#ranking-overall')
+    if ranking is None:
+        return
+    heading = page.new_tag('th')
+    heading.string = _text('extension_price_column')
+    ranking.thead.tr.append(heading)
+    for row in ranking.select('tbody tr'):
+        link = row.select_one('a[href*="providers/"]')
+        price, note, execution = methods.get(Path(link['href']).stem, ('—', None, None)) if link else ('—', None, None)
+        cell = page.new_tag('td', attrs={'class': 'method-unit-price'})
+        value = page.new_tag('span', attrs={'class': 'method-price-amount'})
+        value.string = price
+        cell.append(value)
+        if note:
+            detail = page.new_tag('small', attrs={'class': 'method-price-note',
+                'style': 'display:block;font-size:11px;line-height:1.4;margin-top:3px;opacity:.75;white-space:normal'})
+            if isinstance(note, dict):
+                translated = page.new_tag('span', attrs={'data-report-en': note['en']})
+                translated.string = note['zh']
+                detail.append(translated)
+            else:
+                detail.string = note
+            cell.append(detail)
+        row.append(cell)
+        if execution:
+            badge = page.new_tag('sup', attrs={'class': 'method-route-badge',
+                'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
+            badge.string = execution
+            link.append(badge)
+
+
+def _check_method_presentation(page):
+    """Check authored method prose and diagnostic tables, excluding evidence/code."""
+    from bs4 import BeautifulSoup
+    if not (page.html and str(page.html.get('lang', '')).startswith('en')):
+        for paragraph in page.select('#method-overview td:nth-child(2) p'):
+            authored = BeautifulSoup(str(paragraph), 'html.parser')
+            for source in authored.select('code, pre, q, blockquote, [data-evidence]'):
+                source.decompose()
+            prose = re.sub(r'https?://\S+', '', authored.get_text(' ', strip=True))
+            if re.search(r"(?:[A-Za-z][A-Za-z’'_-]*[ ,;:]+){12}[A-Za-z]", prose):
+                raise ValueError('Chinese method explanation contains English prose')
+    table = page.select_one('#overall-matched-latency-table')
+    if table and (table.select('[data-rank], strong, .good, .comparison-winner') or
+                  table.get('data-row-index') != 'false' or len(table.select('thead th')) != 4):
+        raise ValueError('Shared-pass latency must remain unranked diagnostic detail')
 
 
 _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
                      'adoption/index.html', 'reproduce/index.html', 'review/index.html',
                      'guide/index.html', 'accounts/index.html')
+
+
+def _review_source_sections(old, new, base_model, added_model):
+    # Review scopes and protocols belong to their source, including prose
+    # without a table. Keep complete sections instead of joining by schema.
+    used = {tag['id'] for tag in old.select('[id]')}
+    renamed = {}
+    for tag in new.select('[id]'):
+        original = tag['id']
+        identifier = 'additional-' + original
+        while identifier in used:
+            identifier = 'additional-' + identifier
+        used.add(identifier)
+        renamed[original] = tag['id'] = identifier
+    for tag in new.find_all(True):
+        if tag.get('href', '').startswith('#'):
+            tag['href'] = '#' + renamed.get(tag['href'][1:], tag['href'][1:])
+        for attribute in list(tag.attrs):
+            if attribute.startswith('on'):
+                tag[attribute] = re.sub(r'''(['"])([^'"]+)\1''',
+                    lambda m: m[1] + renamed.get(m[2], m[2]) + m[1], tag[attribute])
+            elif attribute in {'for', 'aria-controls', 'aria-labelledby', 'aria-describedby'}:
+                tag[attribute] = ' '.join(renamed.get(value, value) for value in tag[attribute].split())
+    for page, model in ((old, base_model), (new, added_model)):
+        labels = ', '.join(provider.get('label', provider['id']) for provider in model['providers'])
+        for section in page.select('main section'):
+            heading = section.find('h2')
+            if heading:
+                label = page.new_tag('span', attrs={'class': 'source-note'})
+                label.string = ' · ' + labels
+                heading.append(label)
+    container = old.find('main') or old.body
+    for child in list((new.find('main') or new.body).children):
+        if not isinstance(child, str) and (child.name == 'h1' or child.find('h1')):
+            continue
+        container.append(child)
+    return str(old)
 
 
 def _extension_page(base, addition, route, base_model, added_model, overview, note):
@@ -373,7 +578,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
         from html import escape
         prices = old.select_one('#method-guide-pricing .wrap')
         if prices:
-            fragment = '<div class="table-wrap"><table id="model-fetch-pricing"><thead><tr><th>方法</th><th>价格</th><th>计费方式</th><th>来源</th></tr></thead><tbody>'
+            fragment = '<div class="table-wrap"><table id="model-fetch-pricing"><thead><tr>' + ''.join('<th>' + escape(label) + '</th>' for label in _text('extension_prices_headers')) + '</tr></thead><tbody>'
             for method in overview:
                 fragment += '<tr><td><a href="../additional/providers/' + method['id'] + '.html">' + escape(method['label']) + '</a></td><td>' + escape(method['price']) + '</td><td>' + escape(method['billing']) + '</td><td>' + ' · '.join('<a href="' + escape(s['url'], quote=True) + '">' + escape(s['label']) + '</a>' for s in method['sources']) + '</td></tr>'
             prices.append(BeautifulSoup(fragment + '</tbody></table></div>', 'html.parser'))
@@ -392,6 +597,8 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                 tag[attribute] += '?' + resolved.query
             if resolved.fragment:
                 tag[attribute] += '#' + resolved.fragment
+    if route == 'review/index.html':
+        return _review_source_sections(old, new, base_model, added_model)
     if route == 'adoption/index.html':
         interfaces = old.find(id='method-guide-interfaces')
         if interfaces:
@@ -406,18 +613,31 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                         container.append(panel)
     def headers(table):
         return tuple(c.get_text(' ', strip=True) for c in table.select('thead th'))
+    def indexed(table):
+        head = headers(table)
+        rows = table.select('tbody tr')
+        return (table.get('data-row-index') != 'false' and head
+                and head[0] in {'序号', 'No.', 'No', '#'}
+                and all(row.find('td') and not row.find('td').find('a')
+                        and not row.find('td').has_attr('data-rank')
+                        and row.find('td').get_text(strip=True) == str(index)
+                        for index, row in enumerate(rows, 1)))
     tables = list(old.select('table'))
     unmatched = []
     for source_table in list(new.select('table')):
         candidates = [t for t in tables if headers(t) == headers(source_table)]
         if len(candidates) == 1:
             target_table = candidates[0]
+            renumber = indexed(target_table) and indexed(source_table)
             if len(headers(source_table)) > 1 and headers(source_table)[1] in {'任务类别', '核对点', '参数'}:
                 continue
             for row in list(source_table.tbody.find_all('tr', recursive=False)):
                 target_table.tbody.append(row)
-            for index, row in enumerate(target_table.tbody.find_all('tr', recursive=False), 1):
-                row.find('td').string = str(index)
+            if renumber:
+                for index, row in enumerate(target_table.tbody.find_all('tr', recursive=False), 1):
+                    row.find('td').string = str(index)
+            else:
+                target_table['data-row-index'] = 'false'
         elif source_table.tbody and source_table.tbody.find('tr'):
             unmatched.append(source_table)
     # Include interface/settings/review sections that have no corresponding base section.
@@ -450,10 +670,10 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                             if group['provider'] == provider['id'] for s in group['settings']]
                 def observed(key, settings=settings):
                     values = sorted({str(s[key]) for s in settings if key in s})
-                    return ' / '.join(values) if values else '未记录'
+                    return ' / '.join(values) if values else _text('extension_unrecorded')
                 row = old.new_tag('tr')
                 values = [str(len(table.select('tbody tr')) + 1), provider.get('label', provider['id']),
-                          '—', observed('timeout_seconds'), '未记录', '未记录', '未记录', observed('max_failure_retries')]
+                          '—', observed('timeout_seconds'), *([_text('extension_unrecorded')]*3), observed('max_failure_retries')]
                 for value in values:
                     cell = old.new_tag('td')
                     cell.string = value
@@ -461,7 +681,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
                 table.tbody.append(row)
         details = old.new_tag('details')
         summary = old.new_tag('summary')
-        summary.string = '评分来源与版本'
+        summary.string = _text('extension_scoring_versions')
         details.append(summary)
         paragraph = old.new_tag('p')
         paragraph.string = note
@@ -485,9 +705,46 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     return str(old)
 
 
-def _extension_views(output, base_model, added_model, overview, note):
+def _extension_english_views(output, primary):
+    """Use the shared localizer; frozen source editions remain immutable."""
+    from harness.report_languages import generated_languages, language_metadata_path
+    from harness.web_fetch.report_i18n import localize_html, release_translations
+    from bs4 import BeautifulSoup
+    def english_available(root):
+        index = root/'extension-base-pages/en/index.html'
+        if not index.is_file():
+            index = root/'en/index.html'
+        exists = index.is_file() and not BeautifulSoup(index.read_text(encoding='utf-8'),
+            'html.parser').find(attrs={'data-english-not-generated': True})
+        declared = 'en' in generated_languages(root) if language_metadata_path(root).is_file() else exists
+        if declared and not exists:
+            raise ValueError('Declared English source has no generated homepage')
+        return declared
+    if not english_available(output):
+        return {}
+    targets = {}
+    for prefix in ('', 'additional/'):
+        root = output/prefix
+        files = _read(root/'saved-matrix-audit.json')['files']
+        has_english = english_available(root)
+        for name in files:
+            if not name.endswith('.html'):
+                continue
+            counterpart = 'en/' + name
+            targets[prefix + name] = prefix + (counterpart if has_english and counterpart in files else name)
+    targets.update({route: 'en/' + route for route in primary})
+    history = output/'report-changes.json'
+    translations = release_translations(_read(history)) if history.is_file() else {}
+    return {'en/' + route: localize_html(content, PurePosixPath(route),
+                translations=translations, route_targets=targets)
+            for route, content in primary.items()}
+
+
+def _extension_views(output, base_model, added_model, overview, note, *, ranked=True):
     """Return deterministic non-home views; source pages remain hash-bound copies."""
     result = {}
+    if not ranked:
+        return _extension_english_views(output, {'index.html': (output/'index.html').read_text(encoding='utf-8')})
     for route in _EXTENSION_ROUTES:
         retained = output / 'extension-base-pages' / route
         source = retained if retained.exists() else output / route
@@ -501,8 +758,6 @@ def _extension_views(output, base_model, added_model, overview, note):
     from bs4 import BeautifulSoup
     presentation = _shared_presentations(output)
     added_providers = {p['id'] for p in added_model['providers']}
-    from harness.record_io import load_jsonl
-    added_attempts = {r['attempt_id'] for r in load_jsonl(output / 'additional/results.jsonl')}
     for route, key in [('analysis/index.html', 'analysis'), ('guide/index.html', 'guide')]:
         if route not in result:
             continue
@@ -511,15 +766,36 @@ def _extension_views(output, base_model, added_model, overview, note):
         container.clear()
         container.append(BeautifulSoup(presentation[key], 'html.parser'))
         for link in page.select('a[href]'):
-            match = re.search(r'(providers|attempts)/([^/]+)\.html', link['href'])
+            match = re.search(r'providers/([^/]+)\.html', link['href'])
             if match and ('/additional/' not in '/' + link['href']):
-                ids = added_providers if match[1] == 'providers' else added_attempts
-                if match[2] in ids:
+                if match[1] in added_providers:
                     link['href'] = link['href'][:match.start()] + 'additional/' + link['href'][match.start():]
         _model_fetch_badges(page)
         result[route] = str(page)
 
+    result.update(_extension_english_views(output,
+        {'index.html': (output/'index.html').read_text(encoding='utf-8'), **result}))
     return result
+
+
+def _selected_method_prices(spec_path, spec):
+    from harness.web_fetch.report_saved_matrix import _path
+    binding = spec['method_prices']
+    path = _path(spec_path.parent, binding['path'])
+    if _hash(path) != binding['sha256']:
+        raise ValueError('Method price binding changed')
+    prices = _read(path)
+    for quote in prices.values():
+        if not isinstance(quote.get('price'), str) or not quote.get('sources') or not quote.get('checked_at'):
+            raise ValueError('Method prices require a quote, sources and verification date')
+        if quote.get('billing_mode', 'request') not in {'request', 'duration', 'tokens', 'difficulty', 'unpublished'}:
+            raise ValueError('Unknown method billing mode')
+        for field in ('note', 'billing'):
+            if field in quote and (not isinstance(quote[field], dict) or
+                    any(not isinstance(quote[field].get(language), str) or not quote[field][language].strip()
+                        for language in ('en', 'zh'))):
+                raise ValueError('Price notes require English and Chinese text')
+    return prices
 
 
 def build_published_extension(spec_path, output):
@@ -549,15 +825,19 @@ def build_published_extension(spec_path, output):
     shutil.copytree(base_root, output)
     shutil.copytree(added_root, output / 'additional')
     shutil.copyfile(base_root / 'index.html', output / 'extension-base-home.txt')
+    if 'method_prices' in spec:
+        _write(output/'extension-prices.json', _selected_method_prices(spec_path, spec))
     ranked = spec.get('presentation') == 'ranked'
     (output / 'index.html').write_text(_extended_home(
         (base_root / 'index.html').read_text(encoding='utf-8'), (added_root / 'index.html').read_text(encoding='utf-8'),
         base, added, overview, spec['comparison_note'], ranked=ranked, presentation=_shared_presentations(output) if ranked else None), encoding='utf-8')
-    pages = _extension_views(output, base, added, overview, spec['comparison_note']) if ranked else {}
+    pages = _extension_views(output, base, added, overview, spec['comparison_note'], ranked=ranked)
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
-        retained.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(output / route, retained)
+        if (output/route).is_file():
+            retained.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(output / route, retained)
+        (output/route).parent.mkdir(parents=True, exist_ok=True)
         (output / route).write_text(content, encoding='utf-8')
     _write(output / 'extension-methods.json', overview)
     _write(output / 'saved-extension.json', {
@@ -609,16 +889,17 @@ def check_published_extension(output):
         presentation=_shared_presentations(output) if proof.get('presentation') == 'ranked' else None)
     if (output / 'index.html').read_text(encoding='utf-8') != expected:
         raise ValueError('Published extension comparison differs from source metrics')
-    if proof.get('presentation') == 'ranked':
-        views = _extension_views(output, _read(output / 'matrix.json'),
-            _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'), proof['comparison_note'])
-        if set(views) != set(proof.get('presentation_pages', [])):
-            raise ValueError('Published extension omitted comparison pages')
-        for route, content in views.items():
-            if (output / route).read_text(encoding='utf-8') != content:
-                raise ValueError('Published comparison page differs from its frozen sources: ' + route)
-        if 'analysis/index.html' in views:
-            analysis = BeautifulSoup(views['analysis/index.html'], 'html.parser')
+    views = _extension_views(output, _read(output / 'matrix.json'),
+        _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
+        proof['comparison_note'], ranked=proof.get('presentation') == 'ranked')
+    if set(views) != set(proof.get('presentation_pages', [])):
+        raise ValueError('Published extension omitted comparison pages')
+    for route, content in views.items():
+        if (output / route).read_text(encoding='utf-8') != content:
+            raise ValueError('Published comparison page differs from its frozen sources: ' + route)
+    for route in ('analysis/index.html', 'en/analysis/index.html'):
+        if route in views:
+            analysis = BeautifulSoup(views[route], 'html.parser')
             provider_count = len(proof['providers'])
             for selector in ('#compare-a option', '[data-compare-method]'):
                 if len(analysis.select(selector)) != provider_count:
@@ -628,11 +909,16 @@ def check_published_extension(output):
                 raise ValueError('Unified result inventory omitted saved results')
     home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     count = len(proof['providers'])
-    for table in home.select('table[id^="ranking-"]'):
-        if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
-            raise ValueError('Published extension comparison population differs')
-    if len(home.select('[data-added-method]')) != len(_read(output / 'extension-methods.json')):
-        raise ValueError('Published extension omitted method configurations')
+    homes = [home]
+    if 'en/index.html' in views:
+        homes.append(BeautifulSoup(views['en/index.html'], 'html.parser'))
+    for page in homes:
+        _check_method_presentation(page)
+        for table in page.select('table[id^="ranking-"]'):
+            if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
+                raise ValueError('Published extension comparison population differs')
+        if len(page.select('[data-added-method]')) != len(_read(output / 'extension-methods.json')):
+            raise ValueError('Published extension omitted method configurations')
     from urllib.parse import urljoin, urlsplit, unquote
     for route in ['index.html', *proof.get('presentation_pages', [])]:
         page = home if route == 'index.html' else BeautifulSoup((output / route).read_text(encoding='utf-8'), 'html.parser')
@@ -680,6 +966,7 @@ def _refresh_published_extension(output, *, spec_path=None):
     import hashlib
     proof = _read(output / 'saved-extension.json')
     overview = _read(output / 'extension-methods.json')
+    prices = _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {}
     if spec_path is not None:
         spec = _read(spec_path)
         if (spec['published_base']['audit']['sha256'] != proof['base_audit_sha256']
@@ -692,12 +979,17 @@ def _refresh_published_extension(output, *, spec_path=None):
         overview = _read(path)
         if {p['id'] for p in overview} != {p['id'] for p in _read(output / 'extension-methods.json')}:
             raise ValueError('Refresh cannot replace methods')
+        if 'method_prices' in spec:
+            prices = _selected_method_prices(spec_path, spec)
     ranked = (spec.get('presentation') if spec_path is not None else proof.get('presentation')) == 'ranked'
     note = spec['comparison_note'] if spec_path is not None else proof['comparison_note']
+    presentation = _shared_presentations(output) if ranked else None
+    if presentation is not None:
+        presentation['method_prices'] = prices
     home = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview,
-        note, ranked=ranked, presentation=_shared_presentations(output) if ranked else None)
+        note, ranked=ranked, presentation=presentation)
     for name, digest in proof['files'].items():
         actual = _hash(contained_path(output, name, reject_symlinks=True))
         if actual != digest and not (name == 'index.html' and actual == hashlib.sha256(home.encode()).hexdigest()):
@@ -706,21 +998,28 @@ def _refresh_published_extension(output, *, spec_path=None):
     if _hash(output / 'extension-base-home.txt') != baseline['files']['index.html']:
         raise ValueError('Cannot refresh changed base home')
     atomic_write(output / 'index.html', home.encode())
+    if prices or (output/'extension-prices.json').is_file():
+        atomic_write(output/'extension-prices.json', json_bytes(prices))
+        proof['files']['extension-prices.json'] = _hash(output/'extension-prices.json')
     pages = _extension_views(output, _read(output / 'matrix.json'),
-        _read(output / 'additional/matrix.json'), overview, note) if ranked else {}
+        _read(output / 'additional/matrix.json'), overview, note, ranked=ranked)
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
-        if not retained.exists():
+        if route in baseline['files'] and not retained.exists():
             retained.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(output / route, retained)
         atomic_write(output / route, content.encode())
         proof['files'][route] = _hash(output / route)
-        proof['files']['extension-base-pages/' + route] = _hash(retained)
-    if not ranked:
-        for route in proof.get('presentation_pages', []):
+        if retained.is_file():
+            proof['files']['extension-base-pages/' + route] = _hash(retained)
+    for route in set(proof.get('presentation_pages', [])) - set(pages):
+        if route in baseline['files']:
             retained = output/'extension-base-pages'/route
             atomic_write(output/route, retained.read_bytes())
             proof['files'][route] = _hash(output/route)
+        else:
+            (output/route).unlink()
+            proof['files'].pop(route)
     proof['presentation_pages'] = list(pages)
     proof['presentation'] = 'ranked' if ranked else 'audit'
     proof['comparison_note'] = note

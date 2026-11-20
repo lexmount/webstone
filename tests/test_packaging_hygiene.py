@@ -145,6 +145,11 @@ def test_distribution_gate_installs_every_profile_with_the_pinned_python(monkeyp
     extras = {extra for extra, _ in package_gate.OPTIONAL_PROFILES}
     assert {re.search(r"\[(.+)\]$", part)[1] for command in commands for part in command
             if part.endswith("]")} == extras
+    assert sum(command[-2:] == ["results", "--help"] for command in commands) == 2
+    assert sum(command[-1:] == ["tracks"] for command in commands) == 2
+    assert sum("sdist-skills" in command[-1] or "wheel-skills" in command[-1]
+               for command in commands) == 2
+    assert any("from harness.results import ResultsClient" in part for command in commands for part in command)
     for command in commands[-len(extras):]:
         assert command[command.index("--python") + 1] == version
     assert not any("VIRTUAL_ENV" in env or "PYTHONPATH" in env for env in environments)

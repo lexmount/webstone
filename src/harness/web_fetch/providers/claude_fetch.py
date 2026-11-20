@@ -24,6 +24,7 @@ from harness.record_io import parse_utf8_json
 
 TOOL = {'type': 'web_fetch_20260318', 'name': 'web_fetch', 'allowed_callers': ['direct'],
         'use_cache': False, 'response_inclusion': 'full', 'citations': {'enabled': False}}
+EXECUTION_LOCATION = 'configured_ssh_worker'
 
 
 class RemoteClaudeTransportError(RuntimeError):
@@ -112,7 +113,7 @@ class ClaudeFetchProvider(Provider):
         shared = runtime_sources(Path(__file__).parents[3])
         emit('remote_http_request_prepared', url=endpoint, method=arguments['method'],
              json_body=arguments['json_body'], timeout=arguments['timeout'],
-             execution_server=self.config['ssh_server_ip'])
+             execution_location=EXECUTION_LOCATION)
         deadline = getattr(self, '_call_deadline', time.monotonic() + arguments['timeout'])
         envelope = {'body': arguments['json_body'],
                     'max_bytes': arguments['max_bytes'],
@@ -136,20 +137,19 @@ class ClaudeFetchProvider(Provider):
                     or ready.get('worker_sha256') != envelope['worker_sha256']
                     or ready.get('runtime_sources') != shared):
                 raise ValueError('Remote Claude readiness differs from the declared server or source')
-            emit('ssh_worker_ready', execution_server=ready['ssh_server'],
+            emit('ssh_worker_ready', execution_location=EXECUTION_LOCATION,
                  worker_sha256=ready['worker_sha256'])
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise TimeoutError('No API budget remains after SSH startup')
             envelope['timeout'] = remaining
-            output, error = self._process.communicate(json.dumps(envelope).encode(), timeout=remaining)
+            output, _ = self._process.communicate(json.dumps(envelope).encode(), timeout=remaining)
         except BaseException:
             self.cancel()
             raise
-        emit('ssh_process_completed', exit_code=self._process.returncode,
-             stderr=error.decode(errors='replace'))
+        emit('ssh_process_completed', exit_code=self._process.returncode)
         if self._process.returncode:
-            raise RuntimeError('Remote Claude worker failed: ' + error.decode(errors='replace')[-1200:])
+            raise RuntimeError(f'Remote Claude worker failed with exit code {self._process.returncode}')
         receipt = json.loads(output)
         if receipt.get('ssh_server') != self.config['ssh_server_ip']:
             raise ValueError('Missing designated remote execution receipt')
@@ -161,14 +161,14 @@ class ClaudeFetchProvider(Provider):
             'remote_https_environment': receipt.get('https_environment', {}),
             'deadline_policy': 'shared_caller_deadline_with_ready_anchored_remote_stop'}
         for event in receipt.get('transport_events', []):
-            emit('remote_transport_observed', execution_server=receipt['ssh_server'], observation=event)
+            emit('remote_transport_observed', execution_location=EXECUTION_LOCATION, observation=event)
         if receipt.get('kind') == 'claude_fetch_transport_error':
             raise RemoteClaudeTransportError(receipt)
         body = base64.b64decode(receipt['body_b64'], validate=True)
         emit('remote_http_response_received', status=receipt['status'], url=endpoint,
              headers=receipt.get('headers', {}), body_bytes=len(body),
              body=body.decode('utf-8', errors='replace'),
-             execution_server=receipt['ssh_server'])
+             execution_location=EXECUTION_LOCATION)
         return HttpResponse(receipt['status'], endpoint, receipt.get('headers', {}), body)
 
     def cancel(self):
@@ -187,7 +187,7 @@ class ClaudeFetchProvider(Provider):
                                 native_route_ledger=native_route_ledger, **arguments)
         except RemoteClaudeTransportError as error:
             return ProviderResult(ok=False, content='', error_type='network', error_message=str(error),
-                metadata={'execution_ssh_server': self.config['ssh_server_ip'], 'client_retries': 0,
+                metadata={'execution_location': EXECUTION_LOCATION, 'client_retries': 0,
                           'remote_transport_error': error.receipt['transport_error'],
                           **getattr(self, '_remote_execution_receipt', {})})
         try:
@@ -219,7 +219,7 @@ class ClaudeFetchProvider(Provider):
                     'raw_response_sha256': hashlib.sha256(response.body).hexdigest(),
                     'raw_response_bytes': len(response.body), 'api_http_status': response.status,
                     **({'native_answer_projection': declaration} if declaration else {}),
-                    'execution_ssh_server': self.config['ssh_server_ip'],
+                    'execution_location': EXECUTION_LOCATION,
                     'model': payload.get('model'), 'usage': payload.get('usage'),
                     'stop_reason': payload.get('stop_reason'), 'client_retries': 0,
                     'service_retry_policy': 'provider_default_not_overridden',

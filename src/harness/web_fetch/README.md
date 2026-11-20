@@ -1662,12 +1662,30 @@ provenance remains on the methodology page. Original pages are retained as
 hash-bound presentation sources. This does not certify
 a common scorer or a controlled collection window. The additional report's full
 result, review and evidence pages remain accessible beneath `additional/`.
+Existing English comparison views are rebuilt through the shared localization
+owner, retaining the original English pages as frozen sources. Every generated
+language must show the same comparison population and valid evidence links;
+evidence uses its frozen English edition when available, otherwise its original
+language.
 
 Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
 `--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with
 `uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE
 --reuse-published PINNED_PACKAGE_DIRECTORY`. The package retains immutable remote
-pack locations, checks every appended file and uploads only new bytes. The
+pack locations and checks every appended file. For an in-place update, pass
+`--replace-site SITE_SLUG` and materialize that site's referenced packs under
+their original paths in the pinned baseline. Packaging verifies their sizes and
+hashes before removing the self references. The uploader rejects surviving self
+references and probes external packs anonymously before sending the package.
+The full published-file check downloads and verifies each pinned external pack.
+Re-uploaded packs must contain only blocks referenced by the current report. If
+an old pack contains unused blocks, retire it and rebuild the files it served. If
+the restored content exceeds the service limit, use `--parts-directory` to
+prepare data attachments and follow the same version binding steps as other
+partitioned reports. Already pinned data on other sites retains its binding. The
+`--retire-pack PACK` option omits a superseded pack entirely and rebuilds every
+file that referenced it from the validated source. Bind the same list in
+`extension_baseline.retired_packs` when publishing a privacy correction. The
 publication profile also binds `extension_baseline.root` and the baseline shell
 file hashes in `extension_baseline.files`; the ordinary site publisher retains its
 explicit target and expected-version checks. Keep all instance bindings outside Git.

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import math
-from .scoring import candidate_identity, canonical_url, in_domain
+from .scoring import canonical_url, in_domain, ranking_identity, ranking_ids
 from .inputs import definition_path
 
 
@@ -11,9 +11,19 @@ def _gain(grade, rank):
     return (2**grade - 1) / math.log2(rank + 2)
 
 
+def candidate_documents(profile, candidates):
+    """Share document identities across scoring, presentation and review selection."""
+    protocol = profile['protocol']
+    policy = protocol.get('relevance_document_policy', 'literal/1')
+    if protocol.get('relevance_input') != 'delivered-previews/1' and policy == 'literal/1':
+        return None
+    return {c['candidate_id']: canonical_url(c['url'], policy=policy) for c in candidates}
+
+
 def score(profile, rows, plan, labels):
     """Return per-query/provider nDCG and precision after exact coverage checks."""
     cutoff = plan["cutoff"]
+    level = profile['protocol'].get('relevance_level')
     if cutoff != profile["protocol"]["top_k"] or cutoff < 1:
         raise ValueError("Relevance cutoff differs from the measured result count")
     cases = {case["id"]: case for case in profile["cases"]}
@@ -33,15 +43,18 @@ def score(profile, rows, plan, labels):
         case = cases[case_id]
         rankings = {}
         candidate_ids = set()
+        preview = profile['protocol'].get('relevance_input') == 'delivered-previews/1'
+        pooled = {}
         for method in methods:
             result = indexed[case_id, method]
-            ids = []
-            for item in result["results"][:cutoff]:
-                canonical = canonical_url(item["url"])
-                candidate_id = candidate_identity(case_id, canonical)
-                ids.append(candidate_id)
-                candidate_ids.add(candidate_id)
+            ids = ranking_ids(case_id, result['results'][:cutoff], preview=preview, level=level)
+            for item in result['results'][:cutoff]:
+                candidate_id = ranking_identity(case_id, item, preview=preview, level=level)
+                if candidate_id is not None:
+                    candidate_ids.add(candidate_id)
+                    pooled[candidate_id] = dict(candidate_id=candidate_id, url=item['url'])
             rankings[method] = ids
+        documents = candidate_documents(profile, pooled.values())
         grades = labels[case_id]
         if set(grades) != candidate_ids or any(
             type(v) is not int or v not in range(4) for v in grades.values()
@@ -49,7 +62,7 @@ def score(profile, rows, plan, labels):
             raise ValueError("Relevance grades do not match the pooled candidates")
         for method in methods:
             ids = rankings[method]
-            metrics = query_metrics(ids, grades, cutoff)
+            metrics = query_metrics(ids, grades, cutoff, documents=documents)
             scored.append(
                 {
                     "case_id": case_id,
@@ -62,7 +75,7 @@ def score(profile, rows, plan, labels):
     return scored
 
 
-def query_metrics(ranking, grades, cutoff=5):
+def query_metrics(ranking, grades, cutoff=5, *, documents=None):
     """The single result-to-query calculation used by summaries and drilldowns."""
     if type(cutoff) is not int or cutoff < 1:
         raise ValueError("Cutoff must be a positive integer")
@@ -72,11 +85,20 @@ def query_metrics(ranking, grades, cutoff=5):
         raise ValueError("Relevance grades must be integers 0..3")
     seen, ranked_grades, duplicates = set(), [], []
     for candidate_id in ranking[:cutoff]:
-        duplicate = candidate_id in seen
-        ranked_grades.append(0 if duplicate else grades[candidate_id])
+        document = documents.get(candidate_id, candidate_id) if documents is not None else candidate_id
+        duplicate = candidate_id is not None and document in seen
+        ranked_grades.append(0 if duplicate or candidate_id is None else grades[candidate_id])
         duplicates.append(duplicate)
-        seen.add(candidate_id)
-    ideal_grades = sorted(grades.values(), reverse=True)[:cutoff]
+        seen.add(document)
+    ideal_values = grades.values()
+    if documents is not None:
+        if set(documents) != set(grades):
+            raise ValueError('Ideal document identities must cover every candidate')
+        unique = {}
+        for candidate, document in documents.items():
+            unique[document] = max(unique.get(document, 0), grades[candidate])
+        ideal_values = unique.values()
+    ideal_grades = sorted(ideal_values, reverse=True)[:cutoff]
     contributions = [_gain(g, i) for i, g in enumerate(ranked_grades)]
     ideal_contributions = [_gain(g, i) for i, g in enumerate(ideal_grades)]
     dcg, ideal = sum(contributions), sum(ideal_contributions)
@@ -110,6 +132,38 @@ def summary(scored, methods):
     }
 
 
+def paired_bootstrap(scored, methods, *, metric='ndcg', samples=2000, seed=0):
+    """Resample complete queries, retaining the pairing between methods."""
+    import random
+
+    if samples < 100 or not methods or len(methods) != len(set(methods)):
+        raise ValueError('Bootstrap requires methods and at least 100 samples')
+    indexed = {(r['case_id'], r['method']): r[metric] for r in scored}
+    cases = sorted({r['case_id'] for r in scored})
+    if not cases or len(indexed) != len(scored) or set(indexed) != {(c, m) for c in cases for m in methods}:
+        raise ValueError('Bootstrap requires a complete paired query matrix')
+    values = {m: [indexed[c, m] for c in cases] for m in methods}
+    means = {m: sum(v) / len(v) for m, v in values.items()}
+    best = max(methods, key=means.get)
+    distributions = {m: [] for m in methods}
+    differences = {m: [] for m in methods}
+    generator = random.Random(seed)
+    for _ in range(samples):
+        chosen = generator.choices(range(len(cases)), k=len(cases))
+        draw = {m: sum(values[m][i] for i in chosen) / len(chosen) for m in methods}
+        for method in methods:
+            distributions[method].append(draw[method])
+            differences[method].append(draw[method] - draw[best])
+
+    def interval(values):
+        ordered = sorted(values)
+        return [ordered[int((len(ordered) - 1) * q)] for q in (0.025, 0.975)]
+
+    return dict(best_observed=best, samples=samples, seed=seed, methods={
+        m: dict(mean=means[m], interval=interval(distributions[m]),
+                difference_to_best=interval(differences[m])) for m in methods})
+
+
 def candidate_packet(
     profile,
     rows,
@@ -123,6 +177,13 @@ def candidate_packet(
         raise ValueError("Unsupported relevance source policy")
     if packet_format not in ("search/1", "serp/1"):
         raise ValueError("Unsupported frozen candidate packet format")
+    level = profile['protocol'].get('relevance_level')
+    if level is not None:
+        if level not in ('l1', 'l2') or profile['protocol'].get('relevance_input') != 'delivered-previews/1':
+            raise ValueError('Relevance levels require isolated per-result text')
+        allowed = {'url', 'title', 'snippet', 'rank', 'invalid_slot', 'citation_id'}
+        if any(set(item) - allowed for row in rows for item in row['results']):
+            raise ValueError('Cross-level fields cannot enter a relevance packet')
     case_ids = [c["id"] for c in profile["cases"] if "reference_answer" not in c]
     cutoff = profile["protocol"]["top_k"]
     indexed = {(r["case_id"], r["method"]): r for r in rows}
@@ -143,10 +204,14 @@ def candidate_packet(
             if (cid, method["id"]) not in indexed:
                 raise ValueError("Incomplete method-case matrix")
             ranking = []
+            seen = {}
             for item in indexed[cid, method["id"]]["results"][:cutoff]:
+                if item.get('invalid_slot'):
+                    ranking.append(None)
+                    continue
                 url = canonical_url(item["url"])
-                key = hashlib.sha256((cid + "\0" + url).encode()).hexdigest()[:12]
-                ranking.append(key)
+                key = ranking_identity(cid, item, preview=profile['protocol'].get('relevance_input') == 'delivered-previews/1', level=level)
+                ranking.append(seen.setdefault(url, key))
                 candidate = pool.setdefault(
                     key, {"candidate_id": key, "url": url, "previews": []}
                 )
@@ -192,6 +257,8 @@ def candidate_packet(
                 "candidates": [pool[k] for k in sorted(pool)],
             }
         )
+        if level is not None:
+            packets[-1]['evaluation_level'] = level
     if source_requirements is not None:
         for packet in packets:
             packet["source_checked"] = True
@@ -200,6 +267,8 @@ def candidate_packet(
         "plan": {"scope": "all_custom", "cutoff": cutoff, "case_ids": case_ids},
         "blind_candidate_packets": packets,
     }
+    if level is not None:
+        blind['evaluation_level'] = level
     if (
         source_requirements is not None
         and source_policy != "legacy-domain-intersection/1"

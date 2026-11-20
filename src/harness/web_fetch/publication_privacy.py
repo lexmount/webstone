@@ -3,6 +3,7 @@
 import hashlib
 import html
 import io
+import ipaddress
 import json
 import re
 from collections import OrderedDict
@@ -170,6 +171,22 @@ def project_redundant_result_streams(name: str, data: bytes):
 
 
 GOOGLE_KEY = re.compile(rb'AIzaSy[A-Za-z0-9_-]{20,}')
+EXECUTION_ADDRESS_FIELD = rb'(?:[a-z0-9]+_)*execution_(?:ssh_)?server'
+EXECUTION_ADDRESS_TEXT = re.compile(
+    rb'["\']' + EXECUTION_ADDRESS_FIELD + rb'["\']\s*:\s*["\']([0-9A-Fa-f:.]+)["\']',
+)
+
+
+def _internal_execution_address(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return not address.is_global
+
+
 OTHER_SECRET = re.compile(
     rb'(?<![A-Za-z0-9_-])(?:ahp_[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|'
     rb'sk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{20,}|'
@@ -483,6 +500,8 @@ def _cached_plain_publication_risk(data):
 def _scan_plain_publication_risk(data):
     """Inspect actual text, excluding serialization delimiters."""
     decoded=html.unescape(data.decode('utf-8',errors='surrogateescape')).encode('utf-8',errors='surrogateescape')
+    if any(_internal_execution_address(match[1].decode('ascii')) for match in EXECUTION_ADDRESS_TEXT.finditer(decoded)):
+        return 'internal execution address'
     if GOOGLE_KEY.search(decoded) or OTHER_SECRET.search(decoded):
         return 'credential-shaped value'
     if auth_matches(decoded):
@@ -521,6 +540,8 @@ def _scan_publication_risk(data):
     def inspect(value, *, secret=False):
         if isinstance(value, dict):
             for key, item in value.items():
+                if re.fullmatch(EXECUTION_ADDRESS_FIELD, key.encode('utf-8')) and _internal_execution_address(item):
+                    return 'internal execution address'
                 risk = _plain_publication_risk(key.encode('utf-8'))
                 if risk:
                     return risk

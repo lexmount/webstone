@@ -58,6 +58,7 @@ def main():
         value = {
             "version": catalog["version"],
             "tag": catalog["tag"],
+            "dataset_status": catalog["development"]["dataset_status"],
             "scoring_status": catalog["development"]["scoring_status"],
             "scoring_source_sha256": catalog["development"]["scoring_source_sha256"],
             "suites": {
@@ -94,8 +95,10 @@ def main():
         if identity != registry()["current"]["factual"]:
             parser.error("rebuild supports the factual suite")
         from .simpleqa import rebuild_dataset
+        from harness.benchmarks.data import definition_path as reference_file
 
-        value = rebuild_dataset(args.csv.read_bytes())
+        value = rebuild_dataset(args.csv.read_bytes(), reference_dataset=load_dataset(identity),
+                                artifacts=lambda name: reference_file('simpleqa-verified', name).read_bytes())
         raw = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
         if digest(raw) != registry()["datasets"][identity]["sha256"]:
             raise ValueError("Rebuilt dataset does not match the registry hash")

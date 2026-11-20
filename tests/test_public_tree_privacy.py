@@ -16,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 INTERNAL_DOMAIN_SHA256 = frozenset(
     {"4d1b2be2e1e82621b7c64f33c321b29320c4ab58927010c87376d522ed72b4f2"}
 )
+# This public leaderboard is an explicitly supported publication target, not an internal service.
+PUBLIC_PROJECT_HOSTS = frozenset({"webstone.dev.lexmount.net"})
 PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172." + "16.0.0/12", "192.168.0.0/16")
 )
@@ -62,6 +64,8 @@ def personal_homes(text: str) -> set[str]:
 def internal_hosts(text: str, digests: frozenset[str] = INTERNAL_DOMAIN_SHA256) -> set[str]:
     found = set()
     for host in set(_HOSTNAME.findall(text)):
+        if host.lower() in PUBLIC_PROJECT_HOSTS:
+            continue
         suffix = ".".join(host.lower().split(".")[-3:])
         if hashlib.sha256(suffix.encode()).hexdigest() in digests:
             found.add(host)

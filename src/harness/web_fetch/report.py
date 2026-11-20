@@ -762,6 +762,7 @@ class RenderContext:
  coverage_plan: dict | None = None
  scope_presentation: dict | None = None
  descriptive_ranks: bool = False
+ result_views: dict | None = None
 
 
 _RENDER_CONTEXT=ContextVar('webfetch_render_context',default=RenderContext())
@@ -1125,15 +1126,33 @@ def generate_public_benchmark_research(out:Path,research:dict,*,include_english:
  write_language_contract(out,include_english=include_english)
  return out/'index.html'
 
+def result_view(record):
+ views=_RENDER_CONTEXT.get().result_views
+ return views.get((record['provider'],record['case_id']),{}) if views else {}
+
+def result_case(record,fallback):
+ """Keep each saved result's own rules separate from its comparison identity."""
+ return result_view(record).get('case',fallback)
+
+def result_href(record,kind,base=''):
+ """Resolve a retained evidence route relative to the report root."""
+ if kind=='task':default='datasets/'+record['case_id']+'.html'
+ elif kind=='attempt':default='attempts/'+record['attempt_id']+'.html'
+ else:raise ValueError('Unknown result evidence route: '+kind)
+ return base+result_view(record).get(kind+'_href',default)
+
 def succeeded(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_passed(r['ok'],r['metrics'],c.get('task_kind','body'))
 
 def measured(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return False
  return task_measured(r['metrics'],c.get('task_kind','body'))
 
 def result_label(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected')
  if r['metrics'].get('evaluation_excluded'):return t('excluded_from_comparison', 'Excluded from comparison')
@@ -1196,7 +1215,7 @@ def review_cell(audit, rows, base=''):
  indexed=review_index(audit);items=[indexed[r['attempt_id']] for r in rows if r['attempt_id'] in indexed]
  unresolved=sum(not x.get('final_verdict') for x in items)
  label=t('review_records', '{count}/{count2} · review records', count=len(items), count2=len(rows))
- if unresolved:label+=f' · 未决 {unresolved}'
+ if unresolved:label=saved_matrix_text('review_coverage_unresolved',reviewed=len(items),total=len(rows),unresolved=unresolved)
  return cell(link(base+'review/index.html',label),len(items)/len(rows) if rows else -1)
 
 def _evidence_chunks(text, width=620, overlap=100):
@@ -1610,6 +1629,7 @@ def stable_anchor_evidence(metrics,output,metadata=None,base_url='',contract=Non
  return note+f'<div class="anchor-grid"{scroll}>'+''.join(cards)+'</div>'
 
 def failure_category(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':return result_label(r,c)
  if r['metrics'].get('evaluation_excluded'):return t('evaluation_environment_defect_excluded_across_all_methods', 'Evaluation environment defect: excluded across all methods')
  if not measured(r,c):return t('undecidable_evidence_of_the_final_page_identity', 'Undecidable: evidence of the final page identity is missing') if r['metrics'].get('page_identity_required') and r['metrics'].get('page_identity_status')=='unavailable' else t('unmeasured_acceptance_evidence_is_missing', 'Unmeasured: acceptance evidence is missing')
@@ -1674,6 +1694,7 @@ def stable_failure_summary(metrics):
  return '；'.join(parts) or t('stable_text_or_record_structure_did_not', 'Stable text or record structure did not meet the task requirements')
 
 def reason(r,c):
+ c=result_case(r,c)
  if r.get('report_invocation_status') == 'adapter_rejected':
   return saved_matrix_text('adapter_rejected_note')
  if r['metrics'].get('evaluation_excluded'):
@@ -1911,21 +1932,20 @@ def overview_matched_latency(records,cases):
  if not common:return ('<p>' + t('no_task_is_yet_passed_by_every', 'No task is yet passed by every method, so shared-task latency is not calculated.') + '</p>')
  population=_article_speed_population(cases,records,names,execution_scope='Main-evaluation historical calls across batches; all registered methods and configurations, not a same-window controlled experiment.')
  metrics=['mean_ms','p50_ms','p95_ms'];rows=[]
- minima={key:min(row[key] for row in population['rows']) for key in metrics}
  for row in population['rows']:
   values=cell(link('providers/'+row['provider']+'.html',provider_label(row['provider']),browser_method_label(row['provider'],language='en')))
   for key in metrics:
-   value=ms(row[key]);values+=cell('<strong>'+value+'</strong>' if row[key]==minima[key] else value,row[key])
+   value=ms(row[key]);values+=cell(value,row[key])
   rows.append(('',values))
  count=population['common_pass_count']
- note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set; the lowest mean, P50, and P95 are shown in bold.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
+ note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
  dates=[]
  for row in population['rows']:
   observed=row['recorded_start_dates']
   if observed:
    dates.append(model_text(provider_label(row['provider']),browser_method_label(row['provider'],language="en"))+model_text('：'+'、'.join(f'{date}（{number} 题）' for date,number in observed.items()),': '+', '.join(f'{date} ({number} tasks)' for date,number in observed.items())))
  links='、'.join(link('datasets/'+cid+'.html',cases[cid].get('name',cid)) for cid in population['common_pass_cases'])
- content=((f"{note}{table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks'), t('p95_on_shared_tasks', 'P95 on shared tasks')], rows, 'overall-matched-latency-table', metrics=[])}<details><summary>" + t('shared_tasks_and_call_dates', 'Shared tasks and call dates') + f"</summary><p>{links}</p><p>{'<br>'.join(dates)}</p></details>"))
+ content=((f"{note}{table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks'), t('p95_on_shared_tasks', 'P95 on shared tasks')], rows, 'overall-matched-latency-table', metrics=[], include_index=False)}<details><summary>" + t('shared_tasks_and_call_dates', 'Shared tasks and call dates') + f"</summary><p>{links}</p><p>{'<br>'.join(dates)}</p></details>"))
  return ('<details class="ranking-metric-help"><summary>' + t('view_shared_pass_latency_on_demand', 'View shared-pass latency on demand') + f'</summary>{content}</details>')
 
 def overview_resources(out):
@@ -2022,7 +2042,24 @@ def successful_final_call_latency(records,cases):
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
 
 
-def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True):
+def all_final_call_latency(records):
+ groups=defaultdict(list)
+ for record in records:
+  if record.get('report_invocation_status') != 'adapter_rejected':
+   groups[record['provider']].append(record['elapsed_ms'])
+ rows=[]
+ for name,times in sorted(groups.items()):
+  values=cell(link(f'../providers/{name}.html',provider_label(name)))+cell(str(len(times)))
+  for value in (statistics.mean(times),percentile(times,.5),percentile(times,.95)):
+   values+=cell(ms(value),value)
+  rows.append(('',values))
+ return section(saved_matrix_text('all_final_call_timing_title'),
+  '<p>'+saved_matrix_text('final_call_timing_help')+'</p>' +
+  table([t('method', 'Method'),saved_matrix_text('final_call_count'),*saved_matrix_text('final_call_timing_headers')],
+   rows,'all-final-call-latency',metrics=[]),'all-final-call-timing')
+
+
+def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False):
  records,cases=comparison_population(records,cases)
  has_unknown=any(not measured(r,cases[r["case_id"]]) for r in records)
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
@@ -2044,7 +2081,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   for track,_ in active_tracks(cases):
    subset=[r for r in rs if report_family(cases[r['case_id']])==track and measured(r,cases[r['case_id']])]
    values+=cell(f'{sum(succeeded(r,cases[r["case_id"]]) for r in subset)}/{len(subset)}',sum(succeeded(r,cases[r['case_id']]) for r in subset)/len(subset) if subset else -1)
-  times=[r['elapsed_ms'] for r in called]
+  times=[r['elapsed_ms'] for r in called if not passing_latency or succeeded(r,cases[r['case_id']])]
   mean_time=statistics.mean(times) if times else None
   values+=cell(ms(mean_time),mean_time)
   values+=cell(ms(percentile(times,.5)),percentile(times,.5))
@@ -2053,7 +2090,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   rows.append((passed/n if n else -1,name,('',values)))
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases)
- timing_heads=saved_matrix_text('final_call_timing_headers')
+ timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
  heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _REPORT_SUITES.get() else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
@@ -2068,16 +2105,21 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
-       + '<div><dt>'+saved_matrix_text('final_call_timing_title')+'</dt><dd>'+saved_matrix_text('final_call_timing_help')+'</dd></div>' +
-       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of the independent blind review, its protocol, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
+       + '<div><dt>'+saved_matrix_text('passing_final_call_title' if passing_latency else 'final_call_timing_title')+'</dt><dd>'+saved_matrix_text('passing_final_call_help' if passing_latency else 'final_call_timing_help')+'</dd></div>' +
+       ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
- directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
+ # Mixed outcomes make all-call timing observational: a quicker failure is
+ # not a better delivery. Successful-call comparisons have their own owner.
+ if passing_latency or (records and all(succeeded(r,cases[r['case_id']]) for r in records)):
+  directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,directions)
  timing_note='<p>'+saved_matrix_text('final_call_timing_note')
+ if passing_latency:
+  timing_note+=' '+saved_matrix_text('passing_final_call_help')+' '+link('analysis/index.html#all-final-call-timing',saved_matrix_text('all_final_call_timing_title'))
  if call_budget_seconds is not None:
   timing_note+=model_text(*pair('report_each_physical_call_has_a_value_g_second_053250', 'Each physical call has a {value0:g}-second budget.', value0=call_budget_seconds))
  timing_note+='</p>'
@@ -2091,7 +2133,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+successful_final_call_latency(records,cases)
+ return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""
@@ -2103,6 +2145,7 @@ def analysis_body(records,cases,headers=None,tracks=None):
  controls=filter_controls([('provider',t('method', 'Method'),[(n,provider_label(n)) for n in names]),('track',t('family', 'Family'),tracks),('result',t('result', 'Result'),[('pass',t('pass', 'Pass')),('fail',t('fail', 'Fail'))])]+failure_filters(records,cases))
  comparison=section(t('method_comparison', 'Method comparison'),('<p class="source-note">' + t('methods_are_compared_task_by_task_conclusions', 'Methods are compared task by task; conclusions never splice together different success samples. Pass and fail states use the primary program verdicts. Open a method to inspect its reference, output, and rationale.') + f'</p>{method_comparisons(cases, bycase, names)}'),'method-comparison')
  return hero(t('analysis', 'Analysis'),t('compare_methods_on_the_same_tasks_first', 'Compare methods on the same tasks first, then filter the complete execution record.'))+comparison+section(t('all_execution_records', 'All execution records'),controls+table([t('method', 'Method')]+headers,[(case_attrs(r,cases[r['case_id']]),cell(link('../providers/'+r['provider']+'.html',provider_label(r['provider']),browser_method_label(r['provider'],language='en')))+attempt_row(r,cases[r['case_id']])[1]) for r in records],'filtered-table',cls='all-method-results'))
+
 
 def filter_controls(options,all_first=()):
  controls=''
@@ -2117,14 +2160,20 @@ def failure_filters(records,cases):
 
 def comparison_rows(cases,bycase,names):
  rows=[]
+ def definition(case):return {key:value for key,value in case.items() if key!='id'}
  for case_id,c in cases.items():
   attempts={r['provider']:r for r in bycase.get(case_id,[])}
   passed=[name for name in names if name in attempts and measured(attempts[name],c) and succeeded(attempts[name],c)]
   failed=[name for name in names if name in attempts and measured(attempts[name],c) and not succeeded(attempts[name],c)]
-  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href("../attempts/"+attempts[name]["attempt_id"]+".html"))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
+  method_links=lambda selected,state,attempts=attempts:('<span class="outcome-list">'+''.join(f'<a class="outcome-pill {state}" href="{esc(safe_href(result_href(attempts[name],"attempt","../")))}">{model_text(provider_label(name),browser_method_label(name,language="en"))}</a>' for name in selected)+'</span>') if selected else '—'
   attrs=(dataset_attrs(c)+f' data-pass="{esc(" ".join(passed))}" data-fail="{esc(" ".join(failed))}"')
   task=(f'<div class="task-cell">{link("../datasets/"+case_id+".html",c["name"])}<div class="task-meta"><code class="tiny">{esc(case_id)}</code>'
         f'<span class="track-badge">{esc(case_track_label(c))}</span></div></div>')
+  # Different editions may retain different requirements for the same task.
+  # Expose each original definition without changing scores or comparison IDs.
+  if any(definition(result_case(r,c))!=definition(c) for r in attempts.values()):
+   sources=' · '.join(link(result_href(attempts[name],'task','../'),model_text(provider_label(name),browser_method_label(name,language='en'))) for name in names if name in attempts)
+   task+='<details class="task-contracts"><summary>'+saved_matrix_text('task_rules_by_method')+'</summary>'+sources+'</details>'
   values=cell(task)+cell(method_links(passed,'pass'))+cell(method_links(failed,'fail'))
   rows.append((attrs,values))
  return rows
@@ -2147,6 +2196,8 @@ def dataset_attrs(c):
  return f' data-track="{esc(report_family(c))}" data-category="{esc(c["category"])}"'
 
 def case_attrs(r,c):
+ comparison=c
+ c=result_case(r,c)
  not_called=r.get('report_invocation_status') == 'adapter_rejected'
  content='na' if c.get('task_kind','body')!='body' else 'pass' if r['ok'] and r['metrics']['content_pass'] else 'fail'
  resources='na' if not c.get('expected_resources') else 'pass' if r['ok'] and r['metrics'].get('resource_pass') else 'fail'
@@ -2155,13 +2206,17 @@ def case_attrs(r,c):
  stage='' if succeeded(r,c) or not measured(r,c) else 'task' if r['ok'] else 'request'
  category='' if not stage else failure_category(r,c)
  result='excluded' if r['metrics'].get('evaluation_excluded') else 'unmeasured' if not measured(r,c) else 'pass' if succeeded(r,c) else 'fail'
- return dataset_attrs(c)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(str(c.get("id",r.get("case_id","")))+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
+ identifier=str(c.get('id',r.get('case_id','')))
+ if r.get('case_id') and r['case_id']!=identifier:identifier+=' '+r['case_id']
+ return dataset_attrs(comparison)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(identifier+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c))}"'
 
 def attempt_row(r,c,base='../',*,label=None):
+ comparison=c
+ c=result_case(r,c)
  state=result_label(r,c)
- values=cell(link(base+'attempts/'+r['attempt_id']+'.html',c['name'] if label is None else label))+cell(case_track_label(c))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
+ values=cell(link(result_href(r,'attempt',base),c['name'] if label is None else label))+cell(case_track_label(comparison))+cell(f'<span class="{"muted" if not measured(r,c) else "good" if succeeded(r,c) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c)))+cell(ms(r['elapsed_ms']))
  values+=cell(f'<code class="tiny break">{esc(r.get("run_id") or execution_id(r))}</code>')
- return case_attrs(r,c),values
+ return case_attrs(r,comparison),values
 
 def local_call_chain_section(dataset, prefix="../"):
  audit=dataset.get('comparison',{}).get('call_chain_audit')
@@ -2228,7 +2283,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   counts={key:sum(row[key] for row in saved_scope['providers']) for key in ('planned','saved','uncommitted','not_called','rejected')}
   reliability_banner=('<div class="wrap reliability failure" role="status" data-saved-completion>'
       '<strong>'+saved_matrix_text('coverage_banner_title')+'</strong><span>'
-      +esc(saved_matrix_text('coverage_banner_counts', **counts))+' '
+      +esc(saved_matrix_text('coverage_banner_counts', **counts))+'</span><span>'
       +esc(saved_matrix_text('coverage_banner_note'))+'</span></div>')
   if saved_scope.get('parameter_reruns'):
    reliability_banner+='<div class="wrap callout" data-parameter-reruns>'+esc(saved_matrix_text('parameter_family_banner' if saved_scope['parameter_reruns'].get('family_selection') else 'parameter_rerun_banner', **saved_scope['parameter_reruns']))+'</div>'

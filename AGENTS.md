@@ -9,9 +9,13 @@ maintained in this repository.
 
 # Benchmark ownership
 
+All Hugging Face dataset content changes, including cards and snapshot URL bindings, must use pull requests. Owner approval to publish does not permit direct commits or uploads to dataset main. Release tags require an explicit release request, a verified immutable input commit on main, and must never move. Keep automation credentials limited to reading repository inputs and submitting discussions/pull requests; keep maintainer write credentials separate.
+
 Webstone owns benchmark scoring and input tooling as well as execution, evidence and reports. Keep the independent scorer APIs in `src/lexbench_webfetch/` and `src/lexbench_websearch/`; they must work without browsers or provider credentials. Shared dataset distribution and pinning belong in `src/harness/benchmarks/`.
 
 Hugging Face owns versioned public benchmark definitions and redistributable reference inputs. `src/harness/benchmarks/data-lock.json` selects their repositories, full commits and file hashes. Change a selection through `make pin-dataset DATASET=<track> REV=<full-HF-commit>`; keep import bindings aligned and historical snapshots intact. Do not copy datasets into Git or reintroduce retired standalone scorer repositories as execution dependencies. Official upstream evaluators retain their pinned code dependencies. Full third-party references without redistribution rights remain external approved inputs.
+
+Update Hugging Face benchmark tasks, references, acceptance contracts and execution bindings through PRs only. Never bypass this with direct uploads or commits to dataset `main`. Use the shared dataset publisher and its PR-only boundary tests. Repository creation, settings and documentation-only changes may use authorized writes; card configuration affecting dataset selection counts as data. Tokens may retain Lexmount create/write permissions for those operations. Follow [dataset revision rules](docs/benchmarks.md#historical-bindings-and-new-revisions); no publisher may merge a PR.
 
 Every track records full source commits and exact task, reference and scorer hashes ([benchmark editions](docs/benchmarks.md#benchmark-editions)). Documentation links to selection owners instead of repeating current versions. WebArena and WCXB retain their upstream authorities.
 

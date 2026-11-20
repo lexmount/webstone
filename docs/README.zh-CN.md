@@ -8,31 +8,45 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
 
-[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
+[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
 
 </div>
 
 **检验 Agent Web 工具的试金石。**
 
-古人验金，把金子在黑色的试金石上一划，看留下的痕迹便知成色。Webstone 用同样的办法检验 AI Agent 所依赖的浏览器和 Web 工具：所有工具运行同一组冻结任务，每次调用都保存为证据，报告展示每个工具留下的“痕迹”。
+Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
 
-面向 AI Agent，评测浏览器与 Web 工具，覆盖内容抓取、搜索、商品字段提取和 Browser Trajectory Replay。比较正确性、延迟、资源使用和已记录的成本，并可按需将保存的结果生成本地报告，下钻检查每一个结果，重建或分享报告。
+## 面向 Agent 的入口
+
+复制下面这句话发给你的 Agent：
+
+```text
+请安装并使用 https://github.com/lexmount/webstone/blob/main/.agents/skills/webstone/SKILL.md 里的 Webstone 评测 Skill，帮我评测［想比较的工具或模型］。
+```
 
 ## 快速开始
 
-安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，运行离线示例：
+使用 Python 3.11 或更新版本，从 [PyPI](https://pypi.org/project/webstone/) 安装 Webstone，再运行离线示例：
 
 ```sh
-git clone https://github.com/lexmount/webstone.git
-cd webstone
-uv sync --frozen
-uv run --frozen webstone validate
-uv run --frozen webstone run --delay 0
+pip install webstone
+webstone validate
+webstone run --delay 0
 ```
 
-打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。需要 Python 3.11 或更高版本；CI 在 3.11 上测试。
+在新环境中，pip 会安装 PyPI 上兼容的最新正式版。已有安装可用 `pip install --upgrade webstone` 更新。要固定版本或试用 GitHub `main` 分支上尚未发布的代码，见[安装选项](dependencies.md#install-webstone)。
 
-接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。可选适配器、服务凭据和在线评测命令见上面的各流程指南。
+打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。
+
+接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。各 Track 指南列出了适配器、凭据和在线评测命令。
+
+把评测 Skill 安装到 Codex。其他 Agent 可指定自己的 Skill 目录。
+
+```sh
+webstone skills install --directory "$HOME/.codex/skills"
+```
+
+当前包没有 `skills` 命令时，见[源码安装说明](agent-workflows.md#install-software-and-skill)。
 
 ## 评测流程
 
@@ -152,13 +166,13 @@ flowchart LR
 
 ## 报告
 
-结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output /absolute/path/new-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
+结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。之后可从保存的证据生成或重建报告，无需重复调用浏览器或服务：
+`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
-uv run --frozen webstone run --delay 0 --no-report
-uv run --frozen webstone report /absolute/path/to/run
+webstone run --delay 0 --no-report --output ./fixture-run
+webstone report ./fixture-run
 ```
 
 默认生成英文；运行或重建时加 `--language zh` 可选中文。重建时不传该选项，会沿用已保存的语言。
@@ -188,6 +202,10 @@ flowchart LR
 从仍然适用的已存证据重建报告，无需重新调用参与方。复核补充审查发现，不自动改写分数。
 
 </details>
+
+## 提交评测结果
+
+需要把成绩提交到排行榜时，评测 Skill 会把实测结果交给投稿流程，向 [webstone-site](https://github.com/lexmount/webstone-site) 提 PR。已有结果也可以[直接提 PR](https://github.com/lexmount/webstone-site/blob/main/README.md#for-agents)。
 
 ## 数据集与代码
 

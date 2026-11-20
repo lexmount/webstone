@@ -40,6 +40,10 @@ existing report retains its explicit selection unless the user changes it.
 
 An explicitly requested diagnostic report may be delivered separately from a certified benchmark release. Use the diagnostic build/check entry, label its evidence state and certification gaps on every page, preserve saved scores and outputs, and do not upgrade certification. When the user requests ranks, explicitly select ranked presentation. Require complete shared task populations and one recorded scorer identity per ranked table; otherwise retain scores with a visible explanation and no ranks or winner highlights. Equal scores share ranks. Show descriptive ranks with the recorded acceptance rules and configuration-selection limits; do not imply an untuned controlled comparison. It does not waive any certified-release reference or review gate. Presentation fixes add no provider calls. Update only the owning code, relevant instructions and demonstrated regression scenarios; do not mechanically modify every skill or copy report-specific conclusions into instructions.
 
+## Dataset maintenance
+
+Use the shared publisher in `harness.benchmarks.publication` for HF definition updates, and the existing snapshot publisher for URL bindings. Both must propose PRs even when the credential can write to main. Do not substitute an ad hoc API upload. Repository creation, settings and documentation-only maintenance can use authorized writes; dataset selection configuration follows the data-review rule. Before proposing a version, follow [dataset revision rules](../../../docs/benchmarks.md#historical-bindings-and-new-revisions) and run the publication behavior tests. Pending receipts identify `pr_revision`; only an active, reviewed main commit can become a data-lock selection. A Search report needed during dataset review may use the existing pending-proposal input mode: bind the immutable PR commit, manifest and complete archive as report assets, replay its evidence offline, and display its pending state on every page. Keep main activation separate; never relabel the pending proposal as a released dataset.
+
 ## Working contract
 
 `AGENTS.md` owns the version rule; [report languages](../../../docs/report-hosting.md#report-languages) owns language selection.
@@ -60,9 +64,31 @@ For an explicitly requested full review, set `independent_result_review_scope: a
 10. Build the public report from the frozen evidence. Every page should answer a reader question. Show task and run identifiers, the exact expected-versus-actual evidence behind a verdict, denominators and unavailable metrics, method differences, limits, concise reproduction instructions, and a compact review history.
 11. Release only after code tests, evidence integrity, report links, deterministic interaction checks, secret scans, target-site checks, and deployed-output verification pass, plus the one-pass top-level-page reader review when measured results, rendered layout or content hierarchy changed. Responsive and theme matrices belong to shared renderer tests when those owners change; do not replay them for every report release. Preserve earlier sites unless replacement was explicitly requested.
 12. Present one authoritative logical result per method and task. The frozen protocol chooses the score-bearing execution; a renderer must never silently replace that rule. Keep every physical call in the evidence chain and retain accumulated execution cost separately from the declared primary latency metric. State whether primary latency measures the final call or the complete user-visible operation; retries never increase the logical-result denominator. Do not make execution ordinal labels part of the public comparison unless retry behavior is the declared subject.
-13. Apply the track-independent presentation contract in [report and release](references/report-and-release.md) to every report, including a new track. Wire semantic checks into its release command; prose instructions alone are not a release gate.
-14. When publication is requested and authorized, publish to the Artifact Site host and site bound by the track's current profile, following that host's current `for-agents.md`. Never embed a default deployment hostname or borrow a target from another report. Build and validate before the external write, bind the returned slug, share URL, and version in the current profile, use optimistic locking for later updates, and verify the unauthenticated share page. Use the track's `make` target or publish command when available (`uv run --frozen python -m harness.<track> --help` lists its commands); do not reconstruct a target from prose or an earlier receipt. Export the whole deployed tree only when the specific report publisher requires it or when diagnosing a release failure.
-15. Make summary and interpretation routes presentation-ready and run the language passes described in [presentation quality](references/presentation-quality.md#reader-facing-structure).
+13. When native output types are scored separately, keep their participants, input fields, primary metrics and detail views separate through the release check. A source-ranking metric, an answer-word match and generated-answer correctness answer different questions.
+    Introduce the benchmark tasks, scored fields and primary metrics before the first comparison. State whether scores are independent or cumulative, and derive participant lists and populations from verified views. Field qualification statistics and mixed request settings must remain visible in the relevant capability and measurement views.
+14. Apply the track-independent presentation contract in [report and release](references/report-and-release.md) to every report, including a new track. Wire semantic checks into its release command; prose instructions alone are not a release gate.
+15. When publication is requested and authorized, publish to the Artifact Site host and site bound by the track's current profile, following that host's current `for-agents.md`. Never embed a default deployment hostname or borrow a target from another report. Build and validate before the external write, bind the returned slug, share URL, and version in the current profile, use optimistic locking for later updates, and verify the unauthenticated share page. Use the track's `make` target or publish command when available (`uv run --frozen python -m harness.<track> --help` lists its commands); do not reconstruct a target from prose or an earlier receipt. Export the whole deployed tree only when the specific report publisher requires it or when diagnosing a release failure.
+16. Make summary and interpretation routes presentation-ready and run the language passes described in [presentation quality](references/presentation-quality.md#reader-facing-structure).
+
+## Frozen report extensions
+
+When adding saved methods to an existing publication, inspect both frozen task
+contracts and scorer identities before combining ranks. Different editions retain
+their own saved values and evidence. Default to unranked presentation; when the user
+explicitly requests unified descriptive ranks, select the composition owner's
+ranked presentation, retain scoring provenance on the methodology page, and derive
+ranks and directional highlights from all displayed methods. Do not label stored
+numeric comparisons as common-scorer certification. Use the existing saved-report composition owner and its
+published-extension mode described in the Web Fetch guide. Bind source audits,
+method configurations, pricing sources and the exact publication baseline outside
+Git. Verify nested evidence loading and immutable data-pack reuse before updating
+the original site. Do not replace a historical contract merely to make reports
+look comparable.
+Keep generated language editions aligned on comparison populations and evidence
+links; retain each original language edition as a frozen source when rebuilding
+extended views through the maintained localization owner.
+Retain each source's review coverage and protocol with source labels, including
+paragraph-only disclosures; matching section titles do not establish shared review scope.
 
 ## Frozen report extensions
 

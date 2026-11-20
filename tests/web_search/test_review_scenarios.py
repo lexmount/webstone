@@ -214,7 +214,8 @@ def test_combined_release_export_keeps_the_explicit_publication_plan(tmp_path, m
         )
     verify_plan.assert_called_once_with(output, plan.parent)
     export.assert_called_once_with(output, delivery)
-    verify.assert_called_once_with(output, delivery)
+    # export owns its verification; the CLI must not repeat it.
+    verify.assert_not_called()
 
 
 @pytest.mark.parametrize("boundary", ["send", "response", "save"])
@@ -282,9 +283,7 @@ def test_reference_panels_respect_declared_cutoff(cutoff, position):
     row = {'case_id': 'query', 'method': 'a', 'results': results, 'metrics': evaluate(case, results),
            'http_status': 200, 'error': '', 'elapsed_ms': 1, 'cost': 0}
     original = dict(row['metrics'])
-    doc = BeautifulSoup(report.reference_retrieval_panel(profile, [row], ['query'], False), 'html.parser')
     expected = 0 if rank > cutoff else 1 / rank
-    assert float(doc.select_one('[data-metric="reference-mrr"]')['data-value']) == pytest.approx(expected)
     content = {'metric_populations': [
         {'id': 'overall', 'label': {'en': 'All', 'zh': 'All'}, 'case_ids': ['query']},
         {'id': 'scenario', 'label': {'en': 'Scenarios', 'zh': 'Scenarios'}, 'case_ids': ['query']},

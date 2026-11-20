@@ -677,7 +677,7 @@ def _relative(source: PurePosixPath, target: PurePosixPath) -> str:
     return posixpath.relpath(str(target), str(source.parent))
 
 
-def _rewrite_url(value: str, source: PurePosixPath, english: PurePosixPath) -> str:
+def _rewrite_url(value: str, source: PurePosixPath, english: PurePosixPath, route_targets=None) -> str:
     parsed = urlsplit(html.unescape(value))
     if parsed.scheme or parsed.netloc or value.startswith(("mailto:", "data:", "javascript:")):
         return value
@@ -685,19 +685,23 @@ def _rewrite_url(value: str, source: PurePosixPath, english: PurePosixPath) -> s
         return value
     resolved = PurePosixPath(posixpath.normpath(posixpath.join(str(source.parent), parsed.path)))
     target = PurePosixPath("en") / resolved if resolved.suffix.lower() in {".html", ".htm"} else resolved
+    if route_targets and str(resolved) in route_targets:
+        target = PurePosixPath(route_targets[str(resolved)])
     rewritten = _relative(english, target)
     return html.escape(urlunsplit(("", "", rewritten, parsed.query, parsed.fragment)), quote=True)
 
 
-def _rewrite_links(page: str, source: PurePosixPath, english: PurePosixPath) -> str:
+def _rewrite_links(page: str, source: PurePosixPath, english: PurePosixPath, route_targets=None) -> str:
     pattern = re.compile(r'(?P<prefix>\b(?:href|src)=)(?P<quote>["\'])(?P<url>.*?)(?P=quote)')
     return pattern.sub(lambda match: match.group("prefix") + match.group("quote")
-                       + _rewrite_url(match.group("url"), source, english) + match.group("quote"), page)
+                       + _rewrite_url(match.group("url"), source, english, route_targets) + match.group("quote"), page)
 
 
-def _header(source: PurePosixPath, english: PurePosixPath) -> str:
+def _header(source: PurePosixPath, english: PurePosixPath, *, primary_english=False) -> str:
     brand = _relative(english, PurePosixPath("en/index.html"))
     chinese = _relative(english, source)
+    if primary_english:
+        chinese += '?report-language=zh'
     links = "".join(
         f'<a href="{html.escape(_relative(english, PurePosixPath("en") / path), quote=True)}">{label}</a>'
         for path, label in NAV
@@ -707,10 +711,12 @@ def _header(source: PurePosixPath, english: PurePosixPath) -> str:
             '<button class="theme-toggle" onclick="theme()">Toggle theme</button></nav></header>')
 
 
-def localize_html(page: str, source: PurePosixPath, *, translations=None) -> str:
+def localize_html(page: str, source: PurePosixPath, *, translations=None, route_targets=None) -> str:
     english = PurePosixPath("en") / source
     page = page.replace('<html lang="zh-CN">', '<html lang="en">', 1)
-    page = re.sub(r'<header class="top">.*?</header>', _header(source, english), page, count=1, flags=re.S)
+    primary_english = bool(re.search(r'<script\b[^>]*\bdata-report-language-entry\b', page))
+    page = re.sub(r'<script\b[^>]*\bdata-report-language-entry\b[^>]*>.*?</script>', '', page, flags=re.S)
+    page = re.sub(r'<header class="top">.*?</header>', _header(source, english, primary_english=primary_english), page, count=1, flags=re.S)
     # Raw evidence and executable/style blocks are preserved, never translated.
     # Mask them before parsing so large responses do not incur entity-by-entity work.
     preserved = []
@@ -724,7 +730,7 @@ def localize_html(page: str, source: PurePosixPath, *, translations=None) -> str
     localized = "".join(parser.parts)
     for index, block in enumerate(preserved):
         localized = localized.replace(f"<!--LOCALIZATION-PRESERVED-{index}-->", block)
-    return _rewrite_links(localized, source, english)
+    return _rewrite_links(localized, source, english, route_targets)
 
 
 REGEX.insert(0, (re.compile(r"^源码提交：(.+)$"), r"Source commit: \1"))
@@ -796,7 +802,33 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
 
 
 # Saved-source presentation uses the shared localization owner.
-_SAVED_MATRIX_SOURCES = {'parameter_rerun_title': 'Parameter reruns and result selection',
+_SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · review records · {unresolved} unresolved',
+ 'task_rules_by_method': 'Task requirements by method',
+ 'extension_index': 'No.',
+ 'extension_audit_title': 'Saved results by method',
+ 'extension_audit_basis': 'Recorded source results are retained; scoring differences are explained below.',
+ 'extension_method_details': 'View method details and per-task evidence →',
+ 'extension_rank': 'Rank',
+ 'extension_model_fetch_title': 'Model-provided web retrieval tool or API',
+ 'extension_model_fetch': 'Model company',
+ 'extension_price_units': 'Prices are in USD.',
+ 'extension_ranking_title': 'Task pass-rate ranking',
+ 'extension_shared_latency': 'Latency on tasks passed by every method',
+ 'extension_ordering': 'Ordered by task pass rate.',
+ 'extension_scoring_versions': 'Scoring sources and versions',
+ 'extension_price_column': 'Reference price',
+ 'extension_price_hour_amount': '{amount} / hour',
+ 'extension_price_duration': 'Billed by browser runtime',
+ 'extension_price_tokens': 'Input {incoming} · Output {outgoing}',
+ 'extension_price_token_unit': 'Per million tokens',
+ 'extension_price_difficulty': 'Price varies by page processing tier',
+ 'extension_price_pages': '{amount} / 1,000 pages',
+ 'extension_price_requests': '{amount} / 1,000 requests',
+ 'extension_price_unpublished': 'Price not published',
+ 'extension_local': 'Local',
+ 'extension_unrecorded': 'Not recorded',
+ 'extension_prices_headers': ['Method', 'Price', 'Billing', 'Source'],
+ 'parameter_rerun_title': 'Parameter reruns and result selection',
  'changes_scope': 'Parameter reruns and offline revisions are recorded separately. Parameter reruns include '
                   'new calls; offline revisions use retained responses only.',
  'offline_review_scope': 'This records rule review of known machine results, scored offline from saved '
@@ -895,6 +927,11 @@ _SAVED_MATRIX_SOURCES = {'parameter_rerun_title': 'Parameter reruns and result s
                          'product failures. This report presents saved evidence, not complete acceptance or '
                          'formal publication.',
  'final_call_timing_headers': ['Mean final-call latency', 'P50 final-call latency', 'P95 final-call latency'],
+ 'passing_final_call_headers': ['Mean latency (passed)', 'P50 latency (passed)', 'P95 latency (passed)'],
+ 'passing_final_call_title': 'Final-call latency for passing tasks',
+ 'passing_final_call_help': 'Only passing tasks are included. Green bold values are the shortest in their columns. Each method passed a different mix of tasks, so these values do not rank speed on the same tasks.',
+ 'all_final_call_timing_title': 'Final-call latency for all calls',
+ 'final_call_count': 'Saved calls',
  'final_call_timing_title': 'Mean / P50 / P95 final-call latency',
  'final_call_timing_help': 'All three statistics use the final call of each retained result, including '
                            'passes and failures. Uncommitted, uncalled and adapter-rejected entries are '
@@ -922,21 +959,32 @@ def saved_matrix_text(key, **values):
 
 def _register_saved_matrix_fallbacks():
     """Localize frozen Chinese pages from the same catalog and English sources."""
+    texts = []
     for key, source in _SAVED_MATRIX_SOURCES.items():
         entries = [(f'saved_matrix_{key}_{index}', text) for index, text in enumerate(source)] if isinstance(source, list) else [('saved_matrix_' + key, source)]
         for message_id, english in entries:
             fields = re.findall(r'\{([a-z_]+)\}', english)
             chinese = translate(MESSAGES, message_id, 'zh', **{name: '{' + name + '}' for name in fields})
-            if not fields:
-                TEXT.setdefault(chinese.strip(), english)
-                continue
-            pattern = re.escape(chinese)
-            for name in fields:
-                pattern = pattern.replace(re.escape('{' + name + '}'), '(?P<' + name + '>.+?)', 1)
-            def replacement(match, english=english):
-                return english.format_map({name: translate_text(value)
-                                           for name, value in match.groupdict().items()})
-            REGEX.append((re.compile('^' + pattern + '$'), replacement))
+            texts.append((chinese, english))
+    # Frozen pages used one text node for the counts and their scope note.
+    # Derive that legacy grammar from the same catalog, preserving source bytes.
+    keys = ('coverage_banner_counts', 'coverage_banner_note')
+    english = ' '.join(_SAVED_MATRIX_SOURCES[key] for key in keys)
+    fields = re.findall(r'\{([a-z_]+)\}', english)
+    values = {name: '{' + name + '}' for name in fields}
+    texts.append((' '.join(translate(MESSAGES, 'saved_matrix_' + key, 'zh', **values) for key in keys), english))
+    for chinese, english in texts:
+        fields = re.findall(r'\{([a-z_]+)\}', english)
+        if not fields:
+            TEXT.setdefault(chinese.strip(), english)
+            continue
+        pattern = re.escape(chinese)
+        for name in fields:
+            pattern = pattern.replace(re.escape('{' + name + '}'), '(?P<' + name + '>.+?)', 1)
+        def replacement(match, english=english):
+            return english.format_map({name: translate_text(value)
+                                       for name, value in match.groupdict().items()})
+        REGEX.append((re.compile('^' + pattern + '$'), replacement))
 
 
 _register_saved_matrix_fallbacks()

@@ -196,7 +196,8 @@ deployments retain their recorded serving behavior.
 Hugging Face keeps the authoritative input files. An optional `snapshots.json`
 records the public URLs and matching hashes without replacing those files.
 `snapshots-publish` compares the pinned HF originals with a complete online
-verification receipt, then atomically adds the binding and dataset-card section.
+verification receipt, then opens a PR containing the binding and dataset-card section.
+A proposed binding returns `state: review_pending` and `pr_revision`, which is not a dataset pin. An unchanged binding already on main returns `state: active` and its `revision`. A proposal becomes active only after a maintainer merges the reviewed PR. This command cannot update main or create a tag.
 A mismatch prevents publication. Use a full HF commit when downloading a binding;
 a later HTML change requires a new deployment and a new HF commit. Running
 cohorts do not follow moving aliases or auto-update their inputs.

@@ -2215,6 +2215,8 @@ def test_saved_interface_catalog_has_frozen_page_translations():
     from harness.web_fetch.report_i18n import _SAVED_MATRIX_SOURCES, MESSAGES, translate, translate_text
     values = {'evaluated': 17, 'selected': 3, 'before': 'yes', 'candidate': 'no',
               'valid': 'yes', 'count': 20, 'before_passed': 4, 'candidate_passed': 5,
+              'reviewed': 17, 'total': 20, 'unresolved': 1,
+              'amount': '$1.00', 'incoming': '$0.10', 'outgoing': '$0.50',
               'planned': 20, 'saved': 17, 'uncommitted': 1, 'not_called': 1, 'rejected': 1}
     for key, source in _SAVED_MATRIX_SOURCES.items():
         entries = [(f'saved_matrix_{key}_{index}', text) for index, text in enumerate(source)] if isinstance(source, list) else [('saved_matrix_' + key, source)]

@@ -44,6 +44,16 @@ For ratios, name numerator and denominator, state whether ratios are computed pe
 
 Put a core-metrics comparison table near the start of every report home page, before secondary diagnosis or interpretation. Prefer tables over repeated cards for dense categorical summaries. Generate its rows and columns from the participant registry rather than assuming a fixed participant count.
 
+Comparison columns need keyboard-operable sorting controls, visible direction and
+an accessible sort state. Sort raw numeric values rather than formatted labels;
+keep unavailable values last in either direction and retain stable ordering for
+ties. Sorting must preserve the full-population winner markers. Exercise these
+behaviors in a browser test, and reject missing column controls at release.
+For independent benchmarks, keep one primary comparison per benchmark. A partially
+annotated diagnostic must not become another benchmark or substitute for missing
+primary judgments. A ranked table requires every participant on its declared
+quality population.
+
 For Web Extract cohort home pages, place a bound page intro after the core comparison and its reference note. Other pages may start with the intro. Reproduce the expected intro inventory from frozen content and check its rendered HTML and position together with the core-table order on the same generated page.
 
 Public Web Extract checks require the external profile and benchmark home. Keep build-time rendered-page self-checks internal; independent checks also revalidate the selected plans, certification receipts and assessments through the cohort input owner.
@@ -53,6 +63,8 @@ When a current report has CPU, memory or network evidence, show the same grouped
 Encode these rules once in metric metadata and render from that metadata. Add a cheap release check for missing interpretations, accidental winner styling on observational metrics, incomplete ratio modules, and navigation drift.
 
 ## Information architecture
+
+Method-name cells identify the method; place request failures and their recorded causes in a dedicated operational column. Keep successful empty responses separate from transport or API failures. A completed reference audit must not appear as unfinished scoring: rejected candidates belong in the dataset audit. When the full metric inventory makes a leaderboard too wide, show its primary quality measures, latency, price and request outcomes by default, with the remaining columns available in the same sortable table.
 
 Use short, stable, reader-facing section names. A page should have one primary question and avoid repeating another page's full tables. Put headline decisions and the minimum evidence needed to understand them on the first page; put task-level comparison, failure analysis, and evidence drill-down together when readers move among them.
 

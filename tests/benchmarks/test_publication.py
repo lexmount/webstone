@@ -9,6 +9,70 @@ import pytest
 from harness.benchmarks.publication import DatasetRelease
 
 
+def test_dataset_version_survives_a_hub_rebuild(tmp_path):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.2.0')
+    output = tmp_path / 'versioned'
+    assert release.build(output)['edition']['version'] == '1.2.0'
+    assert 'v1.2.0' in (output / 'README.md').read_text(encoding='utf-8')
+    git(output, 'init', '-q')
+    git(output, 'add', '.')
+    git(output, 'commit', '-qm', 'Versioned fixture')
+    (output / 'VERSIONING.md').write_text('Committed release policy.\n', encoding='utf-8')
+    git(output, 'add', 'VERSIONING.md')
+    git(output, 'commit', '-qm', 'Update policy without rewriting frozen inputs')
+    (output / 'VERSIONING.md').write_text('Uncommitted edit.\n', encoding='utf-8')
+    rebuilt = DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD'))
+    assert rebuilt.build(tmp_path / 'rebuilt')['edition']['version'] == '1.2.0'
+    assert (tmp_path / 'rebuilt/VERSIONING.md').read_text(encoding='utf-8') == 'Committed release policy.\n'
+
+
+def test_version_is_visible_on_a_card_without_subheadings(tmp_path):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(
+        DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.0.0',
+        card_body='# Custom benchmark\n\nOriginal description.')
+    release.build(tmp_path / 'release')
+    assert 'v1.0.0' in (tmp_path / 'release/README.md').read_text(encoding='utf-8')
+
+
+@pytest.mark.parametrize('version', [None, '1.0.0'])
+def test_new_proposals_require_an_unused_explicit_version(tmp_path, monkeypatch, version):
+    import sys
+    from types import SimpleNamespace
+
+    from harness.benchmarks import publication
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+
+    class Api:
+        def list_repo_refs(self, *args, **kwargs):
+            return SimpleNamespace(tags=[SimpleNamespace(name='v1.0.0')])
+
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(HfApi=Api))
+    args = ['publish', '--checkout', str(root), '--track', 'websearch', '--revision', revision,
+            '--output', str(tmp_path / 'release'), '--create-pr', 'owner/data']
+    if version is not None:
+        args += ['--dataset-version', version]
+    monkeypatch.setattr(sys, 'argv', args)
+    with pytest.raises(SystemExit if version is None else ValueError):
+        publication.main()
+
+
+@pytest.mark.parametrize('version', ['v1.0.0', '1.0', '01.2.3', 'main', ''])
+def test_dataset_release_rejects_invalid_version_labels(tmp_path, version):
+    from dataclasses import replace
+
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version=version)
+    with pytest.raises(ValueError, match='dataset version'):
+        release.build(tmp_path / 'invalid')
+
+
 def git(checkout, *args):
     return subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org", *args],
                           cwd=checkout, check=True, capture_output=True, text=True).stdout.strip()
@@ -351,11 +415,37 @@ def test_hub_rebuild_keeps_committed_edition_tools_and_snapshot_bindings(tmp_pat
     result = DatasetRelease.from_git(output, 'websearch', hub_revision).build(tmp_path / 'rebuilt')
     rebuilt = tmp_path / 'rebuilt'
     assert result['edition'] == edition
+    assert 'version' not in result
+    assert DatasetRelease.from_git(output, 'websearch', hub_revision).dataset_version == '3.0.0'
     assert json.loads((rebuilt / 'manifest.json').read_bytes())['edition'] == edition
     assert {name: (rebuilt / name).read_bytes() for name in tools} == tools
     assert not set(tools) & set(result['files'])
     with tarfile.open(rebuilt / 'definitions.tar.gz') as archive:
         assert not set(tools) & set(archive.getnames())
+
+
+@pytest.mark.parametrize(('legacy', 'edition', 'conflict'), [
+    ('3.0.0', {'version': '3.0.0', 'tag': 'v3.0.0'}, False),
+    ('3.1.0', {'version': '3.0.0', 'tag': 'v3.0.0'}, True),
+    ('3.0.0', {'tag': 'v3.0.0'}, False),
+    ('3.0.0', {'tag': 'v2.0.0'}, True),
+])
+def test_hub_release_numbers_have_one_authority(tmp_path, legacy, edition, conflict):
+    root, revision, _ = checkout(tmp_path, 'websearch')
+    output = tmp_path / 'hub'
+    manifest = DatasetRelease.from_git(root, 'websearch', revision).build(output)
+    manifest.update(version=legacy, edition=edition)
+    (output / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+    git(output, 'init', '-q')
+    git(output, 'add', '.')
+    git(output, 'commit', '-qm', 'Historical version fields')
+    if conflict:
+        with pytest.raises(ValueError, match='version.*disagree'):
+            DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD'))
+    else:
+        result = DatasetRelease.from_git(output, 'websearch', git(output, 'rev-parse', 'HEAD')).build(tmp_path / 'rebuilt')
+        assert result['edition'] == {'version': '3.0.0', 'tag': 'v3.0.0'}
+        assert 'version' not in result
 
 
 def test_committed_paths_cannot_leave_the_release(tmp_path):
@@ -394,16 +484,33 @@ def test_invalid_runtime_choices_fail_before_output(tmp_path, settings):
     assert not output.exists()
 
 
-def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize('source_version', [None, '0.9.0'])
+def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(
+        tmp_path, monkeypatch, capsys, source_version):
     import sys
     from types import SimpleNamespace
     from harness.benchmarks import publication
 
     root, revision, _ = checkout(tmp_path, 'websearch')
+    if source_version:
+        hub = tmp_path / 'hub'
+        manifest = DatasetRelease.from_git(root, 'websearch', revision).build(hub)
+        manifest['edition'] = {'version': source_version, 'tag': 'v' + source_version}
+        (hub / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+        git(hub, 'init', '-q')
+        git(hub, 'add', '.')
+        git(hub, 'commit', '-qm', 'Previous released edition')
+        root, revision = hub, git(hub, 'rev-parse', 'HEAD')
     output = tmp_path / 'proposal'
     calls = []
 
     class ReviewApi:
+        def list_repo_refs(self, repo_id, *, repo_type):
+            return SimpleNamespace(tags=[])
+
+        def get_repo_discussions(self, repo_id, *, repo_type):
+            return []
+
         def repo_info(self, *, repo_id, repo_type):
             assert (repo_id, repo_type) == ('Lexmount/Test-Dataset', 'dataset')
             return SimpleNamespace(sha='a' * 40, siblings=[
@@ -415,6 +522,9 @@ def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(tmp_pa
             assert kwargs['parent_commit'] == 'a' * 40
             assert kwargs['delete_patterns'] == ['data/retired.jsonl']
             assert (kwargs['folder_path'] / 'manifest.json').is_file()
+            manifest = json.loads((kwargs['folder_path'] / 'manifest.json').read_bytes())
+            assert manifest['edition'] == {'version': '1.0.0', 'tag': 'v1.0.0'}
+            assert 'version' not in manifest
             calls.append(kwargs)
             return SimpleNamespace(oid='b' * 40,
                 pr_url='https://huggingface.co/datasets/Lexmount/Test-Dataset/discussions/7')
@@ -422,13 +532,64 @@ def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(tmp_pa
 
     monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(HfApi=ReviewApi))
     monkeypatch.setattr(sys, 'argv', ['publication', '--checkout', str(root), '--track', 'websearch',
-        '--revision', revision, '--output', str(output), '--create-pr', 'Lexmount/Test-Dataset'])
+        '--revision', revision, '--output', str(output), '--dataset-version', '1.0.0',
+        '--create-pr', 'Lexmount/Test-Dataset'])
     publication.main()
     result = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert len(calls) == 1
     assert result['state'] == 'review_pending'
-    assert result['revision'] == 'b' * 40
+    assert result['pr_revision'] == 'b' * 40
+    assert 'revision' not in result
     assert result['pull_request'].endswith('/discussions/7')
+
+
+@pytest.mark.parametrize(('tags', 'current', 'pending', 'candidate', 'error'), [
+    (['v3.0.0'], '3.0.0', [], '2.9.0', 'released version'),
+    (['v3.0.0'], '3.1.0', [], '3.1.0', 'main manifest'),
+    (['v3.0.0'], '3.1.0', ['3.2.0'], '3.2.0', 'open pull request'),
+    (['v3.0.0'], '3.1.0', ['3.2.0'], '3.3.0', None),
+    ([], None, [], '1.0.0', None),
+])
+def test_proposals_respect_released_main_and_pending_versions(
+        tmp_path, monkeypatch, tags, current, pending, candidate, error):
+    import sys
+    from types import SimpleNamespace
+    from harness.benchmarks.publication import proposal_target
+
+    manifests = {}
+    for revision, version in [('a' * 40, current), *[
+            (f'refs/pr/{i}', v) for i, v in enumerate(pending, 1)]]:
+        if version is not None:
+            path = tmp_path / (revision.replace('/', '-') + '.json')
+            path.write_text(json.dumps({'edition': {'version': version, 'tag': 'v' + version}}), encoding='utf-8')
+            manifests[revision] = path
+
+    def download(repo_id, filename, *, repo_type, revision, token, endpoint):
+        assert (repo_id, filename, repo_type) == ('Lexmount/Test', 'manifest.json', 'dataset')
+        return manifests[revision]
+
+    class Api:
+        token = 'test'
+        endpoint = 'https://hub.example'
+
+        def list_repo_refs(self, repo_id, *, repo_type):
+            return SimpleNamespace(tags=[SimpleNamespace(name=t) for t in tags])
+
+        def repo_info(self, **kwargs):
+            return SimpleNamespace(sha='a' * 40, siblings=[
+                SimpleNamespace(rfilename='manifest.json')] if current else [])
+
+        def get_repo_discussions(self, repo_id, *, repo_type):
+            return [SimpleNamespace(is_pull_request=True, status='open', num=i)
+                    for i in range(1, len(pending) + 1)]
+
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', SimpleNamespace(hf_hub_download=download))
+    monkeypatch.setitem(sys.modules, 'huggingface_hub.errors', SimpleNamespace(EntryNotFoundError=FileNotFoundError))
+    if error:
+        with pytest.raises(ValueError, match=error):
+            proposal_target(Api(), 'Lexmount/Test', candidate)
+    else:
+        assert proposal_target(Api(), 'Lexmount/Test', candidate).sha == 'a' * 40
 
 
 @pytest.mark.parametrize("reference", ["os:getcwd", "harness.web_fetch.models", ""])
@@ -474,3 +635,151 @@ def test_component_license_is_preserved_from_its_committed_bytes(tmp_path):
     (root / "LICENSE-annotations").write_bytes(b"Uncommitted replacement")
     release = DatasetRelease.from_git(root, "websearch", revision)
     assert release.files["LICENSE-annotations"] == component
+
+
+def test_repair_proposal_rejects_main_advance_before_upload(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0', build=lambda output: {})
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args: SimpleNamespace(sha='b'*40))
+    # No write capability: the changed parent must be rejected before upload.
+    with pytest.raises(ValueError, match='main changed'):
+        publication.propose_release(release, tmp_path, 'Lexmount/Test',
+                                    api=object(), parent_revision='a'*40)
+
+
+def test_publication_cli_exposes_guarded_existing_pr_updates(tmp_path, monkeypatch, capsys):
+    import sys
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    release = SimpleNamespace(dataset_version='2.0.0')
+    monkeypatch.setattr(publication.DatasetRelease, 'from_git', lambda *args: release)
+    calls = []
+    def propose(*args, **kwargs):
+        calls.append(kwargs)
+        return dict(track='simpleqa-verified', source_revision='a'*40, archive={}), dict(state='review_pending')
+    monkeypatch.setattr(publication, 'propose_release', propose)
+    monkeypatch.setattr(sys, 'argv', ['publication', '--checkout', str(tmp_path),
+        '--track', 'simpleqa-verified', '--revision', 'a'*40, '--output', str(tmp_path/'out'),
+        '--create-pr', 'Lexmount/Test', '--parent-revision', 'b'*40, '--pull-request', '5'])
+    publication.main()
+    assert calls == [dict(parent_revision='b'*40, pull_request=5)]
+    assert json.loads(capsys.readouterr().out.splitlines()[-1])['state'] == 'review_pending'
+
+
+@pytest.mark.parametrize('defect', [None, 'closed', 'discussion', 'changed-parent'])
+def test_dataset_amendment_targets_only_the_named_open_pr(tmp_path, monkeypatch, defect):
+    from types import SimpleNamespace
+    from harness.benchmarks import publication
+
+    output = tmp_path / 'out'
+    def build(path):
+        path.mkdir()
+        (path / 'data.json').write_text('{}', encoding='utf-8')
+        return {'edition': {'version': '2.0.0'}}
+    release = SimpleNamespace(dataset_version='2.0.0', track='simpleqa-verified', build=build)
+    monkeypatch.setattr(publication, 'proposal_target', lambda *args, **kwargs: None)
+    uploads = []
+    class Api:
+        def get_discussion_details(self, repository, number, *, repo_type):
+            assert number == 5 and repo_type == 'dataset'
+            return SimpleNamespace(is_pull_request=defect != 'discussion',
+                                   status='closed' if defect == 'closed' else 'open',
+                                   url='https://huggingface.co/datasets/Lexmount/Test/discussions/5')
+        def repo_info(self, repository, *, repo_type, revision):
+            assert revision == 'refs/pr/5'
+            return SimpleNamespace(sha='c'*40 if defect == 'changed-parent' else 'b'*40, siblings=[])
+        def upload_folder(self, **kwargs):
+            assert kwargs['create_pr'] is False
+            assert kwargs['revision'] == 'refs/pr/5'
+            assert kwargs['parent_commit'] == 'b'*40
+            uploads.append(kwargs)
+            return SimpleNamespace(oid='d'*40, pr_url=None)
+    if defect:
+        with pytest.raises(ValueError):
+            publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                        pull_request=5, parent_revision='b'*40)
+        assert not uploads
+    else:
+        _, receipt = publication.propose_release(release, output, 'Lexmount/Test', api=Api(),
+                                                 pull_request=5, parent_revision='b'*40)
+        assert len(uploads) == 1 and receipt['pr_revision'] == 'd'*40
+        assert receipt['pull_request'].endswith('/discussions/5')
+
+
+@pytest.mark.parametrize('defect', [None, 'unapplied-answer', 'missing-evidence', 'unknown-controls',
+                                  'unresolved', 'quote-mismatch', 'source-hash', 'output-informed', 'visual-without-image'])
+def test_simpleqa_release_requires_applied_and_source_bound_repairs(tmp_path, defect):
+    from copy import deepcopy
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    before = dict(query='Who wrote the book?', reference_answer='Wrong Author',
+                  reference_urls=['https://publisher.test/page'])
+    after = dict(before, reference_answer='Correct Author')
+    recipe = dict(schema='simpleqa-case-repairs/1', predecessor=dict(revision='a'*40, sha256='b'*64),
+                  root_cause='Wrong original author', regression_ids=['corrected-factual-reference'], repairs=[dict(
+                      case_id='q', before=before, after=after, root_cause='Wrong original author', evidence=[dict(
+                          url=after['reference_urls'][0], sha256='c'*64, quote='Correct Author wrote the book.')])])
+    excerpt = json.dumps(dict(schema='source-excerpt/1', url=after['reference_urls'][0],
+                              source_sha256='c'*64, text='Correct Author wrote the book.')).encode()
+    recipe['repairs'][0].update(resolution='corrected', source_discovery=dict(
+        kind='publisher_reference', description='Rechecked the original publisher reference.'))
+    recipe['repairs'][0]['evidence'][0].update(path='repair-evidence/q.json',
+        sha256=hashlib.sha256(excerpt).hexdigest(), interpretation=dict(kind='verbatim', answer='Correct Author'))
+    from lexbench_websearch.simpleqa import repair_cases
+    dataset = extend_reference_urls(dict(cases=repair_cases([dict(id='q', **before)], recipe),
+                                        case_repairs=deepcopy(recipe)), [])
+    if defect == 'unapplied-answer':
+        dataset['cases'][0]['reference_answer'] = before['reference_answer']
+    elif defect == 'missing-evidence':
+        dataset['case_repairs']['repairs'][0]['evidence'] = []
+    elif defect == 'unknown-controls':
+        dataset['case_repairs']['regression_ids'] = ['unknown-controls']
+    elif defect == 'unresolved':
+        dataset['case_repairs']['repairs'][0]['resolution'] = 'unresolved'
+    elif defect == 'quote-mismatch':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['quote'] = 'Invented source quote.'
+    elif defect == 'source-hash':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['sha256'] = 'd'*64
+    elif defect == 'output-informed':
+        dataset['case_repairs']['repairs'][0]['source_discovery']['kind'] = 'legacy_result_audit'
+    elif defect == 'visual-without-image':
+        dataset['case_repairs']['repairs'][0]['evidence'][0]['interpretation'].update(
+            kind='visual_record', source_form='Correct Author', explanation='Transcribed from the source page.')
+    raw = json.dumps(dataset).encode()
+    registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
+                                               sha256=hashlib.sha256(raw).hexdigest())})
+    release = DatasetRelease('simpleqa-verified', 'a'*40, {
+        'definitions/registry.json': json.dumps(registry).encode(),
+        'definitions/datasets/factual-v1.json': raw,
+        'definitions/repair-evidence/q.json': excerpt,
+    }, card_body='# Synthetic corrected release\n', language_annotations={})
+    if defect:
+        with pytest.raises(ValueError):
+            release.build(tmp_path / 'release')
+    else:
+        assert release.build(tmp_path / 'release')['datasets']['factual-v1']['count'] == 1
+
+
+@pytest.mark.parametrize('missing_inventory', [False, True])
+def test_simpleqa_release_replays_full_reference_audit(tmp_path, missing_inventory):
+    from lexbench_websearch.simpleqa import extend_reference_urls
+
+    dataset = extend_reference_urls(dict(cases=[dict(id='q', query='Question', reference_answer='Answer',
+        reference_urls=['https://publisher.test/page'])]), [])
+    if missing_inventory:
+        dataset.pop('reference_equivalence_observations')
+    raw = json.dumps(dataset).encode()
+    registry = dict(datasets={'factual-v1': dict(path='datasets/factual-v1.json', count=1,
+                                               sha256=hashlib.sha256(raw).hexdigest())})
+    release = DatasetRelease('simpleqa-verified', 'a' * 40, {
+        'definitions/registry.json': json.dumps(registry).encode(),
+        'definitions/datasets/factual-v1.json': raw,
+    }, card_body='# Synthetic reference release\n', language_annotations={})
+    if missing_inventory:
+        with pytest.raises(ValueError, match='full reference capture inventory'):
+            release.build(tmp_path / 'release')
+    else:
+        assert release.build(tmp_path / 'release')['datasets']['factual-v1']['count'] == 1

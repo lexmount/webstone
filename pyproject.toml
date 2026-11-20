@@ -1,6 +1,7 @@
 [project]
 name = "webstone"
-version = "0.7.0"
+version = "0.9.0"
+authors = [{ name = "Lexmount" }]
 description = "Webstone: the touchstone for your agent's web tools. Benchmark browsers and Web tools for AI agents: Web Fetch, Web Search, Web Extract and Browser Trajectory Replay"
 readme = "README.md"
 license = "Apache-2.0"
@@ -56,7 +57,7 @@ browser-use-eval = [
   "regex>=2025.7,<2027",
   "requests>=2.32,<3",
   "tiktoken>=0.7,<1",
-  "webarena-verified @ git+https://github.com/lexmount/webarena-verified.git@da7b992eb10de78000f11a7f34fd4590c171fbd6",
+  "webarena-verified==1.2.3.post1.dev16",
 ]
 test = [
   "fastapi==0.162.0",
@@ -82,6 +83,10 @@ web-extract-eval = [
   "lxml>=5.3.0",
 ]
 
+[tool.uv.sources]
+# PyPI metadata cannot contain VCS URLs. Source installs retain the exact fork.
+webarena-verified = { git = "https://github.com/lexmount/webarena-verified.git", rev = "da7b992eb10de78000f11a7f34fd4590c171fbd6" }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
@@ -93,6 +98,8 @@ markers = [
 [tool.ruff]
 line-length = 100
 include = [
+  "src/harness/results/**/*.py",
+  "tests/results/**/*.py",
   "src/harness/web_extract/**/*.py",
   "tests/web_extract/**/*.py",
   "src/harness/environments/**/*.py",
@@ -108,6 +115,7 @@ include = [
   "src/harness/container_isolation.py",
   "src/harness/benchmark_execution.py",
   "src/harness/data_home.py",
+  "src/harness/agent_workflows.py",
   "src/harness/distribution.py",
   "src/harness/env_file.py",
   "src/harness/fix_log.py",
@@ -192,6 +200,7 @@ include = ["harness*", "lexbench_webfetch*", "lexbench_websearch*"]
 # Copied to harness/distribution_data/ by setup.py; MANIFEST.in keeps them in the sdist.
 [tool.webstone]
 bundled-data = [
+  ".agents/skills/webstone/SKILL.md",
   "pyproject.toml",
   "uv.lock",
   "configs/providers.headless.json",

@@ -10,12 +10,12 @@ from tests.package_smoke import verify_dependency_metadata, verify_package_tree
 def test_installed_optional_dependency_preserves_declared_source(tmp_path, monkeypatch, installed):
     import importlib.metadata
 
-    expected = 'webarena-verified @ git+https://example.invalid/evaluator.git@' + 'a' * 40
+    expected = 'webarena-verified==1.2.3.post1.dev16'
     (tmp_path / 'pyproject.toml').write_text(
         '[project.optional-dependencies]\nbrowser-use-eval = ["' + expected + '"]\n', encoding='utf-8')
     requirement = expected if installed == 'correct' else (
         'webarena-verified==1.2.3' if installed == 'registry-version'
-        else expected.replace('evaluator.git', 'other.git'))
+        else 'webarena-verified @ git+https://example.invalid/other.git@' + 'a' * 40)
     monkeypatch.setattr(importlib.metadata, 'requires', lambda name: [
         requirement + '; extra == "browser-use-eval"'])
     if installed == 'correct':

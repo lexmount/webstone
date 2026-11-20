@@ -99,7 +99,7 @@ class TrackedURL extends URL{
 const raceLocation={hash:'#page=guide%2Fold.html'};
 const raceBody={innerHTML:'initial page',
  replaceChildren(){this.innerHTML=''},append(element){this.innerHTML+=element.textContent}};
-const raceDocument={body:raceBody,title:'initial',addEventListener(){},
+const raceDocument={body:raceBody,head:{querySelectorAll:()=>[]},title:'initial',addEventListener(){},
  querySelector:()=>({}),querySelectorAll:()=>[],createElement:()=>({})};
 const imageFiles=Object.fromEntries(['old-first','old-pending','new'].map(name=>[
  `assets/${name}.png`,{mime:'image/png'}]));
@@ -110,7 +110,7 @@ const raceContext=vm.createContext({TextDecoder,URL:TrackedURL,URLSearchParams,B
   parseFromString(path){
    const images=(path==='guide/old.html'?['old-first','old-pending']:['new'])
     .map(name=>({getAttribute:()=>`../assets/${name}.png`}));
-   return {title:path,body:{innerHTML:path,
+   return {title:path,head:{querySelectorAll:()=>[]},body:{innerHTML:path,
     querySelectorAll:selector=>selector==='img[src]'?images:[]}};
   }
  },
