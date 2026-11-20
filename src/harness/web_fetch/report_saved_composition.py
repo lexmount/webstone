@@ -397,6 +397,9 @@ def _unified_home(page, base_model, added_model, presentation):
 def _home_method_summary(page):
     """Reuse the saved method overview for compact ranking prices and routes."""
     methods = {}
+    overview = page.select_one('#method-overview')
+    heading = overview.select_one('thead') if overview else None
+    overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
     for row in page.select('#method-overview tbody tr'):
         cells = row.find_all('td', recursive=False)
         link = row.select_one('a[href*="providers/"]')
@@ -409,9 +412,12 @@ def _home_method_summary(page):
         price_node = cells[-1].select_one('.method-price')
         price = price_node.get_text(strip=True) if price_node else next(cells[-1].stripped_strings, '')
         amount = re.match(r'\$([\d,.]+)(?:[–−-]\$?([\d,.]+))?', price)
+        per_thousand = bool(re.search(r'/\s*(?:千次|1,?000\s*(?:requests?|calls?|fetches|次))', price, re.I))
+        if price_node and overview_unit and amount and amount.end() == len(price):
+            per_thousand = True
         if local:
             price = '—'
-        elif amount:
+        elif amount and per_thousand:
             price = amount[1] + ('–' + amount[2] if amount[2] else '')
         else:
             price = '—'

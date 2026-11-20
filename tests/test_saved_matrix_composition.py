@@ -972,6 +972,26 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
         assert (output/prefix/'result-review.json').read_bytes() == original
 
 
+@pytest.mark.parametrize('price,expected', [
+    ('$2 / 千次调用', '2'),
+    ('$0.39–$0.51 / 千次', '0.39–0.51'),
+    ('$0.002 / request', '—'),
+    ('$19 / month', '—'),
+    ('$0.10 / million tokens', '—'),
+])
+def test_home_price_column_requires_a_per_thousand_request_unit(price, expected):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _home_method_summary
+    page = BeautifulSoup('<table id="method-overview"><tbody><tr>'
+        '<td><a href="providers/example.html">Example</a><small class="method-execution">API</small></td>'
+        '<td>Default</td><td>'+price+'</td></tr></tbody></table>'
+        '<table id="ranking-overall"><thead><tr><th>Method</th></tr></thead>'
+        '<tbody><tr><td><a href="providers/example.html">Example</a></td></tr></tbody></table>', 'html.parser')
+    _home_method_summary(page)
+    assert page.select_one('.method-unit-price').get_text() == expected
+    assert page.select_one('.method-route-badge').get_text() == 'API'
+
+
 def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
