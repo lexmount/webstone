@@ -409,7 +409,9 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
 
 def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
     from pathlib import Path
+    from bs4 import BeautifulSoup
     from harness.web_fetch import report
+    from harness.web_fetch.report_saved_composition import _home_method_summary
     from harness.web_fetch.report_style import RANKING_STICKY
     from tests.test_report_body_scope import case, record
     c = case('sample', kind='body', track='web')
@@ -419,6 +421,13 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
         row['provider'] = provider
         records.append(row)
     markup = report.overall_ranking(records, {c['id']: c}, passing_latency=True)
+    overview = '<table id="method-overview"><tbody>' + ''.join(
+        f'<tr><td><a href="providers/{provider}.html">{provider}</a><small class="method-execution">API</small></td>'
+        '<td>Default</td><td>$2 / 1,000 requests</td></tr>' for provider in ('a', 'b', 'c')) + '</tbody></table>'
+    page_model = BeautifulSoup(markup + overview, 'html.parser')
+    _home_method_summary(page_model, {'b': {'price': '$0.09 / hour'},
+        'c': {'price': '$0.10–$0.50 / $0.50–$2.50 / million tokens'}})
+    markup = str(page_model)
     js = Path(report.__file__).with_name('assets').joinpath('report.js').read_text(encoding='utf-8')
     (tmp_path/'app.js').write_text(js, encoding='utf-8')
     (tmp_path/'index.html').write_text(
@@ -437,6 +446,12 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
                 expected = '3' if 'providers/c.html' in row.inner_html() else '1'
                 assert row.locator('td').first.inner_text() == expected
             table = page.locator('#ranking-overall')
+            assert table.locator('.method-price-note').count() == 3
+            for amount in table.locator('.method-price-amount').all():
+                assert amount.bounding_box()['width'] >= 100
+            if display['viewport']['width'] >= 640:
+                for note in table.locator('.method-price-note').all():
+                    assert note.bounding_box()['height'] < 20
             coordinates = '''table => {
                 const cells = [...table.tBodies[0].rows[0].cells];
                 return cells.slice(0, 3).map(cell => cell.getBoundingClientRect().left);

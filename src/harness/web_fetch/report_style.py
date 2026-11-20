@@ -14,9 +14,11 @@ RANKING_STICKY = """
 #ranking-overall tr > :nth-child(2) { left: var(--rank-column); border-right: 1px solid var(--line); }
 #ranking-overall tbody tr > :nth-child(-n+2) { background: var(--panel); }
 #ranking-overall tbody tr:hover > :nth-child(-n+2) { background: var(--panel2); }
+#ranking-overall .method-unit-price { min-width: 16rem; }
 #ranking-overall .method-price-amount,
 #ranking-overall .method-price-note { display: block; max-width: 16rem; white-space: normal; }
 @media (max-width: 640px) {
+  #ranking-overall .method-unit-price { min-width: 8rem; }
   #ranking-overall .method-price-amount,
   #ranking-overall .method-price-note { max-width: 8rem; }
   #ranking-overall tr > :nth-child(2) {
