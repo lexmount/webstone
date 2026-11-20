@@ -4,10 +4,10 @@ Use the [Webstone evaluation skill](../.agents/skills/webstone/SKILL.md) for the
 
 ## Install
 
-Use Python 3.11 or newer. Install the CLI and copy the bundled skill to your agent's skills directory. This example uses Codex.
+Use a Python 3.11+ virtual environment. Install the CLI and copy the bundled skill to your agent's skills directory. This example uses Codex.
 
 ```sh
-python -m pip install --upgrade webstone
+pip install --upgrade webstone
 webstone skills install --directory "$HOME/.codex/skills"
 ```
 

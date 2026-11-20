@@ -19,10 +19,10 @@ Webstone benchmarks browsers, search services, and extraction tools for AI agent
 
 ## Quickstart
 
-Install with Python 3.11 or newer and run the offline example.
+In a Python 3.11+ virtual environment, install Webstone and run the offline example.
 
 ```sh
-python -m pip install --upgrade webstone
+pip install --upgrade webstone
 webstone validate
 webstone run --delay 0
 ```

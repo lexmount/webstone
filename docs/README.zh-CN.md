@@ -19,10 +19,10 @@ Webstone 用于评测 AI Agent 使用的浏览器、搜索服务和网页提取�
 
 ## 快速开始
 
-用 Python 3.11 或更新版本安装并试跑离线示例。
+在 Python 3.11 或更新版本的虚拟环境里安装 Webstone，再试跑离线示例。
 
 ```sh
-python -m pip install --upgrade webstone
+pip install --upgrade webstone
 webstone validate
 webstone run --delay 0
 ```
