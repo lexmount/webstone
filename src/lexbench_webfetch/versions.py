@@ -16,6 +16,7 @@ RELEASED_SCORERS = {
     "0.6.0": "d0c5f12a609f622e8d97050b7d35581cd41973cd7c6a454d5267241ec2161e2b",
     "0.7.0": "0d1eee6feda0ad00834f24ed8ff6ab2434cafe2aea28fc23c54ee221255b032b",
     "0.8.0": "0d1eee6feda0ad00834f24ed8ff6ab2434cafe2aea28fc23c54ee221255b032b",
+    "0.9.0": "0d1eee6feda0ad00834f24ed8ff6ab2434cafe2aea28fc23c54ee221255b032b",
 }
 
 
