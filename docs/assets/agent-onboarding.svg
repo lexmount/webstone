@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="340" viewBox="0 0 960 340" role="img" aria-labelledby="title desc">
+  <title id="title">Webstone agent onboarding</title>
+  <desc id="desc">New evaluations use the Webstone evaluation skill and track guides. Existing measurements go directly to the webstone-site submission skill for a result-only pull request.</desc>
+  <rect width="960" height="340" fill="#f8fafc"/>
+  <g font-family="Arial, sans-serif" fill="#0f172a">
+    <text x="40" y="45" font-size="26" font-weight="bold">Choose the entry point for your work</text>
+    <g fill="#eff6ff" stroke="#60a5fa">
+      <rect x="40" y="80" width="240" height="90" rx="10"/>
+      <rect x="320" y="80" width="280" height="90" rx="10"/>
+      <rect x="640" y="80" width="280" height="90" rx="10"/>
+    </g>
+    <g fill="#f0fdf4" stroke="#4ade80">
+      <rect x="40" y="210" width="240" height="90" rx="10"/>
+      <rect x="320" y="210" width="280" height="90" rx="10"/>
+      <rect x="640" y="210" width="280" height="90" rx="10"/>
+    </g>
+    <g font-size="18" text-anchor="middle">
+      <text x="160" y="130">New evaluation</text>
+      <text x="460" y="118">Webstone evaluation skill</text>
+      <text x="460" y="145" font-size="15">Select Track and prepare environment</text>
+      <text x="780" y="118">Track guide and CLI</text>
+      <text x="780" y="145" font-size="15">Preflight → run → score</text>
+      <text x="160" y="260">Existing measurements</text>
+      <text x="460" y="248">Site submission skill</text>
+      <text x="460" y="275" font-size="15">No Webstone CLI required</text>
+      <text x="780" y="248">Result-only PR to webstone-site</text>
+      <text x="780" y="275" font-size="15">Review before merge; no direct main writes</text>
+    </g>
+    <g font-size="28" text-anchor="middle"><text x="300" y="132">→</text><text x="620" y="132">→</text><text x="300" y="262">→</text><text x="620" y="262">→</text></g>
+  </g>
+</svg>

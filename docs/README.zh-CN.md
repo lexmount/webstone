@@ -164,9 +164,9 @@ flowchart LR
 
 ## 报告
 
-结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output /absolute/path/new-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
+结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告：
+`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run

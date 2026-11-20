@@ -164,9 +164,9 @@ See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scori
 
 ## Reports
 
-Results and evidence are saved locally under `~/.webstone/runs/`; use `--output /absolute/path/new-run` to choose another directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
+Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
 
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Build or rebuild from saved evidence in a new output directory:
+The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run

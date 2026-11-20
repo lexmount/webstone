@@ -41,7 +41,7 @@ All routes below reuse existing implementations. `--help` is the argument author
 | Browser Use | `webstone browser-use run`, `report`, `check`, `package`, `publish` | Experimental; model, isolated sites and `browser-use-eval` dependencies required |
 | Local report rebuild | Selected track's report/check commands | Reuses saved evidence; does not execute provider calls or share publicly |
 | Share a report | Selected track's publish/verify commands | Requires an explicitly selected, authorized host/profile and live verification |
-| Leaderboard results | [Site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) | Open a result PR with GitHub and Node.js |
+| Leaderboard results | [Site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) | Public result-only PR to webstone-site; never direct main writes |
 | Dataset proposal | `webstone datasets propose --help` | Existing dataset publisher; explicit source checkout/revision; `dataset-publish` extra for HF PR upload; never merges PRs |
 | Adopt a dataset commit | `webstone datasets pin --help` | Explicit `--root` Webstone checkout, inspected diff and code PR after data review |
 
