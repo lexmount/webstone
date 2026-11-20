@@ -16,7 +16,7 @@ The two scorer APIs and console commands ship in the Webstone distribution. They
 
 ## Evaluation design
 
-The README links to each [evaluation track](../README.md#evaluation-tracks). Benchmark integrations need the following scoring and review evidence.
+The README introduces the [design principles](../README.md#evaluation-approach) and [workflow diagrams](../README.md#evaluation-tracks). Benchmark integrations also need the following scoring and review evidence.
 
 ### Scoring evidence
 
