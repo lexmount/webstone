@@ -1,4 +1,4 @@
-<!-- Shared section copied from lexmount/ai-template-py@e09a9224a0da82bc1ea2ce51e35fa54857968d87 (docs/references/review-guidelines.md); change it upstream, then copy it here. The Webstone supplement at the end is maintained in this repository. -->
+<!-- Shared section copied from lexmount/ai-template-py@ba3dd76a92d9996552bd50bf85b5a046d5721b4d (docs/references/review-guidelines.md); change it upstream, then copy it here. The Webstone supplement at the end is maintained in this repository. -->
 
 # Review Guidelines
 
