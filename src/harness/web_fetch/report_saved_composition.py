@@ -4,6 +4,7 @@ import json
 import shutil
 import re
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 
 from lexbench_webfetch.paths import contained_path, safe_identifier
@@ -413,10 +414,14 @@ def _home_method_summary(page):
         price = price_node.get_text(strip=True) if price_node else next(cells[-1].stripped_strings, '')
         amount = re.match(r'\$([\d,.]+)(?:[–−-]\$?([\d,.]+))?', price)
         per_thousand = bool(re.search(r'/\s*(?:千次|1,?000\s*(?:requests?|calls?|fetches|次))', price, re.I))
+        per_request = bool(re.search(r'/\s*(?:次(?:调用)?|requests?|calls?|fetch(?:es)?)(?!\w)', price, re.I))
         if price_node and overview_unit and amount and amount.end() == len(price):
             per_thousand = True
         if local:
             price = '—'
+        elif amount and per_request:
+            price = '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
+                             for value in amount.groups() if value is not None)
         elif amount and per_thousand:
             price = amount[1] + ('–' + amount[2] if amount[2] else '')
         else:

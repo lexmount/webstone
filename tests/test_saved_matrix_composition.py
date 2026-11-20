@@ -975,7 +975,10 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
 @pytest.mark.parametrize('price,expected', [
     ('$2 / 千次调用', '2'),
     ('$0.39–$0.51 / 千次', '0.39–0.51'),
-    ('$0.002 / request', '—'),
+    ('$0.002 / request', '2'),
+    ('$0.002 / 次', '2'),
+    ('$0.00039–$0.00051 / request', '0.39–0.51'),
+    ('$2 / request', '2000'),
     ('$19 / month', '—'),
     ('$0.10 / million tokens', '—'),
 ])
