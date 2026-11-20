@@ -400,6 +400,8 @@ def _home_method_summary(page, prices=None):
     """Reuse the saved method overview for compact ranking prices and routes."""
     methods = {}
     prices = prices or {}
+    billing_labels = {'duration': 'extension_price_duration', 'tokens': 'extension_price_tokens',
+                      'difficulty': 'extension_price_difficulty', 'unpublished': 'extension_price_unpublished'}
     overview = page.select_one('#method-overview')
     heading = overview.select_one('thead') if overview else None
     overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
@@ -425,6 +427,8 @@ def _home_method_summary(page, prices=None):
             per_thousand = True
         if local:
             price = '—'
+        elif override and override.get('billing_mode') in billing_labels:
+            price = _text(billing_labels[override['billing_mode']])
         elif amount and per_request:
             price = '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
                              for value in amount.groups() if value is not None)
@@ -721,6 +725,8 @@ def _selected_method_prices(spec_path, spec):
     for quote in prices.values():
         if not isinstance(quote.get('price'), str) or not quote.get('sources') or not quote.get('checked_at'):
             raise ValueError('Method prices require a quote, sources and verification date')
+        if quote.get('billing_mode', 'request') not in {'request', 'duration', 'tokens', 'difficulty', 'unpublished'}:
+            raise ValueError('Unknown method billing mode')
     return prices
 
 
