@@ -1,40 +1,31 @@
 ---
 name: webstone
-description: Help an agent select Webstone tracks and benchmarks, prepare or resume evaluations, score saved evidence, build and share reports, submit leaderboard result PRs, or propose dataset updates. Use for the Webstone evaluation lifecycle; distinguish supported commands from stages requiring a source checkout or external services.
+description: Plan and run Webstone evaluations. Use to choose a Track, benchmark and participants, prepare the environment, collect and score evidence, build a report, and hand off optional sharing or leaderboard submission.
 ---
 
-# Webstone workflow
+# Webstone evaluations
 
-Webstone is agent-oriented evaluation software. This skill plans the work; CLI commands execute existing deterministic owners. Do not invent a universal pipeline, infer scores from screenshots or substitute missing timing/cost with zero.
+## Choose the run
 
-## Start and select
+1. Find out what the user wants to compare and what they need back. If they already have scores for the leaderboard, hand off to the [submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md). If they have saved attempts, start at scoring or report building.
+2. Use `webstone tracks` and `webstone datasets list` to find the guides and pinned datasets. Select the benchmark and suite, then pin each participant's browser, tool, model and configuration as applicable. Use the [workflow guide](https://github.com/lexmount/webstone/blob/main/docs/agent-workflows.md) for installation and command discovery. When working from a checkout, read its AGENTS.md and benchmark-report skill. Use the matching software release checkout for source-only stages.
+3. Before the full run, confirm the references and scorer, environment, timeouts, retries, concurrency and call budget. Run a small sample from the actual runner to check access, scoring and evidence capture. Reuse compatible evidence on resume and store new evidence outside Git under `WEBSTONE_DATA_HOME` or `~/.webstone`.
 
-1. Inspect the user's goal and available evidence. Determine the Track, benchmark, exact dataset commit, provider/model configurations, run or resume, requested scope and deliverables. `webstone tracks` and `webstone datasets list` print JSON from the installed lock without downloads or calls. The website's result edition, dataset revision and software version are distinct identities.
-2. Read the [workflow guide](https://github.com/lexmount/webstone/blob/main/docs/agent-workflows.md) and selected track guide returned by `webstone tracks`. For a checkout, read its AGENTS.md and the maintained benchmark-report skill before evaluation/report work. For a packaged installation, use a source checkout at the package's corresponding release tag when advanced code, profiles or reference assets are required; do not assume online main documentation matches an older installed version. Install only required optional extras and external browsers/sites. `--help` discovers the selected owner's actual flags; never guess a generic `--benchmark` or `--track` flag on a command that does not support it.
-3. Freeze dataset/scorer IDs, task population, scopes, concurrency, retry policy, call budget, timers and billing units before expensive collection. Honor existing authorization; ask only for genuinely missing choices or permissions. New Web Fetch work selects full or main content explicitly; default noninteractive full. Preflight a bounded sample, then run the existing owner. Save evidence outside Git under WEBSTONE_DATA_HOME or ~/.webstone, and preserve resumed cohorts.
+## Prepare and run by Track
 
-## Execute and score
+| Track | Recommended workflow |
+| --- | --- |
+| Web Fetch | Choose live URLs, frozen pages or the offline fixture. Follow the [Fetch guide](https://github.com/lexmount/webstone/blob/main/src/harness/web_fetch/README.md) for tools, credentials and scope. For a new live run, ask for full or main content if the user hasn't chosen (full for unattended runs). Validate a sample, fetch with each configured method, then score the saved responses against the selected references. |
+| Web Search | Pin the retrieval dataset and output layer, then configure the selected providers and credentials as in the [Search guide](https://github.com/lexmount/webstone/blob/main/src/harness/web_search/README.md). Preflight the selected profile, issue the same queries for each provider and score each selected output layer separately from saved responses. |
+| Web Extract | Pin the inputs and field schema. For frozen pages used by remote methods, verify a matching public snapshot host, such as Cloudflare Pages or an existing HTTPS host, from the provider's network. Use original URLs for live-page suites. Follow the [Extract guide](https://github.com/lexmount/webstone/blob/main/examples/web_extract/README.md) to prepare inputs, plan and preflight, collect tool outputs, then score the extracted fields. |
+| Browser Trajectory Replay | Select the recorded suite and browser versions. For WebArena-Verified, prepare reachable sites and test accounts, reset writable sites and check baseline readiness before replay. Use the guide for [WebArena](https://github.com/lexmount/webstone/blob/main/docs/webarena-fixed-trajectory-reproduction.md), [curated replay](https://github.com/lexmount/webstone/blob/main/examples/trajectory_replay/README.md), or [Headless Browser](https://huggingface.co/datasets/Lexmount/LexBench-Headless-Browser#execute-with-the-original-runner). Replay the same actions in each browser and score the recorded outcome with the suite's evaluator. |
+| Browser Use (experimental) | Select the task suite, agent, model and browser. Prepare isolated target sites with the accounts and evaluator in the [Browser Use guide](https://github.com/lexmount/webstone/blob/main/examples/browser_use/README.md). Preflight logins and evaluation, reset task state, let each agent choose its actions, then score its outcome. |
 
-- Web Fetch: `webstone validate`, `webstone run`, `webstone rescore`, `webstone report`; specialized native/WCXB/WebMainBench stages appear in `webstone --help`.
-- Web Search: `webstone web-search run --help` selects a frozen external profile; report/judge/review/publish stages use the same track owner. Independent review is opt-in, not a default side effect of scoring.
-- Web Extract: `webstone web-extract --help` exposes prepare/plan/preflight/reproduce/score/report and snapshot stages. It requires the web-extract-eval extra and its declared source inputs.
-- Browser Trajectory Replay: `webstone trajectory-replay --help`; evaluate/replay/catalog-run have different task contracts. Do not substitute autonomous model actions for fixed recorded trajectories.
-- Browser Use (experimental): `webstone browser-use run --help`; requires models, isolated sites and browser-use-eval dependencies. Full environment setup still belongs to the track guide.
+Use the selected guide and `--help` for the actual commands and required extras. Keep raw responses or traces, verdicts and measurements tied to the exact run. Preserve timing and billing units, and record missing cost as unavailable. Re-score saved attempts when only the scorer changes. Run independent review only when requested.
 
-A changed scorer or reference reuses saved calls where possible. Never select retries for higher scores, overwrite historical verdicts or merge incomplete populations into a certified result. Retain denominator and source hashes. Keep all-call latency separate from success-only latency; retain actual charges, quoted intervals and missing cost separately.
+## Deliver what was requested
 
-## Report and share
-
-Build only when requested, through the selected track's existing report/check/package stages. Web Fetch `webstone report RUN` rebuilds saved fixture/generic evidence; specialized profiles use the guide's current owner. Inspect HTML, evidence links, language, units, cost and latency; do not claim unavailable measurements. Report sharing requires an authorized host bound in that report's profile. Use its existing publish/verify command; never borrow another report's destination. A build is not a deployment. Return the inspected report path or verified live link and exact source identity.
-
-## Submit leaderboard results
-
-Results are **PRs to lexmount/webstone-site**. Use that repository's [submit-webstone-result skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) and current catalog/version guide. GitHub/Git and Node suffice; Webstone installation is not required to submit existing measurements. `webstone results --help` optionally automates template/validate/submit/status/rebase with the same contract. Never auto-map an arbitrary report into a benchmark definition, invent fields or copy an old result's scores. Propose only public data, preserve published files, follow review, and verify the live version after an authorized merge. Submission authorization does not authorize merging.
-
-## Update datasets
-
-`webstone datasets fetch --help` restores pinned inputs. `webstone datasets propose --help` delegates to the shared definition publisher with explicit checkout, revision, output and optional HF --create-pr. This builds a proposal, never merges it or tags dataset main. `webstone datasets pin --help` changes a Webstone checkout's selection only after the dataset input commit has been reviewed and merged; inspect the diff and propose a code PR. Explicitly select the target checkout with --root. Preserve immutable tags and frozen source/hash bindings. See [dataset revision rules](https://github.com/lexmount/webstone/blob/main/docs/benchmarks.md#historical-bindings-and-new-revisions). No automatic adoption of latest tags.
-
-## Finish
-
-Return selected inputs, run/scoring/report status, actual tests, PR/share URLs, review coverage and limitations. Distinguish planned, executed, reviewed, merged and deployed. Never create software tags or PyPI uploads from a dataset/result update; software release needs its separate maintainer-approved PR, tag and protected publishing workflow.
+- **Local report.** Build or reuse the Track's report and check the summary and per-task evidence. Use saved attempts to rebuild. Return the report path and the scope actually evaluated.
+- **Share a report.** When requested and authorized, use the report's configured host and publication command. Verify the published link and its access before returning it.
+- **Submit leaderboard scores.** When requested, hand off measured scores, exact versions, methodology and public evidence to the [submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md). It owns result formatting, versioning, review and the GitHub PR. Submission works independently of the Webstone CLI.
+- **Update a dataset.** Follow the [dataset revision guide](https://github.com/lexmount/webstone/blob/main/docs/benchmarks.md#historical-bindings-and-new-revisions). Propose a Hugging Face Dataset PR, then update the Webstone pin in a separate code PR after the dataset change is reviewed and merged.

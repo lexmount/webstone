@@ -8,271 +8,59 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](pyproject.toml)
 
-[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
+[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Submit results](#submit-results) · [Leaderboard](https://webstone.dev.lexmount.net/)
 
 </div>
 
-**The touchstone for your agent's web tools.**
+Webstone benchmarks browsers, search services, and extraction tools for AI agents. Compare correctness, latency, resource use, and recorded cost.
 
-Assayers tested gold on a touchstone: rub the metal on the dark stone and the streak shows what it is. Webstone does the same for the browsers and web tools that AI agents rely on. Every tool runs the same frozen tasks, every call is kept as evidence, and the report shows what each one left behind.
-
-Benchmark browsers and Web tools for AI agents through Web Fetch, Web Search, Web Extract and Browser Trajectory Replay. Compare correctness, latency, resource use and recorded cost. Optionally turn saved results into local reports you can inspect, rebuild and share, with drilldown to every individual result.
-
-## For agents
-
-Install the [Webstone workflow skill](.agents/skills/webstone/SKILL.md) to help your agent choose a Track/benchmark, execute and score evidence, build or share a report, submit leaderboard results and propose dataset updates. [Agent workflows](docs/agent-workflows.md) lists the actual supported commands, optional dependencies and remaining manual steps.
-
-Install the CLI with `python -m pip install --upgrade webstone`. Check for `webstone skills --help`, then run `webstone skills install --directory "$HOME/.codex/skills"` (or use your agent's skills directory). For a release that predates the skill installer, use a checkout of the source that contains it and run `uv run --frozen webstone skills install --directory "$HOME/.codex/skills"`. Use `webstone tracks` to inspect supported commands and pinned datasets.
-
-Already have measured results? The [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) opens a reviewed result PR using GitHub and Node.js; installing Webstone is optional. The `webstone results` helpers automate the same contract when the package is already part of your pipeline.
+- **Run an evaluation.** Use the [Webstone evaluation skill](.agents/skills/webstone/SKILL.md) to select the Track, benchmark, and methods, prepare their environment, and run the evaluation with the CLI.
+- **Already have results?** Open a PR in [webstone-site](https://github.com/lexmount/webstone-site). The [submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) guides that workflow. No Webstone CLI required.
 
 ## Quickstart
 
-With Python 3.11 or newer, install Webstone from [PyPI](https://pypi.org/project/webstone/) and run the offline example:
+Install with Python 3.11 or newer and run the offline example.
 
 ```sh
-pip install webstone
+python -m pip install --upgrade webstone
 webstone validate
 webstone run --delay 0
 ```
 
-In a fresh environment, pip installs the latest compatible PyPI release. Use `pip install --upgrade webstone` to upgrade an existing installation. See [installation options](docs/dependencies.md#install-webstone) to pin a release or try unreleased code from GitHub's `main` branch.
+Open the report path printed in the terminal. Expect one pass and one failure. The example needs no browser, Docker, or API key.
 
-Open the report path printed in the terminal. The example has one expected pass and one expected failure. It needs no browser, Docker or API key.
+Install the evaluation skill for Codex. For another agent, use its skills directory.
 
-Next, [try HTTP, Moli or Chromium on a local article](examples/web_fetch/README.md). Optional adapters, service credentials and live evaluation commands are covered in the track guides.
+```sh
+webstone skills install --directory "$HOME/.codex/skills"
+```
+
+For a source install or a release that lacks the `skills` command, see the [installation guide](docs/agent-workflows.md#install).
 
 ## Evaluation tracks
-
-Choose a workflow for its task contract, setup and runnable example.
 
 | Track | Benchmarks and task suites | Guide |
 | --- | --- | --- |
 | Web Fetch | [LexBench-Web-Fetch](https://huggingface.co/datasets/Lexmount/LexBench-Web-Fetch), [LexBench-WebMainBench](https://huggingface.co/datasets/Lexmount/LexBench-WebMainBench), [LexBench-WCXB](https://huggingface.co/datasets/Lexmount/LexBench-WCXB) | [Local example](examples/web_fetch/README.md) · [Full guide](src/harness/web_fetch/README.md) |
-| Web Search | [LexBench-Web-Search](https://huggingface.co/datasets/Lexmount/LexBench-Web-Search): scenario queries and [LexBench-SimpleQA-Verified](https://huggingface.co/datasets/Lexmount/LexBench-SimpleQA-Verified) retrieval tasks | [Local example](examples/web_search/README.md) · [Full guide](src/harness/web_search/README.md) |
-| Web Extract | [Zyte Product Extraction](https://huggingface.co/datasets/Lexmount/LexBench-Zyte-Product-Extraction): 140 product pages; [SWDE](examples/web_extract/README.md#swde-multi-domain-extraction): 800 pages from 80 sites; [Expanded SWDE](https://huggingface.co/datasets/Lexmount/LexBench-Expanded-SWDE), [NewsXLM](https://huggingface.co/datasets/Lexmount/LexBench-NewsXLM) and [LiveWeb-IE](https://huggingface.co/datasets/Lexmount/LexBench-LiveWeb-IE): independently versioned datasets for frozen-page and live-URL extraction | [Structured field extraction](examples/web_extract/README.md) |
+| Web Search | [LexBench-Web-Search](https://huggingface.co/datasets/Lexmount/LexBench-Web-Search) · [LexBench-SimpleQA-Verified](https://huggingface.co/datasets/Lexmount/LexBench-SimpleQA-Verified) retrieval tasks | [Local example](examples/web_search/README.md) · [Full guide](src/harness/web_search/README.md) |
+| Web Extract | [Zyte Product Extraction](https://huggingface.co/datasets/Lexmount/LexBench-Zyte-Product-Extraction) · [SWDE](examples/web_extract/README.md#swde-multi-domain-extraction) · [Expanded SWDE](https://huggingface.co/datasets/Lexmount/LexBench-Expanded-SWDE), [NewsXLM](https://huggingface.co/datasets/Lexmount/LexBench-NewsXLM) and [LiveWeb-IE](https://huggingface.co/datasets/Lexmount/LexBench-LiveWeb-IE) | [Structured field extraction](examples/web_extract/README.md) |
 | Browser Trajectory Replay | [LexBench-Headless-Browser](https://huggingface.co/datasets/Lexmount/LexBench-Headless-Browser) scenarios; [curated fixed-action tasks](https://huggingface.co/datasets/Lexmount/LexBench-Trajectory-Replay) with explicit checks; [WebArena replay](https://huggingface.co/datasets/Lexmount/LexBench-WebArena-Replay) with the official evaluator | [Headless inputs and upstream runner](https://huggingface.co/datasets/Lexmount/LexBench-Headless-Browser#execute-with-the-original-runner) · [Curated suite](examples/trajectory_replay/README.md) · [WebArena replay](examples/trajectory_replay/public_webarena/README.md) |
 
-Use these suites or [bring your own tasks](docs/benchmarks.md). Add browsers and tools through the existing [adapter contracts](docs/provider-contract.md).
+Experimental [Browser Use](examples/browser_use/README.md) lets an agent choose browser actions and checks the outcome with the task evaluator.
 
-Experimental [Browser Use](examples/browser_use/README.md) gives an Agent a task, lets it choose browser actions, and checks the recorded outcome with the task evaluator. It includes model and planning variation and is evaluated separately.
+[Recommended workflows](.agents/skills/webstone/SKILL.md) · [Evaluation design](docs/benchmarks.md#evaluation-design) · [Reports](docs/report-hosting.md)
 
-<details>
-<summary>How each evaluation workflow runs</summary>
+## Submit results
 
-### Web Fetch
+Add a new result edition in a personal fork of `webstone-site` and open a PR with the measured scores and public evidence. Keep published editions intact. See the [submission guide](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md) for the format, version rules, and post-merge checks.
 
-The reusable ten-method Web Fetch cohort is selected with `--providers configured --provider-config configs/providers.example.json`; shared defaults are 30 seconds per call and one failure retry. See the [provider contract](docs/provider-contract.md#selected-native-cohort).
+## Project links
 
-```mermaid
-flowchart LR
-    A["Frozen HTML or URLs<br/>with references"]:::input --> B["Call tools<br/>or browsers"]:::run
-    B --> C["Save responses, files<br/>and measurements"]:::evidence
-    C --> D["Programmatic<br/>scoring"]:::score
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-### Web Search
-
-```mermaid
-flowchart LR
-    A["Fixed queries<br/>Requirements and rubric"]:::input --> B["Call search tools<br/>Save native rankings<br/>and execution evidence"]:::run
-    B --> D["Retrieval and<br/>source checks"]:::score
-    B -. If graded .-> E["Relevance grades<br/>Human or opted-in LLM"]:::score
-    D --> F["Programmatic<br/>metric aggregation"]:::score
-    E --> F
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-Relevance grading is scoring; optional verification reviews the resulting evidence and scores.
-
-### Browser Trajectory Replay
-
-#### Headless scenarios and comparison reports
-
-Headless scenario replay checks browser/driver compatibility on local fixtures. For retained Headless comparisons, the upstream runner owns execution and grading; Webstone builds reports from its results. The original benchmark also contains individual CDP and Web-platform probes, so not every task is a multi-step trajectory.
-
-```mermaid
-flowchart LR
-    A["Local fixtures<br/>Fixed scenarios and driver bindings"]:::input --> B["Replay fixed actions<br/>through upstream drivers"]:::run
-    B --> C["Save responses<br/>and measurements"]:::evidence
-    C --> D["Inline checks<br/>Compatibility results"]:::score
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-#### WebArena
-
-```mermaid
-flowchart LR
-    A["Self-hosted sites<br/>and starting state"]:::input --> C["Fixed Playwright<br/>replay"]:::run
-    B["Qualified recordings<br/>and task revisions"]:::input --> C
-    C --> D["Save responses,<br/>observations and HAR"]:::evidence
-    D --> E["WebArena-Verified<br/>programmatic checks"]:::score
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-Task completion is checked in code, without an LLM judge.
-
-#### Repository-curated tasks
-
-```mermaid
-flowchart LR
-    A["Fixed tasks and actions<br/>Expected outputs"]:::input --> B["Fixed-action<br/>replay"]:::run
-    B --> C["Save outputs<br/>and measurements"]:::evidence
-    C --> D["Programmatic<br/>assertions"]:::score
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-</details>
-
-## Evaluation approach
-
-Webstone aims for stable, reproducible results and a controlled, trustworthy evaluation process. Three principles guide the evaluation.
-
-1. **Prefer definite answers and programmatic scoring wherever possible, with minimal reliance on LLMs as judges**
-
-    When a task has clear answers and acceptance criteria, use code to check the result and reduce variation from model judgment. This does not exclude LLM judges entirely: graded Web Search relevance is a suitable use, with an explicit rubric and retained scoring evidence and grades.
-
-2. **Do not introduce LLMs or Agents to execute the evaluation**
-
-    Web Fetch and Web Search call tools directly; trajectory replay follows predetermined actions to check browser compatibility or website task completion. Participants follow the same task contracts, avoiding extra variation from LLM decisions and Agent planning. Each run retains its task inputs, code revisions and execution settings.
-
-3. **Make results easy to review and verify**
-
-    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Artifact Site only when publication is requested and authorized.
-
-See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scoring and verification requirements.
-
-## Reports
-
-Results and evidence are saved locally under `~/.webstone/runs/`; use `--output /absolute/path/new-run` to choose another directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
-
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Build or rebuild a report later from saved evidence without repeating calls:
-
-```sh
-uv run --frozen webstone run --delay 0 --no-report
-uv run --frozen webstone report /absolute/path/to/run
-```
-
-English is the default; add `--language zh` when running or rebuilding for Chinese. A rebuild without that option keeps the saved language.
-
-### Optional sharing
-
-When sharing is requested and publication is authorized, open Artifact Site ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)), install the skill offered there, and follow it to publish the local report and choose who can access it. Uploading is a separate action; creating a local report does not publish it.
-
-Scoring code ships with Webstone; dataset commits and file hashes are selected in [the data lock](src/harness/benchmarks/data-lock.json). Each report records its Webstone build and selected benchmark edition. See [versioning](docs/benchmarks.md#benchmark-editions) for comparison rules, [reference inputs](docs/reference-inputs.md) for historical data, and the [report guide](docs/report-hosting.md) for local builds and formal releases.
-
-<details>
-<summary>Report drilldown, rebuilding and sharing</summary>
-
-```mermaid
-flowchart LR
-    A["Saved results<br/>and evidence"]:::evidence -->|Optional build / rebuild| B["Local HTML report"]:::run
-    B --> C["Drill down to each result<br/>Responses · actions · logs"]:::evidence
-    B -. Requested and authorized .-> D["Share through<br/>Artifact Site"]:::evidence
-    A -. On request .-> V["LLM verifier"]:::score
-    V -. Review findings .-> B
-    classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
-    classDef run fill:#f5f3ff,stroke:#a78bfa,color:#4c1d95
-    classDef evidence fill:#f0fdf4,stroke:#4ade80,color:#14532d
-    classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
-```
-
-Rebuild from valid saved evidence without new participant calls. Verification adds review findings and does not automatically replace scores.
-
-</details>
-
-## Datasets and code
-
-Use **LexBench-Web-Fetch (LB-WF)** on first mention and **LB-WF** in subsequent text, tables and charts. `LB` stands for LexBench. When reporting results, cite the dataset URL and revision. Credit third-party sources by their original names.
-
-<details>
-<summary>Hugging Face datasets</summary>
-
-These datasets supply Webstone's versioned tasks, acceptance contracts and reference inputs.
-
-| Dataset | Short name | Role |
-| --- | --- | --- |
-| [LexBench-Web-Fetch](https://huggingface.co/datasets/Lexmount/LexBench-Web-Fetch) | **LB-WF** | Versioned Web Fetch tasks, acceptance contracts and reference bindings |
-| [LexBench-Web-Search](https://huggingface.co/datasets/Lexmount/LexBench-Web-Search) | **LB-WS** | Scenario search queries and source references; factual QA is provided by SimpleQA Verified |
-| [LexBench-WebMainBench](https://huggingface.co/datasets/Lexmount/LexBench-WebMainBench) | **LB-WMB** | Reference-corrected WebMainBench tasks and correction provenance |
-| [LexBench-SimpleQA-Verified](https://huggingface.co/datasets/Lexmount/LexBench-SimpleQA-Verified) | **LB-SQAV** | Length-qualified SimpleQA Verified retrieval tasks, with original answers |
-| [LexBench-WCXB](https://huggingface.co/datasets/Lexmount/LexBench-WCXB) | **LB-WCXB** | Source-qualified frozen extraction inputs and references |
-| [LexBench-Headless-Browser](https://huggingface.co/datasets/Lexmount/LexBench-Headless-Browser) | **LB-HB** | Executable CDP, driver and web-platform tasks; scenario specifications retained as source inputs |
-| [LexBench-Trajectory-Replay](https://huggingface.co/datasets/Lexmount/LexBench-Trajectory-Replay) | **LB-TR** | 30 tasks written in Webstone for live public websites, with fixed actions and exact checks |
-| [LexBench-WebArena-Replay](https://huggingface.co/datasets/Lexmount/LexBench-WebArena-Replay) | **LB-WAR** | Full official task catalog; smaller replay editions retained as versioned source inputs |
-| [LexBench-Zyte-Product-Extraction](https://huggingface.co/datasets/Lexmount/LexBench-Zyte-Product-Extraction) | **LB-ZPE** | Frozen product pages with price, SKU and stock references |
-| [LexBench-SWDE](https://huggingface.co/datasets/Lexmount/LexBench-SWDE) | **LB-SWDE** | Multi-domain frozen-page field extraction from SWDE |
-| [LexBench-Expanded-SWDE](https://huggingface.co/datasets/Lexmount/LexBench-Expanded-SWDE) | **LB-ESWDE** | Expanded SWDE field-extraction sample |
-| [LexBench-NewsXLM](https://huggingface.co/datasets/Lexmount/LexBench-NewsXLM) | **LB-NXLM** | Multilingual news-page field extraction |
-| [LexBench-LiveWeb-IE](https://huggingface.co/datasets/Lexmount/LexBench-LiveWeb-IE) | **LB-LWIE** | Record and list extraction from live websites |
-
-Webstone wrote the 30 public-web replay tasks. Headless scenario designs informed some interactions; its executable cases and WebArena's tasks are not included in that suite. The task JSON fixes actions and expected outputs, while the target websites remain live.
-
-</details>
-
-<details>
-<summary>Evaluation code and upstream sources</summary>
-
-Web Fetch and Web Search scoring code lives in this repository under [src/lexbench_webfetch/](src/lexbench_webfetch/) and [src/lexbench_websearch/](src/lexbench_websearch/). Install and run it through the quickstart above.
-
-| Component | Purpose | Code or source |
-| --- | --- | --- |
-| Headless Browser | Original CDP, driver and local-fixture runner | [Original repository](https://github.com/lexmount/Lexbench-Headless-Browser) |
-| WebMainBench | Pinned extraction scorer and upstream attribution | [Maintained fork](https://github.com/lexmount/WebMainBench/tree/lex-main) · [Upstream](https://github.com/opendatalab/WebMainBench) |
-| WebArena-Verified | Official evaluator for replay and experimental Agent integration | [Maintained fork](https://github.com/lexmount/webarena-verified/tree/lex-main) · [Upstream](https://github.com/ServiceNow/webarena-verified) |
-| WCXB | Original data source for the qualified HF edition | [Upstream](https://github.com/Murrough-Foley/web-content-extraction-benchmark) |
-
-[Dependency sources and pins](docs/dependencies.md) cover Playwright, extraction libraries and supporting runtimes. [Third-party notices](THIRD_PARTY.md) cover attribution and data rights. Cite the benchmark and upstream data used alongside Webstone.
-
-</details>
-
-<details>
-<summary>Browsers and tools</summary>
-
-| Project | Type | Use |
-| --- | --- | --- |
-| [Moli](https://github.com/lexmount/moli) | Browser | Evaluated through the same task contracts as other participants |
-| [WebFetch CLI](https://github.com/lexmount/webfetch-cli) | CLI client | Calls the Lexmount WebFetch service |
-| [CowAgent](https://github.com/zhayujie/CowAgent) | Agent framework | Web Fetch tool baseline and experimental Agent integration |
-| [OpenClaw](https://github.com/openclaw/openclaw) | Agent framework | Web Fetch tool baseline and experimental Agent integration |
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Agent framework | Web Fetch tool baseline and experimental Agent integration |
-
-</details>
-
-## Versions
-
-Published versions, changes and dependency snapshots are listed in [GitHub Releases](https://github.com/lexmount/webstone/releases). See [version rules](docs/releases.md) for release policy and report provenance.
-
-## Contribute
-
-Read [CONTRIBUTING](CONTRIBUTING.md) for code ownership, tests and PR conventions, or [open an issue](https://github.com/lexmount/webstone/issues) with a reproducible example.
-
-```sh
-make setup-test
-make ci
-```
-
-[Architecture](docs/architecture.md) · [Security](SECURITY.md) · [Third-party content](THIRD_PARTY.md) · [Apache 2.0](LICENSE)
+[Dependencies and installation](docs/dependencies.md) · [Datasets and custom tasks](docs/benchmarks.md) · [Adapter contract](docs/provider-contract.md) · [Architecture](docs/architecture.md) · [Versions and releases](docs/releases.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [License](LICENSE)
 
 ## Cite Webstone
 
-Project citation: [CITATION.cff](CITATION.cff).
+[CITATION.cff](CITATION.cff)
 
 ```bibtex
 @software{webstone_2026,
@@ -283,20 +71,3 @@ Project citation: [CITATION.cff](CITATION.cff).
   url = {https://github.com/lexmount/webstone}
 }
 ```
-
-## Optional CLI: submit benchmark results
-
-Internal and external contributors use the same reviewed publication flow in [webstone-site](https://github.com/lexmount/webstone-site). Install GitHub CLI and use your existing GitHub account; no separate website account is required.
-
-```sh
-webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
-# Fill actual measurements, sample scope and public evidence before validation.
-webstone results validate report.json
-webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
-webstone results submit report.json --provider-url your-method=https://example.com/project
-webstone results status 123 --verify-published
-```
-
-Submissions create result-only PRs from personal forks. CI validates the format and immutable history, and maintainers review the evidence. See the [submission guide](docs/result-submissions.md) for authentication, version-conflict rebasing and how to check whether a merged result is live.
-
-Result submissions use independently versioned `vMAJOR.MINOR.PATCH` editions with reviewed UTC publication dates; see [the result submission guide](docs/result-submissions.md#result-versions-and-dates). These do not bump the Python package version.
