@@ -400,8 +400,6 @@ def _home_method_summary(page, prices=None):
     """Reuse the saved method overview for compact ranking prices and routes."""
     methods = {}
     prices = prices or {}
-    billing_labels = {'duration': 'extension_price_duration', 'tokens': 'extension_price_tokens',
-                      'difficulty': 'extension_price_difficulty', 'unpublished': 'extension_price_unpublished'}
     overview = page.select_one('#method-overview')
     heading = overview.select_one('thead') if overview else None
     overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
@@ -425,24 +423,29 @@ def _home_method_summary(page, prices=None):
         per_request = bool(re.search(r'/\s*(?:次(?:调用)?|requests?|calls?|fetch(?:es)?)(?!\w)', price, re.I))
         if price_node and overview_unit and amount and amount.end() == len(price):
             per_thousand = True
+        money = r'\$[\d,.]+(?:[–−-]\$?[\d,.]+)?'
+        native = re.fullmatch(rf'({money}(?:\s*/\s*{money})?)\s*/\s*(hour|million tokens)', price, re.I)
+        note = None
         if local:
             price = '—'
-        elif override and 'workload' in override:
-            from harness.reporting.pricing import usd_per_thousand
-            workload = override['workload']
-            bounds = usd_per_thousand(workload['calls'], workload['components'])
-            price = '≈' + '–'.join(dict.fromkeys(format(value, '.2f') for value in bounds))
+        elif native:
+            price = native[1]
+            note = _text('extension_price_duration' if native[2].lower() == 'hour' else
+                         'extension_price_tokens' if '/' in price else 'extension_price_token_unit')
         elif amount and per_request:
-            price = '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
+            price = '$' + '–'.join(format((Decimal(value.replace(',', '')) * 1000).normalize(), 'f')
                              for value in amount.groups() if value is not None)
+            note = _text('extension_price_requests')
         elif amount and per_thousand:
-            price = amount[1] + ('–' + amount[2] if amount[2] else '')
-        elif override and override.get('billing_mode') in billing_labels:
-            price = _text(billing_labels[override['billing_mode']])
+            price = '$' + amount[1] + ('–' + amount[2] if amount[2] else '')
+            note = _text('extension_price_difficulty' if override and override.get('billing_mode') == 'difficulty'
+                         else 'extension_price_requests')
+        elif override and override.get('billing_mode') == 'unpublished':
+            price = _text('extension_price_unpublished')
         else:
             price = '—'
         route = _text('extension_local') if local else 'API' if remote else None
-        methods[Path(link['href']).stem] = (price, route)
+        methods[Path(link['href']).stem] = (price, note, route)
     if set(prices) - set(methods):
         raise ValueError('Method price quote names an unknown method')
     ranking = page.select_one('#ranking-overall')
@@ -453,9 +456,16 @@ def _home_method_summary(page, prices=None):
     ranking.thead.tr.append(heading)
     for row in ranking.select('tbody tr'):
         link = row.select_one('a[href*="providers/"]')
-        price, execution = methods.get(Path(link['href']).stem, ('—', None)) if link else ('—', None)
+        price, note, execution = methods.get(Path(link['href']).stem, ('—', None, None)) if link else ('—', None, None)
         cell = page.new_tag('td', attrs={'class': 'method-unit-price'})
-        cell.string = price
+        value = page.new_tag('span', attrs={'class': 'method-price-amount'})
+        value.string = price
+        cell.append(value)
+        if note:
+            detail = page.new_tag('small', attrs={'class': 'method-price-note',
+                'style': 'display:block;font-size:11px;line-height:1.4;margin-top:3px;opacity:.75;white-space:normal'})
+            detail.string = note
+            cell.append(detail)
         row.append(cell)
         if execution:
             badge = page.new_tag('sup', attrs={'class': 'method-route-badge',

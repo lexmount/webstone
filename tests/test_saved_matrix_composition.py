@@ -964,7 +964,7 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
     assert not page.select('#ranking-overall a[href*="review/index.html"]')
     assert '审查结果' not in page.select_one('#ranking-overall thead').get_text()
     assert '未绑定逐条复核记录' not in page.get_text()
-    assert page.select_one('#ranking-overall thead th:last-child').get_text() == '价格（$/千次）'
+    assert page.select_one('#ranking-overall thead th:last-child').get_text() == '价格'
     assert len(page.select('#ranking-overall .method-unit-price')) == 2
     assert page.select_one('#successful-final-call-latency') is None
     assert rows['method-1'].a['href'] == 'additional/providers/method-1.html'
@@ -972,21 +972,21 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
         assert (output/prefix/'result-review.json').read_bytes() == original
 
 
-@pytest.mark.parametrize('price,expected,billing_mode', [
-    ('$2 / 千次调用', '2', None),
-    ('$0.39–$0.51 / 千次', '0.39–0.51', None),
-    ('$0.002 / request', '2', None),
-    ('$0.002 / 次', '2', None),
-    ('$0.00039–$0.00051 / request', '0.39–0.51', None),
-    ('$2 / request', '2000', None),
-    ('$19 / month', '—', None),
-    ('$0.10 / million tokens', '—', None),
-    ('$0.09 / hour', '按时长计费', 'duration'),
-    ('$0.10 / million tokens', '按 token 计费', 'tokens'),
-    ('$0.05–$2.00 / 1,000 requests', '0.05–2.00', 'difficulty'),
-    ('No public quote', '未公布单价', 'unpublished'),
+@pytest.mark.parametrize('price,expected,billing_mode,note', [
+    ('$2 / 千次调用', '$2', None, '每千次'),
+    ('$0.39–$0.51 / 千次', '$0.39–0.51', None, '每千次'),
+    ('$0.002 / request', '$2', None, '每千次'),
+    ('$0.002 / 次', '$2', None, '每千次'),
+    ('$0.00039–$0.00051 / request', '$0.39–0.51', None, '每千次'),
+    ('$2 / request', '$2000', None, '每千次'),
+    ('$19 / month', '—', None, None),
+    ('$0.10 / million tokens', '$0.10', None, '每百万 token'),
+    ('$0.09 / hour', '$0.09', 'duration', '每小时 · 浏览器运行时间'),
+    ('$0.10–$0.50 / $0.50–$2.50 / million tokens', '$0.10–$0.50 / $0.50–$2.50', 'tokens', '每百万 token · 输入 / 输出'),
+    ('$0.05–$2.00 / 1,000 requests', '$0.05–2.00', 'difficulty', '每千页 · 按页面处理档位'),
+    ('No public quote', '未公布单价', 'unpublished', None),
 ])
-def test_home_price_column_requires_a_per_thousand_request_unit(price, expected, billing_mode):
+def test_home_price_column_keeps_native_rates_and_explains_units(price, expected, billing_mode, note):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import _home_method_summary
     page = BeautifulSoup('<table id="method-overview"><tbody><tr>'
@@ -996,18 +996,21 @@ def test_home_price_column_requires_a_per_thousand_request_unit(price, expected,
         '<tbody><tr><td><a href="providers/example.html">Example</a></td></tr></tbody></table>', 'html.parser')
     prices = {'example': {'price': price, 'billing_mode': billing_mode}} if billing_mode else None
     _home_method_summary(page, prices)
-    assert page.select_one('.method-unit-price').get_text() == expected
+    assert page.select_one('.method-price-amount').get_text() == expected
+    detail = page.select_one('.method-price-note')
+    assert (detail.get_text() if detail else None) == note
+    from harness.web_fetch.report_i18n import localize_html
+    english = BeautifulSoup(localize_html(str(page), Path('index.html')), 'html.parser')
+    assert english.select_one('.method-price-amount').get_text() == ('Price not published' if billing_mode == 'unpublished' else expected)
+    if detail:
+        assert english.select_one('.method-price-note').get_text() != note
     assert page.select_one('.method-route-badge').get_text() == 'API'
 
 
 @pytest.mark.parametrize('quote,expected', [
-    ({'price': '$0.002 / request'}, '2'),
-    ({'price': '$0.09 / hour', 'billing_mode': 'duration',
-      'workload': {'calls': 2, 'components': [{'quantity': 12 / 3600, 'usd_per_unit': 0.09}]}}, '≈0.15'),
-    ({'price': 'Model token rates', 'billing_mode': 'tokens',
-      'workload': {'calls': 2, 'components': [
-          {'quantity': 0.02, 'usd_per_unit': 0.10},
-          {'quantity': 0.004, 'usd_per_unit': 0.50}]}}, '≈2.00'),
+    ({'price': '$0.002 / request'}, '$2'),
+    ({'price': '$0.09 / hour', 'billing_mode': 'duration'}, '$0.09'),
+    ({'price': '$0.10 / $0.50 / million tokens', 'billing_mode': 'tokens'}, '$0.10 / $0.50'),
 ])
 def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path, quote, expected):
     from bs4 import BeautifulSoup
@@ -1024,7 +1027,7 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path,
     refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
     row = next(row for row in page.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
-    assert row.select_one('.method-unit-price').get_text() == expected
+    assert row.select_one('.method-price-amount').get_text() == expected
     assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
     assert (output/'additional/results.jsonl').read_bytes() == records
     before = (output/'index.html').read_bytes()
