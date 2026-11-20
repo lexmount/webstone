@@ -454,10 +454,7 @@ def _home_method_summary(page, prices=None):
         else:
             price = '—'
         if override and override.get('note') and not local:
-            from harness.web_fetch.report_i18n import TEXT
-            translation = override['note']
-            note = translation['zh']
-            TEXT[note] = translation['en']
+            note = override['note']
         route = _text('extension_local') if local else 'API' if remote else None
         methods[Path(link['href']).stem] = (price, note, route)
     if set(prices) - set(methods):
@@ -478,7 +475,12 @@ def _home_method_summary(page, prices=None):
         if note:
             detail = page.new_tag('small', attrs={'class': 'method-price-note',
                 'style': 'display:block;font-size:11px;line-height:1.4;margin-top:3px;opacity:.75;white-space:normal'})
-            detail.string = note
+            if isinstance(note, dict):
+                translated = page.new_tag('span', attrs={'data-report-en': note['en']})
+                translated.string = note['zh']
+                detail.append(translated)
+            else:
+                detail.string = note
             cell.append(detail)
         row.append(cell)
         if execution:

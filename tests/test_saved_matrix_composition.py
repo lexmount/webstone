@@ -1007,6 +1007,23 @@ def test_home_price_column_keeps_native_rates_and_explains_units(price, expected
     assert page.select_one('.method-route-badge').get_text() == 'API'
 
 
+def test_price_notes_keep_translations_local_to_each_method():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_i18n import TEXT, localize_html
+    from harness.web_fetch.report_saved_composition import _home_method_summary
+    before = dict(TEXT)
+    page = BeautifulSoup('<p>参考价格</p><table id="method-overview"><tbody>' + ''.join(
+        f'<tr><td><a href="providers/{key}.html">{key}</a>API</td><td>Default</td><td>$1 / request</td></tr>'
+        for key in ('a', 'b')) + '</tbody></table><table id="ranking-overall"><thead><tr></tr></thead><tbody>' + ''.join(
+        f'<tr><td><a href="providers/{key}.html">{key}</a></td></tr>' for key in ('a', 'b')) + '</tbody></table>', 'html.parser')
+    _home_method_summary(page, {key: {'price': '$1 / request', 'note': {'zh': '参考价格', 'en': value}}
+                               for key, value in [('a', 'Plan A'), ('b', 'Plan B')]})
+    english = BeautifulSoup(localize_html(str(page), Path('index.html')), 'html.parser')
+    assert [node.get_text() for node in english.select('.method-price-note')] == ['Plan A', 'Plan B']
+    assert english.p.get_text() == 'Reference price'
+    assert all(TEXT[key] == value for key, value in before.items())
+
+
 @pytest.mark.parametrize('quote,expected', [
     ({'price': '$0.002 / request', 'note': {'en': 'Standard plan', 'zh': '标准套餐'}}, '$2 / 千次'),
     ({'price': '$0.09 / hour', 'billing_mode': 'duration'}, '$0.09 / 小时'),
