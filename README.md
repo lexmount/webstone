@@ -8,7 +8,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](pyproject.toml)
 
-[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Submit results](#submit-benchmark-results) · [Contributing](CONTRIBUTING.md)
+[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Submit results](#submit-benchmark-results) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -18,9 +18,11 @@ Webstone runs the same benchmark tasks across browsers and web tools for AI agen
 
 ## For agents
 
-The [Webstone evaluation skill](.agents/skills/webstone/SKILL.md) guides benchmark and participant selection, environment setup, runs, and scoring for each Track. The CLI executes those steps. Build or share a report and submit leaderboard results as needed.
+Copy this into your agent:
 
-Already have measurements? Use the [webstone-site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) to open a result PR directly. No Webstone CLI required.
+```text
+Install and use the Webstone evaluation skill at https://github.com/lexmount/webstone/blob/main/.agents/skills/webstone/SKILL.md to evaluate [what you want to compare].
+```
 
 ## Quickstart
 
@@ -201,6 +203,10 @@ Rebuild from valid saved evidence without new participant calls. Verification ad
 
 </details>
 
+## Submit benchmark results
+
+When you ask your agent to publish leaderboard scores, the evaluation skill hands off the measured results for a PR to [webstone-site](https://github.com/lexmount/webstone-site). If you already have results, you can [submit a PR directly](https://github.com/lexmount/webstone-site/blob/main/README.md#for-agents).
+
 ## Datasets and code
 
 Use **LexBench-Web-Fetch (LB-WF)** on first mention and **LB-WF** in subsequent text, tables and charts. `LB` stands for LexBench. When reporting results, cite the dataset URL and revision. Credit third-party sources by their original names.
@@ -287,7 +293,3 @@ Project citation: [CITATION.cff](CITATION.cff).
   url = {https://github.com/lexmount/webstone}
 }
 ```
-
-## Submit benchmark results
-
-Add a result edition to a personal fork and open a PR to [webstone-site](https://github.com/lexmount/webstone-site) with your measurements and public evidence. Site CI checks the format and published history. Maintainers review the evidence. See the [site submission guide](https://github.com/lexmount/webstone-site/blob/main/docs/submitting-results.md) for versioning, conflicts, and post-merge verification. Existing CLI integrations can use the [command reference](docs/result-submissions.md).
