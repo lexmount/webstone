@@ -961,25 +961,11 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
     refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
     rows = {Path(r.a['href']).stem: r for r in page.select('#ranking-overall tbody tr')}
-    assert '1/1' in rows['method-0'].find_all('td')[-1].get_text()
-    extra = rows['method-1'].find_all('td')[-1]
-    if added_review in {'absent', 'outside_scope'}:
-        assert extra.get_text() == '未绑定逐条复核记录'
-        assert extra.a is None
-    else:
-        assert ('1/1' if added_review == 'unresolved' else '0/1') in extra.get_text()
-        assert extra.a['href'] == 'additional/review/index.html'
-    if added_review == 'unresolved':
-        assert '未决 1' in extra.get_text()
-        from pathlib import PurePosixPath
-        from harness.web_fetch.report_i18n import localize_html
-        english = BeautifulSoup(localize_html(str(page), PurePosixPath('index.html')), 'html.parser')
-        english_row = next(r for r in english.select('#ranking-overall tbody tr')
-                           if Path(r.a['href']).stem == 'method-1')
-        assert '1 unresolved' in english_row.find_all('td')[-1].get_text()
-        assert '未决' not in english_row.find_all('td')[-1].get_text()
-        assert 'Coverage of recorded result reviews' in english.get_text()
-        assert 'Coverage of the independent blind review' not in english.get_text()
+    assert not page.select('#ranking-overall a[href*="review/index.html"]')
+    assert '审查结果' not in page.select_one('#ranking-overall thead').get_text()
+    assert '未绑定逐条复核记录' not in page.get_text()
+    assert page.select_one('#ranking-overall thead th:last-child').get_text() == '价格（$/千次）'
+    assert len(page.select('#ranking-overall .method-unit-price')) == 2
     assert page.select_one('#successful-final-call-latency') is None
     assert rows['method-1'].a['href'] == 'additional/providers/method-1.html'
     for prefix, original in originals.items():

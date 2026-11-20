@@ -307,38 +307,13 @@ def _joined_presentation(output):
 def _shared_presentations(output):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
-    from harness.record_io import load_jsonl
-    from bs4 import BeautifulSoup
     cases, records, providers, suites, views = _joined_presentation(output)
-    review_cells = {}
-    if any((output/prefix/'result-review.json').is_file() for prefix in ('', 'additional')):
-        for prefix in ('', 'additional/'):
-            root = output/prefix
-            path = root/'result-review.json'
-            audit = _read(path) if path.is_file() else None
-            reviewed = renderer.review_index(audit)
-            source_records = load_jsonl(root/'results.jsonl')
-            for provider in _read(root/'matrix.json')['providers']:
-                selected = [r for r in source_records if r['provider'] == provider['id']]
-                if audit is None or (reviewed and not any(r['attempt_id'] in reviewed for r in selected)):
-                    review_cells[provider['id']] = renderer.cell(_text('extension_review_unbound'), -1)
-                else:
-                    review_cells[provider['id']] = renderer.review_cell(audit, selected, base=prefix)
     labels = {p['id']: p.get('label', p['id']) for p in providers}
     tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
               (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
     try:
-        # Let the shared renderer own the review column and metric offsets,
-        # then retain each source's review scope without merging audit identities.
-        overall = renderer.overall_ranking(records, cases, {'attempts': []} if review_cells else None,
-                                           passing_latency=True)
-        if review_cells:
-            page = BeautifulSoup(overall, 'html.parser')
-            for row in page.select('#ranking-overall tbody tr'):
-                provider = Path(row.a['href']).stem
-                row.find_all('td')[-1].replace_with(BeautifulSoup(review_cells[provider], 'html.parser').td)
-            overall = str(page)
+        overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall,
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
@@ -416,6 +391,49 @@ def _unified_home(page, base_model, added_model, presentation):
         if Path(link['href']).stem in added_ids:
             link['href'] = 'additional/' + link['href']
     _model_fetch_badges(page)
+    _home_method_summary(page)
+
+
+def _home_method_summary(page):
+    """Reuse the saved method overview for compact ranking prices and routes."""
+    methods = {}
+    for row in page.select('#method-overview tbody tr'):
+        cells = row.find_all('td', recursive=False)
+        link = row.select_one('a[href*="providers/"]')
+        if len(cells) < 3 or link is None:
+            continue
+        execution = cells[0].select_one('.method-execution')
+        execution = execution.get_text(' ', strip=True) if execution else cells[0].get_text(' ', strip=True)
+        local = bool(re.search(r'本地|local|CLI', execution, re.I))
+        remote = bool(re.search(r'API|云端|远程|remote|hosted|HTTP', execution, re.I))
+        price_node = cells[-1].select_one('.method-price')
+        price = price_node.get_text(strip=True) if price_node else next(cells[-1].stripped_strings, '')
+        amount = re.match(r'\$([\d,.]+)(?:[–−-]\$?([\d,.]+))?', price)
+        if local:
+            price = '—'
+        elif amount:
+            price = amount[1] + ('–' + amount[2] if amount[2] else '')
+        else:
+            price = '—'
+        route = _text('extension_local') if local else 'API' if remote else None
+        methods[Path(link['href']).stem] = (price, route)
+    ranking = page.select_one('#ranking-overall')
+    if ranking is None:
+        return
+    heading = page.new_tag('th')
+    heading.string = _text('extension_price_column')
+    ranking.thead.tr.append(heading)
+    for row in ranking.select('tbody tr'):
+        link = row.select_one('a[href*="providers/"]')
+        price, execution = methods.get(Path(link['href']).stem, ('—', None)) if link else ('—', None)
+        cell = page.new_tag('td', attrs={'class': 'method-unit-price'})
+        cell.string = price
+        row.append(cell)
+        if execution:
+            badge = page.new_tag('sup', attrs={'class': 'method-route-badge',
+                'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
+            badge.string = execution
+            link.append(badge)
 
 
 _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
