@@ -1023,6 +1023,14 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path)
     with pytest.raises(ValueError, match='Method price binding changed'):
         refresh_published_extension(output, spec_path=path)
     assert (output/'index.html').read_bytes() == before
+    spec['method_prices'] = write(prices, {})
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    cleared = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
+    row = next(row for row in cleared.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
+    assert row.select_one('.method-unit-price').get_text() == '—'
+    assert json.loads((output/'extension-prices.json').read_bytes()) == {}
+    assert (output/'additional/results.jsonl').read_bytes() == records
 
 
 def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tmp_path):

@@ -929,7 +929,7 @@ def _refresh_published_extension(output, *, spec_path=None):
     if _hash(output / 'extension-base-home.txt') != baseline['files']['index.html']:
         raise ValueError('Cannot refresh changed base home')
     atomic_write(output / 'index.html', home.encode())
-    if prices:
+    if prices or (output/'extension-prices.json').is_file():
         atomic_write(output/'extension-prices.json', json_bytes(prices))
         proof['files']['extension-prices.json'] = _hash(output/'extension-prices.json')
     pages = _extension_views(output, _read(output / 'matrix.json'),
