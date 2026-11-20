@@ -284,6 +284,8 @@ def level_benchmarks(view):
                            factual=([('source_rr', 'MRR@5'), ('source_hit', 'Source Hit@5'),
                                      ('answer_match', 'Answer Match@5')]
                                     if level == 'l1' else [('answer_match', 'Extra-text Answer Match@5')]))
+        if level == 'l1':
+            definitions['scenario'].append(('direct_rr', 'Direct-match MRR@5'))
         if level == 'l1' and audit_complete:
             definitions['factual'] += [('publisher_rr', 'Publisher-only MRR@5'),
                                        ('publisher_hit', 'Publisher-only Hit@5')]
@@ -311,7 +313,13 @@ def level_benchmarks(view):
                 else:
                     values['answer_grade'] = item['answer_grade']
             elif benchmark == 'scenario':
-                values.update({k: scenario_scores[cid, mid][k] for k in ('ndcg', 'precision', 'success')})
+                score = scenario_scores[cid, mid]
+                values.update({k: score[k] for k in ('ndcg', 'precision', 'success')})
+                if level == 'l1':
+                    values['direct_rr'] = next(
+                        (1 / rank for rank, grade in enumerate(score['ranked_grades'], 1) if grade == 3),
+                        0.0,
+                    )
             else:
                 metrics = row['metrics']
                 if level == 'l1':

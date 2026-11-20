@@ -45,6 +45,8 @@ def test_public_example_builds_level_tables_findings_and_bound_assessments(tmp_p
             "scenario",
             "factual",
         }
+        assert home.select_one('[data-level-benchmark="scenario"] [data-metric="l1-scenario-direct_rr"]')
+        assert home.select_one('[data-level-benchmark="factual"] [data-metric="l1-factual-source_rr"]')
         assert not home.select("[data-executive], [data-discovery]")
         guide, = home.select('[data-level-guide]')
         assert [r['data-level-guide-row'] for r in guide.select('[data-level-guide-row]')] == ['l1']
