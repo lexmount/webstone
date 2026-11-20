@@ -1825,7 +1825,7 @@
     "tasks_and_evidence": "案例与依据",
     "tasks_and_references": "案例与参考 →",
     "tasks_grouped_by_task_family": "{count} 个案例，按任务类型查看。",
-    "tasks_in_common_every_row_below_uses": "个任务。下表每行使用这同一组任务；均值、P50、P95 的最低值加粗。",
+    "tasks_in_common_every_row_below_uses": "个任务。下表每行使用同一组任务，仅作诊断明细。",
     "tasks_measured_methods": "{count} 个案例 · {count2} 种已测方法",
     "tasks_methods_family_rankings_and_one_overall": "{count} 个案例 · {count2} 种方法 · {track_label} 类分榜与一个综合通过率总榜。",
     "tasks_methods_local_uncertified_diagnostic_snapshot": "{count} 个案例 · {count2} 种方法 · 本地未认证诊断快照。",

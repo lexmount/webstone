@@ -374,9 +374,6 @@ def _unified_home(page, base_model, added_model, presentation):
         timing.append(BeautifulSoup('<h2>' + _text('extension_shared_latency') + '</h2>' + presentation['timing'], 'html.parser'))
         for note in timing.select('p.source-note'):
             note.decompose()
-        table = timing.find('table')
-        if table:
-            _rank_extension_table(table, 2, minimize=[2, 3, 4], ascending=True)
         if timing.find('details'):
             timing.find('details')['open'] = ''
     cards = page.select_one('#overview .grid')
@@ -453,6 +450,21 @@ def _home_method_summary(page, prices=None):
             price = _text('extension_price_unpublished')
         else:
             price = '—'
+        if override and override.get('billing'):
+            billing = override['billing']
+            paragraph = cells[-1].find('p')
+            if paragraph is None:
+                paragraph = page.new_tag('p')
+                cells[-1].append(paragraph)
+            paragraph.clear()
+            translated = page.new_tag('span', attrs={'data-report-en': billing['en']})
+            translated.string = billing['zh']
+            paragraph.append(translated)
+            overview_price = cells[-1].select_one('.method-price')
+            if overview_price:
+                overview_price.string = price
+            elif cells[-1].contents and isinstance(cells[-1].contents[0], str):
+                cells[-1].contents[0].replace_with(price)
         if override and override.get('note') and not local:
             note = override['note']
         route = _text('extension_local') if local else 'API' if remote else None
@@ -488,6 +500,19 @@ def _home_method_summary(page, prices=None):
                 'style': 'font-size:10px;margin-left:4px;padding:2px 4px;border-radius:4px;background:#e8efff;color:#1746a2;white-space:nowrap'})
             badge.string = execution
             link.append(badge)
+
+
+def _check_method_presentation(page):
+    """Check authored method prose and diagnostic tables, excluding evidence/code."""
+    if not (page.html and str(page.html.get('lang', '')).startswith('en')):
+        for paragraph in page.select('#method-overview td:nth-child(2) p'):
+            prose = re.sub(r'https?://\S+', '', paragraph.get_text(' ', strip=True))
+            if re.search(r"(?:[A-Za-z][A-Za-z’'_-]*[ ,;:]+){12}[A-Za-z]", prose):
+                raise ValueError('Chinese method explanation contains English prose')
+    table = page.select_one('#overall-matched-latency-table')
+    if table and (table.select('[data-rank], strong, .good, .comparison-winner') or
+                  table.get('data-row-index') != 'false' or len(table.select('thead th')) != 4):
+        raise ValueError('Shared-pass latency must remain unranked diagnostic detail')
 
 
 _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
@@ -758,10 +783,11 @@ def _selected_method_prices(spec_path, spec):
             raise ValueError('Method prices require a quote, sources and verification date')
         if quote.get('billing_mode', 'request') not in {'request', 'duration', 'tokens', 'difficulty', 'unpublished'}:
             raise ValueError('Unknown method billing mode')
-        if 'note' in quote and (not isinstance(quote['note'], dict) or
-                any(not isinstance(quote['note'].get(language), str) or not quote['note'][language].strip()
-                    for language in ('en', 'zh'))):
-            raise ValueError('Price notes require English and Chinese text')
+        for field in ('note', 'billing'):
+            if field in quote and (not isinstance(quote[field], dict) or
+                    any(not isinstance(quote[field].get(language), str) or not quote[field][language].strip()
+                        for language in ('en', 'zh'))):
+                raise ValueError('Price notes require English and Chinese text')
     return prices
 
 
@@ -880,6 +906,7 @@ def check_published_extension(output):
     if 'en/index.html' in views:
         homes.append(BeautifulSoup(views['en/index.html'], 'html.parser'))
     for page in homes:
+        _check_method_presentation(page)
         for table in page.select('table[id^="ranking-"]'):
             if len(table.tbody.find_all('tr', recursive=False)) != count or table.get('data-row-index') != 'false':
                 raise ValueError('Published extension comparison population differs')

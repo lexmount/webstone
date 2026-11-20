@@ -353,6 +353,7 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path):
     assert overall.select('.comparison-winner')
     timing = BeautifulSoup(rendered['timing'], 'html.parser')
     assert len(timing.select('#overall-matched-latency-table tbody tr')) == 2
+    assert not timing.select('#overall-matched-latency-table strong, #overall-matched-latency-table [data-rank]')
 
 
 
@@ -1007,6 +1008,20 @@ def test_home_price_column_keeps_native_rates_and_explains_units(price, expected
     assert page.select_one('.method-route-badge').get_text() == 'API'
 
 
+@pytest.mark.parametrize('defect', ['english', 'rank', 'highlight'])
+def test_method_presentation_rejects_mixed_prose_and_ranked_diagnostics(defect):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _check_method_presentation
+    body = ('<table id="method-overview"><tr><td>Method</td><td><p>'
+            'These saved results use the same original configuration and contain many words from an English explanation'
+            '</p></td></tr></table>' if defect == 'english' else
+            '<table id="overall-matched-latency-table" data-row-index="false"><tr><td' +
+            (' data-rank="1"' if defect == 'rank' else '') + '>' +
+            ('<strong>1 ms</strong>' if defect == 'highlight' else '1 ms') + '</td></tr></table>')
+    with pytest.raises(ValueError):
+        _check_method_presentation(BeautifulSoup(body, 'html.parser'))
+
+
 def test_price_notes_keep_translations_local_to_each_method():
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_i18n import TEXT, localize_html
@@ -1022,6 +1037,22 @@ def test_price_notes_keep_translations_local_to_each_method():
     assert [node.get_text() for node in english.select('.method-price-note')] == ['Plan A', 'Plan B']
     assert english.p.get_text() == 'Reference price'
     assert all(TEXT[key] == value for key, value in before.items())
+
+
+def test_bound_billing_replaces_stale_method_overview_price_and_terms():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _home_method_summary
+    page = BeautifulSoup('<table id="method-overview"><tbody><tr><td><a href="providers/example.html">Example</a>API</td>'
+        '<td>Default</td><td><span class="method-price">$0.25</span><p>Old billing</p><a href="https://example.com">Source</a></td>'
+        '</tr></tbody></table><table id="ranking-overall"><thead><tr></tr></thead>'
+        '<tbody><tr><td><a href="providers/example.html">Example</a></td></tr></tbody></table>', 'html.parser')
+    _home_method_summary(page, {'example': {'price': '$0.05–$2.00 / 1,000 requests', 'billing_mode': 'difficulty',
+        'billing': {'en': 'Archive hit and live processing rates', 'zh': '存档与实时处理价格'}}})
+    cell = page.select_one('#method-overview td:last-child')
+    assert cell.select_one('.method-price').get_text() == page.select_one('.method-price-amount').get_text()
+    assert 'Old billing' not in cell.get_text()
+    assert cell.p.get_text() == '存档与实时处理价格'
+    assert cell.a['href'] == 'https://example.com'
 
 
 @pytest.mark.parametrize('quote,expected', [
