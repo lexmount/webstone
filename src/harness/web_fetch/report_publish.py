@@ -38,12 +38,17 @@ class PublishConfig:
     visibility: str | None = None
     parts_manifest: Path | None = None
     snapshot_audit: bool = False
+    saved_matrix_spec: Path | None = None
 
 
 def publish(config: PublishConfig, *, transport=None, package_check=None):
     """Validate the Web Fetch release, then submit it through the receipt lifecycle."""
-    validate_release(config.source, presentation_binding=config.presentation_binding, snapshot_audit=config.snapshot_audit)
-    validation_inputs = () if config.presentation_binding is None else (config.presentation_binding,)
+    validate_release(
+        config.source, presentation_binding=config.presentation_binding,
+        snapshot_audit=config.snapshot_audit, saved_matrix_spec=config.saved_matrix_spec,
+    )
+    validation_inputs = tuple(path for path in (config.presentation_binding, config.saved_matrix_spec)
+                              if path is not None)
     attachments, parts_plan = {}, None
     if config.parts_manifest is not None:
         attachments = part_archives(config.parts_manifest)
@@ -56,10 +61,12 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
                 raise ValueError('Data attachment targets differ from the publication authority')
             if any(target.get('base_url') != base for target in parts_plan['publications'].values()):
                 raise ValueError('Data attachments must use the profile-bound publication service')
-    bound_check = config.presentation_binding is not None or config.parts_manifest is not None or config.snapshot_audit
+    bound_check = (config.presentation_binding is not None or config.parts_manifest is not None
+                   or config.snapshot_audit or config.saved_matrix_spec is not None)
     if package_check is None and bound_check:
         package_check = partial(check, presentation_binding=config.presentation_binding,
-                                external_archives=attachments, snapshot_audit=config.snapshot_audit)
+                                external_archives=attachments, snapshot_audit=config.snapshot_audit,
+                                saved_matrix_spec=config.saved_matrix_spec)
     if (config.source / 'saved-extension.json').is_file():
         from harness.web_fetch.report_package import check_extension_archive
         profile = json.loads(config.profile.read_bytes())
@@ -114,6 +121,7 @@ def main(*, root: Path | None = None):
     )
     parser.add_argument("--title", default="Web Fetch 评测")
     parser.add_argument("--presentation-binding", type=Path)
+    parser.add_argument("--saved-matrix-spec", type=Path)
     parser.add_argument("--parts-manifest", type=Path)
     parser.add_argument("--visibility", choices=("private", "unlisted", "public"))
     parser.add_argument("--snapshot-audit",action="store_true",help="Publish a validated saved-output score audit")
@@ -129,7 +137,9 @@ def main(*, root: Path | None = None):
             args.title,
             args.base_url,
             args.expected_version,
-            presentation_binding=args.presentation_binding, visibility=args.visibility, parts_manifest=args.parts_manifest,snapshot_audit=args.snapshot_audit,
+            presentation_binding=args.presentation_binding, visibility=args.visibility,
+            parts_manifest=args.parts_manifest, snapshot_audit=args.snapshot_audit,
+            saved_matrix_spec=args.saved_matrix_spec,
         )
     )
     print(json.dumps(result, ensure_ascii=False), flush=True)

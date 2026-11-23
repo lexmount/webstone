@@ -1839,7 +1839,9 @@ Use the shared Web Fetch run, scoring and report commands with the
 `content-scopes-530` export above. Each method starts a fresh conversation and
 resumes it for subsequent cases. Both request complete content using Luna,
 medium reasoning, live web, high context and long tool returns. The existing
-scorer evaluates only content projected from native tool returns.
+scorer evaluates content projected from native tool returns. A structured title
+returned by the initial open for the exact requested page is passed separately
+to the shared title check. The numbered text remains the body.
 
 - `codex-single` accepts exactly one open of the supplied URL.
 - `codex-same-page` also accepts continuations that identify a returned page

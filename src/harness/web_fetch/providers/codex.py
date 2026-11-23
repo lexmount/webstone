@@ -64,15 +64,47 @@ def _project_blocks(outputs):
     return content, files, tool_error
 
 
+def _completed_web_items(events):
+    for event in events:
+        item = event.get("item")
+        if (
+            event.get("type") == "item.completed"
+            and isinstance(item, dict)
+            and item.get("type") == "web_search"
+        ):
+            yield item
+
+
+def native_open_title(url, events):
+    """Read the explicit title of the requested page from its initial open."""
+    first = next(_completed_web_items(events), {})
+    action, results = first.get("action"), first.get("results")
+    if (
+        not isinstance(action, dict)
+        or action.get("type") != "open_page"
+        or action.get("url") != url
+        or not isinstance(results, list)
+    ):
+        return None
+    titles = {
+        result["title"]
+        for result in results
+        if isinstance(result, dict)
+        and result.get("type") == "text_result"
+        and result.get("url") == url
+        and isinstance(result.get("ref_id"), str)
+        and result["ref_id"].strip()
+        and isinstance(result.get("title"), str)
+        and result["title"].strip()
+    }
+    return titles.pop() if len(titles) == 1 else None
+
+
 def parse_returns(url, mode, events, session):
     items = [e["payload"] for e in session if e.get("type") == "response_item"]
     calls = [p for p in items if p["type"].endswith("_call")]
     outputs = [p for p in items if p["type"] == "custom_tool_call_output"]
-    web = [
-        e["item"]
-        for e in events
-        if e.get("type") == "item.completed" and e["item"]["type"] == "web_search"
-    ]
+    web = list(_completed_web_items(events))
     permitted = bool(web) and len(calls) == len(outputs) == len(web)
     permitted &= mode == "same-page" or len(web) == 1
     targets = set()
@@ -115,6 +147,8 @@ def parse_returns(url, mode, events, session):
     error_type = (
         "codex_tool_error" if tool_error else None if content or files else "empty_response"
     )
+    if error_type is None and (title := native_open_title(url, events)) is not None:
+        metadata["page_information"] = {"title": title}
     return ProviderResult(
         error_type is None,
         content,

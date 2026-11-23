@@ -1,6 +1,7 @@
 import base64
 import json
 import subprocess
+from importlib.resources import files
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -10,7 +11,10 @@ from harness.web_fetch.call_boundary import fetch_with_deadline
 from harness.web_fetch.methods import method_page_model
 from harness.web_fetch.providers import codex
 from harness.web_fetch.report_interfaces import method_spec
+from lexbench_webfetch.metrics import task_passed
 from lexbench_webfetch.models import EvalCase
+from lexbench_webfetch.scoring import score_attempt
+from lexbench_webfetch.scoring_regressions import load_scoring_regressions
 
 URL = "https://example.com/"
 THREAD = str(UUID(int=1))
@@ -73,6 +77,49 @@ def test_continuation_accepts_only_this_pages_references():
     events, session = trace(URL, "view0")
     session[2]["payload"]["input"] = session[2]["payload"]["input"].replace(",lineno:1", "")
     assert not codex.parse_returns(URL, "same-page", events, session).ok
+
+
+def page_result(url=URL, title="Observed title"):
+    return {"type": "text_result", "ref_id": "view0", "url": url, "title": title}
+
+
+@pytest.mark.parametrize(
+    ("result_url", "control_id"),
+    [
+        (URL, "native-open-returned-page-title"),
+        ("https://example.com/other", "native-open-unowned-page-title"),
+    ],
+)
+def test_structured_title_uses_the_shared_scorer(result_url, control_id):
+    controls = files("harness.benchmarks").joinpath("scoring-regressions.json")
+    control = load_scoring_regressions(controls)[control_id]
+    events, session = trace()
+    events[0]["item"].update(
+        action={"type": "open_page", "url": URL}, results=[page_result(result_url)]
+    )
+    result = codex.parse_returns(URL, "single", events, session)
+    assert result.ok == control["ok"] and result.content == control["artifact"]
+    assert result.metadata.get("page_information") == control["metadata"].get("page_information")
+    assert result.final_url is None
+    metrics = score_attempt(
+        control["case"], result.content.encode(), ok=result.ok, metadata=result.metadata
+    )
+    assert task_passed(result.ok, metrics, "body") == control["expected_task_pass"]
+
+
+def test_native_title_cannot_be_inferred_from_a_followup_or_conflicting_result():
+    events, session = trace(URL, "view0")
+    events[0]["item"].update(
+        action={"type": "open_page", "url": URL}, results=[page_result(title=None)]
+    )
+    events[1]["item"].update(action={"type": "open_page", "url": URL}, results=[page_result()])
+    assert codex.native_open_title(URL, events) is None
+    events[0]["item"]["results"] = [page_result(), page_result(title="Another title")]
+    assert codex.native_open_title(URL, events) is None
+    events[0]["item"].update(action={"type": "search"}, results=[page_result()])
+    assert "page_information" not in codex.parse_returns(URL, "same-page", events, session).metadata
+    events[0]["item"]["action"] = {"type": "open_page", "url": "https://example.com/other"}
+    assert codex.native_open_title(URL, events) is None
 
 
 def jsonl(records):

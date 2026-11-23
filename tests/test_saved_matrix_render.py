@@ -551,3 +551,77 @@ def test_same_ranked_case_requires_one_definition_across_providers(tmp_path):
     write(root/row['case_path'], {**original, 'expected_any': ['different rule']})
     with pytest.raises(ValueError, match='Conflicting saved case definitions for first--same'):
         generate_saved_matrix(root, model)
+
+
+def test_saved_latency_omits_unrecorded_timing():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report import all_final_call_latency, logical_execution_cost_ms
+
+    records = [
+        {"provider": "method", "elapsed_ms": None},
+        {"provider": "method", "elapsed_ms": 2000},
+        {"provider": "untimed", "elapsed_ms": None},
+    ]
+    assert logical_execution_cost_ms(records[0]) is None
+    page = BeautifulSoup(all_final_call_latency(records), "html.parser")
+    counts = [row.find_all("td")[2].get_text(strip=True)
+              for row in page.select("#all-final-call-latency tbody tr")]
+    assert counts == ["1/2", "0/1"]
+
+
+def test_saved_session_observations_replace_missing_strict_manifest_table(tmp_path):
+    from harness.web_fetch.report_saved_matrix import check_saved_matrix
+    spec, source, record, _ = fixture(tmp_path)
+    spec['ranking'] = 'saved_task_pass_rate'
+    record['elapsed_ms'] = None
+    record['started_at'] = '2026-01-07T02:00:00+00:00'
+    record['provider_metadata'].update(
+        reported_version='1.2.3', timeout_seconds=300, max_failure_retries=0,
+        session_count=1, model='fixture-model', reasoning_effort='medium',
+        web_access='live', web_context_size='high', response_length='long',
+        timing_status='Timer was interrupted',)
+    spec['sources'][0]['results'] = write(source/'results.jsonl', record)
+    output = build(tmp_path, spec).parent
+    assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['valid']
+    for relative in ('analysis/index.html', 'reproduce/index.html', 'methodology/index.html'):
+        assert '历史试跑结果' in (output/relative).read_text(encoding='utf-8')
+    analysis = BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
+    settings = BeautifulSoup((output/'reproduce/index.html').read_text(encoding='utf-8'), 'html.parser')
+    methods = BeautifulSoup((output/'methodology/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert analysis.select_one('#saved-deliverable-outcomes')
+    assert analysis.select_one('#all-final-call-latency tbody').find(string='0/1')
+    assert analysis.select_one('#filtered-table tbody').find(string='未测得')
+    assert settings.select_one('#saved-observed-execution').find(string='1.2.3')
+    assert settings.select_one('#saved-observed-execution').find(string='2026-01-07')
+    assert methods.select_one('#saved-execution-settings') is None
+    assert methods.select_one('a[href="../reproduce/index.html#saved-observed-execution"]')
+
+
+def test_nested_diagnostic_view_download_resolves_to_its_sibling(tmp_path):
+    from harness.web_fetch.report import diagnostic_view_page
+    source = tmp_path/'evidence/full/example/case/public-evidence/native.jsonl'
+    source.parent.mkdir(parents=True)
+    source.write_text('{"type":"record"}\n', encoding='utf-8')
+    view = tmp_path/diagnostic_view_page(tmp_path, source.relative_to(tmp_path).as_posix(), 'Log', '')
+    page = BeautifulSoup(view.read_text(encoding='utf-8'), 'html.parser')
+    links = [item['href'] for item in page.select('a[href]')]
+    assert source.name in links
+    assert (view.parent/source.name).resolve() == source.resolve()
+
+
+@pytest.mark.parametrize('field,value', [
+    ('page_information', {'title': 'Owned title', 'headings': ['Injected heading']}),
+    ('authentication', 'changed'),
+])
+def test_public_title_revision_rejects_unproven_context(field, value):
+    from harness.web_fetch.report_saved_matrix import _require_public_fixed_selection
+    key = ('suite', 'method', 'case')
+    before = {'metrics': {'content_sha256': 'digest'}, 'provider_metadata': {'authentication': 'original'}}
+    revised = {**before, 'provider_metadata': {**before['provider_metadata'],
+               'page_information': {'title': 'Owned title'}}}
+    inputs = {'revision': {'records': {key: revised}, 'cases': {}, 'native_title_updates': {key}},
+              'selected': {key: (None, before)}, 'historical': {}}
+    _require_public_fixed_selection(inputs, [], {})
+    revised['provider_metadata'][field] = value
+    with pytest.raises(ValueError, match='changes call inputs or answer bytes'):
+        _require_public_fixed_selection(inputs, [], {})
