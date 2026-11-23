@@ -33,7 +33,7 @@ TOOL = {
 
 
 def lexmount(url, timeout, params):
-    """Return (text, status, request_id, error_message) for one Lexmount extract call."""
+    """Return (text, status, request_id, error_message, artifacts) for one Lexmount extract call."""
     extract = {"url": url, **({"options": params["options"]} if params.get("options") else {})}
     request = urllib.request.Request(
         os.environ.get("LEXMOUNT_BASE_URL", "https://api.lexmount.com").rstrip("/") + "/v1/extract", method="POST",
@@ -54,20 +54,32 @@ def lexmount(url, timeout, params):
         payload = {"error": {"message": str(error)}}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     text = result.get("main_text") if isinstance(result.get("main_text"), str) else ""
+    if text:  # the agent sees every content field the API returns; the scorer reads the saved payload
+        images = [i for i in result.get("images") or [] if isinstance(i, dict) and i.get("src")]
+        links = [l for l in result.get("links") or [] if isinstance(l, dict) and l.get("href")]
+        if images:
+            text += "\n\nImages:\n" + "\n".join(f"- ![{i.get('alt') or ''}]({i['src']})" for i in images)
+        if links:
+            text += "\n\nLinks:\n" + "\n".join(f"- [{l.get('text') or ''}]({l['href']})" for l in links)
     message = (payload.get("error") or {}).get("message") or "no content returned"
-    return text, status, payload.get("request_id"), message
+    return text, status, payload.get("request_id"), message, {"json": payload}
 
 
 def moli(url, timeout, params):
-    """Return (text, exit_code, None, error_message) for one local Moli fetch with the harness-chosen arguments."""
+    """Return (text, exit_code, None, error_message, artifacts) for one local Moli fetch with the harness-chosen arguments."""
     if not params.get("argv"):
-        return "", -1, None, "no moli arguments were configured for this run"
+        return "", -1, None, "no moli arguments were configured for this run", {}
     try:
         done = subprocess.run([os.environ.get("MOLI_BINARY", "moli"), *params["argv"], url],
-                              capture_output=True, text=True, timeout=timeout)
+                              capture_output=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError) as error:
-        return "", -1, None, str(error)
-    return done.stdout, done.returncode, None, (done.stderr or "").strip()[-300:] or "no content returned"
+        return "", -1, None, str(error), {}
+    message = done.stderr.decode("utf-8", "replace").strip()[-300:] or "no content returned"
+    try:
+        return done.stdout.decode("utf-8"), done.returncode, None, message, {}
+    except UnicodeDecodeError:  # original file bytes (for example an image): delivered as a file, described to the agent
+        note = f"Fetched binary content: {len(done.stdout)} bytes, saved as a file by the fetch tool."
+        return note, done.returncode, None, message, {"bin": done.stdout}
 
 
 BACKENDS = {"lexmount": lexmount, "moli": moli}
@@ -76,11 +88,11 @@ BACKENDS = {"lexmount": lexmount, "moli": moli}
 def fetch(backend, url, timeout, params=None):
     """Return (text, is_error, log_row). ``log_row["ok"]`` is the backend's own verdict, not the agent's view."""
     started = time.time()
-    text, status, request_id, message = BACKENDS[backend](url, timeout, params or {})
+    text, status, request_id, message, artifacts = BACKENDS[backend](url, timeout, params or {})
     ok = bool(text) and status in (0, 200)
     row = {"url": url, "status": status, "ok": ok, "wall_ms": round((time.time() - started) * 1000), "chars": len(text),
            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if ok else None, "request_id": request_id}
-    return (text if ok else f"Fetch failed (status {status}): {message}"), not ok, row
+    return (text if ok else f"Fetch failed (status {status}): {message}"), not ok, row, artifacts
 
 
 def serve(args):
@@ -103,12 +115,22 @@ def serve(args):
             send({"jsonrpc": "2.0", "id": ident, "result": {"tools": [TOOL]}})
         elif method == "tools/call":
             url = ((message.get("params") or {}).get("arguments") or {}).get("url", "")
-            text, is_error, row = fetch(args.backend, url, args.timeout, params)
-            if args.out_dir and not is_error:  # the backend's complete output, whatever the agent is shown
+            text, is_error, row, artifacts = fetch(args.backend, url, args.timeout, params)
+            if args.out_dir:  # the backend's complete output, whatever Claude Code shows the agent
                 os.makedirs(args.out_dir, exist_ok=True)
-                row["file"] = f"call-{sum(1 for _ in open(args.log)) + 1 if os.path.exists(args.log) else 1}.txt"
-                with open(os.path.join(args.out_dir, row["file"]), "w", encoding="utf-8") as handle:
-                    handle.write(text)
+                stem = f"call-{sum(1 for _ in open(args.log)) + 1 if os.path.exists(args.log) else 1}"
+                if "json" in artifacts:  # the API response, kept for failed calls too
+                    row["payload"] = stem + ".json"
+                    with open(os.path.join(args.out_dir, row["payload"]), "w", encoding="utf-8") as handle:
+                        json.dump(artifacts["json"], handle, ensure_ascii=False)
+                if not is_error:
+                    row["file"] = stem + ".txt"
+                    with open(os.path.join(args.out_dir, row["file"]), "w", encoding="utf-8") as handle:
+                        handle.write(text)
+                    if "bin" in artifacts:
+                        row["binary"] = stem + ".bin"
+                        with open(os.path.join(args.out_dir, row["binary"]), "wb") as handle:
+                            handle.write(artifacts["bin"])
             with open(args.log, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
             send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": text}], "isError": is_error}})

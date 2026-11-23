@@ -27,7 +27,7 @@ from lexbench_webfetch.models import EvalCase
 from harness.distribution import repository_root
 from harness.web_fetch.providers.http_client import inner_timeout_budget
 from harness.web_fetch.providers.lexmount import LexmountProvider
-from harness.web_fetch.providers.moli import MoliWebFetchProvider
+from harness.web_fetch.providers.moli import MoliWebFetchProvider, _family_wait_until
 from harness.web_fetch.retrieval_hints import plan_for_case
 
 CALLER_BUDGET_SECONDS = 45  # the native caller budget the Web Fetch providers run under
@@ -58,7 +58,20 @@ def params_for(arm_backend: str, case: dict, *, moli: MoliWebFetchProvider | Non
         return {}
     eval_case = to_case(case)
     if arm_backend == "moli":
-        command = (moli or moli_provider()).native_cli_command(eval_case)
+        provider = moli or moli_provider()
+        if eval_case.track == "document":
+            # The provider picks a document route from ``input_media_kind``, which the current edition does not
+            # declare. The document family therefore uses moli's automatic output (the form its document route uses
+            # and the only one moli accepts for a PDF download), the same for every document task; whatever moli
+            # returns, text or original bytes, is scored as is.
+            config = provider.config
+            argv = ["fetch", "--wait-until", _family_wait_until(config, "document")]
+            if config.get("block_private_networks", True):
+                argv.append("--block-private-networks")
+            if config.get("log_level"):
+                argv += ["--log-level", str(config["log_level"])]
+            return {"argv": argv}
+        command = provider.native_cli_command(eval_case)
         if command[-1] != eval_case.url:
             raise ValueError("unexpected moli command shape")
         return {"argv": command[1:-1]}

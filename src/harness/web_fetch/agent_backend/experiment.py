@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import os
 import pathlib
 import shutil
@@ -75,7 +76,7 @@ def load_materials(root: pathlib.Path | None = None):
     return {"id": "primary-content-20261103", "kind": "executable"}, cases, digest.hexdigest()
 
 
-def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limit: int = 20, seed: int = 20261123,
+def select_cases(cases: dict, *, task_kinds: tuple | None = None, limit: int = 20, seed: int = 20261123,
                  include: list[str] | None = None, case_ids: list[str] | None = None,
                  exclude: list[str] | None = None, ineligible: dict | None = None, per_suite: int = 0) -> list[str]:
     """Deterministic stratified sample: round-robin over categories after a seeded shuffle.
@@ -106,7 +107,7 @@ def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limi
         return sorted(case_ids)
     pool: dict[str, list[str]] = {}
     for cid in sorted(cases):
-        if cases[cid].get("task_kind", "body") in task_kinds and cid not in skipped:
+        if (task_kinds is None or cases[cid].get("task_kind", "body") in task_kinds) and cid not in skipped:
             pool.setdefault(cases[cid]["category"], []).append(cid)
     chosen = [i for i in (include or [])]
     for cid in chosen:
@@ -182,6 +183,22 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
     return document
 
 
+# Claude Code itself could not serve the request (account usage limit, rate limit, overload). That is not a result
+# of any backend, so the run stops instead of recording it; ``resume`` repeats the whole task later.
+CLAUDE_UNAVAILABLE = re.compile(r"usage limit|rate[ _-]?limit|overloaded|API Error: (?:429|5\d\d)|credit balance", re.I)
+
+
+class ClaudeUnavailable(RuntimeError):
+    pass
+
+
+def _claude_unavailable(record: dict, directory: pathlib.Path) -> bool:
+    if not (record.get("is_error") or record.get("exit_code")):
+        return False
+    stderr = (directory / "stderr.txt").read_text(errors="replace") if (directory / "stderr.txt").exists() else ""
+    return bool(CLAUDE_UNAVAILABLE.search((record.get("final_text") or "") + "\n" + stderr))
+
+
 def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_attempts, progress, index, total):
     """One arm on one task: the attempt, and at most one declared retry. The last attempt is the only result."""
     base = f"{item['case_id']}__{item['arm']}__r{item['rep']}"
@@ -195,6 +212,8 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
             params = params_for(arm_module.ARMS[item["arm"]]["backend"], case)
             record = arm_module.run_one(item["arm"], item["case_id"], case["url"], prompt, directory, claude_bin=claude_bin,
                                         model=model, timeout=timeout, params=params)
+            if _claude_unavailable(record, directory):
+                raise ClaudeUnavailable(f"{base}: {(record.get('final_text') or '').strip()[:200]}")
             record["rep"], record["attempt"] = item["rep"], attempt
             record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1))
             progress(f"[{index}/{total}] {base} attempt {attempt} valid={record['valid']} fetch_failed={record['fetch_failed']} "
@@ -227,12 +246,18 @@ def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, mod
         def work(item):
             _run_arm(root, item, cases[item["case_id"]], claude_bin=claude_bin, model=model, timeout=timeout,
                      params_for=params_for, max_attempts=retries + 1, progress=say, index=index, total=len(groups))
-        if concurrent_arms and len(items) > 1:
-            with ThreadPoolExecutor(max_workers=len(items)) as pool:
-                list(pool.map(work, items))
-        else:
-            for item in items:
-                work(item)
+        try:
+            if concurrent_arms and len(items) > 1:
+                with ThreadPoolExecutor(max_workers=len(items)) as pool:
+                    list(pool.map(work, items))
+            else:
+                for item in items:
+                    work(item)
+        except ClaudeUnavailable:
+            # Drop every arm's attempts for this task so that resume runs its arms together again.
+            for directory in (root / "runs").glob(f"{items[0]['case_id']}__*__r{items[0]['rep']}__a*"):
+                shutil.rmtree(directory)
+            raise
 
     # ``parallel_tasks`` tasks are in flight at once; every arm of a task still shares the same time window.
     with ThreadPoolExecutor(max_workers=max(1, parallel_tasks)) as tasks:

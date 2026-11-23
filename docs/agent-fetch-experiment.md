@@ -9,18 +9,18 @@ Claude Code delegates page reading to a `web-fetch` subagent (model haiku). All 
 | Arm | Subagent fetch tool | Where the page is fetched |
 | --- | --- | --- |
 | `builtin` | Claude Code's built-in WebFetch | this machine, inside Claude Code |
-| `lexmount` | `web_fetch` MCP tool → Lexmount `/v1/extract`, `result.main_text` | Lexmount service |
-| `moli` | `web_fetch` MCP tool → local `moli fetch --dump markdown` | this machine, moli subprocess |
+| `lexmount` | `web_fetch` MCP tool → Lexmount `/v1/extract`: `main_text` with the returned images and links | Lexmount service |
+| `moli` | `web_fetch` MCP tool → local `moli fetch`; binary output is delivered as a file | this machine, moli subprocess |
 
 The MCP tool is `agent_backend/fetch_mcp.py` (standard library only). The harness gives it the request parameters, so the subagent passes only a URL. The main agent can only call the Agent tool, so every request goes through the subagent; main-session figures are recorded but never compared.
 
-Each task starts one `claude -p` process per arm, at the same time, each with its own working directory (empty), MCP server and no saved session, user instructions, memory or skills. `--parallel-tasks N` runs N tasks at once; the arms of a task always share the same time window. The arm order inside a task rotates.
+Each task starts one `claude -p` process per arm, at the same time, each with its own working directory (empty), MCP server and no saved session, user instructions, memory or skills. Tasks run one after another by default (`--parallel-tasks N` runs N at once); the arms of a task always share the same time window. The arm order inside a task rotates.
 
 Fixed environment (recorded in `plan.json`): `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` (a background subagent gives no usage report) and `MAX_MCP_OUTPUT_TOKENS=150000`; the MCP tool also declares `anthropic/maxResultSizeChars`. Without them Claude Code replaces a large MCP result with a pointer to a saved file and the main agent launches a second subagent to read it, which breaks the one-subagent protocol exactly for long pages.
 
 ## Parameters
 
-Parameters are generated per task family by `backend_params.py`, never per task, and match the Webstone provider configuration. moli: `fetch --dump markdown --wait-until done|domstable --block-private-networks`; the readiness deadline is moli's native default (25 s). Lexmount: dynamic tasks request `engine_preference: lightmount_domstable` with the family timeout (45 s caller budget), other tasks send no options. The built-in tool has no parameters. A task a backend cannot be configured for (for example embedded documents without a declared media type) is excluded for every arm and listed in `plan.json`.
+Parameters are generated per task family by `backend_params.py`, never per task, and match the Webstone provider configuration. moli: `fetch --dump markdown --wait-until done|domstable --block-private-networks`; the readiness deadline is moli's native default (25 s). Lexmount: dynamic tasks request `engine_preference: lightmount_domstable` with the family timeout (45 s caller budget), other tasks send no options. The built-in tool has no parameters. Document tasks carry no input media declaration in the current edition, so moli's document family uses its automatic output (`fetch --wait-until done`), the form its document route uses; direct PDF/DOCX then arrive as original bytes, which, as in the benchmark, cannot pass a body contract on bytes alone. Every task of the edition is run for every arm; none is dropped because a backend handles it badly.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ Parameters are generated per task family by `backend_params.py`, never per task,
 uv run --frozen python scripts/agent_fetch_experiment.py check
 uv run --frozen python scripts/agent_fetch_experiment.py plan  --per-suite 5          # write plan.json only
 uv run --frozen python scripts/agent_fetch_experiment.py run   --per-suite 5 --retries 1 --run-id my-run
-uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --parallel-tasks 4 --run-id full
+uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --run-id full   # every task
 uv run --frozen python scripts/agent_fetch_experiment.py resume --run <run dir>
 uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir>       # no provider or model calls
 ```
@@ -47,10 +47,11 @@ The pass verdict is the benchmark's own `score_attempt` and task predicate appli
 
 | Arm | Scored text |
 | --- | --- |
-| `builtin` | the tool result in the stream, without the tool's leading rules and tag; the model-written summary that follows a long page's verbatim part is dropped |
-| `lexmount`, `moli` | the output saved by the MCP server (`backend_outputs/`), not Claude Code's copy |
+| `builtin` | the tool result in the stream, without the tool's leading rules and tag (the model-written summary after a long page's verbatim part is dropped), plus the original bytes WebFetch saved for binary content (`saved_files/`, listed in Claude Code's harness note) |
+| `lexmount` | the API response saved by the MCP server, projected exactly as the benchmark projects a Lexmount call: `main_text` declared plain text, title, final URL, links and images |
+| `moli` | its standard output saved by the MCP server; binary output (an image, a PDF) as a delivered file |
 
-The representation declaration comes from the benchmark: Lexmount's `main_text` is declared plain text, moli and the built-in tool declare none. The empty-text control must fail every selected task. A task's own reference text is not used as a control: many tasks have none, and the acceptance rules are defined on the whole page.
+Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`; the harness never extracts text from delivered files or converts formats. The empty-output control must fail every selected task. A task's own reference text is not used as a control: many tasks have none, and the acceptance rules are defined on the whole page.
 
 ## Metrics
 
@@ -58,7 +59,9 @@ Per run: subagent tokens and duration exactly as Claude Code reports them (a run
 
 ## Retry and exclusion
 
-`--retries N` (0 or 1, default 0) gives each run N declared retries after a protocol violation or a failed fetch call, with the same rule for every arm. The last attempt is the only result; earlier attempts stay on disk and are not part of the summary. A run is invalid when the subagent was not launched exactly once, there is no usage report, the expected fetch tool was not called or the process failed. An invalid final run excludes its task from the comparison of every arm.
+`--retries N` (0 or 1, default 0) gives each run N declared retries after a protocol violation or a failed fetch call, with the same rule for every arm. The last attempt is the only result; earlier attempts stay on disk and are not part of the summary. A run is invalid when the subagent was not launched exactly once, there is no usage report, the expected fetch tool was not called or the process failed. An invalid final run counts as not passed for its arm; the task stays in every arm's denominator. Usage and timing statistics use valid runs only and report their count.
+
+When Claude Code itself cannot serve a request (account usage limit, rate limit, overload) the run stops, deletes that task's attempts for every arm, and exits with code 3; `resume` repeats the task later.
 
 ## Add a backend
 

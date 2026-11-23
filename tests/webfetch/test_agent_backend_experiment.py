@@ -230,16 +230,16 @@ def _task(track, **extra):
     return {"id": "t", "name": "t", "url": "https://example.com/", "category": "c", "expected_any": [], "track": track, **extra}
 
 
-def test_moli_parameters_follow_the_task_family_and_unconfigurable_tasks_are_reported(fake_moli):
+def test_moli_parameters_follow_the_task_family_and_every_task_is_configurable(fake_moli):
     provider = backend_params.moli_provider(fake_moli)
     web = backend_params.params_for("moli", _task("web"), moli=provider)["argv"]
     dynamic = backend_params.params_for("moli", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}), moli=provider)["argv"]
     assert web[web.index("--wait-until") + 1] == "done" and "--layout" not in web
     assert dynamic[dynamic.index("--wait-until") + 1] == "domstable" and "--layout" in dynamic and "--with-frames" in dynamic
-    with pytest.raises(ValueError, match="input_media_kind"):
-        backend_params.params_for("moli", _task("document"), moli=provider)
-    found = backend_params.ineligible({"a": _task("web"), "b": _task("document")}, ["builtin", "moli"], moli=provider)
-    assert list(found) == ["b"] and found["b"].startswith("moli:")
+    # documents carry no input media declaration in the current edition: one family setting, moli's automatic output
+    document = backend_params.params_for("moli", _task("document"), moli=provider)["argv"]
+    assert "--dump" not in document and document[document.index("--wait-until") + 1] == "done"
+    assert backend_params.ineligible({"a": _task("web"), "b": _task("document")}, ["builtin", "moli"], moli=provider) == {}
 
 
 def test_lexmount_parameters_match_what_the_provider_sends(monkeypatch):
@@ -282,29 +282,30 @@ def _save(root, record, attempt=1):
     (d / "record.json").write_text(json.dumps(record))
 
 
-def test_one_chance_per_run_invalid_runs_exclude_the_task_from_every_arm_and_are_never_averaged(tmp_path, monkeypatch):
-    case_map = {c: {"id": c, "task_kind": "body", "ground_truth_main_content": "ref"} for c in ("a", "b", "c", "bad")}
-    monkeypatch.setattr(scoring, "score_attempt", lambda case, data, ok, metadata=None: {"id": case["id"], "text": data.decode(), "forbidden_requirement_pass": case["id"] != "bad"})
-    monkeypatch.setattr(scoring, "task_passed", lambda ok, m, kind: m["text"] == "good" or (m["text"] == "ref" and m["id"] != "bad"))
+def test_one_chance_per_run_every_task_counts_and_invalid_runs_are_never_averaged(tmp_path, monkeypatch):
+    case_map = {c: {"id": c, "task_kind": "body"} for c in ("a", "b", "c", "d")}
+    monkeypatch.setattr(scoring, "evaluate_response", lambda case, response, **kw: {"passed": response == b"good"})
     (tmp_path / "plan.json").write_text(json.dumps({"args": {}, "versions": {"claude_code": "v"}, "dataset": {"id": "d", "sha256": "0" * 64},
                                                     "cases": list(case_map), "runs": []}))
     for case in case_map:
         _save(tmp_path, _record(case, "builtin", final_text="good" if case == "a" else "no", subagent_tokens=1000))
         _save(tmp_path, _record(case, "moli", route="m", subagent_tokens=200))
-        # lexmount broke the protocol on task b (usage report withheld)
+        # lexmount broke the protocol on task b (usage report withheld): not passed, the task still counts
         bad = case == "b"
         _save(tmp_path, _record(case, "lexmount", route="l", subagent_tokens=None if bad else 300, valid=not bad,
                                 invalid_reasons=["no_subagent_usage_report"] if bad else []))
+    monkeypatch.setattr(scoring, "scoring_input", lambda directory, arm, case: {
+        "response": (directory / "markdown.txt").read_bytes(), "files": [], "metadata": {}})
     # task c, lexmount: the first attempt hit a network failure; it was retried once and the retry is the only result
     c_dir = tmp_path / "runs" / "c__lexmount__r1__a1"
     c_dir.rename(tmp_path / "runs" / "c__lexmount__r1__a2")
     _save(tmp_path, _record("c", "lexmount", route="l", subagent_tokens=5000, fetch_failed=True, final_text=""), attempt=1)
     summary = scoring.score_run(tmp_path, case_map, price_per_1000_usd=0.75)
     assert summary["controls"] == {"cases": 4, "empty_fails": 4}
-    assert summary["included_pairs"] == 3  # a, c and bad; b is dropped for every arm
-    assert summary["excluded_pairs"] == [{"case_id": "b", "rep": 1, "reasons": {"lexmount": ["no_subagent_usage_report"]}}]
+    assert summary["tasks"] == 4  # no task is dropped for any arm
+    assert summary["invalid_runs"] == [{"case_id": "b", "rep": 1, "reasons": {"lexmount": ["no_subagent_usage_report"]}}]
     lex, built, moli = summary["arms"]["lexmount"], summary["arms"]["builtin"], summary["arms"]["moli"]
-    assert (lex["runs"], lex["invalid_runs"], lex["compared_runs"]) == (4, 1, 3) and built["compared_runs"] == moli["compared_runs"] == 3
+    assert (lex["runs"], lex["invalid_runs"], lex["tasks"], lex["valid_runs"]) == (4, 1, 4, 3)
     assert lex["subagent_tokens"]["n"] == 3 and lex["subagent_tokens"]["mean"] == 300  # neither the invalid run nor the retried attempt is averaged in
     assert lex["retried_runs"] == 1 and lex["retry_reasons"] == {"fetch_failed": 1}
     assert lex["retry_cost"] == {"attempts": 1, "fetch_calls": 1, "fetch_api_cost_usd": pytest.approx(0.00075),
@@ -312,8 +313,8 @@ def test_one_chance_per_run_invalid_runs_exclude_the_task_from_every_arm_and_are
     assert built["subagent_tokens"]["mean"] == 1000 and moli["subagent_tokens"]["mean"] == 200
     assert lex["fetch_calls"] == 4 and lex["fetch_api_cost_usd"] == pytest.approx(4 * 0.00075)  # final attempts; the retry is accounted separately
     assert moli["fetch_api_cost_usd"] == 0.0 and built["fetch_api_cost_usd"] == 0.0
-    assert (built["passed"], moli["passed"], lex["passed"]) == (1, 3, 3)
-    assert summary["paired"]["builtin|moli"] == {"pairs": 3, "only_builtin": 0, "only_moli": 2, "both_pass": 1, "both_fail": 0}
+    assert (built["passed"], moli["passed"], lex["passed"]) == (1, 4, 3)  # the invalid lexmount run is not passed
+    assert summary["paired"]["builtin|moli"] == {"pairs": 4, "only_builtin": 0, "only_moli": 3, "both_pass": 1, "both_fail": 0}
 
 
 def _fake_runner(monkeypatch, outcomes, log):
@@ -414,3 +415,40 @@ def test_builtin_markdown_drops_tool_rules_and_tolerates_missing_closing_tag():
     assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\ntext")[0] == "PAGE\ntext"
     assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\n</fetched-web-content>\nnote")[0] == "PAGE\n"
     assert builtin_markdown("plain")[0] == "plain"
+
+
+def test_claude_unavailable_stops_the_run_and_leaves_the_task_for_resume(tmp_path, monkeypatch):
+    log = []
+
+    def fake_run_one(arm, case_id, url, prompt, out_dir, **kw):
+        log.append(arm)
+        out_dir.mkdir(parents=True)
+        limited = arm == "moli"
+        return {"valid": not limited, "invalid_reasons": ["execution_failed"] if limited else [], "fetch_failed": False,
+                "route": "r", "wall_ms": 1, "exit_code": 1 if limited else 0, "is_error": limited,
+                "final_text": "Claude AI usage limit reached" if limited else "ok"}
+    monkeypatch.setattr(experiment.arm_module, "run_one", fake_run_one)
+    plan = {"runs": [{"rep": 1, "case_id": "t", "arm": a} for a in ("builtin", "lexmount", "moli")]}
+    with pytest.raises(experiment.ClaudeUnavailable):
+        experiment.execute(tmp_path, plan, {"t": {"url": "https://x/"}}, claude_bin="c", model="m", timeout=1,
+                           progress=lambda m: None)
+    assert sorted(log) == ["builtin", "lexmount", "moli"] and not list((tmp_path / "runs").glob("t__*"))
+
+
+def test_stream_parsing_keeps_tool_results_with_line_separator_characters():
+    body = "Fetched x\n<fetched-web-content>\n%PDF \u2028 \x0c binary\n</fetched-web-content>"
+    events = [{"type": "assistant", "parent_tool_use_id": "p", "message": {"content": [
+                  {"type": "tool_use", "id": "w", "name": "WebFetch", "input": {}}]}},
+              {"type": "user", "parent_tool_use_id": "p", "message": {"content": [
+                  {"type": "tool_result", "tool_use_id": "w", "content": body}]}}]
+    raw = arms.parse_stream("\n".join(json.dumps(e, ensure_ascii=False) for e in events))[3]
+    assert raw == body
+
+
+def test_saved_binary_files_are_listed_from_the_harness_note_only():
+    note = ("report text - /tmp/x/tool-results/webfetch-1-a.png\n[Harness note, not part of the agent's report: saved:\n"
+            "  - /Users/u/.claude/projects/p/s/tool-results/webfetch-17-ab.pdf\nIn this run WebFetch saved files only under /p]")
+    events = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Agent", "input": {}}]}},
+              {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": note}]}}]
+    summary = arms.parse_stream("\n".join(json.dumps(e) for e in events))[5]
+    assert summary["saved_files"] == ["/Users/u/.claude/projects/p/s/tool-results/webfetch-17-ab.pdf"]

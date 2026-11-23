@@ -8,51 +8,72 @@ import re
 import statistics
 from collections import Counter
 
-from lexbench_webfetch.metrics import task_passed
-from lexbench_webfetch.scoring import score_attempt
+from lexbench_webfetch.evaluation import evaluate_response
 
-from harness.web_fetch.agent_backend.arms import ARMS, fetch_dispatch
-from harness.web_fetch.native_projection import native_answer_projection
+from harness.web_fetch.agent_backend.arms import fetch_dispatch
+from harness.web_fetch.native_projection import native_answer_projection, project_native_answer
 
 WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
 PAIRS = (("builtin", "lexmount"), ("builtin", "moli"))
 ATTEMPT = re.compile(r"^(?P<base>.+)__a(?P<n>\d+)$")
 
 
-def declared_format(arm: str, case: dict) -> str | None:
-    """The representation the benchmark's own provider declaration gives this arm's output, if any.
+def scoring_input(directory: pathlib.Path, arm: str, case: dict) -> dict | None:
+    """What the benchmark scores for one run, read from the run's saved evidence; None when nothing was delivered.
 
-    The benchmark declares Lexmount's ``main_text`` as plain text. Its moli declaration (bytes in, UTF-8 out) and the
-    built-in tool carry no representation, so the scorer's default applies. The value is read from the benchmark's
-    declaration, not chosen here.
+    * lexmount: the saved API response projected exactly as the benchmark projects a Lexmount call (``main_text``
+      declared plain text, plus the returned title, final URL, links and images).
+    * moli: its standard output; original file bytes when the output is binary.
+    * builtin: the verbatim markdown of the tool result (``markdown.txt``) and the original bytes the tool saved for
+      binary content (``saved_files/``).
     """
-    if ARMS[arm].get("provider_type") != "lexmount":
-        return None
-    return native_answer_projection("lexmount", case, {"result": {"main_text": "x"}}, 200).get("answer_format")
+    log = directory / "backend_calls.jsonl"
+    rows = [json.loads(line) for line in log.read_text().split("\n") if line.strip()] if log.exists() else []
+    good = [r for r in rows if r.get("ok")]
+    outputs = directory / "backend_outputs"
+    if arm == "lexmount":
+        if not good or not good[-1].get("payload"):
+            return None
+        payload = json.loads((outputs / good[-1]["payload"]).read_text(encoding="utf-8"))
+        content, fields = project_native_answer(payload, native_answer_projection("lexmount", case, payload, good[-1]["status"]))
+        result = payload.get("result") or {}
+        return {"response": content.encode("utf-8"), "files": [], "metadata": fields,
+                "title": result.get("title"), "final_url": result.get("final_url") or result.get("url")}
+    if arm == "moli" and good and good[-1].get("binary"):
+        return {"response": b"", "files": [(outputs / good[-1]["binary"]).read_bytes()], "metadata": {}}
+    text = (directory / "markdown.txt").read_text(encoding="utf-8") if (directory / "markdown.txt").exists() else ""
+    # Original bytes the built-in tool saved for binary content are delivered files, like moli's binary output.
+    files = [p.read_bytes() for p in sorted((directory / "saved_files").glob("*"))] if arm == "builtin" else []
+    return {"response": text.encode("utf-8"), "files": files, "metadata": {}} if text or files else None
 
 
-def verdict(case: dict, text: str, ok: bool, unscorable: set, answer_format: str | None = None) -> bool:
-    if not ok or not text:
+def verdict(case: dict, delivered: dict | None, unscorable: set) -> bool:
+    """The benchmark's own verdict through its public scoring boundary. Nothing delivered is a failure."""
+    if not delivered or not (delivered["response"] or delivered["files"]):
         return False
     try:
-        metadata = {"answer_format": answer_format} if answer_format else {}
-        metrics = score_attempt(case, text.encode("utf-8"), ok=True, metadata=metadata)
-        return bool(task_passed(True, metrics, case.get("task_kind", "body")))
-    except ValueError as error:  # the scorer found no scorable body in this text
+        return bool(evaluate_response(case, delivered["response"], files=delivered["files"], ok=True,
+                                      metadata=delivered["metadata"], title=delivered.get("title"),
+                                      final_url=delivered.get("final_url"))["passed"])
+    except ValueError as error:  # the scorer found nothing it can score in this output
         unscorable.add((case["id"], str(error)))
         return False
 
 
 def controls(cases: dict, case_ids: list[str]) -> dict:
-    """Empty text must fail every selected task.
+    """Empty output, sent through the scorer itself, must fail every selected task.
 
-    A task's own reference text is not a valid response: roughly half of the tasks have none, and the acceptance
-    rules (stable anchors, comment counts, page structure) are defined on the whole page, which the reference does
-    not contain. It is therefore not used as a control.
+    A task's own reference text is not a valid response: many tasks have none, and the acceptance rules (stable
+    anchors, comment counts, page structure, resources, files) are defined on the whole page or file, which the
+    reference does not contain. It is therefore not used as a control.
     """
-    unscorable: set = set()
-    empty_fails = sum(not verdict(cases[cid], "", True, unscorable) for cid in case_ids)
-    return {"cases": len(case_ids), "empty_fails": empty_fails}
+    failed = 0
+    for cid in case_ids:
+        try:
+            failed += not evaluate_response(cases[cid], b"", ok=True)["passed"]
+        except ValueError:
+            failed += 1
+    return {"cases": len(case_ids), "empty_fails": failed}
 
 
 def _percentile(values, q):
@@ -94,36 +115,35 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         loaded = [_load(directory, n) for n, directory in items]
         record, previous = loaded[-1], loaded[:-1]  # the last attempt is the only result; earlier ones are evidence
         directory = items[-1][1]
-        markdown = (directory / "markdown.txt").read_text(encoding="utf-8")  # the backend's own content; see arms.py
         case = cases[record["case_id"]]
         record["retried"] = bool(previous)
         record["retry_reasons"] = [x for p in previous for x in (p["invalid_reasons"] or ["fetch_failed"])]
-        # The benchmark defines one verdict per task: does the content the fetch tool returned pass the acceptance
-        # rules. The agent's final answer is rewritten text and has no annotation, so it is stored but never scored.
-        record["passed"] = record["valid"] and verdict(case, markdown, bool(markdown), unscorable,
-                                                           declared_format(record["arm"], case))
+        # The benchmark defines one verdict per task: does what the fetch tool delivered pass the acceptance rules.
+        # The agent's final answer is rewritten text and has no annotation, so it is stored but never scored.
+        # An invalid final run has no trustworthy result and counts as not passed; its task stays in every arm's count.
+        record["passed"] = record["valid"] and verdict(case, scoring_input(directory, record["arm"], case), unscorable)
         rows.append(record)
         earlier.extend(previous)
-    # A task/repetition enters the comparison only if every arm's final run is valid and the task is satisfiable,
-    # so no arm is helped or hurt by another arm's protocol failure.
+    # Every task counts for every arm. Usage and timing statistics use the valid runs only, because an invalid run has
+    # no usage report; their count is reported with each statistic.
     by_key: dict = {}
     for r in rows:
         by_key.setdefault((r["case_id"], r["rep"]), {})[r["arm"]] = r
     arm_names = sorted({r["arm"] for r in rows})
-    included = {k for k, v in by_key.items()
-                if set(v) == set(arm_names) and all(x["valid"] for x in v.values())}
-    excluded_pairs = [{"case_id": k[0], "rep": k[1], "reasons": {a: x["invalid_reasons"] for a, x in v.items() if x["invalid_reasons"]}}
-                      for k, v in sorted(by_key.items()) if k not in included]
+    included = {k for k, v in by_key.items() if set(v) == set(arm_names)}
+    invalid_runs = [{"case_id": k[0], "rep": k[1], "reasons": {a: x["invalid_reasons"] for a, x in v.items() if x["invalid_reasons"]}}
+                    for k, v in sorted(by_key.items()) if any(x["invalid_reasons"] for x in v.values())]
     unit = price_per_1000_usd / 1000
     tokens = lambda r: sum((r.get(k) or 0) for k in
                            ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens"))
     summary = {"plan": {"args": plan["args"], "versions": plan["versions"], "dataset": plan["dataset"],
                         "ineligible_for_all_arms": plan.get("ineligible_for_all_arms", {})},
-               "controls": control, "unscorable": sorted(unscorable), "included_pairs": len(included),
-               "excluded_pairs": excluded_pairs, "arms": {}}
+               "controls": control, "unscorable": sorted(unscorable), "tasks": len(included),
+               "invalid_runs": invalid_runs, "arms": {}}
     for arm in arm_names:
         mine = [r for r in rows if r["arm"] == arm]
-        used = [r for r in mine if (r["case_id"], r["rep"]) in included]
+        counted = [r for r in mine if (r["case_id"], r["rep"]) in included]
+        used = [r for r in counted if r["valid"]]  # statistics need a usage report
         before = [r for r in earlier if r["arm"] == arm]
         priced = lambda r: r["backend_calls"] * unit if arm == "lexmount" else 0.0  # moli and builtin have no call price
         summary["arms"][arm] = {
@@ -131,8 +151,8 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "invalid_reasons": dict(Counter(x for r in mine for x in r["invalid_reasons"])),
             "retried_runs": sum(r["retried"] for r in mine), "retry_reasons": dict(Counter(x for r in mine for x in r["retry_reasons"])),
             "failed_fetch_after_retry": sum(r["fetch_failed"] for r in mine),
-            "compared_runs": len(used), "routes": dict(Counter(r["route"] for r in mine)),
-            "passed": sum(r["passed"] for r in used),
+            "tasks": len(counted), "valid_runs": len(used), "routes": dict(Counter(r["route"] for r in mine)),
+            "passed": sum(r["passed"] for r in counted),
             "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
             "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
             "replaced_by_claude_code_runs": sum(bool(r.get("replaced_by_claude_code")) for r in mine),
@@ -153,12 +173,13 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
                            "haiku_model_cost_usd": sum(r.get("haiku_model_cost_usd") or 0 for r in before)},
         }
     summary["by_suite"] = {}
-    for arm in arm_names:  # compared tasks and passes per task category, the first part of the task id
+    for arm in arm_names:  # tasks and passes per task category, the first part of the task id
         table: dict = {}
         for r in rows:
             if r["arm"] == arm and (r["case_id"], r["rep"]) in included:
-                cell = table.setdefault(r["case_id"].split("--")[0], {"compared": 0, "passed": 0, "fetch_failed": 0})
-                cell["compared"] += 1
+                cell = table.setdefault(r["case_id"].split("--")[0], {"tasks": 0, "passed": 0, "fetch_failed": 0, "invalid": 0})
+                cell["tasks"] += 1
+                cell["invalid"] += not r["valid"]
                 cell["passed"] += bool(r["passed"])
                 cell["fetch_failed"] += bool(r["fetch_failed"])
         summary["by_suite"][arm] = table
@@ -183,12 +204,12 @@ def render_markdown(summary: dict) -> str:
              f"Dataset `{summary['plan']['dataset']['id']}` sha256 `{summary['plan']['dataset']['sha256'][:12]}`; "
              f"Claude Code `{summary['plan']['versions']['claude_code']}`.", "",
              f"Control: empty text fails {c['empty_fails']}/{c['cases']}.", "",
-             f"Compared {summary['included_pairs']} task runs per arm; excluded because any arm's run broke the protocol: "
-             + (", ".join(f"{p['case_id']} r{p['rep']} {p['reasons']}" for p in summary["excluded_pairs"]) or "none") + ".", "",
-             "| Arm | Runs | Invalid | Compared | Pass | Subagent tokens mean | Subagent s P50 | Fetch tool s P50 | Fetch API USD | Subagent USD (upper bound) |",
+             f"{summary['tasks']} tasks per arm; invalid final runs (counted as not passed): "
+             + (", ".join(f"{p['case_id']} r{p['rep']} {p['reasons']}" for p in summary["invalid_runs"]) or "none") + ".", "",
+             "| Arm | Runs | Invalid | Tasks | Pass | Subagent tokens mean | Subagent s P50 | Fetch tool s P50 | Fetch API USD | Subagent USD (upper bound) |",
              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for arm, s in summary["arms"].items():
-        lines.append(f"| {arm} | {s['runs']} | {s['invalid_runs']} | {s['compared_runs']} | {s['passed']}/{s['compared_runs']} | "
+        lines.append(f"| {arm} | {s['runs']} | {s['invalid_runs']} | {s['tasks']} | {s['passed']}/{s['tasks']} | "
                      f"{s['subagent_tokens']['mean'] or 0:.0f} | "
                      f"{(s['subagent_duration_ms']['p50'] or 0) / 1000:.1f} | {(s['fetch_tool_ms']['p50'] or 0) / 1000:.1f} | "
                      f"{s['fetch_api_cost_usd']:.4f} | {s['subagent_cost_usd_upper_bound']:.4f} |")

@@ -24,7 +24,7 @@ def _common(parser):
 def _plan_args(parser):
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--out", type=pathlib.Path, default=None, help="default: <data home>/experiments/agent-fetch")
-    parser.add_argument("--task-kinds", default="body,structure", help="task kinds answered as text (resource and file tasks are not)")
+    parser.add_argument("--task-kinds", default="", help="comma list of task kinds to sample from (default: every kind)")
     parser.add_argument("--limit", type=int, default=20, help="stratified sample size; 0 = every selected task")
     parser.add_argument("--per-suite", type=int, default=0, help="sample this many tasks from every suite (overrides --limit)")
     parser.add_argument("--include", default="", help="comma list of task ids always included")
@@ -52,8 +52,8 @@ def _prepare(args):
     meta, cases, sha = experiment.load_cases(args.dataset)
     moli = backend_params.moli_provider() if "moli" in _split(args.arms) else None
     backends = [arm_module.ARMS[a]["backend"] for a in _split(args.arms)]
-    kinds = tuple(_split(args.task_kinds))
-    pool = {c: v for c, v in cases.items() if v.get("task_kind", "body") in kinds}
+    kinds = tuple(_split(args.task_kinds)) or None
+    pool = {c: v for c, v in cases.items() if kinds is None or v.get("task_kind", "body") in kinds}
     ineligible = backend_params.ineligible(pool, backends, moli=moli)
     ids = experiment.select_cases(cases, task_kinds=kinds, limit=args.limit, seed=args.seed,
                                   include=_split(args.include), case_ids=_split(args.case_ids),
@@ -168,7 +168,7 @@ def cmd_check(args) -> int:
             provider = backend_params.moli_provider(moli) if moli else None
             for backend in ("lexmount", "moli") if moli else ("lexmount",):
                 params = backend_params.params_for(backend, probe_case, moli=provider)
-                text, is_error, row = fetch_mcp.fetch(backend, "https://example.com/", 60, params)
+                text, is_error, row, _ = fetch_mcp.fetch(backend, "https://example.com/", 60, params)
                 add(f"{backend} fetch call", "FAIL" if is_error else "PASS", f"status {row['status']}, {row['wall_ms']} ms, {row['chars']} chars")
     width = max(len(r[0]) for r in rows)
     for name, status, detail in rows:
@@ -198,7 +198,12 @@ def main(argv=None) -> int:
             p.add_argument("--price-per-1000", type=float, default=0.75, help="USD per 1000 Lexmount API calls")
         p.set_defaults(handler=handler)
     args = parser.parse_args(argv)
-    return args.handler(args)
+    try:
+        return args.handler(args)
+    except experiment.ClaudeUnavailable as error:
+        print(f"stopped: Claude Code could not serve a request ({error}). Nothing was recorded for that task; "
+              "continue later with the resume command.", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":

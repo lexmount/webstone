@@ -13,6 +13,7 @@ if it is not built in, an MCP server.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pathlib
@@ -32,6 +33,8 @@ AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+du
 # Background tasks off: a background subagent gives no usage report. MCP output limit raised: Claude Code replaces an MCP
 # result above the limit (default 25,000 tokens) with a pointer to a saved file, and the main agent then launches a second
 # subagent to read it, which breaks the one-subagent protocol for exactly the long pages.
+# Claude Code's note listing the original bytes WebFetch saved for binary content (a PDF, an image).
+SAVED_FILE = re.compile(r"^[ \t]*- (/\S+/tool-results/webfetch-[^/\s]+)$", re.M)
 FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "MAX_MCP_OUTPUT_TOKENS": "150000"}
 NETWORK_COMMAND = re.compile(r"\b(curl|wget|httpx|urllib|requests\.get|http\.client|lynx|w3m)\b")
 
@@ -95,7 +98,8 @@ def parse_stream(text: str):
     reported = []
     fetch_error = False
     init = result = raw = None
-    for line in text.splitlines():
+    saved: list[str] = []
+    for line in text.split("\n"):  # JSON strings may hold U+2028 or form feeds, which splitlines() breaks on
         try:
             event = json.loads(line)
         except ValueError:
@@ -120,6 +124,7 @@ def parse_stream(text: str):
                 text = block["content"] if isinstance(block["content"], str) else "".join(
                     x.get("text", "") for x in block["content"] if isinstance(x, dict))
                 found = AGENT_USAGE.search(text)
+                saved.extend(SAVED_FILE.findall(text.split("Harness note", 1)[1]) if "Harness note" in text else [])
                 if found:
                     reported.append({"tokens": int(found.group(1)), "tool_uses": int(found.group(2)),
                                      "duration_ms": int(found.group(3))})
@@ -128,7 +133,7 @@ def parse_stream(text: str):
                 body = block["content"]
                 raw = body if isinstance(body, str) else "".join(x.get("text", "") for x in body if isinstance(x, dict))
     summary = {"agent_launches": sum(1 for c in calls if c["tool"] == "Agent" and not c["sub"]), "reported": reported,
-               "fetch_error": fetch_error}
+               "fetch_error": fetch_error, "saved_files": saved}
     return init, result, calls, raw, bash, summary
 
 
@@ -263,6 +268,14 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     (out / "stderr.txt").write_text(stderr)
     init, result, calls, raw, bash, delegated = parse_stream(stdout)
     (out / "raw_tool_result.txt").write_text(raw or "")
+    saved_files = []
+    for source in delegated["saved_files"]:  # copy the delivered bytes into the run's evidence
+        path = pathlib.Path(source)
+        if path.is_file():
+            (out / "saved_files").mkdir(exist_ok=True)
+            shutil.copyfile(path, out / "saved_files" / path.name)
+            saved_files.append({"file": path.name, "bytes": path.stat().st_size,
+                                "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     debug = out / "debug.log"
     tool_outcome, tool_ms = fetch_dispatch(debug.read_text(errors="replace")) if debug.exists() else (None, None)
     usage = (result or {}).get("usage") or {}
@@ -288,10 +301,10 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
         "model_usage": (result or {}).get("modelUsage"),
         "fetch_tool_ms": tool_ms, "fetch_tool_outcome": tool_outcome,
         "route": classify_route(calls, bash), "bash_commands": bash, "tool_calls": calls,
-        "raw_tool_result_chars": len(raw or ""), "final_text": (result or {}).get("result"),
+        "raw_tool_result_chars": len(raw or ""), "saved_files": saved_files, "final_text": (result or {}).get("result"),
     }
     log = out / "backend_calls.jsonl"
-    rows = [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.exists() else []
+    rows = [json.loads(x) for x in log.read_text().split("\n") if x.strip()] if log.exists() else []
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
