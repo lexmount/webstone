@@ -13,6 +13,13 @@ from harness.web_fetch.diagnostics import emit
 from lexbench_webfetch.paths import validate_http_url
 
 
+class ResponseTooLargeError(ValueError):
+    def __init__(self, max_bytes: int, status: int):
+        super().__init__(f"response exceeded max_bytes={max_bytes}")
+        self.max_bytes = max_bytes
+        self.status = status
+
+
 @dataclass
 class HttpResponse:
     status: int
@@ -64,10 +71,12 @@ def request(
     json_body: Any = None,
     body: bytes | None = None,
     timeout: float = 30,
-    max_bytes: int | None = 10_000_000,
+    max_bytes: int = 10_000_000,
     allow_redirects: bool = True,
 ) -> HttpResponse:
     validate_http_url(url)
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError("max_bytes must be a non-negative integer")
     if body is not None and json_body is not None:
         raise ValueError("Specify either body or json_body, not both")
     if body is not None and not isinstance(body, bytes):
@@ -78,7 +87,14 @@ def request(
         data = json.dumps(json_body).encode("utf-8")
         final_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=final_headers, method=method)
-    emit("http_request_started", url=url, method=method, headers=final_headers, json_body=json_body, timeout=timeout)
+    emit(
+        "http_request_started",
+        url=url,
+        method=method,
+        headers=final_headers,
+        json_body=json_body,
+        timeout=timeout,
+    )
     started = time.monotonic()
     phase = "connect_or_headers"
     response = None
@@ -88,13 +104,17 @@ def request(
             response = urllib.request.build_opener(handler).open(req, timeout=timeout)
         except urllib.error.HTTPError as error:
             response = error
-        emit("http_headers_received", status=response.status, url=response.geturl(),
-             headers=dict(response.headers.items()),
-             elapsed_ms=round((time.monotonic() - started) * 1000, 2))
+        emit(
+            "http_headers_received",
+            status=response.status,
+            url=response.geturl(),
+            headers=dict(response.headers.items()),
+            elapsed_ms=round((time.monotonic() - started) * 1000, 2),
+        )
         phase = "body"
-        body = response.read() if max_bytes is None else response.read(max_bytes + 1)
-        if max_bytes is not None and len(body) > max_bytes:
-            raise ValueError(f"response exceeded max_bytes={max_bytes}")
+        body = response.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ResponseTooLargeError(max_bytes, response.status)
         emit(
             "http_response_received",
             status=response.status,
@@ -110,9 +130,14 @@ def request(
             body=body,
         )
     except Exception as error:
-        emit("http_request_failed", url=url, phase=phase,
-             error_type=type(error).__name__, message=str(error),
-             elapsed_ms=round((time.monotonic() - started) * 1000, 2))
+        emit(
+            "http_request_failed",
+            url=url,
+            phase=phase,
+            error_type=type(error).__name__,
+            message=str(error),
+            elapsed_ms=round((time.monotonic() - started) * 1000, 2),
+        )
         raise
     finally:
         if response is not None:

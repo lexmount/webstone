@@ -16,9 +16,10 @@ from harness.web_fetch.native_projection import (
     project_native_answer,
     project_native_result_fields,
 )
-from harness.web_fetch.providers.http_client import request
+from harness.web_fetch.providers.http_client import ResponseTooLargeError, request
 
 BUDGET = 200_000
+MAX_RESPONSE_BYTES = 20_000_000
 ENDPOINT = "https://api.lexmount.com/v1/extract"
 CREDENTIALS = ("LEXMOUNT_API_KEY", "LEXMOUNT_PROJECT_ID")
 REPEAT_ERROR = "The case has already sent its Lexmount request"
@@ -107,7 +108,7 @@ def _fetch_once(directory, case):
             ENDPOINT,
             method="POST",
             timeout=remaining,
-            max_bytes=None,
+            max_bytes=MAX_RESPONSE_BYTES,
             allow_redirects=False,
             headers={
                 "X-API-Key": credentials[CREDENTIALS[0]],
@@ -115,6 +116,11 @@ def _fetch_once(directory, case):
             },
             json_body={"extract": {"url": case["url"], "options": {"engine_preference": "auto"}}},
         )
+    except ResponseTooLargeError as exc:
+        (directory / "receipt.json").write_text(
+            json.dumps({"status": exc.status, "response_limit_bytes": exc.max_bytes})
+        )
+        return _answer("Lexmount HTTP response exceeded the byte limit", error=True)
     except (OSError, HTTPException) as exc:
         cause = getattr(exc, "reason", exc)
         code = getattr(cause, "errno", None)
@@ -261,6 +267,8 @@ def parse_returns(case, events, items, directory):
     if len(calls) != len(mcp) or any(not _blocked_repeat(i) for i in later):
         return fail("codex_lexmount_violation", "Unverified additional tool invocation")
     metadata["blocked_later_attempts"] = len(later)
+    if "response_limit_bytes" in receipt:
+        return fail("lexmount_response_too_large", "Lexmount HTTP response exceeded the byte limit")
     if raw is None or status is None:
         return fail("lexmount_transport_error", "Lexmount did not return an HTTP response")
     if not 200 <= status < 300:

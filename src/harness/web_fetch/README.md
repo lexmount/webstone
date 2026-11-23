@@ -1887,8 +1887,9 @@ uses the local Lexmount tool with built-in web search disabled. The tool sends
 one `POST /v1/extract` with the assigned URL and `engine_preference: auto`.
 A later attempt on the same turn is blocked before a second HTTP request.
 The case deadline applies to the complete turn, including the tool request.
-The transport uses the remaining case budget and reads the response without
-a separate size cap. Both Codex tool-output limits are 200,000 tokens.
+The transport uses the remaining case budget and caps the HTTP response at
+20,000,000 bytes. An oversized response is recorded as a failed attempt without
+scoring or retaining its body. Both Codex tool-output limits are 200,000 tokens.
 
 The runner retains the private HTTP response and the Codex tool log. The
 shared scorer reads only verified fields from the first result returned to

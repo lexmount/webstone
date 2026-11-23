@@ -499,7 +499,67 @@ def test_lexmount_bridge_sends_one_auto_request(monkeypatch, tmp_path):
     assert url == codex_lexmount.ENDPOINT
     assert args["method"] == "POST" and not args["allow_redirects"]
     assert args["json_body"] == {"extract": {"url": URL, "options": {"engine_preference": "auto"}}}
-    assert args["max_bytes"] is None and 290 < args["timeout"] <= 300
+    assert args["max_bytes"] == 20_000_000 and 290 < args["timeout"] <= 300
+
+
+@pytest.mark.parametrize("oversized", [False, True])
+def test_lexmount_bridge_caps_http_body(monkeypatch, tmp_path, oversized):
+    import time
+    from types import SimpleNamespace
+
+    from harness.web_fetch.providers import codex_lexmount, http_client
+
+    case, events, items = lexmount_fixture(tmp_path)
+    response_path = tmp_path / "response.bin"
+    receipt_path = tmp_path / "receipt.json"
+    raw = response_path.read_bytes()
+    response_path.unlink()
+    receipt_path.unlink()
+    limit = len(raw)
+    if oversized:
+        raw += b" "
+    reads = []
+    closed = []
+
+    def read(size=-1):
+        reads.append(size)
+        return raw if size < 0 else raw[:size]
+
+    response = SimpleNamespace(
+        status=200,
+        headers={},
+        geturl=lambda: codex_lexmount.ENDPOINT,
+        read=read,
+        close=lambda: closed.append(True),
+    )
+    monkeypatch.setattr(
+        http_client.urllib.request,
+        "build_opener",
+        lambda handler: SimpleNamespace(open=lambda request, timeout: response),
+    )
+    monkeypatch.setattr(codex_lexmount, "MAX_RESPONSE_BYTES", limit)
+    monkeypatch.setattr(
+        codex_lexmount,
+        "repository_env",
+        lambda: {"LEXMOUNT_API_KEY": "fixture-key", "LEXMOUNT_PROJECT_ID": "fixture-project"},
+    )
+    tool_reply = codex_lexmount._fetch_once(
+        tmp_path,
+        {"url": URL, "deadline": time.monotonic() + 10},
+    )
+    assert reads == [limit + 1] and closed == [True]
+    if oversized:
+        assert tool_reply["isError"]
+        assert not response_path.exists()
+        events[0]["item"]["status"] = "failed"
+        result = codex_lexmount.parse_returns(case, events, items, tmp_path)
+        assert not result.ok and result.status_code == 200
+        assert result.error_type == "lexmount_response_too_large"
+        assert result.metadata["response_limit_bytes"] == limit
+    else:
+        assert response_path.read_bytes() == raw
+        assert not tool_reply.get("isError")
+        assert codex_lexmount.parse_returns(case, events, items, tmp_path).ok
 
 
 def test_lexmount_provider_public_entry_resumes_same_thread(monkeypatch):
