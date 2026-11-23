@@ -1832,34 +1832,24 @@ logging. Authenticate the CLI on the machine running the benchmark. The original
 runs used Codex CLI 0.169.1 and 0.171.0-alpha.13 respectively. Use the
 content-scopes-530 dataset export described above.
 
-Collect tool responses independently of the scorer. Each invocation requires a
-new output directory, starts a new conversation, and resumes that same
-conversation for subsequent URLs. Run each method separately:
+Use the same run, scoring and report commands as the other Web Fetch providers.
+Each Codex method starts a fresh conversation and uses it for subsequent URLs
+in the run. Both request complete content using Luna, medium reasoning, live
+web, high context and long tool returns. The scorer evaluates the content
+delivered by the tool. Select one method per run:
 
-```bash
-uv run --frozen webstone codex-fetch --dataset dataset.json --mode single --output ~/codex-single
-uv run --frozen webstone codex-fetch --dataset dataset.json --mode same-page --output ~/codex-same-page
-```
+- `codex-single` accepts exactly one open of the supplied URL.
+- `codex-same-page` allows the model to continue reading that page.
 
-Both modes request complete content using Luna, medium reasoning, live web,
-high context and long returns, with one task at a time and a 300-second
-deadline. Single accepts exactly one open of the supplied URL. Same-page
-allows the model to choose subsequent reads within the returned page.
-The adapter checks the recorded commands and saves the actual numbered
-tool text, delivered files, private logs and usage counters. A rule failure
-gets no scoreable content. Only the URL and public task prompt enter the
-request. Numbered output directories follow dataset order.
-
-To collect and score together with the repository runner, use the full exported
-dataset directory including reference assets. Select either provider name from
-`configs/providers.example.json`. Build the HTML separately from the saved run:
+From the repository root, supply the full dataset export with its reference
+assets. Choose a new output directory for each run:
 
 ```bash
 uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-single --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-single-scored
 uv run --frozen webstone report ~/codex-single-scored --language zh
 ```
 
-For the continuation method select `codex-same-page` and a fresh output path.
-Use `webstone rescore` on saved runner output, or `lexbench-webfetch score`
-with one task JSON and the standalone collector's response.txt. Pass
-`--request-failed` for a failed receipt and each delivered binary via `--file`.
+For continuation, select `--providers codex-same-page` and use its output
+directory for both commands. The run saves the original tool evidence, usage
+and scores. To recompute scores from saved evidence, run
+`webstone rescore RUN_DIR --dataset dataset.json --no-report`.
