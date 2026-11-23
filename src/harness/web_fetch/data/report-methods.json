@@ -1,6 +1,14 @@
 {
   "schema_version": 1,
   "adapters": {
+    "codex_cli": {
+      "endpoint": "codex exec",
+      "freshness": {"zh": "实时网页访问", "en": "Live web access"},
+      "contract": {
+        "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
+        "en": "Read the requested URL with Codex native web open and retain the tool response."
+      }
+    },
     "http": {
       "endpoint": "HTTP GET",
       "contract": {
@@ -501,6 +509,136 @@
     }
   },
   "methods": {
+    "codex-single": {
+      "label": {
+        "zh": "Codex CLI · 单次读取",
+        "en": "Codex CLI · Single open"
+      },
+      "source_url": "https://developers.openai.com/codex/cli/",
+      "profile": {
+        "kind": "Local CLI",
+        "description": {
+          "zh": "每题允许打开指定网址一次。",
+          "en": "Allow one open of the requested URL per task."
+        }
+      },
+      "access": {
+        "type": "local",
+        "env_vars": [],
+        "account": {
+          "zh": "可使用 Luna 的 Codex CLI 账号",
+          "en": "Codex CLI account with Luna access"
+        },
+        "configuration": {
+          "zh": "在评测机器安装并登录 CLI。",
+          "en": "Install and authenticate the CLI on the evaluation machine."
+        },
+        "links": [
+          [
+            {
+              "zh": "Codex CLI 文档",
+              "en": "Codex CLI documentation"
+            },
+            "https://developers.openai.com/codex/cli/"
+          ]
+        ]
+      },
+      "interface": {
+        "entry": "codex exec / codex exec resume",
+        "auth": {
+          "zh": "本机 Codex CLI 登录状态",
+          "en": "Local Codex CLI session"
+        },
+        "params": [
+          [
+            "mode",
+            "string",
+            {
+              "zh": "每题允许打开指定网址一次。",
+              "en": "Allow one open of the requested URL per task."
+            }
+          ]
+        ],
+        "fields": [
+          [
+            "custom_tool_call_output",
+            "JSONL",
+            {
+              "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
+              "en": "Read the requested URL with Codex native web open and retain the tool response."
+            }
+          ]
+        ],
+        "request": {"url": "https://example.com/"},
+        "notes": {"zh": "运行参数见评测复现说明。", "en": "See the benchmark reproduction guide for run parameters."},
+        "source": "src/harness/web_fetch/providers/codex.py"
+      }
+    },
+    "codex-same-page": {
+      "label": {
+        "zh": "Codex CLI · 同页续读",
+        "en": "Codex CLI · Same-page continuation"
+      },
+      "source_url": "https://developers.openai.com/codex/cli/",
+      "profile": {
+        "kind": "Local CLI",
+        "description": {
+          "zh": "允许模型继续读取同一页面。",
+          "en": "Allow the model to continue reading the same page."
+        }
+      },
+      "access": {
+        "type": "local",
+        "env_vars": [],
+        "account": {
+          "zh": "可使用 Luna 的 Codex CLI 账号",
+          "en": "Codex CLI account with Luna access"
+        },
+        "configuration": {
+          "zh": "在评测机器安装并登录 CLI。",
+          "en": "Install and authenticate the CLI on the evaluation machine."
+        },
+        "links": [
+          [
+            {
+              "zh": "Codex CLI 文档",
+              "en": "Codex CLI documentation"
+            },
+            "https://developers.openai.com/codex/cli/"
+          ]
+        ]
+      },
+      "interface": {
+        "entry": "codex exec / codex exec resume",
+        "auth": {
+          "zh": "本机 Codex CLI 登录状态",
+          "en": "Local Codex CLI session"
+        },
+        "params": [
+          [
+            "mode",
+            "string",
+            {
+              "zh": "允许模型继续读取同一页面。",
+              "en": "Allow the model to continue reading the same page."
+            }
+          ]
+        ],
+        "fields": [
+          [
+            "custom_tool_call_output",
+            "JSONL",
+            {
+              "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
+              "en": "Read the requested URL with Codex native web open and retain the tool response."
+            }
+          ]
+        ],
+        "request": {"url": "https://example.com/"},
+        "notes": {"zh": "运行参数见评测复现说明。", "en": "See the benchmark reproduction guide for run parameters."},
+        "source": "src/harness/web_fetch/providers/codex.py"
+      }
+    },
     "chromium": {
       "label": {
         "zh": "Chromium",

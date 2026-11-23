@@ -1824,3 +1824,42 @@ hash from the exact ordered source list in that revision's `scoring.py` and
 verify the projection source hash. A matching saved output alone is insufficient.
 The source-bound replay and rejection controls are in
 `tests/test_native_answer_projection.py`.
+
+### Reproduce the two Codex CLI Web Fetch methods
+
+Install a Codex CLI with Luna access, live web tools and local JSONL session
+logging. Authenticate the CLI on the machine running the benchmark. The original
+runs used Codex CLI 0.169.1 and 0.171.0-alpha.13 respectively. Use the
+content-scopes-530 dataset export described above.
+
+Use the same run, scoring and report commands as the other Web Fetch providers.
+Each Codex method starts a fresh conversation and uses it for subsequent URLs
+in the run. Both request complete content using Luna, medium reasoning, live
+web, high context and long tool returns. The scorer evaluates the content
+delivered by the tool. Select one method per run:
+
+- `codex-single` accepts exactly one open of the supplied URL.
+- `codex-same-page` allows the model to continue reading that page.
+
+From the repository root, supply the full dataset export with its reference
+assets. Choose a new output directory for each run:
+
+```bash
+uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-single --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-single-scored
+uv run --frozen webstone report ~/codex-single-scored --language zh
+```
+
+For same-page continuation, run:
+
+```bash
+uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-same-page --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-same-page-scored
+uv run --frozen webstone report ~/codex-same-page-scored --language zh
+```
+
+Both runs save the original tool evidence, usage and Full content scores in
+their output directories. To reassess the single-open run using saved evidence:
+
+```bash
+uv run --frozen webstone rescore ~/codex-single-scored --dataset dataset.json --content-scope full --score-scope full --no-report
+uv run --frozen webstone report ~/codex-single-scored --language zh
+```
