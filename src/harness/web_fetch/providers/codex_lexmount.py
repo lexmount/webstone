@@ -306,6 +306,10 @@ def parse_returns(case, events, items, directory):
         return fail("codex_lexmount_violation", "First Lexmount tool result did not complete")
     try:
         payload, truncated = _delivered_payload(outputs.get(primary.get("call_id"), {}), raw)
+    except RecursionError:
+        return fail(
+            "lexmount_uninspectable_response", "Lexmount HTTP response exceeds JSON nesting depth"
+        )
     except ValueError:
         payload, truncated = {}, False
     if (

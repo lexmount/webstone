@@ -438,6 +438,30 @@ def test_lexmount_scores_both_retained_sides_of_middle_truncation(tmp_path):
     assert result.metadata["links"] == [{"href": URL}]
 
 
+@pytest.mark.parametrize("truncated", [False, True])
+def test_lexmount_records_unparseable_depth_as_provider_failure(tmp_path, truncated):
+    import sys
+
+    from harness.web_fetch.providers import codex_lexmount
+
+    case, events, items = lexmount_fixture(tmp_path)
+    depth = sys.getrecursionlimit() + 20
+    raw = '{"result":{"nested":' + "[" * depth + "0" + "]" * depth + ',"main_text":"safe"}}'
+    (tmp_path / "response.bin").write_bytes(raw.encode())
+    wrapped = json.dumps(
+        {"content": [{"type": "text", "text": raw}]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    if truncated:
+        wrapped = wrapped[: wrapped.index("main_text")] + "…5 tokens truncated…"
+    items[1]["output"][0]["text"] = wrapped
+    result = codex_lexmount.parse_returns(case, events, items, tmp_path)
+    assert not result.ok and result.status_code == 200
+    assert result.error_type == "lexmount_uninspectable_response"
+    assert result.content == ""
+
+
 def test_lexmount_first_call_requires_budget(tmp_path):
     from harness.web_fetch.providers import codex_lexmount
 
