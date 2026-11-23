@@ -40,7 +40,7 @@ def test_package_saved_matrix_requires_source_bound_results(tmp_path, public_evi
     package(output, archive, saved_matrix_spec=spec_path)
     check(archive, output, saved_matrix_spec=spec_path)
     if public_evidence:
-        answer_path = json.loads((output / 'results.jsonl').read_text())['artifact_path']
+        answer_path = json.loads((output / 'results.jsonl').read_text(encoding='utf-8'))['artifact_path']
         assert b'synthetic-secret' not in (output / answer_path).read_bytes()
     else:
         target = publication_fixture(tmp_path / 'release')
