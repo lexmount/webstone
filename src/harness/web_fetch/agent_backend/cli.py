@@ -38,6 +38,8 @@ def _plan_args(parser):
     parser.add_argument("--retries", type=int, choices=(0, 1), default=0,
                         help="declared retries after a protocol violation or a failed fetch call (default 0); "
                              "the last attempt is the only result")
+    parser.add_argument("--parallel-tasks", type=int, default=1,
+                        help="tasks in flight at once; the arms of each task always run together (default 1)")
     parser.add_argument("--serial-arms", action="store_true", help="run the arms of a task one after another instead of at the same time")
 
 
@@ -79,7 +81,8 @@ def cmd_run(args) -> int:
           f"{len(document['ineligible_for_all_arms'])} tasks not configurable for every arm")
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=args.model, timeout=args.timeout,
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
-                       retries=args.retries, concurrent_arms=not args.serial_arms)
+                       retries=args.retries, concurrent_arms=not args.serial_arms,
+                       parallel_tasks=args.parallel_tasks)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
@@ -97,7 +100,8 @@ def cmd_resume(args) -> int:
                        timeout=int(document["args"]["timeout"]),
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
                        retries=int(document["args"]["retries"]),
-                       concurrent_arms=document["args"]["serial_arms"] != "True")
+                       concurrent_arms=document["args"]["serial_arms"] != "True",
+                       parallel_tasks=int(document["args"].get("parallel_tasks", 1)))
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
@@ -133,8 +137,7 @@ def cmd_check(args) -> int:
         if meta.get("kind") == "executable":
             control = scoring.controls(cases, body)
             add("scorer controls", "PASS" if control["empty_fails"] == control["cases"] else "FAIL",
-                f"empty fails {control['empty_fails']}/{control['cases']}; reference passes "
-                f"{control['reference_passes']}/{control['reference_available']}")
+                f"empty fails {control['empty_fails']}/{control['cases']}")
         else:
             add("scorer controls", "SKIP", "public definitions only; scoring needs the approved executable dataset")
     except Exception as error:  # report any loader failure as a failed check, not a traceback

@@ -191,14 +191,14 @@ def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
     env = {"LEXMOUNT_API_KEY": "k", "LEXMOUNT_PROJECT_ID": "p", "LEXMOUNT_BASE_URL": f"http://127.0.0.1:{server.server_port}"}
     options = {"engine_preference": "lightmount_domstable", "timeout_ms": 30000}
     replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options})
-    assert (tmp_path / "out" / rows[0]["file"]).read_text() == "# T\n\nstub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
+    assert (tmp_path / "out" / rows[0]["file"]).read_text() == "stub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
     assert rows[0]["sha256"] and rows[1]["sha256"] is None
     server.shutdown()
     assert _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # harness-chosen options reach the API
     assert replies[2]["tools"][0]["name"] == "web_fetch"
-    assert replies[3]["content"][0]["text"] == "# T\n\nstub markdown" and replies[3]["isError"] is False
+    assert replies[3]["content"][0]["text"] == "stub markdown" and replies[3]["isError"] is False
     assert replies[4]["isError"] is True and "status 502" in replies[4]["content"][0]["text"]
-    assert [r["status"] for r in rows] == [200, 502] and rows[0]["chars"] == len("# T\n\nstub markdown")
+    assert [r["status"] for r in rows] == [200, 502] and rows[0]["chars"] == len("stub markdown")
 
 
 def test_moli_backend_runs_the_local_binary_with_the_harness_chosen_arguments_only(tmp_path):
@@ -284,7 +284,7 @@ def _save(root, record, attempt=1):
 
 def test_one_chance_per_run_invalid_runs_exclude_the_task_from_every_arm_and_are_never_averaged(tmp_path, monkeypatch):
     case_map = {c: {"id": c, "task_kind": "body", "ground_truth_main_content": "ref"} for c in ("a", "b", "c", "bad")}
-    monkeypatch.setattr(scoring, "score_attempt", lambda case, data, ok: {"id": case["id"], "text": data.decode(), "forbidden_requirement_pass": case["id"] != "bad"})
+    monkeypatch.setattr(scoring, "score_attempt", lambda case, data, ok, metadata=None: {"id": case["id"], "text": data.decode(), "forbidden_requirement_pass": case["id"] != "bad"})
     monkeypatch.setattr(scoring, "task_passed", lambda ok, m, kind: m["text"] == "good" or (m["text"] == "ref" and m["id"] != "bad"))
     (tmp_path / "plan.json").write_text(json.dumps({"args": {}, "versions": {"claude_code": "v"}, "dataset": {"id": "d", "sha256": "0" * 64},
                                                     "cases": list(case_map), "runs": []}))
@@ -300,20 +300,20 @@ def test_one_chance_per_run_invalid_runs_exclude_the_task_from_every_arm_and_are
     c_dir.rename(tmp_path / "runs" / "c__lexmount__r1__a2")
     _save(tmp_path, _record("c", "lexmount", route="l", subagent_tokens=5000, fetch_failed=True, final_text=""), attempt=1)
     summary = scoring.score_run(tmp_path, case_map, price_per_1000_usd=0.75)
-    assert summary["controls"]["unsatisfiable"] == ["bad"] and summary["controls"]["control_not_applicable"] == []
-    assert summary["included_pairs"] == 2  # a and c; b is dropped for every arm, bad is unsatisfiable
+    assert summary["controls"] == {"cases": 4, "empty_fails": 4}
+    assert summary["included_pairs"] == 3  # a, c and bad; b is dropped for every arm
     assert summary["excluded_pairs"] == [{"case_id": "b", "rep": 1, "reasons": {"lexmount": ["no_subagent_usage_report"]}}]
     lex, built, moli = summary["arms"]["lexmount"], summary["arms"]["builtin"], summary["arms"]["moli"]
-    assert (lex["runs"], lex["invalid_runs"], lex["compared_runs"]) == (4, 1, 2) and built["compared_runs"] == moli["compared_runs"] == 2
-    assert lex["subagent_tokens"]["n"] == 2 and lex["subagent_tokens"]["mean"] == 300  # neither the invalid run nor the retried attempt is averaged in
+    assert (lex["runs"], lex["invalid_runs"], lex["compared_runs"]) == (4, 1, 3) and built["compared_runs"] == moli["compared_runs"] == 3
+    assert lex["subagent_tokens"]["n"] == 3 and lex["subagent_tokens"]["mean"] == 300  # neither the invalid run nor the retried attempt is averaged in
     assert lex["retried_runs"] == 1 and lex["retry_reasons"] == {"fetch_failed": 1}
     assert lex["retry_cost"] == {"attempts": 1, "fetch_calls": 1, "fetch_api_cost_usd": pytest.approx(0.00075),
                                  "subagent_tokens": 5000, "haiku_model_cost_usd": 0.001}
     assert built["subagent_tokens"]["mean"] == 1000 and moli["subagent_tokens"]["mean"] == 200
     assert lex["fetch_calls"] == 4 and lex["fetch_api_cost_usd"] == pytest.approx(4 * 0.00075)  # final attempts; the retry is accounted separately
     assert moli["fetch_api_cost_usd"] == 0.0 and built["fetch_api_cost_usd"] == 0.0
-    assert (built["passed"], moli["passed"], lex["passed"]) == (1, 2, 2)
-    assert summary["paired"]["builtin|moli"] == {"pairs": 2, "only_builtin": 0, "only_moli": 1, "both_pass": 1, "both_fail": 0}
+    assert (built["passed"], moli["passed"], lex["passed"]) == (1, 3, 3)
+    assert summary["paired"]["builtin|moli"] == {"pairs": 3, "only_builtin": 0, "only_moli": 2, "both_pass": 1, "both_fail": 0}
 
 
 def _fake_runner(monkeypatch, outcomes, log):
@@ -406,3 +406,11 @@ def test_per_suite_sampling_takes_the_same_number_from_every_suite_and_respects_
     picked = experiment.select_cases(pool, per_suite=5, seed=3, ineligible={"a--t0": "x"})
     assert len(picked) == 15 and all(sum(p.startswith(s + "--") for p in picked) == 5 for s in ("a", "b", "c"))
     assert "a--t0" not in picked and picked == experiment.select_cases(pool, per_suite=5, seed=3, ineligible={"a--t0": "x"})
+
+
+def test_builtin_markdown_drops_tool_rules_and_tolerates_missing_closing_tag():
+    from harness.web_fetch.agent_backend.arms import builtin_markdown
+    rules = "These reporting rules come from the tool:\n - quote limit\n"
+    assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\ntext")[0] == "PAGE\ntext"
+    assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\n</fetched-web-content>\nnote")[0] == "PAGE\n"
+    assert builtin_markdown("plain")[0] == "plain"

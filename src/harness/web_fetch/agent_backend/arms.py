@@ -29,16 +29,21 @@ DEBUG_END = re.compile(r"tool_dispatch_end tool=(\S+) toolUseId=\S+ outcome=(\S+
 AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+duration_ms: (\d+)</usage>")
 # Identical for every arm: Claude Code must not turn the delegated subagent into a background task, which
 # would withhold its usage report (observed 2 of 4 default runs with an MCP fetch tool, 0 of 4 with this set).
-FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+# Background tasks off: a background subagent gives no usage report. MCP output limit raised: Claude Code replaces an MCP
+# result above the limit (default 25,000 tokens) with a pointer to a saved file, and the main agent then launches a second
+# subagent to read it, which breaks the one-subagent protocol for exactly the long pages.
+FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "MAX_MCP_OUTPUT_TOKENS": "150000"}
 NETWORK_COMMAND = re.compile(r"\b(curl|wget|httpx|urllib|requests\.get|http\.client|lynx|w3m)\b")
 
 ARMS = {
     "builtin": {"backend": "builtin", "main_tools": "Agent,WebFetch",
-                "allowed": ["WebFetch"], "disallowed": [], "mcp_scope": None},
+                "allowed": ["WebFetch"], "disallowed": [], "mcp_scope": None, "provider_type": None},
     "lexmount": {"backend": "lexmount", "main_tools": "Agent",
-                 "allowed": ["mcp__lexmount__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent"},
+                 "allowed": ["mcp__lexmount__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent",
+                 "provider_type": "lexmount"},
     "moli": {"backend": "moli", "main_tools": "Agent",
-             "allowed": ["mcp__moli__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent"},
+             "allowed": ["mcp__moli__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent",
+             "provider_type": "moli_webfetch"},
 }
 
 
@@ -141,7 +146,7 @@ def fetch_dispatch(debug_text: str):
 
 
 SUMMARY_MARKER = re.compile(r"\n*\[The verbatim page text stops here, (\d+) of (\d+) characters in;")
-WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
+WRAPPER = re.compile(r"^.*?<fetched-web-content>\n?(.*?)(?:</fetched-web-content>.*)?$", re.S)  # the tool's rules precede the tag; the closing tag may be absent
 
 
 def builtin_markdown(raw: str) -> tuple[str, int, int | None]:

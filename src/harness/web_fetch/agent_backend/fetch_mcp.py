@@ -26,6 +26,9 @@ TOOL = {
     "description": "Fetch a public web page by URL and return its main text content as Markdown.",
     "inputSchema": {"type": "object", "properties": {"url": {"type": "string", "description": "The URL to fetch"}},
                     "required": ["url"]},
+    # Claude Code saves a tool result above its size limit to a file and the main agent then launches a second subagent
+    # to read it. The tool declares the largest limit so every backend's full output reaches the subagent inline.
+    "_meta": {"anthropic/maxResultSizeChars": 500000},
 }
 
 
@@ -51,8 +54,6 @@ def lexmount(url, timeout, params):
         payload = {"error": {"message": str(error)}}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
     text = result.get("main_text") if isinstance(result.get("main_text"), str) else ""
-    if text and result.get("title"):
-        text = f"# {result['title']}\n\n{text}"
     message = (payload.get("error") or {}).get("message") or "no content returned"
     return text, status, payload.get("request_id"), message
 

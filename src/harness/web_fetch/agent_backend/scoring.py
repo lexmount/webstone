@@ -11,18 +11,32 @@ from collections import Counter
 from lexbench_webfetch.metrics import task_passed
 from lexbench_webfetch.scoring import score_attempt
 
-from harness.web_fetch.agent_backend.arms import fetch_dispatch
+from harness.web_fetch.agent_backend.arms import ARMS, fetch_dispatch
+from harness.web_fetch.native_projection import native_answer_projection
 
 WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
 PAIRS = (("builtin", "lexmount"), ("builtin", "moli"))
 ATTEMPT = re.compile(r"^(?P<base>.+)__a(?P<n>\d+)$")
 
 
-def verdict(case: dict, text: str, ok: bool, unscorable: set) -> bool:
+def declared_format(arm: str, case: dict) -> str | None:
+    """The representation the benchmark's own provider declaration gives this arm's output, if any.
+
+    The benchmark declares Lexmount's ``main_text`` as plain text. Its moli declaration (bytes in, UTF-8 out) and the
+    built-in tool carry no representation, so the scorer's default applies. The value is read from the benchmark's
+    declaration, not chosen here.
+    """
+    if ARMS[arm].get("provider_type") != "lexmount":
+        return None
+    return native_answer_projection("lexmount", case, {"result": {"main_text": "x"}}, 200).get("answer_format")
+
+
+def verdict(case: dict, text: str, ok: bool, unscorable: set, answer_format: str | None = None) -> bool:
     if not ok or not text:
         return False
     try:
-        metrics = score_attempt(case, text.encode("utf-8"), ok=True)
+        metadata = {"answer_format": answer_format} if answer_format else {}
+        metrics = score_attempt(case, text.encode("utf-8"), ok=True, metadata=metadata)
         return bool(task_passed(True, metrics, case.get("task_kind", "body")))
     except ValueError as error:  # the scorer found no scorable body in this text
         unscorable.add((case["id"], str(error)))
@@ -30,31 +44,15 @@ def verdict(case: dict, text: str, ok: bool, unscorable: set) -> bool:
 
 
 def controls(cases: dict, case_ids: list[str]) -> dict:
-    """Empty text must fail every task; a task's own reference text should pass it.
+    """Empty text must fail every selected task.
 
-    A reference that fails is reported as ``reference_fails``. It is excluded from pass rates only when the
-    cause is an unsatisfiable rule (``unsatisfiable``: a forbidden marker inside the reference). Other failures
-    are ``control_not_applicable``: the reference is stored as plain text with code split across lines, which the
-    scorer's visible-text projection reads as markup, so the reference is not a valid response form. Real
-    responses to those tasks are scored normally.
+    A task's own reference text is not a valid response: roughly half of the tasks have none, and the acceptance
+    rules (stable anchors, comment counts, page structure) are defined on the whole page, which the reference does
+    not contain. It is therefore not used as a control.
     """
     unscorable: set = set()
-    result = {"cases": len(case_ids), "empty_fails": 0, "reference_available": 0, "reference_passes": 0,
-              "reference_fails": [], "unsatisfiable": []}
-    for cid in case_ids:
-        case = cases[cid]
-        result["empty_fails"] += not verdict(case, "", True, unscorable)
-        reference = case.get("ground_truth_main_content") or ""
-        if reference:
-            result["reference_available"] += 1
-            if verdict(case, reference, True, unscorable):
-                result["reference_passes"] += 1
-            else:
-                result["reference_fails"].append(cid)
-                if score_attempt(case, reference.encode("utf-8"), ok=True).get("forbidden_requirement_pass") is False:
-                    result["unsatisfiable"].append(cid)
-    result["control_not_applicable"] = [c for c in result["reference_fails"] if c not in result["unsatisfiable"]]
-    return result
+    empty_fails = sum(not verdict(cases[cid], "", True, unscorable) for cid in case_ids)
+    return {"cases": len(case_ids), "empty_fails": empty_fails}
 
 
 def _percentile(values, q):
@@ -85,7 +83,6 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
     plan = json.loads((root / "plan.json").read_text())
     unscorable: set = set()
     control = controls(cases, plan["cases"])
-    unsatisfiable = set(control["unsatisfiable"])
     groups: dict[str, list] = {}
     for directory in sorted((root / "runs").glob("*")):
         match = ATTEMPT.match(directory.name)
@@ -103,7 +100,8 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         record["retry_reasons"] = [x for p in previous for x in (p["invalid_reasons"] or ["fetch_failed"])]
         # The benchmark defines one verdict per task: does the content the fetch tool returned pass the acceptance
         # rules. The agent's final answer is rewritten text and has no annotation, so it is stored but never scored.
-        record["passed"] = record["valid"] and verdict(case, markdown, bool(markdown), unscorable)
+        record["passed"] = record["valid"] and verdict(case, markdown, bool(markdown), unscorable,
+                                                           declared_format(record["arm"], case))
         rows.append(record)
         earlier.extend(previous)
     # A task/repetition enters the comparison only if every arm's final run is valid and the task is satisfiable,
@@ -113,9 +111,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         by_key.setdefault((r["case_id"], r["rep"]), {})[r["arm"]] = r
     arm_names = sorted({r["arm"] for r in rows})
     included = {k for k, v in by_key.items()
-                if set(v) == set(arm_names) and all(x["valid"] for x in v.values()) and k[0] not in unsatisfiable}
+                if set(v) == set(arm_names) and all(x["valid"] for x in v.values())}
     excluded_pairs = [{"case_id": k[0], "rep": k[1], "reasons": {a: x["invalid_reasons"] for a, x in v.items() if x["invalid_reasons"]}}
-                      for k, v in sorted(by_key.items()) if k not in included and k[0] not in unsatisfiable]
+                      for k, v in sorted(by_key.items()) if k not in included]
     unit = price_per_1000_usd / 1000
     tokens = lambda r: sum((r.get(k) or 0) for k in
                            ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens"))
@@ -154,6 +152,16 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
                            "subagent_tokens": sum(r["subagent_tokens"] or 0 for r in before),
                            "haiku_model_cost_usd": sum(r.get("haiku_model_cost_usd") or 0 for r in before)},
         }
+    summary["by_suite"] = {}
+    for arm in arm_names:  # compared tasks and passes per task category, the first part of the task id
+        table: dict = {}
+        for r in rows:
+            if r["arm"] == arm and (r["case_id"], r["rep"]) in included:
+                cell = table.setdefault(r["case_id"].split("--")[0], {"compared": 0, "passed": 0, "fetch_failed": 0})
+                cell["compared"] += 1
+                cell["passed"] += bool(r["passed"])
+                cell["fetch_failed"] += bool(r["fetch_failed"])
+        summary["by_suite"][arm] = table
     summary["paired"] = {}
     for x, y in PAIRS:
         both = [by_key[k] for k in sorted(included) if x in by_key[k] and y in by_key[k]]
@@ -174,11 +182,7 @@ def render_markdown(summary: dict) -> str:
     lines = ["# Agent fetch backend experiment", "",
              f"Dataset `{summary['plan']['dataset']['id']}` sha256 `{summary['plan']['dataset']['sha256'][:12]}`; "
              f"Claude Code `{summary['plan']['versions']['claude_code']}`.", "",
-             f"Controls: empty text fails {c['empty_fails']}/{c['cases']}; reference text passes "
-             f"{c['reference_passes']}/{c['reference_available']}"
-             + (f"; excluded from pass rates as unsatisfiable: {', '.join(c['unsatisfiable'])}" if c["unsatisfiable"] else "")
-             + (f"; control not applicable (plain-text reference): {', '.join(c['control_not_applicable'])}" if c["control_not_applicable"] else "")
-             + ".", "",
+             f"Control: empty text fails {c['empty_fails']}/{c['cases']}.", "",
              f"Compared {summary['included_pairs']} task runs per arm; excluded because any arm's run broke the protocol: "
              + (", ".join(f"{p['case_id']} r{p['rep']} {p['reasons']}" for p in summary["excluded_pairs"]) or "none") + ".", "",
              "| Arm | Runs | Invalid | Compared | Pass | Subagent tokens mean | Subagent s P50 | Fetch tool s P50 | Fetch API USD | Subagent USD (upper bound) |",

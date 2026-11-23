@@ -20,8 +20,10 @@ from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.config import load_dataset, read_dataset_bytes
 
 DEFAULT_DATASET = pathlib.Path("evaluation/dataset.json")
-PROMPT = ("{task_prompt}\n\nURL: {url}\n\nReturn the content as Markdown. Do not summarize. "
-          "Make a single fetch attempt; if it fails or the page lacks the content, say so instead of trying other ways.")
+# One prompt for every task and arm. The score is computed from the raw page the fetch tool returned, so the prompt only
+# triggers a read; its report is bounded so the subagent's output size does not depend on how much the backend returned.
+PROMPT = ("Read {url} and tell me what the page is about: its title and a summary of its main content in at most "
+          "150 words. Make a single fetch attempt; if it fails, say so instead of trying other ways.")
 
 
 def default_root() -> pathlib.Path:
@@ -71,15 +73,6 @@ def load_materials(root: pathlib.Path | None = None):
         for case in json.loads(raw)["cases"]:
             cases[f"{suite}--{case['id']}"] = case
     return {"id": "primary-content-20261103", "kind": "executable"}, cases, digest.hexdigest()
-
-
-def prompt_for(case: dict) -> str:
-    """The task prompt of the full-content view when the task has paired views, else its own prompt.
-
-    Acquisition asks for the whole page text, so the same saved output can be scored under both views.
-    """
-    full = ((case.get("content_scopes") or {}).get("full") or {}).get("requirements") or {}
-    return full.get("task_prompt") or case.get("task_prompt", "")
 
 
 def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limit: int = 20, seed: int = 20261123,
@@ -180,7 +173,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
         "versions": {"claude_code": arm_module.claude_version(claude_bin), "python": platform.python_version(),
                      "webstone_commit": _git_head(), "moli": moli,
                      "dataset_commit": dataset_commit() if meta.get("kind") == "definitions" else None},
-        "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt_scope": "full",
+        "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt": PROMPT,
         "fixed_environment": arm_module.FIXED_ENV,
         "ineligible_for_all_arms": ineligible or {}, "cases": case_ids, "runs": plan,
     }
@@ -192,7 +185,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
 def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_attempts, progress, index, total):
     """One arm on one task: the attempt, and at most one declared retry. The last attempt is the only result."""
     base = f"{item['case_id']}__{item['arm']}__r{item['rep']}"
-    prompt = PROMPT.format(task_prompt=prompt_for(case), url=case["url"])
+    prompt = PROMPT.format(url=case["url"])
     for attempt in range(1, max_attempts + 1):
         directory = root / "runs" / f"{base}__a{attempt}"
         record_path = directory / "record.json"
@@ -212,7 +205,7 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
 
 def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, model: str, timeout: int,
             params_for=lambda backend, case: {}, retries: int = 0, concurrent_arms: bool = True,
-            progress=print) -> None:
+            parallel_tasks: int = 1, progress=print) -> None:
     """Run the plan task by task, resumably.
 
     The arms of one task run at the same time, each in its own process, working directory and MCP server, so
@@ -230,8 +223,8 @@ def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, mod
         with lock:
             progress(message)
 
-    for index, items in enumerate(groups.values(), 1):
-        def work(item, index=index):
+    def run_task(index, items):
+        def work(item):
             _run_arm(root, item, cases[item["case_id"]], claude_bin=claude_bin, model=model, timeout=timeout,
                      params_for=params_for, max_attempts=retries + 1, progress=say, index=index, total=len(groups))
         if concurrent_arms and len(items) > 1:
@@ -240,3 +233,7 @@ def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, mod
         else:
             for item in items:
                 work(item)
+
+    # ``parallel_tasks`` tasks are in flight at once; every arm of a task still shares the same time window.
+    with ThreadPoolExecutor(max_workers=max(1, parallel_tasks)) as tasks:
+        list(tasks.map(lambda pair: run_task(*pair), enumerate(groups.values(), 1)))
