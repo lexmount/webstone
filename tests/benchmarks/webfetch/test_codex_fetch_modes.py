@@ -346,3 +346,209 @@ def test_parser_programming_error_is_not_counted_as_provider_evidence_failure(mo
     monkeypatch.setattr(codex, "parse_returns", bug)
     with pytest.raises(AttributeError, match="synthetic programming error"):
         provider.fetch(EvalCase("one", "One", URL, "static", []), 1)
+
+
+def lexmount_fixture(tmp_path, *, repeat=False):
+    from harness.web_fetch.providers import codex_lexmount
+
+    case = EvalCase("one", "One", URL, "static", [])
+    payload = {"result": {"main_text": "first reply", "links": [{"href": URL}]}}
+    raw = json.dumps(payload).encode()
+    (tmp_path / "receipt.json").write_text('{"status": 200}')
+    (tmp_path / "response.bin").write_bytes(raw)
+    item = {
+        "type": "mcp_tool_call",
+        "server": "lexmount",
+        "tool": "lexmount_fetch",
+        "status": "completed",
+        "arguments": {"url": URL},
+    }
+    events = [{"type": "item.completed", "item": item}]
+    call = {
+        "type": "custom_tool_call",
+        "name": "exec",
+        "call_id": "first",
+        "input": codex_lexmount.call_source(URL),
+    }
+    wrapped = json.dumps(
+        {"content": [{"type": "text", "text": raw.decode()}]},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    output = {"type": "custom_tool_call_output", "call_id": "first", "output": [{"text": wrapped}]}
+    items = [call, output]
+    if repeat:
+        events.append(
+            {
+                "type": "item.completed",
+                "item": {
+                    **item,
+                    "status": "failed",
+                    "result": {"content": [{"type": "text", "text": codex_lexmount.REPEAT_ERROR}]},
+                },
+            }
+        )
+        items.extend([{**call, "call_id": "second"}, {**output, "call_id": "second"}])
+    return case, events, items
+
+
+def test_lexmount_uses_first_return_even_after_blocked_repeat(tmp_path):
+    from harness.web_fetch.providers import codex_lexmount
+
+    case, events, items = lexmount_fixture(tmp_path, repeat=True)
+    result = codex_lexmount.parse_returns(case, events, items, tmp_path)
+    assert result.ok and result.content == "first reply"
+    assert result.metadata["links"] == [{"href": URL}]
+    assert result.metadata["blocked_later_attempts"] == 1
+    items[1]["output"][0]["text"] = items[1]["output"][0]["text"].replace("first reply", "forged")
+    assert not codex_lexmount.parse_returns(case, events, items, tmp_path).ok
+
+
+def test_lexmount_only_scores_observed_fields_after_truncation(tmp_path):
+    from pathlib import Path
+
+    from harness.web_fetch.providers import codex_lexmount
+    from harness.web_fetch.runner import persist_result_artifacts
+
+    case, events, items = lexmount_fixture(tmp_path)
+    block = items[1]["output"][0]
+    blob = block["text"]
+    block["text"] = blob[: blob.index(" reply")] + "…5 tokens truncated…"
+    result = codex_lexmount.parse_returns(case, events, items, tmp_path)
+    assert result.ok and result.content == "first"
+    assert result.metadata["tool_output_truncated"]
+    assert "links" not in result.metadata
+    artifact = persist_result_artifacts(
+        tmp_path, Path("artifacts/first.txt"), result, request_url=URL
+    )
+    assert artifact.read_text() == "first"
+    witness = tmp_path / result.metadata["raw_response_path"]
+    assert json.loads(witness.read_bytes()) == {"result": {"main_text": "first"}}
+
+
+def test_lexmount_scores_both_retained_sides_of_middle_truncation(tmp_path):
+    from harness.web_fetch.providers import codex_lexmount
+
+    case, events, items = lexmount_fixture(tmp_path)
+    block = items[1]["output"][0]
+    block["text"] = block["text"].replace("st re", "…5 tokens truncated…")
+    result = codex_lexmount.parse_returns(case, events, items, tmp_path)
+    assert result.ok and result.content == "fir\nply"
+    assert result.metadata["tool_output_truncated"]
+    assert result.metadata["links"] == [{"href": URL}]
+
+
+def test_lexmount_first_call_requires_budget(tmp_path):
+    from harness.web_fetch.providers import codex_lexmount
+
+    case, events, items = lexmount_fixture(tmp_path)
+    items[0]["input"] = items[0]["input"].split("\n", 1)[1]
+    assert (
+        codex_lexmount.parse_returns(case, events, items, tmp_path).error_type
+        == "codex_lexmount_budget"
+    )
+
+
+def test_lexmount_bridge_sends_one_auto_request(monkeypatch, tmp_path):
+    import io
+    import time
+
+    from harness.web_fetch.providers import codex_lexmount
+    from harness.web_fetch.providers.http_client import HttpResponse
+
+    (tmp_path / "case.json").write_text(
+        json.dumps({"url": URL, "deadline": time.monotonic() + 300})
+    )
+    calls = []
+    monkeypatch.setattr(
+        codex_lexmount,
+        "repository_env",
+        lambda: {
+            "LEXMOUNT_API_KEY": "fixture-key",
+            "LEXMOUNT_PROJECT_ID": "fixture-project",
+        },
+    )
+
+    def request(url, **kwargs):
+        calls.append((url, kwargs))
+        return HttpResponse(200, url, {}, b'{"result":{"main_text":"first"}}')
+
+    monkeypatch.setattr(codex_lexmount, "request", request)
+    requests = [
+        {
+            "id": i,
+            "method": "tools/call",
+            "params": {
+                "name": "lexmount_fetch",
+                "arguments": {"url": url},
+            },
+        }
+        for i, url in enumerate(("https://wrong.invalid", URL, URL))
+    ]
+    monkeypatch.setattr(
+        codex_lexmount.sys, "stdin", io.StringIO("\n".join(map(json.dumps, requests)))
+    )
+    out = io.StringIO()
+    monkeypatch.setattr(codex_lexmount.sys, "stdout", out)
+    codex_lexmount.serve(tmp_path)
+    replies = [json.loads(line)["result"] for line in out.getvalue().splitlines()]
+    assert [reply.get("isError", False) for reply in replies] == [True, False, True]
+    assert replies[-1]["content"][0]["text"] == codex_lexmount.REPEAT_ERROR
+    assert len(calls) == 1
+    url, args = calls[0]
+    assert url == codex_lexmount.ENDPOINT
+    assert args["method"] == "POST" and not args["allow_redirects"]
+    assert args["json_body"] == {"extract": {"url": URL, "options": {"engine_preference": "auto"}}}
+    assert args["max_bytes"] is None and 290 < args["timeout"] <= 300
+
+
+def test_lexmount_provider_public_entry_resumes_same_thread(monkeypatch):
+    provider = codex.CodexProvider(
+        "codex-lexmount-auto", {"mode": "lexmount-auto", "expected_version": "1.2.3"}
+    )
+
+    def turns():
+        for total in (100, 250):
+            case, events, items = lexmount_fixture(provider._tool_directory)
+            stdout = jsonl(
+                [
+                    {"type": "thread.started", "thread_id": THREAD},
+                    *events,
+                    {"type": "turn.completed", "usage": {"input_tokens": total}},
+                ]
+            )
+            session = jsonl([{"type": "response_item", "payload": item} for item in items])
+            yield stdout, session, False
+
+    commands = install_process(monkeypatch, provider, turns())
+    monkeypatch.setattr(
+        codex,
+        "repository_env",
+        lambda: {
+            "CODEX_API_KEY": "fixture-key",
+            "LEXMOUNT_API_KEY": "fixture-lexmount-key",
+            "LEXMOUNT_PROJECT_ID": "fixture-project",
+        },
+    )
+    case = EvalCase("one", "One", URL, "static", [])
+    first, second = [fetch_with_deadline(provider, case, 300)[0] for _ in range(2)]
+    assert first.ok and second.ok and second.metadata["usage_delta"] == {"input_tokens": 150}
+    assert commands[0][1:3] == ["exec", "--json"]
+    assert commands[1][1:4] == ["exec", "resume", THREAD]
+    for command in commands:
+        assert 'web_search="disabled"' in command
+        assert "tool_output_token_limit=200000" in command
+        assert "mcp_servers.lexmount.tool_timeout_sec=300" in command
+        assert "fixture-lexmount-key" not in " ".join(command)
+
+
+def test_lexmount_mode_has_report_contract():
+    name = "codex-lexmount-auto"
+    row = {"provider": name, "provider_type": "codex_cli"}
+    for language in ("en", "zh"):
+        assert (
+            "Lexmount Extract Auto"
+            in method_page_model(name, name, [row], language=language)["contract"]
+        )
+        request = method_spec(name, row, language=language)["request"]["extract"]
+        assert request["options"] == {"engine_preference": "auto"}

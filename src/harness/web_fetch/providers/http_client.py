@@ -64,7 +64,7 @@ def request(
     json_body: Any = None,
     body: bytes | None = None,
     timeout: float = 30,
-    max_bytes: int = 10_000_000,
+    max_bytes: int | None = 10_000_000,
     allow_redirects: bool = True,
 ) -> HttpResponse:
     validate_http_url(url)
@@ -92,8 +92,8 @@ def request(
              headers=dict(response.headers.items()),
              elapsed_ms=round((time.monotonic() - started) * 1000, 2))
         phase = "body"
-        body = response.read(max_bytes + 1)
-        if len(body) > max_bytes:
+        body = response.read() if max_bytes is None else response.read(max_bytes + 1)
+        if max_bytes is not None and len(body) > max_bytes:
             raise ValueError(f"response exceeded max_bytes={max_bytes}")
         emit(
             "http_response_received",

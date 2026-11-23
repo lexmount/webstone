@@ -509,6 +509,131 @@
     }
   },
   "methods": {
+    "codex-lexmount-auto": {
+      "extends": "codex_cli_method",
+      "contract": {
+        "en": "Codex calls Lexmount Extract Auto once per task. Verified tool output supplies the scored fields.",
+        "zh": "Codex 每题调用一次 Lexmount Extract Auto。评分使用实际交付且可核实的工具输出字段。"
+      },
+      "label": {
+        "en": "Codex CLI · Lexmount Extract Auto",
+        "zh": "Codex CLI · Lexmount Extract Auto"
+      },
+      "profile": {
+        "kind": "Local CLI",
+        "description": {
+          "en": "Codex calls Lexmount Extract Auto once per task and reuses one conversation per run.",
+          "zh": "Codex 每题调用一次 Lexmount Extract Auto，同一轮复用一个会话。"
+        }
+      },
+      "access": {
+        "env_vars": [
+          "CODEX_API_KEY",
+          "LEXMOUNT_API_KEY",
+          "LEXMOUNT_PROJECT_ID"
+        ],
+        "account": {
+          "en": "A Codex API project with Luna and a global Lexmount API project",
+          "zh": "具有 Luna 访问权限的 Codex API 项目和 Lexmount 全球 API 项目"
+        },
+        "configuration": {
+          "en": "Set the three credentials in the repository .env and install the pinned CLI.",
+          "zh": "在仓库 .env 中设置三项凭据，并安装指定版本的 CLI。"
+        }
+      },
+      "capabilities": {
+        "scope": {
+          "en": "Lexmount Extract Auto over a local MCP tool",
+          "zh": "通过本地 MCP 工具调用 Lexmount Extract Auto"
+        },
+        "input": {
+          "en": "One supplied URL.",
+          "zh": "输入一个指定网址。"
+        },
+        "structure": {
+          "en": "Text and structured fields returned to Codex.",
+          "zh": "交付给 Codex 的正文和结构化字段。"
+        },
+        "notes": {
+          "en": "The scorer uses verified tool output from the first request.",
+          "zh": "评分使用第一次请求中可核实的工具输出。"
+        },
+        "web": {
+          "status": {
+            "en": "Supported",
+            "zh": "支持"
+          },
+          "detail": {
+            "en": "Readable fields from Lexmount Extract Auto.",
+            "zh": "Lexmount Extract Auto 返回的可读字段。"
+          }
+        },
+        "document": {
+          "status": {
+            "en": "Limited",
+            "zh": "有限支持"
+          },
+          "detail": {
+            "en": "Uses document text when returned by Extract.",
+            "zh": "使用 Extract 返回的文档正文。"
+          }
+        },
+        "image": {
+          "status": {
+            "en": "Limited",
+            "zh": "有限支持"
+          },
+          "detail": {
+            "en": "Uses returned image links; the tool returns JSON.",
+            "zh": "使用 JSON 中实际返回的图像链接。"
+          }
+        },
+        "av": {
+          "status": {
+            "en": "Limited",
+            "zh": "有限支持"
+          },
+          "detail": {
+            "en": "Uses media links only when returned by Extract.",
+            "zh": "使用 Extract 实际返回的媒体链接。"
+          }
+        },
+        "file": {
+          "status": {
+            "en": "Unavailable",
+            "zh": "不支持"
+          },
+          "detail": {
+            "en": "The tool returns JSON and supplies no file attachment.",
+            "zh": "工具返回 JSON，未交付文件附件。"
+          }
+        }
+      },
+      "interface": {
+        "auth": {
+          "en": "Codex and Lexmount credentials in the repository .env",
+          "zh": "仓库 .env 中的 Codex 与 Lexmount 凭据"
+        },
+        "fields": [
+          [
+            "custom_tool_call_output",
+            "JSONL",
+            {
+              "en": "Verified Lexmount tool result from the first request.",
+              "zh": "第一次请求交回 Codex 的可核实结果。"
+            }
+          ]
+        ],
+        "request": {
+          "extract": {
+            "url": "https://example.com/",
+            "options": {
+              "engine_preference": "auto"
+            }
+          }
+        }
+      }
+    },
     "codex-single": {
       "extends": "codex_cli_method",
       "label": {

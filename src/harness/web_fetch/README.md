@@ -1866,3 +1866,32 @@ uv run --frozen webstone rescore "$out" --dataset "$dataset" \
   --content-scope full --score-scope full --no-report
 uv run --frozen webstone report "$out" --language zh
 ```
+
+### Run Codex with Lexmount Extract Auto
+
+Set `CODEX_API_KEY`, `LEXMOUNT_API_KEY` and `LEXMOUNT_PROJECT_ID` in the
+repository `.env`, and select the Codex CLI version pinned for
+`codex-lexmount-auto`. The Codex project needs access to Luna and the
+`functions.exec` tool, and the Lexmount project must be on the global API.
+
+```bash
+uv run --frozen webstone run --dataset /path/to/export/dataset.json \
+  --provider-config configs/providers.example.json --providers codex-lexmount-auto \
+  --runs 1 --timeout 300 --max-failure-retries 0 \
+  --content-scope full --score-scope full --no-report --output /path/to/new-run
+uv run --frozen webstone report /path/to/new-run --language zh
+```
+
+A new run starts one Codex conversation and resumes it in case order. Codex
+uses the local Lexmount tool with built-in web search disabled. The tool sends
+one `POST /v1/extract` with the assigned URL and `engine_preference: auto`.
+A later attempt on the same turn is blocked before a second HTTP request.
+The case deadline applies to the complete turn, including the tool request.
+The transport uses the remaining case budget and reads the response without
+a separate size cap. Both Codex tool-output limits are 200,000 tokens.
+
+The runner retains the private HTTP response and the Codex tool log. The
+shared scorer reads only verified fields from the first result returned to
+Codex, including available evidence in a truncated result. An omitted output
+budget is an execution error. The runner retains the error for audit and
+continues to the next case without retrying.

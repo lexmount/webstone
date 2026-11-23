@@ -415,7 +415,7 @@ def method_page_model(name: str, label: str, records: list[dict[str, Any]], *, l
             title = versioned_method_label(registered, label, version)
     model = {
         "title": title,
-        "contract": info["contract"],
+        "contract": registered.get("contract", info["contract"]),
         "endpoint": info["endpoint"],
         "freshness": info["freshness"],
         "configuration": report.get(
