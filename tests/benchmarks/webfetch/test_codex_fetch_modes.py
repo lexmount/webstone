@@ -111,6 +111,18 @@ def test_structured_title_uses_the_shared_scorer(result_url, control_id):
     assert task_passed(result.ok, metrics, "body") == control["expected_task_pass"]
 
 
+def test_native_title_keeps_the_title_from_an_escape_equivalent_page():
+    url = URL + "Python_(programming_language)"
+    events, _ = trace(url)
+    escaped = URL + "Python_%28programming_language%29"
+    events[0]["item"].update(
+        action={"type": "open_page", "url": escaped}, results=[page_result(escaped)]
+    )
+    assert codex.native_open_title(url, events) == "Observed title"
+    events[0]["item"]["results"] = [page_result(URL + "Python_%2Fprogramming_language")]
+    assert codex.native_open_title(url, events) is None
+
+
 def test_native_title_cannot_be_inferred_from_a_followup_or_conflicting_result():
     events, session = trace(URL, "view0")
     events[0]["item"].update(

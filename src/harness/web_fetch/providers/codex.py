@@ -171,7 +171,7 @@ def native_open_title(url, events):
     if (
         not isinstance(action, dict)
         or action.get("type") != "open_page"
-        or action.get("url") != url
+        or not _same_page(url, action.get("url"))
         or not isinstance(results, list)
     ):
         return None
@@ -180,7 +180,7 @@ def native_open_title(url, events):
         for result in results
         if isinstance(result, dict)
         and result.get("type") == "text_result"
-        and result.get("url") == url
+        and _same_page(url, result.get("url"))
         and isinstance(result.get("ref_id"), str)
         and result["ref_id"].strip()
         and isinstance(result.get("title"), str)
