@@ -861,8 +861,36 @@ def _require_native_answer_correction(source, original, corrected, proof, *, his
         raise ValueError('Native answer correction changed physical call facts')
 
 
+def _replay_open_page_title(source, original, request):
+    """Recover only the owned title from the frozen physical call."""
+    from harness.web_fetch.providers.codex import native_open_title
+
+    metadata = original.get('provider_metadata', {})
+    if (set(request) != {'attempt_id', 'stdout', 'projection'}
+            or request['attempt_id'] != original['attempt_id']
+            or original.get('provider_type') != 'codex_cli'
+            or not original['ok']
+            or request['stdout']['sha256'] != metadata.get('native_stdout_sha256')):
+        raise ValueError('Native title correction lacks a bound successful call')
+    stdout = read_evidence_binding(source, request['stdout']).read_bytes()
+    events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
+    threads = [event['thread_id'] for event in events if event.get('type') == 'thread.started']
+    if (len(threads) != 1 or hashlib.sha256(threads[0].encode()).hexdigest()
+            != metadata.get('native_thread_sha256')):
+        raise ValueError('Native title correction changed the conversation binding')
+    title = native_open_title(original['url'], events)
+    page_information = metadata.get('page_information', {})
+    if not title or page_information.get('title') is not None:
+        raise ValueError('Native title correction requires an unprojected owned title')
+    fields = {'provider_metadata': {**metadata,
+              'page_information': {**page_information, 'title': title}}}
+    return {**request, 'original_title': None, 'corrected_title': title}, fields
+
+
 def _native_context_proof(source, original, request):
     """Replay context from one bound physical call, preserving its answer bytes."""
+    if request.get('projection') == 'native_open_page_title':
+        return _replay_open_page_title(source, original, request)
     if (set(request) != {'attempt_id', 'stdout', 'diagnostic', 'call_log', 'projection'}
             or request['attempt_id'] != original['attempt_id']
             or original.get('provider_type') != 'moli_webfetch'):
@@ -907,8 +935,10 @@ def _native_context_proof(source, original, request):
 
 
 def _require_native_context_correction(source, original, corrected, proof):
-    request = {key: proof[key] for key in
-        ('attempt_id', 'stdout', 'diagnostic', 'call_log', 'projection')}
+    keys = ('attempt_id', 'stdout', 'projection')
+    if proof.get('projection') != 'native_open_page_title':
+        keys += ('diagnostic', 'call_log')
+    request = {key: proof[key] for key in keys}
     expected, fields = _native_context_proof(source, original, request)
     if proof != expected or any(corrected.get(key) != value for key, value in fields.items()):
         raise ValueError('Native context correction differs from replayed same-call context')

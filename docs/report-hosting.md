@@ -73,6 +73,12 @@ For an authorized formal release, use the selected track's package/publish comma
 
 The repository publisher reads `ARTIFACT_SITE_TOKEN`, then the selected host's token under `~/.config/artifact-site/tokens/<host>`. The previous `~/.config/artifact-hub/tokens/<host>` and then `ARTIFACT_HUB_TOKEN` follow as read-only migration fallbacks, so a stale host-agnostic variable cannot replace a host-scoped token; a token file not scoped to the selected host is never used. `scripts/authorize_artifact_site.py` has no default host, so pass the target's service URL with `--base-url`. Save authorizations per host without overwriting another deployment's token.
 
+For a standalone Web Fetch saved matrix built with `--saved-matrix`, supply its
+original specification with `--saved-matrix-spec` to `site-package`,
+`site-bundle-check`, and `site-publish`. The release checks verify the source
+records and the evidence packaged for readers. Use `site-verify --export
+--expected-archive` to compare the deployed files with the submitted archive.
+
 A Web Extract publication target can set `inline_limit_bytes` after verifying the
 host's advertised request limit, leaving room for multipart overhead. This lets a
 larger ZIP use one request rather than per-file staging. Without an explicit limit,

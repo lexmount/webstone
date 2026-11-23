@@ -708,3 +708,56 @@ def test_bad_predecessor_rejects_before_scoring_or_writes(tmp_path, monkeypatch)
     with pytest.raises(ValueError,match='binding changed'):
         revise_local_snapshot(tmp_path,configuration)
     assert before=={p.relative_to(tmp_path):p.read_bytes()for p in tmp_path.rglob('*')if p.is_file()}
+
+
+@pytest.mark.parametrize('defect', [None, 'foreign_title', 'wrong_thread', 'unbound_stdout'])
+def test_title_revision_requires_owned_title_and_preserves_answer(tmp_path, defect):
+    url = 'https://example.test/'
+    case = {'id': 'a', 'url': url, 'source_benchmark': {'title_contract': {
+        'version': 1, 'alternatives': ['Observed title'], 'html_selector': 'h1'}}}
+    answer = b'Retained article body'
+    (tmp_path/'body.txt').write_bytes(answer)
+    events = [
+        {'type': 'thread.started', 'thread_id': 'other' if defect == 'wrong_thread' else 'original'},
+        {'type': 'item.completed', 'item': {'type': 'web_search',
+            'action': {'type': 'open_page', 'url': url},
+            'results': [{'type': 'text_result', 'url': url if defect != 'foreign_title' else url+'other',
+                         'title': 'Observed title', 'ref_id': 'view'}]}},
+    ]
+    raw = b''.join(json.dumps(event).encode() + b'\n' for event in events)
+    (tmp_path/'stdout.jsonl').write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    metadata = {'answer_format': 'plain_text',
+                'native_stdout_sha256': '0'*64 if defect == 'unbound_stdout' else digest,
+                'native_thread_sha256': hashlib.sha256(b'original').hexdigest()}
+    row = {'attempt_id': 'p__a', 'provider': 'p', 'provider_type': 'codex_cli',
+           'case_id': 'a', 'url': url, 'ok': True, 'elapsed_ms': 15,
+           'artifact_path': 'body.txt', 'provider_metadata': metadata,
+           'metrics': score_attempt(case, answer, ok=True, metadata=metadata)}
+    assert not task_passed(True, row['metrics'])
+    (tmp_path/'dataset.json').write_text(json.dumps({'cases': [case], 'comparison': {}}), encoding='utf-8')
+    results = tmp_path/'results.jsonl'
+    before = json.dumps(row) + '\n'
+    results.write_text(before, encoding='utf-8')
+    configuration = tmp_path/'config.json'
+    configuration.write_text(json.dumps({
+        'cases': [],
+        'authority': {'description': 'Recover the title from the original open'},
+        'regression_ids': ['native-open-returned-page-title', 'native-open-unowned-page-title'],
+        'native_context_corrections': [{
+            'attempt_id': 'p__a', 'projection': 'native_open_page_title',
+            'stdout': {'path': 'stdout.jsonl', 'sha256': digest}}],
+    }), encoding='utf-8')
+    if defect:
+        with pytest.raises(ValueError, match='Native title correction'):
+            revise_local_snapshot(tmp_path, configuration)
+        assert results.read_text(encoding='utf-8') == before
+        return
+    receipt = revise_local_snapshot(tmp_path, configuration)
+    result = json.loads(results.read_bytes())
+    assert receipt['task_verdict_changes'] == [{'attempt_id': 'p__a', 'before': False, 'after': True}]
+    assert receipt['provider_calls_added'] == 0
+    assert result['provider_metadata'] == {**metadata, 'page_information': {'title': 'Observed title'}}
+    assert result['elapsed_ms'] == row['elapsed_ms']
+    assert result['metrics']['content_sha256'] == row['metrics']['content_sha256']
+    assert (tmp_path/'body.txt').read_bytes() == answer

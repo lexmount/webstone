@@ -38,7 +38,7 @@ webstone run --delay 0
 
 打开终端打印的报告路径。示例包含一个预期通过和一个预期失败，无需浏览器、Docker 或 API 密钥。
 
-接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。各 Track 指南列出了适配器、凭据和在线评测命令。
+接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。各 Track 指南列出了适配器、凭据和在线评测命令。 Codex CLI 的凭据、单次读取和同页续读命令见[Web Fetch 指南](../src/harness/web_fetch/README.md#reproduce-the-two-codex-cli-web-fetch-methods)。
 
 把评测 Skill 安装到 Codex。其他 Agent 可指定自己的 Skill 目录。
 

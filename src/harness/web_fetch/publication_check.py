@@ -55,8 +55,27 @@ def diagnostic_scored_views(source: Path) -> list[dict]:
     return records
 
 
-def check(archive, source, overlay=None, *, presentation_binding=None, external_archives=None, allow_pending_external=False, snapshot_audit=False):
-    validate_release(source, presentation_binding=presentation_binding, snapshot_audit=snapshot_audit)
+def _saved_matrix_public_view(source, row, binding):
+    """Resolve the per-attempt inventory already checked against the saved source."""
+    view = row.get('provider_metadata', {}).get('publication_views', {}).get('scored_answer')
+    if view is None:
+        return None
+    path = contained_path(source, binding['path'], reject_symlinks=True)
+    view_path = contained_path(source, view['path'], reject_symlinks=True)
+    evidence_root = view_path.parent.parent
+    return bound_public_view(evidence_root, {
+        'path': path.relative_to(evidence_root).as_posix(), 'sha256': binding['sha256'],
+    })
+
+
+def check(
+    archive, source, overlay=None, *, presentation_binding=None, external_archives=None,
+    allow_pending_external=False, snapshot_audit=False, saved_matrix_spec=None,
+):
+    validate_release(
+        source, presentation_binding=presentation_binding, snapshot_audit=snapshot_audit,
+        saved_matrix_spec=saved_matrix_spec,
+    )
     source_files = evidence_tree_identity(source)
     physical = archive_inventory(archive)
     if overlay:
@@ -290,6 +309,8 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             if hashlib.sha256(original).hexdigest() != expected_hash:
                 binding={'path':row['artifact_path'],'sha256':expected_hash}
                 public = bound_public_view(source,binding)
+                if public is None and saved_matrix_spec is not None:
+                    public = _saved_matrix_public_view(source, row, binding)
                 if public is None and snapshot_audit:
                     from harness.web_fetch.published_snapshot import read_snapshot_public_file
                     retained=read_snapshot_public_file(source,binding)
@@ -374,6 +395,8 @@ def main(*, root: Path | None = None):
     parser.add_argument("source", nargs="?", type=Path, default=root / "reports/webfetch")
     parser.add_argument("overlay", nargs="?", type=Path)
     parser.add_argument("--presentation-binding", type=Path)
+    parser.add_argument("--saved-matrix-spec", type=Path)
     parser.add_argument("--snapshot-audit",action="store_true")
     args = parser.parse_args()
-    check(args.archive, args.source, args.overlay, presentation_binding=args.presentation_binding,snapshot_audit=args.snapshot_audit)
+    check(args.archive, args.source, args.overlay, presentation_binding=args.presentation_binding,
+          snapshot_audit=args.snapshot_audit, saved_matrix_spec=args.saved_matrix_spec)

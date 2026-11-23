@@ -3097,6 +3097,61 @@
       "expected_task_pass": false
     },
     {
+      "id": "native-open-returned-page-title",
+      "failure_mode": "false-negative",
+      "category": "structured-extraction",
+      "root_cause": "Projecting only numbered body lines dropped the structured title explicitly returned for the page opened.",
+      "case": {
+        "id": "native-open-page-title",
+        "name": "Example article",
+        "url": "https://example.com/",
+        "category": "article",
+        "task_kind": "body",
+        "expected_any": [],
+        "min_content_chars": 1,
+        "source_benchmark": {
+          "title_contract": {
+            "version": 1,
+            "alternatives": ["Observed title"],
+            "html_selector": "h1"
+          }
+        }
+      },
+      "artifact": "paragraph 0",
+      "metadata": {
+        "answer_format": "plain_text",
+        "page_information": {"title": "Observed title"}
+      },
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "native-open-unowned-page-title",
+      "failure_mode": "false-positive",
+      "category": "structured-extraction",
+      "root_cause": "A title of a separate page can look like the requested title but does not belong to the opened page.",
+      "case": {
+        "id": "native-open-page-title",
+        "name": "Example article",
+        "url": "https://example.com/",
+        "category": "article",
+        "task_kind": "body",
+        "expected_any": [],
+        "min_content_chars": 1,
+        "source_benchmark": {
+          "title_contract": {
+            "version": 1,
+            "alternatives": ["Observed title"],
+            "html_selector": "h1"
+          }
+        }
+      },
+      "artifact": "paragraph 0",
+      "metadata": {"answer_format": "plain_text"},
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
       "id": "composite-query-delimiters-wildcard-plain-distinct",
       "failure_mode": "false-negative",
       "category": "structured-extraction",

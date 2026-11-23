@@ -1824,3 +1824,75 @@ hash from the exact ordered source list in that revision's `scoring.py` and
 verify the projection source hash. A matching saved output alone is insufficient.
 The source-bound replay and rejection controls are in
 `tests/test_native_answer_projection.py`.
+
+### Reproduce the two Codex CLI Web Fetch methods
+
+Set `CODEX_API_KEY` in the repository `.env` using an API project with Luna
+and live web access. The example config pins both methods to Codex CLI 0.169.1.
+Use the same pinned executable for both methods in a new comparison. Set
+`executable` in a copy of the config to select a binary outside PATH.
+Preflight records its reported version and checks that the selected file stays
+the same at launch.
+
+Each method starts a fresh conversation and reuses it for subsequent cases.
+Both use Luna, medium reasoning, live web, high context and long tool returns.
+Single mode permits one open of the supplied URL. Same-page mode permits
+continuations that use a native reference bound to that URL and a line number.
+A structured title from the initial open goes to the shared title check. The
+numbered text is scored as the body.
+
+The historical signed-in pilot used CLI 0.171.0-alpha.13 for single open and 0.169.1
+for same-page continuation. The report retains those recorded conditions.
+
+Export `content-scopes-530` with its reference assets. Select each method
+separately and use a fresh output directory on each invocation.
+
+```bash
+method=codex-single  # or codex-same-page
+dataset=/path/to/export/dataset.json
+out="${HOME}/webstone-${method}"
+
+uv run --frozen webstone run --dataset "$dataset" \
+  --provider-config configs/providers.example.json --providers "$method" \
+  --runs 1 --timeout 300 --max-failure-retries 0 \
+  --content-scope full --score-scope full --no-report --output "$out"
+uv run --frozen webstone report "$out" --language zh
+```
+
+To score the saved responses again and rebuild either report:
+
+```bash
+uv run --frozen webstone rescore "$out" --dataset "$dataset" \
+  --content-scope full --score-scope full --no-report
+uv run --frozen webstone report "$out" --language zh
+```
+
+### Run Codex with Lexmount Extract Auto
+
+Set `CODEX_API_KEY`, `LEXMOUNT_API_KEY` and `LEXMOUNT_PROJECT_ID` in the
+repository `.env`, and select the Codex CLI version pinned for
+`codex-lexmount-auto`. The Codex project needs access to Luna and the
+`functions.exec` tool, and the Lexmount project must be on the global API.
+
+```bash
+uv run --frozen webstone run --dataset /path/to/export/dataset.json \
+  --provider-config configs/providers.example.json --providers codex-lexmount-auto \
+  --runs 1 --timeout 300 --max-failure-retries 0 \
+  --content-scope full --score-scope full --no-report --output /path/to/new-run
+uv run --frozen webstone report /path/to/new-run --language zh
+```
+
+A new run starts one Codex conversation and resumes it in case order. Codex
+uses the local Lexmount tool with built-in web search disabled. The tool sends
+one `POST /v1/extract` with the assigned URL and `engine_preference: auto`.
+A later attempt on the same turn is blocked before a second HTTP request.
+The case deadline applies to the complete turn, including the tool request.
+The transport uses the remaining case budget and caps the HTTP response at
+20,000,000 bytes. An oversized response is recorded as a failed attempt without
+scoring or retaining its body. Both Codex tool-output limits are 200,000 tokens.
+
+The runner retains the private HTTP response and the Codex tool log. The
+shared scorer reads only verified fields from the first result returned to
+Codex, including available evidence in a truncated result. An omitted output
+budget is an execution error. The runner retains the error for audit and
+continues to the next case without retrying.

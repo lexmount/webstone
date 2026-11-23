@@ -28,7 +28,7 @@ They must never be added to `metadata`, content, manifest or logs.
 
 1. Implement `Provider` and add its type to `PROVIDER_TYPES` in `src/harness/web_fetch/providers/base.py`.
 2. Add an example configuration and tests using local fixtures.
-3. Assign its output contract in `methods.py`.
+3. Register its output contract in `src/harness/web_fetch/data/report-methods.json`. The shared `methods.py` module reads this catalog.
 
 Use the existing scorer and report renderer.
 

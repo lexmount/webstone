@@ -366,6 +366,12 @@ def _saved_revision(spec, sources, cases, selected, completed=()):
         proof['attempt_id'] for receipt in receipts
         for proof in receipt.get('native_answer_corrections', [])
     }
+    native_title_attempts = set()
+    for receipt in receipts:
+        for proof in receipt.get('native_context_corrections', []):
+            if proof.get('projection') == 'native_open_page_title':
+                revision_file(proof['stdout'])
+                native_title_attempts.add(proof['attempt_id'])
     original_dataset = _json(revision_file(before_dataset))
     original_records = [json.loads(line) for line in revision_file(before_results).read_bytes().splitlines() if line.strip()]
     originals = {r['attempt_id']: r for r in original_records}
@@ -376,6 +382,7 @@ def _saved_revision(spec, sources, cases, selected, completed=()):
     if set(original_cases) != expected_cases or set(revised_cases) != expected_cases:
         raise ValueError('Saved revision case population differs')
     case_updates, record_updates = {}, {}
+    native_title_updates = set()
     for suite, group in cases.items():
         for cid, case in group.items():
             route = suite+'--'+cid
@@ -463,12 +470,17 @@ def _saved_revision(spec, sources, cases, selected, completed=()):
                 for field in sorted(SCORE_ANSWER_FIELDS | {'answer_format'}):
                     if field in current_metadata:
                         metadata[field] = deepcopy(current_metadata[field])
+            if attempt in native_title_attempts:
+                record.setdefault('provider_metadata', {})['page_information'] = deepcopy(
+                    current['provider_metadata']['page_information'])
+                native_title_updates.add(key)
             record_updates[key] = record
     if set(originals) != expected_attempts or set(revised) != expected_attempts:
         raise ValueError('Saved revision result population differs')
     attachments = {safe_identifier(name): sources.binding(value)
                    for name, value in config.get('review_files', {}).items()}
     return {'cases': case_updates, 'records': record_updates,
+            'native_title_updates': native_title_updates,
             'attachments': attachments,
             'receipt': {'kind': 'saved_matrix_offline_revision', 'provider_calls_added': 0,
                         'receipt_sha256': _sha(receipt_path),
@@ -1808,8 +1820,13 @@ def _require_public_fixed_selection(inputs, candidates, adoptions):
         for key, after in revision['records'].items():
             before = inputs['selected'][key][1]
             ignored = {'metrics', 'scoring', 'diagnosis', 'failure_category'}
-            if ({k: v for k, v in before.items() if k not in ignored}
-                    != {k: v for k, v in after.items() if k not in ignored}
+            expected = {k: v for k, v in before.items() if k not in ignored}
+            if key in revision.get('native_title_updates', ()):
+                before_meta = before.get('provider_metadata', {})
+                title = after['provider_metadata']['page_information']['title']
+                expected['provider_metadata'] = {
+                    **before_meta, 'page_information': {**before_meta.get('page_information', {}), 'title': title}}
+            if (expected != {k: v for k, v in after.items() if k not in ignored}
                     or before['metrics']['content_sha256'] != after['metrics']['content_sha256']):
                 raise ValueError('Public score revision changes call inputs or answer bytes')
 

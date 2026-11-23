@@ -13,6 +13,21 @@
     "crawl4ai-cloud"
   ],
   "providers": {
+    "codex-single": {
+      "type": "codex_cli",
+      "mode": "single",
+      "expected_version": "0.169.1"
+    },
+    "codex-same-page": {
+      "type": "codex_cli",
+      "mode": "same-page",
+      "expected_version": "0.169.1"
+    },
+    "codex-lexmount-auto": {
+      "type": "codex_cli",
+      "mode": "lexmount-auto",
+      "expected_version": "0.171.0-alpha.13"
+    },
     "kimi-fetch": {
       "type": "kimi_fetch",
       "log_level": "debug",

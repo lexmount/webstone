@@ -54,7 +54,18 @@ def _require(condition, detail):
         raise ValueError(str(detail))
 
 
-def validate_release(source: Path, *, presentation_binding: Path | None = None, snapshot_audit=False) -> bool:
+def validate_release(
+    source: Path, *, presentation_binding: Path | None = None, snapshot_audit=False,
+    saved_matrix_spec: Path | None = None,
+) -> bool:
+    if saved_matrix_spec is not None:
+        if (presentation_binding is not None or snapshot_audit
+                or not (source / 'saved-matrix-audit.json').is_file()
+                or any((source / name).exists() for name in ('saved-extension.json', 'saved-composition.json'))):
+            raise ValueError('A saved matrix specification requires a standalone saved matrix')
+        from harness.web_fetch.report_saved_matrix import check_saved_matrix
+        check_saved_matrix(source, spec_path=saved_matrix_spec)
+        return False
     if (source / 'saved-extension.json').is_file():
         from harness.web_fetch.report_saved_composition import check_published_extension
         check_published_extension(source)
@@ -654,11 +665,16 @@ def _archive_identity(path: Path):
     return file_sha256(path)
 
 
-def build(source: Path, archive: Path, *, presentation_binding: Path | None = None, cached_content: Path | None = None, parts_directory: Path | None = None, refresh_privacy=False, snapshot_audit=False, reuse_published: Path | None = None, replace_site=None, retire_packs=()):
+def build(
+    source: Path, archive: Path, *, presentation_binding: Path | None = None,
+    cached_content: Path | None = None, parts_directory: Path | None = None,
+    refresh_privacy=False, snapshot_audit=False, reuse_published: Path | None = None,
+    replace_site=None, retire_packs=(), saved_matrix_spec: Path | None = None,
+):
     if (replace_site is not None or retire_packs) and reuse_published is None:
         raise ValueError('Replacing a site requires --reuse-published PINNED_PACKAGE_DIRECTORY')
     if reuse_published is not None:
-        if presentation_binding or cached_content or refresh_privacy or snapshot_audit:
+        if presentation_binding or cached_content or refresh_privacy or snapshot_audit or saved_matrix_spec:
             raise ValueError('Published extensions select their own immutable packaging boundary')
     elif (source/'saved-extension.json').exists():
         raise ValueError('Published extensions require --reuse-published PINNED_PACKAGE_DIRECTORY')
@@ -682,7 +698,8 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
     archive.parent.mkdir(parents=True, exist_ok=True)
     target = archive.resolve()
     previous = _archive_identity(target)
-    sampled = validate_release(source, presentation_binding=presentation_binding, snapshot_audit=snapshot_audit)
+    sampled = validate_release(source, presentation_binding=presentation_binding,
+                               snapshot_audit=snapshot_audit, saved_matrix_spec=saved_matrix_spec)
     with tempfile.TemporaryDirectory(prefix=".webfetch-package-", dir=archive.parent) as work:
         staging = Path(work)
         staged_archive = staging / "package.zip"
@@ -702,7 +719,8 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
             if parts_directory is None:
                 _write_archive(staging/'content', staged_archive)
                 from harness.web_fetch.publication_check import check
-                check(staged_archive, source, presentation_binding=presentation_binding, snapshot_audit=snapshot_audit)
+                check(staged_archive, source, presentation_binding=presentation_binding,
+                      snapshot_audit=snapshot_audit, saved_matrix_spec=saved_matrix_spec)
             if evidence_tree_identity(cached_content) != cached_identity:
                 raise ValueError('Cached public content changed during packaging')
         if parts_directory is not None:
@@ -716,8 +734,11 @@ def build(source: Path, archive: Path, *, presentation_binding: Path | None = No
             else:
                 from harness.web_fetch.publication_check import check
                 check(staged_archive,source,presentation_binding=presentation_binding,snapshot_audit=snapshot_audit,
-                      external_archives=attachments,allow_pending_external=True)
+                      external_archives=attachments,allow_pending_external=True,saved_matrix_spec=saved_matrix_spec)
             manifest = _wire_manifest(staging/'content')
+        elif saved_matrix_spec is not None and cached_content is None:
+            from harness.web_fetch.publication_check import check
+            check(staged_archive, source, saved_matrix_spec=saved_matrix_spec)
         if evidence_tree_identity(source) != before:
             raise ValueError("Report source changed during packaging")
         if reuse_published is not None and evidence_tree_identity(reuse_published) != baseline_before:
@@ -902,6 +923,7 @@ def main(*, root: Path | None = None):
     parser.add_argument("--snapshot-audit",action="store_true",help="Package an explicitly marked published-snapshot score audit")
     parser.add_argument("--incremental", type=Path, help="Write an explanatory update against the baseline archive")
     parser.add_argument("--presentation-binding", type=Path, help="Validate a frozen diagnostic snapshot without certifying it")
+    parser.add_argument("--saved-matrix-spec", type=Path, help="Bind a standalone saved comparison to its original source specification")
     parser.add_argument("--cached-content", type=Path, help="Reuse cached public files and refresh source-bound result projections")
     parser.add_argument("--reuse-published", type=Path, help="Reuse pinned public packs for a saved report extension")
     parser.add_argument("--replace-site", help="Materialize baseline packs hosted by the site being replaced")
@@ -913,14 +935,20 @@ def main(*, root: Path | None = None):
         parser.error('--replace-site and --retire-pack require --reuse-published')
     if args.reuse_published:
         if (args.cached_content or args.incremental or args.snapshot_audit
-                or args.presentation_binding or args.refresh_privacy):
+                or args.presentation_binding or args.refresh_privacy or args.saved_matrix_spec):
             parser.error('Published extensions select their own immutable packaging boundary')
-    if args.incremental and args.snapshot_audit:
-        parser.error('Snapshot score revisions require a complete package')
+    if args.incremental and (args.snapshot_audit or args.saved_matrix_spec):
+        parser.error('--snapshot-audit and --saved-matrix-spec require a complete package')
     if args.incremental:
         print(json.dumps(build_incremental(args.source, args.archive, args.incremental, presentation_binding=args.presentation_binding), ensure_ascii=False))
         return
-    build(args.source, args.archive, presentation_binding=args.presentation_binding, cached_content=args.cached_content, parts_directory=args.parts_directory, refresh_privacy=args.refresh_privacy, snapshot_audit=args.snapshot_audit, reuse_published=args.reuse_published, replace_site=args.replace_site, retire_packs=args.retire_pack)
+    build(
+        args.source, args.archive, presentation_binding=args.presentation_binding,
+        cached_content=args.cached_content, parts_directory=args.parts_directory,
+        refresh_privacy=args.refresh_privacy, snapshot_audit=args.snapshot_audit,
+        reuse_published=args.reuse_published, replace_site=args.replace_site,
+        retire_packs=args.retire_pack, saved_matrix_spec=args.saved_matrix_spec,
+    )
     print(args.archive.resolve())
 
 
