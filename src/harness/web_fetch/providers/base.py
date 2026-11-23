@@ -244,6 +244,7 @@ class Provider(ABC):
 # Provider type -> (module in this package, class). Modules load on demand because
 # adapters import this module and some carry their own optional dependencies.
 PROVIDER_TYPES = {
+    "codex_cli": ("codex", "CodexProvider"),
     "brightdata_unlocker": ("hosted_fetch", "HostedFetchProvider"),
     "browser_use_fetch": ("hosted_fetch", "HostedFetchProvider"),
     "browserbase_fetch": ("hosted_fetch", "HostedFetchProvider"),

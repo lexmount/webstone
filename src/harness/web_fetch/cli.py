@@ -315,6 +315,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    from harness.web_fetch.codex_collection import collect
+    codex = sub.add_parser("codex-fetch", help="Collect native Codex tool responses in a new conversation")
+    codex.add_argument("--dataset", type=Path, required=True)
+    codex.add_argument("--output", type=Path, required=True)
+    codex.add_argument("--mode", choices=("single", "same-page"), required=True)
+    codex.add_argument("--executable", default="codex")
+    codex.set_defaults(handler=collect)
+
     run = sub.add_parser("run", help="Run providers and generate a multi-page report")
     add_language_argument(run)
     run.add_argument("--dataset", type=Path, default=EXAMPLES / "fixture-dataset.json")

@@ -1824,3 +1824,42 @@ hash from the exact ordered source list in that revision's `scoring.py` and
 verify the projection source hash. A matching saved output alone is insufficient.
 The source-bound replay and rejection controls are in
 `tests/test_native_answer_projection.py`.
+
+### Reproduce the two Codex CLI Web Fetch methods
+
+Install a Codex CLI with Luna access, live web tools and local JSONL session
+logging. Authenticate the CLI on the machine running the benchmark. The original
+runs used Codex CLI 0.169.1 and 0.171.0-alpha.13 respectively. Use the
+content-scopes-530 dataset export described above.
+
+Collect tool responses independently of the scorer. Each invocation requires a
+new output directory, starts a new conversation, and resumes that same
+conversation for subsequent URLs. Run each method separately:
+
+```bash
+uv run --frozen webstone codex-fetch --dataset dataset.json --mode single --output ~/codex-single
+uv run --frozen webstone codex-fetch --dataset dataset.json --mode same-page --output ~/codex-same-page
+```
+
+Both modes request complete content using Luna, medium reasoning, live web,
+high context and long returns, with one task at a time and a 300-second
+deadline. Single accepts exactly one open of the supplied URL. Same-page
+allows the model to choose subsequent reads within the returned page.
+The adapter checks the recorded commands and saves the actual numbered
+tool text, delivered files, private logs and usage counters. A rule failure
+gets no scoreable content. Only the URL and public task prompt enter the
+request. Numbered output directories follow dataset order.
+
+To collect and score together with the repository runner, use the full exported
+dataset directory including reference assets. Select either provider name from
+`configs/providers.example.json`. Build the HTML separately from the saved run:
+
+```bash
+uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-single --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-single-scored
+uv run --frozen webstone report ~/codex-single-scored --language zh
+```
+
+For the continuation method select `codex-same-page` and a fresh output path.
+Use `webstone rescore` on saved runner output, or `lexbench-webfetch score`
+with one task JSON and the standalone collector's response.txt. Pass
+`--request-failed` for a failed receipt and each delivered binary via `--file`.

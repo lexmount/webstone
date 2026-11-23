@@ -13,6 +13,8 @@
     "crawl4ai-cloud"
   ],
   "providers": {
+    "codex-single": {"type": "codex_cli", "mode": "single"},
+    "codex-same-page": {"type": "codex_cli", "mode": "same-page"},
     "kimi-fetch": {
       "type": "kimi_fetch",
       "log_level": "debug",
