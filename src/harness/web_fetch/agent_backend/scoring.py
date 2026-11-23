@@ -145,7 +145,7 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         counted = [r for r in mine if (r["case_id"], r["rep"]) in included]
         used = [r for r in counted if r["valid"]]  # statistics need a usage report
         before = [r for r in earlier if r["arm"] == arm]
-        priced = lambda r: r["backend_calls"] * unit if arm == "lexmount" else 0.0  # moli and builtin have no call price
+        priced = lambda r, arm=arm: r["backend_calls"] * unit if arm == "lexmount" else 0.0  # moli and builtin have no call price
         summary["arms"][arm] = {
             "runs": len(mine), "invalid_runs": sum(not r["valid"] for r in mine),
             "invalid_reasons": dict(Counter(x for r in mine for x in r["invalid_reasons"])),

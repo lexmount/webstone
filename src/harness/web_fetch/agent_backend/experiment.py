@@ -10,7 +10,6 @@ import shutil
 import platform
 import random
 import subprocess
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
