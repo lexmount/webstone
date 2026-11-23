@@ -510,11 +510,11 @@
   },
   "methods": {
     "codex-single": {
+      "extends": "codex_cli_method",
       "label": {
         "zh": "Codex CLI · 单次读取",
         "en": "Codex CLI · Single open"
       },
-      "source_url": "https://developers.openai.com/codex/cli/",
       "profile": {
         "kind": "Local CLI",
         "description": {
@@ -522,33 +522,7 @@
           "en": "Allow one open of the requested URL per task."
         }
       },
-      "access": {
-        "type": "local",
-        "env_vars": [],
-        "account": {
-          "zh": "可使用 Luna 的 Codex CLI 账号",
-          "en": "Codex CLI account with Luna access"
-        },
-        "configuration": {
-          "zh": "在评测机器安装并登录 CLI。",
-          "en": "Install and authenticate the CLI on the evaluation machine."
-        },
-        "links": [
-          [
-            {
-              "zh": "Codex CLI 文档",
-              "en": "Codex CLI documentation"
-            },
-            "https://developers.openai.com/codex/cli/"
-          ]
-        ]
-      },
       "interface": {
-        "entry": "codex exec / codex exec resume",
-        "auth": {
-          "zh": "本机 Codex CLI 登录状态",
-          "en": "Local Codex CLI session"
-        },
         "params": [
           [
             "mode",
@@ -558,28 +532,15 @@
               "en": "Allow one open of the requested URL per task."
             }
           ]
-        ],
-        "fields": [
-          [
-            "custom_tool_call_output",
-            "JSONL",
-            {
-              "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
-              "en": "Read the requested URL with Codex native web open and retain the tool response."
-            }
-          ]
-        ],
-        "request": {"url": "https://example.com/"},
-        "notes": {"zh": "运行参数见评测复现说明。", "en": "See the benchmark reproduction guide for run parameters."},
-        "source": "src/harness/web_fetch/providers/codex.py"
+        ]
       }
     },
     "codex-same-page": {
+      "extends": "codex_cli_method",
       "label": {
         "zh": "Codex CLI · 同页续读",
         "en": "Codex CLI · Same-page continuation"
       },
-      "source_url": "https://developers.openai.com/codex/cli/",
       "profile": {
         "kind": "Local CLI",
         "description": {
@@ -587,33 +548,7 @@
           "en": "Allow the model to continue reading the same page."
         }
       },
-      "access": {
-        "type": "local",
-        "env_vars": [],
-        "account": {
-          "zh": "可使用 Luna 的 Codex CLI 账号",
-          "en": "Codex CLI account with Luna access"
-        },
-        "configuration": {
-          "zh": "在评测机器安装并登录 CLI。",
-          "en": "Install and authenticate the CLI on the evaluation machine."
-        },
-        "links": [
-          [
-            {
-              "zh": "Codex CLI 文档",
-              "en": "Codex CLI documentation"
-            },
-            "https://developers.openai.com/codex/cli/"
-          ]
-        ]
-      },
       "interface": {
-        "entry": "codex exec / codex exec resume",
-        "auth": {
-          "zh": "本机 Codex CLI 登录状态",
-          "en": "Local Codex CLI session"
-        },
         "params": [
           [
             "mode",
@@ -623,20 +558,7 @@
               "en": "Allow the model to continue reading the same page."
             }
           ]
-        ],
-        "fields": [
-          [
-            "custom_tool_call_output",
-            "JSONL",
-            {
-              "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
-              "en": "Read the requested URL with Codex native web open and retain the tool response."
-            }
-          ]
-        ],
-        "request": {"url": "https://example.com/"},
-        "notes": {"zh": "运行参数见评测复现说明。", "en": "See the benchmark reproduction guide for run parameters."},
-        "source": "src/harness/web_fetch/providers/codex.py"
+        ]
       }
     },
     "chromium": {
@@ -6227,6 +6149,12 @@
     }
   },
   "sources": {
+    "codex-cli": {
+      "label": {"en": "Codex CLI non-interactive mode", "zh": "Codex CLI 非交互模式"},
+      "url": "https://developers.openai.com/codex/noninteractive/",
+      "checked_at": "2026-11-23",
+      "checked_version": null
+    },
     "cow": {
       "label": {
         "zh": "CowAgent · WebFetch 源码",
@@ -6567,6 +6495,90 @@
     }
   },
   "templates": {
+    "codex_cli_method": {
+      "source_url": "https://developers.openai.com/codex/cli/",
+      "access": {
+        "type": "local",
+        "env_vars": [
+          "CODEX_API_KEY"
+        ],
+        "account": {
+          "en": "An API project with Luna and live web access",
+          "zh": "具有 Luna 和实时网页访问权限的 API 项目"
+        },
+        "configuration": {
+          "en": "Set CODEX_API_KEY in the repository .env and install the pinned CLI version.",
+          "zh": "在仓库的 .env 中设置 CODEX_API_KEY，并安装指定版本的 CLI。"
+        },
+        "links": [
+          [
+            {
+              "zh": "Codex CLI 文档",
+              "en": "Codex CLI documentation"
+            },
+            "https://developers.openai.com/codex/cli/"
+          ]
+        ]
+      },
+      "capabilities": {
+        "scope": {"en": "Native open via codex exec", "zh": "通过 codex exec 发起原生网页读取"},
+        "tested": {"en": "The adapter projects tool-returned text and bytes. See the recorded calls for observed coverage.", "zh": "适配器从原生工具结果提取文本和字节。实测覆盖范围见调用记录。"},
+        "sources": ["codex-cli"],
+        "input": {"en": "One supplied URL; continuations use page references and line offsets.", "zh": "输入一个指定网址，续读使用页面引用和行号。"},
+        "structure": {"en": "Ordered text lines and returned binary blocks.", "zh": "按行排列的文本及工具返回的二进制内容。"},
+        "access": {"en": "API-key authentication and one conversation per method run.", "zh": "使用 API 密钥，每次运行复用一个会话。"},
+        "notes": {"en": "Scope is limited to the native web output captured by this adapter.", "zh": "范围以适配器保留的原生网页工具输出为准。"},
+        "web": {
+          "status": {"en": "Supported", "zh": "支持"},
+          "detail": {"en": "Readable page lines from native open.", "zh": "从原生网页工具取得可读页面文本。"}
+        },
+        "document": {
+          "status": {"en": "Limited", "zh": "有限支持"},
+          "detail": {"en": "Uses document text only when returned by native open.", "zh": "使用原生网页工具直接返回的文档文本。"}
+        },
+        "image": {
+          "status": {"en": "Limited", "zh": "有限支持"},
+          "detail": {"en": "Retains image bytes when included in the tool output.", "zh": "保留工具结果中实际返回的图像字节。"}
+        },
+        "av": {
+          "status": {"en": "Undeclared", "zh": "未声明"},
+          "detail": {"en": "The adapter uses the same native open for media URLs.", "zh": "媒体网址使用相同的原生网页读取接口。"}
+        },
+        "file": {
+          "status": {"en": "Limited", "zh": "有限支持"},
+          "detail": {"en": "A file task requires native bytes that pass shared file verification.", "zh": "文件任务要求原生输出字节通过共享文件校验。"}
+        },
+        "js": {
+          "status": {"en": "Undeclared", "zh": "未声明"},
+          "detail": {"en": "Rendering is managed by the service.", "zh": "网页渲染由服务端管理。"}
+        }
+      },
+      "interface": {
+        "entry": "codex exec / codex exec resume",
+        "auth": {
+          "en": "CODEX_API_KEY in the repository .env",
+          "zh": "仓库 .env 中的 CODEX_API_KEY"
+        },
+        "fields": [
+          [
+            "custom_tool_call_output",
+            "JSONL",
+            {
+              "zh": "通过 Codex 原生网页工具读取指定网址，并保存工具返回。",
+              "en": "Read the requested URL with Codex native web open and retain the tool response."
+            }
+          ]
+        ],
+        "request": {
+          "url": "https://example.com/"
+        },
+        "notes": {
+          "zh": "运行参数见评测复现说明。",
+          "en": "See the benchmark reproduction guide for run parameters."
+        },
+        "source": "src/harness/web_fetch/providers/codex.py"
+      }
+    },
     "browser_tasks": {
       "task_interfaces": [
         {

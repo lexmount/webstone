@@ -1827,19 +1827,27 @@ The source-bound replay and rejection controls are in
 
 ### Reproduce the two Codex CLI Web Fetch methods
 
-Install a Codex CLI with Luna access, live web tools and local JSONL session
-logging. Authenticate the CLI on the machine running the benchmark. The original
-runs used Codex CLI 0.169.1 and 0.171.0-alpha.13 respectively. Use the
-content-scopes-530 dataset export described above.
+Set `CODEX_API_KEY` in the repository `.env` using an API project with Luna
+and live web access. Install the CLI version selected in
+`configs/providers.example.json`: 0.171.0-alpha.13 for `codex-single` or
+0.169.1 for `codex-same-page`. The adapter checks the selected binary before
+calling the provider. Set `executable` in a copy of the provider config to use a
+specific binary outside PATH. Each method uses a temporary Codex home to
+isolate it from local account state, user settings and MCP servers.
 
-Use the same run, scoring and report commands as the other Web Fetch providers.
-Each Codex method starts a fresh conversation and uses it for subsequent URLs
-in the run. Both request complete content using Luna, medium reasoning, live
-web, high context and long tool returns. The scorer evaluates the content
-delivered by the tool. Select one method per run:
+Use the shared Web Fetch run, scoring and report commands with the
+`content-scopes-530` export above. Each method starts a fresh conversation and
+resumes it for subsequent cases. Both request complete content using Luna,
+medium reasoning, live web, high context and long tool returns. The existing
+scorer evaluates only content projected from native tool returns.
 
 - `codex-single` accepts exactly one open of the supplied URL.
-- `codex-same-page` allows the model to continue reading that page.
+- `codex-same-page` also accepts continuations that identify a returned page
+  reference and line number. Opening the original URL again is a retry.
+- Run the methods separately with zero caller retries. Per-case token usage is
+  unavailable when the preceding conversation counter is missing or reset.
+- The historical pilot used a signed-in Codex account. Record the current
+  authentication mode and CLI version when comparing newly collected evidence.
 
 From the repository root, supply the full dataset export with its reference
 assets. Choose a new output directory for each run:
