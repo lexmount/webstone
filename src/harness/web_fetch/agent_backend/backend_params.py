@@ -5,8 +5,10 @@ the same rules the Web Fetch providers use, so a backend is configured exactly a
 
 * ``moli``: ``MoliWebFetchProvider.native_cli_command``; dynamic tasks use ``--wait-until domstable``, other
   web tasks ``--wait-until done``. A task the native route cannot configure has no parameters.
-* ``lexmount``: dynamic tasks request ``engine_preference: lightmount_domstable`` with the task's timeout,
-  mirroring ``LexmountProvider.fetch``; other tasks send no options.
+* ``lexmount``: dynamic tasks request ``engine_preference: lightmount_domstable``. A task that declares
+  per-task hints gets its own timeout, mirroring ``LexmountProvider.fetch``; a task that declares the uniform
+  native marker (no per-task assistance) gets the family-level timeout, the caller budget. Other tasks send
+  no options.
 * ``builtin``: Claude Code's WebFetch has no request parameters.
 
 Parameters are chosen by family, never by task id, host or expected answer.
@@ -63,10 +65,14 @@ def params_for(arm_backend: str, case: dict, *, moli: MoliWebFetchProvider | Non
     if arm_backend == "lexmount":
         if eval_case.track != "dynamic":
             return {}
-        plan = plan_for_case(eval_case)
-        if plan is None:
-            raise ValueError("invalid dynamic retrieval_hints")
-        timeout_ms = min(plan.timeout_ms, max(1, int(inner_timeout_budget(CALLER_BUDGET_SECONDS) * 1000)))
+        family_timeout_ms = max(1, int(inner_timeout_budget(CALLER_BUDGET_SECONDS) * 1000))
+        if (eval_case.retrieval_hints or {}).get("mode") == "native":  # uniform native family: no per-task assistance
+            timeout_ms = family_timeout_ms
+        else:
+            plan = plan_for_case(eval_case)
+            if plan is None:
+                raise ValueError("invalid dynamic retrieval_hints")
+            timeout_ms = min(plan.timeout_ms, family_timeout_ms)
         engine = LexmountProvider("lexmount", {}).config.get("dynamic_engine", "lightmount_domstable")
         return {"options": {"engine_preference": engine, "timeout_ms": timeout_ms}}
     raise ValueError(f"unknown backend {arm_backend}")

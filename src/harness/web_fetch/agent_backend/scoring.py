@@ -178,10 +178,10 @@ def render_markdown(summary: dict) -> str:
              + ".", "",
              f"Compared {summary['included_pairs']} task runs per arm; excluded because any arm's run broke the protocol: "
              + (", ".join(f"{p['case_id']} r{p['rep']} {p['reasons']}" for p in summary["excluded_pairs"]) or "none") + ".", "",
-             "| Arm | Runs | Invalid | Retried | Compared | Pass | Subagent tokens mean | Subagent s P50 | Fetch tool s P50 | Fetch API USD | Subagent USD (upper bound) |",
-             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+             "| Arm | Runs | Invalid | Compared | Pass | Subagent tokens mean | Subagent s P50 | Fetch tool s P50 | Fetch API USD | Subagent USD (upper bound) |",
+             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
     for arm, s in summary["arms"].items():
-        lines.append(f"| {arm} | {s['runs']} | {s['invalid_runs']} | {s['retried_runs']} | {s['compared_runs']} | {s['passed']}/{s['compared_runs']} | "
+        lines.append(f"| {arm} | {s['runs']} | {s['invalid_runs']} | {s['compared_runs']} | {s['passed']}/{s['compared_runs']} | "
                      f"{s['subagent_tokens']['mean'] or 0:.0f} | "
                      f"{(s['subagent_duration_ms']['p50'] or 0) / 1000:.1f} | {(s['fetch_tool_ms']['p50'] or 0) / 1000:.1f} | "
                      f"{s['fetch_api_cost_usd']:.4f} | {s['subagent_cost_usd_upper_bound']:.4f} |")

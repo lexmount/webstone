@@ -24,7 +24,7 @@ def _common(parser):
 def _plan_args(parser):
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--out", type=pathlib.Path, default=None, help="default: <data home>/experiments/agent-fetch")
-    parser.add_argument("--task-kind", default="body")
+    parser.add_argument("--task-kinds", default="body,structure", help="task kinds answered as text (resource and file tasks are not)")
     parser.add_argument("--limit", type=int, default=20, help="stratified sample size; 0 = every selected task")
     parser.add_argument("--include", default="", help="comma list of task ids always included")
     parser.add_argument("--case-ids", default="", help="explicit comma list; overrides sampling")
@@ -34,8 +34,9 @@ def _plan_args(parser):
     parser.add_argument("--arms", default=DEFAULT_ARMS)
     parser.add_argument("--model", default="claude-sonnet-5-5")
     parser.add_argument("--timeout", type=int, default=420)
-    parser.add_argument("--max-attempts", type=int, choices=(1, 2), default=2,
-                        help="2 = one declared retry after a protocol violation or a failed fetch call; the last attempt is the only result")
+    parser.add_argument("--retries", type=int, choices=(0, 1), default=0,
+                        help="declared retries after a protocol violation or a failed fetch call (default 0); "
+                             "the last attempt is the only result")
     parser.add_argument("--serial-arms", action="store_true", help="run the arms of a task one after another instead of at the same time")
 
 
@@ -48,9 +49,10 @@ def _prepare(args):
     meta, cases, sha = experiment.load_cases(args.dataset)
     moli = backend_params.moli_provider() if "moli" in _split(args.arms) else None
     backends = [arm_module.ARMS[a]["backend"] for a in _split(args.arms)]
-    pool = {c: v for c, v in cases.items() if v.get("task_kind", "body") == args.task_kind}
+    kinds = tuple(_split(args.task_kinds))
+    pool = {c: v for c, v in cases.items() if v.get("task_kind", "body") in kinds}
     ineligible = backend_params.ineligible(pool, backends, moli=moli)
-    ids = experiment.select_cases(cases, task_kind=args.task_kind, limit=args.limit, seed=args.seed,
+    ids = experiment.select_cases(cases, task_kinds=kinds, limit=args.limit, seed=args.seed,
                                   include=_split(args.include), case_ids=_split(args.case_ids),
                                   exclude=_split(args.exclude), ineligible=ineligible)
     plan = experiment.make_plan(ids, _split(args.arms), args.reps, args.seed)
@@ -75,7 +77,7 @@ def cmd_run(args) -> int:
           f"{len(document['ineligible_for_all_arms'])} tasks not configurable for every arm")
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=args.model, timeout=args.timeout,
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
-                       max_attempts=args.max_attempts, concurrent_arms=not args.serial_arms)
+                       retries=args.retries, concurrent_arms=not args.serial_arms)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, price_per_1000=args.price_per_1000))
 
 
@@ -84,21 +86,28 @@ def cmd_resume(args) -> int:
     document = json.loads((root / "plan.json").read_text())
     _, cases, sha = experiment.load_cases(args.dataset)
     if sha != document["dataset"]["sha256"]:
-        raise SystemExit("dataset changed since the plan was written; start a new run")
+        raise SystemExit("task source changed since the plan was written; start a new run")
     moli = backend_params.moli_provider() if "moli" in document["args"]["arms"] else None
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=document["args"]["model"],
                        timeout=int(document["args"]["timeout"]),
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
-                       max_attempts=int(document["args"]["max_attempts"]),
+                       retries=int(document["args"]["retries"]),
                        concurrent_arms=document["args"]["serial_arms"] != "True")
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, price_per_1000=args.price_per_1000))
 
 
 def cmd_score(args) -> int:
     document = json.loads((args.run / "plan.json").read_text())
-    _, cases, sha = experiment.load_cases(args.dataset)
-    if sha != document["dataset"]["sha256"]:
-        raise SystemExit("dataset differs from the one recorded in plan.json; rescoring would not be comparable")
+    meta, cases, _ = experiment.load_cases(args.dataset)
+    if meta.get("kind") != "executable":
+        raise SystemExit("scoring needs the approved executable dataset: pass its dataset.json with --dataset")
+    missing = [i for i in document["cases"] if i not in cases]
+    if missing:
+        raise SystemExit("the dataset lacks tasks of this run: " + ", ".join(missing[:5]))
+    planned = experiment.load_cases(None)[1] if document["dataset"].get("kind") == "definitions" else cases
+    different = [i for i in document["cases"] if planned[i]["url"] != cases[i]["url"]]
+    if different:
+        raise SystemExit("the dataset's URL differs from the planned one for: " + ", ".join(different[:5]))
     summary = scoring.score_run(args.run, cases, price_per_1000_usd=args.price_per_1000)
     print((args.run / "summary.md").read_text())
     return 0 if summary["controls"]["empty_fails"] == summary["controls"]["cases"] else 1
@@ -115,11 +124,14 @@ def cmd_check(args) -> int:
     try:
         meta, cases, sha = experiment.load_cases(args.dataset)
         body = [c for c in cases if cases[c].get("task_kind", "body") == "body"]
-        control = scoring.controls(cases, body)
-        add("dataset", "PASS", f"{meta.get('id')} sha256 {sha[:12]}, {len(cases)} tasks, {len(body)} body")
-        add("scorer controls", "PASS" if control["empty_fails"] == control["cases"] else "FAIL",
-            f"empty fails {control['empty_fails']}/{control['cases']}; reference passes "
-            f"{control['reference_passes']}/{control['reference_available']}")
+        add("tasks", "PASS", f"{meta.get('id')} ({meta.get('kind')}) sha256 {sha[:12]}, {len(cases)} tasks, {len(body)} body")
+        if meta.get("kind") == "executable":
+            control = scoring.controls(cases, body)
+            add("scorer controls", "PASS" if control["empty_fails"] == control["cases"] else "FAIL",
+                f"empty fails {control['empty_fails']}/{control['cases']}; reference passes "
+                f"{control['reference_passes']}/{control['reference_available']}")
+        else:
+            add("scorer controls", "SKIP", "public definitions only; scoring needs the approved executable dataset")
     except Exception as error:  # report any loader failure as a failed check, not a traceback
         add("dataset", "FAIL", f"{type(error).__name__}: {error}")
     probe = subprocess.run([sys.executable, "-I", str(arm_module.MCP_SERVER), "--backend", "moli", "--log", os.devnull],

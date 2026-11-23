@@ -29,7 +29,7 @@ uv run --frozen python scripts/agent_fetch_experiment.py resume --run <run dir>
 uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir>   # no provider or model calls
 ```
 
-Useful options: `--reps N`, `--exclude id,id` (recorded in `plan.json`), `--case-ids id,id`, `--seed`, `--model`, `--price-per-1000 0.75`. Results go to `<data home>/experiments/agent-fetch/<run-id>/` (`WEBSTONE_DATA_HOME` or `~/.webstone`), never into Git.
+Useful options: `--retries 1`, `--reps N`, `--exclude id,id` (recorded in `plan.json`), `--case-ids id,id`, `--seed`, `--model`, `--price-per-1000 0.75`. Results go to `<data home>/experiments/agent-fetch/<run-id>/` (`WEBSTONE_DATA_HOME` or `~/.webstone`), never into Git.
 
 ## Metrics
 
@@ -39,7 +39,7 @@ The pass verdict is the benchmark's own: the content the fetch tool returned is 
 
 ## Retry and exclusion
 
-Each run gets one declared retry (`--max-attempts 2`) after a protocol violation or a failed fetch call, with the same rule for every arm. The last attempt is the only result; earlier attempts stay on disk and appear separately as retry cost. A run that is still invalid after the retry is excluded, for every arm, from the comparison of its task. The arms of a task run at the same time in separate processes (`--serial-arms` to disable).
+`--retries N` (0 or 1, default 0) gives each run N declared retries after a protocol violation or a failed fetch call, with the same rule for every arm. The last attempt is the only result; earlier attempts stay on disk and are not part of the summary. A run that is still invalid is excluded, for every arm, from the comparison of its task. The arms of a task run at the same time in separate processes (`--serial-arms` to disable).
 
 ## Controls
 

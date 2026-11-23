@@ -28,15 +28,41 @@ def default_root() -> pathlib.Path:
     return data_home() / "experiments" / "agent-fetch"
 
 
+def definitions_path() -> pathlib.Path:
+    """The public task definitions of the active 530-task edition (no reference texts)."""
+    from lexbench_webfetch.inputs import definition_path
+    return definition_path("evaluation/content-scopes-530/tasks.json")
+
+
 def load_cases(dataset: pathlib.Path | None = None):
-    """Load the verified executable dataset as published; returns (metadata, {id: case dict}, sha256)."""
-    path = pathlib.Path(dataset) if dataset else DEFAULT_DATASET
-    meta, cases = load_dataset(path)
-    sha = hashlib.sha256(read_dataset_bytes(path)).hexdigest()
-    return meta, {case.id: asdict(case) for case in cases}, sha
+    """Load tasks; returns (metadata, {id: case dict}, sha256).
+
+    Without ``dataset`` the public definitions of the pinned edition are read: they carry each task's URL,
+    prompts and family, which is all that running needs. Scoring needs the approved executable dataset (it
+    holds the reference texts); pass its ``dataset.json`` as ``dataset``.
+    """
+    path = pathlib.Path(dataset) if dataset else definitions_path()
+    raw = path.read_bytes()
+    payload = json.loads(raw)
+    if payload.get("tool") == "web_fetch":
+        meta, cases = load_dataset(path)
+        return {**meta, "kind": "executable"}, {case.id: asdict(case) for case in cases}, hashlib.sha256(read_dataset_bytes(path)).hexdigest()
+    cases = {case["id"]: case for case in payload["cases"]}
+    if len(cases) != len(payload["cases"]):
+        raise ValueError("task ids must be unique")
+    return {"id": payload.get("id"), "kind": "definitions"}, cases, hashlib.sha256(raw).hexdigest()
 
 
-def select_cases(cases: dict, *, task_kind: str = "body", limit: int = 20, seed: int = 20261123,
+def prompt_for(case: dict) -> str:
+    """The task prompt of the full-content view when the task has paired views, else its own prompt.
+
+    Acquisition asks for the whole page text, so the same saved output can be scored under both views.
+    """
+    full = ((case.get("content_scopes") or {}).get("full") or {}).get("requirements") or {}
+    return full.get("task_prompt") or case.get("task_prompt", "")
+
+
+def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limit: int = 20, seed: int = 20261123,
                  include: list[str] | None = None, case_ids: list[str] | None = None,
                  exclude: list[str] | None = None, ineligible: dict | None = None) -> list[str]:
     """Deterministic stratified sample: round-robin over categories after a seeded shuffle.
@@ -58,7 +84,7 @@ def select_cases(cases: dict, *, task_kind: str = "body", limit: int = 20, seed:
         return sorted(case_ids)
     pool: dict[str, list[str]] = {}
     for cid in sorted(cases):
-        if cases[cid].get("task_kind", "body") == task_kind and cid not in skipped:
+        if cases[cid].get("task_kind", "body") in task_kinds and cid not in skipped:
             pool.setdefault(cases[cid]["category"], []).append(cid)
     chosen = [i for i in (include or [])]
     for cid in chosen:
@@ -116,7 +142,8 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "args": args,
         "versions": {"claude_code": arm_module.claude_version(claude_bin), "python": platform.python_version(),
                      "webstone_commit": _git_head(), "moli": moli},
-        "dataset": {"id": meta.get("id"), "sha256": sha}, "fixed_environment": arm_module.FIXED_ENV,
+        "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt_scope": "full",
+        "fixed_environment": arm_module.FIXED_ENV,
         "ineligible_for_all_arms": ineligible or {}, "cases": case_ids, "runs": plan,
     }
     root.mkdir(parents=True, exist_ok=True)
@@ -127,7 +154,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
 def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_attempts, progress, index, total):
     """One arm on one task: the attempt, and at most one declared retry. The last attempt is the only result."""
     base = f"{item['case_id']}__{item['arm']}__r{item['rep']}"
-    prompt = PROMPT.format(task_prompt=case.get("task_prompt", ""), url=case["url"])
+    prompt = PROMPT.format(task_prompt=prompt_for(case), url=case["url"])
     for attempt in range(1, max_attempts + 1):
         directory = root / "runs" / f"{base}__a{attempt}"
         record_path = directory / "record.json"
@@ -146,14 +173,14 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
 
 
 def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, model: str, timeout: int,
-            params_for=lambda backend, case: {}, max_attempts: int = 2, concurrent_arms: bool = True,
+            params_for=lambda backend, case: {}, retries: int = 0, concurrent_arms: bool = True,
             progress=print) -> None:
     """Run the plan task by task, resumably.
 
     The arms of one task run at the same time, each in its own process, working directory and MCP server, so
     all arms see the same time window and network conditions. A run that breaks the protocol or whose fetch
-    tool call failed gets one declared retry (``max_attempts`` = 2); the last attempt is the only result and
-    earlier attempts are kept as evidence and accounted separately. A run that is still invalid is excluded
+    tool call failed gets ``retries`` declared retries (default 0); the last attempt is the only result and
+    earlier attempts are kept on disk as evidence. A run that is still invalid is excluded
     from the comparison of every arm at scoring time.
     """
     groups: dict = {}
@@ -168,7 +195,7 @@ def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, mod
     for index, items in enumerate(groups.values(), 1):
         def work(item, index=index):
             _run_arm(root, item, cases[item["case_id"]], claude_bin=claude_bin, model=model, timeout=timeout,
-                     params_for=params_for, max_attempts=max_attempts, progress=say, index=index, total=len(groups))
+                     params_for=params_for, max_attempts=retries + 1, progress=say, index=index, total=len(groups))
         if concurrent_arms and len(items) > 1:
             with ThreadPoolExecutor(max_workers=len(items)) as pool:
                 list(pool.map(work, items))

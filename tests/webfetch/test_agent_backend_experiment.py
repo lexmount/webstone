@@ -257,6 +257,9 @@ def test_lexmount_parameters_match_what_the_provider_sends(monkeypatch):
                 backend_params.to_case(task), backend_params.CALLER_BUDGET_SECONDS)
         mine = backend_params.params_for("lexmount", task)
         assert sent["body"]["extract"] == {"url": task["url"], **({"options": mine["options"]} if mine else {})}
+    native = backend_params.params_for("lexmount", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}))
+    assert native == {"options": {"engine_preference": "lightmount_domstable",
+                                  "timeout_ms": int(provider_module.inner_timeout_budget(backend_params.CALLER_BUDGET_SECONDS) * 1000)}}
     assert backend_params.params_for("builtin", _task("web")) == {}
 
 
@@ -325,7 +328,7 @@ def test_a_failed_run_gets_one_declared_retry_and_the_last_attempt_is_the_only_r
     log = []
     _fake_runner(monkeypatch, {("moli", 1): (True, True), ("moli", 2): (True, True)}, log)  # fetch fails twice
     plan = {"runs": [{"rep": 1, "case_id": "c00", "arm": "moli"}]}
-    run = lambda: experiment.execute(tmp_path, plan, cases(), claude_bin="x", model="m", timeout=1, max_attempts=2,
+    run = lambda: experiment.execute(tmp_path, plan, cases(), claude_bin="x", model="m", timeout=1, retries=1,
                                      params_for=lambda backend, case: {"argv": ["fetch"]}, progress=lambda *_: None)
     run()
     run()
@@ -337,7 +340,7 @@ def test_a_clean_run_is_not_retried_and_max_attempts_one_means_no_retry(tmp_path
     log = []
     _fake_runner(monkeypatch, {("builtin", 1): (True, False), ("lexmount", 1): (False, True)}, log)
     plan = {"runs": [{"rep": 1, "case_id": "c00", "arm": "builtin"}, {"rep": 1, "case_id": "c00", "arm": "lexmount"}]}
-    experiment.execute(tmp_path, plan, cases(), claude_bin="x", model="m", timeout=1, max_attempts=1, progress=lambda *_: None)
+    experiment.execute(tmp_path, plan, cases(), claude_bin="x", model="m", timeout=1, retries=0, progress=lambda *_: None)
     assert sorted(n for n, _ in log) == ["c00__builtin__r1__a1", "c00__lexmount__r1__a1"]
 
 
