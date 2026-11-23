@@ -1910,6 +1910,12 @@ def matched_latency(groups,cases,base):
  links='、'.join(link(base+'datasets/'+key+'.html',cases[key].get('name',key)) for key in sorted(common))
  return ('<details><summary>' + t('matched_task_latency_tasks_passed_by_every', 'Matched-task latency · tasks passed by every method') + f"</summary><p>{note}</p>{(table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks')], rows, metrics=[]) + '<p>' + links + '</p>' if rows else '')}</details>")
 
+def measured_call_times(observations):
+ times=[value for value in observations if value is not None]
+ count=str(len(observations)) if len(times)==len(observations) else f'{len(times)}/{len(observations)}'
+ return times,count
+
+
 def overview_all_call_latency(records,cases):
  excluded={r['case_id'] for r in records if r['metrics'].get('evaluation_excluded')}
  records=[r for r in records if r['case_id'] not in excluded]
@@ -1920,10 +1926,11 @@ def overview_all_call_latency(records,cases):
   raise ValueError('All-call latency requires the full common task matrix')
  rows=[]
  for name in names:
-  times=[r['elapsed_ms'] for r in records if r['provider']==name and r['elapsed_ms'] is not None]
-  rows.append(('',cell(link('providers/'+name+'.html',provider_label(name),browser_method_label(name,language='en')))+cell(str(len(times)))+
+  times,count=measured_call_times([r['elapsed_ms'] for r in records if r['provider']==name])
+  rows.append(('',cell(link('providers/'+name+'.html',provider_label(name),browser_method_label(name,language='en')))+cell(count)+
                cell(ms(statistics.mean(times) if times else None))+cell(ms(percentile(times,.5)))+cell(ms(percentile(times,.95)))))
- return ('<p>'+model_text(*pair('each_method_uses_the_same_tasks_including', 'Each method uses the same {count} tasks, including passes, failures, errors and timeouts. Latency covers one call from input to output, excluding cooldown intervals between calls. Each method executes cases sequentially; method concurrency and limits are documented in the call-chain audit. Local/remote execution, network conditions and native product limits still affect latency.', count=len(cases)))+'</p>'+
+ timing_help=' '+t('saved_latency_observed_denominator', 'Counts show measured calls out of saved calls when elapsed time is missing.') if any(r['elapsed_ms'] is None for r in records) else ''
+ return ('<p>'+model_text(*pair('each_method_uses_the_same_tasks_including', 'Each method uses the same {count} tasks, including passes, failures, errors and timeouts. Latency covers one call from input to output, excluding cooldown intervals between calls. Each method executes cases sequentially; method concurrency and limits are documented in the call-chain audit. Local/remote execution, network conditions and native product limits still affect latency.', count=len(cases)))+timing_help+'</p>'+
          table([t('method', 'Method'),t('calls', 'Calls'),t('all_call_mean', 'All-call mean'),t('all_call_p50', 'All-call P50'),t('all_call_p95', 'All-call P95')],rows,'all-call-latency-table',metrics=[]))
 
 
@@ -2072,8 +2079,7 @@ def all_final_call_latency(records):
    groups[record['provider']].append(record['elapsed_ms'])
  rows=[]
  for name,observations in sorted(groups.items()):
-  times=[value for value in observations if value is not None]
-  counts=str(len(times)) if len(times)==len(observations) else f'{len(times)}/{len(observations)}'
+  times,counts=measured_call_times(observations)
   values=cell(link(f'../providers/{name}.html',provider_label(name)))+cell(counts)
   for value in (statistics.mean(times) if times else None,percentile(times,.5),percentile(times,.95)):
    values+=cell(ms(value),value)

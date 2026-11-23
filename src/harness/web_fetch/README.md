@@ -1828,48 +1828,41 @@ The source-bound replay and rejection controls are in
 ### Reproduce the two Codex CLI Web Fetch methods
 
 Set `CODEX_API_KEY` in the repository `.env` using an API project with Luna
-and live web access. Install the CLI version selected in
-`configs/providers.example.json`: 0.171.0-alpha.13 for `codex-single` or
-0.169.1 for `codex-same-page`. The adapter checks the selected binary before
-calling the provider. Set `executable` in a copy of the provider config to use a
-specific binary outside PATH. Each method uses a temporary Codex home to
-isolate it from local account state, user settings and MCP servers.
+and live web access. The example config pins both methods to Codex CLI 0.169.1.
+Use the same pinned executable for both methods in a new comparison. Set
+`executable` in a copy of the config to select a binary outside PATH.
+Preflight records its reported version and checks that the selected file stays
+the same at launch.
 
-Use the shared Web Fetch run, scoring and report commands with the
-`content-scopes-530` export above. Each method starts a fresh conversation and
-resumes it for subsequent cases. Both request complete content using Luna,
-medium reasoning, live web, high context and long tool returns. The existing
-scorer evaluates content projected from native tool returns. A structured title
-returned by the initial open for the exact requested page is passed separately
-to the shared title check. The numbered text remains the body.
+Each method starts a fresh conversation and reuses it for subsequent cases.
+Both use Luna, medium reasoning, live web, high context and long tool returns.
+Single mode permits one open of the supplied URL. Same-page mode permits
+continuations that use a native reference bound to that URL and a line number.
+A structured title from the initial open goes to the shared title check. The
+numbered text is scored as the body.
 
-- `codex-single` accepts exactly one open of the supplied URL.
-- `codex-same-page` also accepts continuations that identify a returned page
-  reference and line number. Opening the original URL again is a retry.
-- Run the methods separately with zero caller retries. Per-case token usage is
-  unavailable when the preceding conversation counter is missing or reset.
-- The historical pilot used a signed-in Codex account. Record the current
-  authentication mode and CLI version when comparing newly collected evidence.
+The historical signed-in pilot used CLI 0.171.0-alpha.13 for single open and 0.169.1
+for same-page continuation. The report retains those recorded conditions.
 
-From the repository root, supply the full dataset export with its reference
-assets. Choose a new output directory for each run:
+Export `content-scopes-530` with its reference assets. Select each method
+separately and use a fresh output directory on each invocation.
 
 ```bash
-uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-single --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-single-scored
-uv run --frozen webstone report ~/codex-single-scored --language zh
+method=codex-single  # or codex-same-page
+dataset=/path/to/export/dataset.json
+out="${HOME}/webstone-${method}"
+
+uv run --frozen webstone run --dataset "$dataset" \
+  --provider-config configs/providers.example.json --providers "$method" \
+  --runs 1 --timeout 300 --max-failure-retries 0 \
+  --content-scope full --score-scope full --no-report --output "$out"
+uv run --frozen webstone report "$out" --language zh
 ```
 
-For same-page continuation, run:
+To score the saved responses again and rebuild either report:
 
 ```bash
-uv run --frozen webstone run --dataset dataset.json --provider-config configs/providers.example.json --providers codex-same-page --runs 1 --timeout 300 --max-failure-retries 0 --content-scope full --score-scope full --no-report --output ~/codex-same-page-scored
-uv run --frozen webstone report ~/codex-same-page-scored --language zh
-```
-
-Both runs save the original tool evidence, usage and Full content scores in
-their output directories. To reassess the single-open run using saved evidence:
-
-```bash
-uv run --frozen webstone rescore ~/codex-single-scored --dataset dataset.json --content-scope full --score-scope full --no-report
-uv run --frozen webstone report ~/codex-single-scored --language zh
+uv run --frozen webstone rescore "$out" --dataset "$dataset" \
+  --content-scope full --score-scope full --no-report
+uv run --frozen webstone report "$out" --language zh
 ```

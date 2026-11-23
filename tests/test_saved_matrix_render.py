@@ -625,3 +625,20 @@ def test_public_title_revision_rejects_unproven_context(field, value):
     revised['provider_metadata'][field] = value
     with pytest.raises(ValueError, match='changes call inputs or answer bytes'):
         _require_public_fixed_selection(inputs, [], {})
+
+
+@pytest.mark.parametrize('times,count,mean', [
+    ([2000,None], '1/2', '2,000 ms'),
+    ([None,None], '0/2', '—'),
+])
+def test_home_latency_supports_missing_measurements(times,count,mean):
+    from harness.web_fetch.report import overview_all_call_latency
+
+    cases = {'a': {}, 'b': {}}
+    records = [dict(provider='fixture', case_id=key, elapsed_ms=value, metrics={})
+               for key,value in zip(cases,times,strict=True)]
+    page = BeautifulSoup(overview_all_call_latency(records,cases),'html.parser')
+    cells = [cell.get_text(strip=True) for cell in page.select('tbody tr td')]
+    assert cells[2] == count
+    assert cells[3] == mean
+    assert '已测得耗时的调用数 / 已保存调用数' in page.get_text()

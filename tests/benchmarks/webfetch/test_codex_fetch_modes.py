@@ -26,18 +26,22 @@ def trace(url=URL, *continuations):
         events.append(
             {
                 "type": "item.completed",
-                "item": {"type": "web_search", "results": [{"ref_id": f"view{i}"}]},
+                "item": {
+                    "type": "web_search",
+                    "action": {"type": "other"} if i else {"type": "open_page", "url": url},
+                    "results": [{"type": "text_result", "ref_id": f"view{i}", "url": url}],
+                },
             }
         )
-        position = f",lineno:{i}" if i else ""
+        entry = {"ref_id": target}
+        if i:
+            entry["lineno"] = i
+        args = json.dumps({"open": [entry], "response_length": "long"})
         call = {
             "type": "custom_tool_call",
             "name": "exec",
             "call_id": str(i),
-            "input": "const r = await tools.web__run({open:[{ref_id:"
-            + json.dumps(target)
-            + position
-            + '}],response_length:"long"}); text(r)',
+            "input": f"const r = await tools.web__run({args}); text(r)",
         }
         output = {
             "type": "custom_tool_call_output",
@@ -75,7 +79,7 @@ def test_continuation_accepts_only_this_pages_references():
     for invalid_target in (URL, "elsewhere"):
         assert not codex.parse_returns(URL, "same-page", *trace(URL, invalid_target)).ok
     events, session = trace(URL, "view0")
-    session[2]["payload"]["input"] = session[2]["payload"]["input"].replace(",lineno:1", "")
+    session[2]["payload"]["input"] = session[2]["payload"]["input"].replace(', "lineno": 1', "")
     assert not codex.parse_returns(URL, "same-page", events, session).ok
 
 
@@ -130,11 +134,19 @@ def make_provider():
     return codex.CodexProvider("codex-single", {"mode": "single", "expected_version": "1.2.3"})
 
 
-def install_process(monkeypatch, provider, turns):
+def install_process(monkeypatch, provider, turns, *, stderr=b"fixture stderr\xff"):
     cmds = []
+    executable = codex.Path(provider.work.name) / "fixture-codex"
+    executable.touch()
+    monkeypatch.setattr(codex.shutil, "which", lambda _: str(executable))
+    monkeypatch.setattr(codex.subprocess, "check_output", lambda *a, **k: b"codex-cli 1.2.3\n")
+    monkeypatch.setattr(codex, "repository_env", lambda: {"CODEX_API_KEY": "fixture-key"})
 
     def launch(cmd, **kwargs):
         cmds.append(cmd)
+        assert kwargs["env"]["CODEX_API_KEY"] == "fixture-key"
+        assert kwargs["env"]["HOME"] == provider.work.name
+        assert "CODEX_API_KEY" not in provider.env
         process = SimpleNamespace(returncode=None, args=cmd)
         stdout, session, cancelled = next(turns)
         if session:
@@ -147,7 +159,7 @@ def install_process(monkeypatch, provider, turns):
             if cancelled and process.returncode is None:
                 raise subprocess.TimeoutExpired(cmd, timeout)
             process.returncode = -9 if cancelled else 0
-            return stdout, b"fixture stderr\xff"
+            return stdout, stderr
 
         process.communicate = communicate
         return process
@@ -217,9 +229,11 @@ def test_resume_scores_only_new_tool_records_and_keeps_usage_attribution(monkeyp
     assert all(command[1:4] == ["exec", "resume", THREAD] for command in commands[1:])
 
 
-def test_preflight_binds_binary_and_repository_credentials(monkeypatch):
+def test_preflight_binds_binary_and_repository_credentials(tmp_path, monkeypatch):
     provider = make_provider()
-    monkeypatch.setattr(codex.shutil, "which", lambda _: "/path/to/codex")
+    executable = tmp_path / "codex"
+    executable.touch()
+    monkeypatch.setattr(codex.shutil, "which", lambda _: str(executable))
     monkeypatch.setattr(codex.subprocess, "check_output", lambda *a, **k: b"codex-cli 0.0.0\n")
     assert provider.validate() == ["Codex CLI 1.2.3"]
     monkeypatch.setattr(codex.subprocess, "check_output", lambda *a, **k: b"codex-cli 1.2.3\n")
@@ -229,7 +243,11 @@ def test_preflight_binds_binary_and_repository_credentials(monkeypatch):
     assert "CODEX_API_KEY" not in provider.env
     monkeypatch.setattr(codex, "repository_env", lambda: {"CODEX_API_KEY": "fixture-key"})
     assert provider.validate() == []
-    assert provider.env["CODEX_API_KEY"] == "fixture-key"
+    assert provider.reported_version == "codex-cli 1.2.3"
+    assert "CODEX_API_KEY" not in provider.env
+    executable.write_bytes(b"new executable")
+    with pytest.raises(ValueError, match="changed after preflight"):
+        provider._run("Smoke test", 1, "fixture-key")
 
 
 def test_codex_modes_have_report_interfaces():
@@ -239,3 +257,80 @@ def test_codex_modes_have_report_interfaces():
             model = method_page_model(provider, provider, [row], language=language)
             assert model["endpoint"] == "codex exec"
             assert method_spec(provider, row, language=language)["request"]["url"] == URL
+
+
+def test_continuation_rejects_a_foreign_reference_even_when_tool_lists_it():
+    events, session = trace(URL, "view1")
+    events[0]["item"]["results"].append(
+        {"type": "text_result", "ref_id": "view1", "url": URL + "another-page"}
+    )
+    assert (
+        codex.parse_returns(URL, "same-page", events, session).error_type == "codex_open_violation"
+    )
+
+
+def test_continuation_cannot_score_a_return_from_another_page():
+    events, session = trace(URL, "view0")
+    events[1]["item"]["results"][0]["url"] = URL + "another-page"
+    result = codex.parse_returns(URL, "same-page", events, session)
+    assert result.error_type == "codex_open_violation"
+    assert not result.content
+
+
+def test_continuation_handles_native_path_escapes_without_equating_path_separators():
+    url = URL + "Python_(programming_language)"
+    events, session = trace(url, "view0")
+    events[0]["item"]["results"][0]["url"] = URL + "Python_%28programming_language%29"
+    assert codex.parse_returns(url, "same-page", events, session).ok
+    events[0]["item"]["results"][0]["url"] = URL + "Python_%2Fprogramming_language"
+    assert not codex.parse_returns(url, "same-page", events, session).ok
+
+
+def test_duplicate_json_keys_cannot_override_the_declared_target():
+    events, session = trace()
+    call = session[0]["payload"]
+    call["input"] = call["input"].replace(
+        '"ref_id":', '"ref_id": "https://other.example/", "ref_id":'
+    )
+    assert not codex.parse_returns(URL, "single", events, session).ok
+
+
+def test_codex_runtime_secret_cannot_enter_diagnostics_or_body(monkeypatch):
+    provider = make_provider()
+    events, session = trace()
+    session[1]["payload"]["output"][0]["text"] = "L0: fixture-key"
+    stdout = jsonl(
+        [
+            {"type": "thread.started", "thread_id": THREAD},
+            *events,
+            {"type": "turn.completed", "usage": {"input_tokens": 100}},
+        ]
+    )
+    install_process(
+        monkeypatch, provider, iter([(stdout, jsonl(session), False)]), stderr=b"echo fixture-key"
+    )
+    result = provider.fetch(EvalCase("one", "One", URL, "static", []), 1)
+    evidence = diagnostic(result)
+    assert evidence["stderr"] == "echo [REDACTED]"
+    assert "fixture-key" not in evidence["session_jsonl"]
+    assert result.content == "[REDACTED]"
+
+
+def test_parser_programming_error_is_not_counted_as_provider_evidence_failure(monkeypatch):
+    provider = make_provider()
+    events, session = trace()
+    stdout = jsonl(
+        [
+            {"type": "thread.started", "thread_id": THREAD},
+            *events,
+            {"type": "turn.completed", "usage": {"input_tokens": 100}},
+        ]
+    )
+    install_process(monkeypatch, provider, iter([(stdout, jsonl(session), False)]))
+
+    def bug(*args):
+        raise AttributeError("synthetic programming error")
+
+    monkeypatch.setattr(codex, "parse_returns", bug)
+    with pytest.raises(AttributeError, match="synthetic programming error"):
+        provider.fetch(EvalCase("one", "One", URL, "static", []), 1)
