@@ -1,0 +1,253 @@
+"""Run one fetch task through Claude Code under one experiment arm.
+
+Arms are data. Three backends are registered:
+
+* ``builtin``: stock Claude Code. WebFetch runs locally inside Claude Code.
+* ``lexmount``: Lexmount ``/v1/extract`` through the stdlib MCP server in ``fetch_mcp.py``.
+* ``moli``: the local Moli CLI through the same MCP server.
+
+The quantity under test is the ``web-fetch`` subagent that Claude Code delegates page reading to.
+The main agent therefore gets only the Agent tool, so every request goes through that subagent, and
+its fetch tool is the one backend that differs between arms. Add a backend by adding an entry and,
+if it is not built in, an MCP server.
+"""
+from __future__ import annotations
+
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+MCP_SERVER = pathlib.Path(__file__).with_name("fetch_mcp.py")
+FETCH_TOOLS = {"WebFetch", "mcp__lexmount__web_fetch", "mcp__moli__web_fetch"}
+LEXMOUNT_ENV = ("LEXMOUNT_API_KEY", "LEXMOUNT_PROJECT_ID")
+DEBUG_END = re.compile(r"tool_dispatch_end tool=(\S+) toolUseId=\S+ outcome=(\S+) durationMs=(\d+)")
+AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+duration_ms: (\d+)</usage>")
+# Identical for every arm: Claude Code must not turn the delegated subagent into a background task, which
+# would withhold its usage report (observed 2 of 4 default runs with an MCP fetch tool, 0 of 4 with this set).
+FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+NETWORK_COMMAND = re.compile(r"\b(curl|wget|httpx|urllib|requests\.get|http\.client|lynx|w3m)\b")
+
+ARMS = {
+    "builtin": {"backend": "builtin", "main_tools": "Agent,WebFetch",
+                "allowed": ["WebFetch"], "disallowed": [], "mcp_scope": None},
+    "lexmount": {"backend": "lexmount", "main_tools": "Agent",
+                 "allowed": ["mcp__lexmount__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent"},
+    "moli": {"backend": "moli", "main_tools": "Agent",
+             "allowed": ["mcp__moli__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent"},
+}
+
+
+def claude_version(claude_bin: str = "claude") -> str:
+    try:
+        done = subprocess.run([claude_bin, "--version"], capture_output=True, text=True, timeout=30)
+        return done.stdout.strip() or done.stderr.strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"unavailable: {error}"
+
+
+def _server(backend: str, log: pathlib.Path, params: pathlib.Path) -> dict:
+    return {"command": sys.executable,
+            "args": ["-I", str(MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params)]}
+
+
+def build_command(arm: str, prompt: str, out: pathlib.Path, *, claude_bin: str, model: str) -> list[str]:
+    spec = ARMS[arm]
+    backend = spec["backend"]
+    server = _server(backend, out / "backend_calls.jsonl", out / "backend_params.json")
+    (out / "mcp.json").write_text(json.dumps({"mcpServers": {}}))  # the main agent sees no MCP tools
+    command = [claude_bin, "-p", prompt, "--model", model,
+               "--output-format", "stream-json", "--verbose", "--debug-file", str(out / "debug.log"),
+               # Isolation: no user CLAUDE.md or memory, no skills, no saved session, MCP only from this file.
+               "--setting-sources", "project", "--disable-slash-commands", "--no-session-persistence",
+               "--strict-mcp-config", "--mcp-config", str(out / "mcp.json")]
+    command += ["--tools", spec["main_tools"]]
+    if spec["mcp_scope"] == "subagent":
+        agent = {"web-fetch": {
+            "description": "Use this to fetch and read web pages / URLs when you do not have a direct fetch tool of your own.",
+            "prompt": "You fetch web pages with the web_fetch tool and report what the user asked for.",
+            "tools": [f"mcp__{backend}__web_fetch"], "mcpServers": [{backend: server}], "model": "haiku"}}
+        command += ["--agents", json.dumps(agent)]
+    command += ["--allowedTools", *spec["allowed"]]
+    if spec["disallowed"]:
+        command += ["--disallowedTools", *spec["disallowed"]]
+    return command
+
+
+def parse_stream(text: str):
+    """Return (init, result, tool_calls, raw_fetch_result, bash_commands, subagent) from stream-json output.
+
+    ``subagent`` holds what Claude Code reports for the delegated subagent(s): the ``<usage>`` block that
+    ends each Agent tool result (tokens, tool uses, duration). There is no substitute for a missing block;
+    ``validate`` marks such a run invalid.
+    """
+    uses, calls, bash = {}, [], []
+    reported = []
+    fetch_error = False
+    init = result = raw = None
+    for line in text.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            init = event
+        if event.get("type") == "result":
+            result = event
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        subagent = bool(event.get("parent_tool_use_id"))
+        for block in content:
+            if block.get("type") == "tool_use":
+                uses[block["id"]] = block
+                calls.append({"tool": block["name"], "sub": subagent})
+                if block["name"] == "Bash":
+                    bash.append(str((block.get("input") or {}).get("command", ""))[:300])
+            elif (block.get("type") == "tool_result" and not subagent
+                  and uses.get(block["tool_use_id"], {}).get("name") == "Agent"):
+                text = block["content"] if isinstance(block["content"], str) else "".join(
+                    x.get("text", "") for x in block["content"] if isinstance(x, dict))
+                found = AGENT_USAGE.search(text)
+                if found:
+                    reported.append({"tokens": int(found.group(1)), "tool_uses": int(found.group(2)),
+                                     "duration_ms": int(found.group(3))})
+            elif block.get("type") == "tool_result" and uses.get(block["tool_use_id"], {}).get("name") in FETCH_TOOLS:
+                fetch_error = bool(block.get("is_error"))
+                body = block["content"]
+                raw = body if isinstance(body, str) else "".join(x.get("text", "") for x in body if isinstance(x, dict))
+    summary = {"agent_launches": sum(1 for c in calls if c["tool"] == "Agent" and not c["sub"]), "reported": reported,
+               "fetch_error": fetch_error}
+    return init, result, calls, raw, bash, summary
+
+
+def fetch_dispatch(debug_text: str):
+    """Return (outcome, duration_ms) of the fetch tool call from Claude Code's debug log.
+
+    Both arms use the same measurement point, the tool dispatch duration. An MCP tool is logged under the
+    generic name ``mcp_tool``; the built-in tool under ``WebFetch``.
+    """
+    outcome = duration = None
+    for match in DEBUG_END.finditer(debug_text):
+        if match.group(1) in FETCH_TOOLS | {"mcp_tool"}:
+            outcome, duration = match.group(2), int(match.group(3))
+    return outcome, duration
+
+
+def classify_route(calls: list[dict], bash: list[str]) -> str:
+    """Name the route the model actually took for this request."""
+    fetch = [c for c in calls if c["tool"] in FETCH_TOOLS]
+    if any(c["sub"] for c in fetch):
+        return "delegated_" + next(c["tool"] for c in fetch if c["sub"])
+    if fetch:
+        return "direct_" + fetch[0]["tool"]
+    if any(NETWORK_COMMAND.search(command) for command in bash):
+        return "bash_network"
+    if any(c["tool"] == "WebSearch" for c in calls):
+        return "websearch"
+    return "none"
+
+
+def fetch_failed(raw: str | None, tool_flagged_error: bool) -> bool:
+    """Did the fetch tool call itself fail (network, timeout, HTTP error, refusal)? Same rule for every arm.
+
+    This is the only condition, besides a protocol violation, that earns the single declared retry.
+    """
+    text = raw or ""
+    return (tool_flagged_error or not text or text.startswith("Fetch failed")
+            or text.startswith("The server returned HTTP") or "is unable to fetch from" in text[:200])
+
+
+def validate(record: dict, arm: str) -> list[str]:
+    """Protocol conformance of one run. A run that fails any check is invalid, never repaired.
+
+    The comparison is only fair when every run follows the same chain: exactly one subagent launch that
+    Claude Code reports usage for, and that subagent called the arm's fetch tool.
+    """
+    reasons = []
+    if record["exit_code"] != 0 or record["timed_out"] or record.get("is_error"):
+        reasons.append("execution_failed")
+    if record["agent_launches"] != 1:
+        reasons.append(f"agent_launches={record['agent_launches']}")
+    if record["subagent_tokens"] is None:
+        reasons.append("no_subagent_usage_report")
+    expected = "WebFetch" if ARMS[arm]["backend"] == "builtin" else f"mcp__{ARMS[arm]['backend']}__web_fetch"
+    if record["route"] != "delegated_" + expected:
+        reasons.append(f"route={record['route']}")
+    if record["fetch_tool_ms"] is None:
+        reasons.append("no_fetch_dispatch_record")
+    return reasons
+
+
+def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bin: str = "claude",
+            model: str = "claude-sonnet-5-5", timeout: int = 420, params: dict | None = None,
+            extra_env: dict | None = None) -> dict:
+    """Execute one arm on one task and persist ``record.json`` plus raw evidence in ``out_dir``."""
+    out = pathlib.Path(out_dir).resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    work = out / "work"
+    work.mkdir(exist_ok=True)  # empty working directory: no project instructions leak in
+    (out / "backend_params.json").write_text(json.dumps(params or {}))
+    env = {**os.environ, **FIXED_ENV, **(extra_env or {})}
+    if ARMS[arm]["backend"] == "lexmount":
+        missing = [name for name in LEXMOUNT_ENV if not env.get(name)]
+        if missing:
+            raise RuntimeError("missing environment variables for the Lexmount backend: " + ", ".join(missing))
+    if ARMS[arm]["backend"] == "moli" and not shutil.which(env.get("MOLI_BINARY", "moli"), path=env.get("PATH")):
+        raise RuntimeError("the moli backend needs MOLI_BINARY (or moli on PATH) to be an executable")
+    command = build_command(arm, prompt, out, claude_bin=claude_bin, model=model)
+    started, timed_out = time.time(), False
+    try:
+        done = subprocess.run(command, cwd=work, capture_output=True, text=True, timeout=timeout, env=env,
+                              stdin=subprocess.DEVNULL)
+        stdout, stderr, code = done.stdout, done.stderr, done.returncode
+    except subprocess.TimeoutExpired as error:
+        timed_out, code = True, None
+        stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else (error.stdout or "")
+        stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else (error.stderr or "")
+    wall_ms = round((time.time() - started) * 1000)
+    (out / "stream.jsonl").write_text(stdout)
+    (out / "stderr.txt").write_text(stderr)
+    init, result, calls, raw, bash, delegated = parse_stream(stdout)
+    (out / "raw_tool_result.txt").write_text(raw or "")
+    debug = out / "debug.log"
+    tool_outcome, tool_ms = fetch_dispatch(debug.read_text(errors="replace")) if debug.exists() else (None, None)
+    usage = (result or {}).get("usage") or {}
+    models = (result or {}).get("modelUsage") or {}
+    haiku = sum(v.get("costUSD") or 0 for k, v in models.items() if "haiku" in k)
+    reported = delegated["reported"]
+    record = {
+        # What the delegated subagent consumed (the quantity under test), exactly as Claude Code reports it.
+        "subagent_tokens": sum(r["tokens"] for r in reported) if reported else None,
+        "subagent_duration_ms": sum(r["duration_ms"] for r in reported) if reported else None,
+        "subagent_tool_uses": sum(r["tool_uses"] for r in reported) if reported else None,
+        "agent_launches": delegated["agent_launches"],
+        "haiku_model_cost_usd": haiku,  # includes small auxiliary calls made by the main session
+        "arm": arm, "case_id": case_id, "url": url, "model": model,
+        "claude_code_version": (init or {}).get("claude_code_version"),
+        "exit_code": code, "timed_out": timed_out, "wall_ms": wall_ms,
+        "duration_ms": (result or {}).get("duration_ms"), "duration_api_ms": (result or {}).get("duration_api_ms"),
+        "num_turns": (result or {}).get("num_turns"), "is_error": (result or {}).get("is_error"),
+        "llm_cost_usd": (result or {}).get("total_cost_usd"),
+        "input_tokens": usage.get("input_tokens"), "output_tokens": usage.get("output_tokens"),
+        "cache_creation_tokens": usage.get("cache_creation_input_tokens"),
+        "cache_read_tokens": usage.get("cache_read_input_tokens"),
+        "model_usage": (result or {}).get("modelUsage"),
+        "fetch_tool_ms": tool_ms, "fetch_tool_outcome": tool_outcome,
+        "route": classify_route(calls, bash), "bash_commands": bash, "tool_calls": calls,
+        "raw_tool_result_chars": len(raw or ""), "final_text": (result or {}).get("result"),
+    }
+    log = out / "backend_calls.jsonl"
+    rows = [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.exists() else []
+    record["backend_calls"] = len(rows)
+    record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
+    record["fetch_failed"] = fetch_failed(raw, delegated["fetch_error"])
+    record["invalid_reasons"] = validate(record, arm)
+    record["valid"] = not record["invalid_reasons"]
+    (out / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=1))
+    return record
