@@ -28,7 +28,7 @@ def scoring_input(directory: pathlib.Path, arm: str, case: dict) -> dict | None:
       binary content (``saved_files/``).
     """
     log = directory / "backend_calls.jsonl"
-    rows = [json.loads(line) for line in log.read_text().split("\n") if line.strip()] if log.exists() else []
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").split("\n") if line.strip()] if log.exists() else []
     good = [r for r in rows if r.get("ok")]
     outputs = directory / "backend_outputs"
     if arm == "lexmount":
@@ -92,16 +92,16 @@ def _stats(values):
 
 
 def _load(directory: pathlib.Path, attempt: int) -> dict:
-    record = json.loads((directory / "record.json").read_text())
+    record = json.loads((directory / "record.json").read_text(encoding="utf-8"))
     debug = directory / "debug.log"
     if debug.exists():  # derive from saved evidence so every record uses the same measurement point
-        record["fetch_tool_outcome"], record["fetch_tool_ms"] = fetch_dispatch(debug.read_text(errors="replace"))
+        record["fetch_tool_outcome"], record["fetch_tool_ms"] = fetch_dispatch(debug.read_text(errors="replace", encoding="utf-8"))
     record["attempt"] = attempt
     return record
 
 
 def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.75) -> dict:
-    plan = json.loads((root / "plan.json").read_text())
+    plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
     unscorable: set = set()
     control = controls(cases, plan["cases"])
     groups: dict[str, list] = {}
@@ -192,9 +192,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
                 f"only_{y}": sum(v[y]["passed"] and not v[x]["passed"] for v in both),
                 "both_pass": sum(v[x]["passed"] and v[y]["passed"] for v in both),
                 "both_fail": sum(not v[x]["passed"] and not v[y]["passed"] for v in both)}
-    (root / "summary.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False))
-    (root / "scored_runs.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1))
-    (root / "summary.md").write_text(render_markdown(summary))
+    (root / "summary.json").write_text(json.dumps(summary, indent=1, ensure_ascii=False), encoding="utf-8")
+    (root / "scored_runs.json").write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    (root / "summary.md").write_text(render_markdown(summary), encoding="utf-8")
     return summary
 
 

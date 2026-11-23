@@ -66,7 +66,7 @@ def load_materials(root: pathlib.Path | None = None):
     cases, digest = {}, hashlib.sha256()
     for suite in ("webfetch", "dynamic-content", "popular-sites", "access-restrictions", "articles"):
         raw = (base / suite / "dataset.json").read_bytes()
-        expected = json.loads((base / suite / "source-inputs.json").read_text())["dataset_sha256"]
+        expected = json.loads((base / suite / "source-inputs.json").read_text(encoding="utf-8"))["dataset_sha256"]
         if hashlib.sha256(raw).hexdigest() != expected:
             raise ValueError(f"materials for {suite} do not match their recorded hash")
         digest.update(hashlib.sha256(raw).digest())
@@ -178,7 +178,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
         "ineligible_for_all_arms": ineligible or {}, "cases": case_ids, "runs": plan,
     }
     root.mkdir(parents=True, exist_ok=True)
-    (root / "plan.json").write_text(json.dumps(document, indent=1))
+    (root / "plan.json").write_text(json.dumps(document, indent=1), encoding="utf-8")
     return document
 
 
@@ -194,7 +194,7 @@ class ClaudeUnavailable(RuntimeError):
 def _claude_unavailable(record: dict, directory: pathlib.Path) -> bool:
     if not (record.get("is_error") or record.get("exit_code")):
         return False
-    stderr = (directory / "stderr.txt").read_text(errors="replace") if (directory / "stderr.txt").exists() else ""
+    stderr = (directory / "stderr.txt").read_text(errors="replace", encoding="utf-8") if (directory / "stderr.txt").exists() else ""
     return bool(CLAUDE_UNAVAILABLE.search((record.get("final_text") or "") + "\n" + stderr))
 
 
@@ -206,7 +206,7 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
         directory = root / "runs" / f"{base}__a{attempt}"
         record_path = directory / "record.json"
         if record_path.exists():
-            record = json.loads(record_path.read_text())
+            record = json.loads(record_path.read_text(encoding="utf-8"))
         else:
             params = params_for(arm_module.ARMS[item["arm"]]["backend"], case)
             record = arm_module.run_one(item["arm"], item["case_id"], case["url"], prompt, directory, claude_bin=claude_bin,
@@ -214,7 +214,7 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
             if _claude_unavailable(record, directory):
                 raise ClaudeUnavailable(f"{base}: {(record.get('final_text') or '').strip()[:200]}")
             record["rep"], record["attempt"] = item["rep"], attempt
-            record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1))
+            record_path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
             progress(f"[{index}/{total}] {base} attempt {attempt} valid={record['valid']} fetch_failed={record['fetch_failed']} "
                      f"{','.join(record['invalid_reasons'])} wall={record['wall_ms']}ms")
         if record["valid"] and not record["fetch_failed"]:

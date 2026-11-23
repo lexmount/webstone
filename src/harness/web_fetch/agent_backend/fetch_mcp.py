@@ -118,7 +118,7 @@ def serve(args):
             text, is_error, row, artifacts = fetch(args.backend, url, args.timeout, params)
             if args.out_dir:  # the backend's complete output, whatever Claude Code shows the agent
                 os.makedirs(args.out_dir, exist_ok=True)
-                stem = f"call-{sum(1 for _ in open(args.log)) + 1 if os.path.exists(args.log) else 1}"
+                stem = f"call-{sum(1 for _ in open(args.log, encoding='utf-8')) + 1 if os.path.exists(args.log) else 1}"
                 if "json" in artifacts:  # the API response, kept for failed calls too
                     row["payload"] = stem + ".json"
                     with open(os.path.join(args.out_dir, row["payload"]), "w", encoding="utf-8") as handle:

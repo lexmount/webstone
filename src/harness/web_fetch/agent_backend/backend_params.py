@@ -42,7 +42,7 @@ def moli_provider(binary: str | None = None) -> MoliWebFetchProvider:
     """The reference ``moli-webfetch`` provider configuration, pointed at the local binary."""
     binary = binary or os.environ.get("MOLI_BINARY", "moli")
     resolved = pathlib.Path(binary)
-    config = json.loads((repository_root() / "configs" / "providers.example.json").read_text())["providers"]["moli-webfetch"]
+    config = json.loads((repository_root() / "configs" / "providers.example.json").read_text(encoding="utf-8"))["providers"]["moli-webfetch"]
     config = {k: (os.path.expandvars(v) if isinstance(v, str) else v) for k, v in config.items()}
     config.pop("native_dns_library", None)
     config["binary"] = str(resolved)

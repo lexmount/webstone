@@ -68,7 +68,7 @@ def build_command(arm: str, prompt: str, out: pathlib.Path, *, claude_bin: str, 
     spec = ARMS[arm]
     backend = spec["backend"]
     server = _server(backend, out / "backend_calls.jsonl", out / "backend_params.json")
-    (out / "mcp.json").write_text(json.dumps({"mcpServers": {}}))  # the main agent sees no MCP tools
+    (out / "mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")  # the main agent sees no MCP tools
     command = [claude_bin, "-p", prompt, "--model", model,
                "--output-format", "stream-json", "--verbose", "--debug-file", str(out / "debug.log"),
                # Isolation: no user CLAUDE.md or memory, no skills, no saved session, MCP only from this file.
@@ -245,7 +245,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     out.mkdir(parents=True, exist_ok=True)
     work = out / "work"
     work.mkdir(exist_ok=True)  # empty working directory: no project instructions leak in
-    (out / "backend_params.json").write_text(json.dumps(params or {}))
+    (out / "backend_params.json").write_text(json.dumps(params or {}), encoding="utf-8")
     env = {**os.environ, **FIXED_ENV, **(extra_env or {})}
     if ARMS[arm]["backend"] == "lexmount":
         missing = [name for name in LEXMOUNT_ENV if not env.get(name)]
@@ -264,10 +264,10 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
         stdout = error.stdout.decode() if isinstance(error.stdout, bytes) else (error.stdout or "")
         stderr = error.stderr.decode() if isinstance(error.stderr, bytes) else (error.stderr or "")
     wall_ms = round((time.time() - started) * 1000)
-    (out / "stream.jsonl").write_text(stdout)
-    (out / "stderr.txt").write_text(stderr)
+    (out / "stream.jsonl").write_text(stdout, encoding="utf-8")
+    (out / "stderr.txt").write_text(stderr, encoding="utf-8")
     init, result, calls, raw, bash, delegated = parse_stream(stdout)
-    (out / "raw_tool_result.txt").write_text(raw or "")
+    (out / "raw_tool_result.txt").write_text(raw or "", encoding="utf-8")
     saved_files = []
     for source in delegated["saved_files"]:  # copy the delivered bytes into the run's evidence
         path = pathlib.Path(source)
@@ -277,7 +277,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
             saved_files.append({"file": path.name, "bytes": path.stat().st_size,
                                 "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     debug = out / "debug.log"
-    tool_outcome, tool_ms = fetch_dispatch(debug.read_text(errors="replace")) if debug.exists() else (None, None)
+    tool_outcome, tool_ms = fetch_dispatch(debug.read_text(errors="replace", encoding="utf-8")) if debug.exists() else (None, None)
     usage = (result or {}).get("usage") or {}
     models = (result or {}).get("modelUsage") or {}
     haiku = sum(v.get("costUSD") or 0 for k, v in models.items() if "haiku" in k)
@@ -304,12 +304,12 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
         "raw_tool_result_chars": len(raw or ""), "saved_files": saved_files, "final_text": (result or {}).get("result"),
     }
     log = out / "backend_calls.jsonl"
-    rows = [json.loads(x) for x in log.read_text().split("\n") if x.strip()] if log.exists() else []
+    rows = [json.loads(x) for x in log.read_text(encoding="utf-8").split("\n") if x.strip()] if log.exists() else []
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
     record["fetch_failed"] = record["fetch_failed_backend"]  # the backend's own result, not the agent's view of it
     record["invalid_reasons"] = validate(record, arm)
     record["valid"] = not record["invalid_reasons"]
-    (out / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=1))
+    (out / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
     return record

@@ -40,7 +40,7 @@ emit({{"type": "result", "duration_ms": 1000, "duration_api_ms": 900, "num_turns
 @pytest.fixture
 def fake_claude(tmp_path):
     path = tmp_path / "claude"
-    path.write_text(FAKE_CLAUDE.format(python=sys.executable))
+    path.write_text(FAKE_CLAUDE.format(python=sys.executable), encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return str(path)
 
@@ -95,7 +95,7 @@ def test_arm_commands_differ_only_in_the_fetch_tool(tmp_path, arm, expect_tools,
         agent = json.loads(command[command.index("--agents") + 1])["web-fetch"]
         assert agent["tools"] == [f"mcp__{arm}__web_fetch"] and agent["model"] == "haiku"
         assert agent["mcpServers"][0][arm]["args"][2:4] == ["--backend", arm]
-    assert json.loads((tmp_path / "mcp.json").read_text())["mcpServers"] == {}  # main agent sees no MCP tools
+    assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))["mcpServers"] == {}  # main agent sees no MCP tools
     for flag in ("--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands"):
         assert flag in command  # identical isolation in every arm
     assert ("--disallowedTools" in command) == (arm != "builtin")
@@ -177,12 +177,12 @@ def _mcp(backend, env, tmp_path, urls, params=None):
     lines += [{"jsonrpc": "2.0", "id": 3 + i, "method": "tools/call", "params": {"arguments": {"url": u}}} for i, u in enumerate(urls)]
     log = tmp_path / "calls.jsonl"
     params_file = tmp_path / "params.json"
-    params_file.write_text(json.dumps(params or {}))
+    params_file.write_text(json.dumps(params or {}), encoding="utf-8")
     out = subprocess.run([sys.executable, "-I", str(arms.MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params_file), "--out-dir", str(tmp_path / "out")],
                          env={**os.environ, **env},
                          capture_output=True, text=True, input="\n".join(json.dumps(x) for x in lines) + "\n", timeout=30).stdout
     replies = {json.loads(l)["id"]: json.loads(l)["result"] for l in out.splitlines()}
-    return replies, [json.loads(l) for l in log.read_text().splitlines()]
+    return replies, [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()]
 
 
 def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
@@ -191,7 +191,7 @@ def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
     env = {"LEXMOUNT_API_KEY": "k", "LEXMOUNT_PROJECT_ID": "p", "LEXMOUNT_BASE_URL": f"http://127.0.0.1:{server.server_port}"}
     options = {"engine_preference": "lightmount_domstable", "timeout_ms": 30000}
     replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options})
-    assert (tmp_path / "out" / rows[0]["file"]).read_text() == "stub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
+    assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8") == "stub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
     assert rows[0]["sha256"] and rows[1]["sha256"] is None
     server.shutdown()
     assert _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # harness-chosen options reach the API
@@ -203,7 +203,7 @@ def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
 
 def test_moli_backend_runs_the_local_binary_with_the_harness_chosen_arguments_only(tmp_path):
     fake = tmp_path / "moli"
-    fake.write_text('#!/bin/sh\nfor last; do :; done\nif [ "$last" = "https://x/bad" ]; then echo broken >&2; exit 3; fi\necho "args: $*"\n')
+    fake.write_text('#!/bin/sh\nfor last; do :; done\nif [ "$last" = "https://x/bad" ]; then echo broken >&2; exit 3; fi\necho "args: $*"\n', encoding="utf-8")
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     params = {"argv": ["fetch", "--wait-until", "domstable"]}
     replies, rows = _mcp("moli", {"MOLI_BINARY": str(fake)}, tmp_path, ["https://x/good", "https://x/bad"], params=params)
@@ -221,7 +221,7 @@ def test_moli_backend_refuses_to_run_without_configured_arguments(tmp_path):
 @pytest.fixture
 def fake_moli(tmp_path):
     path = tmp_path / "moli-bin"
-    path.write_text('#!/bin/sh\necho "moli 1.1.27"\n')
+    path.write_text('#!/bin/sh\necho "moli 1.1.27"\n', encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
     return str(path)
 
@@ -278,15 +278,15 @@ def _record(case, arm, **over):
 def _save(root, record, attempt=1):
     d = root / "runs" / f"{record['case_id']}__{record['arm']}__r1__a{attempt}"
     d.mkdir(parents=True)
-    (d / "markdown.txt").write_text(record["final_text"])  # the tests use final_text as the content that is scored
-    (d / "record.json").write_text(json.dumps(record))
+    (d / "markdown.txt").write_text(record["final_text"], encoding="utf-8")  # the tests use final_text as the content that is scored
+    (d / "record.json").write_text(json.dumps(record), encoding="utf-8")
 
 
 def test_one_chance_per_run_every_task_counts_and_invalid_runs_are_never_averaged(tmp_path, monkeypatch):
     case_map = {c: {"id": c, "task_kind": "body"} for c in ("a", "b", "c", "d")}
     monkeypatch.setattr(scoring, "evaluate_response", lambda case, response, **kw: {"passed": response == b"good"})
     (tmp_path / "plan.json").write_text(json.dumps({"args": {}, "versions": {"claude_code": "v"}, "dataset": {"id": "d", "sha256": "0" * 64},
-                                                    "cases": list(case_map), "runs": []}))
+                                                    "cases": list(case_map), "runs": []}), encoding="utf-8")
     for case in case_map:
         _save(tmp_path, _record(case, "builtin", final_text="good" if case == "a" else "no", subagent_tokens=1000))
         _save(tmp_path, _record(case, "moli", route="m", subagent_tokens=200))
@@ -390,16 +390,16 @@ def test_builtin_markdown_excludes_the_model_written_summary_tail():
 
 def test_mcp_arms_score_the_backend_output_even_when_claude_code_replaced_it(tmp_path):
     (tmp_path / "backend_outputs").mkdir()
-    (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT")
+    (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT", encoding="utf-8")
     rows = [{"ok": True, "file": "call-1.txt"}]
     replaced = "Error: result (238,281 characters across 3 lines) exceeds maximum allowed tokens. Output has been saved to /x."
     found = arms._markdown_evidence(tmp_path, "moli", replaced, rows)
-    assert (tmp_path / "markdown.txt").read_text() == "COMPLETE BACKEND OUTPUT"
+    assert (tmp_path / "markdown.txt").read_text(encoding="utf-8") == "COMPLETE BACKEND OUTPUT"
     assert found["replaced_by_claude_code"] is True and found["received_matches_backend"] is False and found["fetch_failed_backend"] is False
     same = arms._markdown_evidence(tmp_path, "moli", "COMPLETE BACKEND OUTPUT", rows)
     assert same["received_matches_backend"] is True and same["replaced_by_claude_code"] is False
     failed = arms._markdown_evidence(tmp_path, "moli", "Fetch failed (status 1): timeout", [{"ok": False}])
-    assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text() == ""  # nothing is scored for a failed fetch
+    assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text(encoding="utf-8") == ""  # nothing is scored for a failed fetch
 
 
 def test_per_suite_sampling_takes_the_same_number_from_every_suite_and_respects_ineligible_tasks():
@@ -447,8 +447,8 @@ def test_stream_parsing_keeps_tool_results_with_line_separator_characters():
 
 def test_saved_binary_files_are_listed_from_the_harness_note_only():
     note = ("report text - /tmp/x/tool-results/webfetch-1-a.png\n[Harness note, not part of the agent's report: saved:\n"
-            "  - /Users/u/.claude/projects/p/s/tool-results/webfetch-17-ab.pdf\nIn this run WebFetch saved files only under /p]")
+            "  - /tmp/claude/projects/p/s/tool-results/webfetch-17-ab.pdf\nIn this run WebFetch saved files only under /p]")
     events = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Agent", "input": {}}]}},
               {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": note}]}}]
     summary = arms.parse_stream("\n".join(json.dumps(e) for e in events))[5]
-    assert summary["saved_files"] == ["/Users/u/.claude/projects/p/s/tool-results/webfetch-17-ab.pdf"]
+    assert summary["saved_files"] == ["/tmp/claude/projects/p/s/tool-results/webfetch-17-ab.pdf"]

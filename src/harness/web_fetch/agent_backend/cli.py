@@ -88,7 +88,7 @@ def cmd_run(args) -> int:
 
 def cmd_resume(args) -> int:
     root = args.run
-    document = json.loads((root / "plan.json").read_text())
+    document = json.loads((root / "plan.json").read_text(encoding="utf-8"))
     _, cases, sha = experiment.load_cases(args.dataset)
     if sha != document["dataset"]["sha256"]:
         raise SystemExit("task source changed since the plan was written; start a new run")
@@ -106,7 +106,7 @@ def cmd_resume(args) -> int:
 
 
 def cmd_score(args) -> int:
-    document = json.loads((args.run / "plan.json").read_text())
+    document = json.loads((args.run / "plan.json").read_text(encoding="utf-8"))
     meta, cases, _ = experiment.load_cases(args.dataset) if args.dataset else experiment.load_materials(args.materials)
     if meta.get("kind") != "executable":
         raise SystemExit("scoring needs a dataset with reference texts: omit --dataset to use the pinned materials")
@@ -118,7 +118,7 @@ def cmd_score(args) -> int:
     if different:
         raise SystemExit("the dataset's URL differs from the planned one for: " + ", ".join(different[:5]))
     summary = scoring.score_run(args.run, cases, price_per_1000_usd=args.price_per_1000)
-    print((args.run / "summary.md").read_text())
+    print((args.run / "summary.md").read_text(encoding="utf-8"))
     return 0 if summary["controls"]["empty_fails"] == summary["controls"]["cases"] else 1
 
 
