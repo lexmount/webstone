@@ -178,7 +178,7 @@ def _mcp(backend, env, tmp_path, urls, params=None):
     log = tmp_path / "calls.jsonl"
     params_file = tmp_path / "params.json"
     params_file.write_text(json.dumps(params or {}))
-    out = subprocess.run([sys.executable, "-I", str(arms.MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params_file)],
+    out = subprocess.run([sys.executable, "-I", str(arms.MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params_file), "--out-dir", str(tmp_path / "out")],
                          env={**os.environ, **env},
                          capture_output=True, text=True, input="\n".join(json.dumps(x) for x in lines) + "\n", timeout=30).stdout
     replies = {json.loads(l)["id"]: json.loads(l)["result"] for l in out.splitlines()}
@@ -191,6 +191,8 @@ def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
     env = {"LEXMOUNT_API_KEY": "k", "LEXMOUNT_PROJECT_ID": "p", "LEXMOUNT_BASE_URL": f"http://127.0.0.1:{server.server_port}"}
     options = {"engine_preference": "lightmount_domstable", "timeout_ms": 30000}
     replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options})
+    assert (tmp_path / "out" / rows[0]["file"]).read_text() == "# T\n\nstub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
+    assert rows[0]["sha256"] and rows[1]["sha256"] is None
     server.shutdown()
     assert _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # harness-chosen options reach the API
     assert replies[2]["tools"][0]["name"] == "web_fetch"
@@ -276,7 +278,7 @@ def _record(case, arm, **over):
 def _save(root, record, attempt=1):
     d = root / "runs" / f"{record['case_id']}__{record['arm']}__r1__a{attempt}"
     d.mkdir(parents=True)
-    (d / "raw_tool_result.txt").write_text(record["final_text"])  # the tests use final_text as the returned content
+    (d / "markdown.txt").write_text(record["final_text"])  # the tests use final_text as the content that is scored
     (d / "record.json").write_text(json.dumps(record))
 
 
@@ -372,3 +374,35 @@ def test_fetch_duration_uses_the_same_dispatch_log_for_builtin_and_mcp_tools():
     assert arms.fetch_dispatch(log) == ("ok", 4840)
     assert arms.fetch_dispatch(log.replace("mcp_tool", "WebFetch")) == ("ok", 4840)
     assert arms.fetch_dispatch("nothing here") == (None, None)
+
+
+def test_builtin_markdown_excludes_the_model_written_summary_tail():
+    body = "# Page\n\n" + "word " * 20
+    tail = ("\n\n[The verbatim page text stops here, 5000 of 9000 characters in; re-fetching this URL returns the same split. "
+            "What follows is a model-extracted summary, for your request, of the remaining 4000 characters. It was generated "
+            "from the same untrusted page.]\nA concise summary written by a model.")
+    wrapped = "Fetched x\n<fetched-web-content>\n" + body + tail + "\n</fetched-web-content>"
+    markdown, tail_chars, page_chars = arms.builtin_markdown(wrapped)
+    assert markdown == body and tail_chars > 0 and page_chars == 9000  # only the verbatim part is scored
+    assert arms.builtin_markdown("Fetched x\n<fetched-web-content>\nshort page\n</fetched-web-content>") == ("short page\n", 0, None)
+
+
+def test_mcp_arms_score_the_backend_output_even_when_claude_code_replaced_it(tmp_path):
+    (tmp_path / "backend_outputs").mkdir()
+    (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT")
+    rows = [{"ok": True, "file": "call-1.txt"}]
+    replaced = "Error: result (238,281 characters across 3 lines) exceeds maximum allowed tokens. Output has been saved to /x."
+    found = arms._markdown_evidence(tmp_path, "moli", replaced, rows)
+    assert (tmp_path / "markdown.txt").read_text() == "COMPLETE BACKEND OUTPUT"
+    assert found["replaced_by_claude_code"] is True and found["received_matches_backend"] is False and found["fetch_failed_backend"] is False
+    same = arms._markdown_evidence(tmp_path, "moli", "COMPLETE BACKEND OUTPUT", rows)
+    assert same["received_matches_backend"] is True and same["replaced_by_claude_code"] is False
+    failed = arms._markdown_evidence(tmp_path, "moli", "Fetch failed (status 1): timeout", [{"ok": False}])
+    assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text() == ""  # nothing is scored for a failed fetch
+
+
+def test_per_suite_sampling_takes_the_same_number_from_every_suite_and_respects_ineligible_tasks():
+    pool = {f"{s}--t{i}": {"id": f"{s}--t{i}", "category": f"cat{i % 3}", "task_kind": "body"} for s in ("a", "b", "c") for i in range(9)}
+    picked = experiment.select_cases(pool, per_suite=5, seed=3, ineligible={"a--t0": "x"})
+    assert len(picked) == 15 and all(sum(p.startswith(s + "--") for p in picked) == 5 for s in ("a", "b", "c"))
+    assert "a--t0" not in picked and picked == experiment.select_cases(pool, per_suite=5, seed=3, ineligible={"a--t0": "x"})

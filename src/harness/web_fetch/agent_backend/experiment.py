@@ -53,6 +53,26 @@ def load_cases(dataset: pathlib.Path | None = None):
     return {"id": payload.get("id"), "kind": "definitions"}, cases, hashlib.sha256(raw).hexdigest()
 
 
+def load_materials(root: pathlib.Path | None = None):
+    """Load the scorable 530-task records (with reference texts) shipped in the pinned dataset snapshot.
+
+    Returns (metadata, {"<suite>--<id>": case dict}, sha256 of the five suite hashes). Each suite's
+    ``dataset.json`` is checked against the hash in its ``source-inputs.json``.
+    """
+    from harness.benchmarks import data
+    base = pathlib.Path(root) if root else data.snapshot("webfetch") / "definitions" / "materials" / "primary-content-20261103"
+    cases, digest = {}, hashlib.sha256()
+    for suite in ("webfetch", "dynamic-content", "popular-sites", "access-restrictions", "articles"):
+        raw = (base / suite / "dataset.json").read_bytes()
+        expected = json.loads((base / suite / "source-inputs.json").read_text())["dataset_sha256"]
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError(f"materials for {suite} do not match their recorded hash")
+        digest.update(hashlib.sha256(raw).digest())
+        for case in json.loads(raw)["cases"]:
+            cases[f"{suite}--{case['id']}"] = case
+    return {"id": "primary-content-20261103", "kind": "executable"}, cases, digest.hexdigest()
+
+
 def prompt_for(case: dict) -> str:
     """The task prompt of the full-content view when the task has paired views, else its own prompt.
 
@@ -64,7 +84,7 @@ def prompt_for(case: dict) -> str:
 
 def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limit: int = 20, seed: int = 20261123,
                  include: list[str] | None = None, case_ids: list[str] | None = None,
-                 exclude: list[str] | None = None, ineligible: dict | None = None) -> list[str]:
+                 exclude: list[str] | None = None, ineligible: dict | None = None, per_suite: int = 0) -> list[str]:
     """Deterministic stratified sample: round-robin over categories after a seeded shuffle.
 
     ``exclude`` removes tasks from the pool before sampling; the caller records the list in the plan.
@@ -74,6 +94,15 @@ def select_cases(cases: dict, *, task_kinds: tuple = ("body", "structure"), limi
     if set(ineligible or {}) & set(case_ids or []):
         raise ValueError("explicitly selected tasks are not configurable for every arm: "
                          + ", ".join(sorted(set(ineligible) & set(case_ids))))
+    if per_suite:  # the same sampling inside every suite (the id prefix before "--"), spread over its categories
+        suites = sorted({cid.split("--")[0] for cid in cases if "--" in cid})
+        picked = []
+        for suite in suites:
+            inner = {cid: case for cid, case in cases.items() if cid.startswith(suite + "--")}
+            picked += select_cases(inner, task_kinds=task_kinds, limit=per_suite, seed=seed, include=[i for i in (include or []) if i in inner],
+                                   case_ids=None, exclude=[i for i in (exclude or []) if i in inner],
+                                   ineligible={i: r for i, r in (ineligible or {}).items() if i in inner})
+        return sorted(picked)
     skipped = set(exclude or []) | set(ineligible or {})
     if (set(exclude or []) - set(cases) or skipped & set(include or []) or set(exclude or []) & set(case_ids or [])):
         raise ValueError("exclude must name known tasks that are not also included")

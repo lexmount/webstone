@@ -97,14 +97,13 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         loaded = [_load(directory, n) for n, directory in items]
         record, previous = loaded[-1], loaded[:-1]  # the last attempt is the only result; earlier ones are evidence
         directory = items[-1][1]
-        raw = (directory / "raw_tool_result.txt").read_text()
-        match = WRAPPER.search(raw)
+        markdown = (directory / "markdown.txt").read_text(encoding="utf-8")  # the backend's own content; see arms.py
         case = cases[record["case_id"]]
         record["retried"] = bool(previous)
         record["retry_reasons"] = [x for p in previous for x in (p["invalid_reasons"] or ["fetch_failed"])]
         # The benchmark defines one verdict per task: does the content the fetch tool returned pass the acceptance
         # rules. The agent's final answer is rewritten text and has no annotation, so it is stored but never scored.
-        record["passed"] = record["valid"] and verdict(case, match.group(1) if match else raw, bool(raw), unscorable)
+        record["passed"] = record["valid"] and verdict(case, markdown, bool(markdown), unscorable)
         rows.append(record)
         earlier.extend(previous)
     # A task/repetition enters the comparison only if every arm's final run is valid and the task is satisfiable,
@@ -136,6 +135,10 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "failed_fetch_after_retry": sum(r["fetch_failed"] for r in mine),
             "compared_runs": len(used), "routes": dict(Counter(r["route"] for r in mine)),
             "passed": sum(r["passed"] for r in used),
+            "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
+            "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
+            "replaced_by_claude_code_runs": sum(bool(r.get("replaced_by_claude_code")) for r in mine),
+            "markdown_chars": _stats([r.get("markdown_chars") for r in used]),
             # Metrics describe final attempts only. Earlier attempts are listed under ``retry_cost``, never averaged in.
             "subagent_tokens": _stats([r["subagent_tokens"] for r in used]),
             "subagent_duration_ms": _stats([r["subagent_duration_ms"] for r in used]),

@@ -52,7 +52,8 @@ def claude_version(claude_bin: str = "claude") -> str:
 
 def _server(backend: str, log: pathlib.Path, params: pathlib.Path) -> dict:
     return {"command": sys.executable,
-            "args": ["-I", str(MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params)]}
+            "args": ["-I", str(MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params),
+                     "--out-dir", str(log.parent / "backend_outputs")]}
 
 
 def build_command(arm: str, prompt: str, out: pathlib.Path, *, claude_bin: str, model: str) -> list[str]:
@@ -139,6 +140,24 @@ def fetch_dispatch(debug_text: str):
     return outcome, duration
 
 
+SUMMARY_MARKER = re.compile(r"\n*\[The verbatim page text stops here, (\d+) of (\d+) characters in;")
+WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
+
+
+def builtin_markdown(raw: str) -> tuple[str, int, int | None]:
+    """Return (verbatim markdown, characters of model-written summary, page length the tool reported).
+
+    Above its size limit the built-in tool returns the first part of the page verbatim and then a summary of the
+    rest written by a model, announced by a fixed line. The summary is not page content and is never scored.
+    """
+    match = WRAPPER.search(raw)
+    inner = match.group(1) if match else raw
+    marker = SUMMARY_MARKER.search(inner)
+    if not marker:
+        return inner, 0, None
+    return inner[:marker.start()], len(inner) - marker.start(), int(marker.group(2))
+
+
 def classify_route(calls: list[dict], bash: list[str]) -> str:
     """Name the route the model actually took for this request."""
     fetch = [c for c in calls if c["tool"] in FETCH_TOOLS]
@@ -161,6 +180,30 @@ def fetch_failed(raw: str | None, tool_flagged_error: bool) -> bool:
     text = raw or ""
     return (tool_flagged_error or not text or text.startswith("Fetch failed")
             or text.startswith("The server returned HTTP") or "is unable to fetch from" in text[:200])
+
+
+def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: list[dict], flagged_error: bool = False) -> dict:
+    """Write ``markdown.txt``, the content that is scored, and describe how it relates to what the agent saw.
+
+    * built-in: the verbatim part of the tool result; a model-written summary tail is excluded and counted.
+    * MCP backends: the backend's own complete output (saved by the server); the stream copy may have been
+      replaced by Claude Code with a size-limit error, which is recorded, not scored.
+    """
+    received = raw or ""
+    if backend == "builtin":
+        failed = fetch_failed(raw, flagged_error)
+        markdown, tail, page_chars = ("", 0, None) if failed else builtin_markdown(received)
+        evidence = {"summary_tail_chars": tail, "page_chars_reported": page_chars, "summarized_tail": bool(tail)}
+        failed_flag = failed
+    else:
+        good = [r for r in rows if r.get("ok") and r.get("file")]
+        markdown = (out / "backend_outputs" / good[-1]["file"]).read_text(encoding="utf-8") if good else ""
+        replaced = bool(good) and received != markdown and "exceeds maximum allowed tokens" in received[:200]
+        evidence = {"received_chars": len(received), "received_matches_backend": bool(good) and received == markdown,
+                    "replaced_by_claude_code": replaced}
+        failed_flag = not good
+    (out / "markdown.txt").write_text(markdown, encoding="utf-8")
+    return {"markdown_chars": len(markdown), "fetch_failed_backend": failed_flag, **evidence}
 
 
 def validate(record: dict, arm: str) -> list[str]:
@@ -244,9 +287,10 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     }
     log = out / "backend_calls.jsonl"
     rows = [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.exists() else []
+    record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
-    record["fetch_failed"] = fetch_failed(raw, delegated["fetch_error"])
+    record["fetch_failed"] = record["fetch_failed_backend"]  # the backend's own result, not the agent's view of it
     record["invalid_reasons"] = validate(record, arm)
     record["valid"] = not record["invalid_reasons"]
     (out / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=1))

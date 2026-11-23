@@ -26,6 +26,7 @@ def _plan_args(parser):
     parser.add_argument("--out", type=pathlib.Path, default=None, help="default: <data home>/experiments/agent-fetch")
     parser.add_argument("--task-kinds", default="body,structure", help="task kinds answered as text (resource and file tasks are not)")
     parser.add_argument("--limit", type=int, default=20, help="stratified sample size; 0 = every selected task")
+    parser.add_argument("--per-suite", type=int, default=0, help="sample this many tasks from every suite (overrides --limit)")
     parser.add_argument("--include", default="", help="comma list of task ids always included")
     parser.add_argument("--case-ids", default="", help="explicit comma list; overrides sampling")
     parser.add_argument("--exclude", default="", help="comma list of task ids to skip (recorded in plan.json)")
@@ -54,7 +55,8 @@ def _prepare(args):
     ineligible = backend_params.ineligible(pool, backends, moli=moli)
     ids = experiment.select_cases(cases, task_kinds=kinds, limit=args.limit, seed=args.seed,
                                   include=_split(args.include), case_ids=_split(args.case_ids),
-                                  exclude=_split(args.exclude), ineligible=ineligible)
+                                  exclude=_split(args.exclude), ineligible=ineligible,
+                                  per_suite=args.per_suite)
     plan = experiment.make_plan(ids, _split(args.arms), args.reps, args.seed)
     run_id = args.run_id or time.strftime("%Y%m%d-%H%M%S")
     root = (args.out or experiment.default_root()) / run_id
@@ -78,7 +80,7 @@ def cmd_run(args) -> int:
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=args.model, timeout=args.timeout,
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
                        retries=args.retries, concurrent_arms=not args.serial_arms)
-    return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, price_per_1000=args.price_per_1000))
+    return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
 def cmd_resume(args) -> int:
@@ -96,14 +98,14 @@ def cmd_resume(args) -> int:
                        params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
                        retries=int(document["args"]["retries"]),
                        concurrent_arms=document["args"]["serial_arms"] != "True")
-    return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, price_per_1000=args.price_per_1000))
+    return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
 def cmd_score(args) -> int:
     document = json.loads((args.run / "plan.json").read_text())
-    meta, cases, _ = experiment.load_cases(args.dataset)
+    meta, cases, _ = experiment.load_cases(args.dataset) if args.dataset else experiment.load_materials(args.materials)
     if meta.get("kind") != "executable":
-        raise SystemExit("scoring needs the approved executable dataset: pass its dataset.json with --dataset")
+        raise SystemExit("scoring needs a dataset with reference texts: omit --dataset to use the pinned materials")
     missing = [i for i in document["cases"] if i not in cases]
     if missing:
         raise SystemExit("the dataset lacks tasks of this run: " + ", ".join(missing[:5]))
@@ -187,6 +189,8 @@ def main(argv=None) -> int:
             _plan_args(p)
         if name in ("resume", "score"):
             p.add_argument("--run", type=pathlib.Path, required=True)
+        if name == "score":
+            p.add_argument("--materials", type=pathlib.Path, default=None, help="directory with the per-suite scorable datasets (default: the pinned snapshot)")
         if name in ("run", "resume", "score"):
             p.add_argument("--price-per-1000", type=float, default=0.75, help="USD per 1000 Lexmount API calls")
         p.set_defaults(handler=handler)

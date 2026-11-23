@@ -7,9 +7,12 @@ other request parameter comes from ``--params`` (a JSON file the harness writes 
 
 Standard library only, so Claude Code can start it with any Python 3.11+ interpreter. Claude Code passes its
 own environment to MCP servers, so no secret is written to disk. Every call is appended to ``--log`` as JSON
-Lines: url, status (HTTP status or process exit code), wall_ms, chars.
+Lines: url, status (HTTP status or process exit code), ok, wall_ms, chars, sha256. With ``--out-dir`` the complete
+output of each successful call is also saved, because Claude Code replaces a result above its size limit with an
+error pointing to a file and the backend's own output is what the benchmark scores.
 """
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -70,12 +73,12 @@ BACKENDS = {"lexmount": lexmount, "moli": moli}
 
 
 def fetch(backend, url, timeout, params=None):
-    """Return (text, is_error, log_row)."""
+    """Return (text, is_error, log_row). ``log_row["ok"]`` is the backend's own verdict, not the agent's view."""
     started = time.time()
     text, status, request_id, message = BACKENDS[backend](url, timeout, params or {})
-    row = {"url": url, "status": status, "wall_ms": round((time.time() - started) * 1000), "chars": len(text),
-           "request_id": request_id}
     ok = bool(text) and status in (0, 200)
+    row = {"url": url, "status": status, "ok": ok, "wall_ms": round((time.time() - started) * 1000), "chars": len(text),
+           "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if ok else None, "request_id": request_id}
     return (text if ok else f"Fetch failed (status {status}): {message}"), not ok, row
 
 
@@ -100,6 +103,11 @@ def serve(args):
         elif method == "tools/call":
             url = ((message.get("params") or {}).get("arguments") or {}).get("url", "")
             text, is_error, row = fetch(args.backend, url, args.timeout, params)
+            if args.out_dir and not is_error:  # the backend's complete output, whatever the agent is shown
+                os.makedirs(args.out_dir, exist_ok=True)
+                row["file"] = f"call-{sum(1 for _ in open(args.log)) + 1 if os.path.exists(args.log) else 1}.txt"
+                with open(os.path.join(args.out_dir, row["file"]), "w", encoding="utf-8") as handle:
+                    handle.write(text)
             with open(args.log, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
             send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": text}], "isError": is_error}})
@@ -112,5 +120,6 @@ if __name__ == "__main__":
     parser.add_argument("--backend", required=True, choices=sorted(BACKENDS))
     parser.add_argument("--log", required=True)
     parser.add_argument("--params", help="JSON file with the harness-chosen request parameters for this run")
-    parser.add_argument("--timeout", type=float, default=60.0)
+    parser.add_argument("--out-dir", help="directory that receives each successful call's complete output")
+    parser.add_argument("--timeout", type=float, default=45.0, help="per-call budget in seconds (the Web Fetch caller budget)")
     serve(parser.parse_args())
