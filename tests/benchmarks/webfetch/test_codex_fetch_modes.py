@@ -562,6 +562,53 @@ def test_lexmount_bridge_caps_http_body(monkeypatch, tmp_path, oversized):
         assert codex_lexmount.parse_returns(case, events, items, tmp_path).ok
 
 
+@pytest.mark.parametrize(
+    "raw, rejection",
+    [
+        (rb'{"result":{"main_text":"fixture-key"}}', "credential_reflection"),
+        (rb'{"result":{"main_text":"\u0066ixture-key"}}', "credential_reflection"),
+        (rb'{"result":{"main_text":"safe","\u0066ixture-key":"value"}}', "credential_reflection"),
+        (rb'{"result":{"nested":["\u0066ixture-key"]}}', "credential_reflection"),
+        (
+            rb'{"result":{"main_text":"\u0066ixture-key","main_text":"safe"}}',
+            "credential_reflection",
+        ),
+        (rb'{"result":{"main_text":"\u0066ixture-key"}', "uninspectable_response"),
+        (rb'{"result":{"main_text":"some\nplain text"}}', None),
+    ],
+)
+def test_lexmount_bridge_inspects_credentials_before_retaining_body(
+    monkeypatch, tmp_path, raw, rejection
+):
+    import time
+
+    from harness.web_fetch.providers import codex_lexmount, http_client
+
+    monkeypatch.setattr(
+        codex_lexmount,
+        "repository_env",
+        lambda: {"LEXMOUNT_API_KEY": "fixture-key", "LEXMOUNT_PROJECT_ID": "fixture-project"},
+    )
+    monkeypatch.setattr(
+        codex_lexmount,
+        "request",
+        lambda *args, **kwargs: http_client.HttpResponse(200, codex_lexmount.ENDPOINT, {}, raw),
+    )
+    reply = codex_lexmount._fetch_once(
+        tmp_path,
+        {"url": URL, "deadline": time.monotonic() + 10},
+    )
+    response_path = tmp_path / "response.bin"
+    receipt = json.loads((tmp_path / "receipt.json").read_bytes())
+    if rejection:
+        assert reply["isError"] and "fixture-key" not in json.dumps(reply)
+        assert not response_path.exists()
+        assert receipt == {"status": 200, rejection: True}
+    else:
+        assert not reply.get("isError")
+        assert response_path.read_bytes() == raw and receipt == {"status": 200}
+
+
 def test_lexmount_provider_public_entry_resumes_same_thread(monkeypatch):
     provider = codex.CodexProvider(
         "codex-lexmount-auto", {"mode": "lexmount-auto", "expected_version": "1.2.3"}

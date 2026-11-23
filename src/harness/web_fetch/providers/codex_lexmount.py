@@ -91,6 +91,22 @@ def serve(directory):
         print(json.dumps({"jsonrpc": "2.0", "id": event["id"], "result": result}), flush=True)
 
 
+def _reflects_credential(raw: bytes, secrets: tuple[str, ...]) -> bool:
+    if any(secret.encode() in raw for secret in secrets):
+        return True
+    if b"\\" not in raw:
+        return False
+    # Keep object pairs so keys and even shadowed values are checked.
+    pending = [json.loads(raw.decode("utf-8", errors="replace"), object_pairs_hook=list)]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str) and any(secret in value for secret in secrets):
+            return True
+        if isinstance(value, (list, tuple)):
+            pending.extend(value)
+    return False
+
+
 def _fetch_once(directory, case):
     remaining = case["deadline"] - time.monotonic()
     if remaining <= 0:
@@ -128,12 +144,17 @@ def _fetch_once(directory, case):
         (directory / "receipt.json").write_text(json.dumps(failure))
         return _answer("Lexmount request ended before an HTTP response", error=True)
     raw = response.body
-    secrets = [
-        credentials[name].encode()
-        for name in (*CREDENTIALS, "CODEX_API_KEY")
-        if credentials.get(name)
-    ]
-    if any(secret in raw for secret in secrets):
+    secrets = tuple(
+        credentials[name] for name in (*CREDENTIALS, "CODEX_API_KEY") if credentials.get(name)
+    )
+    try:
+        reflection = _reflects_credential(raw, secrets)
+    except (ValueError, RecursionError):
+        (directory / "receipt.json").write_text(
+            json.dumps({"status": response.status, "uninspectable_response": True})
+        )
+        return _answer("Could not safely inspect Lexmount HTTP response", error=True)
+    if reflection:
         (directory / "receipt.json").write_text(
             json.dumps({"status": response.status, "credential_reflection": True})
         )
@@ -267,6 +288,14 @@ def parse_returns(case, events, items, directory):
     if len(calls) != len(mcp) or any(not _blocked_repeat(i) for i in later):
         return fail("codex_lexmount_violation", "Unverified additional tool invocation")
     metadata["blocked_later_attempts"] = len(later)
+    if receipt.get("uninspectable_response"):
+        return fail(
+            "lexmount_uninspectable_response", "Could not safely inspect Lexmount HTTP response"
+        )
+    if receipt.get("credential_reflection"):
+        return fail(
+            "lexmount_credential_reflection", "Unsafe credential reflection in Lexmount response"
+        )
     if "response_limit_bytes" in receipt:
         return fail("lexmount_response_too_large", "Lexmount HTTP response exceeded the byte limit")
     if raw is None or status is None:
