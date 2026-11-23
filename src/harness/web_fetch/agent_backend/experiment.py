@@ -126,6 +126,14 @@ def _git_head() -> str | None:
         return None
 
 
+def dataset_commit() -> dict:
+    """The dataset commit this run's task definitions come from: repository, full commit and archive hash."""
+    from harness.benchmarks import data
+    binding = data.binding("webfetch")
+    return {"repository": binding["repository"], "revision": binding["revision"],
+            "archive_sha256": binding["archive"]["sha256"]}
+
+
 def _moli_identity() -> dict:
     """Version and SHA-256 of the Moli binary the run will use."""
     binary = shutil.which(os.environ.get("MOLI_BINARY", "moli"))
@@ -141,7 +149,8 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
     document = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "args": args,
         "versions": {"claude_code": arm_module.claude_version(claude_bin), "python": platform.python_version(),
-                     "webstone_commit": _git_head(), "moli": moli},
+                     "webstone_commit": _git_head(), "moli": moli,
+                     "dataset_commit": dataset_commit() if meta.get("kind") == "definitions" else None},
         "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt_scope": "full",
         "fixed_environment": arm_module.FIXED_ENV,
         "ineligible_for_all_arms": ineligible or {}, "cases": case_ids, "runs": plan,

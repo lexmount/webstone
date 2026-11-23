@@ -87,6 +87,9 @@ def cmd_resume(args) -> int:
     _, cases, sha = experiment.load_cases(args.dataset)
     if sha != document["dataset"]["sha256"]:
         raise SystemExit("task source changed since the plan was written; start a new run")
+    recorded = document["versions"].get("dataset_commit")
+    if recorded and recorded != experiment.dataset_commit():
+        raise SystemExit("the pinned dataset commit differs from the one recorded in plan.json; start a new run")
     moli = backend_params.moli_provider() if "moli" in document["args"]["arms"] else None
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=document["args"]["model"],
                        timeout=int(document["args"]["timeout"]),
