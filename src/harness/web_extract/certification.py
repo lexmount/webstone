@@ -11,6 +11,7 @@ from harness.web_extract.dataset import (
     IMPLICIT_RECORD_INSTRUCTIONS,
     benchmark_config,
     input_mode,
+    registry_sha256,
     task_bindings,
 )
 from harness.web_extract.pipeline import (
@@ -206,6 +207,8 @@ def create_plan(
             "memory": "Remote memory unavailable; the local baseline is timed separately.",
         },
     }
+    # Product requests are declared in the benchmark registry too; bind it for every cohort.
+    plan["dataset_registry_sha256"] = registry_sha256()
     if benchmark_config(home)["adapter"] is not None:
         if any(not METHODS.get(method).custom_schema for method in methods):
             raise ValueError("This dataset requires a complete arbitrary-schema extraction API")
@@ -357,6 +360,8 @@ def run(
             raise ValueError("Frozen extraction instructions differ from the dataset")
     if records and plan.get("schema") != "archived-extraction-full-cohort/1":
         raise ValueError("Frozen plan schema differs from the selected record benchmark")
+    if plan.get("dataset_registry_sha256", registry_sha256()) != registry_sha256():
+        raise ValueError("Frozen benchmark registry changed")
     if records or plan.get("task_adapter_sha256"):
         bindings = task_bindings(home)
         if not bindings or any(plan.get(key) != value for key, value in bindings.items()):
@@ -469,6 +474,8 @@ def run(
     validate_dataset(home)
     if records and any(plan.get(key) != value for key, value in task_bindings(home).items()):
         raise ValueError("Task adapter or dataset profile changed during collection")
+    if plan.get("dataset_registry_sha256", registry_sha256()) != registry_sha256():
+        raise ValueError("Benchmark registry changed during collection")
     if (
         digest(profile.read_bytes()) != precall["profile_sha256"]
         or contract["pipeline_sha256"] != precall["pipeline_sha256"]

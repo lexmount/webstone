@@ -40,6 +40,7 @@ from harness.web_extract.dataset import (
     benchmark_config,
     fixed_field_benchmark,
     input_mode,
+    registry_sha256,
 )
 from lexbench_webfetch.paths import validate_http_url
 
@@ -2143,6 +2144,8 @@ def _probe_unlocked(
         "fixture_suffix": fixture_suffix,
         "dataset_manifest_sha256": digest((home / "dataset/manifest.json").read_bytes()),
         "pipeline_sha256": digest(Path(__file__).read_bytes()),
+        # Product and record request declarations live in the benchmark registry.
+        "dataset_registry_sha256": registry_sha256(),
         "schema": read_json(home / "dataset/schemas.json")
         if benchmark_config(home)["adapter"] is not None
         else SCHEMA,
