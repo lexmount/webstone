@@ -605,8 +605,8 @@ the ordinary locked main binding.
 For a host with a per-work size limit, export Chinese and English separately from the same checked bilingual report. Each edition retains every original request and measured result, with only its own language's pages. The language switch opens the paired publication.
 
 ```sh
-uv run --frozen python -m harness.web_search export /absolute/path/to/english-delivery --output /absolute/path/to/bilingual-report --delivery-language en --counterpart-url https://reports.example.org/s/chinese
-uv run --frozen python -m harness.web_search export /absolute/path/to/chinese-delivery --output /absolute/path/to/bilingual-report --delivery-language zh --counterpart-url https://reports.example.org/s/english
+uv run --frozen python -m harness.web_search delivery /absolute/path/to/english-delivery --output /absolute/path/to/bilingual-report --delivery-language en --counterpart-url https://reports.example.org/s/chinese
+uv run --frozen python -m harness.web_search delivery /absolute/path/to/chinese-delivery --output /absolute/path/to/bilingual-report --delivery-language zh --counterpart-url https://reports.example.org/s/english
 ```
 
 Generate both languages before exporting. A missing translation or a non-HTTPS counterpart fails before any delivery files are written.

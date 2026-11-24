@@ -44,21 +44,28 @@ class RecordSchema:
     roles: Mapping[str, str]
     fields: Mapping[str, tuple[type, ...]] = field(default_factory=dict)
     optional: Mapping[str, tuple[type, ...]] = field(default_factory=dict)
+    # Roles whose field may hold null, such as the elapsed time of an untimed call.
+    nullable: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if set(self.roles) != set(COMMON_ROLES):
             raise ValueError(f"{self.id}: bind every common role: {', '.join(COMMON_ROLES)}")
+        if not self.nullable <= set(COMMON_ROLES):
+            raise ValueError(f"{self.id}: only common roles can be nullable")
 
     @property
     def id(self) -> str:
         return f"{self.name}/{self.version}"
 
     def required(self) -> dict[str, tuple[type, ...]]:
-        return {**{self.roles[role]: types for role, types in COMMON_ROLES.items()}, **self.fields}
+        roles = {self.roles[role]: (*types, type(None)) if role in self.nullable else types
+                 for role, types in COMMON_ROLES.items()}
+        return {**roles, **self.fields}
 
     def extend(self, name: str, version: int, **fields: tuple[type, ...]) -> RecordSchema:
         """A schema with the same roles and additional required fields."""
-        return RecordSchema(name, version, self.roles, {**self.fields, **fields}, self.optional)
+        return RecordSchema(name, version, self.roles, {**self.fields, **fields}, self.optional,
+                            self.nullable)
 
     def validate(self, record: object, where: str = "record") -> dict:
         if not isinstance(record, dict):
