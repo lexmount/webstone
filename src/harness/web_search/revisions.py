@@ -5,6 +5,7 @@ import re
 from copy import deepcopy
 from pathlib import Path
 
+from harness.web_search.benchmarks import reference_dataset
 from lexbench_websearch.answer_rules import POLICY_NAME, RULE_VERSION, reference_rule
 from lexbench_websearch.contracts import validate_cases
 from lexbench_websearch.inputs import digest
@@ -42,7 +43,8 @@ def capture_mirror_observations(dataset, previous, output, token, *, collect=Fal
     from harness.web_search.core import response_entries, write_json
     from harness.web_search.runner import http_call
     from lexbench_webfetch.paths import contained_path
-    from lexbench_websearch.simpleqa import article_text, mirror_candidates
+    rules = reference_dataset().rules
+    article_text, mirror_candidates = rules.article_text, rules.mirror_candidates
 
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -218,8 +220,7 @@ def article_observation(raw, url, *, status, verified_at, media_type='text/html'
     """Extract a bounded article lead from frozen HTML for mirror verification."""
     from bs4 import BeautifulSoup
 
-    from lexbench_websearch.simpleqa import MIRROR_LEAD_CHARACTERS
-
+    MIRROR_LEAD_CHARACTERS = reference_dataset().rules.MIRROR_LEAD_CHARACTERS
     canonical_url(url)
     if media_type == 'text/markdown':
         from markdown_it import MarkdownIt
@@ -529,10 +530,8 @@ def validate_revision_controls(revision, normalizer=None):
                     raise ValueError('Document-level relevance deduplication regression failed')
                 continue
             if control.get('kind') == 'reference_mirror':
-                from lexbench_websearch.simpleqa import qualify_mirror
-
                 try:
-                    proof = qualify_mirror(control['reference'], control['candidate'],
+                    proof = reference_dataset().rules.qualify_mirror(control['reference'], control['candidate'],
                         answer=control['case']['reference_answer'] if control.get('full_capture') else None)
                 except ValueError:
                     if not control.get('error'):
@@ -627,15 +626,35 @@ def validate_revision_controls(revision, normalizer=None):
     normalization_regressions(revision.get("regressions_sha256"), normalizer)
 
 
+def validate_release_definitions(track, files):
+    """Check a reference dataset's published definitions; named by its card metadata."""
+    rules = reference_dataset(track).rules
+    for name, raw in files.items():
+        if name.startswith('definitions/datasets/') and name.endswith('.json'):
+            dataset = json.loads(raw)
+            if dataset.get('case_repairs'):
+                validate_revision_controls(dataset['case_repairs'])
+                if rules.repair_cases(dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
+                    raise ValueError('Published task repairs must already be applied')
+                rules.validate_repair_evidence(dataset, lambda path: files['definitions/' + path])
+            rules.validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
+
+
 def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=None, captured_contracts=None):
     """Apply only validated reference extensions from a locked dataset revision."""
     from harness.benchmarks.data import binding, definition_path, safe_path
     from lexbench_websearch.contracts import validate_cases
 
-    if (not isinstance(selected, dict) or set(selected) not in ({'track', 'revision', 'path', 'sha256'}, {'track', 'revision', 'path', 'sha256', 'proposal'})
-            or selected['track'] != 'simpleqa-verified'
-            or selected['path'] != 'datasets/factual-v1.json'):
-        raise ValueError('Reference extensions require the canonical SimpleQA dataset binding')
+    reference = None
+    if isinstance(selected, dict):
+        try:
+            reference = reference_dataset(selected.get('track'))
+        except ValueError:
+            reference = None
+    if (reference is None or set(selected) not in ({'track', 'revision', 'path', 'sha256'}, {'track', 'revision', 'path', 'sha256', 'proposal'})
+            or selected['path'] != reference.path):
+        raise ValueError('Reference extensions require the canonical binding of a registered reference dataset')
+    rules = reference.rules
     proposal = selected.get('proposal')
     if 'proposal' in selected and not proposal:
         raise ValueError('Invalid pending dataset proposal')
@@ -644,7 +663,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=N
         import tarfile
 
         if (set(proposal) != {'repository', 'pull_request', 'manifest', 'archive'}
-                or proposal['repository'] != 'Lexmount/LexBench-SimpleQA-Verified'
+                or proposal['repository'] != reference.repository
                 or type(proposal['pull_request']) is not int or proposal['pull_request'] < 1
                 or not re.fullmatch('[0-9a-f]{40}', selected['revision'])):
             raise ValueError('Invalid pending dataset proposal')
@@ -689,8 +708,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=N
         raise ValueError('Reference dataset hash differs from the selected snapshot')
     dataset = json.loads(raw)
     validate_cases(dataset['cases'])
-    from lexbench_websearch.simpleqa import repair_cases, validate_reference_evidence
-
+    repair_cases, validate_reference_evidence = rules.repair_cases, rules.validate_reference_evidence
     repairs = dataset.get('case_repairs')
     if repairs and not set(repairs.get('regression_ids', [])).issubset(regression_ids or []):
         raise ValueError('Task repair requires its bound regression controls')
@@ -718,8 +736,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=N
             case['derivation'] = indexed[case['id']]['derivation']
             for key in ('answer_derivation', 'equivalent_reference_urls', 'equivalent_reference_provenance'):
                 case.pop(key, None)
-    from lexbench_websearch.simpleqa import FULL_MIRROR_POLICIES, FULL_MIRROR_POLICY
-
+    FULL_MIRROR_POLICIES, FULL_MIRROR_POLICY = rules.FULL_MIRROR_POLICIES, rules.FULL_MIRROR_POLICY
     full = dataset.get('reference_equivalence', {}).get('method') in FULL_MIRROR_POLICIES
     if full and regression_ids is not None and 'reference-question-evidence' not in regression_ids:
         raise ValueError('Full reference revision requires question-evidence regression controls')
@@ -746,8 +763,7 @@ def apply_reference_dataset(cases, selected, *, regression_ids=None, artifacts=N
 
     validate_reference_evidence(dataset, captured)
     if repairs and proposal:
-        from lexbench_websearch.simpleqa import validate_repair_evidence
-        validate_repair_evidence(dataset, captured)
+        rules.validate_repair_evidence(dataset, captured)
     if repairs:
         for cid, case in cases.items():
             case.clear()

@@ -640,7 +640,8 @@ def judge_main(argv=None):
                         help='Repair an invalid saved answer once, preserving the original call')
     parser.add_argument('--level',choices=('l1','l2','l3'),help='Judge one isolated native output level')
     parser.add_argument('--field-admissions',type=Path,help='Hash-bound live-page admission bundle for L2')
-    parser.add_argument('--simpleqa-grader', type=Path, help='Hash-pinned official SimpleQA grader source for L3')
+    parser.add_argument('--answer-grader', type=Path,
+                        help='Hash-pinned grader source that the answer benchmark declares for L3')
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", args.token_env):
         raise ValueError("Judge credential variable must be a valid environment variable name")
@@ -689,8 +690,8 @@ def judge_main(argv=None):
         from harness.web_search.answers import judge_answers
 
         return judge_answers(profile, rows, args, token)
-    if args.simpleqa_grader:
-        parser.error('The official answer grader requires L3')
+    if args.answer_grader:
+        parser.error('The answer grader requires L3')
     source_requirements = (
         json.loads(args.source_requirements.read_text(encoding="utf-8")) if args.source_requirements else {}
     )

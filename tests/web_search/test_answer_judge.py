@@ -62,7 +62,7 @@ def answer_run(tmp_path, monkeypatch):
     monkeypatch.setattr('urllib.request.urlopen', send)
     args = ['--report', str(tmp_path/'report'), '--output', str(tmp_path/'judge'),
             '--model', 'test-model', '--base-url', 'https://judge.test/v1', '--workers', '1',
-            '--level', 'l3', '--simpleqa-grader', str(grader)]
+            '--level', 'l3', '--answer-grader', str(grader)]
     return dict(run=lambda extra=(): judge_main(args + list(extra)), profile=profile, rows=rows, requests=requests,
                 behavior=behavior, output=tmp_path/'judge', source=source, grader=grader)
 

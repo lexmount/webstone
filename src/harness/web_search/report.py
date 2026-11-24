@@ -33,12 +33,15 @@ from harness.reporting.presentation import check_presentation
 from harness.reporting.presentation import esc as escape_text
 from harness.reporting.publication import atomic_write
 from harness.reporting.publication_privacy import SENSITIVE_KEY, project_file
+from harness.reporting.release_check import check_report_identity
 from harness.reporting.versions import (
     FILENAME,
     bind_build_version,
-    check_build_version,
     software_identity,
 )
+from harness.web_search.adapters import ADAPTERS
+from harness.web_search.benchmarks import benchmark_of
+from harness.web_search.benchmarks import ordered as search_benchmarks
 from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
     aggregate,
@@ -1928,7 +1931,7 @@ def check(output, *, return_data=False, evidence_only=False):
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
     validate_content_revisions(manifest)
     if not evidence_only:
-        check_build_version(output, manifest)
+        check_report_identity(output, manifest, "web-search")
     if manifest.get("assessment_revision"):
         validate_revision_binding(manifest["assessment_revision"]["contract"], normalizer=normalize_response, authority=authority)
     _check_report_languages(output, manifest)
@@ -2895,7 +2898,9 @@ def fairness_table(profile, rows, zh):
         for key in ("limit", "count", "numResults", "num", "Cnt"):
             if key in request:
                 return str(request[key])
-        default = t("Default") if method.get("adapter") == "brightdata" else "—"
+        adapter = method.get("adapter")
+        default = (t("Default") if adapter in ADAPTERS and ADAPTERS.get(adapter).provider_default_limit
+                   else "—")
         return parse_qs(urlsplit(request.get("url", "")).query).get("num", [default])[0]
 
     entries = []
@@ -4073,12 +4078,10 @@ def quality_dataset(profile, content):
         population["case_ids"] = [cid for cid in population["case_ids"] if cid not in excluded]
     if content.get('output_level_assessments'):
         for case in active['cases']:
-            case['cohort'] = 'factual' if 'reference_answer' in case else 'scenario'
-        groups = [dict(id=identity, label=label,
-                       case_ids=[case['id'] for case in active['cases'] if case['cohort'] == identity])
-                  for identity, label in [
-                      ('scenario', dict(en='Scenario relevance', zh=zh_text('Scenario relevance'))),
-                      ('factual', dict(en='SimpleQA Verified', zh=zh_text('SimpleQA Verified')))]]
+            case['cohort'] = benchmark_of(case).name
+        groups = [dict(id=item.name, label=dict(en=item.label, zh=zh_text(item.label)),
+                       case_ids=[case['id'] for case in active['cases'] if case['cohort'] == item.name])
+                  for item in search_benchmarks()]
         active['report_cohorts'] = [group for group in groups if group['case_ids']]
         authored['independent_benchmarks'] = True
         authored['metric_populations'] = [dict(group, benchmark_root=True) for group in active['report_cohorts']]

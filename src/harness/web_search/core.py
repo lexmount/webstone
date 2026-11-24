@@ -42,14 +42,15 @@ def normalize(payload, adapter=None, top_k=None, *, base_url=None, project_slots
     if isinstance(payload, dict) and isinstance(payload.get("results"), list):
         pages = payload["results"][:top_k] if project_slots and top_k is not None else payload["results"]
         projected = []
+        config = adapter_for(adapter) if adapter is not None else None
         for rank, item in enumerate(pages, 1):
             try:
                 if isinstance(item, dict):
                     item = dict(item)
                     if base_url and isinstance(item.get("url"), str):
                         item["url"] = urljoin(base_url, item["url"])
-                    if adapter == "browserbase" and "snippet" not in item:
-                        item["snippet"] = item.get("description", "")
+                    if config is not None:
+                        item = config.normalize_item(item)
                     if "date" not in item and "published_at" not in item:
                         item["date"] = item.get("publishedDate")
                 if preserve_invalid_slots:
@@ -73,15 +74,12 @@ def normalize(payload, adapter=None, top_k=None, *, base_url=None, project_slots
 
 def normalize_response(payload, method, protocol, request=None):
     """Project native slots using the frozen request's URL-resolution policy."""
-    error = adapter_for(method["adapter"]).account_error(payload, method)
+    adapter = adapter_for(method['adapter'])
+    error = adapter.account_error(payload, method)
     if error:
         raise ValueError(error)
-    adapter = adapter_for(method['adapter'])
     if method.get('expected_response_version') is not None and not (adapter.failure and adapter.failure(payload)):
-        version = payload
-        for key in adapter_for(method['adapter']).version_path:
-            version = version.get(key) if isinstance(version, dict) else None
-        if version is None:
+        if adapter.response_version(payload) is None:
             raise ValueError('Search response is missing its edition version')
     policy = protocol.get("result_url_resolution")
     if policy not in (None, "request-url/1", "request-url/2"):
@@ -226,19 +224,16 @@ def validate_profile(profile, *, execution_methods=None):
     query_limit = 4096 if protocol.get("preserve_publisher_queries") else 128
     for method in methods:
         canonical_url(method["endpoint"])
-        adapter_for(method["adapter"])
+        adapter = adapter_for(method["adapter"])
         from lexbench_websearch.outputs import levels
-        fields = adapter_for(method['adapter']).field_map(method)
+        fields = adapter.field_map(method)
         if 'output_fields' in method and method['output_fields'] != fields:
             raise ValueError('Declared output fields differ from the native adapter')
         if 'output_levels' in method and method['output_levels'] != levels(fields):
             raise ValueError('Declared levels differ from the native output fields')
-        if method['adapter'] == 'tencent-wsa':
-            expected = method.get('expected_response_version')
-            edition = (method.get('output_options') or {}).get('edition', 'standard')
-            if (not isinstance(expected, str) or not expected.strip()
-                    or edition != expected):
-                raise ValueError('Yuanbao requires an expected response version matching its edition')
+        problems = adapter.validate(method)
+        if problems:
+            raise ValueError(problems[0])
         if method.get("billing", "unknown") not in BILLING_POLICIES:
             raise ValueError("Unsupported billing policy")
         for case in cases:

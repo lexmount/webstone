@@ -98,7 +98,7 @@ missing or overlapping cells still fail. The composed
 profile is a read-only scoring view and cannot be passed to the collector.
 
 Generated answers use the same `judge` command with `--level l3` and
-`--simpleqa-grader /absolute/simpleqa_eval.py`. The independent answer scorer
+`--answer-grader /absolute/simpleqa_eval.py`. The independent answer scorer
 pins the upstream source commit and SHA-256 in `lexbench_websearch.answers`;
 it reads the official template without executing upstream Python. Scenario
 usefulness, factual correctness and citation support use separate requests.
@@ -149,6 +149,13 @@ Partial annotations are available only for unranked diagnostics. Candidate text,
 rankings and the complete query population still verify against that scope.
 Do not transfer judgments between changed snippets or provider outputs, even
 when they return the same URL.
+
+Providers register in `adapters.py` (`ADAPTERS`); a provider's envelope, item
+projection, method rules and result-count default are hooks on its `Adapter`, never
+branches in the collector or report. Task populations register in `benchmarks.py`
+(`BENCHMARKS`): each declares its case membership, label, metric sets, level scores,
+L3 answer grading and, when it has one, the reference dataset whose revisions it
+accepts. A further benchmark is added by declaration there.
 
 SERP profiles select providers through the same collector and renderer. Supported adapters include Lexmount, Browserbase Parallel Advanced, Bright Data Google Light JSON and Serper Google. Keep each report's profile, selected participants and publication target alongside its external evidence. These services use different upstream indexes; the comparison measures their delivered rankings.
 
@@ -549,7 +556,7 @@ configurations whose fixed live-page sample fails admission; it never gives them
 zero scores. L3 requires the hash-pinned official SimpleQA grader source.
 
 Generate new pools with `judge --level l1`, `judge --level l2 --field-admissions …`
-and `judge --level l3 --simpleqa-grader …`. Relevance transport retries default to
+and `judge --level l3 --answer-grader …`. Relevance transport retries default to
 zero; `--retries 1` or `--retries 2` explicitly changes the frozen call budget.
 Native collection retries also require explicit opt-in. Keep source-specific
 projection controls when composing independently collected matrices.

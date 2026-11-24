@@ -7,6 +7,8 @@ from urllib.parse import urlsplit
 
 from harness.reporting.presentation import esc
 from harness.reporting.privacy import WEB_SEARCH_PREVIEW
+from harness.web_search.benchmarks import BENCHMARKS, GUIDE_OVERVIEW, benchmark_of
+from harness.web_search.benchmarks import ordered as search_benchmarks
 from harness.web_search.messages import report_text, zh_text
 from harness.web_search.relevance import parse_judgments
 from lexbench_websearch.evidence_quality import is_benchmark_page
@@ -151,7 +153,7 @@ def comparison_data(profile, selected_rows, zh=False, detail_link=None, relevanc
         if not check_types:
             check_types = ["availability"]
         cases.append({"id": case["id"], "query": case["query"],
-                      "benchmark": ('factual' if 'reference_answer' in case else 'scenario') if profile.get('protocol', {}).get('relevance_level') else case.get('benchmark') or case.get('cohort') or benchmark, "quality_excluded": quality_excluded, "check_types": check_types, "has_relevance": case["id"] in labels,
+                      "benchmark": benchmark_of(case).name if profile.get('protocol', {}).get('relevance_level') else case.get('benchmark') or case.get('cohort') or benchmark, "quality_excluded": quality_excluded, "check_types": check_types, "has_relevance": case["id"] in labels,
                       "criteria": {"answer": case.get("reference_answer"),
                                    "official_sources": (relevance or {}).get("source_requirements", {}).get(case["id"], {}),
                                    "urls": [_url(u) for u in case.get("reference_urls", case.get("anchors", [])) if _url(u)],
@@ -163,11 +165,9 @@ def comparison_data(profile, selected_rows, zh=False, detail_link=None, relevanc
     populations = profile.get("comparison_populations")
     if profile.get('protocol', {}).get('relevance_level'):
         populations = [
-            dict(id='scenario', label=dict(en='Scenario relevance', zh=zh_text('Scenario relevance')),
-                 case_ids=[case['id'] for case in cases if 'factual' not in case['check_types']]),
-            dict(id='factual', label=dict(en='SimpleQA Verified', zh=zh_text('SimpleQA Verified')),
-                 case_ids=[case['id'] for case in cases if 'factual' in case['check_types'] and not case['quality_excluded']]),
-        ]
+            dict(id=item.name, label=dict(en=item.label, zh=zh_text(item.label)),
+                 case_ids=[case['id'] for case in cases if case['benchmark'] == item.name and not case['quality_excluded']])
+            for item in search_benchmarks()]
     if not populations:
         populations = [
             {"id": "overall", "label": {"en": "All tasks", "zh": zh_text("All tasks")}, "case_ids": [c["id"] for c in cases]},
@@ -252,7 +252,7 @@ def render_comparison(profile, selected_rows, zh, detail_link=None, relevance=No
         label = group.get('label', group['id'])
         names[group['id']] = label.get('zh' if zh else 'en', group['id']) if isinstance(label, dict) else label
     if profile.get('protocol', {}).get('relevance_level'):
-        names.update(scenario=t('Scenario relevance'), factual=t('SimpleQA Verified'))
+        names.update({item.name: t(item.label) for item in search_benchmarks()})
     default_group = next((case['benchmark'] for case in data['cases'] if 'factual' not in case['check_types']), 'all')
     benchmark_options = [("all", t("All saved responses · {cases}", cases=len(data['cases'])))] + [
         (key, names.get(key, key) + " · " + str(sum(c["benchmark"] == key and not c["quality_excluded"] for c in data["cases"]))) for key in populations
@@ -303,21 +303,17 @@ def render_level_guide(views, zh=False):
     panels = first['benchmarks']
     scope = {name: len(panel['case_ids']) for name, panel in panels.items()}
     inputs = {'l1': (t('Search result lists'), t('URLs, titles and primary previews, when returned. Previews keep their original length.')), 'l2': (t('Additional source text'), t('Titles and additional original excerpts. Primary previews, full page bodies and generated answers are excluded. This is a separate score, not an improvement over L1.')), 'l3': (t('Generated answers'), t('The complete answer returned by the API. Answer quality is judged independently of the result list and excerpts.'))}
-    tasks = {'l1': [(t('Are the first five results useful, and are the best ones ranked first?'),), (t('How highly is an annotated reference page ranked in the first five results?'), t('Answer-text match is a secondary check on titles and primary previews; it is not answer correctness.'))], 'l2': [(t('Do the titles and additional excerpts satisfy the search intent, in the returned order?'),), (t('Does any of the first five additional excerpts contain the reference answer text?'), t('This text-match check excludes titles and primary previews; it does not judge a generated answer.'))], 'l3': [(t('Does the generated answer directly satisfy the request?'),), (t('Is the generated answer correct against the reference answer?'), t('The official SimpleQA rubric classifies answers as correct, incorrect or not attempted.'))]}
-    metric_labels = dict(ndcg=t('nDCG@5'), precision=t('Precision@5'), success=t('Success@5'),
-                         source_rr=t('MRR@5'), source_hit=t('Source Hit@5'),
-                         answer_match=t('Extra-text Answer Match@5'),
-                         answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'))
     body = '<section class="level-guide" data-level-guide aria-labelledby="level-guide-heading">'
     body += '<h2 id="level-guide-heading">' + t('What each output evaluation measures') + '</h2>'
     body += '<p>' + t('One API response can contain several output types. Each is scored separately; L1, L2 and L3 scores are not added together.') + '</p>'
-    body += '<p>' + t('Scenario queries measure search usefulness; SimpleQA checks factual sources and answers. Each output type has its own primary metric.') + '</p><details class="guide-details"><summary>' + t('Benchmark tasks and scored fields') + '</summary>'
-    benchmarks = [name for name in ('scenario', 'factual') if name in panels]
+    declared = [item for item in search_benchmarks() if item.name in panels]
+    body += '<p>' + t(GUIDE_OVERVIEW) + '</p>'
+    body += '<details class="guide-details"><summary>' + t('Benchmark tasks and scored fields') + '</summary>'
+    benchmarks = [item.name for item in declared]
     column_titles = {
-        'scenario': t('Scenario benchmark · {count} queries', count=scope.get('scenario', 0))
-                    + '<p class="metric-caption">' + t('Practical searches for official sites, resources and information.') + '</p>',
-        'factual': t('SimpleQA Verified · {count} valid queries', count=scope.get('factual', 0))
-                   + '<p class="metric-caption">' + t('Factual questions with reference answers and source pages.') + '</p>',
+        item.name: t(item.text['column'], count=scope.get(item.name, 0))
+        + '<p class="metric-caption">' + t(item.text['caption']) + '</p>'
+        for item in declared
     }
     headers = [t('Output and scored fields')] + [column_titles[name] for name in benchmarks]
     body += '<div class="scroll" tabindex="0" role="region" aria-label="' + t('Output evaluation matrix') + '"><table class="level-guide-table"><thead><tr>'
@@ -329,12 +325,12 @@ def render_level_guide(views, zh=False):
         body += '<details data-level-participants="' + level + '"><summary>' + t('{count} participating methods', count=len(methods)) + '</summary><ul>'
         body += ''.join('<li data-guide-method="' + esc(method['id']) + '">' + esc(method['label']) + '</li>' for method in methods) + '</ul></details></th>'
         for name in benchmarks:
-            definition = tasks[level][0 if name == 'scenario' else 1]
-            question, *extra = definition
+            text = BENCHMARKS.get(name).text
+            question, *extra = (t(value) for value in text['guide'][level])
             panel = view['benchmarks'][name]
             metric = next(m for m in panel['metrics'] if m['key'] == panel['primary_metric'])
-            body += '<td data-level-test="' + name + '"><p>' + question + '</p><p><strong data-guide-primary="' + esc(metric['key']) + '">' + t('Primary metric: {metric}', metric=metric_labels[metric['key']]) + '</strong></p>'
-            body += '<p class="metric-caption">' + (t('Model grading') if name == 'scenario' or level == 'l3' else t('Rule-based scoring')) + '</p>'
+            body += '<td data-level-test="' + name + '"><p>' + question + '</p><p><strong data-guide-primary="' + esc(metric['key']) + '">' + t('Primary metric: {metric}', metric=t(metric['label'])) + '</strong></p>'
+            body += '<p class="metric-caption">' + (t('Model grading') if level in text['model_graded'] else t('Rule-based scoring')) + '</p>'
             body += ''.join('<p class="metric-caption">' + text + '</p>' for text in extra) + '</td>'
         body += '</tr>'
     body += '</tbody></table></div>'
@@ -387,8 +383,10 @@ def metric_definitions(panel, level, labels, zh=False):
         'source_hit': (t('matched queries / all queries'), t('Query fraction with a verified reference page in the first five. URL equivalents and verified document copies count.')),
         'answer_match': (t('matched queries / all queries'), t('Reference-answer text appears in a title or primary preview among the first five results. Explicit aliases and numeric ranges are accepted; this is not answer correctness.') if level == 'l1' else t('Reference-answer text appears in an additional excerpt among the first five. Titles and primary previews are excluded; this is not answer correctness.')),
         'answer_grade': (t('mean(grade), 0–3'), t('Generated-answer usefulness is graded 0–3, then averaged over all scenario queries.')),
-        'correct': (t('correct / all queries'), t('Official SimpleQA grading: correct answers divided by every factual query. Incorrect, missing and not-attempted answers do not count as correct.')),
     }
+    for item in search_benchmarks():
+        definitions.update({key: (t(formula), t(explanation))
+                            for key, (formula, explanation) in item.text.get('metric_notes', {}).items()})
     definitions['publisher_rr'] = (definitions['source_rr'][0], t('Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.'))
     definitions['publisher_hit'] = (definitions['source_hit'][0], t('Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.'))
     body = '<details class="metric-guide" data-metric-definitions><summary>' + t('Metric definitions') + '</summary>'
@@ -440,10 +438,13 @@ def render_level_summary(view, zh=False, *, content=None):
                   publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
                   failed_calls=t('Failed requests'), empty_outputs=t('Empty outputs'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
-                  answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'),
+                  answer_grade=t('Answer usefulness / 3'),
                   citation_support=t('Citation support'), cited_urls_in_results=t('Cited URLs in results'),
                   context_characters=t('Text characters / query'), mean_ms=t('Mean ms'),
                   p50_ms=t('P50 ms'), p95_ms=t('P95 ms'))
+    # Benchmark-specific metrics take the label their benchmark declares.
+    labels.update({metric['key']: t(metric['label']) for panel in view['benchmarks'].values()
+                   for metric in panel['metrics'] if metric['key'] not in labels})
     body = '<section class="level-summary" data-level-panel="' + level + '" data-output-level="' + level + '" id="' + level + '">'
     body += '<h2>' + level.upper() + ' · ' + titles[level] + '</h2>'
     if len(methods) > 1:
@@ -571,7 +572,7 @@ def render_level_summary(view, zh=False, *, content=None):
                     cell = cell.replace('<td', '<td data-extra-column hidden', 1)
                 cells.append(cell)
             rendered.append('<tr data-summary-method="' + esc(method['id']) + '">' + ''.join(cells) + '</tr>')
-        name = t('Scenario relevance') if benchmark == 'scenario' else t('SimpleQA Verified')
+        name = t(BENCHMARKS.get(benchmark).label)
         body += '<article data-level-benchmark="' + benchmark + '"><h3>' + name + f' · {n}' + t(' queries') + '</h3>'
         body += '<p data-dataset-purpose>' + level_purpose(level, benchmark, zh) + '</p>'
         body += level_conclusion(view, panel, zh)
@@ -591,19 +592,11 @@ def render_level_findings(view, zh=False):
     body = '<section data-level-panel="' + level + '" id="' + level + '" data-level-findings="' + level + '"><h2>' + level.upper() + '</h2>'
     for benchmark, panel in view['benchmarks'].items():
         key = panel['primary_metric']
-        name = t('Scenario relevance') if benchmark == 'scenario' else t('SimpleQA Verified')
-        if benchmark == 'scenario':
-            description = (t('Scenario queries test how useful the generated answer is, from 0 to 3.') if level == 'l3'
-                           else t('Scenario queries test whether the delivered text satisfies the query; nDCG@5 rewards relevant results appearing earlier.'))
-        elif level == 'l1':
-            description = t('Factual queries test retrieval of the annotated supporting pages. MRR@5 rewards finding that source earlier; alternative pages are not automatically equivalent sources.')
-        elif level == 'l2':
-            description = t('Factual queries test whether the extra text contains the reference answer. Source ranking is not measured at this level.')
-        else:
-            description = t('Factual answers are graded correct, incorrect or not attempted with the official SimpleQA template. The primary metric is the fraction graded correct.')
-        metric = (t('nDCG@5') + ' × 100' if key == 'ndcg' else t('MRR@5') if key == 'source_rr' else
-                  t('Answer usefulness / 3') if key == 'answer_grade' else t('SimpleQA accuracy') if key == 'correct' else
-                  t('Extra-text Answer Match@5'))
+        declared = BENCHMARKS.get(benchmark)
+        name = t(declared.label)
+        description = t(declared.text['finding'][level])
+        primary = next(m for m in panel['metrics'] if m['key'] == key)
+        metric = t(primary['label']) + (' × 100' if key == 'ndcg' else '')
         values = []
         n = len(panel['case_ids'])
         for method in view['profile']['methods']:
@@ -674,7 +667,7 @@ def render_level_results(views, zh=False, *, detail_link=None):
             for score in view['answer_scores']:
                 row = rows[score['case_id'], score['method']]
                 case = cases[row['case_id']]
-                benchmark = t('SimpleQA Verified') if 'reference_answer' in case else t('Scenario relevance')
+                benchmark = t(benchmark_of(case).label)
                 grade = (dict(CORRECT=t('Correct'), INCORRECT=t('Incorrect'), NOT_ATTEMPTED=t('Not attempted'))[score['factual_grade']]
                          if 'factual_grade' in score else str(score['answer_grade']) + ' / 3')
                 # HTML anchors are resolved once by the page writer; JSON links are already rooted.
@@ -744,15 +737,7 @@ def render_level_detail(views, row, zh=False):
 
 
 def level_purpose(level, benchmark, zh=False):
-    t = partial(report_text, zh=zh)
-    if benchmark == 'scenario':
-        return (t('Search tasks test the usefulness and ranking of the first five results.')
-                if level != 'l3' else t('Search tasks test whether the generated answer satisfies the request.'))
-    if level == 'l1':
-        return t('Factual questions test whether the first five results find a verified reference page and rank it early.')
-    if level == 'l2':
-        return t('Factual questions test answer-text coverage in additional excerpts, excluding titles and primary previews.')
-    return t('Factual questions test generated-answer correctness with the official SimpleQA rubric.')
+    return report_text(BENCHMARKS.get(benchmark).text['purpose'][level], zh=zh)
 
 
 def level_conclusion(view, panel, zh=False):

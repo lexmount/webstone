@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from harness.web_search.benchmarks import catalog_keys
 from harness.web_search.messages import report_text, zh_text
 from harness.web_search.pages import reader_pages
 
@@ -42,8 +43,10 @@ def test_every_lookup_is_a_literal_catalog_key_and_every_key_is_used():
     dynamic = [name for name, _, source, _, _ in lookups if source is None]
     pages = {f"navigation|{row['en']}" for presentation in (None, "comparison-report")
              for row in reader_pages(presentation, reviewed=True)}
-    assert dynamic == ["pages.py"]
+    # Navigation and benchmark declarations supply their own keys; renderers pass them through.
+    assert set(dynamic) == {"pages.py", "comparison.py", "report.py"}
     used = {f"{context}|{source}" if context else source for _, _, source, context, _ in lookups if source is not None}
+    used |= catalog_keys()
     assert set(CATALOG) - used == pages
     assert used - set(CATALOG) == set()
 
@@ -80,3 +83,8 @@ def test_lookup_selects_the_edition_and_fills_named_values():
     assert report_text("Known page@{cutoff}", True, cutoff=5) == CATALOG["Known page@{cutoff}"].format(cutoff=5)
     with pytest.raises(KeyError):
         zh_text("Not in the catalog")
+
+
+def test_benchmark_declared_keys_keep_their_placeholders():
+    for key in catalog_keys():
+        assert _fields(CATALOG[key]) == _fields(key), key
