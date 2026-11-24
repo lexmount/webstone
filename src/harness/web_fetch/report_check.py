@@ -803,9 +803,19 @@ def main(argv=None, *, authority_root: Path | None = None):
     if args.source_spec and not args.variant:
         parser.error("--source-spec requires --variant")
     if args.variant:
+        ignored = [name for name, value in (('--visual-receipt', args.visual_receipt),
+                                            ('--presentation-binding', args.presentation_binding),
+                                            ('--source-dataset', args.source_dataset)) if value]
+        if args.source_spec and args.variant != 'saved-matrix':
+            ignored.append('--source-spec')
+        if ignored:
+            parser.error(f"--variant {args.variant} does not check " + ", ".join(ignored))
+        profile = args.profile
+        if profile is not None and not profile.is_absolute():
+            profile = args.authority_root / profile
         print(VARIANTS[args.variant].check(args.root, source_spec=args.source_spec,
                                            authority_root=args.authority_root,
-                                           profile_path=args.profile))
+                                           profile_path=profile))
         return
     if args.visual_receipt:
         from harness.web_fetch.published_snapshot import check_snapshot_visual

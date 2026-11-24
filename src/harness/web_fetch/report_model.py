@@ -70,9 +70,7 @@ class ReportModel:
             raise ValueError('Report model needs a dataset with a case list')
         if not isinstance(self.records, list) or not all(isinstance(row, Mapping) for row in self.records):
             raise ValueError('Report model needs a list of result rows')
-        if (self.dataset.get('comparison', {}).get('publication_state') == 'final_saved_results'
-                and self.source_admission != canonical_json_sha256([self.dataset, self.records])):
-            raise ValueError('Final saved results require source-backed admission')
+        self.require_admission()
         identities = [participant.id for participant in self.participants]
         if len(identities) != len(set(identities)):
             raise ValueError('Report model repeats a participant')
@@ -89,6 +87,12 @@ class ReportModel:
         unknown = set(self.options.dataset_case_ids or ()) - {case['id'] for case in self.dataset['cases']}
         if unknown:
             raise ValueError('Unknown dataset refresh cases: ' + ', '.join(sorted(unknown)))
+
+    def require_admission(self):
+        """Final saved results render only while they still match their admitted projection."""
+        if (self.dataset.get('comparison', {}).get('publication_state') == 'final_saved_results'
+                and self.source_admission != canonical_json_sha256([self.dataset, self.records])):
+            raise ValueError('Final saved results require source-backed admission')
 
     @property
     def labels(self) -> dict[str, str]:

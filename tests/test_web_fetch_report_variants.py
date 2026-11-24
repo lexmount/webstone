@@ -29,6 +29,21 @@ def test_profile_selects_by_declared_variant_then_comparison_kind(tmp_path):
         select(BuildRequest(profile=profile, evidence=tmp_path), "certified")
 
 
+def test_profile_with_an_unregistered_variant_is_a_usage_error(tmp_path):
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"variant": "diagnostic-cohort"}), encoding="utf-8")
+    with pytest.raises(VariantUsageError, match="Unregistered Web Fetch report variant"):
+        select(BuildRequest(profile=profile, evidence=tmp_path, output=tmp_path / "out"))
+
+
+def test_variant_check_rejects_options_it_would_ignore(tmp_path, capsys):
+    from harness.web_fetch.report_check import main
+    for option in ("--source-dataset", "--presentation-binding", "--visual-receipt", "--source-spec"):
+        with pytest.raises(SystemExit):
+            main([str(tmp_path), "--variant", "webmainbench-sample", option, str(tmp_path / "x")])
+        assert "does not check " + option in capsys.readouterr().err
+
+
 def test_variant_rejects_undeclared_and_missing_arguments(tmp_path):
     with pytest.raises(VariantUsageError, match="does not accept: --evidence"):
         select(BuildRequest(input=tmp_path, output=tmp_path, evidence=tmp_path), "saved-matrix")

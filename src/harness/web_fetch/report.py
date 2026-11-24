@@ -2260,6 +2260,8 @@ def local_audit_banner(dataset):
 def generate(out:Path,model:ReportModel):
  """The one renderer entry: write every route of a validated report model."""
  if not isinstance(model,ReportModel):raise TypeError('generate() takes a validated ReportModel')
+ # The model keeps its inputs by reference; admit them again at the render boundary.
+ model.require_admission()
  with rendering(model):
   entry=_render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
   _write_uncalled_participants(Path(out),model)

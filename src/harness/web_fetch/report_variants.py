@@ -117,7 +117,7 @@ def select(request: BuildRequest, explicit: str | None = None) -> ReportVariant:
     """Select the variant from the profile, or the one named explicitly when they agree."""
     profile = request.profile_data()
     declared = profile.get('variant')
-    selected = (variant(declared) if declared in VARIANTS
+    selected = (variant(declared) if declared is not None
                 else variant_for_kind(profile.get('comparison_kind')) if request.profile else None)
     if explicit is not None:
         if selected is not None and selected.name != explicit:
