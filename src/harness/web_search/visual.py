@@ -19,8 +19,8 @@ from harness.reporting.visual import (
     validate_routes,
     write_receipt,
 )
-from harness.web_search import pages
-from harness.web_search.pages import reader_pages
+from harness.web_search import template
+from harness.web_search.template import reader_pages
 
 SCHEMA = 'web-search-reader-capture/2'
 WIDTH, HEIGHT = 1280, 900
@@ -31,14 +31,14 @@ def producer_sources() -> dict[str, str]:
 
     return {
         'harness/web_search/visual.py': file_sha256(Path(__file__)),
-        'harness/web_search/pages.py': file_sha256(Path(pages.__file__)),
+        'harness/web_search/template.py': file_sha256(Path(template.__file__)),
         'harness/reporting/visual.py': file_sha256(Path(shared_visual.__file__)),
     }
 
 
 def routes(report: Path) -> list[tuple[str, str, str]]:
     manifest = json.loads((report / 'manifest.json').read_text())
-    chapters = [(p["key"], p["route"]) for p in reader_pages((manifest.get("authored") or {}).get("presentation"), reviewed=bool(manifest.get("independent_review_sha256")))]
+    chapters = [(p["key"], p["route"]) for p in reader_pages(manifest.get("authored"))]
     languages = manifest.get('languages') or [manifest['primary_language']]
     result = [(lang, name, (lang + '/' if lang != 'zh' else '') + route)
               for lang in languages for name, route in chapters]

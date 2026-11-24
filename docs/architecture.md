@@ -78,6 +78,8 @@ through configuration, registries or explicit parameters.
 | WCXB scoring, paired timing and publication | `wcxb_metrics.py`, `wcxb_scoring.py`, `wcxb_latency.py`, `wcxb_publication.py` |
 | Web Fetch report construction and rendering | `report_build.py`, `report.py` |
 | Common report assets, links, presentation and publication lifecycles (`publish.py`, with each track as an adapter) | `src/harness/reporting/` |
+| Report template contract: page roles, slot order, track templates, variants and section hooks ([spec](spec.md#report-templates)) | `src/harness/reporting/templates.py` |
+| Shared page shell and components (navigation, theme, language switch, tables, directional highlights, evidence links) and the message catalog API | `src/harness/reporting/shell.py`, `src/harness/reporting/locales.py` |
 | Generated-language inventory and absent-English notice | `src/harness/report_languages.py` |
 | Independent reviewer subprocess execution | `src/harness/review_runner.py` |
 | Shared WebArena deployment and network capture | `src/harness/environments/webarena/` |
@@ -126,7 +128,10 @@ Builders validate evidence and write a private staging directory before replacin
 a marked generated report. The current profile selects external report assets;
 missing assets do not fall back to an unversioned report or repository copy.
 The report owns its selected template identity, input hashes and generated
-languages. The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
+languages. Ported tracks record the base template, track template, variant and
+their versions in the report manifest, mark each page's role and slots, and
+their release checks compare the built pages with that recorded template; Web
+Search is the first track on the template (`src/harness/web_search/template.py`). The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
 routes, measurements and evidence links; absent English has only a notice and
 return link.
 

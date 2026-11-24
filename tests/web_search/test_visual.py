@@ -15,7 +15,7 @@ def report_fixture(root):
         'authored': {'presentation': 'comparison-report'},
     }), encoding='utf-8')
     for filename in ('index', 'dataset', 'results', 'performance',
-                     'research', 'capabilities', 'quality'):
+                     'research', 'capabilities', 'quality', 'review', 'reproduce', 'changes'):
         (root / (filename + '.html')).write_text(
             '<!doctype html><html lang="zh"><meta charset="utf-8"><main><h1>' + filename + '</h1></main>', encoding='utf-8')
 
@@ -47,11 +47,11 @@ def test_capture_produces_complete_bound_proof_and_rejects_tampering(tmp_path, m
     visual.capture(root, receipt)
     assert visual.verify(root, receipt)
     original = json.loads(receipt.read_text(encoding='utf-8'))
-    assert len(original['captures']) == (14 if primary == 'en' else 7)
+    assert len(original['captures']) == (20 if primary == 'en' else 10)
     assert next(item['route'] for item in original['captures'] if item['language'] == primary and item['route_class'] == 'home') == ('en/index.html' if primary == 'en' else 'index.html')
     assert {capture['route_class'] for capture in original['captures']} >= {'quality', 'performance'}
     assert original['browser_version']
-    assert set(original['producer_sources']) == {'harness/web_search/visual.py', 'harness/reporting/visual.py', 'harness/web_search/pages.py'}
+    assert set(original['producer_sources']) == {'harness/web_search/visual.py', 'harness/reporting/visual.py', 'harness/web_search/template.py'}
     assert all('readable' not in capture for capture in original['captures'])
     for damage in ('schema', 'manifest', 'producer', 'search-producer', 'shared-producer', 'browser', 'version', 'duplicate',
                    'page-language', 'final-route', 'missing', 'overflow', 'tiny', 'page-error', 'resource', 'heading', 'image', 'path'):
@@ -107,7 +107,7 @@ def test_standalone_routes_follow_saved_primary_language(tmp_path, primary, lang
         for page in root.glob('*.html'):
             (root / secondary / page.name).write_bytes(page.read_bytes())
     routes = visual.routes(root)
-    assert len(routes) == 7 * len(languages)
+    assert len(routes) == 10 * len(languages)
     assert {lang for lang, _, _ in routes} == set(languages)
     assert next(route for lang, chapter, route in routes if lang == primary and chapter == 'home') == ('en/index.html' if primary == 'en' else 'index.html')
     if secondary:
@@ -135,7 +135,10 @@ def test_footer_links_share_a_baseline_and_metric_guides_expand_without_page_ove
             page.goto(origin + '/index.html')
             boxes = page.locator('footer a').evaluate_all('(links)=>links.map(a=>{const range=document.createRange();range.selectNodeContents(a);const rect=range.getBoundingClientRect();return {y:rect.y,height:rect.height}})')
             assert len(boxes) >= 2
-            assert abs(boxes[0]['y'] - boxes[-1]['y']) < 2
+            # Links on one line share a baseline; a narrow page may wrap them onto further lines.
+            rows = sorted(box['y'] for box in boxes)
+            assert all(b - a < 2 or b - a >= min(box['height'] for box in boxes) * 0.8
+                       for a, b in zip(rows, rows[1:], strict=False))
             guide = page.locator('[data-metric-definitions]').first
             guide.locator('summary').first.click()
             assert guide.locator('[data-metric-definition]').first.is_visible()

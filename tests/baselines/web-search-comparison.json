@@ -142,6 +142,17 @@
      "h1: 接口与输出"
     ]
    },
+   "changes.html": {
+    "headings": [
+     "h1: 报告更新记录"
+    ],
+    "tables": [
+     [
+      "版本 | 语言 | 构建标识",
+      "当前构建 | zh, en | webstone-version.json"
+     ]
+    ]
+   },
    "dataset.html": {
     "headings": [
      "h1: 测试集与来源",
@@ -302,6 +313,17 @@
    "en/capabilities.html": {
     "headings": [
      "h1: API outputs"
+    ]
+   },
+   "en/changes.html": {
+    "headings": [
+     "h1: Report changes"
+    ],
+    "tables": [
+     [
+      "Release | Languages | Build identity",
+      "Current build | zh, en | webstone-version.json"
+     ]
     ]
    },
    "en/dataset.html": {
@@ -569,6 +591,11 @@
      ]
     ]
    },
+   "en/reproduce.html": {
+    "headings": [
+     "h1: Reproduce this report"
+    ]
+   },
    "en/research.html": {
     "headings": [
      "h1: Evaluation method",
@@ -593,6 +620,11 @@
      "h1: Query comparison",
      "h2: Compare methods on the same tasks",
      "h2: Actual outputs, side by side"
+    ]
+   },
+   "en/review.html": {
+    "headings": [
+     "h1: Independent result review"
     ]
    },
    "index.html": {
@@ -703,6 +735,11 @@
      ]
     ]
    },
+   "reproduce.html": {
+    "headings": [
+     "h1: 复现本报告"
+    ]
+   },
    "research.html": {
     "headings": [
      "h1: 评测方法",
@@ -728,6 +765,11 @@
      "h2: 同一道题，各家结果对比",
      "h2: 逐题查看实际输出"
     ]
+   },
+   "review.html": {
+    "headings": [
+     "h1: 独立审查结果"
+    ]
    }
   },
   "routes": [
@@ -735,33 +777,39 @@
    "calls/fixture-0-lexmount-r0.json cb52e64037188a38de19",
    "calls/fixture-1-deepseek-content-r0.json 5c120a40be700d465c31",
    "calls/fixture-1-lexmount-r0.json 6927ddb3cc59633bc9cf",
-   "capabilities.html 323d3fe87b4fe22b86b7",
-   "dataset.html f758c8a8282e2ad158d1",
-   "details/fixture-0-deepseek-content-r0.html 09ff9f0f4ec3a5dd36aa",
-   "details/fixture-0-lexmount-r0.html 1c8e9e4683290420662c",
-   "details/fixture-1-deepseek-content-r0.html ac336348f4fa2c1a44ef",
-   "details/fixture-1-lexmount-r0.html a6f539be99bccd703270",
-   "en/capabilities.html 416a1d7de97e90e25586",
-   "en/dataset.html 969159ac7bd0035d5843",
-   "en/details/fixture-0-deepseek-content-r0.html a9311e5e7e8d4bbafd1e",
-   "en/details/fixture-0-lexmount-r0.html 774f4f946aa3baeb8f54",
-   "en/details/fixture-1-deepseek-content-r0.html f480c4391e6d60fd8eae",
-   "en/details/fixture-1-lexmount-r0.html 1faa5246cdcfd7b87f43",
-   "en/index.html 7c656ea94e1e7ce5632f",
-   "en/performance.html 5970c13323f61999eac2",
-   "en/quality.html 1e39bd97fad048584f7d",
-   "en/research.html 53668fbf724c163736a3",
-   "en/results.html bd0ca915a33f0facc800",
+   "capabilities.html 8cbb92b6ecaabe956b19",
+   "changes.html 06046652ccd2be1135c5",
+   "dataset.html 12d5aaa67f2967d08186",
+   "details/fixture-0-deepseek-content-r0.html b006ce221ccb9086ce8d",
+   "details/fixture-0-lexmount-r0.html 97a02919175e8cf372c4",
+   "details/fixture-1-deepseek-content-r0.html 89d915af05587473125a",
+   "details/fixture-1-lexmount-r0.html 78ea374baf11470a1f3f",
+   "en/capabilities.html 25d2b415a3cc344cd23b",
+   "en/changes.html 531ab7cbfac1ef742789",
+   "en/dataset.html 937b76546e08b57bd1a3",
+   "en/details/fixture-0-deepseek-content-r0.html 8f2020d6ecff356d4c4c",
+   "en/details/fixture-0-lexmount-r0.html cac56eba07072a93bfa2",
+   "en/details/fixture-1-deepseek-content-r0.html aad41c9ea825bb3ae396",
+   "en/details/fixture-1-lexmount-r0.html 8c8c84c9ec151e67d7fe",
+   "en/index.html a2fe1a7b5e53dcbe7a28",
+   "en/performance.html 7f9b91d1666bb30e9056",
+   "en/quality.html 3bcaba93503bafe5443e",
+   "en/reproduce.html 9617b257908097e3d2f6",
+   "en/research.html 6a84933e51056df98147",
+   "en/results.html 79155aef0ea4550bd6b7",
+   "en/review.html eba12a63ccabca6c7f79",
    "factual-sensitivity.json 5fd971a6a56326346783",
-   "index.html 30efa2117912e2729065",
-   "manifest.json 8e227e3f614640af0ff6",
-   "performance.html 9d048706f8b0609f93a7",
-   "quality.html 1c1710442ac3e13fff84",
+   "index.html b688e613699421380d8d",
+   "manifest.json c0bf36cbf04dc4e6d37a",
+   "performance.html d750c7f64e7c6a5e4934",
+   "quality.html 35ab6ee6d7d37e6785a3",
    "query-catalog-license.txt 4787042ef9f5d9e353ed",
    "relevance-judgments.json d5aebdcfbb0693c85bd4",
    "report-languages.json d7b71009ed96dd4bf4fe",
-   "research.html 1c1e6cb17ad0cbe9208e",
-   "results.html 557fd434a79e0f9407f9",
+   "reproduce.html 99a4dc68dc60d4f43eba",
+   "research.html 76c2e198bf6a5437d132",
+   "results.html 161e9ac000b85dd73f61",
+   "review.html fab2da252506808e79f0",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  }

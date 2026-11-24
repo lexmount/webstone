@@ -121,13 +121,15 @@ class ReportScenarios(unittest.TestCase):
         build(self.out, source=self.root / "fixture", content=content)
         manifest = json.loads((self.out / "manifest.json").read_text(encoding="utf-8"))
         routes = {route for route in manifest["routes"] if "/" not in route}
-        self.assertEqual(routes, {"index.html", "capabilities.html", "quality.html", "performance.html", "dataset.html", "results.html", "research.html"})
+        self.assertEqual(routes, {"index.html", "capabilities.html", "quality.html", "performance.html", "dataset.html", "results.html", "research.html",
+                                  "review.html", "reproduce.html", "changes.html"})
         home = BeautifulSoup((self.out / "index.html").read_text(encoding="utf-8"), "html.parser")
         self.assertEqual(len(home.select('[data-executive]')), 1)
         self.assertEqual(len(home.select('[data-populations]')), 1)
         self.assertEqual(len(home.select('[data-executive] tbody tr')), 2)
         nav = [a['href'] for a in home.select('nav a')]
-        self.assertEqual(nav, ['index.html', 'capabilities.html', 'quality.html', 'performance.html', 'dataset.html', 'results.html'])
+        # A Chinese-only build links to the English not-generated notice.
+        self.assertEqual(nav, ['index.html', 'capabilities.html', 'quality.html', 'performance.html', 'dataset.html', 'results.html', 'en/index.html'])
         performance = BeautifulSoup((self.out / "performance.html").read_text(encoding="utf-8"), "html.parser")
         self.assertEqual(len(performance.select('[data-cost-budget]')), 1)
         self.assertEqual(len(performance.select('[data-timing-decomposition]')), 1)
@@ -856,7 +858,7 @@ def test_factual_detail_uses_ten_result_budget_without_changing_frozen_five_metr
     value = detail.find('td', string='前 10 条找到标注来源').find_next_sibling('td').get_text()
     assert float(value.replace(',', '')) == 1
     assert '前 5 条找到标注来源' not in detail.get_text()
-    from harness.web_search.report import factual_panel
+    from harness.web_search.benchmark_views import factual_panel
     factual = BeautifulSoup(factual_panel(profile, rows, True, compact=True), 'html.parser')
     assert [h.get_text() for h in factual.select('th')][1:3] == ['Hit@10（参考网页）', 'MRR@10（参考网页）']
 
@@ -875,9 +877,9 @@ def test_metrics_use_only_available_annotations_and_prices_ignore_unknown_invoic
     from harness.web_search.report import (
         benchmark_operations,
         cost_panel,
-        factual_panel,
         population_summary,
     )
+    from harness.web_search.benchmark_views import factual_panel
     from lexbench_websearch.relevance import candidate_packet, score
     from lexbench_websearch.scoring import evaluate
     profile = {'protocol': {'top_k': 5, 'rounds': 1, 'score_round': 0},
@@ -1106,4 +1108,53 @@ def test_release_check_rejects_missing_metric_explanations(tmp_path, selector):
     page.select_one(selector).decompose()
     path.write_text(str(page), encoding='utf-8')
     with pytest.raises(ValueError, match='Output-level presentation'):
+        check(output)
+
+
+@pytest.mark.parametrize("comparison", [False, True])
+def test_default_report_fills_every_template_role_from_data_alone(tmp_path, comparison):
+    from harness.reporting.templates import PAGE_ROLES, resolve_template
+    from harness.web_search.template import TEMPLATE
+
+    example(tmp_path, comparison=comparison)
+    output = tmp_path / "report"
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    variant = TEMPLATE.variant(manifest["template"]["variant"])
+    assert manifest["template"] == {**manifest["template"], **TEMPLATE.record(variant.name)}
+    assert {page.role for page in variant.pages} == set(PAGE_ROLES)
+    assert resolve_template("web-search")["variants"] == [item.name for item in TEMPLATE.variants]
+    review = BeautifulSoup((output / "review.html").read_text(encoding="utf-8"), "html.parser")
+    assert review.select_one("[data-review-absent]")
+    changes = BeautifulSoup((output / "changes.html").read_text(encoding="utf-8"), "html.parser")
+    assert changes.select_one("[data-release-history-absent]")
+    assert check(output)
+
+
+def test_release_check_rejects_pages_that_leave_their_template(tmp_path):
+    example(tmp_path)
+    output = tmp_path / "report"
+    manifest_path, home = output / "manifest.json", output / "index.html"
+    original_manifest, original_home = manifest_path.read_text(encoding="utf-8"), home.read_text(encoding="utf-8")
+
+    page = BeautifulSoup(original_home, "html.parser")
+    first, last = page.select("main > [data-slot]")[0], page.select("main > [data-slot]")[-1]
+    last.insert_after(first.extract())
+    home.write_text(str(page), encoding="utf-8")
+    with pytest.raises(ValueError, match="template order"):
+        check(output)
+    home.write_text(original_home.replace('data-page-role="home"', 'data-page-role="results"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="template role"):
+        check(output)
+    home.write_text(original_home, encoding="utf-8")
+
+    for damage, message in (({"variant": "comparison"}, "differs from its bound content"),
+                            ({"track_version": 0}, "different template version")):
+        manifest = json.loads(original_manifest)
+        manifest["template"].update(damage)
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(ValueError, match=message):
+            check(output)
+    manifest_path.write_text(original_manifest, encoding="utf-8")
+    (output / "reproduce.html").unlink()
+    with pytest.raises((ValueError, FileNotFoundError)):
         check(output)

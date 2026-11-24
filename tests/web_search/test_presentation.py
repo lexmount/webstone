@@ -6,12 +6,14 @@ from bs4 import BeautifulSoup
 
 from harness.reporting.presentation import check_presentation
 from harness.web_search.example import example
-from harness.web_search.report import check, numeric_cell, numeric_winners, factual_panel
+from harness.reporting.shell import numeric_cell, numeric_winners
+from harness.web_search.benchmark_views import factual_panel
+from harness.web_search.report import check
 
 
 @pytest.mark.parametrize('damage', ['missing-control', 'wrong-column', 'missing-state'])
 def test_sortable_comparison_requires_accessible_controls_for_every_column(damage):
-    from harness.web_search.report import table
+    from harness.reporting.shell import table
     doc = check_presentation(table(['Method', 'Latency'], ['<tr><td>A</td><td>1</td></tr>']))
     header = doc.select('th')[1]
     if damage == 'missing-control':

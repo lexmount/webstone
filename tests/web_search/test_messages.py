@@ -9,7 +9,7 @@ import pytest
 
 from harness.web_search.benchmarks import catalog_keys
 from harness.web_search.messages import report_text, zh_text
-from harness.web_search.pages import reader_pages
+from harness.web_search.template import TEMPLATE
 
 PACKAGE = Path(__file__).resolve().parents[2] / "src/harness/web_search"
 CATALOG = json.loads((PACKAGE / "messages.json").read_text(encoding="utf-8"))["zh"]
@@ -41,10 +41,9 @@ def _fields(template):
 def test_every_lookup_is_a_literal_catalog_key_and_every_key_is_used():
     lookups = list(_lookups())
     dynamic = [name for name, _, source, _, _ in lookups if source is None]
-    pages = {f"navigation|{row['en']}" for presentation in (None, "comparison-report")
-             for row in reader_pages(presentation, reviewed=True)}
+    pages = {f"navigation|{page.title}" for variant in TEMPLATE.variants for page in variant.pages}
     # Navigation and benchmark declarations supply their own keys; renderers pass them through.
-    assert set(dynamic) == {"pages.py", "comparison.py", "report.py"}
+    assert set(dynamic) == {"template.py", "comparison.py", "report.py"}
     used = {f"{context}|{source}" if context else source for _, _, source, context, _ in lookups if source is not None}
     used |= catalog_keys()
     assert set(CATALOG) - used == pages
@@ -65,7 +64,7 @@ def test_placeholders_are_supplied_in_both_languages():
 def test_catalog_keys_are_english_and_translations_are_catalog_only():
     assert not [key for key in CATALOG if HAN.search(key) or CHINESE_SEPARATORS.search(key)]
     assert CATALOG == dict(sorted(CATALOG.items()))
-    for name in ("comparison", "delivery", "pages", "relevance", "report", "review"):
+    for name in ("comparison", "delivery", "benchmark_views", "relevance", "template", "report", "review"):
         source = (PACKAGE / f"{name}.py").read_text(encoding="utf-8")
         assert not HAN.search(source) and not CHINESE_SEPARATORS.search(source), name
 
@@ -76,7 +75,7 @@ def test_lookup_selects_the_edition_and_fills_named_values():
     assert report_text("Mean ms", True, context="duration") == CATALOG["duration|Mean ms"]
     assert report_text("Known page@{cutoff}", False, cutoff=5) == "Known page@5"
     assert report_text("Known page@{cutoff}", True, cutoff=5) == CATALOG["Known page@{cutoff}"].format(cutoff=5)
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="Not in the catalog"):
         zh_text("Not in the catalog")
 
 

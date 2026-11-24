@@ -75,9 +75,8 @@
       "check": "uv run --frozen python -m harness.web_search report --output /absolute/report --check",
       "tests": "tests/web_search/test_report.py",
       "variants": [
-        "certified-api-comparison",
-        "synthetic",
-        "combined-cohorts"
+        "standard",
+        "comparison"
       ],
       "release_check": "uv run --frozen python -m harness.web_search report --output /absolute/report --release-check /absolute/visual-receipt.json --publication-plan /absolute/release/publication-plan.json",
       "execution_owner": "src/harness/web_search/runner.py",
