@@ -15,7 +15,8 @@ from webarena_verified.types.task import WebArenaSite
 from harness import env_file
 from harness.browser_use.publication import sanitize, sanitize_text
 from harness.environments.webarena import runtime, topology
-from harness.environments.webarena.config import SITES, verify_deployment_contract
+from harness.environments.webarena.config import verify_deployment_contract
+from harness.environments.webarena.sites import SITE_NAMES
 from harness.environments.webarena.topology import RECORDING_GATEWAYS
 from harness.record_io import canonical_json_sha256
 from harness.trajectory_replay import remote_runtime
@@ -123,7 +124,7 @@ def test_registry_reproduces_frozen_port_and_host_tables() -> None:
         "gitlab": 8023,
         "map": 8080,
     }
-    assert set(topology.TOPOLOGY["sites"]) == set(SITES)
+    assert set(topology.TOPOLOGY["sites"]) == set(SITE_NAMES)
     assert sorted(remote_runtime._unrebound_source_host().pattern.split("|")) == sorted(
         re.escape(host) for host in FROZEN_LOCAL_HOSTS
     )

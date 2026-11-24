@@ -12,6 +12,7 @@ from webarena_verified.core.utils.checksum import compute_evaluator_checksum
 from webarena_verified.types.task import WebArenaSite
 
 from harness.env_file import local_setting
+from harness.environments.webarena.sites import SHARED_SITES, STATEFUL_SITES
 from harness.environments.webarena.topology import TRUSTED_RECORDED_HOSTS
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl
 from harness.trajectory_replay.public_webarena.suite import load_suite
@@ -409,7 +410,6 @@ def validate_environment_preparation(
     profile = json.loads(environment_profile_path.read_text(encoding="utf-8"))
     deployment = resolved_deployment(profile)
     images = profile.get("images") or {}
-    mutable_sites = ("shopping", "shopping_admin", "reddit", "gitlab")
     if (
         profile.get("schema") not in ENVIRONMENT_SCHEMAS
         or receipt.get("schema") != "lex_webarena_environment_preparation/1"
@@ -422,13 +422,13 @@ def validate_environment_preparation(
         raise ValueError("environment preparation is not bound to the declared deployment")
     if receipt["method"] == "component_restarts_from_pinned_images" and set(
         receipt.get("reset_scope") or ()
-    ) != set(mutable_sites):
+    ) != set(STATEFUL_SITES):
         raise ValueError("environment preparation reset scope is incomplete")
     receipt_images = receipt.get("site_component_images") or {}
     volumes = receipt.get("database_volume_mounts") or {}
     initialization = receipt.get("initialization") or {}
     statuses = receipt.get("public_http_status") or {}
-    for site in mutable_sites:
+    for site in STATEFUL_SITES:
         expected_digest = images.get(site)
         if (
             not isinstance(expected_digest, str)
@@ -438,7 +438,7 @@ def validate_environment_preparation(
             or statuses.get(site) != 200
         ):
             raise ValueError(f"environment preparation is incomplete for {site}")
-    if set(receipt.get("shared_site_components") or ()) != {"map", "wikipedia"}:
+    if set(receipt.get("shared_site_components") or ()) != set(SHARED_SITES):
         raise ValueError("environment preparation has an unexpected shared-site scope")
     return receipt
 

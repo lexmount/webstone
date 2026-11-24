@@ -16,7 +16,7 @@ from typing import Any
 
 from harness.data_home import data_home
 from harness.distribution import repository_root
-from harness.lexbench import charts, reproduction
+from harness.lexbench import charts, layout_engine, reproduction
 from harness.lexbench.charts import combine_comparisons, render_chart
 from harness.lexbench.resource_evidence import load_matrix
 from harness.lexbench.resource_summary import summarize as summarize_linux_profiles
@@ -367,9 +367,9 @@ def read_run(name: str, paths: ReportPaths, certified: CertifiedCohort) -> RunRe
         raise ValueError(
             "Invalid Lexbench report evidence: len(rows) == call_count and m['completion_status'] == 'completed' and (m['expected_result_rows'] == call_count)"
         )
-    if not m["engines"]["moli"]["sha256"] == cohort["moli_sha256"]:
+    if not m["engines"][layout_engine()]["sha256"] == cohort["moli_sha256"]:
         raise ValueError(
-            "Invalid Lexbench report evidence: m['engines']['moli']['sha256'] == cohort['moli_sha256']"
+            "Invalid Lexbench report evidence: m['engines'][layout_engine()]['sha256'] == cohort['moli_sha256']"
         )
     if not m["bench_manifest"]["sha256"] == cohort["manifest_sha256"]:
         raise ValueError(
@@ -783,9 +783,9 @@ def summarize_cold_start(paths: ReportPaths, cohort: JsonObject, mode: str) -> J
         manifest = json.loads(
             contained_path(directory, "run_manifest.json", reject_symlinks=True).read_text(encoding="utf-8")
         )
-        if not manifest["engines"]["moli"]["sha256"] == cohort["moli_sha256"]:
+        if not manifest["engines"][layout_engine()]["sha256"] == cohort["moli_sha256"]:
             raise ValueError(
-                "Invalid Lexbench report evidence: manifest['engines']['moli']['sha256'] == cohort['moli_sha256']"
+                "Invalid Lexbench report evidence: manifest['engines'][layout_engine()]['sha256'] == cohort['moli_sha256']"
             )
         values = load_jsonl(contained_path(directory, "cold_start.jsonl", reject_symlinks=True))
         if not (len(values) == 1 and values[0]["status"] == "ready"):

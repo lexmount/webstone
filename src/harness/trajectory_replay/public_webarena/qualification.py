@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harness.environments.browser import reference_engine
 from harness.environments.webarena.topology import RECORDED_PORT_SITES
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, same_json_record
 from harness.safety import unlinked_path, write_new_file
@@ -38,6 +39,8 @@ from harness.trajectory_replay.public_webarena.targets import validate_target
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+# Qualification replays human trajectories in the reference browser only.
+QUALIFICATION_ENGINE = reference_engine()
 QUALIFICATION_SCHEMA = "lex_browser_use_qualification/2"
 KNOWN_HAR_CREATORS = [{"name": name, "version": HAR_CREATOR_VERSION} for name in HAR_CREATOR_NAMES]
 _PASS_STATUS_FIELDS = (
@@ -232,7 +235,7 @@ def _validated_attempt(
     row = json.loads(raw)
     if (
         str(row.get("task_id")) != task_id
-        or row.get("engine") != "chromium"
+        or row.get("engine") != QUALIFICATION_ENGINE
         or type(row.get("attempt")) is not int
         or row.get("attempt") != 1
         or row.get("is_retry") is not False
@@ -332,7 +335,7 @@ def build_repair_queue(
     by_task: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         if (
-            row.get("engine") != "chromium"
+            row.get("engine") != QUALIFICATION_ENGINE
             or row.get("is_retry") is not False
             or row.get("qualification_run") is not True
             or type(row.get("attempt")) is not int
@@ -540,7 +543,7 @@ def build_repair_validation_suite(
     benchmark["repair_validation"] = {
         "qualification_schema": qualification.get("schema"),
         "task_count": len(selected),
-        "browser": "chromium",
+        "browser": QUALIFICATION_ENGINE,
         "attempts_per_task": 2,
     }
     result["benchmark"] = benchmark
@@ -575,7 +578,7 @@ def build_evidence_revalidation_suite(
         **(result.get("benchmark") or {}),
         "evidence_revalidation": {
             "task_count": len(selected),
-            "browser": "chromium",
+            "browser": QUALIFICATION_ENGINE,
             "attempts_per_task": 2,
             "purpose": "bind HAR v3, final screenshot, and final visible page state",
         },
@@ -843,7 +846,7 @@ def validate_completed_shard(
     if (
         manifest.get("suite_sha256") != suite_sha256
         or protocol.get("qualification_run") is not True
-        or protocol.get("engines") != ["chromium"]
+        or protocol.get("engines") != [QUALIFICATION_ENGINE]
         or protocol.get("max_failure_retries") != 0
         or protocol.get("task_filter") != expected_ids
         or selection != expected_selection
@@ -857,7 +860,7 @@ def validate_completed_shard(
     ):
         raise ValueError(f"{shard['id']}: qualification attempts do not cover the shard exactly")
     if any(
-        row.get("engine") != "chromium"
+        row.get("engine") != QUALIFICATION_ENGINE
         or row.get("qualification_run") is not True
         or row.get("is_retry") is not False
         or type(row.get("attempt")) is not int
@@ -1107,7 +1110,7 @@ def run_qualification(args: argparse.Namespace) -> None:
             "--qualification-lock-key",
             str(shard["batch_id"]),
             "--engines",
-            "chromium",
+            QUALIFICATION_ENGINE,
             "--failure-retries",
             "0",
             "--cpus",
@@ -1577,7 +1580,7 @@ def _collect_validated_run(
         if task is None or task_id not in canonical_tasks or task_id not in decisions:
             raise ValueError(f"validated run contains unknown task {task_id}")
         if (
-            row.get("engine") != "chromium"
+            row.get("engine") != QUALIFICATION_ENGINE
             or row.get("qualification_run") is not True
             or row.get("is_retry") is not False
             or type(row.get("attempt")) is not int

@@ -344,7 +344,7 @@ def test_engine_container_starts_on_its_own_bridge_with_the_requested_limits(mon
     start_container.assert_called_once_with(
         client,
         image="image",
-        cdp_port=docker_runner.ENGINE_PORTS["chromium"],
+        cdp_port=docker_runner.engine_cdp_port("chromium"),
         engine="chromium",
         run_id="run",
         cpus=2.0,

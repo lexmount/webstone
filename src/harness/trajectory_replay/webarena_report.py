@@ -19,6 +19,12 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 from harness.data_home import data_home
+from harness.environments.participants import (
+    bind_participant,
+    participant_registry,
+    resolve_participant_id,
+)
+from harness.environments.webarena.sites import site_labels
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json, write_json
 from harness.report_languages import (
     add_language_argument,
@@ -44,11 +50,6 @@ from harness.trajectory_replay.failure_matrix import (
 )
 from harness.trajectory_replay.interpretation import render_interpretation, standalone_document
 from harness.trajectory_replay.messages import MESSAGES, report_text
-from harness.trajectory_replay.participants import (
-    bind_participant,
-    participant_registry,
-    resolve_participant_id,
-)
 from harness.trajectory_replay.remote_runtime import load_remote_sites, remote_benchmark
 from harness.trajectory_replay.report_inputs import bound_dataset_path, verified_dataset_path
 from harness.trajectory_replay.runtime_identity import request_bridge_identity
@@ -1803,15 +1804,8 @@ def build_webarena_replay_report(
 CATALOG_REPORT_CSS = (ASSETS / "webarena-catalog.css").read_text(encoding="utf-8")
 
 def _catalog_site_labels() -> dict[str, str]:
-    t = report_text("zh")
-    return {
-        "gitlab": "GitLab",
-        "map": t("catalog.site.map", "Map"),
-        "reddit": "Reddit",
-        "shopping": t("catalog.site.shopping", "Shopping site"),
-        "shopping_admin": t("catalog.site.shopping_admin", "Shopping admin"),
-        "wikipedia": t("catalog.site.wikipedia", "Wikipedia"),
-    }
+    """The catalog edition is Chinese; site labels come from the site registry."""
+    return dict(sorted(site_labels("zh").items()))
 
 
 def _catalog_shell(title: str, body: str, participant: str) -> str:

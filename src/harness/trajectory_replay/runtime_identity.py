@@ -7,6 +7,8 @@ import json
 from typing import Any
 from urllib.parse import urlsplit
 
+from harness.environments.browser import BROWSERS, REQUEST_BRIDGE, engines_with
+
 REMOTE_RUNTIME_FIELDS = (
     "protocolVersion",
     "product",
@@ -19,12 +21,15 @@ REMOTE_RUNTIME_FIELDS = (
 def request_bridge_identity(binding: dict[str, Any]) -> dict[str, object] | None:
     bridge = binding.get("request_bridge")
     engine = binding.get("engine")
+    bridged = isinstance(engine, str) and engine in engines_with(REQUEST_BRIDGE)
     if bridge is None:
-        if engine == "kitesurf":
-            raise ValueError("Kitesurf run is missing its request bridge identity")
+        if bridged:
+            label = BROWSERS.get(engine).label
+            raise ValueError(f"{label} run is missing its request bridge identity")
         return None
-    if engine is not None and engine != "kitesurf":
-        raise ValueError("request bridge is only valid for Kitesurf runs")
+    if engine is not None and not bridged:
+        labels = " or ".join(BROWSERS.get(name).label for name in engines_with(REQUEST_BRIDGE))
+        raise ValueError(f"request bridge is only valid for {labels} runs")
     origins = bridge.get("origins") if isinstance(bridge, dict) else None
     if (
         not isinstance(bridge, dict)

@@ -7,6 +7,9 @@ OUTPUT="${BROWSER_USE_OUTPUT_DIR:-${DATA_HOME}/browser-use/current}"
 if [[ -n "${BROWSER_USE_MODEL:-}" ]]; then
   set -- --model "${BROWSER_USE_MODEL}" "$@"
 fi
+if [[ -n "${BROWSER_USE_PROFILE:-}" ]]; then
+  set -- --profile "${BROWSER_USE_PROFILE}" "$@"
+fi
 
 exec uv run --project "${ROOT}" --frozen --extra browser-use-eval python -m harness.browser_use.runner \
   --repo-root "${ROOT}" \

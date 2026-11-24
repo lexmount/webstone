@@ -16,6 +16,7 @@
   },
   "sites": {
     "shopping": {
+      "label": {"en": "Shopping", "zh": "购物网站"},
       "mutable": true,
       "port": 7770,
       "control_port": 7771,
@@ -25,6 +26,7 @@
       "credentials_env": {"username": "WEBARENA_SHOPPING_USERNAME", "password": "WEBARENA_SHOPPING_PASSWORD"}
     },
     "shopping_admin": {
+      "label": {"en": "Shopping Admin", "zh": "购物后台"},
       "mutable": true,
       "port": 7780,
       "control_port": 7781,
@@ -35,6 +37,7 @@
       "credentials_env": {"username": "WEBARENA_SHOPPING_ADMIN_USERNAME", "password": "WEBARENA_SHOPPING_ADMIN_PASSWORD"}
     },
     "reddit": {
+      "label": {"en": "Reddit", "zh": "Reddit"},
       "mutable": true,
       "port": 9999,
       "control_port": 9998,
@@ -44,6 +47,7 @@
       "credentials_env": {"username": "WEBARENA_REDDIT_USERNAME", "password": "WEBARENA_REDDIT_PASSWORD"}
     },
     "gitlab": {
+      "label": {"en": "GitLab", "zh": "GitLab"},
       "mutable": true,
       "port": 8023,
       "control_port": 8024,
@@ -53,6 +57,7 @@
       "credentials_env": {"username": "WEBARENA_GITLAB_USERNAME", "password": "WEBARENA_GITLAB_PASSWORD"}
     },
     "map": {
+      "label": {"en": "Map", "zh": "地图"},
       "mutable": false,
       "port": 3000,
       "control_port": 3001,
@@ -61,6 +66,7 @@
       "official_trace_ports": [3000]
     },
     "wikipedia": {
+      "label": {"en": "Wikipedia", "zh": "维基百科"},
       "mutable": false,
       "port": 8888,
       "control_port": 8889,

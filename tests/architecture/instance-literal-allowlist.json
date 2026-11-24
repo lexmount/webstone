@@ -1,8 +1,4 @@
 {
-  "harness.environments.browser": [
-    "chromium",
-    "moli"
-  ],
   "harness.reporting.visual": [
     "chromium"
   ]

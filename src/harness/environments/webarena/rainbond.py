@@ -19,6 +19,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from harness.environments.webarena.sites import (
+    EXPLICIT_INIT,
+    STATEFUL_SITES,
+    site_adapter,
+    sites_with,
+)
 from harness.environments.webarena.topology import (
     ENV_CTRL_CONTAINER_PORT,
     INITIALIZER_READINESS_PORT,
@@ -31,7 +37,6 @@ from harness.runtime_env import repository_env
 SCHEMA = "lex_webarena_rainbond_pool/1"
 RECEIPT_SCHEMA = "lex_webarena_rainbond_slice/1"
 LEASE_SCHEMA = "lex_webarena_rainbond_slice_lease/1"
-STATEFUL_SITES = ("shopping_admin", "shopping", "reddit", "gitlab")
 _SAFE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 _LOCAL_POOL_LOCKS: dict[Path, threading.Lock] = {}
 _LOCAL_POOL_LOCKS_GUARD = threading.Lock()
@@ -319,7 +324,7 @@ class RainbondSlicePool:
         )
         domain = self._domain(pool_id, slot, site, app_id)
         site_url = f"http://{domain}"
-        magento = site in {"shopping_admin", "shopping"}
+        magento = site_adapter(site).magento
         self.api.request(
             "POST",
             f"{self._app_path(app_id)}/domains",
@@ -370,7 +375,7 @@ class RainbondSlicePool:
                     "scope": "inner",
                 }
             )
-        if site == "gitlab":
+        if site_adapter(site).explicit_init_records_port:
             envs.append(
                 {
                     "note": (
@@ -481,7 +486,7 @@ class RainbondSlicePool:
             site: self._internal_service_host(
                 app_id, copied_sites[site], ENV_CTRL_CONTAINER_PORT
             )
-            for site in ("reddit", "gitlab")
+            for site in sites_with(url_init=EXPLICIT_INIT)
         }
         self.api.request(
             "PUT",

@@ -19,6 +19,8 @@ TRACKS = frozenset({"web_fetch", "web_search", "web_extract", "trajectory_replay
 SHARED_PACKAGES = frozenset({"reporting", "results", "benchmarks", "environments"})
 # The root command registry names tracks by design; it imports them only when selected.
 ROOT_DISPATCHER = "harness.cli"
+# Packages whose child modules are adapters: each one names only the instance it implements.
+ADAPTER_PACKAGES = ("harness.environments.browser",)
 # Registered names that are also ordinary words in shared code.
 GENERIC_NAMES = frozenset({
     "fixture",  # the synthetic Web Fetch provider and the general test-fixture term
@@ -77,13 +79,13 @@ def layering_violations() -> dict[str, list[str]]:
 
 def registered_names() -> frozenset[str]:
     """Method, provider and browser names from the registries that own them."""
-    from harness.trajectory_replay.participants import BROWSER_ADAPTERS
+    from harness.environments.browser import BROWSERS
     from harness.web_extract.pipeline import METHODS
     from harness.web_fetch.providers.base import PROVIDERS
     from harness.web_search.adapters import ADAPTERS
 
     providers = json.loads((ROOT / "configs/providers.example.json").read_text(encoding="utf-8"))["providers"]
-    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS.names(), *BROWSER_ADAPTERS}
+    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS.names(), *BROWSERS.names()}
     return frozenset(names - GENERIC_NAMES)
 
 
@@ -91,7 +93,7 @@ def instance_literals() -> dict[str, list[str]]:
     names = registered_names()
     occurrences = {}
     for module, path in modules().items():
-        if not is_shared(module, path):
+        if not is_shared(module, path) or any(module.startswith(package + ".") for package in ADAPTER_PACKAGES):
             continue
         literals = sorted({node.value for node in ast.walk(ast.parse(path.read_bytes(), filename=str(path)))
                            if isinstance(node, ast.Constant) and isinstance(node.value, str)

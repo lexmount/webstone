@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from harness.environments.browser import DEFAULT_BROWSER_IMAGES
+from harness.environments.browser import container_engines, engine_label
 from harness.trajectory_replay.core.report import (
     EVIDENCE_DIALOG_JS,
     SUITE_FILTER_JS,
@@ -27,7 +27,7 @@ from harness.trajectory_replay.core.report import (
     _trace_text,
 )
 from harness.trajectory_replay.messages import report_text
-from harness.trajectory_replay.participants import engine_label, engine_names, summary_engines
+from harness.trajectory_replay.participants import engine_names, summary_engines
 
 ASSETS = Path(__file__).with_name("assets")
 REPORT_CSS = (ASSETS / "curated-report.css").read_text(encoding="utf-8")
@@ -75,7 +75,7 @@ def _table(
 
 def _engines(summary: dict[str, Any]) -> tuple[str, ...]:
     """Participants in evidence order; a summary with no results keeps the registry's."""
-    return summary_engines(summary) or tuple(DEFAULT_BROWSER_IMAGES)
+    return summary_engines(summary) or container_engines()
 
 
 def _all_parties(engines: tuple[str, ...]) -> str:
