@@ -15,8 +15,10 @@ import statistics
 from collections import Counter, defaultdict
 from collections import Counter as WordCounter
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from functools import wraps
+from contextlib import contextmanager
+from collections.abc import Mapping
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -51,6 +53,8 @@ from harness.report_languages import (
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import esc
 from harness.web_fetch.adjudication_evidence import adjudication_reason
+from harness.web_fetch.report_model import ReportModel
+from harness.web_fetch.template import role_attribute
 from harness.web_fetch.failure_diagnosis import diagnose
 from harness.web_fetch.methods import (
  ROUTE_LABELS,
@@ -205,7 +209,7 @@ def generate_wcxb(out: Path, rows: list[dict], summary: dict, ground_truth: dict
   root_prefix='../'*route.count('/')
   nav=''.join(f'<a href="{href(lang,p)}">{esc(x[k])}</a>' for k,p in [('home','index.html'),('dataset','datasets/index.html'),('method','methodology/index.html'),('results','analysis/index.html'),('review','review/index.html'),('guide','guide/index.html'),('adoption','adoption/index.html'),('repro','reproduce/index.html'),('changes','changes/index.html'),('accounts','accounts/index.html')])
   other=('en/'+path if include_english else 'en/index.html') if lang=='zh' else path
-  head=f'''<!doctype html><html lang="{lang}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="{root_prefix or './'}"><title>{esc(title)} · WCXB</title><link rel="stylesheet" href="assets/style.css"><script defer src="assets/report.js"></script></head><body><header><div class="wrap"><strong><a href="{href(lang, 'index.html')}">Web Fetch</a></strong><nav>{nav}</nav><a href="{other}">{('English' if lang == 'zh' else '中文')}</a><button onclick="theme()">{esc(x['theme'])}</button></div></header><main class="wrap">{body}</main><footer class="wrap">WCXB v1.0 · {case_count} {report_text('zh' if lang == 'zh' else 'en')('evaluated_test_pages', 'evaluated test pages')} · CC BY 4.0 · <a href="{source_repository}/tree/{source_commit}">{esc(x['source'])}</a></footer></body></html>'''
+  head=f'''<!doctype html><html lang="{lang}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="{root_prefix or './'}"><title>{esc(title)} · WCXB</title><link rel="stylesheet" href="assets/style.css"><script defer src="assets/report.js"></script></head><body><header><div class="wrap"><strong><a href="{href(lang, 'index.html')}">Web Fetch</a></strong><nav>{nav}</nav><a href="{other}">{('English' if lang == 'zh' else '中文')}</a><button onclick="theme()">{esc(x['theme'])}</button></div></header><main class="wrap"{role_attribute(path)}>{body}</main><footer class="wrap">WCXB v1.0 · {case_count} {report_text('zh' if lang == 'zh' else 'en')('evaluated_test_pages', 'evaluated test pages')} · CC BY 4.0 · <a href="{source_repository}/tree/{source_commit}">{esc(x['source'])}</a></footer></body></html>'''
   target=out/('en' if lang=='en' else '')/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(head,encoding='utf-8')
  def fmt(v,digits=1):return f'{v*100:.{digits}f}%'
  diag_labels={
@@ -405,17 +409,12 @@ def generate_wcxb(out: Path, rows: list[dict], summary: dict, ground_truth: dict
    page(lang,f'cases/{case}.html',case,body)
  write_language_contract(out, include_english=include_english)
 
-_REPORT_PROVIDER_LABELS = ContextVar("webfetch_report_provider_labels", default={})
-
 def browser_method_label(name, *, language="zh"):
- label = _REPORT_PROVIDER_LABELS.get().get(name)
+ label = _RENDER_CONTEXT.get().labels.get(name)
  return label if label is not None else _catalog_browser_method_label(name, language=language)
 
 def provider_label(name):
  return browser_method_label(name)
-
-# Report-only grouping leaves execution tracks and acceptance fields untouched.
-_REPORT_SUITES = ContextVar('webfetch_report_suites', default=())
 
 def report_family(case):
  return case.get('report_family') or task_report_family(case)
@@ -430,8 +429,8 @@ def case_track_label(case):
 REPORT_TRACKS = {key: TRACKS[key] for key in ('web', 'dynamic', 'challenge', 'risk_control', 'document', 'image', 'video')}
 
 def active_tracks(cases):
- if _REPORT_SUITES.get():
-  return [(s['id'],s['label']) for s in _REPORT_SUITES.get() if set(s['case_ids']) & set(cases)]
+ if _RENDER_CONTEXT.get().suites:
+  return [(s.id,s.label) for s in _RENDER_CONTEXT.get().suites if set(s.case_ids) & set(cases)]
  rows=[]
  for key,label in REPORT_FAMILIES.items():
   selected=[c for c in cases.values() if report_family(c)==key]
@@ -757,6 +756,9 @@ def table(headers,rows,id='',sortable=False,cls='',metrics=None,index_header=t('
  return metric_legend(headers if metrics is None else metrics)+f'<div class="table-wrap"><table class="{cls}"'+(f' id="{id}"' if id else '')+sort_attrs+f'><thead><tr>{head}</tr></thead><tbody'+(' id="rows"' if id=='filtered-table' else '')+f'>{body}</tbody></table></div>'
 @dataclass(frozen=True)
 class RenderContext:
+ """Render state derived from one ``ReportModel``; only ``rendering`` installs it."""
+ labels: Mapping[str, str] = field(default_factory=dict)
+ suites: tuple = ()
  banner: str = ''
  english_generated: bool = False
  score_audit: dict | None = None
@@ -769,12 +771,19 @@ class RenderContext:
 _RENDER_CONTEXT=ContextVar('webfetch_render_context',default=RenderContext())
 
 
+@contextmanager
+def rendering(model=None,*,descriptive_ranks=False,result_views=None):
+ """Render with the participants and suites of ``model``; shared views may opt into descriptive ranks."""
+ token=_RENDER_CONTEXT.set(RenderContext(labels=model.labels if model else {},suites=model.suites if model else (),
+                                         descriptive_ranks=descriptive_ranks,result_views=result_views))
+ try:yield
+ finally:_RENDER_CONTEXT.reset(token)
+
+
 def _scoped_render(function):
  @wraps(function)
  def render(*args,**kwargs):
-  token=_RENDER_CONTEXT.set(RenderContext())
-  try:return function(*args,**kwargs)
-  finally:_RENDER_CONTEXT.reset(token)
+  with rendering():return function(*args,**kwargs)
  return render
 
 def write(out,path,title,body,*,root_links=False,show_language=True):
@@ -804,7 +813,7 @@ def write(out,path,title,body,*,root_links=False,show_language=True):
   if retry:
    scope_note+=' <span data-retry-acceptance-scopes="'+esc(','.join(state['retry_scopes']))+'">'+esc(t(*retry))+'</span>'
   scope_note+='</p>'
- page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{''.join((link(base + url, label) for url, label in nav))}{language}<button class="theme-toggle" onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f'</button></nav></header><main{evidence_attr}>{banner}{scope_note}{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
+ page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{''.join((link(base + url, label) for url, label in nav))}{language}<button class="theme-toggle" onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f'</button></nav></header><main{role_attribute(path)}{evidence_attr}>{banner}{scope_note}{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
  target=contained_path(out,path);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
 _RESEARCH_ROUTES=[
@@ -822,7 +831,7 @@ _RESEARCH_ROUTES=[
 @_scoped_render
 def generate_cohort_diagnostic(out, model):
  """Render live cohort diagnostics through the maintained WebFetch components."""
- token=_RENDER_CONTEXT.set(RenderContext(('<div class="wrap callout"><strong>' + esc(model.get('diagnostic_label') or t('live_page_diagnostic', 'Live page diagnostic')) + f"</strong><p>{esc(model['scope_note'])}</p></div>"),scope_presentation={'scope':model['content_scope'],'retry_scopes':[]} if model.get('content_scope') in {'main','full'} else None))
+ token=_RENDER_CONTEXT.set(RenderContext(banner=('<div class="wrap callout"><strong>' + esc(model.get('diagnostic_label') or t('live_page_diagnostic', 'Live page diagnostic')) + f"</strong><p>{esc(model['scope_note'])}</p></div>"),scope_presentation={'scope':model['content_scope'],'retry_scopes':[]} if model.get('content_scope') in {'main','full'} else None))
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA+asset_text('cohort-diagnostic.css'),encoding='utf-8')
  (out/'assets/report.js').write_text(JS+asset_text('cohort-diagnostic.js'),encoding='utf-8')
@@ -997,7 +1006,7 @@ def _research_write(out,path,title,body,english=False):
  language=f'''<a href="{safe_href(counterpart)}" hreflang="{('zh-CN' if english else 'en')}">{('中文' if english else 'English')}</a>'''
  status=(report_text('en' if english else 'zh')('research_edition_0_measured_results', 'Research edition · 0 measured results'))
  footer=(report_text('en' if english else 'zh')('research_was_verified_from_public_papers_repositories', 'Research was verified from public papers, repositories, datasets and scorers. No benchmark result is claimed in this edition.'))
- page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main><div class="wrap reliability" role="status"><strong>{status}</strong></div>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
+ page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main{role_attribute(path)}><div class="wrap reliability" role="status"><strong>{status}</strong></div>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
  target=contained_path(out,local_path);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
 def generate_public_benchmark_research(out:Path,research:dict,*,include_english:bool=False):
@@ -1769,13 +1778,13 @@ def family_participants(records,cases):
  plan=_RENDER_CONTEXT.get().coverage_plan or {}
  names={r['provider'] for r in records if r['case_id'] in cases}
  for c in cases.values():names.update(plan.get(c.get('track','web'),[]))
- if _REPORT_SUITES.get():names.update(_REPORT_PROVIDER_LABELS.get())
+ if _RENDER_CONTEXT.get().suites:names.update(_RENDER_CONTEXT.get().labels)
  return names
 
 
 def ranking_readiness(records,cases,*,participants=None):
  """Require a complete shared task population and one recorded scorer."""
- groups={name:[] for name in (participants if participants is not None else family_participants(records,cases)|set(_REPORT_PROVIDER_LABELS.get()))}
+ groups={name:[] for name in (participants if participants is not None else family_participants(records,cases)|set(_RENDER_CONTEXT.get().labels))}
  for r in records:
   if r['case_id'] in cases:groups[r['provider']].append(r)
  populations=[Counter(r['case_id'] for r in rs) for rs in groups.values()]
@@ -1797,7 +1806,7 @@ def shared_ranks(scores):
 
 
 def ranking(records,cases,track,base='',id=None,compact=False,audit=None,*,diagnostic=False):
- if _REPORT_SUITES.get():return saved_suite_ranking(records,cases,track,base=base,id=id,diagnostic=diagnostic)
+ if _RENDER_CONTEXT.get().suites:return saved_suite_ranking(records,cases,track,base=base,id=id,diagnostic=diagnostic)
  records,cases=comparison_population(records,cases)
  title_scope=track=='challenge' and any('title_quality' in r for r in records if report_family(cases[r['case_id']])==track)
  selected={k:c for k,c in cases.items() if report_family(c)==track}
@@ -1925,7 +1934,7 @@ def result_ledger_section(out, records, prefix=''):
  return section(t('scoring_revision_ledger', 'Scoring revision ledger'),('<p>' + t('additions_removals_and_final_passes_are_derived', 'Additions, removals and final passes are derived from individual result states. Excluded results retain their original calls and stay outside comparison denominators.') + f"</p>{table([t('stage', 'Stage'), t('passes_before', 'Passes before'), t('passes_added', 'Passes added'), t('passes_removed', 'Passes removed'), t('passes_after', 'Passes after'), t('excluded_from_comparison', 'Excluded from comparison')], rows, metrics=[])}{link(prefix + 'local-evidence/result-ledger.json', t('download_per_result_revision_ledger', 'Download per-result revision ledger'))}"),'result-ledger')
 
 def overview_matched_latency(records,cases):
- names=sorted(set(_REPORT_PROVIDER_LABELS.get()) | {r['provider'] for r in records})
+ names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
  keys={(r['provider'],r['case_id']) for r in records}
  if not names or len(keys)!=len(records) or any((name,cid) not in keys for name in names for cid in cases):
   return ('<p>' + t('the_call_matrix_is_incomplete_so_latency', 'The call matrix is incomplete, so latency on tasks passed by every method is not yet summarized.') + '</p>')
@@ -2066,8 +2075,8 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
  groups=defaultdict(list)
  for r in records:groups[r['provider']].append(r)
- if _REPORT_SUITES.get():
-  for provider in _REPORT_PROVIDER_LABELS.get():groups.setdefault(provider,[])
+ if _RENDER_CONTEXT.get().suites:
+  for provider in _RENDER_CONTEXT.get().labels:groups.setdefault(provider,[])
  rows=[]
  for name,rs in groups.items():
   n=sum(measured(r,cases[r['case_id']]) for r in rs)
@@ -2076,7 +2085,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   request_success=sum(bool(r['ok']) for r in called)
   values=cell(link(f'providers/{name}.html',provider_label(name),browser_method_label(name,language='en')))+cell(rate(request_success,len(called)),request_success/len(called) if called else -1)
   if combined:values+=cell(rate(passed,n)+(f'<br><small>{passed}/{n}</small>' if has_unknown else ''),passed/n if n else -1)
-  if _REPORT_SUITES.get() and len(called) < len(cases):
+  if _RENDER_CONTEXT.get().suites and len(called) < len(cases):
    values=values.replace('</a>', '</a><br><small>'+saved_matrix_text('incomplete')+'</small>',1)
   if has_unknown:values+=cell(str(len(rs)-n))
   for track,_ in active_tracks(cases):
@@ -2092,7 +2101,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases)
  timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
- heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _REPORT_SUITES.get() else label for _,label in tracks]+timing_heads
+ heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _RENDER_CONTEXT.get().suites else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  if case_count==150 and track_count==6:
@@ -2138,7 +2147,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""
- names=sorted(set(_REPORT_PROVIDER_LABELS.get()) | {r['provider'] for r in records})
+ names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
  bycase=defaultdict(list)
  for record in records:bycase[record['case_id']].append(record)
  tracks=active_tracks(cases) if tracks is None else tracks
@@ -2248,26 +2257,34 @@ def local_audit_banner(dataset):
  return '<div class="wrap callout"><strong>'+model_text(*pair('report_local_audit_report_5d8f02', 'Local audit report'))+'</strong><p>'+model_text(*pair('report_this_report_is_not_a_formal_release_consult_cf9dcc', 'This report is not a formal release. Consult the saved records for tool versions, call times and verification scope.'))+'</p></div>'
 
 
+def generate(out:Path,model:ReportModel):
+ """The one renderer entry: write every route of a validated report model."""
+ if not isinstance(model,ReportModel):raise TypeError('generate() takes a validated ReportModel')
+ # The model keeps its inputs by reference; admit them again at the render boundary.
+ model.require_admission()
+ with rendering(model):
+  return _render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
+
+
+def _write_uncalled_participants(out,model):
+ """A declared participant without results keeps its route, showing the declared scope."""
+ called={row['provider'] for row in model.records}
+ for participant in model.participants:
+  if participant.id not in called:
+   write(out,'providers/'+participant.id+'.html',participant.label,
+         local_audit_banner(model.dataset)+hero(esc(participant.label),'')+saved_matrix_scope_section(model.dataset.get('saved_matrix_scope') or {}),root_links=True)
+
+
 @with_measured_method_labels
-@_scoped_render
-def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english:bool=False,authored_interpretation:bool=True,presentation_only:bool=False,show_local_status_banners:bool=True,detail_attempt_ids:set[str]|None=None,dataset_case_ids:set[str]|None=None,frozen_scores:bool=False,english_routes=None,diagnostic_view_paths=()):
- from harness.web_fetch.report_saved_matrix import _require_final_projection
- _require_final_projection(out,dataset,records)
+def _render_model(out,dataset,records,manifests,*,model):
+ options=model.options
+ include_english,authored_interpretation,presentation_only=options.include_english,options.authored_interpretation,options.presentation_only
+ show_local_status_banners,detail_attempt_ids,dataset_case_ids=options.show_local_status_banners,options.detail_attempt_ids,options.dataset_case_ids
+ frozen_scores,english_routes,diagnostic_view_paths=options.frozen_scores,options.english_routes,options.diagnostic_view_paths
  _public_views=public_render_views(out,records)
- if english_routes is not None and not presentation_only:
-  raise ValueError('Scoped English refresh requires presentation_only=True')
  for _record in records:
   if _record['attempt_id'] in _public_views:
    _record.setdefault('provider_metadata',{})['publication_views']=_public_views[_record['attempt_id']]
- if detail_attempt_ids is not None:
-  if not presentation_only:
-   raise ValueError('Scoped detail refresh requires presentation_only=True')
-  unknown=set(detail_attempt_ids)-{row['attempt_id'] for row in records}
-  if unknown:raise ValueError('Unknown detail refresh attempts: '+', '.join(sorted(unknown)))
- if dataset_case_ids is not None:
-  if not presentation_only:raise ValueError('Scoped dataset refresh requires presentation_only=True')
-  unknown=set(dataset_case_ids)-{case['id'] for case in dataset['cases']}
-  if unknown:raise ValueError('Unknown dataset refresh cases: '+', '.join(sorted(unknown)))
  local_snapshot=dataset.get('comparison',{}).get('publication_state')=='local_audit_only_not_for_release'
  score_binding=dataset.get('comparison',{}).get('score_audit')
  score_audit=json.loads(contained_path(out,score_binding['path']).read_text(encoding='utf-8')) if score_binding else None
@@ -2311,7 +2328,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
  elif dataset.get('comparison', {}).get('publication_state') == 'diagnostic_not_for_release':
   reliability_banner += ('<div class="wrap callout" role="status"><strong>' + t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') + '</strong><p>' + t('these_calls_check_the_selected_tasks_and', 'These calls check the selected tasks and methods without the cohort certification required for a formal benchmark.') + '</p></div>')
  from harness.web_fetch.report_version import content_scope_presentation
- _RENDER_CONTEXT.set(RenderContext(reliability_banner,include_english,score_audit,dataset.get('coverage_plan'),content_scope_presentation(dataset,records,manifests)))
+ _RENDER_CONTEXT.set(replace(_RENDER_CONTEXT.get(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests)))
  validate_report_ids(dataset,records)
  for path in ['assets/style.css','assets/report.js','references']:
   contained_path(out,path)
@@ -2319,7 +2336,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   contained_path(out,'references/'+c['id']+'.txt')
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA, encoding='utf-8');(out/'assets/report.js').write_text(JS, encoding='utf-8')
- cases={c['id']:c for c in dataset['cases']};names=sorted(set(_REPORT_PROVIDER_LABELS.get()) | {r['provider'] for r in records})
+ cases={c['id']:c for c in dataset['cases']};names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
  tracks=active_tracks(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  audit=json.loads((out/'result-review.json').read_text(encoding='utf-8')) if (out/'result-review.json').is_file() else None
  audited_attempts=review_index(audit)
@@ -2366,7 +2383,7 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   selected=[c for c in cases.values() if report_family(c)==track]
   method_count=len({r['provider'] for r in records if report_family(cases[r['case_id']])==track})
   coverage=model_text(*pair('report_value_cases_value_measured_methods_885407', '{value0} cases · {value1} measured methods', value0=len(selected), value1=method_count))
-  panels.append((track,label,f'<div class="track-heading"><h3>{esc(label) if _REPORT_SUITES.get() else label}</h3><span>{coverage}</span></div>'+ranking(records,cases,track,compact=True,audit=audit,diagnostic=diagnostic)+(f"<p>{link('datasets/index.html#track-' + track, t('report_tasks_and_references_2fa3ec', 'Tasks and references →'))}</p>")))
+  panels.append((track,label,f'<div class="track-heading"><h3>{esc(label) if _RENDER_CONTEXT.get().suites else label}</h3><span>{coverage}</span></div>'+ranking(records,cases,track,compact=True,audit=audit,diagnostic=diagnostic)+(f"<p>{link('datasets/index.html#track-' + track, t('report_tasks_and_references_2fa3ec', 'Tasks and references →'))}</p>")))
  overall_title=model_text(*pair('report_task_pass_rate_ranking_for_this_sample_5d9edf', 'Task pass-rate ranking for this sample')) if local_pass_rate_ranking(dataset) else ((t('report_task_results_b4e30d', 'Task results')) if diagnostic else (t('report_overall_coverage_ranking_47274b', 'Overall coverage ranking')))
  combined=dataset.get('comparison',{}).get('presentation',{}).get('combined_ranking',True)
  if not combined:overall_title=(t('report_task_results_b4e30d', 'Task results'))
@@ -2748,6 +2765,8 @@ def generate(out:Path,dataset:dict,records:list,manifests:list,*,include_english
   if heading is None or source_heading is None:raise ValueError('Saved diagnostic viewer header is unavailable: '+relative)
   note=source_heading.find_next('p')
   diagnostic_view_page(out,str(Path(relative).with_suffix('.txt')),heading.get_text(),note.get_text() if note else '')
+ # Every Chinese route, including declared participants without calls, exists before translation.
+ _write_uncalled_participants(out,model)
  if include_english:
   write_english_report(out,source_routes=english_routes)
  if presentation_only and (out/'report-languages.json').is_file():
@@ -3190,7 +3209,7 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
   command=f'uv run --frozen python scripts/build_report.py --profile {profile_path} --evidence /absolute/path/to/evidence --output {destination}\nuv run --frozen python scripts/check_report.py {destination} --profile {profile_path}'
   reproduce=('<p>' + t('built_from_this_run_s_independent_configuration', "Built from this run's independent configuration and frozen evidence, without calling browsers again.") + f'</p><pre>{esc(command)}</pre><p>重新测量使用仓库的认证入口；既定题目和验收规则在调用前冻结，只有明确声明需要实时参考的任务才做前后采集。</p>')
  if local_matrix:
-  reproduce=('<p>以下命令只从本轮证据重建本地中文报告，不重新调用产品。</p><pre>uv run --frozen python scripts/build_report.py --local-audit --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report\nuv run --frozen python scripts/check_report.py /absolute/path/to/report</pre><p>' + t('call_time_configuration_implementation_versions_and_scorer', "Call-time configuration, implementation versions and scorer hashes are in {link}; each call's actual request parameters are in the call log on its detail page. Current source configuration may differ from call-time configuration, so the frozen protocol and original batch manifests govern. Credentials are read only from the repository .env.", link=link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))) + '</p>')
+  reproduce=('<p>以下命令只从本轮证据重建本地中文报告，不重新调用产品。</p><pre>uv run --frozen python scripts/build_report.py --variant local-audit --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report\nuv run --frozen python scripts/check_report.py /absolute/path/to/report</pre><p>' + t('call_time_configuration_implementation_versions_and_scorer', "Call-time configuration, implementation versions and scorer hashes are in {link}; each call's actual request parameters are in the call log on its detail page. Current source configuration may differ from call-time configuration, so the frozen protocol and original batch manifests govern. Credentials are read only from the repository .env.", link=link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))) + '</p>')
  common=[]
  for label,path in [(t('platform', 'Platform'),('environment','platform')),('Python',('environment','python')),(t('timeout_seconds', 'Timeout (seconds)'),('parameters','timeout')),(t('concurrency_model', 'Concurrency model'),('parameters','concurrency_scope'))]:
   values=sorted({str(m.get(path[0],{}).get(path[1],'—')) for m in manifests})
@@ -3266,7 +3285,7 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
   frozen_binding=(out/'presentation-binding.json').is_file()
   build_binding=' --presentation-binding /absolute/path/to/report-evidence/presentation-binding.json' if frozen_binding else ''
   check_binding=' --presentation-binding /absolute/path/to/report/presentation-binding.json' if frozen_binding else ''
-  reproduce=('<p>' + t('these_commands_build_the_local_report_from', 'These commands build the local report from saved evidence without additional product calls:') + f"</p><pre>uv run --frozen python scripts/build_report.py --local-audit --language {('zh --include-english' if _RENDER_CONTEXT.get().english_generated else 'zh')} --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report{build_binding}\nuv run --frozen python scripts/check_report.py /absolute/path/to/report{check_binding}</pre><p>" + t('use_the_evidence_directory_corresponding_to_these', 'Use the evidence directory corresponding to these results. Call-time versions, configuration, and scorer hashes are in') + f" {link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))} " + t('and', 'and') + f" {link('../execution.json', t('execution_batches', 'Execution batches'))}" + t('the_build_commands_read_saved_scores_after', '. The build commands read saved scores. After changing scoring rules, rescore the declared scope before rebuilding; rebuilding pages alone does not update scores.') + '</p>')
+  reproduce=('<p>' + t('these_commands_build_the_local_report_from', 'These commands build the local report from saved evidence without additional product calls:') + f"</p><pre>uv run --frozen python scripts/build_report.py --variant local-audit --language {('zh --include-english' if _RENDER_CONTEXT.get().english_generated else 'zh')} --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report{build_binding}\nuv run --frozen python scripts/check_report.py /absolute/path/to/report{check_binding}</pre><p>" + t('use_the_evidence_directory_corresponding_to_these', 'Use the evidence directory corresponding to these results. Call-time versions, configuration, and scorer hashes are in') + f" {link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))} " + t('and', 'and') + f" {link('../execution.json', t('execution_batches', 'Execution batches'))}" + t('the_build_commands_read_saved_scores_after', '. The build commands read saved scores. After changing scoring rules, rescore the declared scope before rebuilding; rebuilding pages alone does not update scores.') + '</p>')
  if local_matrix and frozen_binding:
   public_profile=json.loads((out/'presentation-binding.json').read_text(encoding='utf-8'))
   if public_profile.get('publication_projection'):
@@ -3274,7 +3293,7 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
   if public_profile.get('publication_evidence_views'):
    reproduce+='<p>'+model_text(*pair('scoring_originals_remain_private_public_answers_and', 'Scoring originals remain private. Public answers and complete native responses hide paths or sensitive values. The inventory preserves original scoring identities and separately binds public views. Public files rebuild this report but cannot reconstruct omitted content. Text-quality diagnostics retain the original calculations and may not reproduce exactly from redacted text. Review coordinates refer to originals; public views verify only the visible excerpts.'))+' '+link('../'+public_profile['publication_evidence_views']['path'],'PUBLIC-EVIDENCE-VIEWS.json')+'</p>'
  if dataset.get('saved_matrix_scope'):
-  commands='uv run --frozen python scripts/build_report.py --saved-matrix /absolute/report-input-spec.json --output /absolute/new-report --language zh\nuv run --frozen python scripts/build_report.py --check-saved-matrix /absolute/new-report --source-spec /absolute/report-input-spec.json'
+  commands='uv run --frozen python scripts/build_report.py --variant saved-matrix --input /absolute/report-input-spec.json --output /absolute/new-report --language zh\nuv run --frozen python scripts/check_report.py /absolute/new-report --variant saved-matrix --source-spec /absolute/report-input-spec.json'
   reproduce='<p>'+t('saved_matrix_reproduction_note', 'Build and verify this report from its original saved-matrix specification and retained source evidence. These commands add no provider calls; private originals are required to reproduce source-backed checks.')+'</p><pre>'+esc(commands)+'</pre>'
  support+=section(t('core_reproduction_commands', 'Core reproduction commands'),reproduce)
  write(out,'reproduce/index.html',t('reproduction', 'Reproduction'),support)
@@ -3533,7 +3552,7 @@ def _wmb_write(out,path,title,body,english=False):
  counterpart=base+path if english else base+'en/'+path
  language=f'''<a href="{safe_href(counterpart)}">{('中文' if english else 'English')}</a>'''
  footer=(report_text('en' if english else 'zh')('scores_apply_to_the_frozen_inputs_and', 'Scores apply to the frozen inputs and methods declared in this report. They do not represent the live web or the official WebMainBench leaderboards.'))
- page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
+ page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main{role_attribute(path)}>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
  page=page.replace(f'href="{base}assets/style.css"',f'href="{base}assets/style.css?v={hashlib.sha256((STYLE+EXTRA).encode()).hexdigest()[:16]}"').replace(f'src="{base}assets/report.js"',f'src="{base}assets/report.js?v={hashlib.sha256(JS.encode()).hexdigest()[:16]}"')
  target=contained_path(out,local);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
@@ -4185,7 +4204,7 @@ def generate_webmainbench_full(out: Path, dataset: dict, records: list[dict],
     def page(route, title, body):
         prefix = "../" * route.count("/")
         links = ''.join(anchor(path, label) for label, path in navigation)
-        markup = ((f'''<!doctype html><html lang="zh"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="{prefix or './'}"><title>{esc(title)} · WebMainBench 545</title><link rel="stylesheet" href="assets/style.css?v={asset_version}"><script defer src="assets/report.js?v={asset_version}"></script></head><body><header><div class="wrap"><strong>{anchor('index.html', 'WebMainBench · 545')}</strong><nav>{links}</nav>{anchor('en/index.html', 'English')}<button onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f"""</button></div></header><main class="wrap">{body}</main><footer class="wrap">WebMainBench 545 例 · {str(len(providers))} 种方法 · {anchor('https://github.com/lexmount/WebMainBench/tree/lex-main', 'lex-main 数据与评分器')}</footer></body></html>"""))
+        markup = ((f'''<!doctype html><html lang="zh"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="{prefix or './'}"><title>{esc(title)} · WebMainBench 545</title><link rel="stylesheet" href="assets/style.css?v={asset_version}"><script defer src="assets/report.js?v={asset_version}"></script></head><body><header><div class="wrap"><strong>{anchor('index.html', 'WebMainBench · 545')}</strong><nav>{links}</nav>{anchor('en/index.html', 'English')}<button onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f"""</button></div></header><main class="wrap"{role_attribute(route, complete_cohort=True)}>{body}</main><footer class="wrap">WebMainBench 545 例 · {str(len(providers))} 种方法 · {anchor('https://github.com/lexmount/WebMainBench/tree/lex-main', 'lex-main 数据与评分器')}</footer></body></html>"""))
         target = out / route
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(markup, encoding="utf-8")
@@ -4571,59 +4590,6 @@ def render_score_audit(out, audit, binding):
  write(out,'review/index.html',(t('report_review_record_efa815', 'Review record')),hero((t('report_review_record_efa815', 'Review record')),(t('report_per_task_acceptance_criteria_and_data_sources_7e4ecd', 'Per-task acceptance criteria and data sources.')))+section((t('report_verification_scope_db68a1', 'Verification scope')),'<p>'+esc(audit['review_scope'])+'</p><p>'+esc(audit['summary'])+'</p><p>'+link('../audit/index.html',(t('report_per_item_reasons_original_text_and_acceptance_rules_1b0986', 'Per-item reasons, original text and acceptance rules')))+'</p>'))
 
 
-def generate_saved_matrix(out: Path, model: dict) -> Path:
- """Render a suite-qualified saved matrix without interpreting or changing scores.
-
- Evidence links refer to retained files inside the new report directory. Missing
- outcomes remain explicit slots, rather than fabricated failed measurements.
- """
- from urllib.parse import unquote
- out = Path(out)
- providers = {p['id']: p['label'] for p in model['providers']}
- suites = {s['id']: s['label'] for s in model['suites']}
- if len(providers) != len(model['providers']) or len(suites) != len(model['suites']):
-  raise ValueError('Duplicate matrix provider or suite')
- rows = model['rows']
- seen = set()
- states = {'passed', 'failed', 'undecidable', 'adapter_rejected', 'uncommitted', 'not_called'}
- path_fields = ('record_path', 'answer_path', 'log_path', 'case_path', 'receipt_path')
- for row in rows:
-  key = row['suite'], row['provider'], row['case_id']
-  if key in seen or key[0] not in suites or key[1] not in providers:
-   raise ValueError('Duplicate or undeclared matrix identity')
-  seen.add(key)
-  status = row['status']
-  if status not in states or row['passed'] not in (True, False, None):
-   raise ValueError('Invalid saved matrix outcome')
-  if status in {'undecidable', 'uncommitted', 'not_called'} and row['passed'] is not None:
-   raise ValueError('Missing matrix outcomes must not have scores')
-  if status == 'passed' and row['passed'] is not True:
-   raise ValueError('Passed status differs from saved score')
-  if status in {'failed', 'adapter_rejected'} and row['passed'] is not False:
-   raise ValueError('Failed status differs from saved score')
-  if status in {'adapter_rejected', 'not_called'} and row['called']:
-   raise ValueError('Pre-call status cannot claim product invocation')
-  if status in {'passed', 'failed', 'undecidable', 'uncommitted'} and not row['called']:
-   raise ValueError('Called status lacks product invocation')
-  for field in path_fields:
-   value = row.get(field)
-   if not value:
-    continue
-   decoded = unquote(value)
-   parsed = urlsplit(decoded)
-   if (parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or
-       decoded.startswith('/') or '\\' in decoded or
-       any(part in {'.', '..'} for part in decoded.split('/'))):
-    raise ValueError('Unsafe matrix evidence link')
-   target = out / decoded
-   if not target.resolve().is_relative_to(out.resolve()) or not target.is_file():
-    raise ValueError('Missing or escaping matrix evidence link: ' + field)
- if not rows:
-  raise ValueError('Empty saved matrix')
- from harness.web_fetch.report_saved_matrix import render_saved_with_standard_generator
- return render_saved_with_standard_generator(out, model)
-
-
 def saved_execution_settings_section(settings):
  """Expose measured settings without treating unlike environments as controls."""
  if not settings:return ''
@@ -4664,7 +4630,7 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  records,cases=comparison_population(records,cases)
  selected={k:c for k,c in cases.items() if report_family(c)==suite}
  rows=[]
- for provider in sorted({r['provider'] for r in records} | set(_REPORT_PROVIDER_LABELS.get())):
+ for provider in sorted({r['provider'] for r in records} | set(_RENDER_CONTEXT.get().labels)):
   rs=[r for r in records if r['provider']==provider and r['case_id'] in selected]
   judged=[r for r in rs if measured(r,selected[r['case_id']])]
   passed=sum(succeeded(r,selected[r['case_id']]) for r in judged)
@@ -4681,5 +4647,5 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  eligible,rank_note=ranking_readiness(records,selected,participants=family_participants(records,selected))
  ranked=not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
- scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(_REPORT_PROVIDER_LABELS.get())],reverse=True)
+ scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(_RENDER_CONTEXT.get().labels)],reverse=True)
  return rank_note+'<p>'+saved_matrix_text('suite_denominator_note')+'</p>'+table(saved_matrix_text('suite_result_headers'),rows,id or 'ranking-'+suite,sortable=True,metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(6+int(ranked),'desc'))

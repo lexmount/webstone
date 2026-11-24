@@ -19,7 +19,7 @@ from harness.record_io import file_sha256, load_jsonl, optional_file_sha256
 from harness.record_schema import read_records, validate_records
 from harness.report_languages import generated_languages, includes_english, select_report_language
 from harness.reporting.assets import copy_bound_assets, load_bound_content
-from harness.reporting.templates import resolve_template
+from harness.web_fetch.template import report_template
 from harness.reporting.versions import bind_build_version, record_build_version
 from harness.web_fetch.adjudication_evidence import (
     require_adjudication_evidence,
@@ -56,6 +56,7 @@ from harness.web_fetch.reference_lifecycle import (
     require_verified_reference_checks,
 )
 from harness.web_fetch.reliability import assess_reliability
+from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report import (
     TRACKS,
     failure_category,
@@ -168,7 +169,7 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
     input_sha256 = optional_file_sha256(source)
     if source == output or source.is_relative_to(output) or output.is_relative_to(source) or output.exists():
         raise ValueError("Diagnostic build requires a new output outside its evidence")
-    template = resolve_template("webfetch")
+    template = report_template("diagnostic-cohorts")
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".diagnostic-report-", dir=output.parent))
     try:
@@ -347,9 +348,9 @@ def _build_frozen_presentation(source, output, presentation_binding, *,
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
         if release_binding:
             manifest['benchmark_release'] = release_binding
-        generate(staging, dataset, records, batches, include_english=include_english,
+        generate(staging, report_model(dataset, records, batches, include_english=include_english,
                  authored_interpretation=authored_interpretation,
-                 show_local_status_banners=show_local_status_banners, frozen_scores=True)
+                 show_local_status_banners=show_local_status_banners, frozen_scores=True))
         # Scores remain frozen, but cached inventory/summary files must describe
         # those exact current scores after an explicitly bound offline revision.
         write_frozen_result_summary(staging, dataset, records)
@@ -380,7 +381,7 @@ def write_frozen_presentation_manifest(output, manifest, *, show_local_status_ba
                 if authority.get('task_replacement_current_scope') is not None:
                     current['task_replacement_current_scope'] = authority['task_replacement_current_scope']
     languages = list(generated_languages(output))
-    current.update(template=resolve_template('webfetch'), languages=languages, generated_languages=languages,
+    current.update(template=report_template('local-audit'), languages=languages, generated_languages=languages,
                    presentation={"show_local_status_banners": show_local_status_banners,
                                  "frozen_scores": True, "authored_interpretation": authored_interpretation})
     current['webstone'] = bind_build_version(output)
@@ -534,9 +535,11 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         dataset_probe.get('comparison', {}).get('kind') == 'web_fetch_diagnostic')
     if not local_audit and not diagnostic_preview:
         require_certifiable_evidence(dataset_probe)
-    if dataset_probe.get('comparison', {}).get('kind') == 'webmainbench_frozen_html_to_markdown':
-        return build_webmainbench_report(source, output, include_english=include_english,
-                                         language=language, profile_path=profile_path)
+    from harness.web_fetch.report_variants import variant_for_kind
+    selected = variant_for_kind(dataset_probe.get('comparison', {}).get('kind'))
+    if selected.render_evidence is not None:
+        return selected.render_evidence(source, output, include_english=include_english,
+                                        language=language, profile_path=profile_path)
     if not local_audit:
         require_selection_history(source)
     dataset = json.loads(contained_path(source,'dataset.json').read_text(encoding='utf-8'))
@@ -895,7 +898,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
                 (staging / 'frozen-method-options.json').write_text(
                     json.dumps(options, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
             (staging / "report-manifest.json").write_text(json.dumps({
-                "schema_version": 1, "template": resolve_template("webfetch"),
+                "schema_version": 1, "template": report_template("local-audit"),
                 "evidence_state": "local_measurement", "certified": False,
                 "languages": ["zh", "en"] if include_english else ["zh"], "provider_calls_added": 0,
                 "dataset_sha256": file_sha256(source / "dataset.json"),
@@ -908,13 +911,13 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         original_scope = dataset.get('content_scope')
         dataset, records = _select_report_scope(staging, dataset, records, content_scope)
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
-        generate(staging, dataset, records, manifests, include_english=include_english,
+        generate(staging, report_model(dataset, records, manifests, include_english=include_english,
                  authored_interpretation=authored_interpretation if dataset.get('content_scope') == original_scope else False,
-                 show_local_status_banners=show_local_status_banners)
+                 show_local_status_banners=show_local_status_banners))
         if language is not None:
             select_report_language(staging, language)
         from harness.report_languages import generated_languages
-        template_manifest = {'schema_version': 1, 'template': None if diagnostic_preview else resolve_template('webfetch'),
+        template_manifest = {'schema_version': 1, 'template': None if diagnostic_preview else report_template('local-audit' if local_audit else selected.template_variant),
             'dataset_sha256': file_sha256(staging/'dataset.json'),
             'results_sha256': file_sha256(staging/'results.jsonl'),
             'generated_languages': generated_languages(staging)}
@@ -1812,12 +1815,12 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         staging = Path(scratch) / 'report'
         shutil.copytree(output, staging, copy_function=copy_evidence_file)
         batches = json.loads((output / 'execution.json').read_text(encoding='utf-8'))['batches']
-        generate(staging, dataset, records, batches, include_english=include_english, presentation_only=True,
+        generate(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
                  frozen_scores=True, authored_interpretation=authored_interpretation,
                  detail_attempt_ids=detail_attempt_ids,
                  diagnostic_view_paths=diagnostic_view_paths,
                  dataset_case_ids=dataset_case_ids,
-                 english_routes=[r for r in routes if r.endswith('.html') and not r.startswith('en/')])
+                 english_routes=[r for r in routes if r.endswith('.html') and not r.startswith('en/')]))
         if revised_attempt_ids or dataset_case_ids:
             write_frozen_result_summary(staging, dataset, records)
         changed = []

@@ -425,8 +425,8 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     assert (rebuilt / "logs" / response.name).read_bytes() == response.read_bytes()
     assert json.loads((rebuilt / "report-manifest.json").read_text(encoding="utf-8"))["presentation"]["frozen_scores"]
     rebuilt_manifest = json.loads((rebuilt / "report-manifest.json").read_text(encoding="utf-8"))
-    from harness.reporting.templates import resolve_template
-    assert rebuilt_manifest["template"] == resolve_template("webfetch")
+    from harness.web_fetch.template import report_template
+    assert rebuilt_manifest["template"] == report_template("local-audit")
     assert rebuilt_manifest["generated_languages"] == ["zh", "en"]
     assert rebuilt_manifest["presentation"]["authored_interpretation"] is False
     # Sharing a saved diagnostic must be explicit and retain strict defaults.
@@ -495,7 +495,7 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     from harness.web_fetch.report_build import generate as current_renderer
     with patch('harness.web_fetch.report_build.generate', wraps=current_renderer) as rendered:
         refresh_local_presentation(output, binding_path)
-    assert rendered.call_args.kwargs['authored_interpretation'] is False
+    assert rendered.call_args.args[1].options.authored_interpretation is False
     for relative in ("assets/report.js", "assets/style.css"):
         assert "stale-presentation-asset" not in (output / relative).read_text(encoding="utf-8")
     allowed = {"index.html", "methodology/index.html", "adoption/index.html",

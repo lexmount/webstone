@@ -68,14 +68,12 @@ def test_wcxb_command_forwards_requested_language(tmp_path, monkeypatch, include
                                    'sample_manifest': str(tmp_path / 'locked/tasks.json')}), encoding='utf-8')
     binding = {'kind': 'test-content'}
     (tmp_path / 'report-content-binding.json').write_text(json.dumps(binding), encoding='utf-8')
-    argv = [str(root / 'scripts/build_report.py'), '--language', language, '--profile', str(profile), '--wcxb', '--evidence', str(tmp_path),
+    argv = [str(root / 'scripts/build_report.py'), '--language', language, '--profile', str(profile), '--evidence', str(tmp_path),
             '--output', str(tmp_path / 'new-report')]
     if include_english:
         argv.append('--include-english')
     monkeypatch.setattr('sys.argv', argv)
-    with pytest.raises(SystemExit) as result:
-        runpy.run_path(argv[0], run_name='__main__')
-    assert result.value.code == 0
+    runpy.run_path(argv[0], run_name='__main__')
     assert captured == [{'include_english': include_english, 'language': language, 'authority_root': root,
                          'content_binding': binding}]
 

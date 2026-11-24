@@ -11,12 +11,12 @@ def test_saved_findings_keep_content_and_derive_counts(tmp_path):
     (tmp_path / 'dataset.json').write_text(json.dumps({'saved_matrix_scope': {
         'providers': [{'provider': 'sample-method', 'passed': 99}],
         'limitations': ['Saved body omitted the list. <script>bad</script>']}}), encoding='utf-8')
-    from harness.web_fetch.report import _REPORT_PROVIDER_LABELS
-    token = _REPORT_PROVIDER_LABELS.set({'sample-method': 'Saved participant'})
-    try:
+    from harness.web_fetch.report import rendering
+    from harness.web_fetch.report_model import report_model
+    model = report_model({'cases': list(cases.values())}, records,
+                         participants=[{'id': 'sample-method', 'label': 'Saved participant'}])
+    with rendering(model):
         page = render_explainer(tmp_path, cases, records, authored=False)
-    finally:
-        _REPORT_PROVIDER_LABELS.reset(token)
     assert 'Saved participant' in page
     assert '&lt;span' not in page
     from bs4 import BeautifulSoup

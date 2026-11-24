@@ -49,9 +49,14 @@ def validate_sample_content(root: Path, *, authority_root: Path, binding_path: P
     for language, prefix in language_editions(root):
         route = prefix + 'guide/index.html'
         page = contained_path(root, route, reject_symlinks=True).read_text(encoding='utf-8')
-        body = re.search(r'<main>(.*)</main>', page, re.S)
-        if body is None or body.group(1) != content['guide'][language]:
+        if bound_guide(page) != content['guide'][language]:
             raise ValueError('Sample guide differs from bound content: ' + language)
+
+
+def bound_guide(page: str) -> str | None:
+    """The guide page's main content, whatever role attributes the main element carries."""
+    body = re.search(r'<main(?:\s[^>]*)?>(.*)</main>', page, re.S)
+    return body.group(1) if body else None
 
 
 def authority_directory(authority_root: Path | None, profile: str) -> Path:

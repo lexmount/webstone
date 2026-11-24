@@ -28,7 +28,7 @@ older scores without an explicit offline revision receipt:
 
 ```bash
 uv run --frozen python scripts/build_report.py \
-  --local-audit \
+  --variant local-audit \
   --evidence "$WEB_FETCH_EVIDENCE_DIR" \
   --output /tmp/dynamic-100-local-report
 ```
@@ -44,7 +44,8 @@ scorer has changed, use the current renderer without rescoring:
 
 ```bash
 uv run --frozen python scripts/build_report.py \
-  --refresh-presentation evaluation/dynamic-content-100-moli-webfetch/current-local-results.json \
+  --variant refresh-presentation \
+  --input evaluation/dynamic-content-100-moli-webfetch/current-local-results.json \
   --output /absolute/path/to/report
 uv run --frozen python scripts/check_report.py /absolute/path/to/report \
   --presentation-binding evaluation/dynamic-content-100-moli-webfetch/current-local-results.json

@@ -1,174 +1,42 @@
-"""Build the current measured report or its public-benchmark research companion."""
+"""Build a Web Fetch report; the profile (or one --variant) selects the registered variant."""
 import argparse
-import json
 import sys
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from harness.report_languages import (
-    SUPPORTED_REPORT_LANGUAGES,
-    add_language_argument,
-    resolve_report_language,
-)
-from harness.web_fetch.report_build import (
-    build_diagnostic_cohorts,
-    build_public_benchmark_research,
-    build_report,
-    build_wcxb_report,
-    build_webmainbench_full_report,
-    refresh_local_presentation,
-)
-from harness.web_fetch.storage import (
-    current_evidence_dir,
-    require_canonical_inputs,
-    require_current_report_profile,
-    require_evidence,
-)
+from harness.report_languages import add_language_argument
+from harness.web_fetch.report_variants import VARIANTS, BuildRequest, VariantUsageError, build
 
 if __name__ == '__main__':
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--evidence',type=Path)
-    parser.add_argument('--check-saved-matrix', type=Path, help='Verify a saved multi-suite report and its retained evidence')
-    parser.add_argument('--source-spec', type=Path, help='Verify original sources with --check-saved-matrix; resolve paths beside this specification')
-    parser.add_argument('--saved-matrix', type=Path, help='Hash-bound saved multi-suite results; no provider calls or rescoring')
-    parser.add_argument('--authority-root', type=Path, help='External authority bundle for historical full-cohort reports')
-    parser.add_argument('--profile',type=Path,
-                        help='external report profile; requires an explicit output unless the profile declares report_output')
-    parser.add_argument('--public-benchmark-research',type=Path)
-    parser.add_argument('--output',type=Path)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='variants:\n' + '\n'.join(f'  {name}: {item.summary}' for name, item in VARIANTS.items()))
+    parser.add_argument('--variant', choices=list(VARIANTS),
+                        help='required when no profile selects the variant')
+    parser.add_argument('--profile', type=Path, help='external report instance profile')
+    parser.add_argument('--evidence', type=Path)
+    parser.add_argument('--input', type=Path,
+                        help='variant input: saved-matrix spec, research JSON or refresh binding')
+    parser.add_argument('--output', type=Path)
     add_language_argument(parser)
-    parser.add_argument('--include-english',action='store_true',
+    parser.add_argument('--include-english', action='store_true',
                         help='generate both editions; --language selects the homepage')
-    refresh = parser.add_mutually_exclusive_group()
-    refresh.add_argument('--refresh-review', type=Path,
-                         help='refresh coverage and fresh review details from bound supplemental reviews')
-    refresh.add_argument('--refresh-presentation', type=Path,
-                        help='refresh an existing local report using a hash-bound current-local-results.json; preserve measured evidence')
+    parser.add_argument('--authority-root', type=Path,
+                        help='external authority bundle for historical full-cohort reports')
+    parser.add_argument('--wcxb-source', type=Path)
+    parser.add_argument('--wcxb-sample', type=Path)
     parser.add_argument('--presentation-binding', type=Path,
-                        help='rebuild a hash-bound historical local report without rescoring')
-    parser.add_argument('--local-audit',action='store_true',
-                        help='build an explicitly local, non-publishable audit report from bound evidence')
-    parser.add_argument('--diagnostic-cohorts',action='store_true',
-                        help='render an explicitly diagnostic cohort model with the maintained WebFetch template')
-    parser.add_argument('--wcxb-source',type=Path)
-    parser.add_argument('--wcxb-sample',type=Path)
-    parser.add_argument('--wcxb',action='store_true',help='Build the independently bound WCXB report')
-    parser.add_argument('--webmainbench-full',action='store_true',help='Build the separately certified complete 545-case report')
-    args=parser.parse_args()
-    if args.check_saved_matrix:
-        if any((args.saved_matrix, args.evidence, args.profile, args.output, args.local_audit, args.diagnostic_cohorts, args.wcxb, args.webmainbench_full, args.public_benchmark_research, args.refresh_review, args.refresh_presentation, args.presentation_binding, args.authority_root, args.include_english, args.language, args.wcxb_source, args.wcxb_sample)):
-            parser.error('--check-saved-matrix cannot be combined with build options')
-        from harness.web_fetch.report_saved_matrix import check_saved_matrix
-        print(json.dumps(check_saved_matrix(args.check_saved_matrix, spec_path=args.source_spec), ensure_ascii=False))
-        raise SystemExit(0)
-    if args.source_spec:
-        parser.error('--source-spec requires --check-saved-matrix')
-    if args.saved_matrix:
-        if not args.output or any((args.evidence, args.profile, args.authority_root, args.local_audit, args.diagnostic_cohorts, args.wcxb, args.wcxb_source, args.wcxb_sample, args.webmainbench_full, args.public_benchmark_research, args.include_english, args.refresh_review, args.refresh_presentation, args.presentation_binding)):
-            parser.error('--saved-matrix requires a new --output and cannot be combined with other build modes')
-        if args.language not in (None, 'zh'):
-            parser.error('--saved-matrix currently supports Chinese output only')
-        from harness.web_fetch.report_saved_matrix import build_saved_matrix
-        print(build_saved_matrix(args.saved_matrix, args.output))
-        raise SystemExit(0)
-    if args.presentation_binding and not args.local_audit:
-        parser.error('--presentation-binding requires --local-audit')
-    from harness.reporting.templates import resolve_template
-    resolve_template('webfetch')
-    if args.refresh_presentation or args.refresh_review:
-        if not args.output or args.evidence or args.profile or args.local_audit or args.include_english or args.language or args.diagnostic_cohorts or args.wcxb or args.webmainbench_full or args.public_benchmark_research:
-            parser.error('--refresh-presentation requires only an existing --output and its result binding')
-        if args.refresh_review:
-            print(refresh_local_presentation(args.output, args.refresh_review, review_only=True))
-        else:
-            print(refresh_local_presentation(args.output, args.refresh_presentation))
-        raise SystemExit(0)
-    def requested_language(output, supported=SUPPORTED_REPORT_LANGUAGES):
-        try:
-            return resolve_report_language(output, args.language, supported=supported)
-        except ValueError as error:
-            parser.error(str(error))
-
-    if args.local_audit and (args.profile or args.wcxb or args.webmainbench_full or args.public_benchmark_research):
-        parser.error('--local-audit cannot be combined with a release profile, WCXB, WebMainBench, or public benchmark research')
-    if args.profile:
-        args.profile=(ROOT/args.profile).resolve() if not args.profile.is_absolute() else args.profile.resolve()
-        if json.loads(args.profile.read_text(encoding='utf-8')).get('variant') == 'published-snapshot-audit':
-            if not args.evidence or not args.output or args.local_audit or args.wcxb or args.include_english:
-                parser.error('snapshot audit requires a separate --evidence, --output and bound --profile')
-            requested_language(args.output, supported=('zh',))
-            from harness.web_fetch.published_snapshot import build_snapshot_audit
-            print(build_snapshot_audit(args.evidence, args.output, profile=args.profile))
-            raise SystemExit(0)
-        if json.loads(args.profile.read_text(encoding='utf-8')).get('variant') == 'diagnostic-cohorts':
-            args.diagnostic_cohorts=True
-    if args.diagnostic_cohorts:
-        if not args.output or (not args.evidence and not args.profile):
-            parser.error('diagnostic build requires --output and evidence or a bound profile')
-        if args.local_audit or args.wcxb or args.webmainbench_full or args.public_benchmark_research or args.include_english:
-            parser.error('--diagnostic-cohorts requires its own diagnostic evidence model and Chinese output')
-        requested_language(args.output, supported=('zh',))
-        print(build_diagnostic_cohorts(args.evidence,args.output,profile=args.profile))
-        raise SystemExit(0)
-    if args.local_audit:
-        if not args.evidence or not args.output:
-            parser.error('--local-audit requires both --evidence and --output')
-        if args.profile or args.wcxb or args.webmainbench_full or args.public_benchmark_research:
-            parser.error('--local-audit cannot be combined with a release profile, WCXB, WebMainBench, or public benchmark research')
-        evidence=require_evidence(args.evidence)
-        print(build_report(evidence,args.output,
-                           include_english=args.include_english, language=requested_language(args.output),
-                           local_audit=True,
-                           show_local_status_banners=True,
-                           presentation_binding=args.presentation_binding))
-        raise SystemExit(0)
-    if args.wcxb and args.webmainbench_full:
-        parser.error('--wcxb and --webmainbench-full are mutually exclusive')
-    if args.webmainbench_full:
-        if not args.evidence or args.include_english:
-            parser.error('--webmainbench-full requires --evidence; this historical report has no English edition')
-        output=args.output or ROOT/'reports/webmainbench-full'
-        requested_language(output, supported=('zh',))
-        print(build_webmainbench_full_report(args.evidence,output,authority_root=args.authority_root))
-        raise SystemExit(0)
-    if args.public_benchmark_research:
-        if args.evidence:
-            parser.error('--evidence and --public-benchmark-research are mutually exclusive')
-        if args.output is None:
-            parser.error('A research companion requires an explicit separate --output')
-        output=args.output or ROOT/'reports/webfetch-public-benchmarks'
-        print(build_public_benchmark_research(
-            args.public_benchmark_research,output,include_english=args.include_english, language=requested_language(output)))
-        raise SystemExit(0)
-    if args.profile:
-        profile_path=args.profile
-    else:
-        parser.error('Select an external report instance with --profile')
-    profile=json.loads(profile_path.read_text(encoding='utf-8'))
-    if args.wcxb and profile.get('comparison_kind')!='wcxb_frozen_html_to_markdown':
-        parser.error('The WCXB profile does not describe the WCXB matrix')
-    if profile.get('comparison_kind')=='wcxb_frozen_html_to_markdown':
-        if not args.evidence:
-            parser.error('--evidence is required for the certified WCXB cohort')
-        from harness.web_fetch.wcxb_dataset import selected_wcxb_input
-        corpus, sample = selected_wcxb_input(args.wcxb_source, args.wcxb_sample, profile=profile_path)
-        print(build_wcxb_report(args.evidence,corpus,sample,profile,args.output or ROOT/'reports/wcxb',
-                                content_binding=json.loads(profile_path.with_name('report-content-binding.json').read_text(encoding='utf-8')),
-                                authority_root=ROOT, include_english=args.include_english,
-                                language=requested_language(args.output or ROOT/'reports/wcxb')))
-        raise SystemExit(0)
-    evidence=require_evidence(args.evidence or current_evidence_dir())
-    if profile.get('comparison_kind')!='webmainbench_frozen_html_to_markdown' and not profile.get('frozen_inputs'):
-        canonical=(profile_path.parent if (profile_path.parent/'dataset.json').is_file()
-                   else ROOT/'evaluation')
-        require_canonical_inputs(evidence,canonical)
-    require_current_report_profile(evidence,profile_path)
-    declared_output=profile.get('report_output')
-    if args.profile and args.output is None and not declared_output:
-        parser.error('a custom --profile requires --output or report_output in the profile')
-    output=(args.output or (ROOT/declared_output if declared_output else ROOT/'reports/webfetch'))
-    print(build_report(evidence,output,
-                       include_english=args.include_english, language=requested_language(output),
-                       authored_interpretation=True, profile_path=profile_path))
+                        help='rebuild a hash-bound historical local audit without rescoring')
+    args = parser.parse_args()
+    profile = args.profile and (args.profile if args.profile.is_absolute() else ROOT / args.profile).resolve()
+    request = BuildRequest(
+        profile=profile, evidence=args.evidence, input=args.input, output=args.output,
+        language=args.language, include_english=args.include_english,
+        authority_root=args.authority_root, wcxb_source=args.wcxb_source,
+        wcxb_sample=args.wcxb_sample, presentation_binding=args.presentation_binding)
+    try:
+        print(build(request, args.variant))
+    except VariantUsageError as error:
+        parser.error(str(error))

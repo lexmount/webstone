@@ -78,7 +78,7 @@ def test_scoped_english_refresh_preserves_unselected_pages_and_rejects_escaping_
     assert not (tmp_path/'outside/index.html').exists()
 
 
-@pytest.mark.parametrize("mode", ["--diagnostic-cohorts", "--webmainbench-full"])
+@pytest.mark.parametrize("mode", ["diagnostic-cohorts", "webmainbench-full"])
 @pytest.mark.parametrize(("language", "saved"), [(None, False), (None, True), ("zh", False), ("en", True)])
 def test_chinese_only_commands_preserve_omitted_language(tmp_path, monkeypatch, mode, language, saved):
     from harness.web_fetch import report_build
@@ -87,16 +87,19 @@ def test_chinese_only_commands_preserve_omitted_language(tmp_path, monkeypatch, 
         output.mkdir()
         (output / "report-languages.json").write_text(json.dumps({"languages": ["zh"], "primary_language": "zh"}), encoding="utf-8")
     calls = []
-    builder = "build_diagnostic_cohorts" if mode == "--diagnostic-cohorts" else "build_webmainbench_full_report"
+    builder = "build_diagnostic_cohorts" if mode == "diagnostic-cohorts" else "build_webmainbench_full_report"
     monkeypatch.setattr(report_build, builder, lambda *args, **kwargs: calls.append((args, kwargs)) or output / "index.html")
     script = str(ROOT / "scripts/build_report.py")
-    argv = [script, mode, "--evidence", str(tmp_path / "evidence"), "--output", str(output)]
+    argv = [script, "--variant", mode, "--evidence", str(tmp_path / "evidence"), "--output", str(output)]
     if language:
         argv += ["--language", language]
     monkeypatch.setattr(sys, "argv", argv)
-    with pytest.raises(SystemExit) as result:
+    if language == "en":
+        with pytest.raises(SystemExit) as result:
+            runpy.run_path(script, run_name="__main__")
+        assert result.value.code == 2
+    else:
         runpy.run_path(script, run_name="__main__")
-    assert result.value.code == (2 if language == "en" else 0)
     assert len(calls) == (0 if language == "en" else 1)
 
 
@@ -105,7 +108,7 @@ def test_historical_diagnostic_command_builds_actual_report(tmp_path):
     evidence = tmp_path / "evidence"
     diagnostic_example(evidence)
     output = tmp_path / "report"
-    command = [sys.executable, str(ROOT / "scripts/build_report.py"), "--diagnostic-cohorts",
+    command = [sys.executable, str(ROOT / "scripts/build_report.py"), "--variant", "diagnostic-cohorts",
                "--evidence", str(evidence), "--output", str(output)]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

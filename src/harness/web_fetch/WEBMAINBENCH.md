@@ -100,7 +100,7 @@ The supported complete-cohort commands are:
   and bind the score files to the cohort certificate.
 - `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch webmainbench-full-assemble`: verify and package the complete
   baseline and all registry-declared variant cohorts.
-- `scripts/build_report.py --webmainbench-full`: build from persisted evidence
+- `scripts/build_report.py --variant webmainbench-full`: build from persisted evidence
   after the current profile's correction, content and review bindings pass.
 
 Run and score each independently declared cohort with its own profile. For

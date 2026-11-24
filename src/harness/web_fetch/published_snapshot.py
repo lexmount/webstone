@@ -13,9 +13,10 @@ from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json
 from harness.report_languages import generated_languages
 from harness.reporting.release_check import checked_page, open_report, read_page
-from harness.reporting.templates import resolve_template
+from harness.web_fetch.template import check_template_pages, report_template
 from harness.reporting.visual import browser_executable, local_report_server, settle_theme
 from harness.web_fetch.report import generate
+from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report_build import _install_report_tree, write_frozen_result_summary
 from harness.web_fetch.report_check import check_saved_result_summary
 from harness.web_fetch.report_explainer import check_current_browser_article
@@ -224,10 +225,10 @@ def build_snapshot_audit(source, output, *, profile):
         batches = json.loads((staging / 'execution.json').read_text(encoding='utf-8'))['batches']
         from harness.web_fetch.report_version import bind_release
         release_binding = bind_release(source, staging, dataset, records, profile=profile)
-        generate(staging, dataset, records, batches, authored_interpretation=True, frozen_scores=True)
+        generate(staging, report_model(dataset, records, batches, authored_interpretation=True, frozen_scores=True))
         write_frozen_result_summary(staging, dataset, records)
         (staging / '.generated-report').write_text('webfetch\n', encoding='utf-8')
-        manifest = {'schema_version':1, 'template':resolve_template('webfetch'),
+        manifest = {'schema_version':1, 'template':report_template('published-snapshot-audit'),
             'evidence_state':'published_snapshot_score_audit', 'certified':False,
             'dataset_sha256':file_sha256(staging/'dataset.json'),
             'results_sha256':file_sha256(staging/'results.jsonl'),
@@ -249,6 +250,7 @@ def check_snapshot_audit(root):
     manifest=read_json(root/'report-manifest.json')
     if manifest.get('evidence_state')!='published_snapshot_score_audit' or manifest.get('certified') is not False:
         raise ValueError('Snapshot audit lost its diagnostic identity')
+    check_template_pages(root, manifest)
     for name in ['dataset','results']:
         relative='dataset.json' if name=='dataset' else 'results.jsonl'
         if manifest.get(name+'_sha256')!=file_sha256(root/relative):

@@ -622,6 +622,9 @@ def check_diagnostic_report(output, profile=None):
             raise ValueError('Rendered diagnostic instance does not bind the planned input')
     if manifest["template"]["track"] != "webfetch" or manifest["template"]["renderer"] not in {"src/harness/web_fetch/report.py", "harness/web_fetch/report.py"}:
         raise ValueError("Diagnostic report bypassed its registered template")
+    if "variant" in manifest["template"]:
+        from harness.web_fetch.template import check_template_pages
+        check_template_pages(output, manifest)
     if manifest["model_sha256"] != hashlib.sha256((output / "report.json").read_bytes()).hexdigest():
         raise ValueError("Report model binding mismatch")
     if manifest.get("certified") is not False or manifest.get("provider_calls_added") != 0:

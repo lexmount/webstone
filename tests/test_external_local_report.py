@@ -102,7 +102,7 @@ def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
             "benchmark_release": {"path": "benchmark-input-release.json", "sha256": original_sha}}})
     output = tmp_path / "report"
     for script, args in [
-        ("build_report.py", ["--local-audit", "--evidence", str(evidence),
+        ("build_report.py", ["--variant", "local-audit", "--evidence", str(evidence),
                              "--output", str(output), "--language", "en"]),
         ("check_report.py", [str(output)]),
     ]:

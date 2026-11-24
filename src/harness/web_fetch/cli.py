@@ -313,7 +313,7 @@ def command_compose(args: argparse.Namespace) -> int:
     except ValueError as error:
         raise SystemExit(str(error)) from error
     print(f"Saved-matrix specification: {path}")
-    print(f"Build: uv run --frozen python scripts/build_report.py --saved-matrix {path} --output NEW_REPORT")
+    print(f"Build: uv run --frozen python scripts/build_report.py --variant saved-matrix --input {path} --output NEW_REPORT")
     return 0
 
 

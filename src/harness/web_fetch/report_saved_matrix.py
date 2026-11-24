@@ -57,15 +57,6 @@ def _require_source_admission(output, model):
     return admission
 
 
-def _require_final_projection(output, dataset, records):
-    if dataset.get('comparison', {}).get('publication_state') != 'final_saved_results':
-        return
-    admission = _FINAL_ADMISSION.get()
-    if (admission is None or admission['output'] != Path(output).resolve()
-            or admission.get('projection') != canonical_json_sha256([dataset, records])):
-        raise ValueError('Final saved results require source-backed admission')
-
-
 def _json(path):
     return json.loads(Path(path).read_bytes())
 
@@ -1905,7 +1896,6 @@ def _validate_record_public_views(source, destination, record, case, original_re
 
 def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     """Verify immutable sources and create a new portable report directory."""
-    from harness.web_fetch.report import generate_saved_matrix
     if _json(spec_path).get('published_base'):
         from harness.web_fetch.report_saved_composition import build_published_extension
         return build_published_extension(spec_path, output)
@@ -2588,7 +2578,7 @@ def _validate_rendered_pages(output, model):
             shutil.copy2(source, expected/review['path'])
         _write(expected/'matrix.json', model)
         with _source_validated_render(expected, model):
-            render_saved_with_standard_generator(expected, model)
+            _render_projection(expected, model)
         pages = {path.relative_to(expected) for path in expected.rglob('*.html')
                  if path.relative_to(expected).parts[0] != 'evidence'}
         actual = {path.relative_to(output) for path in output.rglob('*.html')
@@ -3042,11 +3032,11 @@ def _saved_renderer_projection(output, model):
     return dataset, records, identities, scope
 
 
-def render_saved_with_standard_generator(output, model):
+def _render_projection(output, model):
     """Render the verified route/path projection through the shared generator."""
     from harness.web_fetch.report import generate
+    from harness.web_fetch.report_model import report_model
     dataset, records, identities, scope = _saved_renderer_projection(output, model)
-    providers = [p['id'] for p in model['providers']]
     _write(output/'dataset.json', dataset)
     (output/'results.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records), encoding='utf-8')
     if model.get('result_review'):
@@ -3059,17 +3049,59 @@ def render_saved_with_standard_generator(output, model):
     _write(output/'summary.json', scope)
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})
-    from harness.web_fetch.report import _REPORT_SUITES, _REPORT_PROVIDER_LABELS, provider_label
-    token = _REPORT_SUITES.set(tuple(dataset['report_suites']))
-    label_token = _REPORT_PROVIDER_LABELS.set({p['id']: p['label'] for p in model['providers']})
-    try:
-        entry = generate(output,dataset,records,[],authored_interpretation=False,frozen_scores=True)
-        from harness.web_fetch.report import write, hero, esc, saved_matrix_scope_section, local_audit_banner
-        for provider in providers:
-            if not any(r['provider'] == provider for r in records):
-                write(output, 'providers/'+provider+'.html', provider_label(provider),
-                      local_audit_banner(dataset)+hero(esc(provider_label(provider)), '')+saved_matrix_scope_section(scope), root_links=True)
-    finally:
-        _REPORT_SUITES.reset(token)
-        _REPORT_PROVIDER_LABELS.reset(label_token)
-    return entry
+    admission = _FINAL_ADMISSION.get()
+    return generate(output, report_model(
+        dataset, records, participants=model['providers'], suites=dataset['report_suites'],
+        source_admission=admission.get('projection') if admission and admission['output'] == Path(output).resolve() else None,
+        authored_interpretation=False, frozen_scores=True))
+
+
+def generate_saved_matrix(out: Path, model: dict) -> Path:
+    """Render a suite-qualified saved matrix without interpreting or changing scores.
+
+    Evidence links refer to retained files inside the new report directory. Missing
+    outcomes remain explicit slots, rather than fabricated failed measurements.
+    """
+    out = Path(out)
+    providers = {p['id']: p['label'] for p in model['providers']}
+    suites = {s['id']: s['label'] for s in model['suites']}
+    if len(providers) != len(model['providers']) or len(suites) != len(model['suites']):
+        raise ValueError('Duplicate matrix provider or suite')
+    rows = model['rows']
+    seen = set()
+    states = {'passed', 'failed', 'undecidable', 'adapter_rejected', 'uncommitted', 'not_called'}
+    path_fields = ('record_path', 'answer_path', 'log_path', 'case_path', 'receipt_path')
+    for row in rows:
+        key = row['suite'], row['provider'], row['case_id']
+        if key in seen or key[0] not in suites or key[1] not in providers:
+            raise ValueError('Duplicate or undeclared matrix identity')
+        seen.add(key)
+        status = row['status']
+        if status not in states or row['passed'] not in (True, False, None):
+            raise ValueError('Invalid saved matrix outcome')
+        if status in {'undecidable', 'uncommitted', 'not_called'} and row['passed'] is not None:
+            raise ValueError('Missing matrix outcomes must not have scores')
+        if status == 'passed' and row['passed'] is not True:
+            raise ValueError('Passed status differs from saved score')
+        if status in {'failed', 'adapter_rejected'} and row['passed'] is not False:
+            raise ValueError('Failed status differs from saved score')
+        if status in {'adapter_rejected', 'not_called'} and row['called']:
+            raise ValueError('Pre-call status cannot claim product invocation')
+        if status in {'passed', 'failed', 'undecidable', 'uncommitted'} and not row['called']:
+            raise ValueError('Called status lacks product invocation')
+        for field in path_fields:
+            value = row.get(field)
+            if not value:
+                continue
+            decoded = unquote(value)
+            parsed = urlsplit(decoded)
+            if (parsed.scheme or parsed.netloc or parsed.query or parsed.fragment or
+                    decoded.startswith('/') or '\\' in decoded or
+                    any(part in {'.', '..'} for part in decoded.split('/'))):
+                raise ValueError('Unsafe matrix evidence link')
+            target = out / decoded
+            if not target.resolve().is_relative_to(out.resolve()) or not target.is_file():
+                raise ValueError('Missing or escaping matrix evidence link: ' + field)
+    if not rows:
+        raise ValueError('Empty saved matrix')
+    return _render_projection(out, model)
