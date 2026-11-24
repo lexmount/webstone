@@ -264,7 +264,7 @@ and the existing same-window comparison contract.
 
 ## Report instances
 
-Local reports are optional outputs from saved evidence. The public CLI supports `run --no-report` and `rescore --no-report`; `report <run-directory>` can build HTML later without new calls. Local use requires no report-hosting account. Formal release checks and packaging apply when preparing a release; upload requires an explicit publication request and authorization. See [local reports and optional sharing](report-hosting.md).
+Local reports are optional outputs from saved evidence. The public CLI supports `run --no-report` and `score --no-report`; `report <run-directory>` can build HTML later without new calls. Local use requires no report-hosting account. Formal release checks and packaging apply when preparing a release; upload requires an explicit publication request and authorization. See [local reports and optional sharing](report-hosting.md).
 
 Each report track uses its maintained build, check and package entry points.
 Browser Use and Browser Trajectory Replay accept an instance profile at each boundary. Keep the profile and measured evidence outside

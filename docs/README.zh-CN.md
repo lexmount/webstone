@@ -50,6 +50,16 @@ webstone skills install --directory "$HOME/.codex/skills"
 
 当前包没有 `skills` 命令时，见[源码安装说明](agent-workflows.md#install-software-and-skill)。
 
+### 命令
+
+所有 Track 使用同一组阶段命令；在各级加 `--help` 可查看该 Track 支持的阶段和它自己的准备命令：
+
+```text
+webstone <track> run | score | report | check | package | publish | export
+```
+
+Track 包括 `webfetch`、`web-search`、`web-extract`、`trajectory-replay` 和 `browser-use`（`webstone tracks` 以 JSON 列出）。Web Fetch 是默认 Track，它的阶段也可以直接在顶层运行（`webstone run` 等同于 `webstone webfetch run`）。对已保存证据重新评分用 `score`，它取代了原来的 `rescore` 命令；`webstone webfetch compose` 根据多个运行目录写出已保存矩阵的说明文件。`make <stage> TRACK=<track> ARGS="..."` 运行同样的命令。阶段及其产物的定义见[仓库规范](spec.md#command-surface)。
+
 ## 评测流程
 
 按任务选择评测流程，各指南提供任务约定、环境配置和可运行示例。
@@ -170,7 +180,7 @@ flowchart LR
 
 结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Yours 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
+`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`score --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
@@ -280,7 +290,7 @@ make setup-test
 make ci
 ```
 
-[代码结构](architecture.md) · [安全](../SECURITY.md) · [第三方内容](../THIRD_PARTY.md) · [Apache 2.0](../LICENSE)
+[仓库规范](spec.md) · [代码结构](architecture.md) · [安全](../SECURITY.md) · [第三方内容](../THIRD_PARTY.md) · [Apache 2.0](../LICENSE)
 
 
 ## 引用 Webstone

@@ -2,7 +2,7 @@
 
 Report generation is optional. When you need a report, build it locally from saved results. Local builds need no Yours account or publication token.
 
-The Web Fetch CLI builds a local report after `run` and `rescore` by default. Add `--no-report` to either command to save the evaluation or scoring outputs without generating HTML. `rescore --no-report` leaves any existing report unchanged; rebuild it to inspect the updated scores.
+The Web Fetch CLI builds a local report after `run` and `score` by default. Add `--no-report` to either command to save the evaluation or scoring outputs without generating HTML. `score --no-report` leaves any existing report unchanged; rebuild it to inspect the updated scores.
 
 To build a report later from a saved Web Fetch CLI run:
 
@@ -34,7 +34,7 @@ The Web Fetch CLI falls back to English. `WEBSTONE_REPORT_LANGUAGE=zh` changes t
 
 | Builder | Language selection |
 | --- | --- |
-| `webstone run`, `report`, `rescore` | `--language en` or `--language zh`; fallback English, environment configurable |
+| `webstone run`, `report`, `score` | `--language en` or `--language zh`; fallback English, environment configurable |
 | `scripts/build_report.py`: standard Web Fetch, local audit, WCXB, WebMainBench sample, research companion | `--language en` or `--language zh`; fallback English, environment configurable |
 | `uv run --frozen python -m harness.browser_use report` | `--language en` or `--language zh`; fallback English, environment configurable |
 | `uv run --frozen python -m harness.trajectory_replay report` | `--language en` or `--language zh`; fallback English, environment configurable |

@@ -10,6 +10,7 @@ Webstone owns scoring, execution, evidence handling and local report generation 
 | --- | --- | --- |
 | Web Search | `src/harness/web_search/` | [Search guide](../src/harness/web_search/README.md) |
 | Web Fetch | `src/harness/web_fetch/` | [Web Fetch guide](../src/harness/web_fetch/README.md), [frozen HTML comparisons](../src/harness/web_fetch/HEADLESS.md) |
+| Web Extract | `src/harness/web_extract/` | [Structured field extraction](../examples/web_extract/README.md) |
 | Browser Trajectory Replay | `src/harness/trajectory_replay/` | [Fixed-action examples](../examples/trajectory_replay/README.md) |
 | Browser Use | `src/harness/browser_use/` | [Autonomous Agent examples](../examples/browser_use/README.md) |
 
@@ -66,12 +67,21 @@ through configuration, registries or explicit parameters.
 
 | Responsibility | Shared owner or boundary |
 | --- | --- |
+| `webstone <track> <stage>` dispatch and the track registry that `webstone tracks` reports | `src/harness/cli.py`, each track's `cli.py` (`STAGES`) |
+| Adapter contracts: `Registry`, `Capabilities`, `MethodAdapter`, `BenchmarkAdapter`, `TrackStages` | `src/harness/adapters.py` |
 | JSONL framing and finalized/live readers | `src/harness/record_io.py` |
+| HTTP transport and observed per-call events | `src/harness/http_client.py`, `src/harness/call_diagnostics.py` |
+| Filesystem and URL safety checks; repository `.env` application; Yours publishing credential | `src/harness/safety.py`, `src/harness/runtime_env.py`, `src/harness/artifact_auth.py` |
 | Web Fetch task execution and certification | `benchmark_runner.py`, `certification.py`, `reference_lifecycle.py` |
-| Browser adapters and results | [Provider contract](provider-contract.md), `src/harness/web_fetch/providers/` |
+| Web Fetch benchmark adapters (default, WebMainBench, WCXB) and frozen-page serving | `benchmarks.py`, `frozen_inputs.py` |
+| Web Fetch method adapters, their registry (`PROVIDERS`), capability flags and native task-route contracts | [Provider contract](provider-contract.md), `src/harness/web_fetch/providers/` |
+| Saved-matrix specification from several run directories (`webstone webfetch compose`) | `saved_matrix_compose.py` |
+| Web Search benchmark adapters and method adapters | `src/harness/web_search/benchmarks.py`, `src/harness/web_search/adapters.py` |
+| Browser engine adapters (`BROWSERS`) and profile participants for both browser tracks | `src/harness/environments/browser/`, `src/harness/environments/participants.py` |
 | Web Fetch scoring and task acceptance | Local `lexbench_webfetch.scoring`, `lexbench_webfetch.metrics`, HF task configuration |
 | Search scoring and acceptance | Local `src/lexbench_websearch/` and HF query/reference definitions |
 | Dataset download, verification and version selection | `src/harness/benchmarks/` and `src/harness/benchmarks/data-lock.json` |
+| Dataset release hooks named by card metadata (`definitions_check`, `upstream_source`) | `src/harness/benchmarks/cards/metadata.json`; for example `src/harness/benchmarks/headless_source.py` |
 | Bound artifact copying and aggregation | `artifacts.py`, `evidence.py`, `assembly.py` |
 | Reference and scoring corrections | `reference_revision.py`, `scoring_revision.py`, `rescoring.py` |
 | WebMainBench certification, scoring and aggregation | `webmainbench_certification.py`, `webmainbench_scoring.py`, `webmainbench_assembly.py` |
@@ -80,9 +90,10 @@ through configuration, registries or explicit parameters.
 | Common report assets, links, presentation and publication lifecycles (`publish.py`, with each track as an adapter) | `src/harness/reporting/` |
 | Report template contract: page roles, slot order, track templates, variants and section hooks ([spec](spec.md#report-templates)) | `src/harness/reporting/templates.py` |
 | Shared page shell and components (navigation, theme, language switch, tables, directional highlights, evidence links) and the message catalog API | `src/harness/reporting/shell.py`, `src/harness/reporting/locales.py` |
+| Public evidence projection and the shared report stylesheet | `src/harness/reporting/publication_privacy.py`, `src/harness/reporting/style.py` |
 | Generated-language inventory and absent-English notice | `src/harness/report_languages.py` |
 | Independent reviewer subprocess execution | `src/harness/review_runner.py` |
-| Shared WebArena deployment and network capture | `src/harness/environments/webarena/` |
+| Shared WebArena deployment and network capture; per-site login and reset adapters | `src/harness/environments/webarena/`, `src/harness/environments/webarena/sites.py` |
 
 Unqualified Python filenames in the table are under `src/harness/web_fetch/`.
 Browser Use and trajectory replay own their Agent/action orchestration,
@@ -122,7 +133,7 @@ capture proves what was observed, not permission to redistribute it.
 
 ## Reports and publication
 
-Local HTML is an optional view of saved scores and evidence. `run` builds it by default; `run --no-report` and `rescore --no-report` keep evaluation/scoring independent of HTML generation. `report <run-directory>` builds it later without new provider calls. Local builds require no hosting account or publication authorization.
+Local HTML is an optional view of saved scores and evidence. `run` builds it by default; `run --no-report` and `score --no-report` keep evaluation/scoring independent of HTML generation. `report <run-directory>` builds it later without new provider calls. Local builds require no hosting account or publication authorization.
 
 Builders validate evidence and write a private staging directory before replacing
 a marked generated report. The current profile selects external report assets;

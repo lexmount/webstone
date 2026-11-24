@@ -50,6 +50,16 @@ webstone skills install --directory "$HOME/.codex/skills"
 
 If your installed package lacks the `skills` command, see the [source installation instructions](docs/agent-workflows.md#install-software-and-skill).
 
+### Commands
+
+Every track offers the same stage verbs; `--help` at each level lists what a track supports and its own preparation commands:
+
+```text
+webstone <track> run | score | report | check | package | publish | export
+```
+
+Tracks are `webfetch`, `web-search`, `web-extract`, `trajectory-replay` and `browser-use` (`webstone tracks` prints them as JSON). Web Fetch is the default track, so its stages also run at the top level (`webstone run` is `webstone webfetch run`). `score` recomputes scores from saved evidence and replaces the former `rescore` command; `webstone webfetch compose` writes a saved-matrix specification from several run directories. `make <stage> TRACK=<track> ARGS="..."` runs the same verbs. The [repository specification](docs/spec.md#command-surface) defines the stages and their artifacts.
+
 ## Evaluation tracks
 
 Choose a workflow for its task contract, setup and runnable example.
@@ -170,7 +180,7 @@ See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scori
 
 Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Yours account or publishing authorization.
 
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
+The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `score --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
@@ -280,7 +290,7 @@ make setup-test
 make ci
 ```
 
-[Architecture](docs/architecture.md) · [Security](SECURITY.md) · [Third-party content](THIRD_PARTY.md) · [Apache 2.0](LICENSE)
+[Specification](docs/spec.md) · [Architecture](docs/architecture.md) · [Security](SECURITY.md) · [Third-party content](THIRD_PARTY.md) · [Apache 2.0](LICENSE)
 
 ## Cite Webstone
 

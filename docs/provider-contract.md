@@ -29,8 +29,11 @@ They must never be added to `metadata`, content, manifest or logs.
 1. Implement `Provider` and register its type in `PROVIDERS` in `src/harness/web_fetch/providers/base.py`.
    Declare the hooks shared code reads on the class: `capability_flags`,
    `native_answer_selection` (the pre-call answer selection policy) and, where
-   needed, `implementation_identity`, `preflight_capacity` and
-   `capacity_credits_for_cases`. Shared modules never branch on a provider type.
+   needed, `implementation_identity`, `preflight_capacity`,
+   `capacity_credits_for_cases`, `normalize_native_http_body` (where a request
+   carries the task URL other than in `url` or `urls`) and
+   `launches_local_browser`. The flags are documented on `Provider`. Shared
+   modules never branch on a provider type.
 2. Add an example configuration and tests using local fixtures.
 3. Assign its output contract in `methods.py`.
 
