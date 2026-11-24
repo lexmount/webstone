@@ -72,13 +72,11 @@ make package-check
 
 CI checks the complete PR. Only README, contribution/security guidance, `AGENTS.md`, Markdown under `docs/`, and images under `docs/assets/` qualify for documentation-only checks. Other paths, unknown scope, main pushes and tags run full checks. The required `Python 3.11` status rejects failed, cancelled or unexpectedly skipped jobs. See [workflow details](.github/workflows/README.md).
 
-Report output changes must update the golden snapshots deliberately:
+Each track's stage outputs (scored records, a digest of every report route, headings and table values) and its further report scenarios are pinned by baselines in `tests/baselines/`. Update them deliberately after an intended output change, and explain every baseline change in the PR description:
 
 ```bash
-UPDATE_GOLDEN=1 uv run --frozen --all-extras python -m pytest tests/test_golden_reports.py
+WEBSTONE_UPDATE_BASELINES=1 uv run --frozen --all-extras python -m pytest tests/baselines
 ```
-
-Each track's stage outputs (scored records, report routes, headings and table values) are also pinned by readable baselines in `tests/baselines/`; refresh them with `WEBSTONE_UPDATE_BASELINES=1 uv run --frozen --all-extras python -m pytest tests/baselines` and explain every baseline change in the PR description.
 
 For report delivery, use the track's [release gates](.agents/skills/benchmark-report/references/report-and-release.md#release-gates). Historical-input checks follow [reference inputs](docs/reference-inputs.md).
 

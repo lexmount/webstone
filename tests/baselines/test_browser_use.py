@@ -6,7 +6,13 @@ selecting one logical result per browser and task, aggregation and the report.
 
 from pathlib import Path
 
-from tests.baselines.snapshot import Normalizer, check_baseline, read_jsonl, report_snapshot
+from tests.baselines.snapshot import (
+    Normalizer,
+    check_baseline,
+    read_jsonl,
+    report_snapshot,
+    route_digests,
+)
 from tests.browser_use.test_report import build_browser_use_fixture
 
 
@@ -22,3 +28,8 @@ def test_browser_use_stages(tmp_path: Path, monkeypatch) -> None:
         "results": read_jsonl(output / "data/results.jsonl"),
         "report": report_snapshot(output, normalize, outlined),
     }))
+
+
+def test_browser_use_passing_report(tmp_path: Path, monkeypatch) -> None:
+    output, _, _ = build_browser_use_fixture(tmp_path, monkeypatch, "en", failed=False)
+    check_baseline("browser-use-pass", {"routes": route_digests(output, Normalizer([tmp_path]))})

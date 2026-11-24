@@ -244,20 +244,19 @@ def test_child_output_is_utf8_under_an_ascii_locale():
 
 
 def test_report_builds_are_byte_identical_under_an_ascii_locale(tmp_path):
-    """Every track's multilingual build must match the snapshot taken under UTF-8."""
+    """Every track's multilingual build must match the baseline taken under UTF-8."""
     result = subprocess.run(
-        [sys.executable, '-m', 'pytest', 'tests/test_golden_reports.py',
+        [sys.executable, '-m', 'pytest', 'tests/baselines',
          '-q', '-p', 'no:cacheprovider', '--basetemp', str(tmp_path / 'build')],
         cwd=ROOT, env=ascii_locale_environment(),
         capture_output=True, encoding='utf-8', errors='replace', check=False)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize('scenario', ['minimal', 'macos', 'linux'])
-def test_lexbench_report_builds_under_an_ascii_locale(tmp_path, scenario):
+def test_lexbench_report_builds_under_an_ascii_locale(tmp_path):
     """The whole command succeeds with an ASCII stdout and writes non-ASCII chart text as UTF-8."""
     result = subprocess.run(
-        [sys.executable, '-c', LEXBENCH_BUILD, str(tmp_path), scenario],
+        [sys.executable, '-c', LEXBENCH_BUILD, str(tmp_path), 'minimal'],
         cwd=ROOT, env=ascii_locale_environment(),
         capture_output=True, encoding='utf-8', errors='replace', check=False)
     assert result.returncode == 0, result.stdout + result.stderr
