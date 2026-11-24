@@ -1840,7 +1840,7 @@ def test_playwright_backend_executes_portable_and_snapshot_ref_calls(tmp_path: P
                 {
                     "action": "snapshot",
                     "selector": "#hidden",
-                    "timeout_ms": 100,
+                    "timeout_ms": 500,
                 },
             )
             assert status == "error"
