@@ -16,7 +16,9 @@ from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_schema import read_records
 from harness.reporting.privacy import WEBMAINBENCH
-from harness.web_fetch.models import FROZEN_CALL_RECORD, FROZEN_RESULT, FROZEN_SCORED_RESULT
+from harness.web_fetch.models import (
+    FROZEN_CALL_RECORD, FROZEN_RESULT, FROZEN_SCORED_RESULT, measured_frozen_result,
+)
 from harness.web_fetch.webmainbench_certification import verify_shard
 from harness.web_fetch.webmainbench_evidence import (
     alias_row,
@@ -178,7 +180,7 @@ def _assemble_cohort(
         logical = {row["track_id"]: row for row in read_records(shard / "results.jsonl", FROZEN_RESULT)}
         for row in rows:
             base = logical[row["track_id"]]
-            if {k: v for k, v in row.items() if k != "metrics"} != base:
+            if measured_frozen_result(row) != base:
                 raise ValueError(provider + ": scoring changed measured result")
             copy_bound(shard, output, row["artifact_path"], row["output_sha256"])
             results.append(public_value({**row, "case_id": row["track_id"]}))

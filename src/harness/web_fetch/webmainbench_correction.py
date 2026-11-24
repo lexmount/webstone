@@ -216,8 +216,8 @@ def certify_case_correction(argv=None):
         parser.error("--fixed-provider must name a method of the source matrix")
     binaries = {fixed_provider: args.fixed_binary}
     if args.baseline_binary:
-        if args.runner_provider not in selected:
-            parser.error("--baseline-binary requires --runner-provider to name a source method")
+        if args.runner_provider not in selected or args.runner_provider == fixed_provider:
+            parser.error("--baseline-binary requires --runner-provider to name another source method")
         binaries[args.runner_provider] = args.baseline_binary
     if not args.provider and not args.prior_correction and not args.baseline_binary:
         parser.error("--baseline-binary is required without --prior-correction")

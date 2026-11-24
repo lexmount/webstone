@@ -118,14 +118,23 @@ DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
 def _origin(scheme: str, netloc: str) -> tuple[str, str, int | None]:
-    """Full origin identity: scheme, case-folded host and effective port."""
+    """Full origin identity: scheme, case-folded host and effective port.
+
+    Only an absent port takes the scheme default; a malformed or out-of-range
+    port raises ``ValueError``.
+    """
     parsed = urlsplit("//" + netloc)
     scheme = scheme.casefold()
+    port = parsed.port
+    return scheme, (parsed.hostname or "").casefold(), DEFAULT_PORTS.get(scheme) if port is None else port
+
+
+def _request_origin(scheme: str, netloc: str) -> tuple[str, str, int | None] | None:
+    """The origin a request names, or None when its authority is malformed."""
     try:
-        port = parsed.port
+        return _origin(scheme, netloc)
     except ValueError:
-        port = None
-    return scheme, (parsed.hostname or "").casefold(), port or DEFAULT_PORTS.get(scheme)
+        return None
 
 
 @contextmanager
@@ -144,7 +153,10 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
         if not host:
             raise ValueError("Frozen record URL lacks a hostname: " + record["track_id"])
         hosts.add(host)
-        origin = _origin(parsed.scheme, parsed.netloc)
+        try:
+            origin = _origin(parsed.scheme, parsed.netloc)
+        except ValueError as error:
+            raise ValueError("Frozen record URL has an invalid port: " + record["track_id"]) from error
         if origin[0] == "https":
             tunnels.add(origin[1:])
         path_key = (*origin, parsed.path or "/")
@@ -159,7 +171,10 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
 
     def frozen_body(scheme: str, host_header: str, request_path: str):
         parsed = urlsplit(request_path)
-        path_key = (*_origin(scheme, host_header), parsed.path or "/")
+        origin = _request_origin(scheme, host_header)
+        if origin is None:
+            return None
+        path_key = (*origin, parsed.path or "/")
         exact = bodies.get((*path_key, parsed.query))
         if exact is not None:
             return exact
@@ -224,7 +239,8 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
 
         class ProxyHandler(BaseHTTPRequestHandler):
             def do_CONNECT(self):  # noqa: N802 - BaseHTTPRequestHandler API
-                if _origin("https", self.path)[1:] not in tunnels:
+                origin = _request_origin("https", self.path)
+                if origin is None or origin[1:] not in tunnels:
                     self.send_error(404)
                     return
                 upstream = socket.create_connection(("127.0.0.1", server.server_port), timeout=5)

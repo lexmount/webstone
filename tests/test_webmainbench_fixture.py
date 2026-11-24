@@ -57,8 +57,16 @@ class FrozenFixtureTests(unittest.TestCase):
             for record in records:
                 with opener.open(record["url"], timeout=5) as response:
                     self.assertEqual(response.read().decode(), record["html"])
-            with self.assertRaises(OSError):
-                opener.open("https://source.example.test:9443/page", timeout=5)
+            for unregistered in ("https://source.example.test:9443/page",
+                                 "https://source.example.test:0/page"):
+                with self.assertRaises(OSError):
+                    opener.open(unregistered, timeout=5)
+
+    def test_invalid_fixture_port_is_rejected(self):
+        record = {"track_id": "bad", "html": "<h1>Bad</h1>", "url": "https://source.example.test:99999/page"}
+        with self.assertRaisesRegex(ValueError, "invalid port"):
+            with fixture_server([record], preserve_original_origin=True):
+                pass
 
     def test_isolation_probe_requests_the_exact_query_and_port(self):
         records = [

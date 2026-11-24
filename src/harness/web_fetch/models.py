@@ -104,3 +104,19 @@ FROZEN_RESULT = RecordSchema(
               "error_type": OPTIONAL_TEXT, "error_message": OPTIONAL_TEXT},
 )
 FROZEN_SCORED_RESULT = FROZEN_RESULT.extend("webfetch.frozen_scored_result", 1, metrics=(dict,))
+
+
+def score_frozen_result(row: dict[str, Any], metrics: dict) -> dict[str, Any]:
+    """The scored form of a frozen result; a record that names its schema names the scored one."""
+    scored = {**row, "metrics": metrics}
+    if "schema" in row:
+        scored["schema"] = FROZEN_SCORED_RESULT.id
+    return scored
+
+
+def measured_frozen_result(scored: dict[str, Any]) -> dict[str, Any]:
+    """The frozen result a scored row was made from (inverse of ``score_frozen_result``)."""
+    row = {key: value for key, value in scored.items() if key != "metrics"}
+    if "schema" in row:
+        row["schema"] = FROZEN_RESULT.id
+    return row

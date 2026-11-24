@@ -90,6 +90,8 @@ def validate_records(records: Iterable[object], *schemas: RecordSchema,
     rows = []
     for index, record in enumerate(records, 1):
         declared = record.get("schema") if isinstance(record, dict) else None
+        if declared is not None and not isinstance(declared, str):
+            raise RecordSchemaError(f"{source} row {index}: schema must be a string")
         schema = known.get(declared) if declared is not None else schemas[0]
         if schema is None:
             raise RecordSchemaError(f"{source} row {index}: unsupported schema {declared!r}; "
