@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from harness.results import ResultsClient, SubmissionError
 from harness.record_schema import RecordSchemaError
+from harness.results import ResultsClient, SubmissionError
 from harness.results.export import UNPUBLISHED, read_receipt, scored_result_schema
 
 # The submission definitions the exporters target, as the website catalog declares them.
