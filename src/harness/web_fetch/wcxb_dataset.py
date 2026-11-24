@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import json
 from collections import Counter, defaultdict
 from html.parser import HTMLParser
 from pathlib import Path
 
-from harness.web_fetch.webmainbench_runner import load_wcxb_source, selected_wcxb_input
+from harness.distribution import repository_root, source_path
 
 SEED = "wcxb-v1-test-stratified-200-20260917"
+ROOT = repository_root()
 
 
 class VisibleBody(HTMLParser):
@@ -30,6 +32,93 @@ class VisibleBody(HTMLParser):
 
     def handle_data(self, data):
         if self.in_body and not self.skip: self.parts.append(data)
+
+
+def selected_wcxb_input(source: Path | None = None, manifest: Path | None = None, *, profile: Path | None = None) -> tuple[Path, Path]:
+    """Use locked defaults only when no source edition was explicitly selected."""
+    from harness.benchmarks.data import definition_path
+    default_source = source is None
+    if manifest is None and profile is not None:
+        declared = json.loads(profile.read_bytes()).get('sample_manifest')
+        if declared:
+            path = Path(declared)
+            manifest = path if path.is_absolute() else source_path(path, root=ROOT)
+    if default_source:
+        source = definition_path('wcxb', 'source')
+        locked_manifest = definition_path('wcxb', 'tasks.json')
+        if manifest is not None and manifest.resolve() != locked_manifest.resolve():
+            selected_hash = json.loads(manifest.read_bytes()).get('source_sha256')
+            locked_hash = json.loads(locked_manifest.read_bytes()).get('source_sha256')
+            if not selected_hash or selected_hash != locked_hash:
+                raise ValueError('The WCXB profile selects another source edition; provide its explicit --source/--dataset')
+    if manifest is None:
+        if default_source:
+            manifest = locked_manifest
+        else:
+            if (source.parent / 'tasks.json').is_file():
+                manifest = source.parent / 'tasks.json'
+            else:
+                raise ValueError('An explicit WCXB source requires its manifest or a profile sample_manifest')
+    return source, manifest
+
+
+def load_wcxb_source(root: Path, split: str = "test", *, manifest: Path | None = None) -> tuple[list[dict], str]:
+    """Bind every frozen input and annotation byte before provider calls."""
+    directory = root / split
+    html_dir = directory / "html"
+    gt_dir = directory / "ground-truth"
+    records = []
+    inventory = hashlib.sha256()
+    for gt_path in sorted(gt_dir.glob("*.json")):
+        html_path = html_dir / f"{gt_path.stem}.html.gz"
+        if not html_path.is_file() or gt_path.is_symlink() or html_path.is_symlink():
+            raise ValueError(f"Missing or linked WCXB input: {gt_path.stem}")
+        gt_bytes, html_bytes = gt_path.read_bytes(), html_path.read_bytes()
+        for path, payload in ((gt_path, gt_bytes), (html_path, html_bytes)):
+            inventory.update(str(path.relative_to(root)).encode() + b"\0")
+            inventory.update(hashlib.sha256(payload).digest())
+        data = json.loads(gt_bytes)
+        content = gzip.decompress(html_bytes).decode("utf-8", errors="replace")
+        page_type = data.get("_internal", {}).get("page_type", {}).get("primary", "article")
+        if page_type == "category":
+            page_type = "collection"
+        records.append({
+            "track_id": gt_path.stem,
+            "url": data["url"],
+            "html": content,
+            "groundtruth_content": data["ground_truth"].get("main_content") or "",
+            "ground_truth": data['ground_truth'],
+            "meta": {"page_type": page_type, "split": split},
+        })
+    authority_path = manifest if manifest is not None else root.parent / 'tasks.json'
+    authority = (json.loads(authority_path.read_bytes())
+                 if manifest is not None or authority_path.is_file() else None)
+    if (manifest is not None or authority is not None) and not isinstance(authority, dict):
+        raise ValueError('Invalid WCXB source edition')
+    # Discovered and explicit historical selections use the same full corpus.
+    if authority is not None and authority.get('schema_version') in (None, 1):
+        authority = None
+    if authority is not None:
+        if (authority.get('schema_version') != 2 or authority.get('split') != split
+                or type(authority.get('source_count')) is not int or authority['source_count'] <= 0):
+            raise ValueError('Invalid WCXB source edition')
+        expected = authority['source_count']
+    else:
+        expected = 511 if split == "test" else 1497
+    if len(records) != expected or len({r["track_id"] for r in records}) != expected:
+        raise ValueError(f"Expected {expected} distinct WCXB {split} inputs, found {len(records)}")
+    source_hash = inventory.hexdigest()
+    if authority is not None:
+        if source_hash != authority.get('source_sha256'):
+            raise ValueError('WCXB source differs from its qualified edition')
+        if split == 'test':
+            if authority.get('scope') not in {'qualified_test', 'full_test', 'stratified_sample'}:
+                raise ValueError('Unsupported WCXB source selection scope')
+            validate_manifest(records, source_hash, authority)
+        elif {r['track_id'] for r in records} != {c['file_id'] for c in authority['cases']}:
+            raise ValueError('WCXB source differs from its qualified edition')
+    return records, source_hash
+
 
 
 def full_test_exclusions(records: list[dict]) -> list[dict]:

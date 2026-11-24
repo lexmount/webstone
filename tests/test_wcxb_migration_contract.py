@@ -4,13 +4,13 @@ import json
 import pytest
 
 from harness.benchmarks import data
-from harness.web_fetch import webmainbench_runner as runner, webmainbench_scoring as wmb
+from harness.web_fetch import wcxb_dataset, webmainbench_scoring as wmb
 
 
 def test_explicit_source_without_authority_never_fetches_default_manifest(tmp_path, monkeypatch):
     monkeypatch.setattr(data, 'definition_path', lambda *args: pytest.fail('Explicit sources must not fetch defaults'))
     with pytest.raises(ValueError, match='manifest'):
-        runner.selected_wcxb_input(tmp_path / 'historical/source')
+        wcxb_dataset.selected_wcxb_input(tmp_path / 'historical/source')
 
 
 def test_explicit_source_uses_profile_bound_manifest_before_conflicting_neighbor(tmp_path, monkeypatch):
@@ -18,9 +18,9 @@ def test_explicit_source_uses_profile_bound_manifest_before_conflicting_neighbor
     (tmp_path / 'tasks.json').write_text('conflicting edition', encoding='utf-8')
     profile = tmp_path / 'profile.json'
     profile.write_text(json.dumps({'sample_manifest': 'evaluation/historical.json'}), encoding='utf-8')
-    monkeypatch.setattr(runner, 'ROOT', tmp_path / 'repo')
+    monkeypatch.setattr(wcxb_dataset, 'ROOT', tmp_path / 'repo')
     monkeypatch.setattr(data, 'definition_path', lambda *args: pytest.fail('Explicit sources must not fetch defaults'))
-    assert runner.selected_wcxb_input(source, profile=profile) == (source, tmp_path / 'repo/evaluation/historical.json')
+    assert wcxb_dataset.selected_wcxb_input(source, profile=profile) == (source, tmp_path / 'repo/evaluation/historical.json')
 
 
 def test_explicit_source_retains_adjacent_authority_without_profile(tmp_path, monkeypatch):
@@ -28,7 +28,7 @@ def test_explicit_source_retains_adjacent_authority_without_profile(tmp_path, mo
     manifest = tmp_path / 'tasks.json'
     manifest.write_text('{}', encoding='utf-8')
     monkeypatch.setattr(data, 'definition_path', lambda *args: pytest.fail('Explicit sources must not fetch defaults'))
-    assert runner.selected_wcxb_input(source) == (source, manifest)
+    assert wcxb_dataset.selected_wcxb_input(source) == (source, manifest)
 
 
 def test_absolute_profile_manifest_and_explicit_override_are_preserved(tmp_path):
@@ -36,9 +36,9 @@ def test_absolute_profile_manifest_and_explicit_override_are_preserved(tmp_path)
     selected = tmp_path / 'external/old.json'
     profile.write_text(json.dumps({'sample_manifest': str(selected)}), encoding='utf-8')
     source = tmp_path / 'source'
-    assert runner.selected_wcxb_input(source, profile=profile) == (source, selected)
+    assert wcxb_dataset.selected_wcxb_input(source, profile=profile) == (source, selected)
     override = tmp_path / 'other.json'
-    assert runner.selected_wcxb_input(source, override, profile=profile) == (source, override)
+    assert wcxb_dataset.selected_wcxb_input(source, override, profile=profile) == (source, override)
 
 
 def test_official_scorer_stays_inside_custom_dataset_cache(tmp_path, monkeypatch):
@@ -72,7 +72,7 @@ def test_source_only_scoring_cli_resolves_its_historical_profile(tmp_path, monke
 
 
 def test_source_only_certified_cli_resolves_profile_before_any_provider_work(tmp_path, monkeypatch):
-    from harness.web_fetch import certification
+    from harness.web_fetch import wcxb_certification as certification
     source, manifest = tmp_path / 'source', tmp_path / 'old.json'
     profile = tmp_path / 'profile.json'
     profile.write_text(json.dumps({'sample_manifest': str(manifest)}), encoding='utf-8')
@@ -82,7 +82,7 @@ def test_source_only_certified_cli_resolves_profile_before_any_provider_work(tmp
     monkeypatch.setattr(data, 'definition_path', lambda *args: pytest.fail('Historical CLI must not select HF defaults'))
     monkeypatch.setattr(certification, 'load_wcxb_source', stop_before_execution)
     with pytest.raises(RuntimeError, match='historical selection reached'):
-        certification.run_wcxb(['--dataset', str(source), '--profile', str(profile),
+        certification.main(['--dataset', str(source), '--profile', str(profile),
                                 '--output-root', str(tmp_path / 'new-output')])
 
 

@@ -27,7 +27,7 @@ from harness.web_fetch.webmainbench_evidence import (
     retry_chain_matches,
     scored_shard_bindings,
 )
-from harness.web_fetch.webmainbench_runner import load_source
+from harness.web_fetch.webmainbench_dataset import load_source
 from harness.web_fetch.webmainbench_scoring import aggregate, verify_score
 
 ROOT = repository_root()

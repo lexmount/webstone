@@ -203,7 +203,13 @@ class CertifiedBenchmarkTests(unittest.TestCase):
     def test_dispatches_complete_webmainbench_certification(self) -> None:
         arguments = ["--output-root", "/tmp/run", "--source", "/tmp/source.jsonl"]
         with patch("harness.web_fetch.webmainbench_certification.main") as invoked:
-            main(["webmainbench-full", *arguments])
+            main(["--benchmark", "webmainbench", *arguments])
+        invoked.assert_called_once_with(arguments)
+
+    def test_dispatches_complete_wcxb_certification(self) -> None:
+        arguments = ["--output-root", "/tmp/run", "--profile", "/tmp/profile.json"]
+        with patch("harness.web_fetch.wcxb_certification.main") as invoked:
+            main(["--benchmark", "wcxb", *arguments])
         invoked.assert_called_once_with(arguments)
 
     def test_missing_dynamic_execution_contract_fails_before_external_work(self):
@@ -620,8 +626,8 @@ def test_invalid_selected_reference_route_stops_before_any_capture(tmp_path):
         ["run_certified_benchmark.py"],
         ["run_certified_benchmark.py", "risk-control"],
         ["run_certified_benchmark.py", "webmainbench-correction"],
-        ["run_certified_benchmark.py", "webmainbench-full"],
-        ["run_certified_benchmark.py", "wcxb"],
+        ["run_certified_benchmark.py", "--benchmark", "webmainbench"],
+        ["run_certified_benchmark.py", "--benchmark", "wcxb"],
         ["run_certified_benchmark.py", "wcxb-latency"],
     ],
 )

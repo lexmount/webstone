@@ -5,7 +5,8 @@ import sys
 import pytest
 
 from harness.benchmarks import data
-from harness.web_fetch import wcxb_dataset, webmainbench_runner as runner
+from harness.web_fetch import runner, wcxb_dataset
+from harness.web_fetch.benchmarks import BENCHMARKS
 from tests.test_wcxb_selected_edition import ReachedCollection, corpus, preflight
 
 
@@ -37,12 +38,12 @@ def test_generate_then_consume_qualified_edition(tmp_path, monkeypatch, scope, e
     assert selected_manifest['size'] == len(selected_manifest['cases']) == expected
     original_cases = {row['file_id']: row for row in edition['cases']}
     assert selected_manifest['cases'] == [original_cases[row['file_id']] for row in selected_manifest['cases']]
-    records, digest = runner.load_wcxb_source(source, manifest=output)
+    records, digest = wcxb_dataset.load_wcxb_source(source, manifest=output)
     selected, _ = wcxb_dataset.validate_manifest(records, digest, selected_manifest)
     assert len(records) == 504 and len(selected) == expected
     args, called = preflight(tmp_path, monkeypatch, source, output)
     with pytest.raises(ReachedCollection):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == [True]
     assert not args.output.exists()
 
@@ -55,14 +56,14 @@ def test_discovered_and_explicit_historical_manifests_select_identical_populatio
         manifest.pop('schema_version')
         selected.write_text(json.dumps(manifest), encoding='utf-8')
     (source.parent / 'tasks.json').write_text(selected.read_text(encoding='utf-8'), encoding='utf-8')
-    implicit_records, implicit_hash = runner.load_wcxb_source(source, split)
-    explicit_records, explicit_hash = runner.load_wcxb_source(source, split, manifest=selected)
+    implicit_records, implicit_hash = wcxb_dataset.load_wcxb_source(source, split)
+    explicit_records, explicit_hash = wcxb_dataset.load_wcxb_source(source, split, manifest=selected)
     assert len(implicit_records) == len(explicit_records) == count
     assert implicit_records == explicit_records and implicit_hash == explicit_hash
     (source / split / 'ground-truth/0000.json').unlink()
     for selection in ({}, {'manifest': selected}):
         with pytest.raises(ValueError, match=f'Expected {count}'):
-            runner.load_wcxb_source(source, split, **selection)
+            wcxb_dataset.load_wcxb_source(source, split, **selection)
 
 
 def test_historical_generator_keeps_original_schema_and_qualified_selection(tmp_path, monkeypatch):
@@ -73,7 +74,7 @@ def test_historical_generator_keeps_original_schema_and_qualified_selection(tmp_
     wcxb_dataset.main()
     manifest = json.loads(output.read_text(encoding='utf-8'))
     assert manifest['schema_version'] == 1 and manifest['size'] == 504
-    records, digest = runner.load_wcxb_source(source, manifest=output)
+    records, digest = wcxb_dataset.load_wcxb_source(source, manifest=output)
     selected, _ = wcxb_dataset.validate_manifest(records, digest, manifest)
     assert len(records) == 511 and len(selected) == 504
 
@@ -99,7 +100,7 @@ def test_generated_subset_does_not_weaken_edition_or_selection_checks(tmp_path, 
     output.write_text(json.dumps(manifest), encoding='utf-8')
     args, called = preflight(tmp_path, monkeypatch, source, output)
     with pytest.raises(ValueError):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == []
 
 

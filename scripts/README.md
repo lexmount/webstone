@@ -44,7 +44,7 @@ with other tracks.
 
 | Script | Reached from |
 | --- | --- |
-| `run_certified_benchmark.py` | `src/harness/web_fetch/README.md`, `docs/provider-contract.md`, `evaluation/risk-control/run-profile.json`; runs reference freezing, postcheck, finalization, `risk-control`, `webmainbench-correction`, `wcxb` and `wcxb-latency` |
+| `run_certified_benchmark.py` | `src/harness/web_fetch/README.md`, `docs/provider-contract.md`, `evaluation/risk-control/run-profile.json`; runs reference freezing, postcheck, finalization, `risk-control`, `webmainbench-correction`, `wcxb-latency` and the frozen-input certifiers selected by `--benchmark webmainbench` or `--benchmark wcxb` |
 | `run_benchmark.py` | `src/harness/web_fetch/README.md`, `docs/provider-contract.md`, bound latency certifiers |
 | `build_report.py`, `check_report.py` | `make report`, `make report-check`, `configs/report-templates.json`, `src/harness/web_fetch/README.md`, bound latency certifiers |
 | `check_report_links.py` | shared link check owned by `harness.reporting`: `make report-check`, `make browser-use-report-check`, bound latency certifiers |
@@ -65,7 +65,7 @@ The scripts below stay because frozen latency certifiers name them.
 | --- | --- |
 | `run_certified_webmainbench_latency.py` | `src/harness/web_fetch/data/webmainbench-latency-source.json` |
 | `diagnose_webmainbench_moli_tail.py` | `docs/architecture.md`, bound latency certifiers |
-| `run_webmainbench_benchmark.py` | `make webmainbench-run`, bound latency certifiers |
+| `run_webmainbench_benchmark.py` | bound latency certifiers; a thin wrapper of `webstone run --benchmark webmainbench` |
 
 ## Web Search
 

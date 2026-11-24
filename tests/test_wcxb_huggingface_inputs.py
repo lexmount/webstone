@@ -9,7 +9,7 @@ import pytest
 from harness.benchmarks import data
 from harness.web_fetch import wcxb_scoring
 from harness.web_fetch.wcxb_dataset import validate_manifest
-from harness.web_fetch.webmainbench_runner import load_wcxb_source, selected_wcxb_input
+from harness.web_fetch.wcxb_dataset import load_wcxb_source, selected_wcxb_input
 
 
 @pytest.fixture

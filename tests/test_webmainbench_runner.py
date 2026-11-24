@@ -5,13 +5,9 @@ import tempfile
 import hashlib
 from pathlib import Path
 
-from harness.web_fetch.webmainbench_runner import (
-    DATASET_SHA256,
-    check_identity,
-    fetch_record,
-    load_selected_ids,
-    load_source,
-)
+from harness.web_fetch.benchmarks import BENCHMARKS
+from harness.web_fetch.frozen_inputs import check_reported_version, fetch_frozen
+from harness.web_fetch.webmainbench_dataset import DATASET_SHA256, load_selected_ids, load_source
 from harness.web_fetch.webmainbench_scoring import load_records
 
 
@@ -36,9 +32,9 @@ class RaisingProvider:
 
 class WebMainBenchRunnerTests(unittest.TestCase):
     def test_release_identity_must_match_declared_current_version(self):
-        check_identity("moli", {"reported_version": "moli 1.1.9"}, {"moli": "1.1.9"})
+        check_reported_version("moli", {"reported_version": "moli 1.1.9"}, "1.1.9")
         with self.assertRaisesRegex(ValueError, "expected version 1.1.9"):
-            check_identity("moli", {"reported_version": "moli 1.1.8"}, {"moli": "1.1.9"})
+            check_reported_version("moli", {"reported_version": "moli 1.1.8"}, "1.1.9")
 
     def test_loads_and_binds_frozen_sample_manifest(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -84,14 +80,16 @@ class WebMainBenchRunnerTests(unittest.TestCase):
             self.assertEqual(len(load_records(path, corrected_hash)), 545)
 
     def test_cloudflare_timeout_becomes_retryable_result(self):
-        result = fetch_record(None, RaisingCloudflare(), RECORD, "https://localhost/case", 45)
+        case = BENCHMARKS.get("webmainbench").case(RECORD, RECORD["url"])
+        result = fetch_frozen(None, RaisingCloudflare(), case, RECORD["html"], 45)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_type, "timeout")
         self.assertEqual(result.error_message, "read timed out")
         self.assertEqual(result.metadata, {"exception_class": "TimeoutError"})
 
     def test_local_adapter_exception_is_inspectable(self):
-        result = fetch_record(RaisingProvider(), None, RECORD, "https://localhost/case", 45)
+        case = BENCHMARKS.get("webmainbench").case(RECORD, "https://localhost/case")
+        result = fetch_frozen(RaisingProvider(), None, case, RECORD["html"], 45)
         self.assertFalse(result.ok)
         self.assertEqual(result.error_type, "provider_exception")
         self.assertEqual(result.metadata, {"exception_class": "gaierror"})

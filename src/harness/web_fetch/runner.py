@@ -6,6 +6,7 @@ import json
 import math
 import platform
 import re
+import shutil
 import socket
 import ssl
 import sys
@@ -13,6 +14,7 @@ import threading
 import time
 import traceback
 import urllib.error
+import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,12 +25,13 @@ from lexbench_webfetch.metrics import summarize, task_passed
 from lexbench_webfetch.models import EvalCase, validate_case
 from lexbench_webfetch.paths import contained_path, safe_identifier
 from lexbench_webfetch.response_input import apply_request_status
-from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, load_list_reference, score_attempt
+from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, load_list_reference
 
 from harness.benchmark_execution import ExecutionPolicy, ExecutionStop, Job, run_jobs, validate_capacity
-from harness.record_io import load_jsonl, optional_file_sha256
+from harness.record_io import bytes_sha256, load_jsonl, optional_file_sha256, write_json
 from harness.reporting.privacy import WEB_FETCH_DIAGNOSTIC
 from harness.reporting.versions import software_identity
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.artifacts import (
     PRIVATE_ARTIFACT_ROOT,
     PUBLIC_CALL_LOG_ROOT,
@@ -40,8 +43,9 @@ from harness.web_fetch.artifacts import (
     verify_record_private_artifacts,
     verify_record_public_call_logs,
 )
+from harness.web_fetch.benchmarks import LiveSuite
 from harness.web_fetch.call_boundary import fetch_with_deadline, worker_unresolved
-from harness.web_fetch.config import DEFAULT_FAILURE_RETRIES
+from harness.web_fetch.config import DEFAULT_FAILURE_RETRIES, load_provider_config
 from harness.web_fetch.diagnostics import CallDiagnostics
 from harness.web_fetch.models import AttemptRecord, ProviderResult
 from harness.web_fetch.native_projection import (
@@ -55,7 +59,7 @@ from harness.web_fetch.native_routes import (
     verify_native_route_contract,
 )
 from harness.web_fetch.network_preflight import preflight_guarded_providers
-from harness.web_fetch.providers import Provider
+from harness.web_fetch.providers import Provider, build_provider
 from harness.web_fetch.providers.base import ProcessCleanupError
 from harness.reporting.publication_privacy import redact_url_queries
 from harness.web_fetch.reference_inputs import benchmark_input_path, read_dataset_bytes, input_tree
@@ -545,7 +549,10 @@ def run_evaluation(
     call_order: str = "provider",
     execution_context: dict | None = None,
     stop_event: Any | None = None,
+    benchmark: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if benchmark is None:
+        benchmark = LiveSuite()
     output_dir = output_dir.resolve()
     for name, value, minimum in (
         ('runs', runs, 1), ('provider_concurrency', provider_concurrency, 1),
@@ -863,13 +870,13 @@ def run_evaluation(
                                 result.metadata['native_answer_required'] = True
                             artifact = persist_result_artifacts(output_dir, artifact_rel, result, request_url=case.url)
                             artifact_bytes = result.content.encode('utf-8', errors='replace')
-                            measured = score_attempt(
-                                case, artifact_bytes, ok=result.ok, metadata=result.metadata,
-                                title=result.title, final_url=result.final_url,
-                                list_reference=load_list_reference(case, dataset_path.parent),
-                                status_code=result.status_code,
-                                prepared_answer=result.prepared_answer,
-                            )
+                            measured = benchmark.score(case, {
+                                "content": artifact_bytes, "ok": result.ok, "metadata": result.metadata,
+                                "title": result.title, "final_url": result.final_url,
+                                "list_reference": load_list_reference(case, dataset_path.parent),
+                                "status_code": result.status_code,
+                                "prepared_answer": result.prepared_answer,
+                            })
                             measured['deadline_overrun'] = physical_elapsed_ms > timeout * 1000
                             measured['deadline_budget_ms'] = timeout * 1000
                             if binding is not None:
@@ -1195,14 +1202,14 @@ def rescore_evaluation(
             raise ValueError(f"run contains case absent from dataset: {record['case_id']}")
         artifact = contained_path(run_dir,record["artifact_path"])
         previous_deadline = bool(record.get("metrics", {}).get("deadline_overrun"))
-        record["metrics"] = score_attempt(
-            case, artifact.read_bytes(), ok=bool(record.get("ok")),
-            title=record.get('title'), final_url=record.get('final_url'),
-            metadata=file_scoring_metadata(case, record.get("provider_metadata", {}), run_dir),
-            previous_metrics=record["metrics"],
-            list_reference=load_list_reference(case, dataset_path.parent),
-            status_code=record.get('status_code'),
-        )
+        record["metrics"] = LiveSuite().score(case, {
+            "content": artifact.read_bytes(), "ok": bool(record.get("ok")),
+            "title": record.get('title'), "final_url": record.get('final_url'),
+            "metadata": file_scoring_metadata(case, record.get("provider_metadata", {}), run_dir),
+            "previous_metrics": record["metrics"],
+            "list_reference": load_list_reference(case, dataset_path.parent),
+            "status_code": record.get('status_code'),
+        })
         apply_request_status(record)
         record["metrics"]["deadline_overrun"] = previous_deadline
 
@@ -1223,3 +1230,157 @@ def rescore_evaluation(
     manifest["rescored_at"] = utc_now()
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return records, summary
+
+
+def run_frozen_cohort(benchmark, args) -> None:
+    """Measure one method on a frozen-input benchmark through its adapter.
+
+    The adapter selects the records and serves them; this loop owns the calls,
+    the failure retry and the shard layout read by the benchmark's score stage:
+    ``dataset.json``, ``physical-attempts.jsonl``, ``results.jsonl`` and
+    ``execution.json``. A hosted method receives the frozen bytes directly; a
+    local method fetches them from the loopback fixture inside an OS sandbox.
+    """
+    from harness.web_fetch.frozen_inputs import (
+        check_reported_version, fetch_frozen, hosted_html_route, input_contract,
+        public_metadata, verify_loopback_sandbox,
+    )
+
+    if args.output.exists():
+        raise ValueError("Output exists; measured evidence is immutable")
+    selected = benchmark.cases(args)
+    records = selected.records
+    if args.limit:
+        records = records[: args.limit]
+    if not records:
+        raise ValueError("No cases selected")
+
+    load_runtime_env(args.env_file)
+    config = load_provider_config(args.provider_config)
+    provider_config = dict(config[args.provider])
+    hosted = hosted_html_route(args.provider, provider_config)
+    if hosted is None:
+        # Local engines reach only the loopback fixture.
+        provider_config["network_policy"] = "loopback_only"
+        provider_config["allow_private_network"] = True
+    provider = build_provider(args.provider, provider_config)
+    if missing := provider.validate():
+        raise ValueError(args.provider + ": " + ", ".join(missing))
+    before = provider.implementation_identity()
+    check_reported_version(args.provider, before, selected.expected_versions.get(args.provider))
+
+    args.output.mkdir(parents=True)
+    artifact_root = args.output / "artifacts" / args.provider
+    artifact_root.mkdir(parents=True)
+    physical_path = args.output / "physical-attempts.jsonl"
+    result_path = args.output / "results.jsonl"
+    write_json(args.output / "dataset.json", {
+        "dataset_id": selected.dataset_id,
+        "source_sha256": selected.source_sha256,
+        "official_scorer_commit": selected.scorer_commit,
+        "case_count": len(records),
+        "case_ids": [record["track_id"] for record in records],
+        "selection_manifest": selected.selection,
+        "input_contract": input_contract(args.preserve_original_origin),
+        **selected.extra_manifest,
+    })
+
+    started_at = utc_now()
+    run_id = benchmark.run_id_prefix + uuid.uuid4().hex[:20]
+    network_isolation_probe = None
+    fixture_ca_artifact = None
+    with (benchmark.inputs(records, preserve_original_origin=args.preserve_original_origin)
+          as (fixture_endpoint, ca_cert),
+          physical_path.open("w", encoding="utf-8") as physical,
+          result_path.open("w", encoding="utf-8") as results):
+        if hosted is not None:
+            network_isolation_probe = dict(hosted.isolation)
+        else:
+            provider.config["ca_cert"] = str(ca_cert)
+            if args.preserve_original_origin:
+                provider.config["http_proxy"] = fixture_endpoint
+            shutil.copy2(ca_cert, args.output / "fixture-ca.pem")
+            fixture_ca_artifact = "fixture-ca.pem"
+            network_isolation_probe = verify_loopback_sandbox(
+                fixture_endpoint, ca_cert, records[0], args.preserve_original_origin)
+            network_isolation_probe["fixture_ca_sha256"] = bytes_sha256(ca_cert.read_bytes())
+        for index, record in enumerate(records, 1):
+            body = record["html"].encode("utf-8")
+            reference = record["groundtruth_content"].encode("utf-8")
+            attempts = []
+            total_elapsed = 0.0
+            for retry in range(args.max_failure_retries + 1):
+                target_url = (record["url"] if args.preserve_original_origin or hosted is not None
+                              else f"{fixture_endpoint}/case/{record['track_id']}")
+                call_started = utc_now()
+                clock = time.monotonic()
+                response = fetch_frozen(provider, hosted, benchmark.case(record, target_url),
+                                        record["html"], args.timeout)
+                elapsed_ms = round((time.monotonic() - clock) * 1000, 2)
+                total_elapsed += elapsed_ms
+                physical_artifact = artifact_root / f'{record["track_id"]}-p{retry + 1:02d}.txt'
+                physical_artifact.write_text(response.content, encoding='utf-8')
+                attempt = {
+                    "attempt_id": f"{args.provider}__{record['track_id']}__p{retry + 1:02d}",
+                    "run_id": run_id,
+                    "provider": args.provider,
+                    "track_id": record["track_id"],
+                    "original_url": record["url"],
+                    "physical_attempt": retry + 1,
+                    "started_at": call_started,
+                    "completed_at": utc_now(),
+                    "elapsed_ms": elapsed_ms,
+                    "ok": response.ok,
+                    "status_code": response.status_code,
+                    "error_type": response.error_type,
+                    "error_message": response.error_message,
+                    "provider_metadata": public_metadata(response.metadata),
+                    "input_html_sha256": bytes_sha256(body),
+                    "reference_sha256": bytes_sha256(reference),
+                    "output_sha256": bytes_sha256(response.content.encode("utf-8")),
+                    "output_chars": len(response.content),
+                    "physical_artifact_path": str(physical_artifact.relative_to(args.output)),
+                }
+                physical.write(json.dumps(attempt, ensure_ascii=False) + "\n")
+                physical.flush()
+                attempts.append((attempt, response))
+                if response.ok:
+                    break
+            authoritative, final_response = attempts[-1]
+            artifact = artifact_root / f"{record['track_id']}.md"
+            artifact.write_text(final_response.content, encoding="utf-8")
+            logical = {
+                **{key: value for key, value in authoritative.items()
+                   if key not in {"attempt_id", "physical_attempt"}},
+                "attempt_id": f"{args.provider}__{record['track_id']}__r001",
+                "artifact_path": str(artifact.relative_to(args.output)),
+                "physical_attempt_count": len(attempts),
+                "total_elapsed_ms": round(total_elapsed, 2),
+                "retry_selection": "final_physical_attempt_is_authoritative",
+                "meta": record["meta"],
+            }
+            results.write(json.dumps(logical, ensure_ascii=False) + "\n")
+            results.flush()
+            state = "ok" if final_response.ok else final_response.error_type
+            print(f"[{index}/{len(records)}] {args.provider} {record['track_id']} {state}", flush=True)
+
+    after = provider.implementation_identity(refresh=True)
+    if before != after:
+        raise ValueError("Provider implementation identity changed during measurement")
+    write_json(args.output / "execution.json", {
+        "schema_version": 1,
+        "run_id": run_id,
+        "provider": args.provider,
+        "started_at": started_at,
+        "completed_at": utc_now(),
+        "case_count": len(records),
+        "timeout_seconds": args.timeout,
+        "max_failure_retries": args.max_failure_retries,
+        "implementation_identity": before,
+        "environment": {"python": platform.python_version(), "platform": platform.platform()},
+        "source_dataset_sha256": selected.source_sha256,
+        "selection_manifest": selected.selection,
+        "runner_sha256": bytes_sha256(Path(__file__).read_bytes()),
+        "network_isolation_probe": network_isolation_probe,
+        "fixture_ca_artifact": fixture_ca_artifact,
+    })

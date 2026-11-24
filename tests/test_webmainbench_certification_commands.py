@@ -29,15 +29,15 @@ def install_child(command_inputs, monkeypatch, *, after=None):
     commands = []
 
     def child(command, **kwargs):
-        if "--provider" not in command:
+        if "--providers" not in command:
             return original(command, **kwargs)
         commands.append(command)
-        assert command[1:3] == ["-m", "harness.web_fetch.webmainbench_runner"]
-        for option in ("--dataset", "--output", "--config", "--env-file"):
+        assert command[1:6] == ["-m", "harness.web_fetch", "run", "--benchmark", "webmainbench"]
+        for option in ("--dataset", "--output", "--provider-config", "--env-file"):
             if option != "--env-file" or option in command:
                 assert Path(command[command.index(option) + 1]).is_absolute()
         assert kwargs.get("cwd", root) == root
-        provider = command[command.index("--provider") + 1]
+        provider = command[command.index("--providers") + 1]
         measured_shard(Path(command[command.index("--output") + 1]), provider, records, profile)
         if after:
             after(root, provider)

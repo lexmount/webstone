@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from harness.benchmarks import data
-from harness.web_fetch import report_build, wcxb_scoring, webmainbench_runner as runner, webmainbench_scoring as wmb
+from harness.web_fetch import report_build, wcxb_dataset, wcxb_scoring, webmainbench_scoring as wmb
 from tests.test_wcxb_selected_edition import corpus
 from tests.wcxb_fixture import create_cohort
 
@@ -65,15 +65,15 @@ def profile_selection(tmp_path, monkeypatch, *, legacy=False):
 
 def test_profile_subset_overrides_default_manifest_even_without_source(tmp_path, monkeypatch):
     source, selected, profile = profile_selection(tmp_path, monkeypatch)
-    assert runner.selected_wcxb_input(profile=profile) == (source, selected)
+    assert wcxb_dataset.selected_wcxb_input(profile=profile) == (source, selected)
 
 
 def test_other_profile_source_edition_requires_explicit_source(tmp_path, monkeypatch):
     _, selected, profile = profile_selection(tmp_path, monkeypatch, legacy=True)
     with pytest.raises(ValueError, match='source'):
-        runner.selected_wcxb_input(profile=profile)
+        wcxb_dataset.selected_wcxb_input(profile=profile)
     explicit = tmp_path / 'historical/source'
-    assert runner.selected_wcxb_input(explicit, profile=profile) == (explicit, selected)
+    assert wcxb_dataset.selected_wcxb_input(explicit, profile=profile) == (explicit, selected)
 
 
 @pytest.mark.parametrize('defect', [None, 'missing', 'extra', 'reference', 'hash'])
@@ -95,9 +95,9 @@ def test_qualified_v2_selection_from_full_511_source_is_source_verified(tmp_path
     path.write_text(json.dumps(manifest), encoding='utf-8')
     if defect:
         with pytest.raises(ValueError):
-            runner.load_wcxb_source(source, manifest=path)
+            wcxb_dataset.load_wcxb_source(source, manifest=path)
     else:
-        records, digest = runner.load_wcxb_source(source, manifest=path)
+        records, digest = wcxb_dataset.load_wcxb_source(source, manifest=path)
         assert len(records) == 511 and digest == manifest['source_sha256']
 
 
@@ -121,7 +121,7 @@ def test_invalid_managed_scorer_cache_gives_precise_recovery_without_deleting(tm
 def test_all_entrypoints_honor_profile_selection_with_default_source(tmp_path, monkeypatch, entrypoint):
     import runpy
     import sys
-    from harness.web_fetch import certification, wcxb_latency
+    from harness.web_fetch import certification, wcxb_certification, wcxb_latency
 
     source, selected, profile_path = profile_selection(tmp_path, monkeypatch)
     profile = json.loads(profile_path.read_bytes())
@@ -129,10 +129,13 @@ def test_all_entrypoints_honor_profile_selection_with_default_source(tmp_path, m
     profile_path.write_text(json.dumps(profile), encoding='utf-8')
     captured = {}
     if entrypoint == 'runner':
-        monkeypatch.setattr(runner, 'run', lambda args: captured.update(source=args.dataset, manifest=args.case_ids_file))
-        monkeypatch.setattr(sys, 'argv', ['run.py', '--benchmark', 'wcxb', '--provider', runner.WCXB_PROVIDERS[0],
-                                        '--profile', str(profile_path), '--output', str(tmp_path / 'output')])
-        runner.main()
+        from harness.web_fetch import cli
+        monkeypatch.setattr(cli, 'run_frozen_cohort', lambda benchmark, args: captured.update(
+            source=args.dataset, manifest=args.case_ids_file))
+        with pytest.raises(SystemExit) as result:
+            cli.main(['run', '--benchmark', 'wcxb', '--providers', 'moli',
+                      '--profile', str(profile_path), '--output', str(tmp_path / 'output')])
+        assert result.value.code == 0
     elif entrypoint == 'scoring':
         monkeypatch.setattr(wcxb_scoring, 'score', lambda **args: captured.update(source=args['source'], manifest=args['sample_manifest']))
         monkeypatch.setattr(sys, 'argv', ['score.py', '--profile', str(profile_path), '--evidence-root', str(tmp_path / 'evidence')])
@@ -142,9 +145,10 @@ def test_all_entrypoints_honor_profile_selection_with_default_source(tmp_path, m
             captured.update(source=dataset, manifest=args['manifest'])
             raise AdmissionPassed()
         if entrypoint == 'certification':
-            monkeypatch.setattr(certification, 'load_wcxb_source', stop)
+            monkeypatch.setattr(wcxb_certification, 'load_wcxb_source', stop)
             with pytest.raises(AdmissionPassed):
-                certification.run_wcxb(['--profile', str(profile_path), '--output-root', str(tmp_path / 'out')])
+                certification.main(['--benchmark', 'wcxb', '--profile', str(profile_path),
+                                    '--output-root', str(tmp_path / 'out')])
         else:
             (source / 'test').mkdir(parents=True)
             evidence = tmp_path / 'evidence'
@@ -152,7 +156,7 @@ def test_all_entrypoints_honor_profile_selection_with_default_source(tmp_path, m
             for name in ('receipt.json', 'calls.jsonl'):
                 (evidence / name).write_text('{}', encoding='utf-8')
             monkeypatch.setattr(wcxb_scoring, 'participant_names', lambda value: [])
-            monkeypatch.setattr(runner, 'load_wcxb_source', stop)
+            monkeypatch.setattr(wcxb_dataset, 'load_wcxb_source', stop)
             with pytest.raises(AdmissionPassed):
                 wcxb_latency.certify(['--profile', str(profile_path), '--evidence-root', str(evidence)])
     elif entrypoint == 'latency':

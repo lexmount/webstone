@@ -18,7 +18,7 @@ from lexbench_webfetch.paths import contained_path
 
 from harness.platform_capabilities import require_macos
 from harness.record_io import file_sha256, parse_jsonl
-from harness.web_fetch import webmainbench_runner
+from harness.web_fetch import webmainbench_dataset
 
 
 def prior_results_path(root: Path) -> Path:
@@ -158,7 +158,9 @@ def competing_benchmark_pids() -> list[int]:
         "-m harness.browser_use.runner",
         "-m harness.trajectory_replay",
         "scripts/run_webmainbench_benchmark.py",
-        "-m harness.web_fetch.webmainbench_runner",
+        "-m harness.web_fetch run",
+        "webstone run ",
+        "webstone webfetch run ",
         "scripts/run_benchmark.py",
         "scripts/build_report.py",
         "scripts/check_report.py",
@@ -194,8 +196,8 @@ def host_sample() -> dict:
 
 
 def snapshot(dataset: Path, sample: Path, official: Path) -> dict:
-    selected, binding = webmainbench_runner.load_selected_ids(sample)
-    source = {row["track_id"]: row for row in webmainbench_runner.load_source(dataset, selected)}
+    selected, binding = webmainbench_dataset.load_selected_ids(sample)
+    source = {row["track_id"]: row for row in webmainbench_dataset.load_source(dataset, selected)}
     recorded = json.loads((official / "dataset.json").read_text(encoding="utf-8"))
     cases = {row["id"]: row for row in recorded["cases"]}
     if (

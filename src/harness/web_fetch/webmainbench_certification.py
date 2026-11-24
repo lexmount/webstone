@@ -17,7 +17,7 @@ from harness.web_fetch.config import load_provider_config
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers.headless import engine_definition
 from harness.web_fetch.webmainbench_evidence import read_jsonl, require_unique_attempt_ids
-from harness.web_fetch.webmainbench_runner import PROVIDERS, load_source
+from harness.web_fetch.webmainbench_dataset import CASE_COUNT, load_source
 from harness.web_fetch.webmainbench_scoring import verify_score
 
 
@@ -38,16 +38,14 @@ def _read_profile(path: Path) -> tuple[dict, str]:
     timeout = profile.get("timeout_seconds")
     if (profile.get("schema_version") != 1
             or not isinstance(methods, list) or not methods
-            or any(not isinstance(name, str) or name not in PROVIDERS for name in methods)
+            or any(not isinstance(name, str) for name in methods)
             or len(set(methods)) != len(methods)
-            or type(profile.get("case_count")) is not int or profile["case_count"] != 545
+            or type(profile.get("case_count")) is not int or profile["case_count"] != CASE_COUNT
             or type(profile.get("runs_per_case")) is not int or profile["runs_per_case"] != 1
             or type(profile.get("concurrency")) is not int or profile["concurrency"] != 1
             or type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
             or type(profile.get("max_failure_retries")) is not int or profile["max_failure_retries"] < 0
             or not isinstance(versions, dict)
-            or any(not isinstance(versions.get(name), str) or not versions[name].strip()
-                   for name in methods if not engine_definition(name).hosted)
             or (profile.get("binary_sha256") and len(methods) != 1)):
         raise ValueError("Invalid complete WebMainBench profile or registered method scope")
     for name in methods:
@@ -65,7 +63,8 @@ def source_binding(source: Path, scorer: Path, profile: dict) -> dict:
         raise ValueError("Symlinked source or scorer is forbidden")
     if file_sha256(source) != profile["source_dataset_sha256"]:
         raise ValueError("WebMainBench source bytes changed")
-    records = load_source(source, expected_sha256=profile["source_dataset_sha256"])
+    records = load_source(source, expected_sha256=profile["source_dataset_sha256"],
+                          expected_count=profile["case_count"])
     case_ids = [record["track_id"] for record in records]
     case_digest = hashlib.sha256(("\n".join(case_ids) + "\n").encode()).hexdigest()
     if len(records) != profile["case_count"] or case_digest != profile["case_ids_sha256"]:
@@ -166,6 +165,12 @@ def main(argv: list[str] | None = None) -> None:
     settings = load_provider_config(args.config)
     if any(not isinstance(settings.get(name), dict) for name in profile["providers"]):
         raise ValueError("Runtime configuration is missing a declared method")
+    # Hosted capability follows each participant's configured engine, not its report label.
+    local = [name for name in profile["providers"]
+             if not engine_definition(settings[name].get("engine")).hosted]
+    versions = profile.get("versions", {})
+    if any(not isinstance(versions.get(name), str) or not versions[name].strip() for name in local):
+        raise ValueError("Invalid complete WebMainBench profile or registered method scope")
     before = source_binding(args.source, args.scorer, profile)
     source_commit = profile.get('source_commit')
     verify_source_checkout(profile, args.binary_source)
@@ -178,7 +183,8 @@ def main(argv: list[str] | None = None) -> None:
     case_ids = {
         record["track_id"]
         for record in load_source(
-            args.source, expected_sha256=profile["source_dataset_sha256"]
+            args.source, expected_sha256=profile["source_dataset_sha256"],
+            expected_count=profile["case_count"],
         )
     }
     args.output_root.mkdir(parents=True)
@@ -188,9 +194,9 @@ def main(argv: list[str] | None = None) -> None:
     for provider in profile["providers"]:
         _unchanged(bound)
         print("Starting certified full-cohort method: " + provider, flush=True)
-        command = [sys.executable, "-m", "harness.web_fetch.webmainbench_runner",
-                   "--provider", provider, "--dataset", str(args.source),
-                   "--config", str(args.config),
+        command = [sys.executable, "-m", "harness.web_fetch", "run", "--benchmark", "webmainbench",
+                   "--providers", provider, "--dataset", str(args.source),
+                   "--provider-config", str(args.config),
                    "--output", str(args.output_root / provider),
                    "--timeout", str(profile["timeout_seconds"]),
                    "--max-failure-retries", str(profile["max_failure_retries"])]
@@ -198,8 +204,8 @@ def main(argv: list[str] | None = None) -> None:
             "--expected-dataset-sha256", profile["source_dataset_sha256"],
             "--official-scorer-commit", profile["official_scorer_commit"],
         ]
-        if not engine_definition(provider).hosted:
-            version = profile["versions"][provider].split()[-1]
+        if provider in local:
+            version = versions[provider].split()[-1]
             command += ["--expected-version", version]
         if args.env_file is not None:
             command += ["--env-file", str(args.env_file)]

@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from harness.web_fetch import webmainbench_runner as runner
+from harness.web_fetch import runner, wcxb_dataset
+from harness.web_fetch.benchmarks import BENCHMARKS
 from harness.web_fetch.wcxb_dataset import validate_manifest
 
 
@@ -46,7 +47,7 @@ class ReachedCollection(RuntimeError):
 
 
 def preflight(tmp_path, monkeypatch, source, manifest):
-    provider = runner.WCXB_PROVIDERS[0]
+    provider = 'moli'
     profile = tmp_path / 'profile.json'
     profile.write_text(json.dumps({'providers': [provider], 'expected_versions': {provider: 'fixture'}}), encoding='utf-8')
     called = []
@@ -64,10 +65,10 @@ def test_runner_uses_external_qualified_504_manifest(tmp_path, monkeypatch, adja
     source, selected, manifest = corpus(tmp_path, 504)
     if adjacent:
         (source.parent / 'tasks.json').write_text('unrelated invalid JSON', encoding='utf-8')
-    assert runner.selected_wcxb_input(source, selected) == (source, selected)
+    assert wcxb_dataset.selected_wcxb_input(source, selected) == (source, selected)
     args, called = preflight(tmp_path, monkeypatch, source, selected)
     with pytest.raises(ReachedCollection):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == [True]
     assert not args.output.exists()
 
@@ -81,7 +82,7 @@ def test_explicit_historical_511_source_ignores_qualified_neighbor(tmp_path, mon
     (source.parent / 'tasks.json').write_text(json.dumps({**manifest, 'schema_version': 2, 'source_count': 504}), encoding='utf-8')
     args, called = preflight(tmp_path, monkeypatch, source, selected)
     with pytest.raises(ReachedCollection):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == [True]
 
 
@@ -103,7 +104,7 @@ def test_external_qualified_manifest_rejects_wrong_population_or_binding(tmp_pat
     selected.write_text(json.dumps(manifest), encoding='utf-8')
     args, called = preflight(tmp_path, monkeypatch, source, selected)
     with pytest.raises(ValueError):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == []
     assert not args.output.exists()
 
@@ -111,7 +112,7 @@ def test_external_qualified_manifest_rejects_wrong_population_or_binding(tmp_pat
 def test_explicit_historical_selection_still_requires_511_test_sources(tmp_path):
     source, selected, _ = corpus(tmp_path, 510, historical=True)
     with pytest.raises(ValueError, match='Expected 511'):
-        runner.load_wcxb_source(source, manifest=selected)
+        wcxb_dataset.load_wcxb_source(source, manifest=selected)
 
 
 def test_explicit_historical_selection_rejects_changed_source_hash(tmp_path, monkeypatch):
@@ -120,23 +121,23 @@ def test_explicit_historical_selection_rejects_changed_source_hash(tmp_path, mon
     selected.write_text(json.dumps(manifest), encoding='utf-8')
     args, called = preflight(tmp_path, monkeypatch, source, selected)
     with pytest.raises(ValueError, match='manifest differs'):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert called == []
 
 
 def test_historical_train_count_remains_1497(tmp_path):
     source, selected, _ = corpus(tmp_path, 1497, split='train', historical=True)
-    records, _ = runner.load_wcxb_source(source, 'train', manifest=selected)
+    records, _ = wcxb_dataset.load_wcxb_source(source, 'train', manifest=selected)
     assert len(records) == 1497
     (source / 'train/ground-truth/0000.json').unlink()
     with pytest.raises(ValueError, match='Expected 1497'):
-        runner.load_wcxb_source(source, 'train', manifest=selected)
+        wcxb_dataset.load_wcxb_source(source, 'train', manifest=selected)
 
 
 def test_default_adjacent_qualified_edition_still_validates(tmp_path):
     source, selected, manifest = corpus(tmp_path, 504)
     (source.parent / 'tasks.json').write_text(selected.read_text(encoding='utf-8'), encoding='utf-8')
-    records, digest = runner.load_wcxb_source(source)
+    records, digest = wcxb_dataset.load_wcxb_source(source)
     accepted, _ = validate_manifest(records, digest, manifest)
     assert len(accepted) == 504
 
@@ -156,4 +157,4 @@ def test_explicit_manifest_must_be_a_mapping(tmp_path):
     source, selected, _ = corpus(tmp_path, 504)
     selected.write_text('null', encoding='utf-8')
     with pytest.raises(ValueError, match='Invalid WCXB source edition'):
-        runner.load_wcxb_source(source, manifest=selected)
+        wcxb_dataset.load_wcxb_source(source, manifest=selected)

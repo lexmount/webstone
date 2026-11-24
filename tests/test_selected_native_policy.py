@@ -8,6 +8,7 @@ from unittest.mock import patch, Mock
 import pytest
 
 from lexbench_webfetch.models import EvalCase
+from harness.web_fetch.benchmarks import BENCHMARKS
 from harness.web_fetch.cli import build_parser
 from harness.web_fetch.providers.base import build_provider
 from harness.web_fetch.native_routes import normalized_http_parameters, verify_saved_native_answer
@@ -30,7 +31,8 @@ def case():
 
 def test_defaults():
     args = build_parser().parse_args(['run'])
-    assert args.timeout == 30
+    assert args.timeout is None  # resolved from the selected benchmark adapter
+    assert BENCHMARKS.get(args.benchmark).default_timeout == 30
     assert args.max_failure_retries == 1
 
 

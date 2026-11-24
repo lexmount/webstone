@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from harness.benchmarks import data
-from harness.web_fetch import webmainbench_runner as runner
+from harness.web_fetch import webmainbench_dataset as runner
 from harness.web_fetch import webmainbench_scoring as scoring
 
 

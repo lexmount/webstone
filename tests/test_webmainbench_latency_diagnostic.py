@@ -89,7 +89,7 @@ def fake_paired_environment(monkeypatch, root, *, mutate=False):
     import contextlib
     import subprocess
     from harness import platform_capabilities
-    from harness.web_fetch import webmainbench_runner as runner
+    from harness.web_fetch import frozen_inputs as runner
     from harness.web_fetch import webmainbench_latency_diagnostic as diagnostic
 
     @contextlib.contextmanager

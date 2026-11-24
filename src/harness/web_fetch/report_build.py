@@ -101,7 +101,7 @@ from harness.web_fetch.webmainbench_latency_correction import prior_results_path
 from harness.web_fetch.webmainbench_latency_diagnostic import (
     load_diagnostic as load_latency_diagnostic,
 )
-from harness.web_fetch.webmainbench_runner import load_wcxb_source
+from harness.web_fetch.wcxb_dataset import load_wcxb_source
 
 REPOSITORY = repository_root()
 

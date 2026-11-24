@@ -17,7 +17,8 @@ from pathlib import Path
 from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import parse_jsonl
-from harness.web_fetch import webmainbench_runner
+from harness.web_fetch import frozen_inputs, wcxb_dataset
+from harness.web_fetch.benchmarks import BENCHMARKS
 from harness.web_fetch.providers import build_provider
 from harness.safety import evidence_tree_identity, reject_evidence_symlinks
 from harness.web_fetch.wcxb_dataset import validate_manifest
@@ -170,7 +171,7 @@ def collect(*, dataset: Path, manifest: Path, profile: Path, output: Path,
     participant_names(authority)
     if type(authority.get('concurrency', 1)) is not int or authority.get('concurrency', 1) != 1:
         raise ValueError('Paired timing requires serial execution')
-    records, source_hash = webmainbench_runner.load_wcxb_source(dataset, manifest=manifest)
+    records, source_hash = wcxb_dataset.load_wcxb_source(dataset, manifest=manifest)
     manifest_bytes = manifest.read_bytes()
     selected, _ = validate_manifest(records, source_hash, json.loads(manifest_bytes))
     hashes = {method: before[path] for method, path in binaries.items()}
@@ -204,7 +205,7 @@ def collect(*, dataset: Path, manifest: Path, profile: Path, output: Path,
     output.mkdir(parents=True)
     started = datetime.now(timezone.utc).isoformat()
     calls_path = output / 'calls.jsonl'
-    with webmainbench_runner.fixture_server(selected) as (base, ca), calls_path.open('x', encoding='utf-8') as sink:
+    with frozen_inputs.fixture_server(selected) as (base, ca), calls_path.open('x', encoding='utf-8') as sink:
         for provider in providers.values():
             provider.config['ca_cert'] = str(ca)
         for round_number in (0, 1):
@@ -214,9 +215,10 @@ def collect(*, dataset: Path, manifest: Path, profile: Path, output: Path,
                 first = 'release' if (index + round_number) % 2 == 0 else 'pr'
                 for order, method in enumerate((first, 'pr' if first == 'release' else 'release'), 1):
                     start = time.monotonic()
-                    response = webmainbench_runner.fetch_record(providers[method], None, record,
-                                            f"{base}/case/{record['track_id']}",
-                                            authority['timeout_seconds'])
+                    url = f"{base}/case/{record['track_id']}"
+                    response = frozen_inputs.fetch_frozen(
+                        providers[method], None, BENCHMARKS.get('wcxb').case(record, url),
+                        record['html'], authority['timeout_seconds'])
                     row = {'round': round_number, 'case': record['track_id'],
                            'method': method, 'order': order,
                            'elapsed_ms': round((time.monotonic() - start) * 1000, 2),
@@ -264,7 +266,7 @@ def certify(argv=None) -> dict:
     parser.add_argument('--evidence-root', type=Path, required=True)
     parser.add_argument('--profile', type=Path, required=True)
     args = parser.parse_args(argv)
-    args.dataset, args.sample_manifest = webmainbench_runner.selected_wcxb_input(
+    args.dataset, args.sample_manifest = wcxb_dataset.selected_wcxb_input(
         args.dataset, args.sample_manifest, profile=args.profile)
     reject_evidence_symlinks(contained_path(args.dataset, 'test', reject_symlinks=True))
     certificate_path = args.evidence_root / 'certification.json'
@@ -279,7 +281,7 @@ def certify(argv=None) -> dict:
         raw[path] = path.read_bytes()
     authority = json.loads(raw[args.profile])
     participant_names(authority)
-    records, before = webmainbench_runner.load_wcxb_source(args.dataset, manifest=args.sample_manifest)
+    records, before = wcxb_dataset.load_wcxb_source(args.dataset, manifest=args.sample_manifest)
     selected, _ = validate_manifest(records, before, json.loads(raw[args.sample_manifest]))
     metric_hash = metric_implementation_binding(authority)
     if (type(authority.get('case_count')) is not int or len(selected) != authority.get('case_count')
@@ -288,7 +290,7 @@ def certify(argv=None) -> dict:
     receipt, rows = load_full_paired_latency(args.evidence_root, authority,
                                             {row['track_id'] for row in selected})
     metric_implementation_binding(authority, receipt=receipt)
-    _, after = webmainbench_runner.load_wcxb_source(args.dataset, manifest=args.sample_manifest)
+    _, after = wcxb_dataset.load_wcxb_source(args.dataset, manifest=args.sample_manifest)
     reject_evidence_symlinks(contained_path(args.dataset, 'test', reject_symlinks=True))
     if (before != after or before != receipt['source_sha256']
             or hashlib.sha256(raw[args.sample_manifest]).hexdigest() != receipt['manifest_sha256']
@@ -327,7 +329,7 @@ def main(argv=None) -> None:
     parser.add_argument('--config', type=Path, help='Provider config with release and pr role entries')
     parser.add_argument('--wait-quiet-seconds', type=int, default=0)
     args = parser.parse_args(argv)
-    args.dataset, args.manifest = webmainbench_runner.selected_wcxb_input(args.dataset, args.manifest, profile=args.profile)
+    args.dataset, args.manifest = wcxb_dataset.selected_wcxb_input(args.dataset, args.manifest, profile=args.profile)
     binaries = {'release': args.release.absolute(), 'pr': args.candidate.absolute()}
     if args.config:
         configs = json.loads(args.config.read_bytes())['providers']

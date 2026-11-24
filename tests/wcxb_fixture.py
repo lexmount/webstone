@@ -9,7 +9,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from harness.web_fetch.wcxb_dataset import validate_manifest
-from harness.web_fetch.webmainbench_runner import load_wcxb_source
+from harness.web_fetch.wcxb_dataset import load_wcxb_source
 from harness.web_fetch.wcxb_scoring import UPSTREAM_EVALUATOR_SHA256
 from tests.helpers import write_json
 

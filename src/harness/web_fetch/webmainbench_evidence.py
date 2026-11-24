@@ -10,7 +10,7 @@ from pathlib import Path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256, load_jsonl
-from harness.web_fetch.webmainbench_runner import load_source
+from harness.web_fetch.webmainbench_dataset import load_source
 
 
 def retry_chain_matches(row: dict, attempts: list[dict]) -> bool:
