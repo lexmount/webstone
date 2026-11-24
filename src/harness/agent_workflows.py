@@ -12,17 +12,6 @@ from harness.distribution import bundled_data_path
 
 SKILL = ".agents/skills/webstone/SKILL.md"
 ROOT_URL = "https://github.com/lexmount/webstone/blob/main/"
-# This registry describes routing, not scoring, task populations or dataset versions.
-TRACKS = (
-    ("web-fetch", "Web Fetch", "webstone", "src/harness/web_fetch/README.md", None),
-    ("web-search", "Web Search", "webstone web-search", "src/harness/web_search/README.md", None),
-    ("web-extract", "Web Extract", "webstone web-extract",
-     "examples/web_extract/README.md", "web-extract-eval"),
-    ("trajectory-replay", "Browser Trajectory Replay", "webstone trajectory-replay",
-     "examples/trajectory_replay/README.md", "browser-use-eval"),
-    ("browser-use", "Browser Use", "webstone browser-use",
-     "examples/browser_use/README.md", "browser-use-eval"),
-)
 
 
 def dataset_inventory() -> dict:
@@ -38,11 +27,16 @@ def tracks_main() -> None:
     parser = argparse.ArgumentParser(
         description="Discover Webstone workflows as JSON; no calls or writes")
     parser.parse_args()
+    from harness.cli import DEFAULT_TRACK, PROG, TRACKS
+
+    # The root command registry is the one track list; the default track is also top level.
     print(json.dumps({"tracks": [
-        {"id": key, "name": name, "command": command, "guide": ROOT_URL + guide,
-         "extra": extra, "status": "experimental" if key == "browser-use" else "available",
+        {"id": key, "name": track.name,
+         "command": PROG if key == DEFAULT_TRACK else f"{PROG} {track.command}",
+         "guide": ROOT_URL + track.guide, "extra": track.extra,
+         "status": "experimental" if track.experimental else "available",
          "note": "Read the track guide for required external inputs and stage-specific options."}
-        for key, name, command, guide, extra in TRACKS],
+        for key, track in TRACKS.items()],
         "datasets": dataset_inventory(),
         "workflow_guide": ROOT_URL + "docs/agent-workflows.md",
         "submission": "https://github.com/lexmount/webstone-site/pulls",

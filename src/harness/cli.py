@@ -24,22 +24,33 @@ class Track(NamedTuple):
     command: str  # root subcommand
     cli: str  # module with ``STAGES`` and ``main(argv, *, prog)``
     summary: str
+    name: str  # reader-facing track name
+    guide: str  # repository path of the track guide
     certified: tuple[str, str] | None = None  # certified collection (module, function) taking argv
+    extra: str | None = None  # optional package extra the track needs
+    experimental: bool = False
 
 
 # Track name, as ``--track`` selects it -> entry points.
 TRACKS = {
     "webfetch": Track("webfetch", "harness.web_fetch.cli",
                       "Run Web Fetch stages (also available as top-level commands)",
+                      "Web Fetch", "src/harness/web_fetch/README.md",
                       ("harness.web_fetch.certification", "main")),
     "web-search": Track("web-search", "harness.web_search.cli", "Run Web Search stages",
+                        "Web Search", "src/harness/web_search/README.md",
                         ("harness.web_search.runner", "certified_main")),
-    "web-extract": Track("web-extract", "harness.web_extract.cli",
-                         "Run Web Extract stages", ("harness.web_extract.certification", "main")),
+    "web-extract": Track("web-extract", "harness.web_extract.cli", "Run Web Extract stages",
+                         "Web Extract", "examples/web_extract/README.md",
+                         ("harness.web_extract.certification", "main"), "web-extract-eval"),
     "trajectory-replay": Track("trajectory-replay", "harness.trajectory_replay.cli",
-                               "Run Browser Trajectory Replay stages"),
+                               "Run Browser Trajectory Replay stages",
+                               "Browser Trajectory Replay", "examples/trajectory_replay/README.md",
+                               extra="browser-use-eval"),
     "browser-use": Track("browser-use", "harness.browser_use.cli",
-                         "Run experimental Browser Use stages"),
+                         "Run experimental Browser Use stages",
+                         "Browser Use", "examples/browser_use/README.md",
+                         extra="browser-use-eval", experimental=True),
 }
 DEFAULT_TRACK = "webfetch"
 # Commands that serve every track: name -> (module, function reading sys.argv, summary).
