@@ -7,7 +7,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from harness.environments.browser import container_engines
 from harness.trajectory_replay import report_inputs
+from harness.trajectory_replay.core import runner as core_runner
+
+
+def run_family(runner, *, suite_path, **options):
+    """Run the family's benchmark adapter through the shared replay loop."""
+    benchmark = (runner.CuratedReplay if hasattr(runner, 'CuratedReplay')
+                 else runner.PublicWebArenaReplay)(suite_path=suite_path)
+    return core_runner.run_replay(benchmark, core_runner.ReplayOptions(
+        engines=container_engines(), **options))
 
 
 @pytest.mark.parametrize(('family', 'resolved'), [('curated', False), ('human', True)])
@@ -42,8 +52,8 @@ def test_runner_serves_packaged_pages_when_suite_is_in_an_unrelated_cache(
     task = SimpleNamespace(task_id='local', environment={}, ground_truth={},
                            tool_calls=({'url': '{fixture_origin}/core.html'},))
     monkeypatch.setattr(runner, 'load_suite', lambda path: SimpleNamespace(tasks=(task,)))
-    monkeypatch.setattr(runner.docker, 'from_env', MagicMock())
-    monkeypatch.setattr(runner, 'sync_playwright', MagicMock())
+    monkeypatch.setattr(core_runner.docker, 'from_env', MagicMock())
+    monkeypatch.setattr(core_runner, 'sync_playwright', MagicMock())
 
     class LocatedFixture(Exception):
         pass
@@ -56,9 +66,9 @@ def test_runner_serves_packaged_pages_when_suite_is_in_an_unrelated_cache(
         assert 'html' in (root / 'core.html').read_text(encoding='utf-8').lower()
         raise LocatedFixture
 
-    monkeypatch.setattr(runner, 'start_fixture_server', start)
+    monkeypatch.setattr(core_runner, 'start_fixture_server', start)
     with pytest.raises(LocatedFixture):
-        runner.run_evaluation(suite_path=suite if resolved else None, output_dir=tmp_path/'run',
+        run_family(runner, suite_path=suite if resolved else None, output_dir=tmp_path/'run',
                               reports_dir=tmp_path/'reports')
 
 
@@ -91,9 +101,9 @@ def test_explicit_missing_smoke_fails_before_browser_start(tmp_path, monkeypatch
     suite.write_text('{}', encoding='utf-8')
     monkeypatch.setattr(runner, 'load_suite', lambda path: SimpleNamespace(tasks=()))
     docker = MagicMock()
-    monkeypatch.setattr(runner.docker, 'from_env', docker)
+    monkeypatch.setattr(core_runner.docker, 'from_env', docker)
     with pytest.raises(FileNotFoundError):
-        runner.run_evaluation(suite_path=suite, output_dir=tmp_path/'run',
+        run_family(runner, suite_path=suite, output_dir=tmp_path/'run',
                               reports_dir=tmp_path/'reports',
                               agent_smoke_path=tmp_path/'missing-smoke.json')
     docker.assert_not_called()
@@ -197,11 +207,10 @@ def test_cli_forwards_explicit_smoke_input(tmp_path, monkeypatch, family):
         monkeypatch.setattr(cli, 'configure_browser_docker_host', lambda path: None)
     run = MagicMock()
     if family == 'curated':
-        from harness.trajectory_replay import runner
-        monkeypatch.setattr(runner, 'run_evaluation', run)
-        command = ['evaluate']
+        monkeypatch.setattr(core_runner, 'run_replay', run)
+        command = ['run', '--benchmark', 'curated']
     else:
-        monkeypatch.setattr(cli, 'run_evaluation', run)
+        monkeypatch.setattr(cli, 'run_replay', run)
         command = []
     smoke = str(tmp_path / 'chosen.json')
     monkeypatch.setattr(sys, 'argv', ['replay', *command, '--suite', str(tmp_path/'suite.json'),
@@ -209,7 +218,7 @@ def test_cli_forwards_explicit_smoke_input(tmp_path, monkeypatch, family):
                                      '--agent-smoke', smoke, '--output', str(tmp_path/'run'),
                                      '--no-report'])
     cli.main()
-    assert run.call_args.kwargs['agent_smoke_path'] == smoke
+    assert run.call_args.args[1].agent_smoke_path == smoke
 
 
 @pytest.mark.parametrize('family', ['curated', 'human'])
@@ -231,8 +240,8 @@ def test_explicit_suite_uses_its_custom_fixture_tree(tmp_path, monkeypatch, fami
     task = SimpleNamespace(task_id='local', environment={}, ground_truth={},
                            tool_calls=({'url': '{fixture_origin}/nested/custom.html'},))
     monkeypatch.setattr(runner, 'load_suite', lambda path: SimpleNamespace(tasks=(task,)))
-    monkeypatch.setattr(runner.docker, 'from_env', MagicMock())
-    monkeypatch.setattr(runner, 'sync_playwright', MagicMock())
+    monkeypatch.setattr(core_runner.docker, 'from_env', MagicMock())
+    monkeypatch.setattr(core_runner, 'sync_playwright', MagicMock())
 
     class CorrectHistoricalFiles(Exception):
         pass
@@ -243,9 +252,9 @@ def test_explicit_suite_uses_its_custom_fixture_tree(tmp_path, monkeypatch, fami
         assert (root/'nested/custom.html').is_file()
         raise CorrectHistoricalFiles
 
-    monkeypatch.setattr(runner, 'start_fixture_server', start)
+    monkeypatch.setattr(core_runner, 'start_fixture_server', start)
     with pytest.raises(CorrectHistoricalFiles):
-        runner.run_evaluation(suite_path=suite, output_dir=tmp_path/'run',
+        run_family(runner, suite_path=suite, output_dir=tmp_path/'run',
                               reports_dir=tmp_path/'reports')
 
 
@@ -275,10 +284,10 @@ def test_invalid_explicit_fixtures_fail_before_engine_initialization(
                            tool_calls=({'url': '{fixture_origin}/custom.html'},))
     monkeypatch.setattr(runner, 'load_suite', lambda path: SimpleNamespace(tasks=(task,)))
     docker, browser = MagicMock(), MagicMock()
-    monkeypatch.setattr(runner.docker, 'from_env', docker)
-    monkeypatch.setattr(runner, 'sync_playwright', browser)
+    monkeypatch.setattr(core_runner.docker, 'from_env', docker)
+    monkeypatch.setattr(core_runner, 'sync_playwright', browser)
     with pytest.raises(ValueError, match='fixture|symlink'):
-        runner.run_evaluation(suite_path=suite, output_dir=tmp_path/'run',
+        run_family(runner, suite_path=suite, output_dir=tmp_path/'run',
                               reports_dir=tmp_path/'reports')
     docker.assert_not_called()
     browser.assert_not_called()

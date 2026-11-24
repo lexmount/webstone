@@ -40,7 +40,7 @@ def test_module_entry_point_lists_every_command_without_loading_owners(tmp_path)
 
 
 OWNER_OPTIONS = {
-    "evaluate": "--ground-truth-evidence", "replay": "--qualified-dataset",
+    "run": "--benchmark",
     "seeds": "--evidence", "expert-seeds": "--repairs", "promote": "--receipt",
     "catalog-report": "--portable-suite", "audit-readiness": "--results",
     "dataset-revision": "--corrections", "check": "--profile", "visual": "--receipt",
@@ -54,6 +54,18 @@ def test_every_command_reaches_its_owner_help_under_the_public_name(capsys):
         assert code == 0, (command, err)
         assert " ".join(out.split()).startswith(f"usage: {PROG} {command} "), command
         assert OWNER_OPTIONS.get(command, "") in out, command
+
+
+@pytest.mark.parametrize("benchmark, option", [
+    ("curated", "--ground-truth-evidence"),
+    ("public-webarena", "--webarena-config"),
+    ("webarena-verified", "--qualified-dataset"),
+])
+def test_run_help_comes_from_the_selected_benchmark(capsys, benchmark, option):
+    pytest.importorskip("webarena_verified")
+    code, out, err = run(capsys, "run", "--benchmark", benchmark, "--help")
+    assert code == 0, err
+    assert option in out
 
 
 @pytest.mark.parametrize("arguments", [[], ["unknown"]])

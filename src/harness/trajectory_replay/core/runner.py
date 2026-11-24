@@ -153,10 +153,11 @@ def run_engines(
     return tuple(engine for engine in declared if engine in selected) if selected else declared
 
 
-def reset_state(page: Page, visited_origins: set[str]) -> None:
-    """Clear every origin the task reached, including those of extra open tabs."""
+def reset_state(page: Page, visited_origins: set[str], *, all_tabs: bool = True) -> None:
+    """Clear every origin the task reached; ``all_tabs`` adds those of extra open tabs."""
     origins = set(visited_origins)
-    for existing in list(getattr(page.context, "pages", [page])):
+    pages = list(getattr(page.context, "pages", [page])) if all_tabs else [page]
+    for existing in pages:
         current_origin = http_origin(existing.url)
         if current_origin:
             origins.add(current_origin)
@@ -169,12 +170,18 @@ def prepare_page(
     *,
     settle_ms: int,
     viewport: dict[str, int] | None = None,
+    all_tabs: bool = True,
 ) -> Page:
-    """Reset task state and replace the renderer pages, keeping the browser/context warm."""
+    """Reset task state and replace the renderer page, keeping the browser/context warm.
+
+    With ``all_tabs`` every tab the task opened is reset and closed; otherwise only
+    the task page is, as the curated benchmark's published runs did.
+    """
     context = page.context
-    reset_state(page, visited_origins)
+    reset_state(page, visited_origins, all_tabs=all_tabs)
     visited_origins.clear()
-    for existing in list(getattr(context, "pages", [page])):
+    pages = list(getattr(context, "pages", [page])) if all_tabs else [page]
+    for existing in pages:
         existing.close(run_before_unload=False)
     return open_task_page(context, viewport or DEFAULT_VIEWPORT, settle_ms=settle_ms)
 
@@ -210,8 +217,8 @@ def run_replay(benchmark: ReplayBenchmark, options: ReplayOptions) -> dict[str, 
         replay_suite_binding,
     )
 
-    suite_path, suite, selected, runnable = benchmark.suite()
     smoke = agent_smoke_input(options.agent_smoke_path)
+    suite_path, suite, selected, runnable = benchmark.suite()
     fixture_root, fixture_hashes = replay_fixture_inputs(
         Path(suite_path), (call for task in selected for call in task.tool_calls)
     )
@@ -220,6 +227,10 @@ def run_replay(benchmark: ReplayBenchmark, options: ReplayOptions) -> dict[str, 
         if options.ground_truth_evidence_path is not None
         else None
     )
+    # Inputs may load slowly; the destination must still be new and unlinked.
+    output = unlinked_path(output)
+    if output.exists():
+        raise ValueError("Output must be a new directory; existing evidence is immutable")
     client = docker.from_env()
     run_id = uuid.uuid4().hex[:12]
     runtime = EngineRuntime()

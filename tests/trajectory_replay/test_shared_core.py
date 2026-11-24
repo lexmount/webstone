@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from harness.trajectory_replay import runner as curated_runner
 from harness.trajectory_replay.core import docker_runner
+from harness.trajectory_replay.core import runner as core_runner
 from harness.trajectory_replay.core.executor import body_text, judge_outputs, validate_outputs
 from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.metrics import summarize_attempts as summarize_curated
@@ -225,22 +225,19 @@ def test_process_validation_needs_the_expected_actions_all_passing(actions, stat
     }
 
 
-def test_tracks_keep_their_own_reset_scope(monkeypatch):
+def test_benchmarks_declare_their_reset_scope(monkeypatch):
     cleared = {}
     monkeypatch.setattr(
-        curated_runner, "reset_browser_state", lambda page, origins: cleared.update(last=origins)
-    )
-    monkeypatch.setattr(
-        public_runner, "reset_browser_state", lambda page, origins: cleared.update(last=origins)
+        core_runner, "reset_browser_state", lambda page, origins: cleared.update(last=origins)
     )
     first = SimpleNamespace(url="https://first.test/a")
     second = SimpleNamespace(url="https://second.test/b")
     first.context = SimpleNamespace(pages=[first, second])
 
-    curated_runner._reset_state(first, {"https://visited.test"})
+    core_runner.reset_state(first, {"https://visited.test"}, all_tabs=False)
     assert cleared["last"] == {"https://visited.test", "https://first.test"}
 
-    public_runner._reset_state(first, {"https://visited.test"})
+    core_runner.reset_state(first, {"https://visited.test"})
     assert cleared["last"] == {
         "https://visited.test",
         "https://first.test",
@@ -248,9 +245,8 @@ def test_tracks_keep_their_own_reset_scope(monkeypatch):
     }
 
 
-def test_tracks_keep_their_own_page_replacement(monkeypatch):
-    for runner in (curated_runner, public_runner):
-        monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
+def test_benchmarks_declare_their_page_replacement(monkeypatch):
+    monkeypatch.setattr(core_runner, "reset_state", lambda *a, **k: None)
     replacement = MagicMock()
     replacement.evaluate.return_value = {"width": 1280, "height": 900}
     current = MagicMock()
@@ -258,11 +254,11 @@ def test_tracks_keep_their_own_page_replacement(monkeypatch):
     current.context.pages = [current, other]
     current.context.new_page.return_value = replacement
 
-    curated_runner._prepare_page(current, set(), settle_ms=0)
+    core_runner.prepare_page(current, set(), settle_ms=0, all_tabs=False)
     current.close.assert_called_once()
     other.close.assert_not_called()
 
-    public_runner._prepare_page(current, set(), settle_ms=0)
+    core_runner.prepare_page(current, set(), settle_ms=0)
     other.close.assert_called_once()
 
 

@@ -137,6 +137,7 @@ class CuratedReplay:
             runtime.pages[engine],
             runtime.visited_origins[engine],
             settle_ms=context.options.settle_ms,
+            all_tabs=False,
         )
         row = _run_task(
             engine,
