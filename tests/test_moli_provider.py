@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,10 @@ class MoliTests(unittest.TestCase):
         # One fixture path, rewritten in place, keeps that cost to once per worker.
         cls.binary_directory = tempfile.TemporaryDirectory()
         cls.binary = Path(cls.binary_directory.name) / "moli fixture"
+        # Pay that first-launch cost here, not inside a test's fetch time budget.
+        cls.binary.write_text("#!" + sys.executable + "\n", encoding="utf-8")
+        cls.binary.chmod(0o700)
+        subprocess.run([str(cls.binary)], check=True, timeout=60)
 
     @classmethod
     def tearDownClass(cls):
