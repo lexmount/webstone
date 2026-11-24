@@ -319,9 +319,10 @@ class Provider(ABC):
         """Reset cancellation state before the timed worker can start."""
 
 
-# Provider type -> (module in this package, class): the one place a type is
-# declared. Modules load on demand because adapters import this module and some
-# carry their own optional dependencies.
+# Provider type -> (module, class): the one place a type is declared. A bare module
+# name is a module of this package; a dotted name is imported as given, so an
+# adapter can live outside it. Modules load on demand because adapters import this
+# module and some carry their own optional dependencies.
 PROVIDERS: Registry[tuple[str, str]] = Registry("Web Fetch provider type")
 for _type, _entry in {
     "brightdata_unlocker": ("hosted_fetch", "BrightDataUnlockerProvider"),
@@ -353,7 +354,8 @@ for _type, _entry in {
 def provider_class(provider_type: str) -> type[Provider]:
     """Load the adapter class registered for a provider type."""
     module, class_name = PROVIDERS.get(provider_type)
-    return getattr(import_module(f"harness.web_fetch.providers.{module}"), class_name)
+    qualified = module if "." in module else f"harness.web_fetch.providers.{module}"
+    return getattr(import_module(qualified), class_name)
 
 
 def provider_capabilities(provider_type) -> Capabilities:
