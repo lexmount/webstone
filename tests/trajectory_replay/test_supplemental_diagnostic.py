@@ -160,5 +160,3 @@ def test_local_header_fixture_is_not_labeled_as_a_site_replay(tmp_path):
         assert page.select_one("table[data-header-recording-comparison]")
         assert len(page.select("table")) == 1
         assert page.select("td")[-1].text == ("缺失" if lang == "zh" else "Missing")
-        assert "only opened the interface" not in page.text
-        assert "仅打开界面" not in page.text

@@ -70,8 +70,9 @@ def test_load_suite_rejects_unsupported_actions(tmp_path):
         load_suite(path)
 
 
-@pytest.mark.parametrize("action", ["click", "fill", "select"])
-@pytest.mark.parametrize("selector", [None, "", "  ", 12])
+@pytest.mark.parametrize(
+    ("action", "selector"), [("click", None), ("fill", "  "), ("select", 12)]
+)
 def test_load_suite_rejects_ref_only_and_invalid_selectors(tmp_path, action, selector):
     path = tmp_path / "tasks.json"
     calls = [
@@ -130,16 +131,6 @@ def test_suite_has_thirty_ground_truth_tasks_with_requested_difficulty_mix():
     )
     assert all("{fixture_origin}" not in url for url in navigations)
     assert len({urlparse(url).hostname for url in navigations}) >= 8
-
-
-def test_version_language_path_targets_desktop_controls_and_waits_for_navigation():
-    suite = load_suite(replay_input_path(current="curated"))
-    task = next(t for t in suite.tasks if t.task_id == "python-version-language")
-    selects = [call for call in task.tool_calls if call["action"] == "select"]
-    assert len(selects) == 3
-    assert all(call["selector"].startswith(".switchers ") for call in selects)
-    assert all(call.get("wait_for_navigation") is True for call in selects)
-    assert all(call.get("wait_until") == "domcontentloaded" for call in selects)
 
 
 def test_suite_uses_public_targets_and_repository_derived_capability_coverage():

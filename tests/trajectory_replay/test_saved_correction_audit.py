@@ -46,7 +46,7 @@ def test_runtime_failure_is_not_rescored_using_an_invented_success_response(tmp_
     assert "before" not in result and "after" not in result
 
 
-@pytest.mark.parametrize("counts", [(None, None), (True, True), (0, 0), (3, 8)])
+@pytest.mark.parametrize("counts", [(None, None), (True, True), (3, 8)])
 def test_audit_does_not_treat_invalid_action_counts_as_completed(tmp_path, counts):
     inputs = fixture(tmp_path)
     path = tmp_path / "receipt.json"

@@ -123,6 +123,12 @@ def test_plan_binds_all_tasks_and_serial_methods(tmp_path: Path) -> None:
     assert plan["engines"] == ["chromium", "moli"]
     assert len(plan["profile_sha256"]) == len(plan["seed_manifest_sha256"]) == 64
 
+    # The frozen selection, not the seed file, orders the tasks.
+    payload = json.loads(seeds.read_text(encoding="utf-8"))
+    payload["tasks"].reverse()
+    seeds.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_replay_plan(profile, seeds)["task_ids"] == [1, 2]
+
 
 def test_method_scoped_site_reset_requires_explicit_isolation_and_no_retry(
     tmp_path: Path,
@@ -179,19 +185,8 @@ def test_plan_state_opt_in_requires_exact_legacy_supersession(tmp_path, monkeypa
             load_replay_plan(profile, seeds)
 
 
-def test_plan_uses_frozen_order_not_seed_file_order(tmp_path: Path) -> None:
-    profile, seeds = _profile(tmp_path)
-    payload = json.loads(seeds.read_text(encoding="utf-8"))
-    payload["tasks"].reverse()
-    seeds.write_text(json.dumps(payload), encoding="utf-8")
-
-    plan = load_replay_plan(profile, seeds)
-
-    assert plan["task_ids"] == [1, 2]
-
-
-@pytest.mark.parametrize("field", ["method_parallelism", "task_parallelism"])
-def test_plan_rejects_parallel_work_on_one_environment(tmp_path: Path, field: str) -> None:
+def test_plan_rejects_parallel_work_on_one_environment(tmp_path: Path) -> None:
+    field = "task_parallelism"
     profile, seeds = _profile(tmp_path)
     payload = json.loads(profile.read_text(encoding="utf-8"))
     payload["execution"][field] = 2

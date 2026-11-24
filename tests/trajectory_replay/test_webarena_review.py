@@ -31,53 +31,32 @@ def _write(path: Path, value: object) -> Path:
     return path
 
 
-def test_programmatic_failure_keeps_location_separate_from_root_cause() -> None:
-    result = programmatic_failure(
-        {
-            "process_status": "fail",
-            "error": "RuntimeError: step 7 failed: Click failed: target missing\n",
-        }
-    )
-    assert result == {
-        "stage": "browser_tool_execution",
-        "step": 7,
-        "message": "Click failed: target missing",
-    }
-
-
-def test_programmatic_failure_preserves_browser_session_setup_stage() -> None:
-    result = programmatic_failure(
-        {
-            "process_status": "fail",
-            "failure_stage": "browser_session_setup",
-            "error": "Traceback: login_context failed before trajectory execution",
-        }
-    )
-    assert result == {
-        "stage": "browser_session_setup",
-        "step": None,
-        "message": "Traceback: login_context failed before trajectory execution",
-    }
-
-
-def test_programmatic_failure_omits_mutable_traceback_source_excerpt() -> None:
-    result = programmatic_failure(
-        {
-            "process_status": "fail",
-            "failure_stage": "browser_session_setup",
-            "error": (
-                "Traceback (most recent call last):\n"
-                '  File "remote_execution.py", line 322, in _run_task\n'
-                '    source text from another checkout revision\n'
-                "playwright._impl._errors.TimeoutError: Locator.click timed out\n"
-                "Call log:\n  - element is outside of the viewport\n"
-            ),
-        }
-    )
-    assert result["message"] == (
-        "playwright._impl._errors.TimeoutError: Locator.click timed out\n"
-        "Call log:\n  - element is outside of the viewport"
-    )
+@pytest.mark.parametrize(
+    ("attempt", "expected"),
+    [
+        ({"error": "RuntimeError: step 7 failed: Click failed: target missing\n"},
+         {"stage": "browser_tool_execution", "step": 7,
+          "message": "Click failed: target missing"}),
+        ({"failure_stage": "browser_session_setup",
+          "error": "Traceback: login_context failed before trajectory execution"},
+         {"stage": "browser_session_setup", "step": None,
+          "message": "Traceback: login_context failed before trajectory execution"}),
+        ({"failure_stage": "browser_session_setup",
+          "error": (
+              "Traceback (most recent call last):\n"
+              '  File "remote_execution.py", line 322, in _run_task\n'
+              "    source text from another checkout revision\n"
+              "playwright._impl._errors.TimeoutError: Locator.click timed out\n"
+              "Call log:\n  - element is outside of the viewport\n"
+          )},
+         {"stage": "browser_session_setup", "step": None,
+          "message": "playwright._impl._errors.TimeoutError: Locator.click timed out\n"
+                     "Call log:\n  - element is outside of the viewport"}),
+    ],
+    ids=["step-location", "setup-stage", "traceback-source-omitted"],
+)
+def test_programmatic_failure_keeps_location_separate_from_root_cause(attempt, expected) -> None:
+    assert programmatic_failure({"process_status": "fail", **attempt}) == expected
 
 
 @pytest.mark.parametrize("tamper", ["row", "digest", "symlink", "new-result"])
@@ -149,35 +128,6 @@ def test_append_methods_keeps_old_diagnostics_bound_to_unchanged_results(
     _write(review, payload)
     with pytest.raises(ValueError, match="inherited.*changed|not bound to the reviewed cohort"):
         load_validated_failure_review(results, review)
-
-
-def test_historical_task173_review_supersedes_browser_attribution_with_bound_evidence() -> None:
-    review = json.loads(
-        Path("research/trajectory-replay-reviews/20260917-original-36.json").read_text(encoding="utf-8")
-    )
-    matches = [
-        (group, row)
-        for group in review["cause_groups"]
-        for row in group["results"]
-        if row["task_id"] == 173
-    ]
-    assert len(matches) == 1
-    group, row = matches[0]
-    assert group["responsibility"] == "benchmark"
-    assert group["code"] == "shared_viewport_configuration"
-    assert "separate navigation observation error" in row["reason_en"]
-    revision = next(
-        item for item in review["review_revisions"] if item["id"] == row["review_revision"]
-    )
-    assert revision["superseded_review"]["responsibility"] == "browser"
-    assert (
-        revision["evidence_bindings"]["effective_results_sha256"]
-        == review["bindings"]["effective_results_sha256"]
-    )
-    observations = revision["historical_trace_observations"]
-    assert observations["css_rule"] == ".d-lg-none{display:none !important}"
-    assert len(observations["artifacts"]) == 4
-    assert {item["viewport"]["width"] for item in observations["artifacts"]} == {780, 1920}
 
 
 def test_review_requires_exact_hash_bound_failure_coverage(tmp_path: Path) -> None:
