@@ -101,11 +101,10 @@ def test_profile_is_updated_only_with_verified_publication_values(tmp_path):
     }
 
 
-@pytest.fixture(scope="module")
-def _built_publication(tmp_path_factory):
+def publication_fixture(root):
+    """Build a published report in ``root`` (reused by test_reporting_publish_client)."""
     from harness.trajectory_replay.public_webarena import publication
 
-    root = tmp_path_factory.mktemp("publication")
     source, profile = write_report_fixture(root)
     document = json.loads(profile.read_text(encoding="utf-8"))
     document["publication"] = {
@@ -123,21 +122,32 @@ def _built_publication(tmp_path_factory):
         ),
         encoding="utf-8",
     )
+    return _publication_paths(root)
+
+
+def _publication_paths(root):
+    return (
+        root / "source",
+        root / "evaluation/browser-use-public/current-report.json",
+        root / "staged",
+        root / "report.zip",
+        root / "proof.json",
+        root / "receipt.json",
+        root / "operation.json",
+    )
+
+
+@pytest.fixture(scope="module")
+def _built_publication(tmp_path_factory):
+    root = tmp_path_factory.mktemp("publication")
+    publication_fixture(root)
     return root
 
 
 @pytest.fixture
 def publication_files(_built_publication, tmp_path):
     shutil.copytree(_built_publication, tmp_path, dirs_exist_ok=True)
-    return (
-        tmp_path / "source",
-        tmp_path / "evaluation/browser-use-public/current-report.json",
-        tmp_path / "staged",
-        tmp_path / "report.zip",
-        tmp_path / "proof.json",
-        tmp_path / "receipt.json",
-        tmp_path / "operation.json",
-    )
+    return _publication_paths(tmp_path)
 
 
 @pytest.mark.parametrize("failure", ["upload-response", "share"])
