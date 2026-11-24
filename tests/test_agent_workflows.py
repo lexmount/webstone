@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from harness.agent_workflows import install_skill
-from harness.web_fetch.cli import main
+from harness.cli import main
 
 
 def invoke(arguments, monkeypatch, capsys):

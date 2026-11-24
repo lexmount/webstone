@@ -11,10 +11,13 @@ import pytest
 from harness.distribution import repository_root
 from harness.reporting.templates import resolve_template
 from harness.web_fetch import webmainbench_latency_correction as latency
-from harness.web_fetch.cli import OWNER_COMMANDS, build_parser, main
+from harness.cli import main, root_commands
+from harness.web_fetch.cli import OWNER_COMMANDS, build_parser
 
 ROOT = Path(__file__).resolve().parents[1]
 PROG = build_parser().prog
+# Every command the public `webstone` entry point routes to an owner.
+COMMANDS = {**root_commands(), **OWNER_COMMANDS}
 DOCUMENTED_COMMAND_FILES = ("Makefile", "docs/benchmarks.md", "docs/architecture.md",
                             "src/harness/web_fetch/README.md", "src/harness/web_fetch/WEBMAINBENCH.md",
                             "src/harness/web_fetch/HEADLESS.md")
@@ -79,16 +82,16 @@ OWNER_OPTIONS = {
 
 def run_module(*arguments, cwd):
     path = os.pathsep.join(filter(None, [str(ROOT / "src"), os.environ.get("PYTHONPATH")]))
-    return subprocess.run([sys.executable, "-m", "harness.web_fetch", *arguments], cwd=cwd,
+    return subprocess.run([sys.executable, "-m", "harness.cli", *arguments], cwd=cwd,
                           env={**os.environ, "PYTHONPATH": path}, text=True, capture_output=True)
 
 
 def test_every_owner_command_is_covered_and_listed_by_top_level_help(tmp_path):
-    assert set(OWNER_OPTIONS) == set(OWNER_COMMANDS)
+    assert set(OWNER_OPTIONS) == set(COMMANDS)
     result = run_module("--help", cwd=tmp_path)
     assert result.returncode == 0, result.stderr
     listed = " ".join(result.stdout.split())
-    for name, (_, _, summary) in OWNER_COMMANDS.items():
+    for name, (_, _, summary) in COMMANDS.items():
         assert name in listed and " ".join(summary.split()) in listed
     for name in ("run", "report", "rescore", "validate", "accounts"):
         assert name in listed
@@ -219,14 +222,14 @@ def test_diagnostic_check_requires_exactly_one_output(capsys):
 
 
 def named_commands(text):
-    return {name for name in OWNER_COMMANDS if re.search(rf"(?<![\w-]){name}(?![\w-])", text)}
+    return {name for name in COMMANDS if re.search(rf"(?<![\w-]){name}(?![\w-])", text)}
 
 
 def test_every_owner_command_is_shown_by_a_guide_or_listed_as_kept():
     shown = named_commands("\n".join((ROOT / path).read_text(encoding="utf-8") for path in COMMAND_INDEX_FILES))
     inventory = (ROOT / "scripts/README.md").read_text(encoding="utf-8")
     kept = named_commands(inventory.split("## Kept as is (#151)")[1].split("\n## ")[0])
-    assert kept | shown == set(OWNER_COMMANDS)
+    assert kept | shown == set(COMMANDS)
 
 
 def test_command_inventory_runs_track_stages_through_the_locked_runtime():

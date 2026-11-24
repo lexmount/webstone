@@ -25,7 +25,7 @@ from harness.reporting.assets import load_bound_content
 from harness.reporting.release_check import checked_page, language_editions, open_report, read_page
 from harness.web_fetch.report import ERROR_PAGE, EXTRA, JS, STYLE
 from harness.web_fetch.report_changes import webmainbench_history
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from harness.web_fetch.webmainbench_diagnostics import validate_teds_revision_if_present
 from harness.web_fetch.webmainbench_evidence import read_method_binding, retry_chain_matches
 from harness.web_fetch.webmainbench_latency_correction import (

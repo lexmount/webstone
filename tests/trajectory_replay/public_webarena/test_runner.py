@@ -10,7 +10,7 @@ from urllib.error import URLError
 
 import pytest
 
-from harness import env_file
+from harness import env_file, runtime_env
 from harness.environments.browser import (
     ENGINE_PORTS,
     cleanup_browser_runtime,
@@ -29,7 +29,6 @@ from harness.trajectory_replay.public_webarena.runner import (
     _environment_failure_row,
     _prepare_page,
 )
-from harness.web_fetch import config as web_fetch_config
 
 
 def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, monkeypatch):
@@ -475,7 +474,7 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         )
     )
     monkeypatch.setattr(runner, "write_latest_report", report)
-    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
     (tmp_path / ".env").write_text(
         "OPENAI_API_KEY=test\nOPENAI_BASE_URL=https://test.invalid\n",
         encoding="utf-8"

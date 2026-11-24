@@ -692,7 +692,7 @@ def main() -> None:
     os.umask(0o077)
     args.output.mkdir(parents=True, exist_ok=True)
     if default_catalog:
-        from harness.web_fetch.safety import write_new_file
+        from harness.safety import write_new_file
         args.catalog = args.output / 'input-catalog.json'
         if args.catalog.is_symlink():
             raise ValueError('catalog input binding cannot be symlinked')

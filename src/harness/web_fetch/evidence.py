@@ -31,7 +31,7 @@ from harness.web_fetch.reference_lifecycle import (
     require_verified_reference_checks,
     requires_fresh_reference,
 )
-from harness.web_fetch.safety import (
+from harness.safety import (
     commit_staged_evidence,
     reject_evidence_symlinks,
     validate_report_ids,

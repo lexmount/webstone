@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from harness.safety import unlinked_path
 from harness.trajectory_replay import diagnostics as d
-from harness.web_fetch.safety import unlinked_path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -161,7 +161,7 @@ def test_shared_path_guard_checks_links_before_collapsing_parent_segments(tmp_pa
 def test_new_file_writer_cannot_expose_partial_or_replace_concurrent_output(
     tmp_path, monkeypatch, failure
 ):
-    from harness.web_fetch import safety
+    from harness import safety
 
     output = tmp_path / "new.json"
     link = safety.os.link

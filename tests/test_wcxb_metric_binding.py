@@ -88,10 +88,10 @@ def test_changed_module_code_rejects_legacy_profile(cohort, monkeypatch, tmp_pat
 
 
 @pytest.mark.parametrize('statement', [
-    b'from harness.web_fetch import safety\n',
-    b'import harness.web_fetch.safety\n',
-    b'def helper():\n    import harness.web_fetch.safety\n',
-    b'def helper():\n    from harness.web_fetch import safety\n',
+    b'from harness import safety\n',
+    b'import harness.safety\n',
+    b'def helper():\n    import harness.safety\n',
+    b'def helper():\n    from harness import safety\n',
     b'from . import safety\n',
 ])
 def test_unbound_helper_import_rejects_module_before_hashing(statement):

@@ -29,7 +29,7 @@ from harness.reporting.assets import authored_main
 from harness.reporting.presentation import check_presentation
 from harness.reporting.release_check import language_editions, open_report, read_page
 from harness.reporting.visual import local_report_server
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from harness.data_home import data_home
 from harness.env_file import parse_env_file
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency

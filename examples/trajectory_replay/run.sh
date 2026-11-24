@@ -34,7 +34,7 @@ cd "${ROOT}"
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 2; }
 command -v uv >/dev/null 2>&1 || { echo "uv is required" >&2; exit 2; }
 OUTPUT="$(uv run --frozen --extra browser-use-eval python -c \
-  'import sys; from pathlib import Path; from harness.web_fetch.safety import unlinked_path; print(unlinked_path(Path(sys.argv[1])))' \
+  'import sys; from pathlib import Path; from harness.safety import unlinked_path; print(unlinked_path(Path(sys.argv[1])))' \
   "${OUTPUT}")"
 REPORTS="${OUTPUT}/report"
 docker info >/dev/null

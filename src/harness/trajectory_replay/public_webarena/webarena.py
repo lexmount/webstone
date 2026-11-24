@@ -22,8 +22,8 @@ from urllib.parse import urlparse
 
 from harness.data_home import configured_data_home
 from harness.record_io import file_sha256
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.public_webarena.suite import TRAJECTORY_SCHEMA
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 HUMAN_TRAJECTORY_FOLDER_ID = "1NrN_sawtYK2V_uHnmmS8ugmGIKUAsPgt"
 HUMAN_TRAJECTORY_FOLDER_URL = "https://drive.google.com/drive/folders/" + HUMAN_TRAJECTORY_FOLDER_ID

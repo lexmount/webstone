@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.record_io import canonical_json_sha256, file_sha256, read_json
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.remote_runtime import (
     COHORT_RESET_SCOPE,
     checked_file_sha256,
@@ -18,7 +19,6 @@ from harness.trajectory_replay.remote_runtime import (
 from harness.trajectory_replay.retrieval_acceptance import verify_attempt
 from harness.trajectory_replay.webarena_plan import load_replay_plan
 from harness.trajectory_replay.webarena_replay import RECEIPT_SCHEMA, validate_qualification_dataset
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 EFFECTIVE_SCHEMA = "lex_webarena_trajectory_replay_effective_suite/1"
 

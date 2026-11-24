@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from harness.web_fetch.config import expand_env
+from harness.runtime_env import expand_env
 from harness.web_fetch.native_routes import NativeRouteLedger
 from harness.web_fetch.providers.base import build_provider
 from harness.web_fetch.report_saved_matrix import _SourceBindings, _parameter_execution

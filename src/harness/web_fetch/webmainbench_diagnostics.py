@@ -30,7 +30,7 @@ from lexbench_webfetch.scoring_regressions import (
 
 from harness.record_io import bytes_sha256, canonical_json_sha256, file_sha256, load_jsonl
 from harness.web_fetch.result_review import write_review_document
-from harness.web_fetch.safety import (
+from harness.safety import (
     evidence_tree_identity,
     reject_evidence_symlinks,
     stage_evidence_revision,
@@ -557,7 +557,7 @@ def _revise_teds(source, output, scorer_repo, prior_corrected, scorer_commit):
             Path(__file__).resolve(),
             Path(ordered_tree_module.__file__),
             Path(scoring_module.__file__),
-            source_path("harness/web_fetch/safety.py", root=ROOT),
+            source_path("harness/safety.py", root=ROOT),
             source_path("harness/web_fetch/webmainbench_scoring.py", root=ROOT),
             source_path("harness/web_fetch/webmainbench_evidence.py", root=ROOT),
         ]

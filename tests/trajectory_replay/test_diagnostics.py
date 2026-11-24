@@ -6,9 +6,9 @@ from urllib.error import URLError
 
 import pytest
 
+from harness import runtime_env
 from harness.trajectory_replay.core import diagnostics
 from harness.trajectory_replay.core.diagnostics import build_failure_groups, classify_failure
-from harness.web_fetch import config as web_fetch_config
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,7 @@ def test_optional_llm_errors_preserve_rules_and_scores(monkeypatch, error):
 def test_missing_llm_credentials_are_nonfatal(monkeypatch, tmp_path):
     for name in ("OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
     summary = diagnostics.diagnose_summary({}, use_llm=True)
     assert summary["failure_diagnostics"]["llm"]["error_type"] == "RuntimeError"
 
@@ -48,7 +48,7 @@ def test_llm_credentials_come_only_from_repository_env(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "shell-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://shell.invalid")
     monkeypatch.setenv("BROWSERBASE_API_KEY", "unrelated-shell-key")
-    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
     calls = []
     monkeypatch.setattr(
         diagnostics, "add_llm_diagnoses", lambda groups, **kwargs: calls.append(kwargs) or {}

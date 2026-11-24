@@ -45,7 +45,7 @@ from harness.web_fetch.reference_lifecycle import (
     require_verified_reference_checks,
     valid_scoring_revision,
 )
-from harness.web_fetch.safety import reject_evidence_symlinks, validate_report_ids
+from harness.safety import reject_evidence_symlinks, validate_report_ids
 from harness.web_fetch.speed_cohort import (
     build_summary as build_speed_summary,
 )

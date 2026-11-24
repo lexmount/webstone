@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from harness.web_fetch.providers.subprocess_jsonl import SubprocessJsonlProvider
-from harness.web_fetch.safety import unlinked_path, write_new_file
+from harness.safety import unlinked_path, write_new_file
 from harness.data_home import data_home
 
 

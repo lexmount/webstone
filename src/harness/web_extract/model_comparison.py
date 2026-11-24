@@ -13,6 +13,7 @@ import requests
 from harness import benchmark_execution
 from harness.benchmark_execution import ExecutionPolicy, Job, assess_execution, run_jobs
 from harness.record_io import bytes_sha256, canonical_json_sha256, file_sha256, json_bytes
+from harness.runtime_env import repository_env
 from harness.web_extract.pipeline import (
     access_blocker,
     read_json,
@@ -21,7 +22,6 @@ from harness.web_extract.pipeline import (
     save_json,
     total_deadline,
 )
-from harness.web_fetch.config import repository_env
 
 TRANSPORT_ERRORS = ("ConnectionError:", "ConnectTimeout:", "ChunkedEncodingError:")
 AUXILIARY_TIMEOUTS = {"verification": 10, "load": 180, "telemetry": 5}

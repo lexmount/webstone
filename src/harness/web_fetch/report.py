@@ -124,7 +124,7 @@ from harness.web_fetch.report_reading import render_archived_reading
 from harness.web_fetch.report_resources import render_resource_comparison
 from harness.web_fetch.report_style import STYLE, asset_text
 from harness.web_fetch.result_ledger import validate_ledger
-from harness.web_fetch.safety import safe_href, validate_report_ids
+from harness.safety import safe_href, validate_report_ids
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency
 from harness.web_fetch.wcxb_scoring import paired_latency_methods
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE

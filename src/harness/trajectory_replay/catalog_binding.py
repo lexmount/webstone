@@ -157,7 +157,7 @@ def current_catalog_inputs(
         if binding_path.read_text(encoding='utf-8') != payload:
             raise ValueError('existing run uses a different catalog input binding')
     else:
-        from harness.web_fetch.safety import write_new_file
+        from harness.safety import write_new_file
         binding_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         write_new_file(binding_path, payload.encode('utf-8'))
     return binding_path, suite_path

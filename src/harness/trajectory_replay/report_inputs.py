@@ -5,7 +5,7 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 
 
 def verified_dataset_path(path: Path, digest: str) -> Path:

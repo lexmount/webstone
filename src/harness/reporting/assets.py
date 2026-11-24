@@ -11,7 +11,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from harness.reporting.packs import read_packed_file
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path
 
 

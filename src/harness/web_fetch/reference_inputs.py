@@ -29,7 +29,7 @@ from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.reporting.assets import copy_bound_assets
 from harness.reporting.packs import read_packed_file
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from harness.data_home import data_home
 
 MANIFEST_NAME = "source-inputs.json"

@@ -12,11 +12,11 @@ from harness.web_search.relevance import judge_main
 
 @pytest.fixture
 def answer_run(tmp_path, monkeypatch):
-    from harness.web_fetch import config
+    from harness import runtime_env
     from harness.web_search import report
     from lexbench_websearch import answers
 
-    monkeypatch.setattr(config, 'ROOT', tmp_path)
+    monkeypatch.setattr(runtime_env, 'ROOT', tmp_path)
     (tmp_path/'.env').write_text('SEARCH_JUDGE_API_KEY=fixture\nSEARCH_JUDGE_BASE_URL=https://judge.test/v1\n', encoding="utf-8")
     source = b'GRADER_TEMPLATE = "Question {question}; expected {target}; answer {predicted_answer}".strip()\n'
     monkeypatch.setitem(answers.SIMPLEQA_UPSTREAM, 'sha256', hashlib.sha256(source).hexdigest())

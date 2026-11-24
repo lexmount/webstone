@@ -33,7 +33,7 @@ from harness.web_fetch.reference_lifecycle import (
 )
 from harness.web_fetch.rescoring import rescore
 from harness.web_fetch.result_review import archive_superseded_result_review
-from harness.web_fetch.safety import (
+from harness.safety import (
     commit_staged_evidence,
     evidence_tree_identity,
     reject_evidence_symlinks,

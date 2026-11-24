@@ -13,7 +13,8 @@ from pathlib import Path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256
-from harness.web_fetch.config import load_provider_config, load_runtime_env
+from harness.web_fetch.config import load_provider_config
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers.headless import engine_definition
 from harness.web_fetch.webmainbench_evidence import read_jsonl, require_unique_attempt_ids
 from harness.web_fetch.webmainbench_runner import PROVIDERS, load_source

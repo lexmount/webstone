@@ -29,8 +29,8 @@ from harness.data_home import data_home as shared_data_home
 from harness.distribution import repository_root
 from harness.record_io import bytes_sha256 as digest
 from harness.record_io import read_json as shared_read_json
+from harness.runtime_env import load_runtime_env
 from harness.web_extract.dataset import benchmark_config, input_mode
-from harness.web_fetch.config import load_runtime_env
 from harness.web_fetch.providers.http_client import request
 from lexbench_webfetch.paths import validate_http_url
 

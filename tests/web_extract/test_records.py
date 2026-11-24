@@ -1265,7 +1265,7 @@ def test_managed_manifest_requires_byte_proof_and_external_manifest_checks_resou
         "deployment_id": "1234abcd-0000-0000-0000-000000000000",
     }
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "test-cf"},
     )
     monkeypatch.setattr(
@@ -1967,7 +1967,7 @@ def test_unavailable_cloudflare_confirmation_uses_bytes_but_mismatch_stops(
     bound = {**receipt, "hosting_provider": "cloudflare", "cloudflare": identity}
     monkeypatch.setattr(snapshots, "check_manifest", lambda *a: receipt)
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {
             "CLOUDFLARE_ACCOUNT_ID": "account",
             "CLOUDFLARE_API_TOKEN": "expired-or-unavailable",

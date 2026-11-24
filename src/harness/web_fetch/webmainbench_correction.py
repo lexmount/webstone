@@ -28,7 +28,7 @@ from harness.record_io import (
     write_json,
 )
 from harness.web_fetch.providers.headless import engine_definition
-from harness.web_fetch.safety import stage_evidence_revision
+from harness.safety import stage_evidence_revision
 from harness.web_fetch.webmainbench_case_correction import dimensions
 from harness.web_fetch.webmainbench_certification import verify_shard
 from harness.web_fetch.webmainbench_diagnostics import corrected_distance

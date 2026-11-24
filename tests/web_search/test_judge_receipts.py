@@ -15,10 +15,10 @@ from harness.web_search.relevance import judge_main, validate_model_evidence
 
 @pytest.fixture
 def run_judge(tmp_path, monkeypatch):
-    from harness.web_fetch import config
+    from harness import runtime_env
     from harness.web_search import report
 
-    monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
     (tmp_path / ".env").write_text("SEARCH_JUDGE_API_KEY=test-only\nSEARCH_JUDGE_BASE_URL=https://test.invalid/v1\n", encoding="utf-8")
 
     profile = {
@@ -447,8 +447,8 @@ def test_invalid_credential_variable_name_creates_no_output(run_judge, name):
 )
 def test_loopback_http_is_usable_for_local_transport_tests(run_judge, monkeypatch, base):
     monkeypatch.setattr(urllib.request, "urlopen", lambda request, **kw: Response(answer(request)))
-    from harness.web_fetch import config
-    (config.ROOT / ".env").write_text("SEARCH_JUDGE_API_KEY=test-only\nSEARCH_JUDGE_BASE_URL=" + base + "\n", encoding="utf-8")
+    from harness import runtime_env
+    (runtime_env.ROOT / ".env").write_text("SEARCH_JUDGE_API_KEY=test-only\nSEARCH_JUDGE_BASE_URL=" + base + "\n", encoding="utf-8")
     run_judge(["--base-url", base])
     assert (run_judge.output / "relevance.json").is_file()
 
@@ -554,10 +554,10 @@ def test_correction_reuses_identical_inputs_and_calls_only_changed_cases(
 
 
 def test_judge_host_allowlist_is_not_interpolated_from_the_shell(run_judge, monkeypatch):
-    from harness.web_fetch import config
+    from harness import runtime_env
 
     monkeypatch.setenv("JUDGE_BASE_FROM_SHELL", "https://test.invalid/v1")
-    (config.ROOT / ".env").write_text(
+    (runtime_env.ROOT / ".env").write_text(
         "SEARCH_JUDGE_API_KEY=test-only\nSEARCH_JUDGE_BASE_URL=${JUDGE_BASE_FROM_SHELL}\n",
         encoding="utf-8"
     )

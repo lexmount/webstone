@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from harness.reporting.certified_cli import main
+from harness.cli import certified_main as main
 from harness.web_extract.certification import create_plan
 from harness.web_extract.example import create
 from harness.web_extract.pipeline import read_json

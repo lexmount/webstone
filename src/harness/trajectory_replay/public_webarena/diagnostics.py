@@ -31,6 +31,7 @@ from harness.environments.webarena import har as browser_har
 from harness.environments.webarena.config import SITE_TOKENS
 from harness.environments.webarena.topology import OFFICIAL_TRACE_PORTS
 from harness.record_io import bytes_sha256, canonical_json_sha256, file_sha256, parse_jsonl
+from harness.safety import unlinked_path
 from harness.trajectory_replay.diagnostics import (
     _check_diagnostic_snapshot,
     _diagnostic_snapshot,
@@ -42,7 +43,6 @@ from harness.trajectory_replay.public_webarena.qualification import (
     task_contract_sha256,
 )
 from harness.trajectory_replay.public_webarena.suite import SUPPORTED_ACTIONS, load_suite
-from harness.web_fetch.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 PACKET_SCHEMA = "lex_webarena_codex_repair_packet/2"

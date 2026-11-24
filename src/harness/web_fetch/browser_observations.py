@@ -612,12 +612,14 @@ def capture_source_identity() -> dict:
         "network_dns.py",
         "source_capture.py",
         "reference_lifecycle.py",
-        "safety.py",
+        "../safety.py",
         "data/browser-observation-contracts.json",
     )
     root = Path(__file__).parent
 
-    return {**{name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in names},
+    # Keys stay the names checkpoints recorded before safety.py moved to the shared package.
+    return {**{name.removeprefix("../"): hashlib.sha256((root / name).read_bytes()).hexdigest()
+               for name in names},
             "lexbench_webfetch/scoring": SCORING_SOURCE_SHA256}
 
 

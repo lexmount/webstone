@@ -28,7 +28,7 @@ from harness.web_fetch.result_review import (
     archive_superseded_result_review,
     rebind_unchanged_result_review,
 )
-from harness.web_fetch.safety import validate_report_ids
+from harness.safety import validate_report_ids
 
 ROOT = repository_root()
 

@@ -46,7 +46,7 @@ from harness.web_fetch.report_explainer import current_browser_article_model
 from harness.web_fetch.report_version import check_release
 from harness.web_fetch.report_saved_composition import _namespace_extension_evidence, _restore_extension_evidence
 from harness.web_fetch.result_review import require_result_review
-from harness.web_fetch.safety import evidence_tree_identity, unlinked_path
+from harness.safety import evidence_tree_identity, unlinked_path
 
 
 def _require(condition, detail):

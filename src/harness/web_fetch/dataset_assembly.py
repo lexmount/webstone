@@ -15,7 +15,7 @@ from harness.record_io import bytes_sha256, canonical_json_sha256, json_bytes
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import homepage_prompt_anchor_correction
 from harness.web_fetch.retrieval_hints import historical_native_fetch_dataset, native_fetch_dataset
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 ROOT = repository_root()
 

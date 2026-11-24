@@ -31,7 +31,7 @@ from lexbench_webfetch.reference_quality import audit_reference, clean_reference
 from harness.web_fetch.document_text import extract_document_text
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import scope_identity
-from harness.web_fetch.safety import unlinked_path, write_new_file
+from harness.safety import unlinked_path, write_new_file
 
 
 def extract_html(raw: bytes, url: str):

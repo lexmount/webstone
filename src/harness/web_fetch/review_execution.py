@@ -34,7 +34,7 @@ from harness.web_fetch.result_review import (
     review_raw_artifacts,
     write_review_document,
 )
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 SCHEMA = {
     "type": "object",

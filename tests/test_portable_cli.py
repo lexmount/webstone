@@ -38,7 +38,7 @@ class BaseInstallation(importlib.abc.MetaPathFinder):
         if fullname.split('.')[0] in optional:
             raise AssertionError('Base CLI loaded optional dependency: ' + fullname)
 sys.meta_path.insert(0, BaseInstallation())
-from harness.web_fetch.cli import main
+from harness.cli import main
 sys.argv = ['webstone', 'validate']
 main()
 '''

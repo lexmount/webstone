@@ -18,7 +18,8 @@ from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import file_sha256
 from harness.web_fetch.artifacts import diagnostic_log_binding
-from harness.web_fetch.config import load_dataset, load_provider_config, load_runtime_env
+from harness.web_fetch.config import load_dataset, load_provider_config
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.reference_inputs import benchmark_input_path, read_dataset_bytes
 from harness.web_fetch.retrieval_hints import plan_for_case
 from harness.data_home import data_home

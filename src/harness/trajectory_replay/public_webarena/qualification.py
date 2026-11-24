@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 
 from harness.environments.webarena.topology import RECORDED_PORT_SITES
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, same_json_record
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.core.suite import TaskSuite
 from harness.trajectory_replay.public_webarena.har import (
     HAR_CREATOR_NAME,
@@ -34,7 +35,6 @@ from harness.trajectory_replay.public_webarena.suite import (
     validate_selector,
 )
 from harness.trajectory_replay.public_webarena.targets import validate_target
-from harness.web_fetch.safety import unlinked_path, write_new_file
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")

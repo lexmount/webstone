@@ -9,7 +9,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from harness.web_fetch.safety import unlinked_path, write_new_file
+from harness.safety import unlinked_path, write_new_file
 
 
 def verify_map_endpoint(base: str) -> dict:

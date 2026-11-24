@@ -487,7 +487,7 @@ def test_extension_cli_rejects_ignored_options(tmp_path, monkeypatch, option):
 @pytest.mark.parametrize('destination', ['source', 'baseline', 'symlink', 'directory'])
 def test_extension_cli_rejects_unsafe_outputs_without_changing_inputs(tmp_path, monkeypatch, destination):
     from harness.web_fetch.report_package import main
-    from harness.web_fetch.safety import evidence_tree_identity
+    from harness.safety import evidence_tree_identity
     output, baseline, _, _ = _published_extension(tmp_path)
     archive = tmp_path/'requested.zip'
     retained = tmp_path/'retained.txt'
@@ -584,7 +584,7 @@ def test_extension_methodology_retains_each_execution_row_once():
 @pytest.mark.parametrize('failure', ['render', 'link'])
 def test_extension_refresh_rejection_preserves_prior_tree(tmp_path, monkeypatch, failure):
     from harness.web_fetch import report_saved_composition as composition
-    from harness.web_fetch.safety import evidence_tree_identity
+    from harness.safety import evidence_tree_identity
     output, _, _, _ = _published_extension(tmp_path)
     before = evidence_tree_identity(output)
     path = tmp_path/'extension.json'
@@ -647,7 +647,7 @@ def test_extension_real_unmeasured_report_preserves_methods_and_metrics(tmp_path
 
 def test_extension_refresh_restores_prior_tree_on_install_failure(tmp_path, monkeypatch):
     from harness.web_fetch import report_saved_composition as composition
-    from harness.web_fetch.safety import evidence_tree_identity
+    from harness.safety import evidence_tree_identity
     output, _, _, _ = _published_extension(tmp_path)
     before = evidence_tree_identity(output)
     path = tmp_path/'extension.json'

@@ -17,7 +17,7 @@ from urllib.parse import unquote, urlsplit
 
 from lexbench_webfetch.paths import contained_path
 
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 
 def browser_executable() -> str:

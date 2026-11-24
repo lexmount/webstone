@@ -77,7 +77,7 @@ from harness.web_fetch.report_version import check_release
 from harness.web_fetch.resource_cohort import validate_cohort
 from harness.web_fetch.result_review import require_result_review
 from harness.web_fetch.risk_control import validate_risk_control_certification
-from harness.web_fetch.safety import (
+from harness.safety import (
     copy_evidence_file,
     evidence_tree_identity,
     reject_evidence_symlinks,

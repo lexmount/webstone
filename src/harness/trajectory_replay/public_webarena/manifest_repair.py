@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from harness.record_io import file_sha256, load_jsonl, same_json_record
+from harness.safety import unlinked_path
 from harness.trajectory_replay.core.diagnostics import diagnose_summary
 from harness.trajectory_replay.public_webarena.metrics import summarize_attempts
 from harness.trajectory_replay.public_webarena.report import write_latest_report
 from harness.trajectory_replay.public_webarena.result_audit import audit_result_set
-from harness.web_fetch.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 

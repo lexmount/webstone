@@ -21,7 +21,7 @@ from harness.platform_capabilities import sandbox_exec_command
 from harness.record_io import file_sha256, load_jsonl, parse_jsonl
 from harness.web_fetch import webmainbench_runner
 from harness.web_fetch.providers.headless import LOOPBACK_SANDBOX_PROFILE
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE
 from harness.web_fetch.webmainbench_evidence import retry_chain_matches
 from harness.web_fetch.webmainbench_latency_correction import prior_results_path

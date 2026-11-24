@@ -31,7 +31,7 @@ from harness.web_fetch.reference_lifecycle import (
     requires_fresh_reference,
 )
 from harness.web_fetch.report import failure_category, succeeded
-from harness.web_fetch.safety import validate_report_ids
+from harness.safety import validate_report_ids
 from harness.web_fetch.storage import current_evidence_dir
 
 ROOT = repository_root()

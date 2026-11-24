@@ -23,7 +23,7 @@ from harness.web_fetch.reference_lifecycle import (
     require_verified_reference_checks,
 )
 from harness.web_fetch.retrieval_hints import parse_retrieval_hints
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from harness.web_fetch.task_outputs import require_native_task_routes
 
 _IDENTITY_FIELDS = {

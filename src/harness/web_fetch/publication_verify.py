@@ -19,7 +19,7 @@ from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 from harness.benchmarks.data import _TokenRedirects
 from harness.reporting.publication import archive_inventory
 from harness.reporting.publish import _rate_limit_delay
-from harness.web_fetch.artifact_auth import load_token
+from harness.artifact_auth import load_token
 from harness.reporting.publication_target import (
     publication_base,
     publication_document,

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from harness.web_fetch.config import expand_env, load_env_file, load_runtime_env
+from harness.runtime_env import expand_env, load_env_file, load_runtime_env
 from harness.web_fetch.accounts import HOSTED_KEYS, import_credentials, main_import_credentials
 from harness.web_fetch.cli import main as web_fetch_main
 
@@ -27,7 +27,7 @@ class ConfigTest(unittest.TestCase):
                 if explicit:
                     args += ["--target", str(target)]
                 output = io.StringIO()
-                with patch("harness.web_fetch.config.ROOT", root), redirect_stdout(output):
+                with patch("harness.runtime_env.ROOT", root), redirect_stdout(output):
                     main_import_credentials(args)
                 self.assertNotIn(secret, output.getvalue())
                 self.assertNotIn("existing-synthetic-value", output.getvalue())
@@ -48,7 +48,7 @@ class ConfigTest(unittest.TestCase):
             previous = Path.cwd()
             os.chdir(elsewhere)
             try:
-                with patch("harness.web_fetch.config.ROOT", root), patch.dict(os.environ), redirect_stdout(io.StringIO()):
+                with patch("harness.runtime_env.ROOT", root), patch.dict(os.environ), redirect_stdout(io.StringIO()):
                     web_fetch_main(["import-env", "--source", str(source)])
                     load_runtime_env()
                     self.assertEqual(os.environ[key], "synthetic-value")
@@ -90,7 +90,7 @@ class ConfigTest(unittest.TestCase):
     def test_default_env_is_repo_only(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            with patch('harness.web_fetch.config.ROOT', root), patch.dict(os.environ, {}, clear=True):
+            with patch('harness.runtime_env.ROOT', root), patch.dict(os.environ, {}, clear=True):
                 load_runtime_env()  # Missing repository .env is fine for local methods.
                 (root/'.env').write_text('BHE_LOCAL=repository\n', encoding="utf-8")
                 load_runtime_env()
@@ -104,7 +104,7 @@ class ConfigTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); (root/'.env').write_text('DEFAULT_ONLY=no\n', encoding="utf-8")
             other=root/'chosen.env'; other.write_text('CHOSEN=yes\n', encoding="utf-8")
-            with patch('harness.web_fetch.config.ROOT',root),patch.dict(os.environ,{},clear=True):
+            with patch('harness.runtime_env.ROOT',root),patch.dict(os.environ,{},clear=True):
                 load_runtime_env(other)
                 self.assertEqual(os.environ['CHOSEN'],'yes')
                 self.assertNotIn('DEFAULT_ONLY',os.environ)
@@ -169,7 +169,7 @@ class CredentialAuthorityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / '.env').write_text('EXA_API_KEY=repo-fixture-key\nPATH_CHOICE=repo-path\n', encoding="utf-8")
-            with patch('harness.web_fetch.config.ROOT', root), patch.dict(os.environ, {
+            with patch('harness.runtime_env.ROOT', root), patch.dict(os.environ, {
                     'EXA_API_KEY': 'parent-fixture-key', 'TAVILY_API_KEY': 'parent-only-key',
                     'PATH_CHOICE': 'parent-path'}, clear=True):
                 load_runtime_env()
@@ -182,7 +182,7 @@ class CredentialAuthorityTests(unittest.TestCase):
             root = Path(directory)
             source = root / 'other.env'
             source.write_text('EXA_API_KEY=external-fixture-key\n', encoding="utf-8")
-            with patch('harness.web_fetch.config.ROOT', root), patch.dict(os.environ, {}, clear=True):
+            with patch('harness.runtime_env.ROOT', root), patch.dict(os.environ, {}, clear=True):
                 with self.assertRaisesRegex(ValueError, 'repository .env'):
                     load_runtime_env(source)
                 self.assertNotIn('EXA_API_KEY', os.environ)

@@ -8,9 +8,9 @@ import subprocess
 from pathlib import Path
 
 from harness.record_io import canonical_json_sha256, file_sha256
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.catalog_contracts import load_action_overrides
 from harness.trajectory_replay.public_webarena.suite import load_suite
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 AUDIT_SCHEMA = "lex_webarena_replay_action_override_audit/1"
 

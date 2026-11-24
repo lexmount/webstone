@@ -7,7 +7,7 @@ from typing import Any
 
 from harness.distribution import repository_root
 from harness.record_io import read_json
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path
 
 LAYERED_REVIEW_SCHEMA = "lex_browser_use_layered_failure_cause_review/2"

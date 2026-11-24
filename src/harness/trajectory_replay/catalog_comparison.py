@@ -10,6 +10,7 @@ from typing import Any
 
 from harness.environments.webarena.topology import TRUSTED_RECORDED_HOSTS
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.catalog_contracts import (
     apply_action_overrides,
     catalog_action_overrides,
@@ -24,7 +25,6 @@ from harness.trajectory_replay.runtime_identity import (
     runtime_identity,
 )
 from harness.trajectory_replay.webarena_corrections import apply_correction, load_corrections
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 RESULTS_SCHEMA = "lex_webarena_catalog_comparison_results/1"
 DATASET_SCHEMA = "lex_webarena_catalog_comparison_dataset/1"
