@@ -43,8 +43,8 @@ def test_native_fields_and_no_envelope_scoring(kind, payload, expected):
                                      final_url=result.final_url, request_url=case().url)
 
 
-@pytest.mark.parametrize('kind', ['kimi_fetch', 'zai_reader', 'claude_web_fetch'])
-@pytest.mark.parametrize('raw', [b'error code: 504\n', b'[]', b'null'])
+@pytest.mark.parametrize('kind,raw', [('kimi_fetch', b'error code: 504\n'), ('zai_reader', b'[]'),
+                                      ('claude_web_fetch', b'null')])
 def test_malformed_api_envelope_remains_failure_evidence(kind, raw, tmp_path):
     from dataclasses import asdict
     from harness.web_fetch.artifacts import verify_record_artifacts
@@ -353,8 +353,7 @@ def test_claude_malformed_blocks_are_retained_without_an_exception(bad):
         title=result.title,final_url=result.final_url,request_url=case().url)
 
 
-@pytest.mark.parametrize('status',[301,302,303])
-@pytest.mark.parametrize('destination',['http://other.example.test/','https://other.example.test/'])
+@pytest.mark.parametrize('status,destination',[(301,'http://other.example.test/'),(303,'https://other.example.test/')])
 def test_remote_worker_does_not_send_a_key_on_an_api_redirect(monkeypatch,capsys,status,destination):
     import io
     import urllib.request

@@ -1,77 +1,29 @@
-import subprocess
+import runpy
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "build_report.py"
 
 
-def test_local_audit_requires_explicit_evidence_and_output():
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), "--local-audit"],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 2
-    assert "requires both --evidence and --output" in result.stderr
-
-
-def test_local_audit_rejects_release_profile():
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--local-audit",
-            "--evidence",
-            "/tmp/evidence",
-            "--output",
-            "/tmp/report",
-            "--profile",
-            "evaluation/current-report.json",
-        ],
-        cwd=ROOT,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 2
-    assert "cannot be combined with a release profile" in result.stderr
-
-
-def test_saved_matrix_rejects_mixed_build_modes():
-    for options in [
-        ['--local-audit'], ['--wcxb-source', '/tmp/source'],
-        ['--wcxb-sample', '/tmp/sample'],
-    ]:
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), '--saved-matrix', '/tmp/spec.json',
-             '--output', '/tmp/report', *options],
-            cwd=ROOT, text=True, capture_output=True, check=False)
-        assert result.returncode == 2
-        assert 'cannot be combined with other build modes' in result.stderr
-
-
-def test_saved_matrix_check_cannot_generate_or_replace_report():
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT), '--check-saved-matrix', '/tmp/report',
-         '--output', '/tmp/another'],
-        cwd=ROOT, text=True, capture_output=True, check=False)
-    assert result.returncode == 2
-    assert 'cannot be combined with build options' in result.stderr
-
-
-def test_saved_matrix_check_rejects_ignored_options():
-    for options in [
-        ['--presentation-binding', '/tmp/binding.json'],
-        ['--authority-root', '/tmp/authority'], ['--include-english'],
-        ['--language', 'zh'], ['--wcxb-source', '/tmp/source'],
-        ['--wcxb-sample', '/tmp/sample'],
-    ]:
-        result = subprocess.run(
-            [sys.executable, str(SCRIPT), '--check-saved-matrix', '/tmp/report', *options],
-            cwd=ROOT, text=True, capture_output=True, check=False)
-        assert result.returncode == 2
-        assert 'cannot be combined with build options' in result.stderr
+@pytest.mark.parametrize("arguments,message", [
+    (["--local-audit"], "requires both --evidence and --output"),
+    (["--local-audit", "--evidence", "/tmp/evidence", "--output", "/tmp/report",
+      "--profile", "evaluation/current-report.json"], "cannot be combined with a release profile"),
+    *[(["--saved-matrix", "/tmp/spec.json", "--output", "/tmp/report", *options],
+       "cannot be combined with other build modes")
+      for options in (["--local-audit"], ["--wcxb-source", "/tmp/source"])],
+    *[(["--check-saved-matrix", "/tmp/report", *options], "cannot be combined with build options")
+      for options in (["--output", "/tmp/another"], ["--presentation-binding", "/tmp/binding.json"],
+                      ["--include-english"], ["--wcxb-sample", "/tmp/sample"])],
+])
+def test_build_report_rejects_conflicting_modes_before_work(monkeypatch, capsys, arguments, message):
+    monkeypatch.chdir(ROOT)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), *arguments])
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_path(str(SCRIPT), run_name="__main__")
+    assert exited.value.code == 2
+    assert message in capsys.readouterr().err

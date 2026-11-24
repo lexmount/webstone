@@ -28,12 +28,12 @@ class DynamicAppendBatchesTests(unittest.TestCase):
         self.source, self.reference, self.measured = [self.root / name
             for name in ('source', 'reference', 'measured')]
         self.names = [f'provider-{i:02}' for i in range(12)]
-        old_cases = [{'id': f'old-{i}', 'track': 'web' if i < 140 else 'dynamic'}
-                     for i in range(144)]
+        old_cases = [{'id': f'old-{i}', 'track': 'web' if i < 4 else 'dynamic'}
+                     for i in range(6)]
         self.baseline_dataset = {'cases': old_cases, 'coverage_plan': {
             'web': ['web-only', *self.names], 'dynamic': list(reversed(self.names))}}
         dump(self.source / 'dataset.json', self.baseline_dataset)
-        # Exactly 1728 pre-existing records, unusual whitespace, Unicode and CRLF.
+        # Exactly 72 pre-existing records, unusual whitespace, Unicode and CRLF.
         old_records = [{'attempt_id': f"{name}__{case['id']}", 'case_id': case['id'],
                         'provider': name, 'metrics': {'content_pass': False, 'word_f1': .125},
                         'note': '原始证据'} for case in old_cases for name in self.names]
@@ -43,7 +43,7 @@ class DynamicAppendBatchesTests(unittest.TestCase):
         self.baseline_execution = {'retained': 'execution provenance', 'batches': [{
             'batch_id': 'baseline', 'attempt_ids': [r['attempt_id'] for r in old_records]}]}
         dump(self.source / 'execution.json', self.baseline_execution)
-        dump(self.source / 'sources/old-140/evidence.json', {'keep': 'old evidence'})
+        dump(self.source / 'sources/old-4/evidence.json', {'keep': 'old evidence'})
         dump(self.source / 'artifacts/old/result.txt', {'keep': 'old output'})
         self.cases, self.checks, self.records, self.batches = [], [], [], []
         for i in range(6):
@@ -128,21 +128,21 @@ class DynamicAppendBatchesTests(unittest.TestCase):
             staging.assert_not_called()
         self.assertEqual(self.snapshot(), before)
 
-    def test_six_by_twelve_preserves_1728_bytes_batches_settings_and_scores(self):
+    def test_six_by_twelve_preserves_baseline_bytes_batches_settings_and_scores(self):
         before = self.snapshot()
         measured_before, reference_before = self.snapshot(self.measured), self.snapshot(self.reference)
         self.run_append()
         combined = (self.source / 'results.jsonl').read_bytes()
         self.assertEqual(combined[:len(self.baseline_bytes)], self.baseline_bytes)
-        self.assertEqual(len(combined.splitlines()), 1800)
-        self.assertEqual([json.loads(r) for r in combined.splitlines()[1728:]], self.records)
+        self.assertEqual(len(combined.splitlines()), 144)
+        self.assertEqual([json.loads(r) for r in combined.splitlines()[72:]], self.records)
         execution = json.loads((self.source / 'execution.json').read_text(encoding='utf-8'))
         self.assertEqual(execution, {**self.baseline_execution,
             'batches': self.baseline_execution['batches'] + self.batches})
         dataset = json.loads((self.source / 'dataset.json').read_text(encoding='utf-8'))
-        self.assertEqual(dataset['cases'][:144], self.baseline_dataset['cases'])
+        self.assertEqual(dataset['cases'][:6], self.baseline_dataset['cases'])
         self.assertEqual(dataset['coverage_plan'], self.baseline_dataset['coverage_plan'])
-        self.assertEqual(sum(c['track'] == 'dynamic' for c in dataset['cases']), 10)
+        self.assertEqual(sum(c['track'] == 'dynamic' for c in dataset['cases']), 8)
         for name, raw in before.items():
             if name not in {'dataset.json', 'results.jsonl', 'execution.json'}:
                 self.assertEqual((self.source / name).read_bytes(), raw)
@@ -156,7 +156,7 @@ class DynamicAppendBatchesTests(unittest.TestCase):
         self.run_append()
         raw = (self.source / 'results.jsonl').read_bytes()
         self.assertEqual(raw[:len(self.baseline_bytes)], self.baseline_bytes)
-        self.assertEqual(len(raw.splitlines()), 1800)
+        self.assertEqual(len(raw.splitlines()), 144)
 
     def test_case_shards_of_same_provider_are_original_batches(self):
         batch = self.batches.pop(0)
@@ -309,7 +309,7 @@ class DynamicAppendBatchesTests(unittest.TestCase):
         dump(self.source / original['artifact_path'], {'existing': True})
         self.rejects('Output collision')
 
-    def test_transaction_failure_restores_all_1728_original_records(self):
+    def test_transaction_failure_restores_all_original_records(self):
         before = self.snapshot()
         rename = Path.rename
 

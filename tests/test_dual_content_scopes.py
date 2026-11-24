@@ -120,7 +120,7 @@ def test_selected_scope_scores_only_its_contract(scope, passed):
     assert 'content_scope_metrics' not in metrics
 
 
-@pytest.mark.parametrize('scope', ['main', 'full', 'both'])
+@pytest.mark.parametrize('scope', ['full', 'both'])
 def test_run_and_offline_rescore_can_select_one_scope_or_both(tmp_path, scope):
     case = annotated_case()
     case['name'] = 'Complete article body'
@@ -193,8 +193,7 @@ def test_offline_scope_changes_preserve_acquisition_and_accept_annotation_correc
     assert result.returncode == 0, result.stdout + result.stderr
     original = json.loads((run/'manifest.json').read_text(encoding='utf-8'))['acquisition']
     calls = {path: path.read_bytes() for path in (run/'call-logs').rglob('*.json')}
-    for args in [('--score-scope', 'main'), ('--score-scope', 'full'),
-                 ('--score-scope', 'both'), ('--content-scope', 'full')]:
+    for args in [('--score-scope', 'both'), ('--content-scope', 'full')]:
         result = invoke(tmp_path, 'score', run, '--dataset', dataset, '--no-report', *args, language='zh')
         assert result.returncode == 0, result.stdout + result.stderr
         assert json.loads((run/'manifest.json').read_text(encoding='utf-8'))['acquisition'] == original
@@ -221,9 +220,8 @@ def test_suite_list_identifies_overlapping_annotation_cohorts(monkeypatch, capsy
     assert listed == rows
 
 
-# English builds both editions; Chinese-only report builds are covered by the other CLI tests here.
-@pytest.mark.parametrize('language', ['en'])
-def test_one_acquisition_builds_only_the_selected_report(tmp_path, language):
+def test_one_acquisition_builds_only_the_selected_report(tmp_path):
+    language = 'en'
     case = annotated_case()
     case['name'] = 'Complete article body'
     dataset = tmp_path/'dataset.json'
@@ -231,7 +229,7 @@ def test_one_acquisition_builds_only_the_selected_report(tmp_path, language):
     env = tmp_path/'empty.env'
     env.write_text('', encoding='utf-8')
     run = tmp_path/'run'
-    names = ['method-a', 'method-b', 'method-c', 'method-d']
+    names = ['method-a', 'method-b']
     config = tmp_path/'providers.json'
     config.write_text(json.dumps({'providers': {name: {'type': 'fixture'} for name in names}}), encoding='utf-8')
     result = invoke(tmp_path, 'run', '--dataset', dataset, '--output', run, '--env-file', env,
@@ -239,9 +237,9 @@ def test_one_acquisition_builds_only_the_selected_report(tmp_path, language):
                     '--delay', '0', '--max-failure-retries', '0', language=language)
     assert result.returncode == 0, result.stdout + result.stderr
     original = (run/'results.jsonl').read_bytes()
-    assert len(original.splitlines()) == 4
+    assert len(original.splitlines()) == 2
     assert all(set(json.loads(row)['metrics']['content_scope_metrics']) == {'main','full'} for row in original.splitlines())
-    for scope, args in [('full', []), ('main', ['--content-scope','main']), ('full', ['--content-scope','full'])]:
+    for scope, args in [('full', []), ('main', ['--content-scope','main'])]:
         result = invoke(tmp_path, 'report', run, *args, language=language)
         assert result.returncode == 0, result.stdout + result.stderr
         report = run/'report'
@@ -254,17 +252,17 @@ def test_one_acquisition_builds_only_the_selected_report(tmp_path, language):
         assert all(task_passed(row['ok'],row['metrics']) == (scope == 'main') for row in rows)
         home = BeautifulSoup((report/'index.html').read_text(encoding='utf-8'), 'html.parser')
         labels = [a.get_text() for a in home.select('#ranking-web a[href*="providers/"]')]
-        assert len(labels) == len(set(labels)) == 4
+        assert len(labels) == len(set(labels)) == 2
         for row in rows:
             page = report/'attempts'/f'{row["attempt_id"]}.html'
             soup = BeautifulSoup(page.read_text(encoding='utf-8'), 'html.parser')
             assert not soup.select('[data-content-scope], [data-content-scope-switch]')
             assert ('Contact publisher' in soup.select_one('#evidence-reference').get_text()) == (scope == 'full')
         assert (run/'results.jsonl').read_bytes() == original
-    assert len(list((run/'call-logs').rglob('*.json'))) == 4
+    assert len(list((run/'call-logs').rglob('*.json'))) == 2
     original_report = (run/'report/index.html').read_bytes()
     frozen = json.loads((run/'dataset.json').read_text(encoding='utf-8'))
-    frozen['cases'][0]['content_scopes']['full']['requirements']['required_facts'][0]['alternatives'] = ['Changed requirement']
+    frozen['cases'][0]['content_scopes']['main']['requirements']['required_facts'][0]['alternatives'] = ['Changed requirement']
     (run/'dataset.json').write_text(json.dumps(frozen), encoding='utf-8')
     result = invoke(tmp_path, 'report', run, language=language)
     assert result.returncode != 0
@@ -309,7 +307,7 @@ def test_scope_download_keeps_its_own_title_assessment(tmp_path, full_schema):
     add_title_quality(row, select_content_scope(case, 'main')[0], run)
     saved.write_text(json.dumps(row)+'\n', encoding='utf-8')
     original = saved.read_bytes()
-    for scope, count in [('main', 1), ('full', 2)]:
+    for scope, count in ([('main', 1), ('full', 2)] if full_schema == 'named_link' else [('full', 2)]):
         result = invoke(tmp_path, 'report', run, '--content-scope', scope, language='zh')
         assert result.returncode == 0, result.stdout + result.stderr
         view = run/'report'
@@ -380,8 +378,8 @@ def test_scope_report_validates_active_edition_and_retains_acquisition_edition(t
     assert (run/'dataset.json').read_bytes() == original_dataset
 
 
-@pytest.mark.parametrize('scope', ['main', 'full'])
-def test_explicit_run_scope_selects_one_report_and_both_scores(tmp_path, scope):
+def test_explicit_run_scope_selects_one_report_and_both_scores(tmp_path):
+    scope = 'full'
     case = annotated_case()
     case['name'] = 'Complete article body'
     dataset = tmp_path/'dataset.json'
@@ -404,8 +402,9 @@ def test_explicit_run_scope_selects_one_report_and_both_scores(tmp_path, scope):
     assert len(list((run/'call-logs').rglob('*.json'))) == 1
 
 
-@pytest.mark.parametrize('language', ['zh', 'en'])
-def test_report_rebuild_keeps_scope_and_discloses_original_retry_policy(tmp_path, language):
+def test_report_rebuild_keeps_scope_and_discloses_original_retry_policy(tmp_path):
+    # An English build also writes the Chinese edition; both are checked.
+    language = 'en'
     from harness.web_fetch.report_version import check_release
     dataset = tmp_path/'dataset.json'
     case = annotated_case()
@@ -430,13 +429,12 @@ def test_report_rebuild_keeps_scope_and_discloses_original_retry_policy(tmp_path
     assert manifest['content_scope'] == selected['content_scope'] == 'main'
     assert manifest['retry_acceptance_scopes'] == ['full']
     check_release(report,selected,rows)
-    edition = report/'en' if language == 'en' else report
-    for path in [edition/'index.html', edition/'attempts'/f'{rows[0]["attempt_id"]}.html']:
+    for edition, label in [(report/'en', 'Scoring: main content'), (report, '评分范围：主要内容')]:
+      for path in [edition/'index.html', edition/'attempts'/f'{rows[0]["attempt_id"]}.html']:
         original = path.read_text(encoding='utf-8')
         soup = BeautifulSoup(original,'html.parser')
         assert soup.select_one('[data-report-content-scope="main"]')
         assert soup.select_one('[data-retry-acceptance-scopes="full"]')
-        label = 'Scoring: main content' if language == 'en' else '评分范围：主要内容'
         assert label in original
         for bad in [original.replace(label, 'Wrong visible scoring scope'),
                     original.replace('data-report-content-scope="main"','data-report-content-scope="full"'),

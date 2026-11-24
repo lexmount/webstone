@@ -48,19 +48,22 @@ def test_top_level_help_lists_every_command(tmp_path):
         assert name in listed and summary in listed
 
 
-@pytest.mark.parametrize("command, option", OWNER_OPTIONS.items())
-def test_command_help_comes_from_its_owner_under_the_public_name(tmp_path, command, option):
-    result = run_module(command, "--help", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith(f"usage: {PROG} {command} ")
-    assert option in result.stdout
+def test_command_help_comes_from_its_owner_under_the_public_name(capsys):
+    for command, option in OWNER_OPTIONS.items():
+        with pytest.raises(SystemExit) as exit_:
+            main([command, "--help"])
+        assert exit_.value.code == 0, command
+        output = capsys.readouterr().out
+        assert output.startswith(f"usage: {PROG} {command} "), command
+        assert option in output, command
 
 
-@pytest.mark.parametrize("arguments", [[], ["unknown"]])
-def test_missing_or_unknown_command_fails_without_running_an_owner(tmp_path, arguments):
-    result = run_module(*arguments, cwd=tmp_path)
-    assert result.returncode == 2
-    assert f"usage: {PROG} " in result.stderr
+def test_missing_or_unknown_command_fails_without_running_an_owner(capsys):
+    for arguments in ([], ["unknown"]):
+        with pytest.raises(SystemExit) as exit_:
+            main(arguments)
+        assert exit_.value.code == 2
+        assert f"usage: {PROG} " in capsys.readouterr().err
 
 
 def test_router_restores_the_caller_arguments(monkeypatch):

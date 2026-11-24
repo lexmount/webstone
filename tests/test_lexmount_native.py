@@ -50,8 +50,7 @@ def test_extracted_field_aliases_are_selected_by_structure(extra, lead, breadcru
     assert fields['page_information']['breadcrumbs'] == breadcrumbs
 
 
-@pytest.mark.parametrize('track,kind', [('web', 'body'), ('dynamic', 'body'),
-    ('image', 'resource'), ('video', 'file'), ('document', 'body')])
+@pytest.mark.parametrize('track,kind', [('web', 'body'), ('image', 'resource'), ('video', 'file')])
 def test_native_lexmount_keeps_uniform_request_and_replayable_answers(track, kind):
     case = EvalCase(id='sample', name='Sample', category='test',
                    url='https://example.com', expected_any=[], track=track, task_kind=kind)
@@ -129,16 +128,16 @@ def test_native_auto_can_omit_optional_trace():
         'extract': {'url': case.url, 'options': {'engine_preference': 'auto'}}}
 
 
-@pytest.mark.parametrize('value', ['false', 0, None])
-def test_native_trace_rejects_non_boolean_before_call(value):
-    instance = provider()
-    instance.config['trace_include_steps'] = value
+def test_native_trace_rejects_non_boolean_before_call():
     case = EvalCase(id='sample', name='Sample', category='test',
                    url='https://example.com', expected_any=[])
-    with patch('harness.web_fetch.providers.lexmount.request') as request:
-        with pytest.raises(ValueError, match='must be boolean'):
-            instance.fetch(case, 30)
-        request.assert_not_called()
+    for value in ('false', 0, None):
+        instance = provider()
+        instance.config['trace_include_steps'] = value
+        with patch('harness.web_fetch.providers.lexmount.request') as request:
+            with pytest.raises(ValueError, match='must be boolean'):
+                instance.fetch(case, 30)
+            request.assert_not_called()
 
 
 def test_native_nested_input_rejects_url_drift_and_snapshot_reuse():

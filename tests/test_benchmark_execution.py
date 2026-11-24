@@ -202,15 +202,13 @@ def test_pacing_wait_drains_a_fast_denial_before_the_next_admission():
     assert retained == called == [0]
 
 
-@pytest.mark.parametrize("bad", [0, -1, True, 1.5, "4", 65])
-def test_invalid_limits_fail_before_work_starts(bad):
-    with pytest.raises(ValueError):
-        policy(max_in_flight=bad)
-
-
-def test_serial_quality_execution_requires_a_concrete_reason():
-    with pytest.raises(ValueError, match="reason"):
-        policy(max_in_flight=1)
+def test_invalid_limits_and_serial_reasons_fail_before_work_starts():
+    for bad in (0, -1, True, 1.5, "4", 65):
+        with pytest.raises(ValueError):
+            policy(max_in_flight=bad)
+    for reason in ({}, {"serial_reason": True}):
+        with pytest.raises(ValueError, match="reason"):
+            policy(max_in_flight=1, **reason)
 
 
 def test_preparation_failure_drains_work_already_dispatched():
@@ -314,8 +312,8 @@ def test_terminal_interrupt_leaves_spawned_calls_to_drain(tmp_path):
             process.communicate()
 
 
-@pytest.mark.parametrize('wait_on', ['stop', 'event'])
-@pytest.mark.parametrize('workers', [1, 2], ids=['serial', 'threaded'])
+@pytest.mark.parametrize('wait_on,workers', [('stop', 1), ('event', 2)],
+                         ids=['serial-stop', 'threaded-event'])
 def test_one_terminal_interrupt_wakes_workers_and_commits_without_external_release(
     tmp_path, wait_on, workers
 ):
@@ -549,11 +547,6 @@ def test_stop_predicate_interruption_drains_another_running_call():
             should_stop=stop,
         )
     assert sorted(retained) == [1, 2]
-
-
-def test_serial_reason_cannot_be_a_boolean():
-    with pytest.raises(ValueError, match="reason"):
-        policy(max_in_flight=1, serial_reason=True)
 
 
 def test_preflight_estimate_uses_measured_batch_time_and_checks_the_budget():

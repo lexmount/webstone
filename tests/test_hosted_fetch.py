@@ -65,27 +65,32 @@ class HostedFetchTest(unittest.TestCase):
                 elif encoding == 'utf16':
                     raw = self.response(kind).body.decode().encode('utf-16')
                 call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
-                with tempfile.TemporaryDirectory() as directory:
-                    root = Path(directory)
-                    dataset = {'id': 'invalid-utf8', 'cases': [vars(self.case)]}
-                    dataset_path = root / 'input.json'
-                    dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
-                    records, _ = run_evaluation(
-                        output_dir=root, dataset_meta=dataset,
-                        dataset_path=dataset_path, cases=[self.case],
-                        providers=[self.provider(kind, uniform_native_parameters=True)],
-                        provider_config_path=Path('providers.json'), runs=1,
-                        timeout=30, delay=0, max_failure_retries=0)
-                    record = records[0]
-                    self.assertFalse(record['ok'])
-                    self.assertEqual(record['error_type'], 'invalid_response')
-                    self.assertEqual((root / record['artifact_path']).read_bytes(), b'')
-                    metadata = record['provider_metadata']
-                    self.assertEqual((root / metadata['raw_response_path']).read_bytes(), raw)
-                    self.assertEqual(metadata['raw_response_sha256'], hashlib.sha256(raw).hexdigest())
-                    from harness.web_fetch.artifacts import verify_record_artifacts
-                    verify_record_artifacts(root, record)
-                    call.assert_called_once()
+                result = self.provider(kind, uniform_native_parameters=True).fetch(self.case, 30)
+                self.assertFalse(result.ok)
+                self.assertEqual(result.error_type, 'invalid_response')
+                self.assertEqual(result.content, '')
+                self.assertEqual(base64.b64decode(result.metadata['_raw_response_b64']), raw)
+                call.assert_called_once()
+        # The runner persists the undecodable response as hash-bound evidence.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            dataset = {'id': 'invalid-utf8', 'cases': [vars(self.case)]}
+            dataset_path = root / 'input.json'
+            dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
+            records, _ = run_evaluation(
+                output_dir=root, dataset_meta=dataset,
+                dataset_path=dataset_path, cases=[self.case],
+                providers=[self.provider(kind, uniform_native_parameters=True)],
+                provider_config_path=Path('providers.json'), runs=1,
+                timeout=30, delay=0, max_failure_retries=0)
+            record = records[0]
+            self.assertEqual(record['error_type'], 'invalid_response')
+            self.assertEqual((root / record['artifact_path']).read_bytes(), b'')
+            metadata = record['provider_metadata']
+            self.assertEqual((root / metadata['raw_response_path']).read_bytes(), raw)
+            self.assertEqual(metadata['raw_response_sha256'], hashlib.sha256(raw).hexdigest())
+            from harness.web_fetch.artifacts import verify_record_artifacts
+            verify_record_artifacts(root, record)
 
     @patch('harness.web_fetch.providers.hosted_fetch.request')
     def test_crawl4ai_cloud_errors_and_projection(self, call):

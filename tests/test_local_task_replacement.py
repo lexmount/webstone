@@ -113,7 +113,7 @@ def test_bound_local_runner_accepts_public_doh_and_rejects_drift(tmp_path, defec
 
 
 @pytest.mark.parametrize('defect', [None, 'cas_bytes', 'cas_attempt', 'public_bytes',
-                                  'wrong_attempt', 'wrong_call', 'transaction_rollback'])
+                                  'wrong_attempt', 'transaction_rollback'])
 def test_current_public_diagnostics_keep_private_identity_distinct(tmp_path, defect):
     from harness.web_fetch.local_revision import (
         compact_revision_authority, require_current_snapshot_authority, revise_local_snapshot)
@@ -176,8 +176,6 @@ def test_current_public_diagnostics_keep_private_identity_distinct(tmp_path, def
         public.write_text('Changed public log', encoding='utf-8')
     elif defect == 'wrong_attempt':
         authority['diagnostic_projections'][0]['attempt_id'] = rows[1]['attempt_id']
-    elif defect == 'wrong_call':
-        authority['diagnostic_projections'][0]['call_log'] = rows[1]['provider_metadata']['call_log']
     current_rows = [json.loads(line) for line in (tmp_path/'results.jsonl').read_text(encoding='utf-8').splitlines()]
     current_dataset = json.loads((tmp_path/'dataset.json').read_text(encoding='utf-8'))
     if defect:

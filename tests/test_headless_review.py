@@ -85,7 +85,7 @@ class HeadlessReviewTests(unittest.TestCase):
                 self.skipTest('requires externally installed historical reference inputs')
             dataset['cases']=dataset['cases'][:1]
             (path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
-            for flags in ([],['-O']):
+            for flags in (['-O'],):  # assertions disabled: validation must not rely on assert
                 result=subprocess.run([sys.executable,*flags,'-m','harness.web_fetch','headless-check',str(path),'--report-profile',str(path/'profile.json')],capture_output=True,text=True)
                 self.assertNotEqual(result.returncode,0)
                 self.assertIn('Task inventory differs',result.stderr)

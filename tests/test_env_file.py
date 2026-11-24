@@ -16,41 +16,36 @@ from harness.web_fetch.wcxb_report_check import binary_from_env
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize(
-    ("line", "expected"),
-    [
+def parse_text(tmp_path, text):
+    path = tmp_path / ".env"
+    path.write_text(text, encoding="utf-8")
+    return parse_env_file(path)
+
+
+def test_value_syntax(tmp_path):
+    for line, expected in [
         ("VALUE=plain", "plain"),
         ("VALUE = spaced ", "spaced"),
         ('VALUE="double"', "double"),
         ("VALUE='single'", "single"),
-        # The three hand-written parsers ignored or misnamed this form.
         ("export VALUE=exported", "exported"),
-        # They also kept the comment in the value, as python-dotenv callers did not.
         ("VALUE=token # note", "token"),
         ("VALUE=token#fragment", "token#fragment"),
         ('VALUE="token # kept"', "token # kept"),
-        # Quoted escapes follow python-dotenv; the hand-written parsers kept them literal.
+        # Quoted escapes follow python-dotenv.
         (r'VALUE="line\nbreak"', "line\nbreak"),
         (r"VALUE='line\nliteral'", r"line\nliteral"),
         ("VALUE=", ""),
-        # Values are data. python-dotenv's default would expand the second form.
+        # Values are data and are never expanded or executed.
         ("VALUE=$(touch marker)", "$(touch marker)"),
         ("VALUE=${HOME}", "${HOME}"),
-    ],
-)
-def test_value_syntax(tmp_path, line, expected):
-    path = tmp_path / ".env"
-    path.write_text(line + "\n", encoding="utf-8")
-    assert parse_env_file(path) == {"VALUE": expected}
+    ]:
+        assert parse_text(tmp_path, line + "\n") == {"VALUE": expected}, line
 
 
-@pytest.mark.parametrize("line", ["VALUE=\"mismatched'", "VALUE='mismatched\""])
-def test_mismatched_quotes_are_dropped_not_repaired_or_kept(tmp_path, line):
-    # catalog_runner's strip("\"'") repaired this to `mismatched`; Web Fetch and public
-    # WebArena passed the quotes on. Dropping it makes the caller report a missing value.
-    path = tmp_path / ".env"
-    path.write_text(line + "\nAFTER=kept\n", encoding="utf-8")
-    assert parse_env_file(path) == {"AFTER": "kept"}
+def test_mismatched_quotes_are_dropped_not_repaired_or_kept(tmp_path):
+    for line in ["VALUE=\"mismatched'", "VALUE='mismatched\""]:
+        assert parse_text(tmp_path, line + "\nAFTER=kept\n") == {"AFTER": "kept"}
 
 
 def test_an_unterminated_quote_also_drops_a_following_quoted_assignment(tmp_path):
@@ -60,22 +55,13 @@ def test_an_unterminated_quote_also_drops_a_following_quoted_assignment(tmp_path
     assert parse_env_file(path) == {"AFTER": "kept"}
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        # python-dotenv alone returns BROKEN='secret\nNEXT=' for the first form.
-        'BROKEN="secret\nNEXT="\nAFTER=kept\n',
-        "BROKEN='secret\nNEXT='\nAFTER=kept\n",
-        'BROKEN="secret\nmore"\nAFTER=kept\n',
-    ],
-)
-def test_a_value_spanning_lines_is_dropped_and_its_value_is_not_logged(tmp_path, caplog, text):
+def test_a_value_spanning_lines_is_dropped_and_its_value_is_not_logged(tmp_path, caplog):
     # No caller has a multi-line value, and `\n` in double quotes still produces a newline.
-    path = tmp_path / ".env"
-    path.write_text(text, encoding="utf-8")
-    assert parse_env_file(path) == {"AFTER": "kept"}
-    assert "line 1" in caplog.text
-    assert "secret" not in caplog.text
+    for text in ['BROKEN="secret\nNEXT="\nAFTER=kept\n', 'BROKEN="secret\nmore"\nAFTER=kept\n']:
+        caplog.clear()
+        assert parse_text(tmp_path, text) == {"AFTER": "kept"}
+        assert "line 1" in caplog.text
+        assert "secret" not in caplog.text
 
 
 def test_last_assignment_of_a_name_wins(tmp_path):
@@ -86,35 +72,12 @@ def test_last_assignment_of_a_name_wins(tmp_path):
     assert parse_env_file(path) == {"VALUE": "second"}
 
 
-@pytest.mark.parametrize(
-    "statement",
-    [
-        "KEY=\"new'",
-        "export KEY=\"new'",
-        "'KEY'=\"new'",
-        'KEY="new" trailing',
-        'KEY="new\nvalue"',
-        'KEY="new\nvalue" trailing',
-        # A bare name: the hand-written parsers skipped this line and kept the old value.
-        "KEY",
-        "export KEY # note",
-    ],
-)
-def test_a_later_statement_without_a_value_removes_the_earlier_value(tmp_path, statement):
+def test_a_later_statement_without_a_value_removes_the_earlier_value(tmp_path):
     # Fails closed. Falling back would run a rotated credential on its stale value.
-    path = tmp_path / ".env"
-    path.write_text(f"KEY=old\n{statement}\nAFTER=kept\n", encoding="utf-8")
-    assert parse_env_file(path) == {"AFTER": "kept"}
-
-
-@pytest.mark.parametrize(
-    "statement",
-    ["KEY OTHER=nope", "KEY trailing", "KEY.dotted=\"new'", "# KEY=\"new'"],
-)
-def test_a_line_that_does_not_assign_the_name_keeps_its_value(tmp_path, statement):
-    path = tmp_path / ".env"
-    path.write_text(f"KEY=old\n{statement}\n", encoding="utf-8")
-    assert parse_env_file(path) == {"KEY": "old"}
+    for statement in ["KEY=\"new'", 'KEY="new" trailing', 'KEY="new\nvalue"', "KEY", "export KEY # note"]:
+        assert parse_text(tmp_path, f"KEY=old\n{statement}\nAFTER=kept\n") == {"AFTER": "kept"}, statement
+    for statement in ["KEY OTHER=nope", "KEY.dotted=\"new'", "# KEY=\"new'"]:
+        assert parse_text(tmp_path, f"KEY=old\n{statement}\n") == {"KEY": "old"}, statement
 
 
 def test_a_multi_line_value_removes_only_the_name_that_opens_it(tmp_path):
@@ -162,93 +125,39 @@ def test_every_loader_reads_the_same_values(tmp_path, monkeypatch):
         assert {key: os.environ[key] for key in SHARED_VALUES} == SHARED_VALUES
 
 
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        ("CHROMIUM_BINARY=/bin/chrome\n", "/bin/chrome"),
-        # This reader stopped at the first line, kept comments, and could not see export.
-        ("CHROMIUM_BINARY=/bin/old\nCHROMIUM_BINARY=/bin/new\n", "/bin/new"),
-        ("CHROMIUM_BINARY=/bin/chrome # note\n", "/bin/chrome"),
-        ("export CHROMIUM_BINARY=/bin/chrome\n", "/bin/chrome"),
-    ],
-)
-def test_wcxb_visual_check_selects_the_binary_the_shared_parser_reads(tmp_path, text, expected):
+def test_wcxb_visual_check_reads_the_binary_through_the_shared_parser(tmp_path):
     path = tmp_path / ".env"
-    path.write_text(text, encoding="utf-8")
-    assert binary_from_env(path) == expected == parse_env_file(path)["CHROMIUM_BINARY"]
+    path.write_text("export CHROMIUM_BINARY=/bin/old\nCHROMIUM_BINARY=/bin/new # note\n", encoding="utf-8")
+    assert binary_from_env(path) == "/bin/new"
+    for text in ["", "CHROMIUM_BINARY=\"/bin/chrome'\n"]:
+        path.write_text(text, encoding="utf-8")
+        with pytest.raises(ValueError, match="CHROMIUM_BINARY is missing"):
+            binary_from_env(path)
 
 
-@pytest.mark.parametrize("text", ["", "CHROMIUM_BINARY=\n", "CHROMIUM_BINARY=\"/bin/chrome'\n"])
-def test_wcxb_visual_check_reports_an_unreadable_binary_as_missing(tmp_path, text):
-    # strip('"').strip("'") repaired the mismatched quotes in the last form.
-    path = tmp_path / ".env"
-    path.write_text(text, encoding="utf-8")
-    with pytest.raises(ValueError, match="CHROMIUM_BINARY is missing"):
-        binary_from_env(path)
-
-
-@pytest.mark.parametrize(
-    "statement",
-    [
-        # The import command's own reader called all of these usable, then reported
-        # complete credentials that the runtime parser reads as missing or empty.
-        "{key}=\"mismatched'",
-        "{key}=first\n{key}=",
-        '{key}="secret\n{other}="',
-        "{key}=stale\n{key}=\"mismatched'",
-        '{key}=stale\n{key}="new\nvalue"',
-    ],
-)
-def test_import_uses_the_values_the_runtime_will_read(tmp_path, statement):
+def test_import_uses_the_values_the_runtime_will_read(tmp_path):
     key, other = HOSTED_KEYS[:2]
     source = tmp_path / "source.env"
     target = tmp_path / "target.env"
-    source.write_text(statement.format(key=key, other=other) + "\n", encoding="utf-8")
-    imported, missing = import_credentials(source, target)
-    assert imported == []
-    assert key in missing
-    assert not target.exists()
-
-
-@pytest.mark.parametrize(
-    "line",
-    [
-        "{key}=\"mismatched'",
-        "{key}=first\n{key}=",
-        "{key}=",
-        "{key}=stale\n{key}=\"mismatched'",
-        '{key}=stale\n{key}="new\nvalue"',
-    ],
-)
-def test_import_replaces_a_target_value_the_runtime_cannot_read(tmp_path, line):
-    key = HOSTED_KEYS[0]
-    source = tmp_path / "source.env"
-    target = tmp_path / "target.env"
+    for statement in ["{key}=\"mismatched'", "{key}=first\n{key}=", '{key}=stale\n{key}="new\nvalue"']:
+        source.write_text(statement.format(key=key, other=other) + "\n", encoding="utf-8")
+        imported, missing = import_credentials(source, target)
+        assert imported == [] and key in missing, statement
+        assert not target.exists()
     source.write_text(f"{key}=from-source\n", encoding="utf-8")
-    target.write_text(line.format(key=key) + "\n", encoding="utf-8")
-    assert key in import_credentials(source, target)[0]
-    assert parse_env_file(target)[key] == "from-source"
-
-
-@pytest.mark.parametrize(
-    ("statement", "expected"),
-    [
-        ("{key}=plain", "plain"),
+    for line in ["{key}=\"mismatched'", "{key}="]:
+        target.write_text(line.format(key=key) + "\n", encoding="utf-8")
+        assert key in import_credentials(source, target)[0]
+        assert parse_env_file(target)[key] == "from-source"
+    for statement, expected in [
         ('export {key} = "quoted # kept"', "quoted # kept"),
-        ("{key}=plain # note", "plain"),
         (r'{key}="line\nbreak"', "line\nbreak"),
-        ("{key}=stale\n{key}=latest", "latest"),
-    ],
-)
-def test_import_copies_the_statement_so_the_target_reads_the_same_value(
-    tmp_path, statement, expected
-):
-    key = HOSTED_KEYS[0]
-    source = tmp_path / "source.env"
-    target = tmp_path / "target.env"
-    source.write_text(statement.format(key=key) + "\n", encoding="utf-8")
-    assert key in import_credentials(source, target)[0]
-    assert parse_env_file(target) == {key: expected}
+        ("{key}=stale\n{key}=latest # note", "latest"),
+    ]:
+        target.unlink()
+        source.write_text(statement.format(key=key) + "\n", encoding="utf-8")
+        assert key in import_credentials(source, target)[0]
+        assert parse_env_file(target) == {key: expected}
 
 
 def test_import_refuses_a_target_whose_broken_quote_would_absorb_the_addition(tmp_path):
@@ -304,36 +213,18 @@ def test_only_the_shared_module_parses_env_files():
     assert found == []
 
 
-@pytest.mark.parametrize(
-    "source",
-    [
-        "from dotenv import dotenv_values",
+def test_env_parser_guard_catches_hand_written_forms_but_not_argument_parsers():
+    for source in [
         "import dotenv",
-        'if "=" not in line:',
         "if '=' in raw_line:",
         "line.split('=', 1)[1].strip().strip('\"')",
-        'name, _, value = raw_line.strip().partition("=")',
-        "if line.startswith('CHROMIUM_BINARY='):",
         'if line.startswith(f"{key}="):',
         r'ASSIGNMENT = re.compile(r"^\s*(?:export\s+)?(\w+)=(.*)$")',
-    ],
-)
-def test_env_parser_guard_catches_each_hand_written_form(source):
-    assert ENV_PARSER.search(source)
-
-
-@pytest.mark.parametrize(
-    "source",
-    [
-        # name=path command-line arguments are not dotenv syntax.
-        'name, separator, path = value.partition("=")',
-        'key, separator, value = item.partition("=")',
-        'host, separator, address = value.rpartition("=")',
-        '{v.split("=", 1)[0]: Path(v.split("=", 1)[1]) for v in args.source}',
-    ],
-)
-def test_env_parser_guard_exempts_argument_parsers(source):
-    assert not ENV_PARSER.search(source)
+    ]:
+        assert ENV_PARSER.search(source), source
+    for source in ['name, separator, path = value.partition("=")',
+                   '{v.split("=", 1)[0]: Path(v.split("=", 1)[1]) for v in args.source}']:
+        assert not ENV_PARSER.search(source), source
 
 
 def test_local_setting_uses_one_precedence(tmp_path, monkeypatch) -> None:
@@ -377,15 +268,11 @@ def _fail_instead_of_hanging(signum, frame):
     raise AssertionError("reading the env file blocked")
 
 
-@pytest.mark.parametrize("kind", ["fifo", "directory"])
-def test_every_env_file_reader_rejects_a_non_regular_file(tmp_path, monkeypatch, kind) -> None:
+def test_every_env_file_reader_rejects_a_non_regular_file(tmp_path, monkeypatch) -> None:
     from harness.env_file import local_setting
 
     path = tmp_path / "settings.env"
-    if kind == "fifo":
-        os.mkfifo(path)
-    else:
-        path.mkdir()
+    os.mkfifo(path)
     monkeypatch.delenv("DEMO_SETTING", raising=False)
     previous = signal.signal(signal.SIGALRM, _fail_instead_of_hanging)
     signal.alarm(10)

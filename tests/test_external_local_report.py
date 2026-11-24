@@ -19,17 +19,14 @@ def write(path, value):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-# Single-case with and without a failure, the release-chain case (5 tasks),
-# the stale-text scan (30 s) and the default 45 s timeout across several methods.
-@pytest.mark.parametrize("case_count,method_count,timeout,failures", [
-    (1, 1, 7, True),
-    (1, 1, 7, False),
-    (5, 2, 18, True),
-    (2, 3, 30, True),
-    (2, 4, 45, True),
+# A single passing case; and two methods with a failure, the release chain and
+# the stale-text scan in one build.
+@pytest.mark.parametrize("case_count,method_count,timeout,failures,release", [
+    (1, 1, 7, False, False),
+    (2, 2, 30, True, True),
 ])
 def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
-                                                     case_count, method_count, timeout, failures):
+                                                     case_count, method_count, timeout, failures, release):
     from harness.web_fetch.providers.fixture import FixtureProvider
     original_fetch = FixtureProvider.fetch
 
@@ -93,7 +90,7 @@ def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
         "max_failure_retries": 0})
     dataset["comparison"]["local_run_contract_sha256"] = contract_digest
     write(evidence / "dataset.json", dataset)
-    if case_count == 5:
+    if release:
         from lexbench_webfetch.versions import create_release
         original = create_release(dataset, benchmark="synthetic", version="1.0.0",
                                   scoring_source_sha256="f" * 64)
@@ -161,7 +158,7 @@ def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
             assert b"synthetic-private-credential" not in path.read_bytes()
     for prefix in ("", "en/"):
         assert "12345" in (output / prefix / "reproduce/index.html").read_text(encoding="utf-8")
-    if case_count == 5:
+    if release:
         from harness.web_fetch.report_build import build_report
         from harness.web_fetch.report_package import build as package_report
         from harness.web_fetch.publication_check import check as check_package

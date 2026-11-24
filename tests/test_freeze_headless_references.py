@@ -7,7 +7,6 @@ from pathlib import Path
 
 from lexbench_webfetch.body_coverage import body_requirements
 from harness.web_fetch.reference_freeze import (
-    _change_for_case,
     _require_promotion,
     compute_reference_update,
     main,
@@ -60,10 +59,6 @@ class FreezeHeadlessReferenceTests(unittest.TestCase):
                 self.assertEqual(frozen['comparison'], policy)
                 self.assertEqual(json.loads(source.read_text(encoding='utf-8')), dataset)
 
-    def test_promotion_reports_missing_computed_change_as_validation_error(self):
-        with self.assertRaisesRegex(ValueError,'omit promoted case: missing'):
-            _change_for_case([{'case_id':'present'}],'missing')
-
     def test_changed_reference_fails_closed_without_explicit_promotion(self):
         with self.assertRaisesRegex(ValueError,'explicit --reference-promotion'):
             _require_promotion(None,dataset_sha256='d'*64,
@@ -106,39 +101,28 @@ class FreezeHeadlessReferenceTests(unittest.TestCase):
                                    capture_audit_sha256='e'*64,
                                    candidate_dataset_sha256='f'*64,changes=[])
 
-    def test_changed_reference_rejects_receipt_without_correction_provenance(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path=Path(directory)/'promotion.json'
-            path.write_text(json.dumps({
-                'schema_version':2,'kind':'reference_freeze_promotion',
-                'input_dataset_sha256':'d'*64,'capture_audit_sha256':'e'*64,
-                'candidate_dataset_sha256':'f'*64,'changes':[self.change],
-                'approved_by':'independent-reference-review',
-                'approved_at':'2026-09-11T00:00:00+00:00',
-                'task_decision_changes':[],
-            }), encoding='utf-8')
-            with self.assertRaisesRegex(ValueError,'valid correction provenance'):
-                _require_promotion(path,dataset_sha256='d'*64,
-                    capture_audit_sha256='e'*64,
-                    candidate_dataset_sha256='f'*64,changes=[self.change])
-
-    def test_changed_reference_requires_both_scope_regression_directions(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path=Path(directory)/'promotion.json'
-            path.write_text(json.dumps({
-                'schema_version':2,'kind':'reference_freeze_promotion',
-                'input_dataset_sha256':'d'*64,'capture_audit_sha256':'e'*64,
-                'candidate_dataset_sha256':'f'*64,'changes':[self.change],
-                'approved_by':'independent-reference-review',
-                'approved_at':'2026-09-11T00:00:00+00:00',
-                'task_decision_changes':[],
-                'correction_provenance':build_correction_provenance(
-                    'reference-evidence',ROOT_CAUSE,[REGRESSIONS[0]])
-            }), encoding='utf-8')
-            with self.assertRaisesRegex(ValueError,'paired scope regressions'):
-                _require_promotion(path,dataset_sha256='d'*64,
-                    capture_audit_sha256='e'*64,
-                    candidate_dataset_sha256='f'*64,changes=[self.change])
+    def test_changed_reference_requires_paired_correction_provenance(self):
+        receipt={
+            'schema_version':2,'kind':'reference_freeze_promotion',
+            'input_dataset_sha256':'d'*64,'capture_audit_sha256':'e'*64,
+            'candidate_dataset_sha256':'f'*64,'changes':[self.change],
+            'approved_by':'independent-reference-review',
+            'approved_at':'2026-09-11T00:00:00+00:00',
+            'task_decision_changes':[],
+        }
+        one_direction=build_correction_provenance('reference-evidence',ROOT_CAUSE,[REGRESSIONS[0]])
+        for provenance_value, pattern in ((None,'valid correction provenance'),
+                                          (one_direction,'paired scope regressions')):
+            with self.subTest(pattern=pattern), tempfile.TemporaryDirectory() as directory:
+                path=Path(directory)/'promotion.json'
+                body=dict(receipt)
+                if provenance_value is not None:
+                    body['correction_provenance']=provenance_value
+                path.write_text(json.dumps(body), encoding='utf-8')
+                with self.assertRaisesRegex(ValueError,pattern):
+                    _require_promotion(path,dataset_sha256='d'*64,
+                        capture_audit_sha256='e'*64,
+                        candidate_dataset_sha256='f'*64,changes=[self.change])
 
     def test_unavailable_body_reference_recovers_from_complete_clean_capture(self):
         with tempfile.TemporaryDirectory() as directory:

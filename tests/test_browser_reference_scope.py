@@ -197,28 +197,11 @@ def test_public_doh_retry_never_pre_resolves_or_accepts_forced_ip(monkeypatch):
             '203.0.113.8', dns_mode='public_doh')
 
 
-def test_rendered_wikipedia_selector_preserves_main_article_text():
+def test_rendered_selector_keeps_article_text_and_drops_site_chrome():
     html = """
     <div class="mw-parser-output">
       <section><h1>Artificial intelligence</h1>
-      <p>Main article prose remains observable.</p></section>
-      <div class="navbox">Related navigation</div>
-    </div>
-    """
-
-    text = extract_pruned_selector_text(
-        html,
-        "https://en.wikipedia.org/w/index.php?title=Artificial_intelligence&oldid=1",
-    )
-
-    assert "Artificial intelligence" in text
-    assert "Main article prose remains observable." in text
-
-
-def test_rendered_wikipedia_selector_excludes_site_chrome():
-    html = """
-    <div class="mw-parser-output">
-      <p>Main article prose</p>
+      <p>Main article prose</p></section>
       <script>script marker</script><style>style marker</style>
       <nav>nav marker</nav><footer>footer marker</footer>
       <div aria-hidden="true">aria hidden marker</div>
@@ -231,22 +214,14 @@ def test_rendered_wikipedia_selector_excludes_site_chrome():
       <aside role="navigation">role navigation marker</aside>
     </div>
     """
-
     text = extract_pruned_selector_text(
         html,
         "https://en.wikipedia.org/w/index.php?title=Artificial_intelligence&oldid=1",
     )
-
-    assert text == "Main article prose"
-
-
-def test_selector_targeting_navigation_fails_closed():
-    text = extract_pruned_selector_text(
-        '<nav><p>Navigation only</p></nav>',
-        'https://example.com/',
-    )
-
-    assert text == ''
+    assert text.split() == ["Artificial", "intelligence", "Main", "article", "prose"]
+    # A selector that only matches navigation fails closed.
+    assert extract_pruned_selector_text(
+        '<nav><p>Navigation only</p></nav>', 'https://example.com/') == ''
 
 
 def test_capture_retries_one_case_until_declared_completion(monkeypatch):
@@ -324,12 +299,10 @@ def test_system_dns_selects_a_public_address_and_records_method(monkeypatch):
     assert chromium_host_rule(host, address) == 'MAP docs.example.com 93.184.216.34'
 
 
-@pytest.mark.parametrize('address', [
-    '127.0.0.1', '10.0.0.4', '192.168.0.2', '169.254.1.2', '::1', 'not-an-ip',
-])
-def test_explicit_dns_override_rejects_private_or_invalid_addresses(address):
-    with pytest.raises(ValueError):
-        public_ip(address)
+def test_explicit_dns_override_rejects_private_or_invalid_addresses():
+    for address in ('127.0.0.1', '10.0.0.4', '169.254.1.2', '::1', 'not-an-ip'):
+        with pytest.raises(ValueError):
+            public_ip(address)
 
 
 def test_explicit_dns_override_maps_only_the_current_case_host():

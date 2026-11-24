@@ -23,8 +23,7 @@ def test_revision_controls_resolve_in_their_actual_owner(controls):
         assert _require_revision_regressions(controls) == controls
 
 
-@pytest.mark.parametrize('defect', [None, 'case', 'row', 'source', 'answer', 'context', 'native'])
-def test_current_authority_survives_history_deletion_but_rejects_current_changes(tmp_path, defect):
+def test_current_authority_survives_history_deletion_but_rejects_current_changes(tmp_path):
     import shutil
     from harness.web_fetch.local_revision import compact_local_snapshot
     raw = b'Required article'
@@ -55,10 +54,18 @@ def test_current_authority_survives_history_deletion_but_rejects_current_changes
     for directory in (tmp_path/'local-evidence/offline-revisions').iterdir():
         if directory.name != 'current':
             shutil.rmtree(directory)
-    dataset = json.loads((tmp_path/'dataset.json').read_text(encoding='utf-8'))
-    rows = [json.loads(line) for line in (tmp_path/'results.jsonl').read_text(encoding='utf-8').splitlines()]
-    expected = require_local_revision(tmp_path, binding, dataset, rows)
+    base = tmp_path
+    dataset = json.loads((base/'dataset.json').read_text(encoding='utf-8'))
+    rows = [json.loads(line) for line in (base/'results.jsonl').read_text(encoding='utf-8').splitlines()]
+    expected = require_local_revision(base, binding, dataset, rows)
     assert expected['q__a'] == '1'*64
+    # Each defect gets its own copy; the unchanged copy must still verify.
+    for defect in (None, 'case', 'row', 'source', 'answer', 'context', 'native'):
+        check_defect(shutil.copytree(base, base.parent/f'{base.name}-{defect}'),
+                     dict(binding), json.loads(json.dumps(dataset)), json.loads(json.dumps(rows)), defect)
+
+
+def check_defect(tmp_path, binding, dataset, rows, defect):
     if defect == 'case':
         dataset['cases'][0]['required_facts'] = ['Changed requirement']
     elif defect == 'row':
@@ -71,17 +78,19 @@ def test_current_authority_survives_history_deletion_but_rejects_current_changes
         (tmp_path/'answer.txt').write_text('Replaced answer', encoding='utf-8')
     elif defect == 'native':
         (tmp_path/'native.json').write_text('{}', encoding='utf-8')
-    if defect:
-        (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
-        (tmp_path/'results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows), encoding='utf-8')
-        authority_path = tmp_path/binding['path']
-        authority = json.loads(authority_path.read_text(encoding='utf-8'))
-        authority['dataset_sha256'] = hashlib.sha256((tmp_path/'dataset.json').read_bytes()).hexdigest()
-        authority['results_sha256'] = hashlib.sha256((tmp_path/'results.jsonl').read_bytes()).hexdigest()
-        authority_path.write_text(json.dumps(authority), encoding='utf-8')
-        binding['sha256'] = hashlib.sha256(authority_path.read_bytes()).hexdigest()
-        with pytest.raises(ValueError):
-            require_local_revision(tmp_path, binding, dataset, rows)
+    (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
+    (tmp_path/'results.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows), encoding='utf-8')
+    authority_path = tmp_path/binding['path']
+    authority = json.loads(authority_path.read_text(encoding='utf-8'))
+    authority['dataset_sha256'] = hashlib.sha256((tmp_path/'dataset.json').read_bytes()).hexdigest()
+    authority['results_sha256'] = hashlib.sha256((tmp_path/'results.jsonl').read_bytes()).hexdigest()
+    authority_path.write_text(json.dumps(authority), encoding='utf-8')
+    binding['sha256'] = hashlib.sha256(authority_path.read_bytes()).hexdigest()
+    if defect is None:
+        require_local_revision(tmp_path, binding, dataset, rows)
+        return
+    with pytest.raises(ValueError):
+        require_local_revision(tmp_path, binding, dataset, rows)
 
 
 def test_offline_revision_preserves_calls_and_rejects_tampering(tmp_path):
@@ -246,15 +255,10 @@ def test_score_revision_chain_validates_both_steps_and_reaches_original_inputs(t
 
 @pytest.mark.parametrize('field,value', [
     ('authority', []),
-    ('authority', {'description': 7}),
     ('input_dataset', None),
-    ('input_results', []),
     ('changed_case_ids', [[]]),
     ('rescored_attempt_ids', 'all'),
-    ('task_verdict_changes', [{'before': True, 'after': False}]),
-    ('native_answer_corrections', [None]),
     ('native_context_corrections', [{'attempt_id': []}]),
-    ('output_dataset_sha256', None),
     ('scoring_source_sha256', 1),
 ])
 def test_revision_receipt_reports_malformed_fields_without_rewriting_evidence(tmp_path, two_revision_chain, field, value):

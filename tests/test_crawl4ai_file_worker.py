@@ -587,17 +587,17 @@ class NativeFileWorkerTests(unittest.TestCase):
         )
         self.assertIsNone(payload["metadata"]["extraction"])
 
-    def test_dynamic_completion_requires_runner_normalized_plan(self):
+    def test_dynamic_route_requires_normalized_plan_unless_native_default(self):
         worker = self.load_worker(object)
         with self.assertRaisesRegex(ValueError, "normalized retrieval_plan"):
             worker.dynamic_completion_config({"track": "dynamic"})
-
-    def test_file_route_cannot_bypass_normalized_plan_boundary(self):
-        worker = self.load_worker(object)
         with self.assertRaisesRegex(ValueError, "normalized retrieval_plan"):
-            worker.require_normalized_retrieval_plan(
-                {"track": "dynamic", "task_kind": "file"}
-            )
+            worker.require_normalized_retrieval_plan({"track": "dynamic", "task_kind": "file"})
+        request = {"track": "dynamic", "retrieval_plan": None, "retrieval_mode": "native_default"}
+        completion, _ = worker.dynamic_completion_config(request)
+        extraction, _ = worker.dynamic_extraction_config(request)
+        self.assertEqual(completion, {})
+        self.assertEqual(extraction, {})
 
     def test_dynamic_frame_plan_waits_for_child_count(self):
         worker = self.load_worker(object)
@@ -665,13 +665,3 @@ class NativeFileWorkerTests(unittest.TestCase):
         self.assertEqual(payload["metadata"]["completion"]["strategy"], "css_selector")
         self.assertEqual(payload["metadata"]["completion"]["effective_route_timeout_ms"], 10)
 
-
-def test_native_default_worker_has_no_generated_wait_or_extraction():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("native_crawl_worker", source_path("harness/web_fetch/workers/crawl4ai_worker.py"))
-    worker = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(worker)
-    request = {"track": "dynamic", "retrieval_plan": None, "retrieval_mode": "native_default"}
-    completion, _ = worker.dynamic_completion_config(request)
-    extraction, _ = worker.dynamic_extraction_config(request)
-    assert completion == extraction == {}
