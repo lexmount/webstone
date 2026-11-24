@@ -391,7 +391,7 @@ def test_core_three_method_comparison_rejects_wrong_score_and_tie_highlight(tmp_
     def row(method, count=2, marker=""):
         return (
             f'<tr><td>{method}</td><td data-metric="core-pass" '
-            f'data-metric-direction="higher" data-sort="{count}">{count}/2{marker}</td>'
+            f'data-metric-direction="max" data-sort="{count}">{count}/2{marker}</td>'
             '<td>100%</td></tr>'
         )
     for directory in (tmp_path, tmp_path / "en"):

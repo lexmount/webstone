@@ -679,10 +679,10 @@ def _metrics_table(
         body.append(
             "<tr>"
             + f'<td>{_e(cells[0])}</td>'
-            + f'<td data-metric="core-pass" data-metric-direction="higher" data-sort="{row["passed"]}">{cells[1]}</td>'
+            + f'<td data-metric="core-pass" data-metric-direction="max" data-sort="{row["passed"]}">{cells[1]}</td>'
             + f'<td>{cells[2]}</td>'
             + (
-                f'<td data-metric="verifiable-pass" data-metric-direction="higher" data-sort="{row["valid_reference_passed"]}">{cells[3]}</td>'
+                f'<td data-metric="verifiable-pass" data-metric-direction="max" data-sort="{row["valid_reference_passed"]}">{cells[3]}</td>'
                 if show_valid_reference
                 else ""
             )
