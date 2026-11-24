@@ -49,7 +49,11 @@ conversion, not current website availability or live browsing success.
 The retained 200-page sample's balanced Moli latency correction uses
 `scripts/run_certified_benchmark.py webmainbench-latency` and
 `uv run --frozen python -m harness.web_fetch webmainbench-latency-correction`. Both delegate to
-`src/harness/web_fetch/webmainbench_latency_correction.py`. This frozen experiment
+`src/harness/web_fetch/webmainbench_latency_correction.py`. The campaign is declared in
+`src/harness/web_fetch/data/webmainbench-latency-corrections.json` (methods and versions,
+page and result counts, rounds, selected round and known failures); certification
+selects it with `--correction <receipt kind>`, and applying or verifying selects it
+from the certificate or receipt kind. This frozen experiment
 keeps its declared versions, two rounds, final-round selection, macOS host
 observations and full 800-call scope. It does not change the scored outputs.
 New certificates include `certifier-source.py` and its SHA-256; preserve this

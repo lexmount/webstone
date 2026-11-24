@@ -123,7 +123,7 @@ def cohort(tmp_path, monkeypatch):
             },
         },
     )
-    frozen = latency.snapshot(source, sample, base)
+    frozen = latency.snapshot(source, sample, base, 200)
     cert = {
         "kind": "certified_webmainbench_moli_latency_crossover_v1",
         "precheck": frozen,
@@ -334,7 +334,7 @@ def test_unavailable_host_observation_stops_before_measurement(tmp_path, monkeyp
         raise AssertionError("Measurement began without a valid host observation")
 
     monkeypatch.setattr(latency.subprocess, "Popen", unexpected)
-    argv = []
+    argv = ["--correction", "webmainbench_moli_200_balanced_latency_only_v1"]
     for name in [
         "older",
         "newer",

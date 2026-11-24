@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "corrections": [
+    {
+      "receipt_kind": "webmainbench_moli_200_balanced_latency_only_v1",
+      "certificate_kind": "certified_webmainbench_moli_latency_crossover_v1",
+      "label": "Moli",
+      "selection": "all 200 pages, both Moli versions, final round of the balanced crossover",
+      "methods": {"moli": "1.1.5", "moli-1.1.7": "1.1.7"},
+      "case_count": 200,
+      "rounds": 2,
+      "selected_round": 2,
+      "result_count": 1200,
+      "expected_failures": {"calls": 4, "cases": 1, "stderr": "langrensha.163.com/wanfa/guize/"}
+    }
+  ]
+}
