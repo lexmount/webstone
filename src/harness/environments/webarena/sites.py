@@ -79,13 +79,6 @@ class SiteAdapter:
         return str(self.topology["label"][language])
 
 
-def _base_url(urls: list[Any] | tuple[Any, ...], label: str) -> str:
-    base_url = str((urls or [""])[0]).rstrip("/")
-    if not base_url:
-        raise ValueError(f"WebArena {label} URL is missing")
-    return base_url
-
-
 def _clear_and_reload(page: Any) -> None:
     page.evaluate("localStorage.clear(); sessionStorage.clear()")
     page.reload(wait_until="domcontentloaded")

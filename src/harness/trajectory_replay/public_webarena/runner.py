@@ -18,7 +18,7 @@ import docker
 from playwright.sync_api import Page, sync_playwright
 
 from harness.container_isolation import require_linux_cgroup_v2
-from harness.distribution import repository_root
+from harness.distribution import bundled_data_path
 from harness.environments.browser import (
     BROWSERS,
     cleanup_browser_runtime,
@@ -77,7 +77,12 @@ IMAGE_RECIPES = "examples/trajectory_replay/public_webarena/docker"
 
 def pinned_image_version(engine: str, root: Path | None = None) -> str | None:
     """Return the version the public image recipe pins with ``ARG <ENGINE>_VERSION``."""
-    recipe = (repository_root() if root is None else root) / IMAGE_RECIPES / f"{engine}.Dockerfile"
+    relative = f"{IMAGE_RECIPES}/{engine}.Dockerfile"
+    try:
+        # Version-pinning recipes ship as bundled data so installed runs read the same pin.
+        recipe = bundled_data_path(relative) if root is None else root / relative
+    except FileNotFoundError:
+        return None
     if not recipe.is_file():
         return None
     match = re.search(

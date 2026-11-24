@@ -6,6 +6,7 @@ include evaluation/webmainbench-full/scoring-regressions.json
 include evaluation/browser-use-public/adoption-evidence.json
 include evaluation/browser-use-public/benchmark-catalog.json
 include evaluation/browser-use-public/report-changes.json
+include examples/trajectory_replay/public_webarena/docker/moli.Dockerfile
 # Report files that renderers load at build or import time. setuptools ships
 # these package files in the wheel as well; tests/package_smoke.py requires them.
 recursive-include src/harness/browser_use/assets *.css *.js *.png

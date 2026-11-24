@@ -211,4 +211,5 @@ bundled-data = [
   "evaluation/browser-use-public/adoption-evidence.json",
   "evaluation/browser-use-public/benchmark-catalog.json",
   "evaluation/browser-use-public/report-changes.json",
+  "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile",
 ]

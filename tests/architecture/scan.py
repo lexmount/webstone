@@ -47,8 +47,6 @@ def is_shared(module: str, path: Path) -> bool:
     parts = module.split(".")
     if module == ROOT_DISPATCHER or len(parts) < 2:
         return False
-    if any(module.startswith(package + ".") for package in ADAPTER_PACKAGES):
-        return False
     return parts[1] in SHARED_PACKAGES or (len(parts) == 2 and path.name != "__init__.py")
 
 
@@ -95,7 +93,7 @@ def instance_literals() -> dict[str, list[str]]:
     names = registered_names()
     occurrences = {}
     for module, path in modules().items():
-        if not is_shared(module, path):
+        if not is_shared(module, path) or any(module.startswith(package + ".") for package in ADAPTER_PACKAGES):
             continue
         literals = sorted({node.value for node in ast.walk(ast.parse(path.read_bytes(), filename=str(path)))
                            if isinstance(node, ast.Constant) and isinstance(node.value, str)
