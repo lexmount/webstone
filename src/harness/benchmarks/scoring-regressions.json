@@ -2,6 +2,48 @@
   "schema_version": 1,
   "cases": [
     {
+      "id": "named-link-code-mask-valid-sibling",
+      "failure_mode": "false-negative",
+      "category": "answer-surface",
+      "root_cause": "Closing heading cleanup must not rescan every suffix of a long whitespace code mask or change record ownership.",
+      "case": {
+        "url": "https://example.test/",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "named_link",
+          "minimum_records": 1,
+          "hosts": ["example.test"],
+          "entry_path": "^/item$",
+          "stable_text_anchors": []
+        }
+      },
+      "artifact": "1. `payload <i>` 2. [Entry](/item)\n[Valid](/item)",
+      "ok": true,
+      "expected_task_pass": true
+    },
+    {
+      "id": "named-link-code-mask-invalid-prefix",
+      "failure_mode": "false-positive",
+      "category": "answer-surface",
+      "root_cause": "Closing heading cleanup must not rescan every suffix of a long whitespace code mask or change record ownership.",
+      "case": {
+        "url": "https://example.test/",
+        "task_kind": "body",
+        "acceptance_contract": {
+          "version": 1,
+          "schema": "named_link",
+          "minimum_records": 1,
+          "hosts": ["example.test"],
+          "entry_path": "^/item$",
+          "stable_text_anchors": []
+        }
+      },
+      "artifact": "Read `payload <i>` 2. [Entry](/item)",
+      "ok": true,
+      "expected_task_pass": false
+    },
+    {
       "id": "article-image-only-post",
       "failure_mode": "false-positive",
       "category": "answer-surface",
