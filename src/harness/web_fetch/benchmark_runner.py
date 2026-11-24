@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from datetime import UTC, datetime
-from pathlib import Path
 
 from harness.distribution import repository_root
 from harness.benchmark_execution import ExecutionPolicy, ExecutionStop, Job, run_jobs
 from harness.web_fetch.artifacts import materialize_bound_artifacts, materialize_task_references
 from harness.web_fetch.config import (
-    DEFAULT_CALL_TIMEOUT_SECONDS,
-    add_failure_retry_argument,
+    add_run_arguments,
+    check_run_arguments,
     load_dataset,
     load_provider_config,
     resolve_provider_selection,
@@ -33,32 +31,24 @@ ROOT = repository_root()
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--dataset',type=Path,default=(ROOT / 'evaluation/dataset.json'),help='Frozen dataset JSON; sources and list-references use its bound external inputs or adjacent directories')
-    parser.add_argument('--output',type=Path,default=data_home()/'runs/webfetch')
-    parser.add_argument('--env-file',type=Path)
-    parser.add_argument('--provider-config',type=Path,
-                        help='One provider configuration for all selected tasks; defaults to the repository task-group configurations')
-    parser.add_argument('--providers',help='Comma-separated names or configured; default: dataset coverage plan')
+    add_run_arguments(
+        parser, 'dataset', 'output', 'env_file', 'provider_config', 'providers', 'case_ids',
+        'workers', 'call_order', 'runs', 'timeout', 'max_failure_retries',
+        dataset={'default': ROOT / 'evaluation/dataset.json',
+                 'help': 'Frozen dataset JSON; sources and list-references use its bound external inputs or adjacent directories'},
+        output={'default': data_home() / 'runs/webfetch'},
+        provider_config={'help': 'One provider configuration for all selected tasks; defaults to the repository task-group configurations'},
+        providers={'help': 'Comma-separated names or configured; default: dataset coverage plan'},
+        case_ids={'help': 'Comma-separated case IDs; default: every case in the selected task group'},
+        workers={'default': 11},
+    )
     parser.add_argument('--track',help='Run only this task group, such as dynamic; default: all groups')
-    parser.add_argument('--case-ids',help='Comma-separated case IDs; default: every case in the selected task group')
     parser.add_argument('--validate-only',action='store_true',help='Check selected configuration without creating files or calling providers')
     parser.add_argument('--measure-only',action='store_true',help='Persist measured evidence without building an unreviewed report')
-    parser.add_argument('--workers',type=int,default=11)
-    parser.add_argument('--call-order', choices=('provider', 'case-alternating'), default='provider',
-                        help='Run serially by task with alternating method order, or use provider batches')
-    parser.add_argument('--runs',type=int,default=1)
-    parser.add_argument('--timeout', type=float, default=DEFAULT_CALL_TIMEOUT_SECONDS,
-                        help='Positive per-call deadline in seconds, retained in execution evidence')
-    add_failure_retry_argument(parser)
     args=parser.parse_args(argv)
-    if not math.isfinite(args.timeout) or args.timeout <= 0:
-        parser.error('--timeout must be positive and finite')
-    if args.provider_config and not args.provider_config.is_file():
-        parser.error('--provider-config must be an existing file')
-    if args.workers < 1:parser.error('--workers must be positive')
+    check_run_arguments(parser, args)
     if args.call_order == 'case-alternating' and (args.workers != 1 or not args.provider_config):
         parser.error('--call-order case-alternating requires --workers 1 and one explicit --provider-config')
-    if args.runs < 1:parser.error('--runs must be positive')
     if not args.validate_only and args.output.exists():parser.error('Output exists; choose an empty directory to avoid overwriting measured evidence')
     load_runtime_env(args.env_file)
     try:

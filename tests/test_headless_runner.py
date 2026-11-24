@@ -175,7 +175,7 @@ def experiment(tmp_path, monkeypatch):
                 "runner",
                 "--dataset",
                 str(dataset),
-                "--config",
+                "--provider-config",
                 str(config),
                 "--output",
                 str(output),
@@ -419,7 +419,7 @@ def test_native_command_runs_a_custom_binary_and_preserves_its_identity(tmp_path
     output = tmp_path / "measured"
     monkeypatch.setattr('socket.getaddrinfo', lambda *args, **kwargs:
         [(2, 1, 6, '', ('93.184.216.34', 443))])
-    monkeypatch.setattr(sys, "argv", ["runner", "--dataset", str(dataset), "--config", str(config),
+    monkeypatch.setattr(sys, "argv", ["runner", "--dataset", str(dataset), "--provider-config", str(config),
                                       "--output", str(output), "--env-file", str(env_file)])
     runner.main()
     records = [json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()]

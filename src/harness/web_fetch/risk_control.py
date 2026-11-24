@@ -18,7 +18,7 @@ from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import file_sha256
 from harness.web_fetch.artifacts import diagnostic_log_binding
-from harness.web_fetch.config import load_dataset, load_provider_config
+from harness.web_fetch.config import add_run_arguments, load_dataset, load_provider_config
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.reference_inputs import benchmark_input_path, read_dataset_bytes
 from harness.web_fetch.retrieval_hints import plan_for_case
@@ -367,15 +367,12 @@ def validate(profile_path: Path) -> tuple[dict, dict, list, object, Path]:
 
 def main(argv: list[str] | None = None, *, certified: bool = False) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", type=Path, default=DEFAULT_PROFILE)
-    parser.add_argument(
-        "--env-file",
-        type=Path,
-        help="Load runtime paths from the repository .env or another explicit file",
+    add_run_arguments(
+        parser, "profile", "env_file", "output", "no_report",
+        profile={"default": DEFAULT_PROFILE},
+        env_file={"help": "Load runtime paths from the repository .env or another explicit file"},
+        no_report={"help": "Save certified evidence without building local HTML"},
     )
-    parser.add_argument("--output", type=Path)
-    parser.add_argument("--no-report", action="store_true",
-                        help="Save certified evidence without building local HTML")
     parser.add_argument(
         "--execute",
         action="store_true",
