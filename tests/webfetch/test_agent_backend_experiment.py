@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
+from harness.web_fetch.agent_backend import fetch_mcp
 from harness.web_fetch.agent_backend import arms, backend_params, experiment, scoring
 
 FAKE_CLAUDE = r'''#!{python}
@@ -87,19 +88,22 @@ def test_plan_rotates_arm_order_and_covers_every_pair():
         experiment.make_plan(["c00"], ["nope"], 1, 1)
 
 
-@pytest.mark.parametrize("arm,expect_tools,expect_agents", [("builtin", "Agent,WebFetch", False), ("lexmount", "Agent", True), ("moli", "Agent", True)])
-def test_arm_commands_differ_only_in_the_fetch_tool(tmp_path, arm, expect_tools, expect_agents):
+@pytest.mark.parametrize("arm", ["builtin", "lexmount", "moli"])
+def test_arm_commands_are_identical_and_only_the_server_behind_webfetch_differs(tmp_path, arm):
     command = arms.build_command(arm, "p", tmp_path, claude_bin="claude", model="m")
-    assert command[command.index("--tools") + 1] == expect_tools  # the main agent can only delegate
-    assert ("--agents" in command) == expect_agents
-    if expect_agents:
-        agent = json.loads(command[command.index("--agents") + 1])["web-fetch"]
-        assert agent["tools"] == [f"mcp__{arm}__web_fetch"] and agent["model"] == "haiku"
-        assert agent["mcpServers"][0][arm]["args"][2:4] == ["--backend", arm]
-    assert json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))["mcpServers"] == {}  # main agent sees no MCP tools
+    servers = json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    builtin = arms.build_command("builtin", "p", tmp_path, claude_bin="claude", model="m")
+    assert command == builtin  # same chain, same flags, same files
+    assert command[command.index("--tools") + 1] == "Agent,WebFetch" and "--agents" not in command  # stock web-fetch agent
+    env = arms.arm_env(arm, {"timeout_seconds": 45})
+    assert env["CLAUDE_CODE_WEBFETCH_DEADLINE_MS"] == "45000"
+    if arm == "builtin":
+        assert servers == {} and "CLAUDE_CODE_WEBFETCH_MCP_TOOL" not in env
+    else:
+        assert servers[arm]["args"][2:4] == ["--backend", arm]
+        assert json.loads(env["CLAUDE_CODE_WEBFETCH_MCP_TOOL"]) == {"server": arm, "tool": "web_fetch"}
     for flag in ("--strict-mcp-config", "--no-session-persistence", "--disable-slash-commands"):
         assert flag in command  # identical isolation in every arm
-    assert ("--disallowedTools" in command) == (arm != "builtin")
 
 
 def test_the_builtin_tool_gets_the_fetch_time_limit_as_its_deadline(tmp_path, fake_claude, monkeypatch):
@@ -144,12 +148,15 @@ def test_a_run_that_breaks_the_protocol_is_invalid_with_no_substitute_measuremen
         assert record["subagent_tokens"] is None  # never filled in from other data
 
 
-def test_arm_with_a_different_fetch_tool_than_declared_is_invalid(tmp_path, fake_claude, monkeypatch):
+def test_every_arm_must_delegate_to_webfetch(tmp_path, fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTE", "delegated")
     monkeypatch.setenv("LEXMOUNT_API_KEY", "k")
     monkeypatch.setenv("LEXMOUNT_PROJECT_ID", "p")
     record = arms.run_one("lexmount", "c00", "https://example.com/", "p", tmp_path / "r", claude_bin=fake_claude)
-    assert "route=delegated_WebFetch" in record["invalid_reasons"]  # built-in WebFetch must not serve this arm
+    assert record["route"] == "delegated_WebFetch" and not any(r.startswith("route=") for r in record["invalid_reasons"])
+    monkeypatch.setenv("FAKE_ROUTE", "bash")
+    record = arms.run_one("lexmount", "c00", "https://example.com/", "p", tmp_path / "s", claude_bin=fake_claude)
+    assert "route=bash_network" in record["invalid_reasons"]
 
 
 def test_backends_require_their_prerequisites(tmp_path, fake_claude, monkeypatch):
@@ -205,7 +212,8 @@ def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
     server.shutdown()
     assert _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # harness-chosen options reach the API
     assert replies[2]["tools"][0]["name"] == "web_fetch"
-    assert replies[3]["content"][0]["text"] == "stub markdown" and replies[3]["isError"] is False
+    # WebFetch gets a fixed note, never the page: the page is the saved file
+    assert replies[3]["content"][0]["text"] == fetch_mcp.NOTE.format(size=len("stub markdown")) and replies[3]["isError"] is False
     assert replies[4]["isError"] is True and "status 502" in replies[4]["content"][0]["text"]
     assert [r["status"] for r in rows] == [200, 502] and rows[0]["chars"] == len("stub markdown")
 
@@ -216,8 +224,8 @@ def test_moli_backend_runs_the_local_binary_with_the_harness_chosen_arguments_on
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     params = {"argv": ["fetch", "--wait-until", "domstable"]}
     replies, rows = _mcp("moli", {"MOLI_BINARY": str(fake)}, tmp_path, ["https://x/good", "https://x/bad"], params=params)
-    assert replies[3]["isError"] is False
-    assert replies[3]["content"][0]["text"].strip() == "args: fetch --wait-until domstable https://x/good"
+    assert replies[3]["isError"] is False and "args:" not in replies[3]["content"][0]["text"]
+    assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8").strip() == "args: fetch --wait-until domstable https://x/good"
     assert replies[4]["isError"] is True and "status 3" in replies[4]["content"][0]["text"] and "broken" in replies[4]["content"][0]["text"]
     assert [r["status"] for r in rows] == [0, 3]
 
@@ -422,17 +430,14 @@ def test_builtin_markdown_excludes_the_model_written_summary_tail():
     assert arms.builtin_markdown("Fetched x\n<fetched-web-content>\nshort page\n</fetched-web-content>") == ("short page\n", 0, None)
 
 
-def test_mcp_arms_score_the_backend_output_even_when_claude_code_replaced_it(tmp_path):
+def test_mcp_arms_score_the_saved_backend_output_not_what_the_agent_saw(tmp_path):
     (tmp_path / "backend_outputs").mkdir()
     (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT", encoding="utf-8")
     rows = [{"ok": True, "file": "call-1.txt"}]
-    replaced = "Error: result (238,281 characters across 3 lines) exceeds maximum allowed tokens. Output has been saved to /x."
-    found = arms._markdown_evidence(tmp_path, "moli", replaced, rows)
+    found = arms._markdown_evidence(tmp_path, "moli", "Fetched x ... The page text is not shown here.", rows)
     assert (tmp_path / "markdown.txt").read_text(encoding="utf-8") == "COMPLETE BACKEND OUTPUT"
-    assert found["replaced_by_claude_code"] is True and found["received_matches_backend"] is False and found["fetch_failed_backend"] is False
-    same = arms._markdown_evidence(tmp_path, "moli", "COMPLETE BACKEND OUTPUT", rows)
-    assert same["received_matches_backend"] is True and same["replaced_by_claude_code"] is False
-    failed = arms._markdown_evidence(tmp_path, "moli", "Fetch failed (status 1): timeout", [{"ok": False}])
+    assert found["fetch_failed_backend"] is False
+    failed = arms._markdown_evidence(tmp_path, "moli", "could not fetch the page", [{"ok": False}])
     assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text(encoding="utf-8") == ""  # nothing is scored for a failed fetch
 
 
@@ -486,3 +491,22 @@ def test_saved_binary_files_are_listed_from_the_harness_note_only():
               {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": note}]}}]
     summary = arms.parse_stream("\n".join(json.dumps(e) for e in events))[5]
     assert summary["saved_files"] == ["/tmp/claude/projects/p/s/tool-results/webfetch-17-ab.pdf"]
+
+
+def test_a_staged_run_takes_the_first_tasks_of_every_suite_and_resume_finishes_without_repeating(tmp_path, monkeypatch):
+    ran = []
+
+    def fake_run_one(arm, case_id, url, prompt, out, **kwargs):
+        ran.append(case_id)
+        out.mkdir(parents=True, exist_ok=True)
+        return {"valid": True, "invalid_reasons": [], "fetch_failed": False, "route": "r", "wall_ms": 1, "exit_code": 0}
+    monkeypatch.setattr(arms, "run_one", fake_run_one)
+    ids = [f"{s}--t{i}" for s in ("a", "b") for i in range(3)]
+    pool = {i: {"id": i, "url": "https://example.com/"} for i in ids}
+    plan = {"runs": [{"rep": 1, "case_id": i, "arm": "moli"} for i in ids]}
+    run = lambda limit: experiment.execute(tmp_path, plan, pool, claude_bin="x", model="m", timeout=1,
+                                           per_suite_limit=limit, progress=lambda *_: None)
+    run(2)
+    assert ran == ["a--t0", "a--t1", "b--t0", "b--t1"]
+    run(None)
+    assert ran[4:] == ["a--t2", "b--t2"]

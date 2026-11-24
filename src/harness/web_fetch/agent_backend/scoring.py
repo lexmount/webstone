@@ -155,7 +155,6 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "passed": sum(r["passed"] for r in counted),
             "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
             "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
-            "replaced_by_claude_code_runs": sum(bool(r.get("replaced_by_claude_code")) for r in mine),
             "markdown_chars": _stats([r.get("markdown_chars") for r in used]),
             # Metrics describe final attempts only. Earlier attempts are listed under ``retry_cost``, never averaged in.
             "subagent_tokens": _stats([r["subagent_tokens"] for r in used]),

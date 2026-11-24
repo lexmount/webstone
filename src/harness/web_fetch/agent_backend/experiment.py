@@ -20,10 +20,10 @@ from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.config import load_dataset, read_dataset_bytes
 
 DEFAULT_DATASET = pathlib.Path("evaluation/dataset.json")
-# One prompt for every task and arm. The score is computed from the raw page the fetch tool returned, so the prompt only
-# triggers a read; its report is bounded so the subagent's output size does not depend on how much the backend returned.
-PROMPT = ("Read {url} and tell me what the page is about: its title and a summary of its main content in at most "
-          "150 words. Make a single fetch attempt; if it fails, say so instead of trying other ways.")
+# One prompt for every task and arm. The score is computed from the page the harness saved by code, so the subagent is
+# asked for the fetch status only, never for page content.
+PROMPT = ("Fetch {url} once. Do not summarize, quote or describe the page. Reply with one line: whether the fetch "
+          "succeeded, and if it failed, the HTTP status or error.")
 
 
 def default_root() -> pathlib.Path:
@@ -223,18 +223,27 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
 
 def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, model: str, timeout: int,
             params_for=lambda backend, case: {}, retries: int = 0, concurrent_arms: bool = True,
-            parallel_tasks: int = 1, progress=print) -> None:
+            parallel_tasks: int = 1, per_suite_limit: int | None = None, progress=print) -> None:
     """Run the plan task by task, resumably.
+
+    ``per_suite_limit`` runs only the first N planned tasks of every suite in this call, so a run can be checked in
+    stages; a later call without it continues with the remaining tasks and never repeats a finished one.
 
     The arms of one task run at the same time, each in its own process, working directory and MCP server, so
     all arms see the same time window and network conditions. A run that breaks the protocol or whose fetch
     tool call failed gets ``retries`` declared retries (default 0); the last attempt is the only result and
-    earlier attempts are kept on disk as evidence. A run that is still invalid is excluded
-    from the comparison of every arm at scoring time.
+    earlier attempts are kept on disk as evidence. A run that is still invalid counts as not passed.
     """
     groups: dict = {}
     for item in plan["runs"]:
         groups.setdefault((item["rep"], item["case_id"]), []).append(item)
+    if per_suite_limit is not None:
+        taken: dict = {}
+        for key in list(groups):
+            suite = key[1].split("--")[0]
+            taken[suite] = taken.get(suite, 0) + 1
+            if taken[suite] > per_suite_limit:
+                del groups[key]
     lock = threading.Lock()
 
     def say(message):

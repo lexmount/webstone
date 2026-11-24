@@ -44,7 +44,13 @@ def _plan_args(parser):
                              "the last attempt is the only result")
     parser.add_argument("--parallel-tasks", type=int, default=1,
                         help="tasks in flight at once; the arms of each task always run together (default 1)")
+    _stage(parser)
     parser.add_argument("--serial-arms", action="store_true", help="run the arms of a task one after another instead of at the same time")
+
+
+def _stage(parser):
+    parser.add_argument("--per-suite-limit", type=int, default=None,
+                        help="run only the first N planned tasks of every suite now; resume later for the rest")
 
 
 def _split(value: str) -> list[str]:
@@ -87,7 +93,7 @@ def cmd_run(args) -> int:
                        params_for=lambda backend, case: backend_params.params_for(
                            backend, case, timeout_seconds=args.fetch_timeout, moli=moli),
                        retries=args.retries, concurrent_arms=not args.serial_arms,
-                       parallel_tasks=args.parallel_tasks)
+                       parallel_tasks=args.parallel_tasks, per_suite_limit=args.per_suite_limit)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
@@ -110,7 +116,8 @@ def cmd_resume(args) -> int:
                            backend, case, timeout_seconds=limit, moli=moli),
                        retries=int(document["args"]["retries"]),
                        concurrent_arms=document["args"]["serial_arms"] != "True",
-                       parallel_tasks=int(document["args"].get("parallel_tasks", 1)))
+                       parallel_tasks=int(document["args"].get("parallel_tasks", 1)),
+                       per_suite_limit=args.per_suite_limit)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
@@ -202,6 +209,8 @@ def main(argv=None) -> int:
             _plan_args(p)
         if name in ("resume", "score"):
             p.add_argument("--run", type=pathlib.Path, required=True)
+        if name == "resume":
+            _stage(p)
         if name == "score":
             p.add_argument("--materials", type=pathlib.Path, default=None, help="directory with the per-suite scorable datasets (default: the pinned snapshot)")
         if name in ("run", "resume", "score"):

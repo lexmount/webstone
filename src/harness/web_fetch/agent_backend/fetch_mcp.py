@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Stdio MCP server that exposes one fetch backend as a single tool, ``web_fetch(url)``.
+"""Stdio MCP server that exposes one fetch backend as a single tool, ``web_fetch(url)``, for Claude Code's WebFetch.
+
+Claude Code calls it from WebFetch when ``CLAUDE_CODE_WEBFETCH_MCP_TOOL`` names it; the model never sees the tool.
+The server saves the backend's complete output to ``--out-dir`` and returns only ``NOTE`` (or an error), so the page
+does not enter any model's context: the content is recorded by code for scoring, never relayed through a model.
 
 ``--backend lexmount``: Lexmount ``POST /v1/extract`` (LEXMOUNT_API_KEY, LEXMOUNT_PROJECT_ID, optional
 LEXMOUNT_BASE_URL). ``--backend moli``: the local Moli CLI (MOLI_BINARY, default ``moli``). The agent supplies only the URL; every
@@ -7,9 +11,7 @@ other request parameter comes from ``--params`` (a JSON file the harness writes 
 
 Standard library only, so Claude Code can start it with any Python 3.11+ interpreter. Claude Code passes its
 own environment to MCP servers, so no secret is written to disk. Every call is appended to ``--log`` as JSON
-Lines: url, status (HTTP status or process exit code), ok, wall_ms, chars, sha256. With ``--out-dir`` the complete
-output of each successful call is also saved, because Claude Code replaces a result above its size limit with an
-error pointing to a file and the backend's own output is what the benchmark scores.
+Lines: url, status (HTTP status or process exit code), ok, wall_ms, chars, sha256, and the saved files.
 """
 import argparse
 import hashlib
@@ -21,14 +23,14 @@ import time
 import urllib.error
 import urllib.request
 
+# What WebFetch receives instead of the page: the same words for every backend and page, only the count differs.
+NOTE = "The fetch tool saved this page to a file for the caller ({size} bytes). The page text is not shown here."
+
 TOOL = {
     "name": "web_fetch",
     "description": "Fetch a public web page by URL and return its main text content as Markdown.",
     "inputSchema": {"type": "object", "properties": {"url": {"type": "string", "description": "The URL to fetch"}},
                     "required": ["url"]},
-    # Claude Code saves a tool result above its size limit to a file and the main agent then launches a second subagent
-    # to read it. The tool declares the largest limit so every backend's full output reaches the subagent inline.
-    "_meta": {"anthropic/maxResultSizeChars": 500000},
 }
 
 
@@ -136,7 +138,9 @@ def serve(args):
                             handle.write(artifacts["bin"])
             with open(args.log, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
-            send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": text}], "isError": is_error}})
+            size = len(artifacts["bin"]) if "bin" in artifacts else len(text.encode("utf-8"))
+            reply = text if is_error else NOTE.format(size=size)
+            send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": reply}], "isError": is_error}})
         elif ident is not None:
             send({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "method not found"}})
 

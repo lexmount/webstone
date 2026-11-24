@@ -2,14 +2,16 @@
 
 Arms are data. Three backends are registered:
 
-* ``builtin``: stock Claude Code. WebFetch runs locally inside Claude Code.
-* ``lexmount``: Lexmount ``/v1/extract`` through the stdlib MCP server in ``fetch_mcp.py``.
-* ``moli``: the local Moli CLI through the same MCP server.
+* ``builtin``: stock Claude Code. WebFetch gets the page itself.
+* ``lexmount``: WebFetch gets the page through Lexmount ``/v1/extract``, served by the stdlib MCP server in
+  ``fetch_mcp.py``.
+* ``moli``: WebFetch gets the page through the local Moli CLI, served by the same MCP server.
 
-The quantity under test is the ``web-fetch`` subagent that Claude Code delegates page reading to.
-The main agent therefore gets only the Agent tool, so every request goes through that subagent, and
-its fetch tool is the one backend that differs between arms. Add a backend by adding an entry and,
-if it is not built in, an MCP server.
+Every arm runs the same Claude Code chain: the main agent delegates to the stock ``web-fetch`` subagent, which
+calls the stock WebFetch tool. Claude Code's ``CLAUDE_CODE_WEBFETCH_MCP_TOOL`` setting makes WebFetch retrieve the
+page through a named MCP tool, which the model never sees; that retrieval is the only difference between arms. The
+MCP server saves the backend's complete output and hands WebFetch a fixed-form note instead of the page, so the
+page never enters a model's context in those arms. Add a backend by adding an entry and an MCP server branch.
 """
 from __future__ import annotations
 
@@ -28,25 +30,16 @@ FETCH_TOOLS = {"WebFetch", "mcp__lexmount__web_fetch", "mcp__moli__web_fetch"}
 LEXMOUNT_ENV = ("LEXMOUNT_API_KEY", "LEXMOUNT_PROJECT_ID")
 DEBUG_END = re.compile(r"tool_dispatch_end tool=(\S+) toolUseId=\S+ outcome=(\S+) durationMs=(\d+)")
 AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+duration_ms: (\d+)</usage>")
-# Identical for every arm: Claude Code must not turn the delegated subagent into a background task, which
-# would withhold its usage report (observed 2 of 4 default runs with an MCP fetch tool, 0 of 4 with this set).
-# Background tasks off: a background subagent gives no usage report. MCP output limit raised: Claude Code replaces an MCP
-# result above the limit (default 25,000 tokens) with a pointer to a saved file, and the main agent then launches a second
-# subagent to read it, which breaks the one-subagent protocol for exactly the long pages.
 # Claude Code's note listing the original bytes WebFetch saved for binary content (a PDF, an image).
 SAVED_FILE = re.compile(r"^[ \t]*- (/\S+/tool-results/webfetch-[^/\s]+)$", re.M)
-FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1", "MAX_MCP_OUTPUT_TOKENS": "150000"}
+# Identical for every arm: a background subagent gives no usage report, so background tasks are off.
+FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
 NETWORK_COMMAND = re.compile(r"\b(curl|wget|httpx|urllib|requests\.get|http\.client|lynx|w3m)\b")
 
 ARMS = {
-    "builtin": {"backend": "builtin", "main_tools": "Agent,WebFetch",
-                "allowed": ["WebFetch"], "disallowed": [], "mcp_scope": None, "provider_type": None},
-    "lexmount": {"backend": "lexmount", "main_tools": "Agent",
-                 "allowed": ["mcp__lexmount__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent",
-                 "provider_type": "lexmount"},
-    "moli": {"backend": "moli", "main_tools": "Agent",
-             "allowed": ["mcp__moli__web_fetch"], "disallowed": ["WebFetch"], "mcp_scope": "subagent",
-             "provider_type": "moli_webfetch"},
+    "builtin": {"backend": "builtin", "provider_type": None},
+    "lexmount": {"backend": "lexmount", "provider_type": "lexmount"},
+    "moli": {"backend": "moli", "provider_type": "moli_webfetch"},
 }
 
 
@@ -65,26 +58,28 @@ def _server(backend: str, log: pathlib.Path, params: pathlib.Path) -> dict:
 
 
 def build_command(arm: str, prompt: str, out: pathlib.Path, *, claude_bin: str, model: str) -> list[str]:
-    spec = ARMS[arm]
-    backend = spec["backend"]
-    server = _server(backend, out / "backend_calls.jsonl", out / "backend_params.json")
-    (out / "mcp.json").write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")  # the main agent sees no MCP tools
-    command = [claude_bin, "-p", prompt, "--model", model,
-               "--output-format", "stream-json", "--verbose", "--debug-file", str(out / "debug.log"),
-               # Isolation: no user CLAUDE.md or memory, no skills, no saved session, MCP only from this file.
-               "--setting-sources", "project", "--disable-slash-commands", "--no-session-persistence",
-               "--strict-mcp-config", "--mcp-config", str(out / "mcp.json")]
-    command += ["--tools", spec["main_tools"]]
-    if spec["mcp_scope"] == "subagent":
-        agent = {"web-fetch": {
-            "description": "Use this to fetch and read web pages / URLs when you do not have a direct fetch tool of your own.",
-            "prompt": "You fetch web pages with the web_fetch tool and report what the user asked for.",
-            "tools": [f"mcp__{backend}__web_fetch"], "mcpServers": [{backend: server}], "model": "haiku"}}
-        command += ["--agents", json.dumps(agent)]
-    command += ["--allowedTools", *spec["allowed"]]
-    if spec["disallowed"]:
-        command += ["--disallowedTools", *spec["disallowed"]]
-    return command
+    """The same command for every arm; only the MCP server behind WebFetch differs (see ``arm_env``)."""
+    backend = ARMS[arm]["backend"]
+    servers = {} if backend == "builtin" else {
+        backend: _server(backend, out / "backend_calls.jsonl", out / "backend_params.json")}
+    (out / "mcp.json").write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
+    return [claude_bin, "-p", prompt, "--model", model,
+            "--output-format", "stream-json", "--verbose", "--debug-file", str(out / "debug.log"),
+            # Isolation: no user CLAUDE.md or memory, no skills, no saved session, MCP only from this file.
+            "--setting-sources", "project", "--disable-slash-commands", "--no-session-persistence",
+            "--strict-mcp-config", "--mcp-config", str(out / "mcp.json"),
+            # Claude Code's own chain: Agent for the main agent, WebFetch for its stock web-fetch subagent.
+            "--tools", "Agent,WebFetch", "--allowedTools", "WebFetch"]
+
+
+def arm_env(arm: str, params: dict | None) -> dict:
+    """Environment that differs by arm: the MCP tool WebFetch retrieves pages through, and the fetch time limit."""
+    backend = ARMS[arm]["backend"]
+    env = {} if backend == "builtin" else {
+        "CLAUDE_CODE_WEBFETCH_MCP_TOOL": json.dumps({"server": backend, "tool": "web_fetch"})}
+    if (params or {}).get("timeout_seconds"):  # WebFetch's own deadline, the same limit in every arm
+        env["CLAUDE_CODE_WEBFETCH_DEADLINE_MS"] = str(int(float(params["timeout_seconds"]) * 1000))
+    return env
 
 
 def parse_stream(text: str):
@@ -205,12 +200,10 @@ def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: l
         markdown, tail, page_chars = ("", 0, None) if failed else builtin_markdown(received)
         evidence = {"summary_tail_chars": tail, "page_chars_reported": page_chars, "summarized_tail": bool(tail)}
         failed_flag = failed
-    else:
+    else:  # the subagent received only the server's note; the page is the server's saved output
         good = [r for r in rows if r.get("ok") and r.get("file")]
         markdown = (out / "backend_outputs" / good[-1]["file"]).read_text(encoding="utf-8") if good else ""
-        replaced = bool(good) and received != markdown and "exceeds maximum allowed tokens" in received[:200]
-        evidence = {"received_chars": len(received), "received_matches_backend": bool(good) and received == markdown,
-                    "replaced_by_claude_code": replaced}
+        evidence = {"received_chars": len(received)}
         failed_flag = not good
     (out / "markdown.txt").write_text(markdown, encoding="utf-8")
     return {"markdown_chars": len(markdown), "fetch_failed_backend": failed_flag, **evidence}
@@ -229,8 +222,7 @@ def validate(record: dict, arm: str) -> list[str]:
         reasons.append(f"agent_launches={record['agent_launches']}")
     if record["subagent_tokens"] is None:
         reasons.append("no_subagent_usage_report")
-    expected = "WebFetch" if ARMS[arm]["backend"] == "builtin" else f"mcp__{ARMS[arm]['backend']}__web_fetch"
-    if record["route"] != "delegated_" + expected:
+    if record["route"] != "delegated_WebFetch":
         reasons.append(f"route={record['route']}")
     if record["fetch_tool_ms"] is None:
         reasons.append("no_fetch_dispatch_record")
@@ -247,9 +239,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     work.mkdir(exist_ok=True)  # empty working directory: no project instructions leak in
     (out / "backend_params.json").write_text(json.dumps(params or {}), encoding="utf-8")
     env = {**os.environ, **FIXED_ENV, **(extra_env or {})}
-    if ARMS[arm]["backend"] == "builtin" and (params or {}).get("timeout_seconds"):
-        # The built-in tool's deadline is the experiment's fetch time limit, like the MCP backends' hard stop.
-        env["CLAUDE_CODE_WEBFETCH_DEADLINE_MS"] = str(int(float(params["timeout_seconds"]) * 1000))
+    env.update(arm_env(arm, params))
     if ARMS[arm]["backend"] == "lexmount":
         missing = [name for name in LEXMOUNT_ENV if not env.get(name)]
         if missing:

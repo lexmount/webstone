@@ -4,19 +4,23 @@ Compare the fetch backend behind Claude Code's `web-fetch` subagent: the built-i
 
 ## What is compared
 
-Claude Code delegates page reading to a `web-fetch` subagent (model haiku). All arms keep that chain and change only the subagent's fetch tool.
+Claude Code delegates page reading to its stock `web-fetch` subagent, which calls the stock WebFetch tool. Every arm runs exactly that chain with the same command, flags, prompt and subagent; only the way WebFetch retrieves the page differs.
 
-| Arm | Subagent fetch tool | Where the page is fetched |
+| Arm | How WebFetch gets the page | What the subagent receives |
 | --- | --- | --- |
-| `builtin` | Claude Code's built-in WebFetch | this machine, inside Claude Code |
-| `lexmount` | `web_fetch` MCP tool → Lexmount `/v1/extract`: `main_text` with the returned images and links | Lexmount service |
-| `moli` | `web_fetch` MCP tool → local `moli fetch`; binary output is delivered as a file | this machine, moli subprocess |
+| `builtin` | itself, from this machine | WebFetch's normal result (the page text) |
+| `lexmount` | the `web_fetch` MCP tool → Lexmount `/v1/extract` | a fixed one-line note; the page is saved to a file by code |
+| `moli` | the `web_fetch` MCP tool → local `moli fetch` | the same note; text or binary output is saved to a file by code |
 
-The MCP tool is `agent_backend/fetch_mcp.py` (standard library only). The harness gives it the request parameters, so the subagent passes only a URL. The main agent can only call the Agent tool, so every request goes through the subagent; main-session figures are recorded but never compared.
+Claude Code's `CLAUDE_CODE_WEBFETCH_MCP_TOOL` setting (`{"server": ..., "tool": "web_fetch"}`) makes WebFetch retrieve pages through the named MCP tool; the model never sees that tool. The MCP server (`agent_backend/fetch_mcp.py`, standard library only) saves the backend's complete output and returns `NOTE`, so in these arms the page never enters a model's context and the subagent's tokens do not depend on page size. The built-in arm is left as Claude Code runs it: WebFetch hands the page text to the subagent. Its scored output is taken from the stream by code.
 
-Each task starts one `claude -p` process per arm, at the same time, each with its own working directory (empty), MCP server and no saved session, user instructions, memory or skills. Tasks run one after another by default (`--parallel-tasks N` runs N at once); the arms of a task always share the same time window. The arm order inside a task rotates.
+The task asks for the fetch status only, the same words in every arm, so no arm's report depends on page content:
 
-Fixed environment (recorded in `plan.json`): `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` (a background subagent gives no usage report) and `MAX_MCP_OUTPUT_TOKENS=150000`; the MCP tool also declares `anthropic/maxResultSizeChars`. Without them Claude Code replaces a large MCP result with a pointer to a saved file and the main agent launches a second subagent to read it, which breaks the one-subagent protocol exactly for long pages.
+```text
+Fetch {url} once. Do not summarize, quote or describe the page. Reply with one line: whether the fetch succeeded, and if it failed, the HTTP status or error.
+```
+
+Each task starts one `claude -p` process per arm, at the same time, each with its own working directory (empty), MCP configuration and no saved session, user instructions, memory or skills. Tasks run one after another by default (`--parallel-tasks N` runs N at once); the arms of a task always share the same time window. The arm order inside a task rotates. `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` is set in every arm (a background subagent gives no usage report).
 
 ## Parameters
 
@@ -26,9 +30,9 @@ One fetch time limit applies to every arm and every task family: `--fetch-timeou
 
 | Arm | How the limit is applied |
 | --- | --- |
-| `builtin` | `CLAUDE_CODE_WEBFETCH_DEADLINE_MS` (otherwise WebFetch uses its own deadline: 300 s unless Claude Code's remote configuration sets another) |
-| `lexmount` | the MCP server stops the request at the limit; `options.timeout_ms` gets the inner budget |
-| `moli` | the MCP server stops the process at the limit; `--timeout-ms`, `--http-timeout` and `--http-connect-timeout` get the inner budget (otherwise moli's own 25 s readiness deadline) |
+| every arm | `CLAUDE_CODE_WEBFETCH_DEADLINE_MS` (otherwise WebFetch uses its own deadline: 300 s unless Claude Code's remote configuration sets another) |
+| `lexmount` | also: the MCP server stops the request at the limit; `options.timeout_ms` gets the inner budget |
+| `moli` | also: the MCP server stops the process at the limit; `--timeout-ms`, `--http-timeout` and `--http-connect-timeout` get the inner budget (otherwise moli's own 25 s readiness deadline) |
 
 The inner budget is the one the Web Fetch providers derive from a call budget (`inner_timeout_budget`: the limit minus 10 %, at least 1 s and at most 5 s), so a backend reports its own timeout before the hard stop. A slower local network is handled by raising the one limit for every arm, for example `--fetch-timeout 45`.
 
@@ -44,7 +48,8 @@ The inner budget is the one the Web Fetch providers derive from a call budget (`
 uv run --frozen python scripts/agent_fetch_experiment.py check
 uv run --frozen python scripts/agent_fetch_experiment.py plan  --per-suite 5          # write plan.json only
 uv run --frozen python scripts/agent_fetch_experiment.py run   --per-suite 5 --retries 1 --run-id my-run
-uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --fetch-timeout 45 --run-id full   # every task
+uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --fetch-timeout 45 --per-suite-limit 30 --run-id full   # plan every task, run 30 per suite
+uv run --frozen python scripts/agent_fetch_experiment.py resume --run <run dir>                            # then the rest
 uv run --frozen python scripts/agent_fetch_experiment.py resume --run <run dir>
 uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir>       # no provider or model calls
 ```
@@ -53,19 +58,19 @@ uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir> 
 
 ## What is scored
 
-The pass verdict is the benchmark's own `score_attempt` and task predicate applied to the raw markdown the fetch tool returned, never to the subagent's report or the main agent's answer (the benchmark has no annotation for rewritten text).
+The pass verdict is the benchmark's own `score_attempt` and task predicate applied to the raw output each backend delivered, saved by code, never to anything a model wrote.
 
 | Arm | Scored text |
 | --- | --- |
 | `builtin` | the tool result in the stream, without the tool's leading rules and tag (the model-written summary after a long page's verbatim part is dropped), plus the original bytes WebFetch saved for binary content (`saved_files/`, listed in Claude Code's harness note) |
-| `lexmount` | the API response saved by the MCP server, projected exactly as the benchmark projects a Lexmount call: `main_text` declared plain text, title, final URL, links and images |
+| `lexmount` | the complete API response saved by the MCP server, projected exactly as the benchmark projects a Lexmount call: `main_text` declared plain text, title, final URL, links and images |
 | `moli` | its standard output saved by the MCP server; binary output (an image, a PDF) as a delivered file |
 
 Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`; the harness never extracts text from delivered files or converts formats. The empty-output control must fail every selected task. A task's own reference text is not used as a control: many tasks have none, and the acceptance rules are defined on the whole page.
 
 ## Metrics
 
-The fetched page is the subagent's tool result: the subagent reads all of it and returns only its report, so the main agent never sees the page and the subagent's tokens grow with the delivered text. `summary.json` therefore gives subagent tokens over all valid runs, over each arm's fetched runs (`subagent_tokens_fetched`; a failed fetch costs only the fixed overhead), and, as a diagnostic, over the tasks every arm fetched (`fetched_by_every_arm`, the same pages for every arm; it is selected after the outcome and never ranks the arms).
+The primary time metric is the subagent's duration, from receiving the task to delivering its report, as Claude Code reports it; the fetch tool's own duration is reported beside it. In the built-in arm the page is WebFetch's tool result, so that subagent's tokens grow with the page; in the MCP arms they do not. `summary.json` gives subagent tokens over all valid runs, over each arm's fetched runs (`subagent_tokens_fetched`), and, as a diagnostic, over the tasks every arm fetched (`fetched_by_every_arm`; selected after the outcome, it never ranks the arms).
 
 Per run: subagent tokens and duration exactly as Claude Code reports them (a run without the report is invalid, never filled in), fetch tool duration from the tool dispatch log (the same measurement point in every arm), backend calls, the route taken, and the fetch tool's raw result. Fetch API cost is calls × `--price-per-1000` / 1000; the subagent model cost is the haiku usage cost and includes small auxiliary calls of the main session, so it is an upper bound. `summary.json` also carries pass counts per task category.
 
@@ -77,4 +82,4 @@ When Claude Code itself cannot serve a request (account usage limit, rate limit,
 
 ## Add a backend
 
-Add an entry to `ARMS` in `agent_backend/arms.py` and, for a backend that is not built in, a branch in `fetch_mcp.py`. The tests in `tests/webfetch/test_agent_backend_experiment.py` run offline with a fake `claude`.
+Add an entry to `ARMS` in `agent_backend/arms.py` and a branch in `fetch_mcp.py`. The tests in `tests/webfetch/test_agent_backend_experiment.py` run offline with a fake `claude`.
