@@ -30,7 +30,7 @@ OWNER_OPTIONS = {
     "webfetch": "validate",
     "web-search": "run",
     "web-extract": "prepare",
-    "trajectory-replay": "evaluate",
+    "trajectory-replay": "run",
     "browser-use": "run",
     "results": "--repo",
     "headless-run": "--cohort",
@@ -171,14 +171,15 @@ def test_latency_guard_sees_the_runner_through_each_current_entry(monkeypatch):
         "102 /venv/bin/python -m harness.web_fetch run --benchmark webmainbench --providers chromium",
         "103 /venv/bin/python -m harness.web_fetch webmainbench-score --evidence shard",
         "104 zsh -c python scripts/run_webmainbench_benchmark.py --provider chromium",
-        "105 /venv/bin/python -m harness.trajectory_replay evaluate --suite fixture.json",
+        "105 /venv/bin/python -m harness.trajectory_replay run --benchmark curated --suite fixture.json",
         "106 /venv/bin/python -m harness.trajectory_replay.public_webarena.cli --suite fixture.json",
         "107 /venv/bin/python3 /venv/bin/webstone run --benchmark wcxb --providers chromium",
         "108 /venv/bin/python3 /venv/bin/webstone webfetch run --benchmark webmainbench --providers chromium",
+        "109 /venv/bin/python3 /venv/bin/webstone trajectory-replay run --benchmark curated",
     ])
     monkeypatch.setattr(latency.subprocess, "run",
                         lambda *args, **kwargs: SimpleNamespace(stdout=listing))
-    assert latency.competing_benchmark_pids() == [101, 102, 105, 106, 107, 108]
+    assert latency.competing_benchmark_pids() == [101, 102, 105, 106, 107, 108, 109]
 
 
 def frozen_certifier_scripts():

@@ -1,62 +1,44 @@
-"""Docker-isolated Trajectory Replay runner for public WebArena recordings."""
+"""The public WebArena recordings benchmark on the shared Trajectory Replay runner."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import re
-import threading
 import time
 import traceback
-import uuid
-from collections.abc import Callable
-from http.server import ThreadingHTTPServer
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-import docker
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Page
 
 from harness.container_isolation import require_linux_cgroup_v2
 from harness.distribution import bundled_data_path
 from harness.environments.browser import (
     BROWSERS,
-    cleanup_browser_runtime,
     container_engines,
     reference_engine,
-    rotated_engine_order,
     validate_resource_controls,
 )
 from harness.record_io import write_json
 from harness.resource_accounting import DockerStatsResources, ResourceSampler
-from harness.trajectory_replay.core.diagnostics import diagnose_summary
 from harness.trajectory_replay.core.docker_runner import (
     EngineRuntime,
     attempt_identity,
     docker_environment,
-    ground_truth_validation,
-    http_origin,
     main_frame_origin_recorder,
     manifest_task,
-    materialize_task,
-    open_task_page,
     output_volume,
-    print_attempt_progress,
     process_validation,
-    reset_browser_state,
     resource_result,
-    start_engine,
-    start_fixture_server,
-    stop_fixture_server,
-    write_run_artifacts,
 )
-from harness.trajectory_replay.core.suite import BrowserTask, validate_ground_truth_evidence
-from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
+from harness.trajectory_replay.core.evaluators import EvaluatorRegistry, TaskEvidence
+from harness.trajectory_replay.core.runner import ReplayContext, ReplayOptions, prepare_page
+from harness.trajectory_replay.core.suite import BrowserTask
+from harness.trajectory_replay.public_webarena import evaluators as _evaluators
 from harness.trajectory_replay.public_webarena.config import map_strings
-from harness.trajectory_replay.public_webarena.evaluators import (
-    EvaluatorRegistry,
-    TaskEvidence,
-)
 from harness.trajectory_replay.public_webarena.executor import execute_steps
 from harness.trajectory_replay.public_webarena.har import CdpHarRecorder
 from harness.trajectory_replay.public_webarena.metrics import summarize_attempts
@@ -69,6 +51,8 @@ from harness.trajectory_replay.public_webarena.webarena_environment import (
     wall_clock_timeout,
 )
 
+# The WebArena-Verified evaluator kind registers on import.
+assert "webarena_verified" in _evaluators.EVALUATOR_KINDS
 ENGINE_IMAGES = {engine: str(BROWSERS.get(engine).image) for engine in container_engines()}
 # Public image recipes pin browser versions; the curated replay may build the same image
 # tag from a newer release, so a measured container must report the pinned version.
@@ -117,15 +101,6 @@ def _remaining_task_budget_ms(deadline: float, *, phase: str) -> int:
     if remaining_ms < 1:
         raise TimeoutError(f"task wall-clock budget exhausted before {phase}")
     return remaining_ms
-
-
-def _reset_state(page: Page, visited_origins: set[str]) -> None:
-    origins = set(visited_origins)
-    for existing in list(getattr(page.context, "pages", [page])):
-        current_origin = http_origin(existing.url)
-        if current_origin:
-            origins.add(current_origin)
-    reset_browser_state(page, origins)
 
 
 def _capture_final_page_evidence(page: Page, artifact_dir: Path) -> dict[str, Any]:
@@ -243,22 +218,6 @@ def _capture_final_page_evidence(page: Page, artifact_dir: Path) -> dict[str, An
         },
         "capture_errors": capture_errors,
     }
-
-
-def _prepare_page(
-    page: Page,
-    visited_origins: set[str],
-    *,
-    settle_ms: int,
-    viewport: dict[str, int] | None = None,
-) -> Page:
-    """Reset task state and replace only the renderer page, keeping the browser/context warm."""
-    context = page.context
-    _reset_state(page, visited_origins)
-    visited_origins.clear()
-    for existing in list(getattr(context, "pages", [page])):
-        existing.close(run_before_unload=False)
-    return open_task_page(context, viewport or {"width": 1280, "height": 900}, settle_ms=settle_ms)
 
 
 def _task_viewport(task: BrowserTask) -> dict[str, int]:
@@ -518,322 +477,288 @@ def _environment(client: Any, containers: dict[str, Any]) -> dict[str, Any]:
     return environment
 
 
-def run_evaluation(
-    *,
-    suite_path: str | Path,
-    output_dir: str | Path,
-    reports_dir: str | Path,
-    ground_truth_evidence_path: str | Path | None = None,
-    agent_smoke_path: str | Path | None = None,
-    max_retries: int = 1,
-    sample_interval_ms: int = 50,
-    settle_ms: int = 1500,
-    task_timeout_ms: int = 300_000,
-    cpus: float = 2.0,
-    memory: str = "2g",
-    llm_diagnostics: bool = False,
-    diagnosis_model: str = DEFAULT_DIAGNOSIS_MODEL,
-    diagnosis_reasoning_effort: str = "low",
-    webarena_config_path: str | Path | None = None,
-    engines: tuple[str, ...] | None = None,
-    qualification_run: bool = False,
-    qualification_pass_index: int | None = None,
-    qualification_required_passes: int | None = None,
-    trajectory_authoring_run: bool = False,
-    task_ids: tuple[str, ...] | None = None,
-    task_selection: dict[str, Any] | None = None,
-    generate_report: bool = True,
-) -> dict[str, Any]:
-    if max_retries < 0:
-        raise ValueError("max_retries must be non-negative")
-    engines = container_engines() if engines is None else engines
-    output = Path(output_dir)
-    if output.exists():
-        raise ValueError("Output must be a new directory; existing evidence is immutable")
-    if task_timeout_ms < 1:
-        raise ValueError("task_timeout_ms must be positive")
-    if cpus <= 0:
-        raise ValueError("cpus must be positive for measured runs")
-    if (
-        not engines
-        or len(set(engines)) != len(engines)
-        or any(engine not in ENGINE_IMAGES for engine in engines)
-    ):
-        raise ValueError(f"engines must be a unique subset of {tuple(ENGINE_IMAGES)}")
-    if qualification_run and trajectory_authoring_run:
-        raise ValueError("qualification_run and trajectory_authoring_run are mutually exclusive")
-    if qualification_run:
-        if qualification_required_passes != 2 or qualification_pass_index not in {1, 2}:
-            raise ValueError(
-                "qualification requires pass index 1 or 2 and exactly two independent passes"
-            )
-    elif qualification_pass_index is not None or qualification_required_passes is not None:
-        raise ValueError("qualification pass identity is valid only for qualification runs")
-    if (qualification_run or trajectory_authoring_run) and (
-        engines != (reference_engine(),) or max_retries != 0
-    ):
-        raise ValueError(
-            "qualification and trajectory authoring require one "
-            f"{BROWSERS.get(reference_engine()).label} attempt and no retries"
-        )
-    from harness.trajectory_replay.report_inputs import (
-        agent_smoke_input,
-        replay_fixture_inputs,
-        replay_input_path,
-        replay_suite_binding,
-    )
-    suite_path = replay_input_path(suite_path, current=(
-        'human-candidates' if qualification_run or trajectory_authoring_run else 'human'))
-    suite = load_suite(suite_path)
-    smoke = agent_smoke_input(agent_smoke_path)
-    declared_ids = {task.task_id for task in suite.tasks}
-    selected_ids = set(task_ids or declared_ids)
-    unknown_ids = selected_ids - declared_ids
-    if unknown_ids:
-        raise ValueError(f"unknown task ids: {sorted(unknown_ids)}")
-    if not selected_ids:
-        raise ValueError("task_ids must select at least one task")
-    selected_tasks = tuple(task for task in suite.tasks if task.task_id in selected_ids)
-    uses_webarena = any(
-        (task.environment or {}).get("kind") == "webarena_verified" for task in selected_tasks
-    )
-    if uses_webarena and webarena_config_path is None:
-        raise ValueError("--webarena-config is required for WebArena tasks")
-    webarena_states = {
-        task.task_id: (task.ground_truth.get("qualification") or {}).get("status")
-        for task in selected_tasks
-        if (task.environment or {}).get("kind") == "webarena_verified"
-    }
-    allowed_states = (
-        {"pending"} if qualification_run or trajectory_authoring_run else {"eligible", "skipped"}
-    )
-    invalid_states = {
-        task_id: state for task_id, state in webarena_states.items() if state not in allowed_states
-    }
-    if invalid_states:
-        mode = (
-            "qualification"
-            if qualification_run
-            else "trajectory authoring"
-            if trajectory_authoring_run
-            else "formal measurement"
-        )
-        raise ValueError(
-            f"WebArena {mode} has invalid qualification states: {invalid_states}; "
-            f"allowed states are {sorted(allowed_states)}"
-        )
-    runnable_tasks = tuple(
-        task
-        for task in selected_tasks
-        if qualification_run
-        or (task.ground_truth.get("qualification") or {}).get("status") != "skipped"
-    )
-    if trajectory_authoring_run:
-        state_changing = [
-            task.task_id
-            for task in runnable_tasks
-            if "mutate" in task.tags
-            or not ({"retrieve", "navigate"} & set(task.tags))
-        ]
-        if state_changing:
-            raise ValueError(
-                "trajectory_authoring_run permits non-mutating retrieve/navigate tasks only: "
-                + ", ".join(state_changing)
-            )
-    fixture_root, fixture_hashes = replay_fixture_inputs(
-        Path(suite_path), (call for task in selected_tasks for call in task.tool_calls)
-    )
-    uses_local_fixtures = fixture_root is not None
-    ground_truth_evidence = (
-        validate_ground_truth_evidence(suite_path, suite, ground_truth_evidence_path)
-        if ground_truth_evidence_path is not None
-        else None
-    )
-    # Validate the benchmark/runtime binding before touching Docker. This keeps
-    # a wrong environment config from wasting a remote daemon round trip or
-    # starting any measured resource.
-    webarena_environment = (
-        WebArenaEnvironment(webarena_config_path) if webarena_config_path is not None else None
-    )
-    redact_text = (
-        webarena_environment.redact_login_passwords if webarena_environment is not None else str
-    )
-    client = docker.from_env()
-    validate_resource_controls(client.info())
-    require_linux_cgroup_v2(client)
-    run_id = uuid.uuid4().hex[:12]
-    runtime = EngineRuntime()
-    rows: list[dict[str, Any]] = []
-    evaluator_registry = EvaluatorRegistry(webarena_config_path=webarena_config_path)
-    site_client = client
-    close_site_client = False
-    if webarena_environment is not None and uses_webarena:
-        site_client, close_site_client = webarena_environment.site_docker_client(client)
-    webarena_runtime = (
-        webarena_environment.verify_runtime(site_client, runnable_tasks)
-        if webarena_environment is not None and uses_webarena
-        else None
-    )
-    playwright = sync_playwright().start()
-    fixture_runtime: tuple[ThreadingHTTPServer, threading.Thread, str] | None = None
-    if uses_local_fixtures:
-        fixture_runtime = start_fixture_server(fixture_root)
-    fixture_origin = fixture_runtime[2] if fixture_runtime else ""
-    authoring_initialized_sites: set[str] = set()
-    initialized_sites_by_engine = _engine_site_state(engines)
-    try:
-        for engine in engines:
-            start_engine(
-                runtime,
-                client,
-                playwright,
-                engine=engine,
-                image=ENGINE_IMAGES[engine],
-                run_id=run_id,
-                cpus=cpus,
-                memory=memory,
-                reset_state=_reset_state,
-            )
-        _verify_pinned_versions(runtime.containers)
-        output.mkdir(parents=True, exist_ok=False)
+class PublicWebArenaReplay:
+    """Public WebArena human recordings, with evidence capture and registered evaluators.
 
-        for task_index, declared_task in enumerate(runnable_tasks):
-            task = materialize_task(declared_task, fixture_origin)
-            if trajectory_authoring_run:
-                task = _bounded_authoring_task(task)
-            base_task = task
-            for engine in rotated_engine_order(engines, task_index):
-                initialized_sites = initialized_sites_by_engine[engine]
-                for attempt in range(1, max_retries + 2):
-                    task = base_task
-                    artifact_dir = (
-                        output / "tasks" / task.task_id / engine / f"attempt-{attempt}"
-                    )
-                    environment_reset = None
-                    attempt_started = time.perf_counter()
-                    attempt_deadline = attempt_started + task_timeout_ms / 1000
-                    try:
-                        runtime.pages[engine] = _prepare_page(
-                            runtime.pages[engine],
-                            runtime.visited_origins[engine],
-                            settle_ms=settle_ms,
-                            viewport=_task_viewport(task),
-                        )
-                        if (task.environment or {}).get("kind") == "webarena_verified":
-                            assert webarena_environment is not None
-                            task_sites = set((task.environment or {}).get("sites") or [])
-                            if (
-                                trajectory_authoring_run
-                                and task_sites <= authoring_initialized_sites
-                            ):
-                                environment_reset = {
-                                    "diagnostic_only": True,
-                                    "mode": "warm_non_mutating_authoring_reuse",
-                                    "sites": sorted(task_sites),
-                                }
-                            elif _may_reuse_webarena_site(task, initialized_sites):
-                                environment_reset = {
-                                    "diagnostic_only": bool(qualification_run),
-                                    "mode": "warm_non_mutating_site_reuse",
-                                    "sites": sorted(task_sites),
-                                }
-                            else:
-                                if "mutate" in task.tags:
-                                    initialized_sites.difference_update(task_sites)
-                                reset_budget_ms = _remaining_task_budget_ms(
-                                    attempt_deadline, phase="environment reset"
-                                )
-                                environment_reset = webarena_environment.reset(
-                                    task,
-                                    site_client,
-                                    timeout_seconds=reset_budget_ms / 1000,
-                                )
-                                if trajectory_authoring_run:
-                                    authoring_initialized_sites.update(task_sites)
-                                if "mutate" not in task.tags:
-                                    initialized_sites.update(task_sites)
-                            task = webarena_environment.materialize_task_actions(base_task)
-                            prepare_budget_ms = _remaining_task_budget_ms(
-                                attempt_deadline, phase="environment prepare"
-                            )
-                            runtime.pages[engine] = webarena_environment.prepare(
-                                task,
-                                runtime.pages[engine],
-                                timeout_seconds=prepare_budget_ms / 1000,
-                            )
-                        execution_budget_ms = _remaining_task_budget_ms(
-                            attempt_deadline, phase="trajectory execution"
-                        )
-                    except Exception:
-                        row = _environment_failure_row(
-                            engine,
-                            task,
-                            attempt,
-                            artifact_dir,
-                            is_retry=attempt > 1,
-                            duration_ms=(time.perf_counter() - attempt_started) * 1000,
-                            error=redact_text(traceback.format_exc()),
-                        )
-                    else:
-                        row = _run_task(
-                            engine,
-                            runtime.pages[engine],
-                            runtime.visited_origins[engine],
-                            runtime.resources[engine],
-                            task,
-                            attempt,
-                            sample_interval_ms,
-                            evaluator_registry,
-                            artifact_dir,
-                            is_retry=attempt > 1,
-                            task_timeout_ms=execution_budget_ms,
-                            redact_text=redact_text,
-                        )
-                        row["execution_duration_ms"] = row["duration_ms"]
-                        row["duration_ms"] = round(
-                            (time.perf_counter() - attempt_started) * 1000, 3
-                        )
-                    row["run_id"] = run_id
-                    row["qualification_run"] = qualification_run
-                    row["qualification_pass_index"] = (
-                        qualification_pass_index if qualification_run else None
-                    )
-                    row["qualification_required_passes"] = (
-                        qualification_required_passes if qualification_run else None
-                    )
-                    row["trajectory_authoring_run"] = trajectory_authoring_run
-                    row["environment_reset"] = environment_reset
-                    row["task_contract_sha256"] = task_contract_sha256(
-                        {
-                            "id": task.task_id,
-                            "title": task.title,
-                            "trajectory": task.trajectory,
-                            "evaluator": task.evaluator,
-                            "environment": task.environment,
-                            "ground_truth": task.ground_truth,
-                            "source": task.source,
-                        }
-                    )
-                    attempt_path = artifact_dir / "attempt.json"
-                    attempt_path.parent.mkdir(parents=True, exist_ok=True)
-                    attempt_path.write_text(
-                        json.dumps(row, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-                    )
-                    rows.append(row)
-                    print_attempt_progress(row)
-                    if row["status"] == "pass":
-                        break
-        summary = summarize_attempts(rows, engines=engines)
-        manifest = {
-            "schema": "lex_browser_use_manifest/2",
-            "run_id": run_id,
-            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "fixture_files": fixture_hashes,
-            "suite_sha256": hashlib.sha256(Path(suite_path).read_bytes()).hexdigest(),
-            "suite_dataset": replay_suite_binding(
-                hashlib.sha256(Path(suite_path).read_bytes()).hexdigest(),
-                family="human",
-            ),
+    Formal runs measure the qualified edition; qualification and trajectory
+    authoring runs use the candidate edition on the reference engine only.
+    """
+
+    name = "public-webarena"
+    family = "human"
+
+    def __init__(
+        self,
+        *,
+        suite_path: str | Path | None = None,
+        task_timeout_ms: int = 300_000,
+        webarena_config_path: str | Path | None = None,
+        qualification_run: bool = False,
+        qualification_pass_index: int | None = None,
+        qualification_required_passes: int | None = None,
+        trajectory_authoring_run: bool = False,
+        task_ids: tuple[str, ...] | None = None,
+        task_selection: dict[str, Any] | None = None,
+    ) -> None:
+        if task_timeout_ms < 1:
+            raise ValueError("task_timeout_ms must be positive")
+        if qualification_run and trajectory_authoring_run:
+            raise ValueError(
+                "qualification_run and trajectory_authoring_run are mutually exclusive"
+            )
+        if qualification_run:
+            if qualification_required_passes != 2 or qualification_pass_index not in {1, 2}:
+                raise ValueError(
+                    "qualification requires pass index 1 or 2 and exactly two independent passes"
+                )
+        elif qualification_pass_index is not None or qualification_required_passes is not None:
+            raise ValueError("qualification pass identity is valid only for qualification runs")
+        self.suite_path = suite_path
+        self.task_timeout_ms = task_timeout_ms
+        self.webarena_config_path = webarena_config_path
+        self.qualification_run = qualification_run
+        self.qualification_pass_index = qualification_pass_index
+        self.qualification_required_passes = qualification_required_passes
+        self.trajectory_authoring_run = trajectory_authoring_run
+        self.task_ids = task_ids
+        self.task_selection = task_selection
+        self.environment: WebArenaEnvironment | None = None
+        self.redact_text: Callable[[str], str] = str
+        self.evaluators: EvaluatorRegistry | None = None
+        self.site_client: Any = None
+        self.webarena_runtime: dict[str, Any] | None = None
+        self.uses_webarena = False
+        self.authoring_initialized_sites: set[str] = set()
+        self.initialized_sites_by_engine: dict[str, set[str]] = {}
+        self.engines: tuple[str, ...] = ()
+
+    @property
+    def _diagnostic_run(self) -> bool:
+        return self.qualification_run or self.trajectory_authoring_run
+
+    def images(self, options: ReplayOptions) -> dict[str, str]:
+        engines = tuple(options.engines)
+        if self._diagnostic_run and (engines != (reference_engine(),) or options.max_retries):
+            raise ValueError(
+                "qualification and trajectory authoring require one "
+                f"{BROWSERS.get(reference_engine()).label} attempt and no retries"
+            )
+        self.engines = engines
+        self.initialized_sites_by_engine = _engine_site_state(engines)
+        return ENGINE_IMAGES
+
+    def suite(self):
+        from harness.trajectory_replay.report_inputs import replay_input_path
+
+        suite_path = replay_input_path(
+            self.suite_path,
+            current="human-candidates" if self._diagnostic_run else "human",
+        )
+        suite = load_suite(suite_path)
+        declared_ids = {task.task_id for task in suite.tasks}
+        selected_ids = set(self.task_ids or declared_ids)
+        unknown_ids = selected_ids - declared_ids
+        if unknown_ids:
+            raise ValueError(f"unknown task ids: {sorted(unknown_ids)}")
+        if not selected_ids:
+            raise ValueError("task_ids must select at least one task")
+        selected = tuple(task for task in suite.tasks if task.task_id in selected_ids)
+        self.uses_webarena = any(
+            (task.environment or {}).get("kind") == "webarena_verified" for task in selected
+        )
+        if self.uses_webarena and self.webarena_config_path is None:
+            raise ValueError("--webarena-config is required for WebArena tasks")
+        states = {
+            task.task_id: (task.ground_truth.get("qualification") or {}).get("status")
+            for task in selected
+            if (task.environment or {}).get("kind") == "webarena_verified"
+        }
+        allowed = {"pending"} if self._diagnostic_run else {"eligible", "skipped"}
+        invalid = {task_id: state for task_id, state in states.items() if state not in allowed}
+        if invalid:
+            mode = (
+                "qualification"
+                if self.qualification_run
+                else "trajectory authoring"
+                if self.trajectory_authoring_run
+                else "formal measurement"
+            )
+            raise ValueError(
+                f"WebArena {mode} has invalid qualification states: {invalid}; "
+                f"allowed states are {sorted(allowed)}"
+            )
+        runnable = tuple(
+            task
+            for task in selected
+            if self.qualification_run
+            or (task.ground_truth.get("qualification") or {}).get("status") != "skipped"
+        )
+        if self.trajectory_authoring_run:
+            state_changing = [
+                task.task_id
+                for task in runnable
+                if "mutate" in task.tags or not ({"retrieve", "navigate"} & set(task.tags))
+            ]
+            if state_changing:
+                raise ValueError(
+                    "trajectory_authoring_run permits non-mutating retrieve/navigate tasks only: "
+                    + ", ".join(state_changing)
+                )
+        self.runnable = runnable
+        # Validate the benchmark/runtime binding before touching Docker, so a wrong
+        # environment config cannot waste a remote daemon round trip.
+        if self.webarena_config_path is not None:
+            self.environment = WebArenaEnvironment(self.webarena_config_path)
+            self.redact_text = self.environment.redact_login_passwords
+        return Path(suite_path), suite, selected, runnable
+
+    @contextmanager
+    def inputs(self, client: Any) -> Iterator[None]:
+        validate_resource_controls(client.info())
+        require_linux_cgroup_v2(client)
+        self.evaluators = EvaluatorRegistry(config_path=self.webarena_config_path)
+        self.site_client = client
+        close_site_client = False
+        if self.environment is not None and self.uses_webarena:
+            self.site_client, close_site_client = self.environment.site_docker_client(client)
+        try:
+            self.webarena_runtime = (
+                self.environment.verify_runtime(self.site_client, self.runnable)
+                if self.environment is not None and self.uses_webarena
+                else None
+            )
+            yield
+        finally:
+            if close_site_client:
+                self.site_client.close()
+
+    def started(self, runtime: EngineRuntime) -> None:
+        _verify_pinned_versions(runtime.containers)
+
+    def prepare_task(self, task: BrowserTask) -> BrowserTask:
+        return _bounded_authoring_task(task) if self.trajectory_authoring_run else task
+
+    def _reset_sites(
+        self, engine: str, task: BrowserTask, deadline: float
+    ) -> dict[str, Any]:
+        """Reset the task's sites unless a warm, non-mutating reuse is allowed."""
+        assert self.environment is not None
+        initialized_sites = self.initialized_sites_by_engine[engine]
+        task_sites = set((task.environment or {}).get("sites") or [])
+        if self.trajectory_authoring_run and task_sites <= self.authoring_initialized_sites:
+            return {
+                "diagnostic_only": True,
+                "mode": "warm_non_mutating_authoring_reuse",
+                "sites": sorted(task_sites),
+            }
+        if _may_reuse_webarena_site(task, initialized_sites):
+            return {
+                "diagnostic_only": bool(self.qualification_run),
+                "mode": "warm_non_mutating_site_reuse",
+                "sites": sorted(task_sites),
+            }
+        if "mutate" in task.tags:
+            initialized_sites.difference_update(task_sites)
+        reset_budget_ms = _remaining_task_budget_ms(deadline, phase="environment reset")
+        environment_reset = self.environment.reset(
+            task, self.site_client, timeout_seconds=reset_budget_ms / 1000
+        )
+        if self.trajectory_authoring_run:
+            self.authoring_initialized_sites.update(task_sites)
+        if "mutate" not in task.tags:
+            initialized_sites.update(task_sites)
+        return environment_reset
+
+    def attempt(
+        self, context: ReplayContext, engine: str, base_task: BrowserTask, attempt: int
+    ) -> dict[str, Any]:
+        runtime = context.runtime
+        options = context.options
+        assert self.evaluators is not None
+        task = base_task
+        artifact_dir = context.output / "tasks" / task.task_id / engine / f"attempt-{attempt}"
+        environment_reset = None
+        attempt_started = time.perf_counter()
+        attempt_deadline = attempt_started + self.task_timeout_ms / 1000
+        try:
+            runtime.pages[engine] = prepare_page(
+                runtime.pages[engine],
+                runtime.visited_origins[engine],
+                settle_ms=options.settle_ms,
+                viewport=_task_viewport(task),
+            )
+            if (task.environment or {}).get("kind") == "webarena_verified":
+                assert self.environment is not None
+                environment_reset = self._reset_sites(engine, task, attempt_deadline)
+                task = self.environment.materialize_task_actions(base_task)
+                prepare_budget_ms = _remaining_task_budget_ms(
+                    attempt_deadline, phase="environment prepare"
+                )
+                runtime.pages[engine] = self.environment.prepare(
+                    task, runtime.pages[engine], timeout_seconds=prepare_budget_ms / 1000
+                )
+            execution_budget_ms = _remaining_task_budget_ms(
+                attempt_deadline, phase="trajectory execution"
+            )
+        except Exception:
+            row = _environment_failure_row(
+                engine,
+                task,
+                attempt,
+                artifact_dir,
+                is_retry=attempt > 1,
+                duration_ms=(time.perf_counter() - attempt_started) * 1000,
+                error=self.redact_text(traceback.format_exc()),
+            )
+        else:
+            row = _run_task(
+                engine,
+                runtime.pages[engine],
+                runtime.visited_origins[engine],
+                runtime.resources[engine],
+                task,
+                attempt,
+                options.sample_interval_ms,
+                self.evaluators,
+                artifact_dir,
+                is_retry=attempt > 1,
+                task_timeout_ms=execution_budget_ms,
+                redact_text=self.redact_text,
+            )
+            row["execution_duration_ms"] = row["duration_ms"]
+            row["duration_ms"] = round((time.perf_counter() - attempt_started) * 1000, 3)
+        row["run_id"] = context.run_id
+        row["qualification_run"] = self.qualification_run
+        row["qualification_pass_index"] = (
+            self.qualification_pass_index if self.qualification_run else None
+        )
+        row["qualification_required_passes"] = (
+            self.qualification_required_passes if self.qualification_run else None
+        )
+        row["trajectory_authoring_run"] = self.trajectory_authoring_run
+        row["environment_reset"] = environment_reset
+        row["task_contract_sha256"] = task_contract_sha256(
+            {
+                "id": task.task_id,
+                "title": task.title,
+                "trajectory": task.trajectory,
+                "evaluator": task.evaluator,
+                "environment": task.environment,
+                "ground_truth": task.ground_truth,
+                "source": task.source,
+            }
+        )
+        attempt_path = artifact_dir / "attempt.json"
+        attempt_path.parent.mkdir(parents=True, exist_ok=True)
+        attempt_path.write_text(
+            json.dumps(row, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        return row
+
+    def manifest(self, context, client, runnable, selected, uses_local_fixtures):
+        options = context.options
+        qualification = self.qualification_run
+        return {
             "suite": [
                 {
                     **manifest_task(task),
@@ -841,9 +766,8 @@ def run_evaluation(
                     "evaluator": task.evaluator,
                     "environment": task.environment,
                 }
-                for task in runnable_tasks
+                for task in runnable
             ],
-            "ground_truth_validation": ground_truth_validation(ground_truth_evidence),
             "protocol": {
                 "browser_reuse": True,
                 "viewport": {
@@ -855,10 +779,10 @@ def run_evaluation(
                     "one declared CowAgent BrowserTool-equivalent call; implicit waits excluded"
                 ),
                 "llm_scope": ("LLM never judges success; optional LLM only explains failed traces"),
-                "llm_failure_diagnostics": llm_diagnostics,
-                "diagnosis_model": diagnosis_model if llm_diagnostics else None,
+                "llm_failure_diagnostics": options.llm_diagnostics,
+                "diagnosis_model": options.diagnosis_model if options.llm_diagnostics else None,
                 "diagnosis_reasoning_effort": (
-                    diagnosis_reasoning_effort if llm_diagnostics else None
+                    options.diagnosis_reasoning_effort if options.llm_diagnostics else None
                 ),
                 "cold_start_excluded": True,
                 "browser_state_reset_between_tasks": True,
@@ -870,32 +794,32 @@ def run_evaluation(
                     "reset once per site and engine for a contiguous/non-mutating task set; "
                     "reset before every state-changing task and invalidate reuse afterward"
                 ),
-                "sample_interval_ms": sample_interval_ms,
-                "post_reset_settle_ms": settle_ms,
-                "task_timeout_ms": task_timeout_ms,
+                "sample_interval_ms": options.sample_interval_ms,
+                "post_reset_settle_ms": options.settle_ms,
+                "task_timeout_ms": self.task_timeout_ms,
                 "primary_attempts_per_task": 1,
-                "max_failure_retries": max_retries,
+                "max_failure_retries": options.max_retries,
                 "engine_order": "balanced by task index",
-                "engines": list(engines),
-                "qualification_run": qualification_run,
+                "engines": list(options.engines),
+                "qualification_run": qualification,
                 "qualification_pass_index": (
-                    qualification_pass_index if qualification_run else None
+                    self.qualification_pass_index if qualification else None
                 ),
                 "qualification_required_passes": (
-                    qualification_required_passes if qualification_run else None
+                    self.qualification_required_passes if qualification else None
                 ),
-                "trajectory_authoring_run": trajectory_authoring_run,
+                "trajectory_authoring_run": self.trajectory_authoring_run,
                 "trajectory_authoring_scope": (
                     "diagnostic-only non-mutating retrieve/navigate tasks; one site reset before "
                     "each site's warm batch; never accepted as qualification evidence"
-                    if trajectory_authoring_run
+                    if self.trajectory_authoring_run
                     else None
                 ),
-                "task_filter": [task.task_id for task in runnable_tasks],
-                "task_selection": task_selection,
+                "task_filter": [task.task_id for task in runnable],
+                "task_selection": self.task_selection,
                 "skipped_qualified_tasks": [
                     task.task_id
-                    for task in selected_tasks
+                    for task in selected
                     if (task.ground_truth.get("qualification") or {}).get("status") == "skipped"
                 ],
                 "target_mode": "public_web" if not uses_local_fixtures else "mixed",
@@ -906,8 +830,8 @@ def run_evaluation(
                 ),
                 "resource_scope": "browser container cgroup/network namespace",
                 "controller_excluded": True,
-                "cpus_per_browser": cpus,
-                "memory_per_browser": memory,
+                "cpus_per_browser": options.cpus,
+                "memory_per_browser": options.memory,
                 "network_isolation": "one dedicated bridge with no peer containers per engine",
                 "required_attempt_evidence": [
                     "attempt.json",
@@ -917,28 +841,13 @@ def run_evaluation(
                 ],
                 "missing_required_evidence": "attempt fails closed",
             },
-            "environment": _environment(client, runtime.containers),
-            "webarena_runtime": webarena_runtime,
+            "environment": _environment(client, context.runtime.containers),
+            "webarena_runtime": self.webarena_runtime,
         }
-        if smoke is not None:
-            manifest["agent_smoke"] = smoke
-        # Persist core evidence before optional remote diagnostics can fail or stall.
-        write_run_artifacts(output, rows, summary, manifest)
-        diagnose_summary(
-            summary,
-            use_llm=llm_diagnostics,
-            model=diagnosis_model,
-            reasoning_effort=diagnosis_reasoning_effort,
-        )
-        write_run_artifacts(output, rows, summary, manifest)
-        if generate_report and not qualification_run and not trajectory_authoring_run:
+
+    def summarize(self, rows: list[dict[str, Any]], engines: tuple[str, ...]) -> dict[str, Any]:
+        return summarize_attempts(rows, engines=engines)
+
+    def write_report(self, reports_dir: Path, manifest: dict, summary: dict) -> None:
+        if not self._diagnostic_run:
             write_latest_report(reports_dir, manifest=manifest, summary=summary)
-        return summary
-    finally:
-        if fixture_runtime:
-            stop_fixture_server(fixture_runtime)
-        cleanup_browser_runtime(
-            runtime.browsers, playwright, runtime.containers, runtime.networks
-        )
-        if close_site_client:
-            site_client.close()

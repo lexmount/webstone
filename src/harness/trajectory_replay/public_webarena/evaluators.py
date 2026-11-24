@@ -1,60 +1,16 @@
-"""Task-result evaluators behind one public WebArena Trajectory Replay contract."""
+"""The WebArena-Verified evaluator kind for public WebArena Trajectory Replay."""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
 
-from harness.trajectory_replay.core.executor import judge_outputs
+from harness.trajectory_replay.core.evaluators import (
+    EVALUATOR_KINDS,
+    TaskEvaluation,
+    TaskEvidence,
+)
 from harness.trajectory_replay.core.suite import BrowserTask
-
-
-@dataclass(frozen=True)
-class TaskEvidence:
-    outputs: dict[str, str]
-    process_passed: bool
-    agent_response: dict[str, Any] | list[Any] | str | None = None
-    network_har_path: Path | None = None
-
-
-@dataclass(frozen=True)
-class TaskEvaluation:
-    status: str
-    score: float
-    checks: tuple[dict[str, Any], ...]
-    evaluator: str
-    error: str = ""
-
-    @property
-    def passed(self) -> bool:
-        return self.status == "pass" and self.score == 1.0
-
-
-class TaskEvaluator(Protocol):
-    def evaluate(self, task: BrowserTask, evidence: TaskEvidence) -> TaskEvaluation: ...
-
-
-class ExactOutputsEvaluator:
-    def evaluate(self, task: BrowserTask, evidence: TaskEvidence) -> TaskEvaluation:
-        checks = tuple(judge_outputs(evidence.outputs, task.assertions))
-        passed = bool(checks) and all(check.get("passed") is True for check in checks)
-        return TaskEvaluation(
-            status="pass" if passed else "fail",
-            score=1.0 if passed else 0.0,
-            checks=checks,
-            evaluator="exact_outputs",
-            error="" if passed else _format_exact_failures(checks),
-        )
-
-
-def _format_exact_failures(checks: tuple[dict[str, Any], ...]) -> str:
-    return "; ".join(
-        f"{check['output']} exact mismatch: expected {check['expected']!r}, got {check['actual']!r}"
-        for check in checks
-        if not check.get("passed")
-    )
 
 
 class WebArenaVerifiedEvaluator:
@@ -131,25 +87,20 @@ class WebArenaVerifiedEvaluator:
         )
 
 
-class EvaluatorRegistry:
-    def __init__(self, *, webarena_config_path: str | Path | None = None) -> None:
-        self._webarena_config_path = webarena_config_path
-        self._webarena: WebArenaVerifiedEvaluator | None = None
-        self._webarena_config: bytes | None = None
+class _ConfigFollowingEvaluator:
+    """Rebuild the evaluator when a Rainbond slice reset rewrites the runtime config."""
+
+    def __init__(self, *, config_path: str | Path | None = None, **_: object) -> None:
+        self._config_path = config_path
+        self._evaluator: WebArenaVerifiedEvaluator | None = None
+        self._config: bytes | None = None
 
     def evaluate(self, task: BrowserTask, evidence: TaskEvidence) -> TaskEvaluation:
-        kind = str((task.evaluator or {}).get("kind") or "")
-        if kind == "exact_outputs":
-            return ExactOutputsEvaluator().evaluate(task, evidence)
-        if kind == "webarena_verified":
-            # A Rainbond slice reset rewrites the config with the recreated sites' URLs.
-            config = (
-                Path(self._webarena_config_path).read_bytes()
-                if self._webarena_config_path is not None
-                else None
-            )
-            if self._webarena is None or config != self._webarena_config:
-                self._webarena = WebArenaVerifiedEvaluator(config_path=self._webarena_config_path)
-                self._webarena_config = config
-            return self._webarena.evaluate(task, evidence)
-        raise ValueError(f"unsupported evaluator kind: {kind!r}")
+        config = Path(self._config_path).read_bytes() if self._config_path is not None else None
+        if self._evaluator is None or config != self._config:
+            self._evaluator = WebArenaVerifiedEvaluator(config_path=self._config_path)
+            self._config = config
+        return self._evaluator.evaluate(task, evidence)
+
+
+EVALUATOR_KINDS.register("webarena_verified", _ConfigFollowingEvaluator)

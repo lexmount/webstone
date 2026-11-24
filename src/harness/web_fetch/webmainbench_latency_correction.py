@@ -157,6 +157,7 @@ def competing_benchmark_pids() -> list[int]:
     markers = (
         "-m harness.browser_use.runner",
         "-m harness.trajectory_replay",
+        "webstone trajectory-replay run ",
         "scripts/run_webmainbench_benchmark.py",
         "-m harness.web_fetch run",
         "webstone run ",
