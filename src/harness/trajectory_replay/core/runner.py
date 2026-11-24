@@ -139,8 +139,11 @@ def run_engines(
     """Participants for one run: the profile's methods, optionally narrowed by ``engines``.
 
     Without a profile, ``engines`` selects from ``default`` (the registered engines).
+    A supplied ``engines`` that names nothing is an error, never "all engines".
     """
     selected = tuple(item.strip() for item in (engines or "").split(",") if item.strip())
+    if engines is not None and not selected:
+        raise ValueError("--engines must name at least one engine")
     if profile_path is None:
         return selected or default
     profile = json.loads(Path(profile_path).read_text(encoding="utf-8"))

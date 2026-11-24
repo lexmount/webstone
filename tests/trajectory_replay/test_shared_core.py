@@ -667,3 +667,23 @@ def test_run_artifacts_keep_non_ascii_text_and_hash_the_written_bytes(tmp_path):
         ensure_ascii=False,
     )
     assert (tmp_path / "manifest.json").read_bytes() == f"{expected_manifest}\n".encode()
+
+
+@pytest.mark.parametrize("engines", ["", " ", ","])
+@pytest.mark.parametrize("with_profile", [False, True])
+def test_an_empty_engine_filter_selects_nothing(tmp_path, engines, with_profile):
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"methods": [{"id": "a", "engine": "a"}]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="at least one engine"):
+        core_runner.run_engines(profile if with_profile else None, engines, ("a", "b"))
+
+
+def test_profile_methods_select_and_engines_narrow_in_profile_order(tmp_path):
+    profile = tmp_path / "profile.json"
+    methods = [{"id": "b", "engine": "b"}, {"id": "a", "engine": "a"}]
+    profile.write_text(json.dumps({"methods": methods}), encoding="utf-8")
+    assert core_runner.run_engines(profile, None, ("a", "b", "c")) == ("b", "a")
+    assert core_runner.run_engines(profile, "a,b", ("a", "b", "c")) == ("b", "a")
+    assert core_runner.run_engines(None, None, ("a", "b")) == ("a", "b")
+    with pytest.raises(ValueError, match="not profile methods"):
+        core_runner.run_engines(profile, "c", ("a", "b", "c"))
