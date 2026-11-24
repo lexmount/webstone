@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from harness.adapters import STAGES as FIXED_STAGES
-from harness.adapters import TrackStages, owner_stage
+from harness.adapters import TrackStages
 from harness.report_languages import add_language_argument
 from harness.web_extract.dataset import BENCHMARKS
 from harness.web_extract.pipeline import (
@@ -23,6 +23,8 @@ def build_parser(prog=None):
     parser = argparse.ArgumentParser(prog=prog, description=__doc__)
     parser.add_argument("--home", type=Path)
     sub = parser.add_subparsers(dest="command", required=True)
+    # The certified collection owner parses its own arguments, including --help.
+    sub.add_parser("run", help="Run a certified cohort", add_help=False)
     p = sub.add_parser("model-compare", help="Collect a frozen model-only streaming diagnostic")
     p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
@@ -188,7 +190,15 @@ def build_parser(prog=None):
 
 def main(argv=None, *, prog=None):
     parser = build_parser(prog)
-    args = parser.parse_args(argv)
+    args, remaining = parser.parse_known_args(argv)
+    if args.command == "run":
+        from harness.web_extract.certification import main as certified_run
+
+        home = ["--home", str(args.home)] if args.home is not None else []
+        certified_run([*home, *remaining])
+        return
+    if remaining:
+        parser.error("unrecognized arguments: " + " ".join(remaining))
     if args.command in ("check", "package", "publish") and args.home is None:
         parser.error("Check, package and publish require an explicit --home")
     if args.home is None:
@@ -457,8 +467,6 @@ def _commands():
 
 
 STAGES = TrackStages(
-    run=owner_stage("harness.web_extract.certification", "main",
-                    "Run a certified cohort", takes_argv=True),
     **{name: _command(name) for name in _commands() if name in FIXED_STAGES},
     extra={name: _command(name) for name in _commands() if name not in FIXED_STAGES},
 )

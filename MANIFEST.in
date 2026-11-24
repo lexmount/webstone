@@ -11,7 +11,6 @@ include evaluation/browser-use-public/report-changes.json
 recursive-include src/harness/browser_use/assets *.css *.js *.png
 recursive-include src/harness/trajectory_replay/assets *.css *.js
 recursive-include src/harness/web_fetch/assets *.css
-include src/harness/reporting/report-style.css
 recursive-include src/harness/web_fetch/templates *.css
 recursive-include src/harness/web_search/assets *.css *.js
 

@@ -464,6 +464,6 @@ STAGES = TrackStages(
     score=_parsed("score"),
     report=_parsed("report"),
     **{stage: _owner(owner) for stage, owner in STAGE_OWNERS.items()},
-    extra={"validate": _parsed("validate"), "accounts": _parsed("accounts"),
+    extra={**{name: _parsed(name) for name in ("validate", "accounts", "compose", "revise")},
            **{name: _owner(name) for name in OWNER_COMMANDS}},
 )

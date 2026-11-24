@@ -42,7 +42,7 @@ TEMPLATE_FIELDS = frozenset({
     "execution_owner", "execution_tests", "variants", "benchmark", "profile",
 })
 STAGE_KEYS = frozenset({*STAGES, "build", "release_check", "tests", "example", "example_build",
-                        "example_check", "revision"})
+                        "example_check", "revision", "compose"})
 
 
 def unknown_template_keys(entry):

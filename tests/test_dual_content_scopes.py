@@ -139,7 +139,7 @@ def test_run_and_offline_rescore_can_select_one_scope_or_both(tmp_path, scope):
         assert row['metrics']['evaluation_content_scope'] == scope
     calls = {p: p.read_bytes() for p in (run/'call-logs').rglob('*.json')}
     other = 'full' if scope != 'full' else 'main'
-    result = invoke(tmp_path, 'rescore', run, '--dataset', dataset, '--score-scope', other, language='zh')
+    result = invoke(tmp_path, 'score', run, '--dataset', dataset, '--score-scope', other, language='zh')
     assert result.returncode == 0, result.stdout + result.stderr
     row = json.loads((run/'results.jsonl').read_text(encoding='utf-8'))
     assert row['metrics']['evaluation_content_scope'] == other
@@ -150,7 +150,7 @@ def test_run_and_offline_rescore_can_select_one_scope_or_both(tmp_path, scope):
     altered['cases'][0]['url'] = 'https://different.example.test/task'
     dataset.write_text(json.dumps(altered), encoding='utf-8')
     for selection in ('main', 'full', 'both'):
-        result = invoke(tmp_path, 'rescore', run, '--dataset', dataset, '--score-scope', selection, language='zh')
+        result = invoke(tmp_path, 'score', run, '--dataset', dataset, '--score-scope', selection, language='zh')
         assert result.returncode != 0
         assert 'retrieval task' in result.stderr
         assert (run/'results.jsonl').read_bytes() == saved_results
@@ -192,12 +192,12 @@ def test_offline_scope_changes_preserve_acquisition_and_accept_annotation_correc
     calls = {path: path.read_bytes() for path in (run/'call-logs').rglob('*.json')}
     for args in [('--score-scope', 'main'), ('--score-scope', 'full'),
                  ('--score-scope', 'both'), ('--content-scope', 'full')]:
-        result = invoke(tmp_path, 'rescore', run, '--dataset', dataset, '--no-report', *args, language='zh')
+        result = invoke(tmp_path, 'score', run, '--dataset', dataset, '--no-report', *args, language='zh')
         assert result.returncode == 0, result.stdout + result.stderr
         assert json.loads((run/'manifest.json').read_text(encoding='utf-8'))['acquisition'] == original
     data['cases'][0]['content_scopes']['main']['requirements']['required_facts'][0]['alternatives'] = ['Different required fact']
     dataset.write_text(json.dumps(data), encoding='utf-8')
-    result = invoke(tmp_path, 'rescore', run, '--dataset', dataset, '--no-report', '--score-scope', 'main', language='zh')
+    result = invoke(tmp_path, 'score', run, '--dataset', dataset, '--no-report', '--score-scope', 'main', language='zh')
     assert result.returncode == 0, result.stdout + result.stderr
     row = json.loads((run/'results.jsonl').read_text(encoding='utf-8'))
     assert not task_passed(row['ok'], row['metrics'])
@@ -393,7 +393,7 @@ def test_explicit_run_scope_selects_one_report_and_both_scores(tmp_path, scope):
     assert json.loads((run/'report/dataset.json').read_text(encoding='utf-8'))['content_scope'] == scope
     assert len(list((run/'call-logs').rglob('*.json'))) == 1
     assert not (run/'report/content-scopes').exists()
-    result = invoke(tmp_path,'rescore',run,'--dataset',dataset,'--score-scope','both',
+    result = invoke(tmp_path, 'score',run,'--dataset',dataset,'--score-scope','both',
                     '--content-scope',scope,language='zh')
     assert result.returncode == 0, result.stdout+result.stderr
     assert json.loads((run/'report/dataset.json').read_text(encoding='utf-8'))['content_scope'] == scope

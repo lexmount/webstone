@@ -103,7 +103,7 @@ def test_rescore_no_report_preserves_existing_html_and_reports_staleness(tmp_pat
     (report / 'index.html').write_text('Previous report', encoding='utf-8')
     (report / 'report-languages.json').write_text('not valid JSON', encoding='utf-8')
     before = {path.name: path.read_bytes() for path in report.iterdir()}
-    result = invoke(tmp_path, 'rescore', run, '--dataset', DATASET, '--no-report',
+    result = invoke(tmp_path, 'score', run, '--dataset', DATASET, '--no-report',
                     reject_builder=True, language='unsupported-report-language')
     assert result.returncode == 0, result.stdout + result.stderr
     saved_records(run)
@@ -131,7 +131,7 @@ def test_default_rescore_rebuilds_local_report_without_publication(tmp_path):
     result = run_fixture(tmp_path, no_report=True)
     assert result.returncode == 0, result.stdout + result.stderr
     run = tmp_path / 'run'
-    result = invoke(tmp_path, 'rescore', run, '--dataset', DATASET)
+    result = invoke(tmp_path, 'score', run, '--dataset', DATASET)
     assert result.returncode == 0, result.stdout + result.stderr
     rows = saved_records(run)
     assert (run / 'report/index.html').is_file()
@@ -146,7 +146,7 @@ def test_no_report_rescore_still_rejects_tampered_evidence(tmp_path):
     rows = saved_records(run)
     before = (run / 'results.jsonl').read_bytes()
     (run / rows[0]['artifact_path']).write_text('Changed after collection', encoding='utf-8')
-    result = invoke(tmp_path, 'rescore', run, '--dataset', DATASET, '--no-report', reject_builder=True)
+    result = invoke(tmp_path, 'score', run, '--dataset', DATASET, '--no-report', reject_builder=True)
     assert result.returncode != 0
     assert 'Artifact differs from its result binding' in result.stderr
     assert (run / 'results.jsonl').read_bytes() == before
