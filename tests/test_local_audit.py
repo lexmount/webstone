@@ -425,8 +425,8 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     assert (rebuilt / "logs" / response.name).read_bytes() == response.read_bytes()
     assert json.loads((rebuilt / "report-manifest.json").read_text(encoding="utf-8"))["presentation"]["frozen_scores"]
     rebuilt_manifest = json.loads((rebuilt / "report-manifest.json").read_text(encoding="utf-8"))
-    from harness.reporting.templates import resolve_template
-    assert rebuilt_manifest["template"] == resolve_template("webfetch")
+    from harness.web_fetch.template import report_template
+    assert rebuilt_manifest["template"] == report_template("local-audit")
     assert rebuilt_manifest["generated_languages"] == ["zh", "en"]
     assert rebuilt_manifest["presentation"]["authored_interpretation"] is False
     # Sharing a saved diagnostic must be explicit and retain strict defaults.
@@ -454,7 +454,7 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     from harness.web_fetch.report_check import check
     for invalid_template in (None, {"renderer": "unregistered-renderer"}):
         _write(rebuilt/"report-manifest.json", {**rebuilt_manifest, "template": invalid_template})
-        with pytest.raises(ValueError, match="maintained template"):
+        with pytest.raises(ValueError, match="maintained template|does not record its template"):
             check(rebuilt, authority_root=Path(__file__).resolve().parents[1],
                   presentation_binding=binding_path)
     _write(rebuilt/"report-manifest.json", rebuilt_manifest)

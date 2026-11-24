@@ -15,6 +15,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 
 from harness.distribution import repository_root
+from harness.record_io import read_json
 from harness.report_languages import SUPPORTED_REPORT_LANGUAGES, resolve_report_language
 
 ROOT = repository_root()
@@ -43,7 +44,7 @@ class BuildRequest:
         return {item.name for item in fields(self) if getattr(self, item.name) not in (None, False)}
 
     def profile_data(self):
-        return json.loads(self.profile.read_text(encoding='utf-8')) if self.profile else {}
+        return read_json(self.profile) if self.profile else {}
 
 
 @dataclass(frozen=True)
