@@ -84,7 +84,7 @@ def test_selected_answer_link_cannot_be_redirected(report):
 
 
 def assert_proof_mutations_rejected(output, spec, proof_name, mutations, error='proof differs from validated source'):
-    from harness.web_fetch.report import generate_saved_matrix
+    from harness.web_fetch.report_saved_matrix import generate_saved_matrix
     original = {p.relative_to(output): p.read_bytes() for p in output.rglob('*') if p.is_file()}
     for mutation in mutations:
         model = json.loads(original[Path('matrix.json')])
@@ -536,13 +536,12 @@ def test_jsonl_unicode_separators_are_content(tmp_path, separator):
 
 @pytest.mark.parametrize('stage', ['render', 'check'])
 def test_failed_build_leaves_no_report_and_can_retry(tmp_path, monkeypatch, stage):
-    import harness.web_fetch.report as renderer
     import harness.web_fetch.report_saved_matrix as saved
     spec, _, _, _ = fixture(tmp_path)
     def fail(*args, **kwargs):
         raise ValueError('injected build failure')
     with monkeypatch.context() as patch:
-        patch.setattr(renderer if stage == 'render' else saved,
+        patch.setattr(saved,
                       'generate_saved_matrix' if stage == 'render' else 'check_saved_matrix', fail)
         with pytest.raises(ValueError, match='injected'):
             build(tmp_path, spec)
@@ -816,7 +815,8 @@ def test_unknown_selection_and_symlink_rejected(tmp_path):
 @pytest.mark.parametrize('base', [None, '../'])
 def test_nested_route_links_resolve_from_page_or_base(tmp_path, monkeypatch, base):
     from harness.web_fetch import report
-    original = report.generate_saved_matrix
+    from harness.web_fetch import report_saved_matrix
+    original = report_saved_matrix.generate_saved_matrix
 
     def generate(out, model):
         entry = original(out, model)
@@ -831,7 +831,7 @@ def test_nested_route_links_resolve_from_page_or_base(tmp_path, monkeypatch, bas
                           + '<a href="' + prefix + model['rows'][0]['answer_path'] + '">Answer</a>', encoding='utf-8')
         return entry
 
-    monkeypatch.setattr(report, 'generate_saved_matrix', generate)
+    monkeypatch.setattr(report_saved_matrix, 'generate_saved_matrix', generate)
     spec, _, _, _ = fixture(tmp_path)
     entry = build(tmp_path, spec)
     assert check_saved_matrix(entry.parent)['html_routes_verified'] >= 2
@@ -844,7 +844,8 @@ def test_nested_route_links_resolve_from_page_or_base(tmp_path, monkeypatch, bas
 ])
 def test_nested_route_invalid_target_rejected(tmp_path, monkeypatch, markup, message):
     from harness.web_fetch import report
-    original = report.generate_saved_matrix
+    from harness.web_fetch import report_saved_matrix
+    original = report_saved_matrix.generate_saved_matrix
 
     def generate(out, model):
         entry = original(out, model)
@@ -855,7 +856,7 @@ def test_nested_route_invalid_target_rejected(tmp_path, monkeypatch, markup, mes
         nested.write_text(disclosure + markup, encoding='utf-8')
         return entry
 
-    monkeypatch.setattr(report, 'generate_saved_matrix', generate)
+    monkeypatch.setattr(report_saved_matrix, 'generate_saved_matrix', generate)
     spec, _, _, _ = fixture(tmp_path)
     with pytest.raises(ValueError, match=message):
         build(tmp_path, spec)
@@ -1896,7 +1897,7 @@ def test_source_checker_rejects_modified_executable_assets(report, extension):
 
 
 def test_source_render_does_not_trust_unbound_release_metadata(report):
-    from harness.web_fetch.report import generate_saved_matrix
+    from harness.web_fetch.report_saved_matrix import generate_saved_matrix
     output, spec = report
     model = json.loads((output/'matrix.json').read_text(encoding='utf-8'))
     write(output/'benchmark-release.json', {'version': 'invented-release'})

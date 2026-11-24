@@ -56,6 +56,7 @@ from harness.web_fetch.reference_lifecycle import (
     require_verified_reference_checks,
 )
 from harness.web_fetch.reliability import assess_reliability
+from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report import (
     TRACKS,
     failure_category,
@@ -347,9 +348,9 @@ def _build_frozen_presentation(source, output, presentation_binding, *,
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
         if release_binding:
             manifest['benchmark_release'] = release_binding
-        generate(staging, dataset, records, batches, include_english=include_english,
+        generate(staging, report_model(dataset, records, batches, include_english=include_english,
                  authored_interpretation=authored_interpretation,
-                 show_local_status_banners=show_local_status_banners, frozen_scores=True)
+                 show_local_status_banners=show_local_status_banners, frozen_scores=True))
         # Scores remain frozen, but cached inventory/summary files must describe
         # those exact current scores after an explicitly bound offline revision.
         write_frozen_result_summary(staging, dataset, records)
@@ -908,9 +909,9 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         original_scope = dataset.get('content_scope')
         dataset, records = _select_report_scope(staging, dataset, records, content_scope)
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
-        generate(staging, dataset, records, manifests, include_english=include_english,
+        generate(staging, report_model(dataset, records, manifests, include_english=include_english,
                  authored_interpretation=authored_interpretation if dataset.get('content_scope') == original_scope else False,
-                 show_local_status_banners=show_local_status_banners)
+                 show_local_status_banners=show_local_status_banners))
         if language is not None:
             select_report_language(staging, language)
         from harness.report_languages import generated_languages
@@ -1812,12 +1813,12 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         staging = Path(scratch) / 'report'
         shutil.copytree(output, staging, copy_function=copy_evidence_file)
         batches = json.loads((output / 'execution.json').read_text(encoding='utf-8'))['batches']
-        generate(staging, dataset, records, batches, include_english=include_english, presentation_only=True,
+        generate(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
                  frozen_scores=True, authored_interpretation=authored_interpretation,
                  detail_attempt_ids=detail_attempt_ids,
                  diagnostic_view_paths=diagnostic_view_paths,
                  dataset_case_ids=dataset_case_ids,
-                 english_routes=[r for r in routes if r.endswith('.html') and not r.startswith('en/')])
+                 english_routes=[r for r in routes if r.endswith('.html') and not r.startswith('en/')]))
         if revised_attempt_ids or dataset_case_ids:
             write_frozen_result_summary(staging, dataset, records)
         changed = []

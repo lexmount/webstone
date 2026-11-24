@@ -178,7 +178,7 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
 def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), ascending=False):
     """Use the report owner's ranking and extrema implementation on saved cells."""
     from bs4 import BeautifulSoup
-    from harness.web_fetch.report import comparative_rows, shared_ranks, RenderContext, _RENDER_CONTEXT
+    from harness.web_fetch.report import comparative_rows, rendering, shared_ranks
     for emphasis in table.select('strong'):
         emphasis.unwrap()
     rows = table.tbody.find_all('tr', recursive=False)
@@ -186,11 +186,8 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
     scores = [float(row.find_all('td')[score_column]['data-sort']) * (-1 if ascending else 1) for row in rows]
     directions = {c: ('saved_metric_' + str(c), 'min') for c in minimize}
     directions.update({c: ('saved_metric_' + str(c), 'max') for c in maximize})
-    token = _RENDER_CONTEXT.set(RenderContext(descriptive_ranks=True))
-    try:
+    with rendering(descriptive_ranks=True):
         highlighted = comparative_rows([('', ''.join(str(c) for c in row.find_all('td', recursive=False))) for row in rows], directions)
-    finally:
-        _RENDER_CONTEXT.reset(token)
     table.tbody.clear()
     for (_, cells), rank in zip(highlighted, shared_ranks(scores), strict=True):
         row = BeautifulSoup('<tr>' + cells + '</tr>', 'html.parser').tr
@@ -309,11 +306,10 @@ def _shared_presentations(output):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
     cases, records, providers, suites, views = _joined_presentation(output)
-    labels = {p['id']: p.get('label', p['id']) for p in providers}
-    tokens = [(renderer._REPORT_PROVIDER_LABELS, renderer._REPORT_PROVIDER_LABELS.set(labels)),
-              (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
-              (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
-    try:
+    from harness.web_fetch.report_model import report_model
+    model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
+    labels = model.labels
+    with renderer.rendering(model, descriptive_ranks=True, result_views=views):
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall,
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
@@ -322,9 +318,6 @@ def _shared_presentations(output):
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
                 'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
-    finally:
-        for variable, token in reversed(tokens):
-            variable.reset(token)
 
 
 def _unified_home(page, base_model, added_model, presentation):
@@ -1109,7 +1102,7 @@ def composition_model(output, spec, snapshots):
 
 
 def build_composition(spec_path, output):
-    from harness.web_fetch.report import generate_saved_matrix
+    from harness.web_fetch.report_saved_matrix import generate_saved_matrix
     from harness.web_fetch.report_saved_matrix import _path, _write, check_saved_matrix
     spec = _read(spec_path)
     if spec.get('schema_version') != 1 or not isinstance(spec.get('saved_reports'), list):

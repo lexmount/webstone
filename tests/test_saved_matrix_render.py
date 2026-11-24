@@ -383,7 +383,8 @@ def test_nested_suite_names_partition_by_identity(tmp_path):
 @pytest.mark.parametrize('diagnostic', [False, True])
 @pytest.mark.parametrize('tie', [False, True])
 def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
-    from harness.web_fetch.report import ranking, _REPORT_SUITES
+    from harness.web_fetch.report import ranking, rendering
+    from harness.web_fetch.report_model import report_model
     cases = {'a': {'id': 'a', 'report_family': 'suite'},
              'b': {'id': 'b', 'report_family': 'suite'}}
     records = [dict(provider=provider, case_id=cid, ok=True,
@@ -391,11 +392,10 @@ def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
                for provider, cid, passed in [('alphabetic-first','a',True),
                    ('alphabetic-first','b',tie), ('z-winner','a',True),
                    ('z-winner','b',True)]]
-    token = _REPORT_SUITES.set(({'id': 'suite'},))
-    try:
+    model = report_model({'cases': list(cases.values())}, records,
+                         suites=[{'id': 'suite', 'label': 'Suite', 'case_ids': list(cases)}])
+    with rendering(model):
         soup = BeautifulSoup(ranking(records,cases,'suite',diagnostic=diagnostic),'html.parser')
-    finally:
-        _REPORT_SUITES.reset(token)
     table = soup.select_one('#ranking-suite')
     rows = soup.select('tbody tr')
     assert ('alphabetic-first' if tie else 'z-winner') in rows[0].get_text()
@@ -412,11 +412,12 @@ def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
 
 def test_ordinary_english_generation_localizes_all_final_call_timing_text(tmp_path):
     from harness.web_fetch.report import generate
+    from harness.web_fetch.report_model import report_model
     from harness.web_fetch.report_i18n import saved_matrix_text, TEXT
     _, source, record, _ = fixture(tmp_path)
     dataset = json.loads((source/'dataset.json').read_text(encoding='utf-8'))
-    generate(source, dataset, [record], [], include_english=True,
-             authored_interpretation=False, frozen_scores=True)
+    generate(source, report_model(dataset, [record], [], include_english=True,
+             authored_interpretation=False, frozen_scores=True))
     page = BeautifulSoup((source/'en/index.html').read_text(encoding='utf-8'), 'html.parser')
     overview = page.select_one('#overall-ranking').get_text(' ', strip=True)
     strings = [*saved_matrix_text('final_call_timing_headers'),
@@ -515,7 +516,7 @@ def test_external_report_labels_are_text(tmp_path, family_override):
 
 
 def test_same_ranked_case_requires_one_definition_across_providers(tmp_path):
-    from harness.web_fetch.report import generate_saved_matrix
+    from harness.web_fetch.report_saved_matrix import generate_saved_matrix
 
     spec, source, record, raw = fixture(tmp_path)
     spec['providers'].append({'id': 'other', 'label': 'Other'})

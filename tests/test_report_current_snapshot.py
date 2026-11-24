@@ -10,6 +10,7 @@ from unittest.mock import patch
 from bs4 import BeautifulSoup
 
 from harness.web_fetch import report
+from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report_i18n import localize_html
 from tests.test_report_body_scope import case, record
 
@@ -39,7 +40,7 @@ def test_concurrent_report_builds_keep_status_and_language_separate(tmp_path, mo
             row['provider_type'] = 'synthetic_other'
         (out/row['artifact_path']).parent.mkdir(parents=True)
         (out/row['artifact_path']).write_text('output', encoding='utf-8')
-        report.generate(out, {'cases': [c]}, [row], [], include_english=fixture)
+        report.generate(out, report_model({'cases': [c]}, [row], [], include_english=fixture))
         return (out/'index.html').read_text(encoding='utf-8')
 
     with ThreadPoolExecutor(max_workers=2) as pool:
