@@ -1,0 +1,1115 @@
+{
+ "report": {
+  "pages": {
+   "accounts/index.html": {
+    "headings": [
+     "h1: 本地站点账号、模型权限与发布权限分开处理",
+     "h2: 权限与费用"
+    ],
+    "tables": [
+     [
+      "范围 | 本轮做法 | 外部付费账号",
+      "四个自托管站点 | 官方 Docker 镜像与内置测试账号；每题前重置 | 不需要",
+      "模型 API | GPT-5.6 Sol, reasoning=未记录 | 需要相应 API 权限",
+      "Artifact Site | 只发布脱敏静态报告 | 发布者需已有站点权限"
+     ]
+    ]
+   },
+   "adoption/index.html": {
+    "headings": [
+     "h1: 被测浏览器与固定实验条件",
+     "h2: 浏览器与版本",
+     "h2: 共同实验条件",
+     "h2: 增加新的浏览器"
+    ],
+    "tables": [
+     [
+      "模型 | 浏览器 | 运行版本 | 镜像 ID | 接入方式 | 通过任务",
+      "GPT-5.6 Sol | Chromium | — | — | 独立容器 · CDP · CowAgent BrowserTool | 1/1",
+      "GPT-5.6 Sol | Moli 1.1.3 | — | — | 独立容器 · CDP · CowAgent BrowserTool | 0/1"
+     ],
+     [
+      "栈字段 | 本轮固定值 | 角色",
+      "Agent | CowAgent · commit — | 自主观察、规划并调用 BrowserTool",
+      "模型 | GPT-5.6 Sol · reasoning=— | 作为分层变量为各浏览器生成决策",
+      "任务与站点 | 同一 90 题；同一批本地站点镜像 | 提供一致输入与网页状态",
+      "动作接口 | CowAgent BrowserTool · CDP | 把 Agent 动作交给浏览器",
+      "验收 | WebArena‑Verified 1.2.3 官方 evaluator | 对最终 JSON 与必要网络副作用判分",
+      "资源与上限 | 相同 CPU、内存与最多 未记录 步；历史视口未统一 | 控制运行预算"
+     ]
+    ]
+   },
+   "analysis/index.html": {
+    "headings": [
+     "h1: 结果分析",
+     "h2: 完整 90 题结果入口",
+     "h2: 同题全配置对比：完整 90 题",
+     "h3: 同题全配置矩阵",
+     "h2: BrowserTool 动作延迟",
+     "h2: 2 个结果与失败诊断",
+     "h2: Task #44 · GPT-5.6 Sol · Moli 1.1.3",
+     "h3: 程序报错",
+     "h3: 复核结论"
+    ],
+    "tables": [
+     [
+      "任务 | GPT-5.6 SolChromium | GPT-5.6 SolMoli 1.1.3",
+      "#44 · 打开一个需要登录的 GitLab 目标页简单GitLabNAVIGATE | 通过 | 失败",
+      "#41 · 打开一份报表并读取第一个条目简单Shopping AdminRETRIEVE | 未测 | 未测",
+      "#77 · 打开评论列表并读取一种状态的数量简单Shopping AdminRETRIEVE | 未测 | 未测",
+      "#94 · 搜索一张发票并读取总金额简单Shopping AdminRETRIEVE | 未测 | 未测",
+      "#404 · 进入一个论坛、选择最新帖子并点赞简单RedditMUTATE | 未测 | 未测",
+      "#313 · 从商城页面直接读取客服号码简单ShoppingRETRIEVE | 未测 | 未测",
+      "#274 · 提交一个商品关键词并停留在搜索结果页简单ShoppingNAVIGATE | 未测 | 未测",
+      "#260 · 从商城导航进入指定品类页简单ShoppingNAVIGATE | 未测 | 未测",
+      "#386 · 搜索一个明确商品并读取评分简单ShoppingRETRIEVE | 未测 | 未测",
+      "#374 · 在后台导航到指定主题设置页简单Shopping AdminNAVIGATE | 未测 | 未测",
+      "#157 · 在后台打开全部客户详情视图简单Shopping AdminNAVIGATE | 未测 | 未测",
+      "#595 · 从指定论坛热门帖子页完成订阅简单RedditMUTATE | 未测 | 未测",
+      "#645 · 在已知论坛发布只有标题的新帖子简单RedditMUTATE | 未测 | 未测",
+      "#156 · 打开分配给当前用户的合并请求页简单GitLabNAVIGATE | 未测 | 未测",
+      "#258 · 打开 GitLab 公共项目列表简单GitLabNAVIGATE | 未测 | 未测",
+      "#45 · 进入项目议题列表并应用排序和状态筛选中等GitLabNAVIGATE | 未测 | 未测",
+      "#118 · 把需求转成商品查询并打开匹配详情页中等ShoppingNAVIGATE | 未测 | 未测",
+      "#117 · 进入订单历史，经翻页或排序后读取最早日期中等ShoppingRETRIEVE | 未测 | 未测",
+      "#132 · 找到项目贡献者活动页并限定一个日期中等GitLabRETRIEVE | 未测 | 未测",
+      "... 71 more rows"
+     ],
+     [
+      "结果 | 运行配置 | 任务 | 判定 | 失败位置 | 程序自动定位 | 复核根因 | 负责对象与处理 | 证据",
+      "gpt-5.6-sol-chromium-44 | GPT-5.6 SolChromium | #44 | 通过 | — | — | — | — | 详情",
+      "gpt-5.6-sol-moli-44 | GPT-5.6 SolMoli 1.1.3 | #44 | 失败 | 第 1 步后的最终回答/任务状态 | — | 待复核 | Agent / 模型保留为目标变量；按轨迹修正策略或工具合同 | 查看诊断"
+     ]
+    ]
+   },
+   "changes/index.html": {
+    "headings": [
+     "h1: 报告版本说明"
+    ]
+   },
+   "datasets/44.html": {
+    "headings": [
+     "h1: 打开一个需要登录的 GitLab 目标页",
+     "h2: 任务身份",
+     "h3: 公开任务意图",
+     "h2: Ground truth · 官方验收合同",
+     "h3: 规则 1 · AgentResponseEvaluator",
+     "h3: 规则 2 · NetworkEventEvaluator",
+     "h2: 查看本题运行结果"
+    ]
+   },
+   "datasets/index.html": {
+    "headings": [
+     "h1: 候选 benchmark、选择依据与 90 个预注册任务",
+     "h2: 公开采用信号 Top 3",
+     "h3: Mind2Web 家族 · 5 家",
+     "h3: WebArena 家族 · 3 家",
+     "h3: WebVoyager 家族 · 2 家",
+     "h2: Mind2Web 的拆分不是 easy / medium / hard",
+     "h2: 怎样阅读任务 ground truth",
+     "h2: 题集范围",
+     "h2: 90 个任务"
+    ],
+    "tables": [
+     [
+      "任务 ↕ | 层级 ↕ | 站点 ↕ | 类型 ↕ | 最少步 ↕ | 入选理由 ↕ | 官方任务意图 ↕ | 官方 Hard ↕ | 任务合同 ↕",
+      "#44 | 简单 | GitLab | NAVIGATE | 2 | 打开一个需要登录的 GitLab 目标页 | Open my todos page | 是 | 查看任务合同",
+      "#41 | 简单 | Shopping Admin | RETRIEVE | 3 | 打开一份报表并读取第一个条目 | Get the top 1 search term(s) in my store | 否 | 查看任务合同",
+      "#77 | 简单 | Shopping Admin | RETRIEVE | 3 | 打开评论列表并读取一种状态的数量 | Get the total number of Pending reviews amongst all the reviews | 否 | 查看任务合同",
+      "#94 | 简单 | Shopping Admin | RETRIEVE | 4 | 搜索一张发票并读取总金额 | Get the grand total of invoice 000000001. Return the value as a number (e.g., 10.99) only, without any additional details. | 否 | 查看任务合同",
+      "#404 | 简单 | Reddit | MUTATE | 4 | 进入一个论坛、选择最新帖子并点赞 | Upvote the newest post in books forum | 否 | 查看任务合同",
+      "#313 | 简单 | Shopping | RETRIEVE | 2 | 从商城页面直接读取客服号码 | Get the customer service phone number | 否 | 查看任务合同",
+      "#274 | 简单 | Shopping | NAVIGATE | 3 | 提交一个商品关键词并停留在搜索结果页 | Open the search results for \"usb wifi\" | 否 | 查看任务合同",
+      "#260 | 简单 | Shopping | NAVIGATE | 2 | 从商城导航进入指定品类页 | Open the Video Game category page to browse products | 否 | 查看任务合同",
+      "#386 | 简单 | Shopping | RETRIEVE | 4 | 搜索一个明确商品并读取评分 | What is the rating of Ugreen lightning to 3.5mm cable? | 否 | 查看任务合同",
+      "#374 | 简单 | Shopping Admin | NAVIGATE | 3 | 在后台导航到指定主题设置页 | Go to the Magento Blank theme settings page | 否 | 查看任务合同",
+      "#157 | 简单 | Shopping Admin | NAVIGATE | 3 | 在后台打开全部客户详情视图 | View the details of all customers | 是 | 查看任务合同",
+      "#595 | 简单 | Reddit | MUTATE | 4 | 从指定论坛热门帖子页完成订阅 | Subscribe to the \"space\" forum from the page of the hottest post in that forum. | 否 | 查看任务合同",
+      "#645 | 简单 | Reddit | MUTATE | 4 | 在已知论坛发布只有标题的新帖子 | Post in books forum with title \"What could machine learning help the books field?\" | 是 | 查看任务合同",
+      "#156 | 简单 | GitLab | NAVIGATE | 2 | 打开分配给当前用户的合并请求页 | Go to the merge requests assigned to me | 是 | 查看任务合同",
+      "#258 | 简单 | GitLab | NAVIGATE | 2 | 打开 GitLab 公共项目列表 | Open the public projects listing | 否 | 查看任务合同",
+      "#45 | 中等 | GitLab | NAVIGATE | 5 | 进入项目议题列表并应用排序和状态筛选 | Open the issues page for the current project filtered to the most recent open issues | 否 | 查看任务合同",
+      "#118 | 中等 | Shopping | NAVIGATE | 5 | 把需求转成商品查询并打开匹配详情页 | I have a jaw bruxism problem, go to the product page for something that could alleviate the problem. | 否 | 查看任务合同",
+      "#117 | 中等 | Shopping | RETRIEVE | 6 | 进入订单历史，经翻页或排序后读取最早日期 | Get the date when I made my first purchase on this site. Return the date in YYYY-MM-DD format or null if not available, without any additional details. | 否 | 查看任务合同",
+      "#132 | 中等 | GitLab | RETRIEVE | 6 | 找到项目贡献者活动页并限定一个日期 | How many commits did kilian make to a11yproject.com on March 5, 2023? | 否 | 查看任务合同",
+      "... 71 more rows"
+     ]
+    ]
+   },
+   "en/accounts/index.html": {
+    "headings": [
+     "h1: Local site accounts, model access, and publication access are separate",
+     "h2: Access and cost"
+    ],
+    "tables": [
+     [
+      "Scope | Configuration in this run | Paid external account",
+      "Four self-hosted sites | Official Docker images and built-in test accounts; reset before each task | Not required",
+      "Model API | GPT-5.6 Sol, reasoning=Not recorded | Corresponding API access required",
+      "Artifact Site | Publishes only the sanitized static report | Publisher must already have site access"
+     ]
+    ]
+   },
+   "en/adoption/index.html": {
+    "headings": [
+     "h1: Browsers tested and fixed experimental controls",
+     "h2: Browsers and versions",
+     "h2: Shared experimental conditions",
+     "h2: Adding another browser"
+    ],
+    "tables": [
+     [
+      "Model | Browser | Runtime version | Image ID | Integration | Tasks passed",
+      "GPT-5.6 Sol | Chromium | — | — | Dedicated container · CDP · CowAgent BrowserTool | 1/1",
+      "GPT-5.6 Sol | Moli 1.1.3 | — | — | Dedicated container · CDP · CowAgent BrowserTool | 0/1"
+     ],
+     [
+      "Stack field | Fixed value in this run | Role",
+      "Agent | CowAgent · commit — | Observe, plan, and call BrowserTool autonomously",
+      "Model | GPT-5.6 Sol · reasoning=— | Generates browser decisions within each separately reported model run",
+      "Tasks and sites | Same 90 tasks; same local site images | Provide identical inputs and website state",
+      "Action interface | CowAgent BrowserTool · CDP | Deliver agent actions to the browser",
+      "Evaluation | Official WebArena-Verified 1.2.3 evaluator | Score final JSON and required network side effects",
+      "Resources and limits | Same CPU, memory, and up to an unrecorded number of steps; historical viewports differed | Control the execution budget"
+     ]
+    ]
+   },
+   "en/analysis/index.html": {
+    "headings": [
+     "h1: Results analysis",
+     "h2: Complete 90-task results entry",
+     "h2: Same-task comparison across all configurations: complete 90-task set",
+     "h3: Same-task all-configuration matrix",
+     "h2: BrowserTool action latency",
+     "h2: 2 results and failure diagnoses",
+     "h2: Task #44 · GPT-5.6 Sol · Moli 1.1.3",
+     "h3: Program error",
+     "h3: Reviewed conclusion"
+    ],
+    "tables": [
+     [
+      "Task | GPT-5.6 SolChromium | GPT-5.6 SolMoli 1.1.3",
+      "#44 · 打开一个需要登录的 GitLab 目标页EasyGitLabNAVIGATE | Pass | Fail",
+      "#41 · 打开一份报表并读取第一个条目EasyShopping AdminRETRIEVE | Not measured | Not measured",
+      "#77 · 打开评论列表并读取一种状态的数量EasyShopping AdminRETRIEVE | Not measured | Not measured",
+      "#94 · 搜索一张发票并读取总金额EasyShopping AdminRETRIEVE | Not measured | Not measured",
+      "#404 · 进入一个论坛、选择最新帖子并点赞EasyRedditMUTATE | Not measured | Not measured",
+      "#313 · 从商城页面直接读取客服号码EasyShoppingRETRIEVE | Not measured | Not measured",
+      "#274 · 提交一个商品关键词并停留在搜索结果页EasyShoppingNAVIGATE | Not measured | Not measured",
+      "#260 · 从商城导航进入指定品类页EasyShoppingNAVIGATE | Not measured | Not measured",
+      "#386 · 搜索一个明确商品并读取评分EasyShoppingRETRIEVE | Not measured | Not measured",
+      "#374 · 在后台导航到指定主题设置页EasyShopping AdminNAVIGATE | Not measured | Not measured",
+      "#157 · 在后台打开全部客户详情视图EasyShopping AdminNAVIGATE | Not measured | Not measured",
+      "#595 · 从指定论坛热门帖子页完成订阅EasyRedditMUTATE | Not measured | Not measured",
+      "#645 · 在已知论坛发布只有标题的新帖子EasyRedditMUTATE | Not measured | Not measured",
+      "#156 · 打开分配给当前用户的合并请求页EasyGitLabNAVIGATE | Not measured | Not measured",
+      "#258 · 打开 GitLab 公共项目列表EasyGitLabNAVIGATE | Not measured | Not measured",
+      "#45 · 进入项目议题列表并应用排序和状态筛选MediumGitLabNAVIGATE | Not measured | Not measured",
+      "#118 · 把需求转成商品查询并打开匹配详情页MediumShoppingNAVIGATE | Not measured | Not measured",
+      "#117 · 进入订单历史，经翻页或排序后读取最早日期MediumShoppingRETRIEVE | Not measured | Not measured",
+      "#132 · 找到项目贡献者活动页并限定一个日期MediumGitLabRETRIEVE | Not measured | Not measured",
+      "... 71 more rows"
+     ],
+     [
+      "Result | Run configuration | Task | Verdict | Failure stage | Automatic failure locator | Reviewed root cause | Owner and treatment | Evidence",
+      "gpt-5.6-sol-chromium-44 | GPT-5.6 SolChromium | #44 | Pass | — | — | — | — | Details",
+      "gpt-5.6-sol-moli-44 | GPT-5.6 SolMoli 1.1.3 | #44 | Fail | After 1 steps: final answer/task state | — | Awaiting review | Agent / modelKeep as a target-variable signal; improve the strategy or tool contract from the trajectory | Open diagnosis"
+     ]
+    ]
+   },
+   "en/changes/index.html": {
+    "headings": [
+     "h1: Changelog"
+    ]
+   },
+   "en/datasets/44.html": {
+    "headings": [
+     "h1: Open an authenticated GitLab target page",
+     "h2: Task identity",
+     "h3: Public task intent",
+     "h2: Ground truth · official acceptance contract",
+     "h3: Rule 1 · AgentResponseEvaluator",
+     "h3: Rule 2 · NetworkEventEvaluator",
+     "h2: View measured results for this task"
+    ]
+   },
+   "en/datasets/index.html": {
+    "headings": [
+     "h1: Candidate benchmarks, selection rationale and 90 preregistered tasks",
+     "h2: Top three public adoption signals",
+     "h3: Mind2Web family · 5 organizations",
+     "h3: WebArena family · 3 organizations",
+     "h3: WebVoyager family · 2 organizations",
+     "h2: Mind2Web splits are not easy, medium, and hard",
+     "h2: How to read task ground truth",
+     "h2: Dataset scope",
+     "h2: 90 tasks"
+    ],
+    "tables": [
+     [
+      "Task ↕ | Tier ↕ | Site ↕ | Family ↕ | Minimum steps ↕ | Selection rationale ↕ | Official task intent ↕ | Official hard subset ↕ | Task contract ↕",
+      "#44 | Easy | GitLab | NAVIGATE | 2 | Open an authenticated GitLab target page | Open my todos page | Yes | View task contract",
+      "#41 | Easy | Shopping Admin | RETRIEVE | 3 | Open a report and read its first entry | Get the top 1 search term(s) in my store | No | View task contract",
+      "#77 | Easy | Shopping Admin | RETRIEVE | 3 | Open a review list and read the count for one status | Get the total number of Pending reviews amongst all the reviews | No | View task contract",
+      "#94 | Easy | Shopping Admin | RETRIEVE | 4 | Search for an invoice and read its total | Get the grand total of invoice 000000001. Return the value as a number (e.g., 10.99) only, without any additional details. | No | View task contract",
+      "#404 | Easy | Reddit | MUTATE | 4 | Enter a forum, choose the newest post, and upvote it | Upvote the newest post in books forum | No | View task contract",
+      "#313 | Easy | Shopping | RETRIEVE | 2 | 从商城页面直接读取客服号码 | Get the customer service phone number | No | View task contract",
+      "#274 | Easy | Shopping | NAVIGATE | 3 | 提交一个商品关键词并停留在搜索结果页 | Open the search results for \"usb wifi\" | No | View task contract",
+      "#260 | Easy | Shopping | NAVIGATE | 2 | 从商城导航进入指定品类页 | Open the Video Game category page to browse products | No | View task contract",
+      "#386 | Easy | Shopping | RETRIEVE | 4 | 搜索一个明确商品并读取评分 | What is the rating of Ugreen lightning to 3.5mm cable? | No | View task contract",
+      "#374 | Easy | Shopping Admin | NAVIGATE | 3 | 在后台导航到指定主题设置页 | Go to the Magento Blank theme settings page | No | View task contract",
+      "#157 | Easy | Shopping Admin | NAVIGATE | 3 | 在后台打开全部客户详情视图 | View the details of all customers | Yes | View task contract",
+      "#595 | Easy | Reddit | MUTATE | 4 | 从指定论坛热门帖子页完成订阅 | Subscribe to the \"space\" forum from the page of the hottest post in that forum. | No | View task contract",
+      "#645 | Easy | Reddit | MUTATE | 4 | 在已知论坛发布只有标题的新帖子 | Post in books forum with title \"What could machine learning help the books field?\" | Yes | View task contract",
+      "#156 | Easy | GitLab | NAVIGATE | 2 | 打开分配给当前用户的合并请求页 | Go to the merge requests assigned to me | Yes | View task contract",
+      "#258 | Easy | GitLab | NAVIGATE | 2 | 打开 GitLab 公共项目列表 | Open the public projects listing | No | View task contract",
+      "#45 | Medium | GitLab | NAVIGATE | 5 | Open a project's issue list and apply sorting and status filters | Open the issues page for the current project filtered to the most recent open issues | No | View task contract",
+      "#118 | Medium | Shopping | NAVIGATE | 5 | Turn a requirement into a product query and open the matching detail page | I have a jaw bruxism problem, go to the product page for something that could alleviate the problem. | No | View task contract",
+      "#117 | Medium | Shopping | RETRIEVE | 6 | Open order history and read the earliest date after paging or sorting | Get the date when I made my first purchase on this site. Return the date in YYYY-MM-DD format or null if not available, without any additional details. | No | View task contract",
+      "#132 | Medium | GitLab | RETRIEVE | 6 | Find a project's contributor activity page and constrain it to one date | How many commits did kilian make to a11yproject.com on March 5, 2023? | No | View task contract",
+      "... 71 more rows"
+     ]
+    ]
+   },
+   "en/engines/chromium.html": {
+    "headings": [
+     "h1: Chromium",
+     "h2: Runtime identity",
+     "h2: View all results for this browser"
+    ],
+    "tables": [
+     [
+      "Field | Value",
+      "Browser | —",
+      "DevTools Protocol | —",
+      "Architecture | —",
+      "Image ID | —",
+      "Task scores by model cohort | GPT-5.6 Sol 1/1",
+      "P50 logical-result latency by model cohort | GPT-5.6 Sol 1.9 s"
+     ]
+    ]
+   },
+   "en/engines/moli.html": {
+    "headings": [
+     "h1: Moli 1.1.3",
+     "h2: Runtime identity",
+     "h2: View all results for this browser"
+    ],
+    "tables": [
+     [
+      "Field | Value",
+      "Browser | —",
+      "DevTools Protocol | —",
+      "Architecture | —",
+      "Image ID | —",
+      "Task scores by model cohort | GPT-5.6 Sol 0/1",
+      "P50 logical-result latency by model cohort | GPT-5.6 Sol 0.8 s"
+     ]
+    ]
+   },
+   "en/evidence-viewer.html": {
+    "headings": [
+     "h1: Complete execution evidence",
+     "h2: Execution evidence JSON"
+    ]
+   },
+   "en/fixes/index.html": {
+    "headings": [
+     "h1: Fix log"
+    ]
+   },
+   "en/index.html": {
+    "headings": [
+     "h1: Browser Use results across 90 declared tasks",
+     "h2: Core metrics across 90 tasks",
+     "h2: Compare browsers task by task",
+     "h2: Programmatic failure location and reviewed root cause",
+     "h3: GPT-5.6 Sol × Moli 1.1.3",
+     "h3: Official results and post-hoc diagnostics",
+     "h2: Review coverage and boundaries",
+     "h3: Evidence integrity",
+     "h3: Official programmatic evaluation",
+     "h3: Failure root-cause review",
+     "h2: Latency and browser resources across 90 tasks",
+     "h2: Performance and resources on common final successes"
+    ],
+    "tables": [
+     [
+      "Model | Browser | Tasks passed | Pass rate | Agent total time | BrowserTool latency | Tokens",
+      "GPT-5.6 Sol | Chromium | 1/1Best | 100.0%Best | Mean1.9 secondsP501.9 secondsP951.9 seconds | Mean0.3 secondsP500.3 secondsP950.3 seconds | Mean300P50300P95300",
+      "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0% | Mean0.8 secondsBestP500.8 secondsBestP950.8 secondsBest | Mean0.1 secondsBestP500.1 secondsBestP950.1 secondsBest | Mean80BestP5080BestP9580Best"
+     ],
+     [
+      "Model | Browser A | Browser B | Matched tasks | Both passed | A passed, B failed | A failed, B passed | Both failed",
+      "GPT-5.6 Sol | Chromium | Moli 1.1.3 | 1 | 0 | 1 | 0 | 0"
+     ],
+     [
+      "Cause scope | Failed results | Treatment in this run | Fix and verification"
+     ],
+     [
+      "Model | Browser | <span data-report-en=\"Passes across 90 tasks\">Passes on 90 tasks</span> | Pass rate",
+      "GPT-5.6 Sol | Chromium | 1/1 | 100.0%",
+      "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0%"
+     ],
+     [
+      "Model | Browser | CPU time | Mean single-core CPU utilization | Time-weighted mean memory | Peak memory | Network received | Network transmitted",
+      "GPT-5.6 Sol | Chromium | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95—",
+      "GPT-5.6 Sol | Moli 1.1.3 | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95— | Mean—P50—P95—"
+     ],
+     [
+      "Model | Browser | Agent path P50 | BrowserTool P50 | Tokens P50 | Peak memory P50 | CPU time P50",
+      "GPT-5.6 Sol | Chromium | — | — | — | — | —",
+      "GPT-5.6 Sol | Moli 1.1.3 | — | — | — | — | —"
+     ]
+    ]
+   },
+   "en/methodology/index.html": {
+    "headings": [
+     "h1: Evaluate final outcomes, not a reference click path",
+     "h2: Acceptance boundaries of candidate benchmarks",
+     "h2: Scoring chain for this run",
+     "h2: How the 90 tasks were deployed and run by the agent",
+     "h2: Fixed protocol",
+     "h2: What the two programmatic evaluators check"
+    ],
+    "tables": [
+     [
+      "Benchmark | What it evaluates | Acceptance target | Scoring | Limit",
+      "WebArena‑Verified | Self-hosted interactive websites | Final JSON plus required network side effects | Programmatic; no LLM judge | Heavy deployment; strongest fit for browser A/B testing",
+      "Mind2Web | Offline webpage snapshots | Target element and action at each step | Programmatic action metrics | Evaluates process imitation",
+      "Online‑Mind2Web | 136 live websites | Action history and final completion | WebJudge plus human labels | Drift, CAPTCHA, and judge bias",
+      "WebVoyager | Visual interaction with live websites | Final answer and execution evidence | Multimodal LLM plus human verification | Weaker exact reproducibility",
+      "Mind2Web 2 | Long-horizon multi-site search | Research answer with citations | Rubric Agent-as-a-Judge | Not the first choice for UI browser cores",
+      "BU Bench V1 | 100 mixed tasks | Final outcomes and trajectories | Google judge LLM | Cloud-browser conditions affect comparability",
+      "Odysseys | 200 long-horizon multi-site tasks | Rubric completion | Model grading | High cost"
+     ],
+     [
+      "Evaluator | Tasks",
+      "AgentResponseEvaluator | 90",
+      "NetworkEventEvaluator | 64"
+     ],
+     [
+      "Environment field | Recorded identity",
+      "Host | —",
+      "Docker context | —",
+      "Site access host | Not recorded"
+     ],
+     [
+      "Site | Selected tasks | Recorded image",
+      "GitLab | 22 | —",
+      "Reddit | 22 | —",
+      "Shopping | 23 | —",
+      "Shopping Admin | 23 | —"
+     ],
+     [
+      "Item | Rule",
+      "Agent / model | CowAgent; GPT-5.6 Sol; reasoning effort Not recorded",
+      "Planned and actual controls | Model, prompt, tool, resource and environment controls follow the frozen configuration and recorded executions.",
+      "Logical results | One retained logical result per task, model and browser; binary acceptance and task-paired comparison.",
+      "Execution limit | Frozen execution limit per task: not recorded; execution latency and model usage are cumulative.",
+      "Exclusions | Only tasks and acceptance contracts in the frozen selection are reported.",
+      "Judge | Official programmatic evaluators; no LLM judge; no manual score changes"
+     ],
+     [
+      "Evaluator | Input | Comparison | What it establishes | What it does not establish",
+      "AgentResponseEvaluator | Agent final JSON | Normalize by JSON schema and data type, then compare task_type, status, and retrieved_data; each task may declare ordered or unordered lists. | The final answer satisfies the task's public answer contract. | It does not inspect which UI path produced the answer or evaluate action efficiency.",
+      "NetworkEventEvaluator | HAR from this browser attempt | Match URL, method, status code, and, when declared, query, POST, response-field, or cookie conditions in network events. | Navigation or state changes produced the specified observable side effect. | It does not require a fixed click sequence; undeclared page state is outside the acceptance scope."
+     ]
+    ]
+   },
+   "en/reproduce/index.html": {
+    "headings": [
+     "h1: Reproduction starts with the public repository, preregistered cohort, and fixed runtime identities",
+     "h2: Browser and code identities",
+     "h2: Deployment environment and network topology",
+     "h2: Environment isolation and parallelism boundary",
+     "h2: Public reproduction entry points"
+    ],
+    "tables": [
+     [
+      "Browser | Version | Protocol | Architecture | Image ID",
+      "Chromium | — | — | — | —",
+      "Moli 1.1.3 | — | — | — | —"
+     ],
+     [
+      "Item | Value",
+      "Webstone commit | —",
+      "CowAgent commit | —",
+      "Model | GPT-5.6 Sol · reasoning=—",
+      "WebArena‑Verified | —",
+      "Run-config selection SHA-256 | <sha256>",
+      "Current selection SHA-256 | <sha256>",
+      "evaluator checksum | —"
+     ],
+     [
+      "Layer | Identity in this run | Purpose",
+      "Host | — | Recorded execution host",
+      "Docker | — · — · — | Hosts site and browser containers",
+      "Browser-to-host gateway | — | Accesses published ports from site containers",
+      "ARM compatibility mode | Disabled | Recorded runtime compatibility"
+     ],
+     [
+      "Site image | Image reference | Image ID | Repo digest"
+     ],
+     [
+      "Execution mode | Allowed | Isolation requirement",
+      "One site stack; Chromium and Moli run serially | Allowed; default | One daemon-scoped lock; reset and verify initial state before every attempt",
+      "One site stack; two browsers run in parallel | Not allowed | Separate accounts still share objects, indexes, caches, and background jobs",
+      "Multiple tasks in parallel | Allowed | Each worker uses an independent daemon, site containers, network, ports, and writable volumes; read-only image layers may be shared"
+     ]
+    ]
+   },
+   "en/results/gpt-5.6-sol-chromium-44.html": {
+    "headings": [
+     "h1: GPT-5.6 Sol · Chromium · Task #44",
+     "h2: Result",
+     "h3: All official evaluators passed.",
+     "h2: Task requirements and acceptance result",
+     "h2: CowAgent autonomous trajectory",
+     "h2: Runtime, logs, and evidence",
+     "h3: Physical execution 1",
+     "h3: Physical execution 2 · scoring authority",
+     "h3: Evidence completeness checks",
+     "h3: Source-evidence binding for the authoritative execution"
+    ],
+    "tables": [
+     [
+      "Public files | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "Public files | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "Browser resource metric | Value"
+     ],
+     [
+      "Check | Result"
+     ],
+     [
+      "Evidence | Present | Bytes | SHA-256 | Publication policy",
+      "response | Yes | 16 | <sha256> | Sanitized public copy",
+      "evaluation | Yes | 66 | <sha256> | Sanitized public copy",
+      "events | Yes | 230 | <sha256> | Sanitized public copy",
+      "network_har | Yes | 9 | <sha256> | Hash and byte count only (session-sensitive)",
+      "agent_trace | Yes | 9 | <sha256> | Hash and byte count only (session-sensitive)"
+     ]
+    ]
+   },
+   "en/results/gpt-5.6-sol-moli-44.html": {
+    "headings": [
+     "h1: GPT-5.6 Sol · Moli 1.1.3 · Task #44",
+     "h2: Failure diagnosis",
+     "h3: After 1 steps: final answer/task state",
+     "h3: Program error",
+     "h2: Task requirements and acceptance result",
+     "h2: CowAgent autonomous trajectory",
+     "h2: Final page frames from the failed execution",
+     "h2: Runtime, logs, and evidence",
+     "h3: Physical execution 1 · scoring authority",
+     "h3: Evidence completeness checks",
+     "h3: Source-evidence binding for the authoritative execution"
+    ],
+    "tables": [
+     [
+      "Public files | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "Browser resource metric | Value"
+     ],
+     [
+      "Check | Result"
+     ],
+     [
+      "Evidence | Present | Bytes | SHA-256 | Publication policy",
+      "response | Yes | 16 | <sha256> | Sanitized public copy",
+      "evaluation | Yes | 97 | <sha256> | Sanitized public copy",
+      "events | Yes | 230 | <sha256> | Sanitized public copy",
+      "network_har | Yes | 9 | <sha256> | Hash and byte count only (session-sensitive)",
+      "agent_trace | Yes | 9 | <sha256> | Hash and byte count only (session-sensitive)"
+     ]
+    ]
+   },
+   "en/review/index.html": {
+    "headings": [
+     "h1: Review and revision history",
+     "h2: Current status",
+     "h2: Review rounds"
+    ]
+   },
+   "engines/chromium.html": {
+    "headings": [
+     "h1: Chromium",
+     "h2: 运行身份",
+     "h2: 查看该浏览器的全部结果"
+    ],
+    "tables": [
+     [
+      "字段 | 值",
+      "Browser | —",
+      "DevTools Protocol | —",
+      "架构 | —",
+      "镜像 ID | —",
+      "各模型任务成绩 | GPT-5.6 Sol 1/1",
+      "各模型逻辑结果耗时 P50 | GPT-5.6 Sol 1.9 秒"
+     ]
+    ]
+   },
+   "engines/moli.html": {
+    "headings": [
+     "h1: Moli 1.1.3",
+     "h2: 运行身份",
+     "h2: 查看该浏览器的全部结果"
+    ],
+    "tables": [
+     [
+      "字段 | 值",
+      "Browser | —",
+      "DevTools Protocol | —",
+      "架构 | —",
+      "镜像 ID | —",
+      "各模型任务成绩 | GPT-5.6 Sol 0/1",
+      "各模型逻辑结果耗时 P50 | GPT-5.6 Sol 0.8 秒"
+     ]
+    ]
+   },
+   "evidence-viewer.html": {
+    "headings": [
+     "h1: 完整执行证据",
+     "h2: 执行证据 JSON"
+    ]
+   },
+   "fixes/index.html": {
+    "headings": [
+     "h1: 修复日志"
+    ]
+   },
+   "index.html": {
+    "headings": [
+     "h1: 90 题 Browser Use 已记录结果",
+     "h2: 90 题核心指标",
+     "h2: 按同题比较浏览器",
+     "h2: 程序判分落点与复核根因",
+     "h3: GPT-5.6 Sol × Moli 1.1.3",
+     "h3: 官方结果与事后诊断",
+     "h2: 审查覆盖与边界",
+     "h3: 证据完整性",
+     "h3: 官方程序验收",
+     "h3: 失败根因复核",
+     "h2: 完整 90 题的速度与浏览器资源",
+     "h2: 共同成功任务的性能与资源"
+    ],
+    "tables": [
+     [
+      "模型 | 浏览器 | 通过任务 | 通过率 | Agent 总耗时 | BrowserTool 耗时 | Tokens",
+      "GPT-5.6 Sol | Chromium | 1/1优 | 100.0%优 | 均值1.9 秒P501.9 秒P951.9 秒 | 均值0.3 秒P500.3 秒P950.3 秒 | 均值300P50300P95300",
+      "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0% | 均值0.8 秒优P500.8 秒优P950.8 秒优 | 均值0.1 秒优P500.1 秒优P950.1 秒优 | 均值80优P5080优P9580优"
+     ],
+     [
+      "模型 | 浏览器 A | 浏览器 B | 同题数 | 两边都通过 | A 通过、B 失败 | A 失败、B 通过 | 两边都失败",
+      "GPT-5.6 Sol | Chromium | Moli 1.1.3 | 1 | 0 | 1 | 0 | 0"
+     ],
+     [
+      "原因范围 | 失败结果数 | 本轮处理 | 修复与验证"
+     ],
+     [
+      "模型 | 浏览器 | <span data-report-en=\"Passes across 90 tasks\">90 题通过</span> | 通过率",
+      "GPT-5.6 Sol | Chromium | 1/1 | 100.0%",
+      "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0%"
+     ],
+     [
+      "模型 | 浏览器 | CPU 时间 | 平均 CPU 单核占用 | 时间加权平均内存 | 峰值内存 | 网络接收量 | 网络发送量",
+      "GPT-5.6 Sol | Chromium | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95—",
+      "GPT-5.6 Sol | Moli 1.1.3 | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95— | 均值—P50—P95—"
+     ],
+     [
+      "模型 | 浏览器 | Agent 链路 P50 | BrowserTool P50 | Tokens P50 | 峰值内存 P50 | CPU 时间 P50",
+      "GPT-5.6 Sol | Chromium | — | — | — | — | —",
+      "GPT-5.6 Sol | Moli 1.1.3 | — | — | — | — | —"
+     ]
+    ]
+   },
+   "methodology/index.html": {
+    "headings": [
+     "h1: 评最终结果，不评参考点击路径",
+     "h2: 候选 benchmark 的验收边界",
+     "h2: 本轮判分链",
+     "h2: 这 90 题如何部署并由 Agent 执行",
+     "h2: 固定协议",
+     "h2: 两类程序化 evaluator 到底检查什么"
+    ],
+    "tables": [
+     [
+      "Benchmark | 评什么 | 验收对象 | 判分 | 问题",
+      "WebArena‑Verified | 自托管真实交互 | 最终 JSON + 必要网络副作用 | 程序化；无 LLM judge | 部署重，最适合内核 A/B",
+      "Mind2Web | 离线网页快照 | 每步目标元素与操作 | 程序化动作指标 | 评过程模仿",
+      "Online‑Mind2Web | 136 个真实网站 | 动作历史与最终完成 | WebJudge + 人工标签 | 漂移、CAPTCHA、judge 偏差",
+      "WebVoyager | 实时网站视觉交互 | 最终回答与执行证据 | 多模态 LLM + 人工核验 | 精确复现较弱",
+      "Mind2Web 2 | 长链多站搜索 | 带引用研究答案 | rubric Agent-as-a-Judge | 非 UI 内核首选",
+      "BU Bench V1 | 100 个混合任务 | 最终结果与轨迹 | Google judge LLM | 云浏览器条件影响可比性",
+      "Odysseys | 200 个长链多站任务 | rubric 完成度 | 模型评审 | 成本高"
+     ],
+     [
+      "Evaluator | 任务数",
+      "AgentResponseEvaluator | 90",
+      "NetworkEventEvaluator | 64"
+     ],
+     [
+      "环境字段 | 本轮身份",
+      "宿主 | —",
+      "Docker 上下文 | —",
+      "站点访问入口 | 未记录"
+     ],
+     [
+      "站点 | 选中任务数 | 记录的镜像",
+      "GitLab | 22 | —",
+      "Reddit | 22 | —",
+      "Shopping | 23 | —",
+      "Shopping Admin | 23 | —"
+     ],
+     [
+      "项目 | 规则",
+      "Agent / 模型 | CowAgent；GPT-5.6 Sol；推理强度 未记录",
+      "计划与实际对照 | 模型、提示、工具、资源和执行环境以冻结配置及实际执行记录为准。",
+      "结果口径 | 每题×模型×浏览器一个最终逻辑结果；二元通过率；逐题配对。",
+      "执行上限 | 冻结协议的每题执行上限：未记录；实际执行耗时和模型用量累计。",
+      "排除 | 只报告冻结任务清单及其验收合同覆盖的任务。",
+      "裁判 | 官方程序化 evaluator；无 LLM judge；人工不得改分"
+     ],
+     [
+      "Evaluator | 输入 | 比较方式 | 能证明什么 | 不能证明什么",
+      "AgentResponseEvaluator | Agent 最终 JSON | 先按 JSON schema 和数据类型归一化，再比较 task_type、status 与 retrieved_data；按题可声明列表有序或无序。 | 最终回答符合该题公开答案合同。 | 没有检查回答是通过哪条 UI 路径得到的，也不评操作效率。",
+      "NetworkEventEvaluator | 本次浏览器 HAR | 在网络事件中匹配 URL、方法、状态码以及按需声明的 query、POST、响应字段或 Cookie 条件。 | 导航或页面变更产生了指定的可观察副作用。 | 没有要求复刻固定点击序列；未声明的页面状态不在验收范围内。"
+     ]
+    ]
+   },
+   "reproduce/index.html": {
+    "headings": [
+     "h1: 复现从公开仓库、预注册题集和固定运行身份开始",
+     "h2: 浏览器与代码身份",
+     "h2: 部署环境与网络拓扑",
+     "h2: 环境隔离与并行边界",
+     "h2: 公开复现入口"
+    ],
+    "tables": [
+     [
+      "浏览器 | 版本 | 协议 | 架构 | 镜像 ID",
+      "Chromium | — | — | — | —",
+      "Moli 1.1.3 | — | — | — | —"
+     ],
+     [
+      "项目 | 值",
+      "Webstone commit | —",
+      "CowAgent commit | —",
+      "模型 | GPT-5.6 Sol · reasoning=—",
+      "WebArena‑Verified | —",
+      "运行配置选择集 SHA-256 | <sha256>",
+      "当前选择集 SHA-256 | <sha256>",
+      "evaluator checksum | —"
+     ],
+     [
+      "层 | 本轮身份 | 作用",
+      "宿主 | — | 记录的执行宿主",
+      "Docker | — · — · — | 承载站点和浏览器容器",
+      "浏览器到宿主网关 | — | 访问站点容器发布端口",
+      "ARM 兼容模式 | 未启用 | 记录的运行兼容配置"
+     ],
+     [
+      "站点镜像 | 镜像引用 | 镜像 ID | Repo digest"
+     ],
+     [
+      "运行方式 | 是否允许 | 隔离要求",
+      "一套站点环境，Chromium 与 Moli 串行 | 允许，默认方案 | 同一 daemon 锁；每次尝试前重置并核对初态",
+      "一套站点环境，两个浏览器并行 | 不允许 | 账号不同仍会共享对象、索引、缓存和后台任务",
+      "多个任务并行 | 允许 | 每个 worker 使用独立 daemon、站点容器、网络、端口和可写卷；镜像只读层可复用"
+     ]
+    ]
+   },
+   "results/gpt-5.6-sol-chromium-44.html": {
+    "headings": [
+     "h1: GPT-5.6 Sol · Chromium · Task #44",
+     "h2: 结果",
+     "h3: 全部官方 evaluator 均通过。",
+     "h2: 任务要求与验收结果",
+     "h2: CowAgent 自主执行轨迹",
+     "h2: 运行、日志与证据",
+     "h3: 物理执行 1",
+     "h3: 物理执行 2 · 判分权威",
+     "h3: 证据完整性检查",
+     "h3: 判分权威执行的原始证据绑定"
+    ],
+    "tables": [
+     [
+      "公开文件 | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "公开文件 | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "浏览器资源指标 | 值"
+     ],
+     [
+      "检查 | 结果"
+     ],
+     [
+      "证据 | 存在 | 字节 | SHA-256 | 公开策略",
+      "response | 是 | 16 | <sha256> | 已脱敏公开副本",
+      "evaluation | 是 | 66 | <sha256> | 已脱敏公开副本",
+      "events | 是 | 230 | <sha256> | 已脱敏公开副本",
+      "network_har | 是 | 9 | <sha256> | 仅保留哈希与字节数（含登录态）",
+      "agent_trace | 是 | 9 | <sha256> | 仅保留哈希与字节数（含登录态）"
+     ]
+    ]
+   },
+   "results/gpt-5.6-sol-moli-44.html": {
+    "headings": [
+     "h1: GPT-5.6 Sol · Moli 1.1.3 · Task #44",
+     "h2: 失败诊断",
+     "h3: 第 1 步后的最终回答/任务状态",
+     "h3: 程序报错",
+     "h2: 任务要求与验收结果",
+     "h2: CowAgent 自主执行轨迹",
+     "h2: 失败执行的最后页面画面",
+     "h2: 运行、日志与证据",
+     "h3: 物理执行 1 · 判分权威",
+     "h3: 证据完整性检查",
+     "h3: 判分权威执行的原始证据绑定"
+    ],
+    "tables": [
+     [
+      "公开文件 | SHA-256",
+      "execution_evidence | <sha256>"
+     ],
+     [
+      "浏览器资源指标 | 值"
+     ],
+     [
+      "检查 | 结果"
+     ],
+     [
+      "证据 | 存在 | 字节 | SHA-256 | 公开策略",
+      "response | 是 | 16 | <sha256> | 已脱敏公开副本",
+      "evaluation | 是 | 97 | <sha256> | 已脱敏公开副本",
+      "events | 是 | 230 | <sha256> | 已脱敏公开副本",
+      "network_har | 是 | 9 | <sha256> | 仅保留哈希与字节数（含登录态）",
+      "agent_trace | 是 | 9 | <sha256> | 仅保留哈希与字节数（含登录态）"
+     ]
+    ]
+   },
+   "review/index.html": {
+    "headings": [
+     "h1: 核验与修订记录",
+     "h2: 当前状态",
+     "h2: 核验轮次"
+    ]
+   }
+  },
+  "routes": [
+   ".generated-report",
+   "accounts/index.html",
+   "adoption/index.html",
+   "analysis/index.html",
+   "artifacts/gpt-5.6-sol-chromium-44/executions/1/execution-evidence.json",
+   "artifacts/gpt-5.6-sol-chromium-44/executions/2/execution-evidence.json",
+   "artifacts/gpt-5.6-sol-moli-44/executions/1/execution-evidence.json",
+   "assets/report.js",
+   "assets/style.css",
+   "assets/webarena-autonomous-evaluation-flow.png",
+   "changes/index.html",
+   "data/environment.json",
+   "data/evidence-index.json",
+   "data/failure-cause-review.json",
+   "data/fix-log.json",
+   "data/interpretation-evidence.json",
+   "data/publication-privacy.json",
+   "data/results.jsonl",
+   "data/review.json",
+   "data/selection.json",
+   "data/summary.json",
+   "datasets/108.html",
+   "datasets/110.html",
+   "datasets/117.html",
+   "datasets/118.html",
+   "datasets/124.html",
+   "datasets/127.html",
+   "datasets/132.html",
+   "datasets/156.html",
+   "datasets/157.html",
+   "datasets/163.html",
+   "datasets/168.html",
+   "datasets/173.html",
+   "datasets/183.html",
+   "datasets/184.html",
+   "datasets/188.html",
+   "datasets/193.html",
+   "datasets/196.html",
+   "datasets/198.html",
+   "datasets/204.html",
+   "datasets/225.html",
+   "datasets/231.html",
+   "datasets/243.html",
+   "datasets/258.html",
+   "datasets/260.html",
+   "datasets/274.html",
+   "datasets/279.html",
+   "datasets/28.html",
+   "datasets/284.html",
+   "datasets/288.html",
+   "datasets/29.html",
+   "datasets/298.html",
+   "datasets/303.html",
+   "datasets/313.html",
+   "datasets/314.html",
+   "datasets/320.html",
+   "datasets/334.html",
+   "datasets/339.html",
+   "datasets/349.html",
+   "datasets/374.html",
+   "datasets/386.html",
+   "datasets/389.html",
+   "datasets/399.html",
+   "datasets/404.html",
+   "datasets/41.html",
+   "datasets/415.html",
+   "datasets/418.html",
+   "datasets/44.html",
+   "datasets/441.html",
+   "datasets/448.html",
+   "datasets/45.html",
+   "datasets/464.html",
+   "datasets/465.html",
+   "datasets/470.html",
+   "datasets/475.html",
+   "datasets/50.html",
+   "datasets/506.html",
+   "datasets/510.html",
+   "datasets/528.html",
+   "datasets/547.html",
+   "datasets/571.html",
+   "datasets/576.html",
+   "datasets/580.html",
+   "datasets/585.html",
+   "datasets/590.html",
+   "datasets/595.html",
+   "datasets/600.html",
+   "datasets/605.html",
+   "datasets/610.html",
+   "datasets/615.html",
+   "datasets/620.html",
+   "datasets/625.html",
+   "datasets/630.html",
+   "datasets/635.html",
+   "datasets/640.html",
+   "datasets/645.html",
+   "datasets/658.html",
+   "datasets/66.html",
+   "datasets/666.html",
+   "datasets/67.html",
+   "datasets/676.html",
+   "datasets/694.html",
+   "datasets/699.html",
+   "datasets/714.html",
+   "datasets/719.html",
+   "datasets/725.html",
+   "datasets/731.html",
+   "datasets/77.html",
+   "datasets/771.html",
+   "datasets/784.html",
+   "datasets/94.html",
+   "datasets/index.html",
+   "en/accounts/index.html",
+   "en/adoption/index.html",
+   "en/analysis/index.html",
+   "en/changes/index.html",
+   "en/datasets/108.html",
+   "en/datasets/110.html",
+   "en/datasets/117.html",
+   "en/datasets/118.html",
+   "en/datasets/124.html",
+   "en/datasets/127.html",
+   "en/datasets/132.html",
+   "en/datasets/156.html",
+   "en/datasets/157.html",
+   "en/datasets/163.html",
+   "en/datasets/168.html",
+   "en/datasets/173.html",
+   "en/datasets/183.html",
+   "en/datasets/184.html",
+   "en/datasets/188.html",
+   "en/datasets/193.html",
+   "en/datasets/196.html",
+   "en/datasets/198.html",
+   "en/datasets/204.html",
+   "en/datasets/225.html",
+   "en/datasets/231.html",
+   "en/datasets/243.html",
+   "en/datasets/258.html",
+   "en/datasets/260.html",
+   "en/datasets/274.html",
+   "en/datasets/279.html",
+   "en/datasets/28.html",
+   "en/datasets/284.html",
+   "en/datasets/288.html",
+   "en/datasets/29.html",
+   "en/datasets/298.html",
+   "en/datasets/303.html",
+   "en/datasets/313.html",
+   "en/datasets/314.html",
+   "en/datasets/320.html",
+   "en/datasets/334.html",
+   "en/datasets/339.html",
+   "en/datasets/349.html",
+   "en/datasets/374.html",
+   "en/datasets/386.html",
+   "en/datasets/389.html",
+   "en/datasets/399.html",
+   "en/datasets/404.html",
+   "en/datasets/41.html",
+   "en/datasets/415.html",
+   "en/datasets/418.html",
+   "en/datasets/44.html",
+   "en/datasets/441.html",
+   "en/datasets/448.html",
+   "en/datasets/45.html",
+   "en/datasets/464.html",
+   "en/datasets/465.html",
+   "en/datasets/470.html",
+   "en/datasets/475.html",
+   "en/datasets/50.html",
+   "en/datasets/506.html",
+   "en/datasets/510.html",
+   "en/datasets/528.html",
+   "en/datasets/547.html",
+   "en/datasets/571.html",
+   "en/datasets/576.html",
+   "en/datasets/580.html",
+   "en/datasets/585.html",
+   "en/datasets/590.html",
+   "en/datasets/595.html",
+   "en/datasets/600.html",
+   "en/datasets/605.html",
+   "en/datasets/610.html",
+   "en/datasets/615.html",
+   "en/datasets/620.html",
+   "en/datasets/625.html",
+   "en/datasets/630.html",
+   "en/datasets/635.html",
+   "en/datasets/640.html",
+   "en/datasets/645.html",
+   "en/datasets/658.html",
+   "en/datasets/66.html",
+   "en/datasets/666.html",
+   "en/datasets/67.html",
+   "en/datasets/676.html",
+   "en/datasets/694.html",
+   "en/datasets/699.html",
+   "en/datasets/714.html",
+   "en/datasets/719.html",
+   "en/datasets/725.html",
+   "en/datasets/731.html",
+   "en/datasets/77.html",
+   "en/datasets/771.html",
+   "en/datasets/784.html",
+   "en/datasets/94.html",
+   "en/datasets/index.html",
+   "en/engines/chromium.html",
+   "en/engines/moli.html",
+   "en/evidence-viewer.html",
+   "en/fixes/index.html",
+   "en/index.html",
+   "en/methodology/index.html",
+   "en/reproduce/index.html",
+   "en/results/gpt-5.6-sol-chromium-44.html",
+   "en/results/gpt-5.6-sol-moli-44.html",
+   "en/review/index.html",
+   "engines/chromium.html",
+   "engines/moli.html",
+   "evidence-viewer.html",
+   "fixes/index.html",
+   "index.html",
+   "methodology/index.html",
+   "report-changes.json",
+   "report-data.json",
+   "report-languages.json",
+   "reproduce/index.html",
+   "results/gpt-5.6-sol-chromium-44.html",
+   "results/gpt-5.6-sol-moli-44.html",
+   "review/index.html",
+   "webstone-version.json"
+  ]
+ },
+ "results": [
+  {
+   "action_count": 2,
+   "authoritative_execution": 2,
+   "automatic_failure_type": "",
+   "browser_tool_count_by_action": {
+    "click": 2
+   },
+   "browser_tool_duration_by_action_ms": {
+    "click": 300.0
+   },
+   "browser_tool_duration_ms": 300.0,
+   "duration_ms": 1900.0,
+   "engine": "chromium",
+   "execution_count": 2,
+   "id": "gpt-5.6-sol-chromium-44",
+   "model": "gpt-5.6-sol",
+   "model_usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0,
+    "request_attempt_count": 0,
+    "request_count": 0,
+    "total_tokens": 300
+   },
+   "resource": {},
+   "run_id": "",
+   "score": 1.0,
+   "status": "success",
+   "task_id": 44,
+   "tier": "easy",
+   "transport_error_count": 0,
+   "verified_failure_reason": "",
+   "verified_failure_subcategory": ""
+  },
+  {
+   "action_count": 1,
+   "authoritative_execution": 1,
+   "automatic_failure_type": "",
+   "browser_tool_count_by_action": {
+    "click": 1
+   },
+   "browser_tool_duration_by_action_ms": {
+    "click": 100.0
+   },
+   "browser_tool_duration_ms": 100.0,
+   "duration_ms": 800.0,
+   "engine": "moli",
+   "execution_count": 1,
+   "id": "gpt-5.6-sol-moli-44",
+   "model": "gpt-5.6-sol",
+   "model_usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0,
+    "request_attempt_count": 0,
+    "request_count": 0,
+    "total_tokens": 80
+   },
+   "resource": {},
+   "run_id": "",
+   "score": 0.0,
+   "status": "failure",
+   "task_id": 44,
+   "tier": "easy",
+   "transport_error_count": 0,
+   "verified_failure_reason": "",
+   "verified_failure_subcategory": ""
+  }
+ ]
+}

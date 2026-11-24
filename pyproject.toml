@@ -108,6 +108,7 @@ include = [
   "src/harness/trajectory_replay/**/*.py",
   "tests/browser_use/**/*.py",
   "tests/trajectory_replay/**/*.py",
+  "tests/baselines/**/*.py",
   "src/harness/benchmarks/**/*.py",
   "src/harness/lexbench/**/*.py",
   "src/harness/reporting/**/*.py",

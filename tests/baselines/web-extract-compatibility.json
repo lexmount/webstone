@@ -1,0 +1,322 @@
+{
+ "report": {
+  "pages": {
+   "en/index.html": {
+    "headings": [
+     "h1: English edition not generated"
+    ]
+   },
+   "index.html": {
+    "headings": []
+   },
+   "zh/accounts.html": {
+    "headings": [
+     "h1: 合成示例 · accounts"
+    ],
+    "tables": [
+     [
+      "方法 | 美元／1,000 次 | 计费条件与套餐门槛 | 核对日期 | 官方来源",
+      "synthetic-blocked | $0 synthetic | 合成数据 | 2026-01-01 | 1",
+      "synthetic-success | $0 synthetic | 合成数据 | 2026-01-01 | 1"
+     ]
+    ]
+   },
+   "zh/candidates.html": {
+    "headings": [
+     "h1: 合成示例 · candidates"
+    ]
+   },
+   "zh/case-<sha256>.html": {
+    "headings": [
+     "h1: 同题方法比较 · 333333333333",
+     "h2: 返回结构化字段",
+     "h2: 开发者记录：请求、响应与调用历史",
+     "h2: 受阻",
+     "h2: 开发者记录：请求、响应与调用历史"
+    ],
+    "tables": [
+     [
+      "方法 | 价格 | SKU | 库存 | 环节 | 秒",
+      "synthetic-blocked | null符合标注 | null漏提取 | null漏提取 | 客户端连接 | 1.00",
+      "synthetic-success | null符合标注 | \"3\"符合标注 | null漏提取 | 字段匹配 | 1.00"
+     ],
+     [
+      "字段 | 参考值（可接受其一） | 输出 | 判定 | 命中 TP | 误报 FP | 漏报 FN",
+      "价格 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0",
+      "SKU | 3 | 3 | 符合标注 | 1 | 0 | 0",
+      "库存 | InStock | 未返回值 | 漏提取 | 0 | 0 | 1",
+      "缺货识别 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0"
+     ],
+     [
+      "字段 | 参考值（可接受其一） | 输出 | 判定 | 命中 TP | 误报 FP | 漏报 FN",
+      "价格 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0",
+      "SKU | 3 | 未返回值 | 漏提取 | 0 | 0 | 1",
+      "库存 | InStock | 未返回值 | 漏提取 | 0 | 0 | 1",
+      "缺货识别 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0"
+     ]
+    ]
+   },
+   "zh/dataset.html": {
+    "headings": [
+     "h1: 合成示例 · dataset"
+    ],
+    "tables": [
+     [
+      "题目 | 来源 | 归档页面 | 标注",
+      "<sha256> | example.org | HTML.gz | 标注{ \"price\": [], \"sku\": [ \"1\" ], \"availability\": [ \"InStock\" ] }",
+      "<sha256> | example.org | HTML.gz | 标注{ \"price\": [], \"sku\": [ \"2\" ], \"availability\": [ \"InStock\" ] }",
+      "<sha256> | example.org | HTML.gz | 标注{ \"price\": [], \"sku\": [ \"3\" ], \"availability\": [ \"InStock\" ] }"
+     ]
+    ]
+   },
+   "zh/index.html": {
+    "headings": [
+     "h1: 合成示例 · index",
+     "h2: 耗时与价格",
+     "h2: 历史结果复现 · 3 页"
+    ],
+    "tables": [
+     [
+      "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
+      "价格 F1 | 来源：Zyte 商品提取评测的字段 F1 口径。 综合价格提取的准确率和召回率，同时计入错报和漏报。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "SKU F1 | 来源：Zyte 商品提取评测的字段 F1 口径。 综合商品编号提取的准确率和召回率，同时计入错报和漏报。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "库存 F1 | 来源：Zyte 商品提取评测的字段 F1 口径。 综合库存状态判断的准确率和召回率。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "缺货 F1 | 来源：Zyte 商品提取评测的字段 F1 口径。 单独衡量缺货页面的识别，避免大量有货页面掩盖缺货判断问题。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "整页全对率 | 来源：本项目补充定义，不属于数据集官方指标。公式：成功交付、格式合规且全部目标字段正确的页数 ÷ 参考完整的页面总数。请求失败算错。例：10 页中 2 页参考不完整，其余 8 页有 3 页全对，则为 3/8＝37.5%。 | 百分比 | 所有方法使用同一批参考完整的页面，含失败请求。表下注释说明使用哪套参考：原参考来自数据集，校验参考经过网页证据复核。 | 越高越好",
+      "空值处理正确率 | 来源：本项目补充定义，不属于数据集官方指标。公式：正确留空的字段数 ÷ 参考明确为空的字段总数。请求失败算错；数组字段必须明确返回 []。例：5 处应为空，4 处正确留空、1 处请求失败，则为 4/5＝80%。 | 百分比 | 参考明确为空且可评分的字段，一个网页中的一个字段计一个样本；含失败请求。样本少时不据此推断整体能力。 | 越高越好",
+      "平均耗时 | 最终一次调用的平均耗时，包含失败；此前重试另行累计。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P50 耗时 | 中位数：一半有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P95 耗时 | 95% 有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "每千页费用 | 按相同接口和条件提取 1,000 页的费用。官方套餐折算与按本轮页面估算分别注明。 | 美元／1,000 页 | 本轮接口、参数，以及列明的套餐或估算假设。 | 在相同计费假设下比较"
+     ],
+     [
+      "方法 | 计划样本 | 实际调用 | 返回结构化字段 | 查看证据",
+      "synthetic-blocked | 3 | 0 | 0 | 评测结果",
+      "synthetic-success | 3 | 3 | 3 | 评测结果"
+     ],
+     [
+      "方法 | 有计时 | 缺计时 | 平均（秒） | P50（秒） | P95（秒） | 美元／1,000 次 | 官方计费方式与套餐",
+      "synthetic-blocked | 3 | 0 | 1.000 | 1.000 | 1.000 | $0 synthetic | 合成数据计费条件与来源",
+      "synthetic-success | 3 | 0 | 1.000 | 1.000 | 1.000 | $0 synthetic | 合成数据计费条件与来源"
+     ],
+     [
+      "方法 | 价格 F10/3 有标注 | SKU F13/3 有标注 | 库存 F13/3 有标注 | 缺货 F10/3 有标注",
+      "Synthetic A | 0.800 | 0.800 | 0.800 | 0.800",
+      "Synthetic B | 0.500 | 0.500 | 0.500 | 0.500"
+     ]
+    ]
+   },
+   "zh/interpretation.html": {
+    "headings": [
+     "h1: 合成示例 · interpretation"
+    ]
+   },
+   "zh/protocol.html": {
+    "headings": [
+     "h1: 合成示例 · protocol",
+     "h2: 实际调用配置"
+    ],
+    "tables": [
+     [
+      "方案 | 同时进行的调用上限 | 执行目的 | 最小启动间隔（秒） | 调用后等待（秒）",
+      "synthetic-blocked | — | 原记录未说明 | — | —",
+      "synthetic-success | — | 原记录未说明 | — | —"
+     ]
+    ]
+   },
+   "zh/research.html": {
+    "headings": [
+     "h1: 合成示例 · research"
+    ]
+   },
+   "zh/results.html": {
+    "headings": [
+     "h1: 合成示例 · results",
+     "h2: 字段与调用证据"
+    ],
+    "tables": [
+     [
+      "方法 | 题目 | 状态 | 价格 | SKU | 库存 | HTTP | 秒 | 查看证据",
+      "synthetic-success | 111111111111 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
+      "synthetic-success | 222222222222 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
+      "synthetic-success | 333333333333 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 111111111111 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 222222222222 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 333333333333 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果"
+     ]
+    ]
+   },
+   "zh/review.html": {
+    "headings": [
+     "h1: 合成示例 · review"
+    ]
+   },
+   "zh/source-<sha256>.html": {
+    "headings": [
+     "h1: 页面与标注 · 333333333333",
+     "h2: 冻结 HTML 的文本与结构化数据"
+    ]
+   }
+  },
+  "routes": [
+   "app.js",
+   "en/index.html",
+   "index.html",
+   "public-evidence/provenance/input-profile.json",
+   "public-evidence/synthetic-blocked-<sha256>.json",
+   "public-evidence/synthetic-blocked-<sha256>.json",
+   "public-evidence/synthetic-blocked-<sha256>.json",
+   "public-evidence/synthetic-success-<sha256>.json",
+   "public-evidence/synthetic-success-<sha256>.json",
+   "public-evidence/synthetic-success-<sha256>.json",
+   "report-manifest.json",
+   "style.css",
+   "webstone-version.json",
+   "zh/accounts.html",
+   "zh/candidates.html",
+   "zh/case-<sha256>.html",
+   "zh/case-<sha256>.html",
+   "zh/case-<sha256>.html",
+   "zh/dataset.html",
+   "zh/index.html",
+   "zh/interpretation.html",
+   "zh/protocol.html",
+   "zh/research.html",
+   "zh/results.html",
+   "zh/review.html",
+   "zh/source-<sha256>.html",
+   "zh/source-<sha256>.html",
+   "zh/source-<sha256>.html"
+  ]
+ },
+ "scored": {
+  "public-evidence/provenance/input-profile.json": {
+   "dataset": {
+    "cases": 3,
+    "commit": "synthetic-v1",
+    "files": {},
+    "id": "synthetic",
+    "repository": "example/synthetic"
+   },
+   "local_example": true
+  },
+  "public-evidence/synthetic-blocked-<sha256>.json": {
+   "case_id": "<sha256>",
+   "compatibility": "no_structured_output",
+   "elapsed_seconds": 1.0,
+   "error": "Synthetic route rejects archived HTML",
+   "failure_stage": "client_transport",
+   "field_results": {
+    "OutOfStock": {
+     "actual": null,
+     "expected": [],
+     "fn": 0,
+     "fp": 0,
+     "status": "correct",
+     "tp": 0
+    },
+    "availability": {
+     "actual": null,
+     "expected": [
+      "InStock"
+     ],
+     "fn": 1,
+     "fp": 0,
+     "status": "missing",
+     "tp": 0
+    },
+    "price": {
+     "actual": null,
+     "expected": [],
+     "fn": 0,
+     "fp": 0,
+     "status": "correct",
+     "tp": 0
+    },
+    "sku": {
+     "actual": null,
+     "expected": [
+      "3"
+     ],
+     "fn": 1,
+     "fp": 0,
+     "status": "missing",
+     "tp": 0
+    }
+   },
+   "http_status": null,
+   "input_sha256": "<sha256>",
+   "method": "synthetic-blocked",
+   "method_label": "synthetic-blocked",
+   "native_error": "Synthetic route rejects archived HTML",
+   "normalized_fields": null,
+   "response": {},
+   "review_execution_sha256": "<sha256>",
+   "run_id": "example-v1",
+   "source_logical_sha256": "<sha256>",
+   "state": "input_blocked"
+  },
+  "public-evidence/synthetic-success-<sha256>.json": {
+   "case_id": "<sha256>",
+   "compatibility": "structured_output",
+   "elapsed_seconds": 1.0,
+   "error": "",
+   "failure_stage": "fields",
+   "field_results": {
+    "OutOfStock": {
+     "actual": null,
+     "expected": [],
+     "fn": 0,
+     "fp": 0,
+     "status": "correct",
+     "tp": 0
+    },
+    "availability": {
+     "actual": null,
+     "expected": [
+      "InStock"
+     ],
+     "fn": 1,
+     "fp": 0,
+     "status": "missing",
+     "tp": 0
+    },
+    "price": {
+     "actual": null,
+     "expected": [],
+     "fn": 0,
+     "fp": 0,
+     "status": "correct",
+     "tp": 0
+    },
+    "sku": {
+     "actual": "3",
+     "expected": [
+      "3"
+     ],
+     "fn": 0,
+     "fp": 0,
+     "status": "correct",
+     "tp": 1
+    }
+   },
+   "http_status": 200,
+   "input_sha256": "<sha256>",
+   "method": "synthetic-success",
+   "method_label": "synthetic-success",
+   "native_error": "",
+   "normalized_fields": {
+    "sku": "3"
+   },
+   "response": {
+    "json": {
+     "sku": "3"
+    }
+   },
+   "review_execution_sha256": "<sha256>",
+   "run_id": "example-v1",
+   "source_logical_sha256": "<sha256>",
+   "state": "response_received"
+  }
+ }
+}

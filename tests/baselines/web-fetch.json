@@ -1,0 +1,942 @@
+{
+ "records": [
+  {
+   "artifact_path": "artifacts/fixture/fixture-body/run-001-physical-001.txt",
+   "attempt_id": "fixture__fixture-body__r001",
+   "case_id": "fixture-body",
+   "elapsed_ms": 0.0,
+   "error_message": null,
+   "error_type": null,
+   "metrics": {
+    "acceptance_checks": {
+     "content": true,
+     "length": true,
+     "literals": true
+    },
+    "blocked_page": false,
+    "blocked_page_hits": [],
+    "blocked_page_reference_exemptions": [],
+    "body_coverage_pass": true,
+    "body_delivery_pass": true,
+    "body_region_results": [],
+    "content_chars": 93,
+    "content_check_coverage": null,
+    "content_check_hits": 0,
+    "content_check_total": 0,
+    "content_length_pass": true,
+    "content_pass": true,
+    "content_score_applicable": true,
+    "content_sha256": "<sha256>",
+    "deadline_budget_ms": 30000,
+    "deadline_overrun": false,
+    "declared_truncation_hits": [],
+    "diagnostic_hits": [],
+    "expected_markers": [
+     "Expected fixture content"
+    ],
+    "fact_coverage": 1.0,
+    "fact_coverage_pass": true,
+    "fact_coverage_threshold": 1.0,
+    "fact_hits": 0,
+    "fact_results": [],
+    "fact_total": 0,
+    "forbidden_requirement_hits": [],
+    "forbidden_requirement_pass": true,
+    "html_tags": 0,
+    "legacy_marker_pass": true,
+    "length_pass": true,
+    "markdown_headings": 1,
+    "markdown_links": 0,
+    "marker_hits": 1,
+    "marker_recall": 1.0,
+    "marker_total": 1,
+    "matched_markers": [
+     "Expected fixture content"
+    ],
+    "minimum_content_chars": 1,
+    "normalized_named_link_count": 0,
+    "page_identity_required": false,
+    "page_identity_status": "not_required",
+    "pattern_pass": true,
+    "pattern_results": [],
+    "replacement_character_count": 0,
+    "replacement_character_ratio": 0.0,
+    "request_ok": true,
+    "request_status_basis": "adapter_status",
+    "resource_candidate_urls": [],
+    "resource_candidates": [],
+    "resource_hits": 0,
+    "resource_pass": null,
+    "resource_precision": null,
+    "resource_recall": null,
+    "resource_results": [],
+    "resource_total": 0,
+    "rule_review_status": "resolved",
+    "scored_reference_sha256": "<sha256>",
+    "scoring_source_sha256": "<sha256>",
+    "script_payload_shell": false,
+    "task_kind": "body",
+    "text_encoding_corruption": false,
+    "title_chars": 6,
+    "unexpected_resource_urls": [],
+    "unique_line_ratio": 1.0,
+    "word_f1": 0.2308,
+    "word_precision": 0.1304,
+    "word_recall": 1.0
+   },
+   "ok": true,
+   "provider": "fixture",
+   "run": 1,
+   "status_code": 200
+  },
+  {
+   "artifact_path": "artifacts/fixture/fixture-failure/run-001-physical-002.txt",
+   "attempt_id": "fixture__fixture-failure__r001",
+   "case_id": "fixture-failure",
+   "elapsed_ms": 0.0,
+   "error_message": "Configured fixture failure",
+   "error_type": "fixture_failure",
+   "metrics": {
+    "acceptance_checks": {
+     "content": false,
+     "length": true,
+     "literals": false
+    },
+    "blocked_page": false,
+    "blocked_page_hits": [],
+    "blocked_page_reference_exemptions": [],
+    "body_coverage_pass": true,
+    "body_delivery_pass": true,
+    "body_region_results": [],
+    "content_chars": 41,
+    "content_check_coverage": null,
+    "content_check_hits": 0,
+    "content_check_total": 0,
+    "content_length_pass": true,
+    "content_pass": false,
+    "content_score_applicable": true,
+    "content_sha256": "<sha256>",
+    "deadline_budget_ms": 30000,
+    "deadline_overrun": false,
+    "declared_truncation_hits": [],
+    "diagnostic_hits": [],
+    "expected_markers": [
+     "Expected fixture content"
+    ],
+    "fact_coverage": 1.0,
+    "fact_coverage_pass": true,
+    "fact_coverage_threshold": 1.0,
+    "fact_hits": 0,
+    "fact_results": [],
+    "fact_total": 0,
+    "forbidden_requirement_hits": [],
+    "forbidden_requirement_pass": true,
+    "html_tags": 0,
+    "legacy_marker_pass": false,
+    "length_pass": true,
+    "markdown_headings": 0,
+    "markdown_links": 0,
+    "marker_hits": 0,
+    "marker_recall": 0.0,
+    "marker_total": 1,
+    "matched_markers": [],
+    "minimum_content_chars": 1,
+    "normalized_named_link_count": 0,
+    "page_identity_required": false,
+    "page_identity_status": "not_required",
+    "pattern_pass": true,
+    "pattern_results": [],
+    "replacement_character_count": 0,
+    "replacement_character_ratio": 0.0,
+    "request_ok": false,
+    "request_status_basis": "adapter_status",
+    "resource_candidate_urls": [],
+    "resource_candidates": [],
+    "resource_hits": 0,
+    "resource_pass": null,
+    "resource_precision": null,
+    "resource_recall": null,
+    "resource_results": [],
+    "resource_total": 0,
+    "rule_review_status": "resolved",
+    "scored_reference_sha256": "<sha256>",
+    "scoring_source_sha256": "<sha256>",
+    "script_payload_shell": false,
+    "task_kind": "body",
+    "text_encoding_corruption": false,
+    "title_chars": 0,
+    "unexpected_resource_urls": [],
+    "unique_line_ratio": 1.0,
+    "word_f1": 0.0,
+    "word_precision": 0.0,
+    "word_recall": 0.0
+   },
+   "ok": false,
+   "provider": "fixture",
+   "run": 1,
+   "status_code": 502
+  }
+ ],
+ "report": {
+  "pages": {
+   "accounts/index.html": {
+    "headings": [
+     "h1: 账号与安装",
+     "h2: 本轮方法清单",
+     "h2: 公开内容边界"
+    ],
+    "tables": [
+     [
+      "序号 | 方法 | 账号要求 | 官方获取入口 | 变量名称 | 本轮配置",
+      "1 | fixture | 不需要账号或环境变量。 | 注册 / 登录 |  | 仓库内测试适配器；只用于确定性回归测试。"
+     ]
+    ]
+   },
+   "adoption/index.html": {
+    "headings": [
+     "h1: 合成示例适配器",
+     "h2: 示例范围",
+     "h2: 示例费用",
+     "h2: fixture",
+     "h2: 局部重跑与结果来源"
+    ],
+    "tables": [
+     [
+      "序号 | 方法 | 版本依据 | 采用结果数",
+      "1 | fixture | unknown | 2"
+     ]
+    ]
+   },
+   "analysis/index.html": {
+    "headings": [
+     "h1: 结果分析",
+     "h2: 方法组合对比",
+     "h2: 全部执行记录"
+    ],
+    "tables": [
+     [
+      "序号 | 方法 | 案例 | 类型 | 结果 | 失败分类 | 耗时 | 运行 ID",
+      "1 | fixture | 合成正文示例 | 普通网页正文 | 通过 | — | 0 ms | run-e9187371511e120c1ea7",
+      "2 | fixture | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 | 0 ms | run-e218b9eb6ebcfd765677"
+     ]
+    ]
+   },
+   "attempts/fixture__fixture-body__r001.html": {
+    "headings": [
+     "h1: 合成正文示例",
+     "h2: 结论",
+     "h2: 目标覆盖与附加内容",
+     "h2: 标准答案与实际返回",
+     "h3: 完整标准答案",
+     "h3: 实际返回",
+     "h2: 为什么这样判",
+     "h2: 运行与评分信息",
+     "h2: 运行日志与证据",
+     "h3: 最终物理调用",
+     "h2: 最终物理调用",
+     "h2: 原始运行证据"
+    ],
+    "tables": [
+     [
+      "序号 | 项目 | 值",
+      "1 | 任务 ID | fixture-body",
+      "2 | 方法 | fixture",
+      "3 | 请求 | 成功",
+      "4 | 任务结果 | 通过",
+      "5 | HTTP 状态 | 200",
+      "6 | 耗时 | 0 ms",
+      "7 | 全文完整度 / 纯净度 / F1 | 100.0% / 13.0% / 23.1%",
+      "8 | 输出字符 | 93",
+      "9 | 输出校验值 | <sha256>",
+      "10 | 文字核对覆盖 | — · 0/0 组",
+      "11 | 评分实现 SHA-256 | <sha256>",
+      "12 | 运行 ID | run-e9187371511e120c1ea7",
+      "13 | 执行记录 | fixture__fixture-body__r001",
+      "14 | 开始时间（UTC） | <timestamp>",
+      "15 | 供应商请求 ID | 未返回"
+     ]
+    ]
+   },
+   "attempts/fixture__fixture-failure__r001.html": {
+    "headings": [
+     "h1: 合成失败示例",
+     "h2: 结论",
+     "h2: 目标覆盖与附加内容",
+     "h2: 标准答案与实际返回",
+     "h3: 完整标准答案",
+     "h3: 实际返回",
+     "h2: 为什么这样判",
+     "h2: 运行与评分信息",
+     "h2: 运行日志与证据",
+     "h3: 程序错误",
+     "h3: 物理调用 1",
+     "h2: 物理调用 1",
+     "h3: 物理调用 2",
+     "h2: 物理调用 2",
+     "h2: 原始运行证据"
+    ],
+    "tables": [
+     [
+      "序号 | 项目 | 依据",
+      "1 | 失败分类 | 服务取页失败",
+      "2 | 发生阶段 | 服务取页",
+      "3 | 判定依据 | fixture_failure Configured fixture failure Fixture failure: configured test failure. []",
+      "4 | 归因边界 | 服务未披露更细原因；不能仅凭该错误归责源站或服务内部"
+     ],
+     [
+      "序号 | 项目 | 值",
+      "1 | 任务 ID | fixture-failure",
+      "2 | 方法 | fixture",
+      "3 | 请求 | 失败",
+      "4 | 任务结果 | 未通过",
+      "5 | HTTP 状态 | 502",
+      "6 | 耗时 | 0 ms",
+      "7 | 全文完整度 / 纯净度 / F1 | 0.0% / 0.0% / 0.0%",
+      "8 | 输出字符 | 41",
+      "9 | 输出校验值 | <sha256>",
+      "10 | 文字核对覆盖 | — · 0/0 组",
+      "11 | 评分实现 SHA-256 | <sha256>",
+      "12 | 运行 ID | run-e218b9eb6ebcfd765677",
+      "13 | 执行记录 | fixture__fixture-failure__r001",
+      "14 | 开始时间（UTC） | <timestamp>",
+      "15 | 供应商请求 ID | 未返回"
+     ]
+    ]
+   },
+   "changes/index.html": {
+    "headings": [
+     "h1: 合成示例"
+    ]
+   },
+   "datasets/fixture-body.html": {
+    "headings": [
+     "h1: 合成正文示例",
+     "h2: 标准答案与来源",
+     "h3: 本任务的标准答案 / 目标结果",
+     "h2: 评分核对点"
+    ]
+   },
+   "datasets/fixture-failure.html": {
+    "headings": [
+     "h1: 合成失败示例",
+     "h2: 标准答案与来源",
+     "h3: 本任务的标准答案 / 目标结果",
+     "h2: 评分核对点"
+    ]
+   },
+   "datasets/index.html": {
+    "headings": [
+     "h1: 评测集",
+     "h2: 案例与依据",
+     "h3: 2 例完整参考",
+     "h3: 0 例列表任务",
+     "h3: 快照范围",
+     "h3: 动态核验边界",
+     "h3: WCXB",
+     "h3: Scrapinghub",
+     "h3: PDF.js",
+     "h3: MDN 媒体示例"
+    ],
+    "tables": [
+     [
+      "序号 | 案例 | 类别 | URL | 核对依据 | 参考状态 | 原访问",
+      "1 | 合成正文示例 | synthetic | 源页 ↗ | 未设置 | 完整正文 | 有效",
+      "2 | 合成失败示例 | synthetic | 源页 ↗ | 未设置 | 完整正文 | 有效"
+     ]
+    ]
+   },
+   "en/accounts/index.html": {
+    "headings": [
+     "h1: Access & setup",
+     "h2: Methods in this benchmark",
+     "h2: Public-data boundary"
+    ],
+    "tables": [
+     [
+      "No. | Method | Account requirement | Official source | Variable names | Measured configuration",
+      "1 | fixture | No account or environment variables required. | Register / sign in |  | Repository test adapter; used only for deterministic regression tests."
+     ]
+    ]
+   },
+   "en/adoption/index.html": {
+    "headings": [
+     "h1: Synthetic example adapter",
+     "h2: Example scope",
+     "h2: Example costs",
+     "h2: fixture",
+     "h2: Partial reruns and result provenance"
+    ],
+    "tables": [
+     [
+      "No. | Method | Version evidence | Selected results",
+      "1 | fixture | unknown | 2"
+     ]
+    ]
+   },
+   "en/analysis/index.html": {
+    "headings": [
+     "h1: Analysis",
+     "h2: Method comparison",
+     "h2: All execution records"
+    ],
+    "tables": [
+     [
+      "No. | Method | Task | Family | Result | Failure class | Elapsed time | Run ID",
+      "1 | fixture | 合成正文示例 | Ordinary web-page body | Pass | — | 0 ms | run-e9187371511e120c1ea7",
+      "2 | fixture | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed | 0 ms | run-e218b9eb6ebcfd765677"
+     ]
+    ]
+   },
+   "en/attempts/fixture__fixture-body__r001.html": {
+    "headings": [
+     "h1: 合成正文示例",
+     "h2: Conclusion",
+     "h2: Target coverage and additional content",
+     "h2: Reference and actual output",
+     "h3: Complete reference answer",
+     "h3: Actual output",
+     "h2: Why this verdict",
+     "h2: Run and scoring details",
+     "h2: Run logs and evidence",
+     "h3: Final physical call",
+     "h2: Final physical call",
+     "h2: Original run evidence"
+    ],
+    "tables": [
+     [
+      "No. | Field | Value",
+      "1 | Task ID | fixture-body",
+      "2 | Method | fixture",
+      "3 | Request | Succeeded",
+      "4 | Task result | Pass",
+      "5 | HTTP status | 200",
+      "6 | Elapsed time | 0 ms",
+      "7 | Full-text recall / precision / F1 | 100.0% / 13.0% / 23.1%",
+      "8 | Output characters | 93",
+      "9 | Output checksum | <sha256>",
+      "10 | Required-text coverage | — · 0/0 groups",
+      "11 | Scorer SHA-256 | <sha256>",
+      "12 | Run ID | run-e9187371511e120c1ea7",
+      "13 | Execution record | fixture__fixture-body__r001",
+      "14 | Started (UTC) | <timestamp>",
+      "15 | Provider request ID | 未返回"
+     ]
+    ]
+   },
+   "en/attempts/fixture__fixture-failure__r001.html": {
+    "headings": [
+     "h1: 合成失败示例",
+     "h2: Conclusion",
+     "h2: Target coverage and additional content",
+     "h2: Reference and actual output",
+     "h3: Complete reference answer",
+     "h3: Actual output",
+     "h2: Why this verdict",
+     "h2: Run and scoring details",
+     "h2: Run logs and evidence",
+     "h3: Program error",
+     "h3: Physical call 1",
+     "h2: Physical call 1",
+     "h3: Physical call 2",
+     "h2: Physical call 2",
+     "h2: Original run evidence"
+    ],
+    "tables": [
+     [
+      "No. | Field | Evidence",
+      "1 | Failure class | Provider fetch failed",
+      "2 | Stage | Provider retrieval",
+      "3 | Decision basis | fixture_failure Configured fixture failure Fixture failure: configured test failure. []",
+      "4 | Attribution boundary | The provider did not expose a more specific cause; this error alone cannot attribute fault to the origin or the provider internals."
+     ],
+     [
+      "No. | Field | Value",
+      "1 | Task ID | fixture-failure",
+      "2 | Method | fixture",
+      "3 | Request | Failed",
+      "4 | Task result | Fail",
+      "5 | HTTP status | 502",
+      "6 | Elapsed time | 0 ms",
+      "7 | Full-text recall / precision / F1 | 0.0% / 0.0% / 0.0%",
+      "8 | Output characters | 41",
+      "9 | Output checksum | <sha256>",
+      "10 | Required-text coverage | — · 0/0 groups",
+      "11 | Scorer SHA-256 | <sha256>",
+      "12 | Run ID | run-e218b9eb6ebcfd765677",
+      "13 | Execution record | fixture__fixture-failure__r001",
+      "14 | Started (UTC) | <timestamp>",
+      "15 | Provider request ID | 未返回"
+     ]
+    ]
+   },
+   "en/changes/index.html": {
+    "headings": [
+     "h1: Synthetic example"
+    ]
+   },
+   "en/datasets/fixture-body.html": {
+    "headings": [
+     "h1: 合成正文示例",
+     "h2: Reference and source",
+     "h3: Reference answer / required deliverable",
+     "h2: Scoring checks"
+    ]
+   },
+   "en/datasets/fixture-failure.html": {
+    "headings": [
+     "h1: 合成失败示例",
+     "h2: Reference and source",
+     "h3: Reference answer / required deliverable",
+     "h2: Scoring checks"
+    ]
+   },
+   "en/datasets/index.html": {
+    "headings": [
+     "h1: Dataset",
+     "h2: Tasks and evidence",
+     "h3: 2 tasks with complete references",
+     "h3: 0 list tasks",
+     "h3: Snapshot scope",
+     "h3: Volatile-content validation boundary",
+     "h3: WCXB",
+     "h3: Scrapinghub",
+     "h3: PDF.js",
+     "h3: MDN media examples"
+    ],
+    "tables": [
+     [
+      "No. | Task | Family | URL | Reference basis | Reference status | Original access",
+      "1 | 合成正文示例 | synthetic | Source page ↗ | Not configured | Complete body reference | Valid",
+      "2 | 合成失败示例 | synthetic | Source page ↗ | Not configured | Complete body reference | Valid"
+     ]
+    ]
+   },
+   "en/guide/index.html": {
+    "headings": [
+     "h1: Task scope and acceptance rules"
+    ]
+   },
+   "en/index.html": {
+    "headings": [
+     "h1: Web Fetch benchmark report",
+     "h2: Overall coverage ranking",
+     "h3: Final-call latency of task-passing results",
+     "h2: 1 task-family overview",
+     "h3: General web text",
+     "h2: Latency on tasks passed by every method",
+     "h2: 1 family rankings",
+     "h3: General web text"
+    ],
+    "tables": [
+     [
+      "No. | Method ↕ | Request success rate ↕ | Overall task pass rate ↕ | General web text ↕ | Mean final-call latency ↕ | P50 final-call latency ↕ | P95 final-call latency ↕",
+      "1 | fixture | 50.0% | 50.0% | 1/2 | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "No. | Method | Passed / saved | Mean | P50 | P95",
+      "1 | fixture | 1/2 | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "Method | Mean on shared tasks | P50 on shared tasks | P95 on shared tasks",
+      "fixture | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "No. | Method ↕ | Request success rate ↕ | Task pass rate ↕ | Recall ↕ | Precision ↕ | F1 ↕ | Required-text coverage ↕ | Mean ↕ | P50 ↕ | P95 ↕ | Judgement coverage ↕",
+      "1 | fixture | 50.0% | 50.0% | 50.0% | 6.5% | 11.5% | — | 0 ms | 0 ms | 0 ms | 2/2"
+     ],
+     [
+      "No. | Method | Mean on shared tasks | P50 on shared tasks",
+      "1 | fixture | 0 ms | 0 ms"
+     ]
+    ]
+   },
+   "en/methodology/index.html": {
+    "headings": [
+     "h1: Methodology",
+     "h2: How each task family is evaluated",
+     "h3: Task",
+     "h3: Reference answer",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Task contract",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Reference basis",
+     "h3: How structure is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Reference basis",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Reference answer",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Reference answer",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h3: Task",
+     "h3: Reference answer",
+     "h3: How it is measured",
+     "h3: What counts as a pass",
+     "h2: Metric definitions",
+     "h3: Shared acceptance pipeline",
+     "h3: Task pass rate",
+     "h3: Required-text coverage",
+     "h3: Request success rate",
+     "h3: Recall · precision · F1",
+     "h3: Mean · P50 · P95",
+     "h3: Resources · files · metadata",
+     "h3: Stable task contract",
+     "h2: Shared inputs, timing boundary, and call budget",
+     "h3: Included in latency",
+     "h3: Excluded from latency",
+     "h2: Stable task contracts and full-text diagnostics",
+     "h3: Task contract",
+     "h3: Verdict-to-rule binding",
+     "h3: Integrity and reference modes",
+     "h3: Independent full-text diagnostics",
+     "h2: Method diagrams",
+     "h2: Reference normalization and matching",
+     "h2: Call timing",
+     "h2: Rerun scope after a change",
+     "h2: Calculations and limits",
+     "h2: Run parameters and call boundaries",
+     "h2: Acceptance coverage and diagnostics"
+    ],
+    "tables": [
+     [
+      "No. | Method | Batch | Outer timeout | Method minimum interval | Runner delay between calls | Planned runs | Failure retry limit",
+      "1 | fixture | 1 | 30 seconds | 0 seconds | 0 seconds | 1 | 1"
+     ],
+     [
+      "No. | Task family | Tasks | Identity required | Literal text | Fact groups | Body regions | Records | Resource targets | Full reference | Minimum length ≤1",
+      "1 | web | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 2 | 2"
+     ],
+     [
+      "No. | Method | Results | Passes | Identity verified | Unverified identity passes / all passes | Blocked markers | Resource results | Unexpected resource URLs | Mean resource precision",
+      "1 | fixture | 2 | 1 | 0 | 1/1 (100.0%) | 0 | 0 | 0 | —"
+     ]
+    ]
+   },
+   "en/providers/fixture.html": {
+    "headings": [
+     "h1: fixture",
+     "h2: Measured configuration",
+     "h2: Method resources",
+     "h2: 2 execution records"
+    ],
+    "tables": [
+     [
+      "No. | Task | Family | Result | Failure class | Elapsed time | Run ID",
+      "1 | 合成正文示例 | Ordinary web-page body | Pass | — | 0 ms | run-e9187371511e120c1ea7",
+      "2 | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed | 0 ms | run-e218b9eb6ebcfd765677"
+     ]
+    ]
+   },
+   "en/reproduce/index.html": {
+    "headings": [
+     "h1: Reproduction",
+     "h2: Code and dataset",
+     "h2: Shared conditions",
+     "h2: Method versions",
+     "h2: Publishing and loading",
+     "h2: Core reproduction commands"
+    ],
+    "tables": [
+     [
+      "No. | Parameter | Value",
+      "1 | Platform | baseline-platform",
+      "2 | Python | 3.11.0",
+      "3 | Timeout (seconds) | 30",
+      "4 | Concurrency model | providers_parallel_cases_sequential_per_provider"
+     ],
+     [
+      "No. | Method | Version | Identity evidence | Deployment | Binary SHA-256 | Calls",
+      "1 | fixture | Version not recorded | Cloud API backend version not disclosed | — | — | 2"
+     ]
+    ]
+   },
+   "en/review/index.html": {
+    "headings": [
+     "h1: Review record",
+     "h2: Review scope"
+    ]
+   },
+   "guide/index.html": {
+    "headings": [
+     "h1: 本报告的任务范围与验收规则"
+    ]
+   },
+   "index.html": {
+    "headings": [
+     "h1: Web Fetch 评测报告",
+     "h2: 综合通过率总榜",
+     "h3: 任务通过项的最终调用耗时",
+     "h2: 1 类任务概览",
+     "h3: 静态网站正文",
+     "h2: 全部方法共同成功任务的耗时",
+     "h2: 1 类分榜",
+     "h3: 静态网站正文"
+    ],
+    "tables": [
+     [
+      "序号 | 方法 ↕ | 请求成功率 ↕ | 综合任务通过率 ↕ | 静态网站正文 ↕ | 最终调用耗时均值 ↕ | 最终调用耗时 P50 ↕ | 最终调用耗时 P95 ↕",
+      "1 | fixture | 50.0% | 50.0% | 1/2 | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "序号 | 方法 | 通过 / 已保存 | 均值 | P50 | P95",
+      "1 | fixture | 1/2 | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "方法 | 同题均值 | 同题 P50 | 同题 P95",
+      "fixture | 0 ms | 0 ms | 0 ms"
+     ],
+     [
+      "序号 | 方法 ↕ | 请求成功率 ↕ | 任务通过率 ↕ | 完整度 ↕ | 纯净度 ↕ | F1 ↕ | 文字核对覆盖 ↕ | 均值 ↕ | P50 ↕ | P95 ↕ | 判分完整性 ↕",
+      "1 | fixture | 50.0% | 50.0% | 50.0% | 6.5% | 11.5% | — | 0 ms | 0 ms | 0 ms | 2/2"
+     ],
+     [
+      "序号 | 方法 | 同题均值 | 同题 P50",
+      "1 | fixture | 0 ms | 0 ms"
+     ]
+    ]
+   },
+   "methodology/index.html": {
+    "headings": [
+     "h1: 评测方法",
+     "h2: 每类怎么测",
+     "h3: 任务",
+     "h3: 标准答案",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 任务契约",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 核对依据",
+     "h3: 结构怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 核对依据",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 标准答案",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 标准答案",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h3: 任务",
+     "h3: 标准答案",
+     "h3: 怎么测",
+     "h3: 怎样算通过",
+     "h2: 指标说明",
+     "h3: 统一验收流程",
+     "h3: 任务通过率",
+     "h3: 文字核对覆盖",
+     "h3: 请求成功率",
+     "h3: 完整度 · 纯净度 · F1",
+     "h3: 均值 · P50 · P95",
+     "h3: 资源 · 文件 · 信息",
+     "h3: 稳定任务契约",
+     "h2: 共同输入、计时边界与调用预算",
+     "h3: 计入耗时",
+     "h3: 不计入耗时",
+     "h2: 稳定任务契约与全文诊断",
+     "h3: 任务契约",
+     "h3: 结果与规则绑定",
+     "h3: 完整性与模式",
+     "h3: 全文诊断独立",
+     "h2: 方法图解",
+     "h2: 参考与匹配",
+     "h2: 调用时间",
+     "h2: 变更后重跑范围",
+     "h2: 计算与边界",
+     "h2: 运行参数与调用边界",
+     "h2: 验收覆盖与诊断范围"
+    ],
+    "tables": [
+     [
+      "序号 | 方法 | 批次 | 外层超时 | 方法最小调用间隔 | 运行器调用间延迟 | 计划轮数 | 失败重试上限",
+      "1 | fixture | 1 | 30 秒 | 0 秒 | 0 秒 | 1 | 1"
+     ],
+     [
+      "序号 | 任务类别 | 任务数 | 要求页身份 | 固定文字 | 事实组 | 正文范围 | 记录结构 | 资源目标 | 全文参考 | 长度下限≤1",
+      "1 | web | 2 | 0 | 2 | 0 | 0 | 0 | 0 | 2 | 2"
+     ],
+     [
+      "序号 | 方法 | 结果数 | 通过数 | 身份已核验 | 通过但身份未核验 / 全部通过 | 拦截提示 | 资源结果数 | 多余资源地址数 | 平均资源精确率",
+      "1 | fixture | 2 | 1 | 0 | 1/1 (100.0%) | 0 | 0 | 0 | —"
+     ]
+    ]
+   },
+   "providers/fixture.html": {
+    "headings": [
+     "h1: fixture",
+     "h2: 本轮配置",
+     "h2: 方法资料",
+     "h2: 2 条执行记录"
+    ],
+    "tables": [
+     [
+      "序号 | 案例 | 类型 | 结果 | 失败分类 | 耗时 | 运行 ID",
+      "1 | 合成正文示例 | 普通网页正文 | 通过 | — | 0 ms | run-e9187371511e120c1ea7",
+      "2 | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 | 0 ms | run-e218b9eb6ebcfd765677"
+     ]
+    ]
+   },
+   "reproduce/index.html": {
+    "headings": [
+     "h1: 环境与复现",
+     "h2: 代码与评测集",
+     "h2: 公共条件",
+     "h2: 方法版本",
+     "h2: 发布与加载",
+     "h2: 核心复现指令"
+    ],
+    "tables": [
+     [
+      "序号 | 参数 | 值",
+      "1 | 平台 | baseline-platform",
+      "2 | Python | 3.11.0",
+      "3 | 超时秒 | 30",
+      "4 | 并发方式 | providers_parallel_cases_sequential_per_provider"
+     ],
+     [
+      "序号 | 方法 | 版本 | 身份依据 | 部署路径 | 二进制 SHA-256 | 调用数",
+      "1 | fixture | 版本未记录 | 云端 API 后端未公开版本 | — | — | 2"
+     ]
+    ]
+   },
+   "review/index.html": {
+    "headings": [
+     "h1: 核验记录",
+     "h2: 复核范围"
+    ]
+   }
+  },
+  "routes": [
+   ".generated-report",
+   "accounts/index.html",
+   "adoption/index.html",
+   "analysis/index.html",
+   "artifacts/fixture/fixture-body/run-001-physical-001.txt",
+   "artifacts/fixture/fixture-failure/run-001-physical-001.txt",
+   "artifacts/fixture/fixture-failure/run-001-physical-002.txt",
+   "assets/methodology/annotation.png",
+   "assets/methodology/scoring.png",
+   "assets/methodology/validation.png",
+   "assets/report.js",
+   "assets/style.css",
+   "attempts/fixture__fixture-body__r001.html",
+   "attempts/fixture__fixture-failure__r001.html",
+   "call-logs/fixture/fixture-body/run-001-physical-001.json",
+   "call-logs/fixture/fixture-failure/run-001-physical-001.json",
+   "call-logs/fixture/fixture-failure/run-001-physical-002.json",
+   "changes/index.html",
+   "dataset.json",
+   "datasets/fixture-body.html",
+   "datasets/fixture-failure.html",
+   "datasets/index.html",
+   "en/accounts/index.html",
+   "en/adoption/index.html",
+   "en/analysis/index.html",
+   "en/attempts/fixture__fixture-body__r001.html",
+   "en/attempts/fixture__fixture-failure__r001.html",
+   "en/changes/index.html",
+   "en/datasets/fixture-body.html",
+   "en/datasets/fixture-failure.html",
+   "en/datasets/index.html",
+   "en/guide/index.html",
+   "en/index.html",
+   "en/methodology/index.html",
+   "en/providers/fixture.html",
+   "en/reproduce/index.html",
+   "en/review/index.html",
+   "execution.json",
+   "guide/index.html",
+   "index.html",
+   "methodology/index.html",
+   "providers/fixture.html",
+   "references/fixture-body.txt",
+   "references/fixture-failure.txt",
+   "reliability.json",
+   "report-languages.json",
+   "report-manifest.json",
+   "reproduce/index.html",
+   "results.jsonl",
+   "review/index.html",
+   "summary.json",
+   "webstone-version.json"
+  ]
+ },
+ "run_files": [
+  "artifacts/fixture/fixture-body/run-001-physical-001.txt",
+  "artifacts/fixture/fixture-failure/run-001-physical-001.txt",
+  "artifacts/fixture/fixture-failure/run-001-physical-002.txt",
+  "call-logs/fixture/fixture-body/run-001-physical-001.json",
+  "call-logs/fixture/fixture-failure/run-001-physical-001.json",
+  "call-logs/fixture/fixture-failure/run-001-physical-002.json",
+  "dataset.json",
+  "manifest.json",
+  "results.jsonl",
+  "summary.json"
+ ],
+ "summary": {
+  "cases": {
+   "fixture-body": {
+    "attempts": 1,
+    "category": "synthetic",
+    "name": "合成正文示例",
+    "task_evaluated_attempts": 1,
+    "task_pass_rate": 1.0,
+    "task_unmeasured_attempts": 0,
+    "transport_success_rate": 1.0
+   },
+   "fixture-failure": {
+    "attempts": 1,
+    "category": "synthetic",
+    "name": "合成失败示例",
+    "task_evaluated_attempts": 1,
+    "task_pass_rate": 0.0,
+    "task_unmeasured_attempts": 0,
+    "transport_success_rate": 0.0
+   }
+  },
+  "providers": {
+   "fixture": {
+    "all_attempts_p50_ms": 0.0,
+    "all_attempts_p95_ms": 0.0,
+    "attempts": 2,
+    "deadline_overrun_count": 0,
+    "failure_types": {
+     "fixture_failure": 1
+    },
+    "mean_all_attempts_ms": 0.0,
+    "mean_content_ms": 0.0,
+    "mean_fact_coverage": 1.0,
+    "mean_marker_recall": 0.5,
+    "mean_resource_recall": null,
+    "mean_word_f1": 0.1154,
+    "median_content_chars": 67.0,
+    "p50_ms": 0.0,
+    "p95_ms": 0.0,
+    "provider_type": "fixture",
+    "resource_pass_rate": null,
+    "task_evaluated_attempts": 2,
+    "task_pass_rate": 0.5,
+    "task_unmeasured_attempts": 0,
+    "transport_p50_ms": 0.0,
+    "transport_p95_ms": 0.0,
+    "transport_success_rate": 0.5
+   }
+  }
+ }
+}

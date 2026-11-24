@@ -76,6 +76,8 @@ Report output changes must update the golden snapshots deliberately:
 UPDATE_GOLDEN=1 uv run --frozen --all-extras python -m pytest tests/test_golden_reports.py
 ```
 
+Each track's stage outputs (scored records, report routes, headings and table values) are also pinned by readable baselines in `tests/baselines/`; refresh them with `WEBSTONE_UPDATE_BASELINES=1 uv run --frozen --all-extras python -m pytest tests/baselines` and explain every baseline change in the PR description.
+
 For report delivery, use the track's [release gates](.agents/skills/benchmark-report/references/report-and-release.md#release-gates). Historical-input checks follow [reference inputs](docs/reference-inputs.md).
 
 ## Keep private data out of Git
