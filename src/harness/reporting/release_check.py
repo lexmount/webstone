@@ -15,7 +15,7 @@ from harness.record_io import file_sha256
 from harness.report_languages import generated_languages, language_metadata_path
 from harness.reporting.links import check as check_links
 from harness.reporting.presentation import check_presentation
-from harness.reporting.templates import check_template_identity
+from harness.reporting.templates import check_page, check_template_identity, recorded_variant
 from harness.reporting.versions import check_build_version
 from harness.safety import reject_evidence_symlinks
 
@@ -57,6 +57,21 @@ def check_report_identity(root: Path, manifest: dict, track: str, profile_path: 
         return
     if profile_path.is_symlink() or bound != file_sha256(profile_path):
         raise ValueError("report was built from a different instance profile")
+
+
+def check_template_pages(root: Path, record, template):
+    """Every registered page of the recorded variant exists in each edition and fills its role in order.
+
+    Returns the recorded variant so a track can compare it with its bound content.
+    """
+    variant = recorded_variant(record, template)
+    for language, prefix in language_editions(root):
+        for page in variant.pages:
+            path = root / prefix / page.route
+            if not path.is_file():
+                raise ValueError(f"Report {language} edition is missing its {page.role} page {page.route}")
+            check_page(read_page(path), page)
+    return variant
 
 
 # Release gate

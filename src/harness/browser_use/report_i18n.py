@@ -1,6 +1,7 @@
-"""Report text catalog, and the link and navigation rewrite of the English edition.
+"""The Browser Use catalog file, and the link rewrite that places the English edition under `en/`.
 
-English is the source language of the report; `messages.json` holds its Chinese.
+English is the source language of the report; `messages.json` holds its Chinese and is read
+through the shared catalog API in `harness.reporting.locales`.
 """
 
 from __future__ import annotations
@@ -8,43 +9,18 @@ from __future__ import annotations
 import html
 import posixpath
 import re
-from functools import cache
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
 
-from harness.record_io import read_json
-from harness.reporting.locales import catalog_text
+from harness.reporting.locales import catalog_section
 
 MESSAGES = Path(__file__).with_name("messages.json")
-
-NAV = (
-    ("index.html", "Browser Use"),
-    ("datasets/index.html", "Dataset"),
-    ("methodology/index.html", "Methodology"),
-    ("analysis/index.html", "Results"),
-    ("review/index.html", "Review"),
-    ("fixes/index.html", "Fix log"),
-    ("adoption/index.html", "Browsers"),
-    ("reproduce/index.html", "Reproduction"),
-    ("changes/index.html", "Changes"),
-    ("accounts/index.html", "Accounts and setup"),
-)
-
-
-def report_text(language: str):
-    """Return `t(id, english, **values)` for one report edition."""
-    return catalog_text(MESSAGES, language)
-
-
-@cache
-def _rationales() -> dict[str, str]:
-    return read_json(MESSAGES)["rationale_en"]
 
 
 def english_rationale(value: str) -> str:
     """Translate a rationale of the hash-bound selection; those without English stay raw."""
-    return _rationales().get(value, value)
+    return catalog_section(MESSAGES, "rationale_en").get(value, value)
 
 
 class _PageWriter(HTMLParser):
@@ -119,18 +95,9 @@ def _rewrite_links(page: str) -> str:
     )
 
 
-def _header(source: PurePosixPath) -> str:
-    links = "".join(
-        f'<a href="{html.escape(str(PurePosixPath("en") / path), quote=True)}">{label}</a>'
-        for path, label in NAV
-    )
-    chinese = str(source)
-    return (
-        '<header class="top"><nav class="wrap">'
-        + links
-        + f'<a href="{html.escape(chinese, quote=True)}" hreflang="zh-CN">中文</a>'
-        + '<button class="theme-toggle" onclick="theme()">Toggle theme</button></nav></header>'
-    )
+def chinese_link(route: str) -> str:
+    """The English edition's link to the same Chinese route; `localize_html` keeps it outside `en/`."""
+    return f'<a href="{html.escape(route, quote=True)}" hreflang="zh-CN">中文</a>'
 
 
 def bilingual_text(zh: str, en: str) -> str:
@@ -144,13 +111,6 @@ def localize_html(page: str, source: PurePosixPath) -> str:
     page = re.sub(r'<span data-report-en="([^"]*)">[^<]*</span>',
                   lambda match: html.escape(html.unescape(match[1])), page)
     page = page.replace('<html lang="zh-CN">', '<html lang="en">', 1)
-    page = re.sub(
-        r'<header class="top">.*?</header>',
-        "<header data-english-nav></header>",
-        page,
-        count=1,
-        flags=re.S,
-    )
     had_base = bool(re.search(r'<base\s+href=["\'][^"\']*["\']>', page, flags=re.I))
     page = re.sub(
         r'<base\s+href=["\'][^"\']*["\']>', "<base data-english-base>", page, count=1, flags=re.I
@@ -158,8 +118,9 @@ def localize_html(page: str, source: PurePosixPath) -> str:
     writer = _PageWriter()
     writer.feed(page)
     writer.close()
-    localized = _rewrite_links("".join(writer.parts))
-    localized = localized.replace("<header data-english-nav></header>", _header(source), 1)
+    # The English pass names the Chinese route of each page; keep that one link outside `en/`.
+    localized = re.sub(r'href="en/([^"]*)" hreflang="zh-CN"', r'href="\1" hreflang="zh-CN"',
+                       _rewrite_links("".join(writer.parts)))
     if had_base:
         base = _relative(english, PurePosixPath(".")) + "/"
         localized = localized.replace("<base data-english-base>", f'<base href="{base}">', 1)

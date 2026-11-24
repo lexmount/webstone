@@ -9,23 +9,31 @@ from harness.reporting.presentation import esc
 
 
 def table(headers, rows, sortable=True, *, bounded=False, primary_column=None, significance=False,
-          query_count=None, hidden_columns=()):
-    """A scrollable table; sortable headers carry the accessible controls the presentation check requires."""
+          query_count=None, hidden_columns=(), table_id="", caption="", classes="", header_html=False):
+    """A scrollable table; sortable headers carry the accessible controls the presentation check requires.
+
+    ``header_html`` marks headers the caller already rendered; plain headers are escaped.
+    """
+    label = (lambda h: h) if header_html else esc
     head = "".join(
         '<th' + (' data-extra-column hidden' if i in hidden_columns else '')
         + f' aria-sort="{"descending" if i == primary_column else "none"}"'
         + (' data-primary-metric' if i == primary_column else '')
-        + f'><button type="button" aria-label="{esc(h)}" data-sort-column="{i}">{esc(h)}</button></th>'
+        + f'><button type="button" aria-label="{esc(h)}" data-sort-column="{i}">{label(h)}</button></th>'
         if sortable
-        else f"<th>{esc(h)}</th>"
+        else f"<th>{label(h)}</th>"
         for i, h in enumerate(headers)
     )
+    names = " ".join(filter(None, ("compact" if len(headers) == 2 else "", classes)))
     return (
         ('<div class="scroll inventory" tabindex="0"><table' if bounded else '<div class="scroll" tabindex="0"><table')
+        + (f' id="{esc(table_id)}"' if table_id else '')
         + (' data-sort-controls="buttons"' if sortable else '')
         + (f' data-significance="paired-query-bootstrap/1" data-query-count="{query_count}"' if significance else '')
-        + (' class="compact"' if len(headers) == 2 else "")
-        + "><thead><tr>"
+        + (f' class="{esc(names)}"' if names else "")
+        + ">"
+        + (f"<caption>{esc(caption)}</caption>" if caption else "")
+        + "<thead><tr>"
         + head
         + "</tr></thead><tbody>"
         + "".join(rows)
@@ -38,11 +46,13 @@ def cells(values):
     return "<tr>" + "".join("<td>" + v + "</td>" for v in values) + "</tr>"
 
 
-def evidence_link(path, label, *, result=None):
-    """Open saved evidence in the page dialog, with the raw file as a fallback link."""
+def evidence_link(path, label, *, result=None, viewer=None, raw_label="JSON"):
+    """Open saved evidence in the page dialog, or in a shared ``viewer`` page, with the raw file as a fallback link."""
+    if viewer is not None:
+        return f'<a href="{viewer}?src={path}">{label}</a><a href="{path}" download>{raw_label}</a>'
     if result is not None:
         return f'<button data-evidence="{path}" data-result="{result}">{label}</button>'
-    return f'<button data-evidence="{path}">{label}</button> <a href="{path}">JSON</a>'
+    return f'<button data-evidence="{path}">{label}</button> <a href="{path}">{raw_label}</a>'
 
 
 def evidence_dialog(label, close, full_result):
@@ -67,13 +77,21 @@ def footer(links):
         + f'>{label}</a>' for href, label, attributes in links) + "</footer>"
 
 
-def page(*, lang, base, title, heading, style, script, nav, eyebrow, notice, role, body, dialog, footer_html=""):
-    """One complete report page; ``nav`` already holds navigation, language and theme controls."""
+def page(*, lang, base, title, heading, style, script, nav, eyebrow, notice, role, body, dialog, footer_html="",
+         head="", heading_html=None):
+    """One complete report page; ``nav`` already holds navigation, language and theme controls.
+
+    ``head`` adds linked assets or metadata; an empty ``style`` or ``script`` is left out, so a
+    track may link shared files instead. ``heading_html`` replaces the escaped ``heading``.
+    """
     return (f'<!doctype html><html lang="{lang}"><head><base href="{base}"><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            f'<title>{esc(title)}</title><style>{style}</style></head><body><nav>{nav}</nav>'
-            f'<main data-page-role="{role}"><p class="muted">{eyebrow}</p><h1>{esc(heading)}</h1>'
-            f'{notice}{body}{footer_html}</main>{dialog}<script>{script}</script></body></html>')
+            f'<title>{esc(title)}</title>{head}' + (f'<style>{style}</style>' if style else '')
+            + f'</head><body><nav>{nav}</nav>'
+            f'<main data-page-role="{role}"><p class="muted">{eyebrow}</p>'
+            f'<h1>{esc(heading) if heading_html is None else heading_html}</h1>'
+            f'{notice}{body}{footer_html}</main>{dialog}'
+            + (f'<script>{script}</script>' if script else '') + '</body></html>')
 
 
 def numeric_winners(rows, directions):

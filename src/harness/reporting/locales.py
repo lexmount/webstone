@@ -10,6 +10,11 @@ def _catalog(path: Path) -> dict:
     return read_json(path)
 
 
+def catalog_section(path: Path, name: str) -> dict:
+    """A named non-language section of a catalog, such as frozen-source translations."""
+    return _catalog(path).get(name) or {}
+
+
 def translate(path: Path, key: str, language: str, **values):
     """Select one declared language; preserve values supplied by the report model."""
     try:

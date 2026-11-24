@@ -28,21 +28,23 @@ from harness.browser_use.report import (
     _public_execution,
     recorded_commit,
 )
-from harness.browser_use.report_i18n import report_text
+from harness.browser_use.report_i18n import MESSAGES
 from harness.browser_use.selection import load_pilot, report_selection_path
+from harness.browser_use.template import TEMPLATE, VARIANT
 from harness.distribution import repository_root
 from harness.environments.webarena.topology import known_site_secrets
 from harness.record_io import file_sha256, load_jsonl, optional_file_sha256, read_json
 from harness.report_languages import check_language_contract, generated_languages
 from harness.reporting.assets import bound_json_asset
+from harness.reporting.locales import catalog_text
 from harness.reporting.presentation import visible_text as _visible_text
 from harness.reporting.privacy import BROWSER_USE_CHECK_SOURCE
-from harness.reporting.release_check import check_report_identity, open_report
+from harness.reporting.release_check import check_report_identity, check_template_pages, open_report
 from harness.safety import reject_evidence_symlinks
 from lexbench_webfetch.paths import contained_path
 
 # Report checks read the Chinese edition and compare it with what the renderer wrote.
-_ZH = report_text("zh")
+_ZH = catalog_text(MESSAGES, "zh")
 
 FORBIDDEN_READER_TERMS = (
     _ZH("check.complete_within_model_pairs", "complete within-model pairs"),
@@ -421,15 +423,7 @@ def check(
     participants = Participants.from_profile(profile)
     engines, models = tuple(participants.engines), tuple(participants.models)
     page_names = (
-        "index.html",
-        "changes/index.html",
-        "datasets/index.html",
-        "methodology/index.html",
-        "analysis/index.html",
-        "review/index.html",
-        "adoption/index.html",
-        "reproduce/index.html",
-        "accounts/index.html",
+        *(page.route for page in TEMPLATE.variant(VARIANT).pages),
         "evidence-viewer.html",
         *(f"engines/{engine}.html" for engine in engines),
     )
@@ -501,6 +495,9 @@ def check(
     audit = read_json(audit_path)
     check_report_identity(report_dir, audit, "browser-use", profile_path,
                           allow_unbound_profile=True)
+    # Reports built before profile binding predate the template record and keep their shape.
+    if audit.get("profile_sha256"):
+        check_template_pages(report_dir, audit.get("template"), TEMPLATE)
     if audit.get("selection_sha256") != selection.sha256:
         raise ValueError("report was not built from the current pre-registered selection")
     rows = measured_rows
@@ -725,8 +722,6 @@ def check(
         _ZH("check.user_prompt", "User prompt"),
         _ZH("check.my_reasoning", "My reasoning"),
         _ZH("check.internal_work_log", "Internal work log"),
-        _ZH("check.another_179_task_set_covering_more", "Another 179-task set covering more sites"),
-        _ZH("check.follow_up_179_tasks", "Follow-up 179 tasks"),
         _ZH("check.note", "Note:"),
         _ZH("check.the_proxy_returned_team_model_access", "The proxy returned team_model_access_denied in testing"),
         _ZH("check.evidence_supported_diagnosis", "Evidence-supported diagnosis"),
@@ -765,7 +760,7 @@ def check(
         ".diagnosis-grid{",
         ".screenshot-grid{",
         ".review-round{",
-        ".page-main{overflow-x:clip}",
+        "main{overflow-x:clip}",
     ):
         if required_style not in style:
             raise ValueError(f"report is missing publication readability guard: {required_style}")
