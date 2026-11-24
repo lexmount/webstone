@@ -856,6 +856,11 @@ def _publish_staged_update(update: StagedUpdate, *, transport=None) -> str:
     """Resume the same staged update and verify every deployed byte before binding it."""
     if not update.base or not update.slug or not update.expected_version:
         raise ValueError(f"{update.label} publication requires a bound site and version")
+    if update.target.visibility not in (None, "public"):
+        # A staged update verifies its public share and cannot change access; refuse before
+        # writing a journal or sending anything so a withdrawn report is never left public.
+        raise ValueError(f"{update.label} publication only supports public sharing; "
+                         "change the site's access separately before publishing")
     inline_limit = update.inline_limit_bytes
     if inline_limit is not None and (type(inline_limit) is not int or inline_limit <= 0):
         raise ValueError('Inline upload limit must be a positive byte count')

@@ -232,3 +232,16 @@ def test_large_and_already_staged_updates_keep_file_resume(tmp_path, monkeypatch
     assert publish(update, transport=service) == "ver_after"
     assert not service.uploads
     assert bound == ["ver_after"]
+
+
+@pytest.mark.parametrize("visibility", ["private", "unlisted"])
+def test_staged_update_refuses_non_public_access_before_any_request(tmp_path, visibility):
+    update, bound = release(tmp_path, names=["index.html"])
+    update = StagedUpdate(**{**update.__dict__, "target": PublicationTarget(
+        base_url="https://reports.example", site="existing", expected_version="ver_before",
+        visibility=visibility)})
+    service = Service(update)
+    with pytest.raises(ValueError, match="only supports public sharing"):
+        publish(update, transport=service)
+    assert service.calls == [] and bound == []
+    assert not (tmp_path / "publication").exists() or not any((tmp_path / "publication").iterdir())
