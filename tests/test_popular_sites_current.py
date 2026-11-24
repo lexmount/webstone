@@ -6,7 +6,6 @@ from pathlib import Path
 from harness.web_fetch.reference_inputs import input_tree
 from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 from tests.conftest import read_frozen_dataset_bytes
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 TRACK = ROOT / "evaluation/popular-sites"
@@ -39,16 +38,17 @@ class PopularSitesCurrentTests(unittest.TestCase):
         self.assertNotIn("source_rule_registry", dataset["comparison"])
         self.assertNotIn("execution_contract", dataset["comparison"])
 
-    @pytest.mark.slow
     def test_every_case_has_hash_bound_current_source_and_valid_contract(self):
         dataset = json.loads(read_frozen_dataset_bytes(TRACK / "dataset.json"))
+        # Verifying the frozen source tree is the expensive step; do it once.
+        sources = input_tree(TRACK / "dataset.json", "sources")
         for case in dataset["cases"]:
             with self.subTest(case=case["id"]):
                 validate_acceptance_contract(case["acceptance_contract"])
                 annotation = case["source_benchmark"]["stable_annotation"]
                 relative = Path(annotation["anchor_evidence"])
                 self.assertEqual(relative.parts[0], "sources")
-                stable_page = input_tree(TRACK / "dataset.json", "sources") / Path(*relative.parts[1:])
+                stable_page = sources / Path(*relative.parts[1:])
                 evidence = stable_page.with_name("evidence.json")
                 self.assertTrue(stable_page.is_file())
                 self.assertTrue(evidence.is_file())

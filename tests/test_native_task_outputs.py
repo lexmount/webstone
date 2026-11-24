@@ -303,6 +303,8 @@ class NativeRoutePublicationTests(unittest.TestCase):
              'task_kind':'resource'},
             {'id':'video-resource','url':'https://example.com/watch','track':'video',
              'task_kind':'resource'},
+            {'id':'video-link','url':'https://example.com/watch','track':'video',
+             'task_kind':'resource','expected_resources':[{'kind':'video-link'}]},
             {'id':'video-body','url':'https://example.com/watch','track':'video',
              'task_kind':'body'},
             {'id':'embedded-document','url':'https://example.com/viewer/','track':'document',
@@ -412,38 +414,6 @@ class NativeRoutePublicationTests(unittest.TestCase):
             bad={k:v for k,v in meta.items() if k!=field}
             with self.subTest(missing=field),self.assertRaises(ValueError):
                 require_native_task_routes(cases,[{**row,'provider_metadata':bad}])
-
-    def test_kitesurf_native_markdown_covers_each_page_deliverable_family(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
-
-        examples = [
-            ({'id':'image','url':'https://example.com/gallery','track':'image',
-              'task_kind':'resource'}),
-            ({'id':'video','url':'https://example.com/watch','track':'video',
-              'task_kind':'resource'}),
-            ({'id':'video-link','url':'https://example.com/watch','track':'video',
-              'task_kind':'resource','expected_resources':[{'kind':'video-link'}]}),
-            ({'id':'video-body','url':'https://example.com/watch','track':'video',
-              'task_kind':'body'}),
-            ({'id':'document-page','url':'https://example.com/viewer/','track':'document',
-              'task_kind':'body'}),
-        ]
-        for case in examples:
-            meta = {
-                'browser':'kitesurf',
-                'route':'browser_rendering_markdown',
-                'extractor':'cloudflare_native_markdown',
-                'output_contract':'markdown',
-            }
-            row = {'provider':'kitesurf','case_id':case['id'],
-                   'provider_metadata':meta}
-            with self.subTest(case=case['id']):
-                require_native_task_routes([case],[row])
-            with self.subTest(case=case['id'], shared_projection=True), \
-                    self.assertRaises(ValueError):
-                require_native_task_routes([case],[{**row,'provider_metadata':{
-                    **meta,'extractor':'rendered_dom_resources',
-                    'output_projection_sha256':'0'*64}}])
 
     def test_network_timeout_with_only_runner_receipts_is_not_an_adapter_substitution(self):
         from harness.web_fetch.task_outputs import require_native_task_routes

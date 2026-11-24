@@ -17,31 +17,37 @@ class NativeBrowserVariantTests(unittest.TestCase):
         return {"provider": self.candidate, "provider_type": "moli_webfetch", "case_id": "body", "ok": True,
                 "provider_metadata": metadata, **fields}
 
-    def test_branch_build_has_same_native_body_acceptance_as_release(self):
-        require_native_task_routes(self.cases, [self.row({"route": "ordinary_markdown", "output": "markdown"})])
-        with self.assertRaises(ValueError):
-            require_native_task_routes(self.cases, [self.row({"route": "json_body", "extractor": "node-html-markdown"})])
+    def test_native_route_validation_accepts_only_native_body_from_registered_moli(self):
+        for metadata, fields, accepted in (
+            ({"route": "ordinary_markdown", "output": "markdown"}, {}, True),
+            ({"route": "ordinary_markdown", "output": "markdown"},
+             {"provider": "moli-1.1.16-stack-1432"}, True),
+            ({"route": "json_body", "extractor": "node-html-markdown"}, {}, False),
+            ({"route": "ordinary_markdown", "output": "markdown"},
+             {"ok": False, "error_type": "configuration"}, False),
+            ({}, {"provider": "unregistered-browser", "provider_type": "headless_markdown"}, False),
+        ):
+            with self.subTest(metadata=metadata, fields=fields):
+                rows = [self.row(metadata, **fields)]
+                if accepted:
+                    require_native_task_routes(self.cases, rows)
+                else:
+                    with self.assertRaises(ValueError):
+                        require_native_task_routes(self.cases, rows)
 
-    def test_branch_configuration_failure_is_not_browser_capability(self):
-        with self.assertRaises(ValueError):
-            require_native_task_routes(self.cases, [self.row({"route": "ordinary_markdown", "output": "markdown"},
-                                                         ok=False, error_type="configuration")])
-
-    def test_candidate_slot_is_registered_as_moli(self):
-        from harness.web_fetch.methods import browser_method_label, native_browser_engine
+    def test_candidate_slot_is_moli_but_distinct_from_release_without_report_lineage(self):
+        from harness.web_fetch.methods import (
+            browser_method_label,
+            browser_method_registry,
+            native_browser_engine,
+            report_method,
+        )
         self.assertEqual(native_browser_engine("moli-candidate"), "moli")
         self.assertEqual(browser_method_label("moli-candidate"), "Moli candidate build")
-
-    def test_candidate_slot_is_distinct_from_release_without_report_lineage(self):
-        from harness.web_fetch.methods import browser_method_label, browser_method_registry, native_browser_engine
-        self.assertEqual(native_browser_engine("moli-candidate"), "moli")
         self.assertEqual(browser_method_label("moli-release"), "Moli release build")
         self.assertNotIn("source_url", browser_method_registry()["moli-candidate"])
-        from harness.web_fetch.methods import report_method
         self.assertEqual(report_method("moli-candidate")["source_url"],
                          "https://github.com/lexmount/moli")
-        self.assertNotEqual(browser_method_label("moli-candidate"),
-                            browser_method_label("moli-release"))
 
     def test_report_labels_mixed_fixed_evidence_by_measured_versions_and_counts(self):
         from harness.web_fetch.methods import browser_method_label, with_measured_method_labels
@@ -91,18 +97,6 @@ class NativeBrowserVariantTests(unittest.TestCase):
                 ]
             }), encoding="utf-8")
             self.assertEqual(render(out, {}, records), "Moli 1.1.17（候选版）")
-
-    def test_unknown_native_participant_cannot_bypass_route_validation(self):
-        with self.assertRaises(ValueError):
-            require_native_task_routes(self.cases, [self.row(
-                {}, provider="unregistered-browser", provider_type="headless_markdown"
-            )])
-
-    def test_version_labeled_moli_uses_its_declared_provider_type(self):
-        require_native_task_routes(self.cases, [self.row(
-            {"route": "ordinary_markdown", "output": "markdown"},
-            provider="moli-1.1.16-stack-1432",
-        )])
 
     def test_interface_matrix_covers_every_family_for_six_configurations(self):
         cases = {family: {"id": family, "url": "https://example.com/file.pdf" if family == "document" else "https://example.com/",
@@ -179,7 +173,14 @@ class NativeBrowserVariantTests(unittest.TestCase):
                              "CLI · Moli · 路线以逐次调用记录为准")
             self.assertNotIn("HTML", description["entry"])
 
-    def test_moli_interface_discloses_native_default_timeout_policy(self):
+    def test_moli_interface_discloses_observed_timeout_policy(self):
+        from harness.web_fetch.report_i18n import translate_text
+
+        for method in ("moli-webfetch", "moli"):
+            description = str(SPECS[method]["params"])
+            self.assertIn("内部参数以冻结的调用记录为准", description)
+            self.assertIn("未记录的内部默认值不作推断", description)
+            self.assertNotIn("45 秒", description)
         description = method_spec(self.candidate, self.row({
             "reported_version": "moli 1.1.17",
             "internal_timeout_policy": "native_default",
@@ -187,17 +188,6 @@ class NativeBrowserVariantTests(unittest.TestCase):
         }))
         self.assertIn("未传入 Moli 内部超时参数", description["notes"])
         self.assertIn("保留该二进制默认值", str(description["params"]))
-
-    def test_moli_base_timeout_description_covers_both_evidence_policies(self):
-        for method in ("moli-webfetch", "moli"):
-            description = str(SPECS[method]["params"])
-            self.assertIn("内部参数以冻结的调用记录为准", description)
-            self.assertIn("未记录的内部默认值不作推断", description)
-            self.assertNotIn("45 秒", description)
-
-    def test_moli_interface_discloses_observed_explicit_timeout_policy(self):
-        from harness.web_fetch.report_i18n import translate_text
-
         for timeout_ms in (45_000, 40_500):
             with self.subTest(timeout_ms=timeout_ms):
                 description = method_spec(self.candidate, self.row({
@@ -213,7 +203,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
                 )
                 self.assertIn(f"{timeout_ms:,} ms", translate_text(timeout_description))
 
-    def test_chromium_interface_uses_observed_wait_and_binds_converter_wrapper(self):
+    def test_chromium_interface_uses_observed_wait_and_binds_only_observed_converter(self):
         digest = "a" * 64
         row = {"provider": "chromium", "provider_type": "headless_markdown",
                "provider_metadata": {"wait_until": "domcontentloaded",
@@ -224,12 +214,8 @@ class NativeBrowserVariantTests(unittest.TestCase):
         self.assertEqual(description["request"]["converter_sha256"], digest)
         self.assertIn(digest, str(description["params"]))
         self.assertIn("代码块围栏", description["notes"])
-
-    def test_chromium_interface_does_not_invent_unobserved_converter_hash(self):
-        row = {"provider": "chromium", "provider_type": "headless_markdown",
-               "provider_metadata": {"wait_until": "domcontentloaded"}}
-        description = method_spec("chromium", row)
-        self.assertNotIn("converter_sha256", description["request"])
+        del row["provider_metadata"]["converter_sha256"]
+        self.assertNotIn("converter_sha256", method_spec("chromium", row)["request"])
 
     def test_branch_only_report_requires_native_interface_contract(self):
         from harness.web_fetch.storage import require_current_report_profile

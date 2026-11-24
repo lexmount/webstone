@@ -25,10 +25,8 @@ def test_installed_optional_dependency_preserves_declared_source(tmp_path, monke
             verify_dependency_metadata(tmp_path)
 
 
-@pytest.fixture(params=['harness', 'lexbench_webfetch', 'lexbench_websearch'])
-def package(tmp_path, request):
+def make_package(tmp_path, name):
     source, installed = tmp_path / 'source', tmp_path / 'installed'
-    name = request.param
     directory = 'src/' + name
     (source / directory / 'example/data').mkdir(parents=True)
     (source / directory / 'example/__init__.py').write_text('VALUE = 1\n', encoding='utf-8')
@@ -40,8 +38,15 @@ def package(tmp_path, request):
     return source, installed, name
 
 
-def test_current_modules_and_declared_assets_are_accepted(package):
-    source, installed, name = package
+@pytest.fixture
+def package(tmp_path):
+    # The top-level name only selects the source directory; one name covers rejection.
+    return make_package(tmp_path, 'harness')
+
+
+@pytest.mark.parametrize('name', ['harness', 'lexbench_webfetch', 'lexbench_websearch'])
+def test_current_modules_and_declared_assets_are_accepted(tmp_path, name):
+    source, installed, name = make_package(tmp_path, name)
     (installed / 'example/__pycache__').mkdir()
     (installed / 'example/__pycache__/__init__.cpython-311.pyc').write_bytes(b'local bytecode')
     verify_package_tree(source, installed, package_name=name)

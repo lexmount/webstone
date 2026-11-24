@@ -200,26 +200,37 @@ class MoliVersionResourceChartTests(unittest.TestCase):
             MODULE.render_chart(self.data, output, metrics, language)
             return output.read_text(encoding="utf-8")
 
-    def test_dual_panel_labels_absolute_values_and_baseline_changes(self):
+    def test_panels_label_absolute_values_baseline_changes_and_all_legend_entries(self):
+        # Numeric strings are accepted after validation.
+        self.data["configurations"][0]["pss_mib"] = "77.216796875"
+        self.data["configurations"][0]["cpu_ms"] = "21.406698564593302"
         svg = self.render()
-        for expected in (
-            "77.22 MiB (+0.00%)",
-            "77.10 MiB (-0.15%)",
-            "80.54 MiB (+4.30%)",
-            "21.41 ms (+0.00%)",
-            "21.32 ms (-0.40%)",
-            "21.66 ms (+1.16%)",
-        ):
+        for expected in ("77.22 MiB (+0.00%)", "77.10 MiB (-0.15%)", "80.54 MiB (+4.30%)",
+                         "21.41 ms (+0.00%)", "21.32 ms (-0.40%)", "21.66 ms (+1.16%)"):
             self.assertIn(expected, svg)
-
-    def test_pss_only_omits_cpu_content(self):
-        svg = self.render(("pss",), "en")
-        self.assertIn("Median peak process-tree PSS (MiB)", svg)
-        for label in ("1.1.4 off", "1.1.8 off", "1.1.8 on"):
-            self.assertIn(label, svg)
-        self.assertNotIn("Moli 1.1.8 · layout on:", svg)
-        self.assertNotIn("CPU", svg)
-        self.assertNotIn("21.41 ms", svg)
+        svg = self.render(language="en")
+        for expected in ("Resource experiment: 557 tasks × 5 calls",
+                         "Median peak process-tree PSS (MiB)", "Mean CPU time per execution (ms)",
+                         "80.54 MiB (+4.30%)", "21.66 ms (+1.16%)"):
+            self.assertIn(expected, svg)
+        for metric, language, title, absent in (
+            ("pss", "en", "Median peak process-tree PSS (MiB)", ("CPU", "21.41 ms")),
+            ("cpu", "en", "Mean CPU time per execution (ms)", ("PSS", "77.22 MiB")),
+            ("pss", "zh", None, ("21.41 ms",)),
+            ("cpu", "zh", "单次执行平均 CPU 时间（ms）", ("PSS",)),
+        ):
+            with self.subTest(metric=metric, language=language):
+                svg = self.render((metric,), language)
+                if title:
+                    self.assertIn(title, svg)
+                labels = (("1.1.4 off", "1.1.8 off", "1.1.8 on") if language == "en"
+                          else ("1.1.4 关闭", "1.1.8 关闭", "1.1.8 开启"))
+                for label in labels:
+                    self.assertIn(label, svg)
+                self.assertNotIn("Moli 1.1.8 · layout on:", svg)
+                self.assertNotIn("Moli 1.1.8 · 开启 layout:", svg)
+                for text in absent:
+                    self.assertNotIn(text, svg)
 
     def test_macos_rss_cpu_chart_does_not_label_memory_as_pss(self):
         for row in self.data["configurations"]:
@@ -238,34 +249,6 @@ class MoliVersionResourceChartTests(unittest.TestCase):
                 self.assertIn("80.54 MiB (+4.30%)", memory_only)
                 self.assertNotIn("PSS", memory_only)
                 self.assertNotIn("CPU", memory_only)
-
-    def test_duplicate_metric_selection_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "duplicates"):
-            self.render(("pss", "pss"))
-
-    def test_cpu_only_omits_pss_content_and_keeps_all_legend_entries(self):
-        svg = self.render(("cpu",), "en")
-        self.assertIn("Mean CPU time per execution (ms)", svg)
-        for label in ("1.1.4 off", "1.1.8 off", "1.1.8 on"):
-            self.assertIn(label, svg)
-        self.assertNotIn("PSS", svg)
-        self.assertNotIn("77.22 MiB", svg)
-
-    def test_chinese_single_metric_keeps_all_short_legend_entries(self):
-        for metric in ("pss", "cpu"):
-            with self.subTest(metric=metric):
-                svg = self.render((metric,), "zh")
-                for label in ("1.1.4 关闭", "1.1.8 关闭", "1.1.8 开启"):
-                    self.assertIn(label, svg)
-                self.assertNotIn("Moli 1.1.8 · 开启 layout:", svg)
-
-    def test_english_dual_panel_contains_both_resources_and_changes(self):
-        svg = self.render(language="en")
-        self.assertIn("Resource experiment: 557 tasks × 5 calls", svg)
-        self.assertIn("Median peak process-tree PSS (MiB)", svg)
-        self.assertIn("Mean CPU time per execution (ms)", svg)
-        self.assertIn("80.54 MiB (+4.30%)", svg)
-        self.assertIn("21.66 ms (+1.16%)", svg)
 
     def test_y_axis_expands_to_include_rates_above_eighty_percent(self):
         self.data["configurations"][2]["success_rate_pct"] = 95
@@ -295,79 +278,56 @@ class MoliVersionResourceChartTests(unittest.TestCase):
         self.assertIn("Moli 1.2.0 · 开启 layout", svg)
         self.assertIn("300/372 (80.6%)", svg)
 
-    def test_mismatched_denominators_have_clear_error(self):
-        self.data["configurations"][0]["total_cases"] = 371
-        with self.assertRaisesRegex(ValueError, "same positive total_cases"):
-            self.render()
+    def test_invalid_chart_input_has_a_named_error(self):
+        def population(field, value=None, delete=False):
+            def change(data):
+                if delete:
+                    del data["resource_population"][field]
+                else:
+                    data["resource_population"][field] = value
+            return change
 
-    def test_missing_resource_population_field_has_clear_error(self):
-        del self.data["resource_population"]["chart_tasks"]
-        with self.assertRaisesRegex(
-            ValueError, "resource_population missing required field.*chart_tasks"
-        ):
-            self.render()
+        def row(index, field, value=None, delete=False):
+            def change(data):
+                if delete:
+                    del data["configurations"][index][field]
+                else:
+                    data["configurations"][index][field] = value
+            return change
 
-    def test_resource_population_values_must_be_positive_integers(self):
-        for value in ("557", 557.0, 0, True):
-            with self.subTest(value=value):
-                self.data["resource_population"]["total_tasks"] = value
-                with self.assertRaisesRegex(
-                    ValueError,
-                    "resource_population field total_tasks must be a positive integer",
-                ):
-                    self.render()
-        self.data["resource_population"]["total_tasks"] = 557
+        def every_row(field, value):
+            def change(data):
+                for item in data["configurations"]:
+                    item[field] = value
+            return change
 
-    def test_numeric_string_metric_values_render_after_validation(self):
-        self.data["configurations"][0]["pss_mib"] = "77.216796875"
-        self.data["configurations"][0]["cpu_ms"] = "21.406698564593302"
-        svg = self.render()
-        self.assertIn("77.22 MiB (+0.00%)", svg)
-        self.assertIn("21.41 ms (+0.00%)", svg)
+        def clear(data):
+            data["configurations"] = []
 
-    def test_chinese_cpu_only_panel_has_cpu_labels_and_no_pss(self):
-        svg = self.render(("cpu",), "zh")
-        self.assertIn("单次执行平均 CPU 时间（ms）", svg)
-        self.assertIn("21.66 ms (+1.16%)", svg)
-        self.assertNotIn("PSS", svg)
-
-    def test_empty_configuration_list_has_clear_error(self):
-        self.data["configurations"] = []
-        with self.assertRaisesRegex(ValueError, "configurations must contain at least one row"):
-            self.render()
-
-    def test_missing_configuration_field_has_clear_error(self):
-        del self.data["configurations"][0]["pss_change_pct"]
-        with self.assertRaisesRegex(
-            ValueError, "configuration row 0 missing required field.*pss_change_pct"
-        ):
-            self.render()
-
-    def test_color_rejects_svg_attribute_injection(self):
-        self.data["configurations"][0]["color"] = '#fff" onload="alert(1)'
-        with self.assertRaisesRegex(ValueError, "color must be a six-digit hex color"):
-            self.render()
-
-    def test_fractional_total_cases_has_clear_error(self):
-        for row in self.data["configurations"]:
-            row["total_cases"] = "372.5"
-        with self.assertRaisesRegex(ValueError, "integer total_cases"):
-            self.render()
-
-    def test_duplicate_configuration_ids_have_clear_error(self):
-        self.data["configurations"][1]["id"] = "114_off"
-        with self.assertRaisesRegex(ValueError, "configuration ids must be unique"):
-            self.render()
-
-    def test_fractional_passed_cases_have_clear_error(self):
-        self.data["configurations"][0]["passed_cases"] = 0.5
-        with self.assertRaisesRegex(ValueError, "integer passed_cases"):
-            self.render()
-
-    def test_nonfinite_metric_has_clear_error(self):
-        self.data["configurations"][0]["pss_mib"] = float("nan")
-        with self.assertRaisesRegex(ValueError, "field pss_mib must be finite"):
-            self.render()
+        cases = [
+            (row(0, "total_cases", 371), "same positive total_cases", None),
+            (population("chart_tasks", delete=True),
+             "resource_population missing required field.*chart_tasks", None),
+            *((population("total_tasks", value),
+               "resource_population field total_tasks must be a positive integer", None)
+              for value in ("557", 557.0, 0, True)),
+            (clear, "configurations must contain at least one row", None),
+            (row(0, "pss_change_pct", delete=True),
+             "configuration row 0 missing required field.*pss_change_pct", None),
+            (row(0, "color", '#fff" onload="alert(1)'), "color must be a six-digit hex color", None),
+            (every_row("total_cases", "372.5"), "integer total_cases", None),
+            (row(1, "id", "114_off"), "configuration ids must be unique", None),
+            (row(0, "passed_cases", 0.5), "integer passed_cases", None),
+            (row(0, "pss_mib", float("nan")), "field pss_mib must be finite", None),
+            (lambda data: None, "duplicates", ("pss", "pss")),
+        ]
+        original = json.dumps(self.data)
+        for change, message, metrics in cases:
+            with self.subTest(message=message):
+                self.data = json.loads(original)
+                change(self.data)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.render(metrics or ("pss", "cpu"))
 
 
 if __name__ == "__main__":

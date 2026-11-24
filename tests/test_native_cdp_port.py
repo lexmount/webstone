@@ -171,6 +171,13 @@ class Harness:
                 assert all(process.poll() is not None for process in self.processes)
 
 
+@pytest.fixture(scope="module")
+def server_dir(tmp_path_factory):
+    # macOS assesses every newly created executable on its first launch (about 1.5 s).
+    # Rewriting one stand-in path in place pays that once per worker, not once per test.
+    return tmp_path_factory.mktemp("cdp-server")
+
+
 def exit_server(harness):
     def release_and_wait():
         harness.processes[-1].stdin.close()
@@ -179,15 +186,15 @@ def exit_server(harness):
     return release_and_wait
 
 
-def test_server_on_a_free_port_starts_once(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_server_on_a_free_port_starts_once(server_dir):
+    harness = Harness(server_dir, held=0)
     browser = harness.run()
     assert len(harness.processes) == 1
     assert browser.answered_by == "launched" and browser.closed
 
 
-def test_second_cdp_listener_that_answers_first_is_never_reached(tmp_path):
-    harness = Harness(tmp_path, foreign_cdp=True)
+def test_second_cdp_listener_that_answers_first_is_never_reached(server_dir):
+    harness = Harness(server_dir, foreign_cdp=True)
     foreign = harness.listeners[0]
     taken = set(harness.taken)
     metadata = {}
@@ -200,8 +207,8 @@ def test_second_cdp_listener_that_answers_first_is_never_reached(tmp_path):
     assert "in use" in log.lower() and metadata["diagnostic_log_process_completed"] is True
 
 
-def test_second_cdp_listener_is_not_used_when_the_server_keeps_running_without_the_port(tmp_path):
-    harness = Harness(tmp_path, LINGERING_AFTER_LOST_PORT, foreign_cdp=True)
+def test_second_cdp_listener_is_not_used_when_the_server_keeps_running_without_the_port(server_dir):
+    harness = Harness(server_dir, LINGERING_AFTER_LOST_PORT, foreign_cdp=True)
     foreign = harness.listeners[0]
     with pytest.raises(TimeoutError, match="exceeded the call deadline"):
         harness.run(budget=1)
@@ -209,30 +216,30 @@ def test_second_cdp_listener_is_not_used_when_the_server_keeps_running_without_t
     assert harness.handshakes == [] and len(harness.processes) == 1
 
 
-def test_silent_listener_on_the_port_does_not_hold_the_call(tmp_path):
-    harness = Harness(tmp_path)
+def test_silent_listener_on_the_port_does_not_hold_the_call(server_dir):
+    harness = Harness(server_dir)
     taken = set(harness.taken)
     browser = harness.run(budget=8)
     assert len(harness.processes) == 2
     assert int(browser.url.rsplit(":", 1)[1]) not in taken
 
 
-def test_wildcard_listener_does_not_prove_the_exact_address(tmp_path):
-    harness = Harness(tmp_path, WILDCARD, held=0)
+def test_wildcard_listener_does_not_prove_the_exact_address(server_dir):
+    harness = Harness(server_dir, WILDCARD, held=0)
     with pytest.raises(TimeoutError, match="exceeded the call deadline"):
         harness.run(budget=1)
     assert harness.handshakes == []
 
 
-def test_handshake_failure_from_this_server_is_raised_without_a_restart(tmp_path):
-    harness = Harness(tmp_path, held=0, reject_all=True)
+def test_handshake_failure_from_this_server_is_raised_without_a_restart(server_dir):
+    harness = Harness(server_dir, held=0, reject_all=True)
     with pytest.raises(ConnectionError, match="handshake rejected"):
         harness.run()
     assert len(harness.processes) == 1
 
 
-def test_handshake_failure_is_kept_when_the_server_also_exits(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_handshake_failure_is_kept_when_the_server_also_exits(server_dir):
+    harness = Harness(server_dir, held=0)
 
     def reject(url, timeout):
         exit_server(harness)()
@@ -244,8 +251,8 @@ def test_handshake_failure_is_kept_when_the_server_also_exits(tmp_path):
     assert len(harness.processes) == 1
 
 
-def test_server_that_exits_during_the_handshake_is_not_used(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_server_that_exits_during_the_handshake_is_not_used(server_dir):
+    harness = Harness(server_dir, held=0)
     connect = harness.connect
 
     def connect_then_exit(url, timeout):
@@ -260,8 +267,8 @@ def test_server_that_exits_during_the_handshake_is_not_used(tmp_path):
     assert len(harness.processes) == 1
 
 
-def test_listener_that_takes_the_port_after_the_proof_is_never_given_to_the_caller(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_listener_that_takes_the_port_after_the_proof_is_never_given_to_the_caller(server_dir):
+    harness = Harness(server_dir, held=0)
     connect = harness.connect
 
     def replace_server_then_connect(url, timeout):
@@ -280,22 +287,22 @@ def test_listener_that_takes_the_port_after_the_proof_is_never_given_to_the_call
     assert len(harness.processes) == 1
 
 
-def test_silent_exit_before_any_handshake_reports_the_exit_code(tmp_path):
-    harness = Harness(tmp_path, "#!{python}\nimport sys\nsys.exit(3)\n", held=0)
+def test_silent_exit_before_any_handshake_reports_the_exit_code(server_dir):
+    harness = Harness(server_dir, "#!{python}\nimport sys\nsys.exit(3)\n", held=0)
     with pytest.raises(RuntimeError, match="exited with code 3"):
         harness.run()
     assert len(harness.processes) == 1
 
 
-def test_exit_while_the_browser_is_in_use_fails_the_call(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_exit_while_the_browser_is_in_use_fails_the_call(server_dir):
+    harness = Harness(server_dir, held=0)
     with pytest.raises(RuntimeError, match="exited with code 0 while"):
         harness.run(during=exit_server(harness))
     assert harness.browsers[0].closed
 
 
-def test_caller_error_is_kept_when_the_server_also_exited(tmp_path):
-    harness = Harness(tmp_path, held=0)
+def test_caller_error_is_kept_when_the_server_also_exited(server_dir):
+    harness = Harness(server_dir, held=0)
 
     def fail():
         exit_server(harness)()
@@ -306,8 +313,8 @@ def test_caller_error_is_kept_when_the_server_also_exited(tmp_path):
     assert harness.browsers[0].closed
 
 
-def test_port_check_ignores_the_log_of_an_earlier_attempt(tmp_path):
-    harness = Harness(tmp_path, BOUND_THEN_FAILS)
+def test_port_check_ignores_the_log_of_an_earlier_attempt(server_dir):
+    harness = Harness(server_dir, BOUND_THEN_FAILS)
     with pytest.raises(RuntimeError) as failure:
         harness.run()
     assert str(failure.value) == "unsupported flag\n"
@@ -315,17 +322,17 @@ def test_port_check_ignores_the_log_of_an_earlier_attempt(tmp_path):
     assert harness.browsers == []
 
 
-def test_restart_attempts_are_bounded_and_report_the_server_log(tmp_path):
-    harness = Harness(tmp_path, held=NATIVE_CDP_PORT_ATTEMPTS)
+def test_restart_attempts_are_bounded_and_report_the_server_log(server_dir):
+    harness = Harness(server_dir, held=NATIVE_CDP_PORT_ATTEMPTS)
     with pytest.raises(RuntimeError, match="(?i)in use"):
         harness.run()
     assert len(harness.processes) == NATIVE_CDP_PORT_ATTEMPTS
     assert harness.browsers == []
 
 
-def test_other_startup_failure_is_not_retried(tmp_path):
+def test_other_startup_failure_is_not_retried(server_dir):
     harness = Harness(
-        tmp_path,
+        server_dir,
         "#!{python}\nimport sys\nprint('unsupported flag', file=sys.stderr)\nsys.exit(3)\n",
         held=0,
     )
