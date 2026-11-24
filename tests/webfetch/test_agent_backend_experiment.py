@@ -150,6 +150,7 @@ def test_a_run_that_breaks_the_protocol_is_invalid_with_no_substitute_measuremen
 
 def test_every_arm_must_delegate_to_webfetch(tmp_path, fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTE", "delegated")
+    monkeypatch.setenv("LEXMOUNT_WEBFETCH_CLI", fake_claude)
     monkeypatch.setenv("LEXMOUNT_API_KEY", "k")
     monkeypatch.setenv("LEXMOUNT_PROJECT_ID", "p")
     record = arms.run_one("lexmount", "c00", "https://example.com/", "p", tmp_path / "r", claude_bin=fake_claude)
@@ -201,21 +202,35 @@ def _mcp(backend, env, tmp_path, urls, params=None):
     return replies, [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()]
 
 
-def test_lexmount_backend_speaks_mcp_and_reports_success_and_failure(tmp_path):
+FAKE_LEXMOUNT_CLI = r'''#!{python}
+import json, os, sys, urllib.request
+url = sys.argv[sys.argv.index("--url") + 1]
+request = urllib.request.Request(os.environ["LEXMOUNT_WEBFETCH_BASE_URL"] + "/v1/extract", method="POST",
+                                 data=json.dumps({{"extract": {{"url": url}}}}).encode())
+payload = json.loads(urllib.request.urlopen(request).read())
+print("# WebFetch Extract Result\n\n- **Title:** " + payload["result"]["title"] + "\n\n## Main Text\n\n" + payload["result"]["main_text"])
+'''
+
+
+def test_lexmount_backend_calls_the_api_once_and_returns_the_official_markdown(tmp_path):
     server = HTTPServer(("127.0.0.1", 0), _Stub)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    env = {"LEXMOUNT_API_KEY": "k", "LEXMOUNT_PROJECT_ID": "p", "LEXMOUNT_BASE_URL": f"http://127.0.0.1:{server.server_port}"}
+    cli = tmp_path / "webfetch-cli"
+    cli.write_text(FAKE_LEXMOUNT_CLI.format(python=sys.executable), encoding="utf-8")
+    cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
+    env = {"LEXMOUNT_API_KEY": "k", "LEXMOUNT_PROJECT_ID": "p", "LEXMOUNT_BASE_URL": f"http://127.0.0.1:{server.server_port}",
+           "LEXMOUNT_WEBFETCH_CLI": str(cli)}
     options = {"engine_preference": "lightmount_domstable", "timeout_ms": 30000}
+    _Stub.seen.clear()
     replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options})
-    assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8") == "stub markdown" and rows[0]["ok"] is True and rows[1]["ok"] is False
-    assert rows[0]["sha256"] and rows[1]["sha256"] is None
     server.shutdown()
-    assert _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # harness-chosen options reach the API
+    official = "# WebFetch Extract Result\n\n- **Title:** T\n\n## Main Text\n\nstub markdown\n"
+    assert replies[3]["content"][0]["text"] == official and replies[3]["isError"] is False  # what WebFetch receives
+    assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8") == official and rows[0]["ok"] is True
+    assert len(_Stub.seen) == 2 and _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # one API call per fetch; the CLI only replays it
     assert replies[2]["tools"][0]["name"] == "web_fetch"
-    # WebFetch gets a fixed note, never the page: the page is the saved file
-    assert replies[3]["content"][0]["text"] == fetch_mcp.NOTE.format(size=len("stub markdown")) and replies[3]["isError"] is False
-    assert replies[4]["isError"] is True and "status 502" in replies[4]["content"][0]["text"]
-    assert [r["status"] for r in rows] == [200, 502] and rows[0]["chars"] == len("stub markdown")
+    assert replies[4]["isError"] is True and "status 502" in replies[4]["content"][0]["text"] and rows[1]["sha256"] is None
+    assert json.loads((tmp_path / "out" / rows[1]["payload"]).read_text(encoding="utf-8")) == {"error": {"message": "nope"}}
 
 
 def test_moli_backend_runs_the_local_binary_with_the_harness_chosen_arguments_only(tmp_path):
@@ -224,8 +239,8 @@ def test_moli_backend_runs_the_local_binary_with_the_harness_chosen_arguments_on
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     params = {"argv": ["fetch", "--wait-until", "domstable"]}
     replies, rows = _mcp("moli", {"MOLI_BINARY": str(fake)}, tmp_path, ["https://x/good", "https://x/bad"], params=params)
-    assert replies[3]["isError"] is False and "args:" not in replies[3]["content"][0]["text"]
-    assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8").strip() == "args: fetch --wait-until domstable https://x/good"
+    assert replies[3]["isError"] is False
+    assert replies[3]["content"][0]["text"].strip() == "args: fetch --wait-until domstable https://x/good"
     assert replies[4]["isError"] is True and "status 3" in replies[4]["content"][0]["text"] and "broken" in replies[4]["content"][0]["text"]
     assert [r["status"] for r in rows] == [0, 3]
 
@@ -430,15 +445,19 @@ def test_builtin_markdown_excludes_the_model_written_summary_tail():
     assert arms.builtin_markdown("Fetched x\n<fetched-web-content>\nshort page\n</fetched-web-content>") == ("short page\n", 0, None)
 
 
-def test_mcp_arms_score_the_saved_backend_output_not_what_the_agent_saw(tmp_path):
+@pytest.mark.parametrize("backend", ["builtin", "lexmount", "moli"])
+def test_every_arm_scores_the_verbatim_text_webfetch_delivered(tmp_path, backend):
     (tmp_path / "backend_outputs").mkdir()
-    (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT", encoding="utf-8")
-    rows = [{"ok": True, "file": "call-1.txt"}]
-    found = arms._markdown_evidence(tmp_path, "moli", "Fetched x ... The page text is not shown here.", rows)
-    assert (tmp_path / "markdown.txt").read_text(encoding="utf-8") == "COMPLETE BACKEND OUTPUT"
+    (tmp_path / "backend_outputs" / "call-1.txt").write_text("COMPLETE BACKEND OUTPUT, LONGER THAN WHAT WAS SHOWN", encoding="utf-8")
+    rows = [{"ok": True, "file": "call-1.txt", "chars": 51}]
+    delivered = ("Fetched x (HTTP 200 OK, text/plain, 9000 characters, truncated to the first 7).\n<fetched-web-content>\nVERBATIM"
+                 "\n\n[The verbatim page text stops here, 8 of 9000 characters in; re-fetching this URL returns the same split. "
+                 "What follows is a model-extracted summary]\nSUMMARY\n</fetched-web-content>")
+    found = arms._markdown_evidence(tmp_path, backend, delivered, rows)
+    assert (tmp_path / "markdown.txt").read_text(encoding="utf-8") == "VERBATIM" and found["summarized_tail"] is True
     assert found["fetch_failed_backend"] is False
-    failed = arms._markdown_evidence(tmp_path, "moli", "could not fetch the page", [{"ok": False}])
-    assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text(encoding="utf-8") == ""  # nothing is scored for a failed fetch
+    failed = arms._markdown_evidence(tmp_path, backend, "could not fetch the page", [{"ok": False}], flagged_error=True)
+    assert failed["fetch_failed_backend"] is True and (tmp_path / "markdown.txt").read_text(encoding="utf-8") == ""
 
 
 def test_per_suite_sampling_takes_the_same_number_from_every_suite_and_respects_ineligible_tasks():

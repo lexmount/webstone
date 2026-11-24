@@ -2,12 +2,14 @@
 """Stdio MCP server that exposes one fetch backend as a single tool, ``web_fetch(url)``, for Claude Code's WebFetch.
 
 Claude Code calls it from WebFetch when ``CLAUDE_CODE_WEBFETCH_MCP_TOOL`` names it; the model never sees the tool.
-The server saves the backend's complete output to ``--out-dir`` and returns only ``NOTE`` (or an error), so the page
-does not enter any model's context: the content is recorded by code for scoring, never relayed through a model.
+It returns the backend's text to WebFetch, which then treats it exactly like a page it fetched itself.
 
 ``--backend lexmount``: Lexmount ``POST /v1/extract`` (LEXMOUNT_API_KEY, LEXMOUNT_PROJECT_ID, optional
-LEXMOUNT_BASE_URL). ``--backend moli``: the local Moli CLI (MOLI_BINARY, default ``moli``). The agent supplies only the URL; every
-other request parameter comes from ``--params`` (a JSON file the harness writes per task family).
+LEXMOUNT_BASE_URL). The text is Lexmount's own agent-facing Markdown: the API response rendered by the official
+``webfetch-cli`` (LEXMOUNT_WEBFETCH_CLI), replayed to it locally, so the API is called once with the harness's
+parameters. ``--backend moli``: the local Moli CLI (MOLI_BINARY, default ``moli``); its standard output, or a note
+when the output is binary (the bytes are saved as a file, as WebFetch does for binary content). WebFetch supplies
+only the URL; every other request parameter comes from ``--params`` (a JSON file the harness writes per task family).
 
 Standard library only, so Claude Code can start it with any Python 3.11+ interpreter. Claude Code passes its
 own environment to MCP servers, so no secret is written to disk. Every call is appended to ``--log`` as JSON
@@ -15,16 +17,17 @@ Lines: url, status (HTTP status or process exit code), ok, wall_ms, chars, sha25
 """
 import argparse
 import hashlib
+import http.server
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 
-# What WebFetch receives instead of the page: the same words for every backend and page, only the count differs.
-NOTE = "The fetch tool saved this page to a file for the caller ({size} bytes). The page text is not shown here."
+BINARY_NOTE = "[Binary content ({size} bytes) was saved to a local file for the caller.]"
 
 TOOL = {
     "name": "web_fetch",
@@ -55,16 +58,45 @@ def lexmount(url, timeout, params):
     except Exception as error:  # network failure: report it to the agent, keep the server alive
         payload = {"error": {"message": str(error)}}
     result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
-    text = result.get("main_text") if isinstance(result.get("main_text"), str) else ""
-    if text:  # the agent sees every content field the API returns; the scorer reads the saved payload
-        images = [i for i in result.get("images") or [] if isinstance(i, dict) and i.get("src")]
-        links = [l for l in result.get("links") or [] if isinstance(l, dict) and l.get("href")]
-        if images:
-            text += "\n\nImages:\n" + "\n".join(f"- ![{i.get('alt') or ''}]({i['src']})" for i in images)
-        if links:
-            text += "\n\nLinks:\n" + "\n".join(f"- [{l.get('text') or ''}]({l['href']})" for l in links)
     message = (payload.get("error") or {}).get("message") or "no content returned"
+    text = ""
+    if status == 200 and isinstance(result.get("main_text"), str) and result["main_text"]:
+        text, render_error = official_markdown(payload, url)
+        message = render_error or message
     return text, status, payload.get("request_id"), message, {"json": payload}
+
+
+def official_markdown(payload, url):
+    """Render an API response with Lexmount's official CLI by replaying it on a local address. Returns (text, error)."""
+    cli = os.environ.get("LEXMOUNT_WEBFETCH_CLI")
+    if not cli:
+        return "", "LEXMOUNT_WEBFETCH_CLI is not set"
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    class Replay(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("content-length", 0)))
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Replay)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        done = subprocess.run([cli, "extract", "--url", url], capture_output=True, timeout=60,
+                              env={**os.environ, "LEXMOUNT_WEBFETCH_BASE_URL": f"http://127.0.0.1:{server.server_port}"})
+    except (OSError, subprocess.SubprocessError) as error:
+        return "", f"webfetch-cli failed: {error}"
+    finally:
+        server.shutdown()
+    if done.returncode != 0:
+        return "", "webfetch-cli failed: " + done.stderr.decode("utf-8", "replace").strip()[-300:]
+    return done.stdout.decode("utf-8"), None
 
 
 def moli(url, timeout, params):
@@ -79,9 +111,8 @@ def moli(url, timeout, params):
     message = done.stderr.decode("utf-8", "replace").strip()[-300:] or "no content returned"
     try:
         return done.stdout.decode("utf-8"), done.returncode, None, message, {}
-    except UnicodeDecodeError:  # original file bytes (for example an image): delivered as a file, described to the agent
-        note = f"Fetched binary content: {len(done.stdout)} bytes, saved as a file by the fetch tool."
-        return note, done.returncode, None, message, {"bin": done.stdout}
+    except UnicodeDecodeError:  # original file bytes (an image, a PDF): saved as a file, as WebFetch does
+        return BINARY_NOTE.format(size=len(done.stdout)), done.returncode, None, message, {"bin": done.stdout}
 
 
 BACKENDS = {"lexmount": lexmount, "moli": moli}
@@ -121,7 +152,7 @@ def serve(args):
         elif method == "tools/call":
             url = ((message.get("params") or {}).get("arguments") or {}).get("url", "")
             text, is_error, row, artifacts = fetch(args.backend, url, params)
-            if args.out_dir:  # the backend's complete output, whatever Claude Code shows the agent
+            if args.out_dir:  # the backend's complete output, kept as evidence
                 os.makedirs(args.out_dir, exist_ok=True)
                 stem = f"call-{sum(1 for _ in open(args.log, encoding='utf-8')) + 1 if os.path.exists(args.log) else 1}"
                 if "json" in artifacts:  # the API response, kept for failed calls too
@@ -138,9 +169,7 @@ def serve(args):
                             handle.write(artifacts["bin"])
             with open(args.log, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row) + "\n")
-            size = len(artifacts["bin"]) if "bin" in artifacts else len(text.encode("utf-8"))
-            reply = text if is_error else NOTE.format(size=size)
-            send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": reply}], "isError": is_error}})
+            send({"jsonrpc": "2.0", "id": ident, "result": {"content": [{"type": "text", "text": text}], "isError": is_error}})
         elif ident is not None:
             send({"jsonrpc": "2.0", "id": ident, "error": {"code": -32601, "message": "method not found"}})
 

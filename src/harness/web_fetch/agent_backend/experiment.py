@@ -20,10 +20,10 @@ from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.config import load_dataset, read_dataset_bytes
 
 DEFAULT_DATASET = pathlib.Path("evaluation/dataset.json")
-# One prompt for every task and arm. The score is computed from the page the harness saved by code, so the subagent is
-# asked for the fetch status only, never for page content.
-PROMPT = ("Fetch {url} once. Do not summarize, quote or describe the page. Reply with one line: whether the fetch "
-          "succeeded, and if it failed, the HTTP status or error.")
+# One prompt for every task and arm: a bounded summary, the ordinary use of the web-fetch subagent. The score is computed
+# from the page text WebFetch delivered, taken by code, never from the report.
+PROMPT = ("Read {url} and tell me what the page is about: its title and a summary of its main content in at most "
+          "150 words. Make a single fetch attempt; if it fails, say so instead of trying other ways.")
 
 
 def default_root() -> pathlib.Path:
@@ -165,6 +165,15 @@ def _moli_identity() -> dict:
     return {"version": version, "sha256": hashlib.sha256(pathlib.Path(binary).read_bytes()).hexdigest()}
 
 
+def _lexmount_cli_identity() -> dict:
+    """Version and SHA-256 of the official Lexmount CLI that renders the Lexmount arm's Markdown."""
+    cli = os.environ.get("LEXMOUNT_WEBFETCH_CLI")
+    if not cli or not pathlib.Path(cli).is_file():
+        return {"error": "LEXMOUNT_WEBFETCH_CLI is not set to the webfetch-cli executable"}
+    version = subprocess.run([cli, "version"], capture_output=True, text=True, timeout=30).stdout.strip()
+    return {"version": version, "sha256": hashlib.sha256(pathlib.Path(cli).read_bytes()).hexdigest()}
+
+
 def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids: list[str], plan: list[dict],
                claude_bin: str, ineligible: dict | None = None) -> dict:
     moli = _moli_identity() if "moli" in args.get("arms", "") else None
@@ -172,6 +181,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "args": args,
         "versions": {"claude_code": arm_module.claude_version(claude_bin), "python": platform.python_version(),
                      "webstone_commit": _git_head(), "moli": moli,
+                     "lexmount_cli": _lexmount_cli_identity() if "lexmount" in args.get("arms", "") else None,
                      "dataset_commit": dataset_commit() if meta.get("kind") == "definitions" else None},
         "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt": PROMPT,
         "fixed_environment": arm_module.FIXED_ENV,

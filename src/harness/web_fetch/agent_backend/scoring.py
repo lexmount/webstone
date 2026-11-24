@@ -11,7 +11,6 @@ from collections import Counter
 from lexbench_webfetch.evaluation import evaluate_response
 
 from harness.web_fetch.agent_backend.arms import fetch_dispatch
-from harness.web_fetch.native_projection import native_answer_projection, project_native_answer
 
 WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
 PAIRS = (("builtin", "lexmount"), ("builtin", "moli"))
@@ -19,31 +18,18 @@ ATTEMPT = re.compile(r"^(?P<base>.+)__a(?P<n>\d+)$")
 
 
 def scoring_input(directory: pathlib.Path, arm: str, case: dict) -> dict | None:
-    """What the benchmark scores for one run, read from the run's saved evidence; None when nothing was delivered.
+    """What the benchmark scores for one run, the same rule in every arm; None when nothing was delivered.
 
-    * lexmount: the saved API response projected exactly as the benchmark projects a Lexmount call (``main_text``
-      declared plain text, plus the returned title, final URL, links and images).
-    * moli: its standard output; original file bytes when the output is binary.
-    * builtin: the verbatim markdown of the tool result (``markdown.txt``) and the original bytes the tool saved for
-      binary content (``saved_files/``).
+    The response is ``markdown.txt``: the verbatim page text WebFetch delivered to the subagent, taken from the stream
+    by code (a model-written summary of a long page's remainder is excluded). Binary content is scored as the
+    delivered file: the bytes WebFetch saved in the built-in arm (``saved_files/``), the bytes moli returned in the
+    moli arm. Nothing is extracted from files or converted.
     """
+    text = (directory / "markdown.txt").read_text(encoding="utf-8") if (directory / "markdown.txt").exists() else ""
+    files = [p.read_bytes() for p in sorted((directory / "saved_files").glob("*"))]
     log = directory / "backend_calls.jsonl"
     rows = [json.loads(line) for line in log.read_text(encoding="utf-8").split("\n") if line.strip()] if log.exists() else []
-    good = [r for r in rows if r.get("ok")]
-    outputs = directory / "backend_outputs"
-    if arm == "lexmount":
-        if not good or not good[-1].get("payload"):
-            return None
-        payload = json.loads((outputs / good[-1]["payload"]).read_text(encoding="utf-8"))
-        content, fields = project_native_answer(payload, native_answer_projection("lexmount", case, payload, good[-1]["status"]))
-        result = payload.get("result") or {}
-        return {"response": content.encode("utf-8"), "files": [], "metadata": fields,
-                "title": result.get("title"), "final_url": result.get("final_url") or result.get("url")}
-    if arm == "moli" and good and good[-1].get("binary"):
-        return {"response": b"", "files": [(outputs / good[-1]["binary"]).read_bytes()], "metadata": {}}
-    text = (directory / "markdown.txt").read_text(encoding="utf-8") if (directory / "markdown.txt").exists() else ""
-    # Original bytes the built-in tool saved for binary content are delivered files, like moli's binary output.
-    files = [p.read_bytes() for p in sorted((directory / "saved_files").glob("*"))] if arm == "builtin" else []
+    files += [(directory / "backend_outputs" / r["binary"]).read_bytes() for r in rows if r.get("ok") and r.get("binary")][-1:]
     return {"response": text.encode("utf-8"), "files": files, "metadata": {}} if text or files else None
 
 

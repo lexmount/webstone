@@ -9,9 +9,9 @@ Arms are data. Three backends are registered:
 
 Every arm runs the same Claude Code chain: the main agent delegates to the stock ``web-fetch`` subagent, which
 calls the stock WebFetch tool. Claude Code's ``CLAUDE_CODE_WEBFETCH_MCP_TOOL`` setting makes WebFetch retrieve the
-page through a named MCP tool, which the model never sees; that retrieval is the only difference between arms. The
-MCP server saves the backend's complete output and hands WebFetch a fixed-form note instead of the page, so the
-page never enters a model's context in those arms. Add a backend by adding an entry and an MCP server branch.
+page through a named MCP tool, which the model never sees; that retrieval is the only difference between arms.
+Everything after it (WebFetch's wrapper, its verbatim window, the model summary of the rest, the subagent's report)
+is Claude Code's own and identical in every arm. Add a backend by adding an entry and an MCP server branch.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ import time
 
 MCP_SERVER = pathlib.Path(__file__).with_name("fetch_mcp.py")
 FETCH_TOOLS = {"WebFetch", "mcp__lexmount__web_fetch", "mcp__moli__web_fetch"}
-LEXMOUNT_ENV = ("LEXMOUNT_API_KEY", "LEXMOUNT_PROJECT_ID")
+LEXMOUNT_ENV = ("LEXMOUNT_API_KEY", "LEXMOUNT_PROJECT_ID", "LEXMOUNT_WEBFETCH_CLI")
 DEBUG_END = re.compile(r"tool_dispatch_end tool=(\S+) toolUseId=\S+ outcome=(\S+) durationMs=(\d+)")
 AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+duration_ms: (\d+)</usage>")
 # Claude Code's note listing the original bytes WebFetch saved for binary content (a PDF, an image).
@@ -123,7 +123,10 @@ def parse_stream(text: str):
                 if found:
                     reported.append({"tokens": int(found.group(1)), "tool_uses": int(found.group(2)),
                                      "duration_ms": int(found.group(3))})
-            elif block.get("type") == "tool_result" and uses.get(block["tool_use_id"], {}).get("name") in FETCH_TOOLS:
+            elif (block.get("type") == "tool_result" and raw is None
+                  and uses.get(block["tool_use_id"], {}).get("name") in FETCH_TOOLS):
+                # The first fetch result is the page the task asked for; a later call (reading on with an offset)
+                # is counted in usage but does not change what was delivered for the URL.
                 fetch_error = bool(block.get("is_error"))
                 body = block["content"]
                 raw = body if isinstance(body, str) else "".join(x.get("text", "") for x in body if isinstance(x, dict))
@@ -135,14 +138,12 @@ def parse_stream(text: str):
 def fetch_dispatch(debug_text: str):
     """Return (outcome, duration_ms) of the fetch tool call from Claude Code's debug log.
 
-    Both arms use the same measurement point, the tool dispatch duration. An MCP tool is logged under the
-    generic name ``mcp_tool``; the built-in tool under ``WebFetch``.
+    Every arm calls WebFetch, so every arm has the same measurement point, the tool dispatch duration.
     """
-    outcome = duration = None
-    for match in DEBUG_END.finditer(debug_text):
+    for match in DEBUG_END.finditer(debug_text):  # the first fetch call, the one the scored result comes from
         if match.group(1) in FETCH_TOOLS | {"mcp_tool"}:
-            outcome, duration = match.group(2), int(match.group(3))
-    return outcome, duration
+            return match.group(2), int(match.group(3))
+    return None, None
 
 
 SUMMARY_MARKER = re.compile(r"\n*\[The verbatim page text stops here, (\d+) of (\d+) characters in;")
@@ -188,25 +189,19 @@ def fetch_failed(raw: str | None, tool_flagged_error: bool) -> bool:
 
 
 def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: list[dict], flagged_error: bool = False) -> dict:
-    """Write ``markdown.txt``, the content that is scored, and describe how it relates to what the agent saw.
+    """Write ``markdown.txt``, the content that is scored: the same rule in every arm.
 
-    * built-in: the verbatim part of the tool result; a model-written summary tail is excluded and counted.
-    * MCP backends: the backend's own complete output (saved by the server); the stream copy may have been
-      replaced by Claude Code with a size-limit error, which is recorded, not scored.
+    It is the verbatim part of WebFetch's result, the page text the subagent received; a model-written summary of
+    the rest of a long page is excluded and counted. In the MCP arms the backend's complete output is also kept
+    (``backend_outputs``) as diagnostic evidence; it is not scored.
     """
-    received = raw or ""
-    if backend == "builtin":
-        failed = fetch_failed(raw, flagged_error)
-        markdown, tail, page_chars = ("", 0, None) if failed else builtin_markdown(received)
-        evidence = {"summary_tail_chars": tail, "page_chars_reported": page_chars, "summarized_tail": bool(tail)}
-        failed_flag = failed
-    else:  # the subagent received only the server's note; the page is the server's saved output
-        good = [r for r in rows if r.get("ok") and r.get("file")]
-        markdown = (out / "backend_outputs" / good[-1]["file"]).read_text(encoding="utf-8") if good else ""
-        evidence = {"received_chars": len(received)}
-        failed_flag = not good
+    failed = fetch_failed(raw, flagged_error)
+    markdown, tail, page_chars = ("", 0, None) if failed else builtin_markdown(raw or "")
+    good = [r for r in rows if r.get("ok")]
+    evidence = {"summary_tail_chars": tail, "page_chars_reported": page_chars, "summarized_tail": bool(tail),
+                "backend_output_chars": good[-1].get("chars") if good else None}
     (out / "markdown.txt").write_text(markdown, encoding="utf-8")
-    return {"markdown_chars": len(markdown), "fetch_failed_backend": failed_flag, **evidence}
+    return {"markdown_chars": len(markdown), "fetch_failed_backend": failed, **evidence}
 
 
 def validate(record: dict, arm: str) -> list[str]:
@@ -301,7 +296,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
-    record["fetch_failed"] = record["fetch_failed_backend"]  # the backend's own result, not the agent's view of it
+    record["fetch_failed"] = record["fetch_failed_backend"]  # WebFetch reported a failure or delivered nothing
     record["invalid_reasons"] = validate(record, arm)
     record["valid"] = not record["invalid_reasons"]
     (out / "record.json").write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
