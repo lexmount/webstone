@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from harness.web_fetch import webmainbench_latency_correction as latency
-from harness.web_fetch import webmainbench_runner
+from harness.web_fetch import webmainbench_dataset
 from tests.helpers import write_json
 
 
@@ -35,9 +35,9 @@ def cohort(tmp_path, monkeypatch):
         for i in range(545)
     ]
     source.write_text("".join(json.dumps(row) + "\n" for row in source_rows), encoding="utf-8")
-    original_loader = webmainbench_runner.load_source
+    original_loader = webmainbench_dataset.load_source
     monkeypatch.setattr(
-        webmainbench_runner,
+        webmainbench_dataset,
         "load_source",
         lambda path, selected: original_loader(
             path, selected, expected_sha256=sha(source.read_bytes())

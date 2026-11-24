@@ -74,7 +74,6 @@ OWNER_OPTIONS = {
     "webmainbench-teds-review": "--corrected",
     "webmainbench-latency-correction": "--cohort",
     "webmainbench-content-review": "--work",
-    "webmainbench-full-run": "--binary-source",
     "webmainbench-full-score": "--cohort",
     "webmainbench-full-assemble": "--variants",
     "webmainbench-full-check": "--authority-root",
@@ -161,7 +160,7 @@ def test_sample_selection_forwards_arguments_and_requires_an_output(monkeypatch,
 def test_latency_guard_sees_the_runner_through_each_current_entry(monkeypatch):
     listing = "\n".join([
         "101 /venv/bin/python scripts/run_webmainbench_benchmark.py --provider chromium",
-        "102 /venv/bin/python -m harness.web_fetch.webmainbench_runner --provider chromium",
+        "102 /venv/bin/python -m harness.web_fetch run --benchmark webmainbench --providers chromium",
         "103 /venv/bin/python -m harness.web_fetch webmainbench-score --evidence shard",
         "104 zsh -c python scripts/run_webmainbench_benchmark.py --provider chromium",
         "105 /venv/bin/python -m harness.trajectory_replay evaluate --suite fixture.json",
@@ -253,8 +252,6 @@ def test_template_registry_names_the_public_package_command():
     ("webmainbench-scoring-correction", "webmainbench-eval"),
     ("webmainbench-case-rescore", "webmainbench-eval"),
     ("webmainbench-teds-correction", "webmainbench-eval"),
-    ("webmainbench-full-run", "headless-eval"),
-    ("webmainbench-full-run", "webmainbench-eval"),
     ("webmainbench-full-score", "webmainbench-eval"),
 ])
 def test_documented_uv_commands_name_the_extra_their_stage_imports(command, extra):

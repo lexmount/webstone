@@ -68,12 +68,12 @@ def experiment(tmp_path, monkeypatch):
     def server(records):
         yield 'https://fixture.invalid', Path('synthetic-ca.pem')
 
-    def fetch(provider, _, record, url, timeout):
-        events.append((record['track_id'], next(k for k, v in providers.items() if v is provider), timeout))
-        return ProviderResult(True, 'same output for ' + record['track_id'])
+    def fetch(provider, _, case, html, timeout):
+        events.append((case.id, next(k for k, v in providers.items() if v is provider), timeout))
+        return ProviderResult(True, 'same output for ' + case.id)
 
-    monkeypatch.setattr('harness.web_fetch.webmainbench_runner.fixture_server', server)
-    monkeypatch.setattr('harness.web_fetch.webmainbench_runner.fetch_record', fetch)
+    monkeypatch.setattr('harness.web_fetch.frozen_inputs.fixture_server', server)
+    monkeypatch.setattr('harness.web_fetch.frozen_inputs.fetch_frozen', fetch)
     monkeypatch.setattr(timing, 'require_quiet_host', lambda: 1.0)
     monkeypatch.setattr(timing.time, 'sleep', lambda _: None)
     ticks = iter(i / 100 for i in range(1000))
@@ -117,8 +117,8 @@ def test_invalid_authority_stops_before_calls(experiment, change):
 @pytest.mark.parametrize('changed', ['profile', 'binary', 'manifest', 'source'])
 def test_mid_call_input_change_cannot_issue_receipt(experiment, monkeypatch, changed):
     kwargs, events, _ = experiment
-    from harness.web_fetch import webmainbench_runner as runner
-    original = runner.fetch_record
+    from harness.web_fetch import frozen_inputs as runner
+    original = runner.fetch_frozen
 
     def mutate(*args):
         response = original(*args)
@@ -128,7 +128,7 @@ def test_mid_call_input_change_cannot_issue_receipt(experiment, monkeypatch, cha
         path.write_bytes(path.read_bytes() + b' ')
         return response
 
-    monkeypatch.setattr(runner, 'fetch_record', mutate)
+    monkeypatch.setattr(runner, 'fetch_frozen', mutate)
     with pytest.raises(ValueError, match='changed'):
         timing.collect(**kwargs)
     assert events
@@ -139,14 +139,14 @@ def test_mid_call_input_change_cannot_issue_receipt(experiment, monkeypatch, cha
 @pytest.mark.parametrize('changed', ['module', 'authority'])
 def test_mid_call_metric_change_cannot_issue_receipt(experiment, metric_inputs, monkeypatch, changed):
     kwargs, events, _ = experiment
-    from harness.web_fetch import webmainbench_runner as runner
-    original = runner.fetch_record
+    from harness.web_fetch import frozen_inputs as runner
+    original = runner.fetch_frozen
 
     def mutate(*args):
         append_newline(metric_inputs[changed])
         return original(*args)
 
-    monkeypatch.setattr(runner, 'fetch_record', mutate)
+    monkeypatch.setattr(runner, 'fetch_frozen', mutate)
     with pytest.raises(ValueError, match='changed'):
         timing.collect(**kwargs)
     assert events
@@ -155,14 +155,14 @@ def test_mid_call_metric_change_cannot_issue_receipt(experiment, metric_inputs, 
 
 def test_failed_call_retains_complete_physical_population_without_receipt(experiment, monkeypatch):
     kwargs, events, _ = experiment
-    from harness.web_fetch import webmainbench_runner as runner
-    original = runner.fetch_record
+    from harness.web_fetch import frozen_inputs as runner
+    original = runner.fetch_frozen
 
     def fail(*args):
         original(*args)
         return ProviderResult(False, '', error_type='tool_error', error_message='synthetic failure')
 
-    monkeypatch.setattr(runner, 'fetch_record', fail)
+    monkeypatch.setattr(runner, 'fetch_frozen', fail)
     with pytest.raises(ValueError, match='failed or invalid calls'):
         timing.collect(**kwargs)
     assert len(events) == 8
@@ -238,7 +238,7 @@ def test_certification_rejects_calls_changed_during_source_recheck(experiment, m
     timing.collect(**kwargs)
     authority['latency_correction_receipt_sha256'] = sha((kwargs['output'] / 'receipt.json').read_bytes())
     write_json(kwargs['profile'], authority)
-    from harness.web_fetch import webmainbench_runner as runner
+    from harness.web_fetch import wcxb_dataset as runner
     original = runner.load_wcxb_source
     seen = []
 
@@ -263,7 +263,7 @@ def test_certification_rejects_metric_change_during_source_recheck(experiment, m
     timing.collect(**kwargs)
     authority['latency_correction_receipt_sha256'] = sha((kwargs['output'] / 'receipt.json').read_bytes())
     write_json(kwargs['profile'], authority)
-    from harness.web_fetch import webmainbench_runner as runner
+    from harness.web_fetch import wcxb_dataset as runner
     original = runner.load_wcxb_source
     seen = []
 

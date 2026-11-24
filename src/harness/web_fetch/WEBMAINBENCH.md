@@ -94,7 +94,7 @@ come only from the repository's local `.env`. Provider runs may incur charges.
 
 The supported complete-cohort commands are:
 
-- `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch webmainbench-full-run`: freeze and recheck source,
+- `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch run --certified --benchmark webmainbench`: freeze and recheck source,
   scorer, binary and complete physical-call evidence around provider calls.
 - `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch webmainbench-full-score`: score every declared method
   and bind the score files to the cohort certificate.
@@ -107,7 +107,7 @@ Run and score each independently declared cohort with its own profile. For
 an installed package, the corresponding commands are:
 
 ```bash
-python -m harness.web_fetch webmainbench-full-run \
+python -m harness.web_fetch run --certified --benchmark webmainbench \
   --source /absolute/path/WebMainBench_545.jsonl --scorer /absolute/path/pinned-scorer \
   --profile /absolute/path/frozen-profile.json --config /absolute/path/providers.json \
   --env-file /absolute/path/checkout/.env --output-root /absolute/path/new-cohort

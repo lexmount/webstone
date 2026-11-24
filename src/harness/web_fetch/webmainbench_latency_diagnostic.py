@@ -19,7 +19,7 @@ from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.platform_capabilities import sandbox_exec_command
 from harness.record_io import file_sha256, load_jsonl, parse_jsonl
-from harness.web_fetch import webmainbench_runner
+from harness.web_fetch import frozen_inputs, webmainbench_dataset
 from harness.web_fetch.providers.headless import LOOPBACK_SANDBOX_PROFILE
 from harness.safety import unlinked_path
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE
@@ -415,14 +415,14 @@ def paired_tail_main(argv=None) -> None:
         )
         if result.stdout.strip() != f"moli {version}":
             raise ValueError("Moli version mismatch: " + version)
-    selected_ids, sample = webmainbench_runner.load_selected_ids(args.sample)
+    selected_ids, sample = webmainbench_dataset.load_selected_ids(args.sample)
     if args.formal_correction and sample["case_count"] != 200:
         raise ValueError("Expected frozen 200-page sample")
     source_options = {"expected_count": args.source_count}
     if args.source_sha256:
         source_options["expected_sha256"] = args.source_sha256
     source = {
-        row["track_id"]: row for row in webmainbench_runner.load_source(args.dataset, selected_ids, **source_options)
+        row["track_id"]: row for row in webmainbench_dataset.load_source(args.dataset, selected_ids, **source_options)
     }
     if not source:
         raise ValueError("Paired timing requires a nonempty sample")
@@ -484,8 +484,8 @@ def paired_tail_main(argv=None) -> None:
         }
     (args.output / "runner-source.py").write_bytes(frozen_source)
     (args.output / "selection.json").write_text(json.dumps(selection, indent=2) + "\n", encoding='utf-8')
-    with webmainbench_runner.fixture_server([source[case_id] for case_id in cases]) as (base, ca_cert):
-        selection["network_probe"] = webmainbench_runner.verify_loopback_sandbox(base, ca_cert, source[cases[0]])
+    with frozen_inputs.fixture_server([source[case_id] for case_id in cases]) as (base, ca_cert):
+        selection["network_probe"] = frozen_inputs.verify_loopback_sandbox(base, ca_cert, source[cases[0]])
         (args.output / "selection.json").write_text(json.dumps(selection, indent=2) + "\n", encoding='utf-8')
         with (args.output / "calls.jsonl").open("w", encoding='utf-8') as stream:
             for round_index in range(args.rounds):

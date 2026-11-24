@@ -788,7 +788,7 @@ def test_published_webmainbench_runtime_selection_is_used_by_pin(tmp_path, monke
     assert selected['scorer'] == scorer
     assert selected['default_dataset'] == 'new-default'
     assert selected['history'][0]['scorer'] == previous['scorer']
-    from harness.web_fetch.webmainbench_runner import selected_input
+    from harness.web_fetch.webmainbench_dataset import selected_input
     monkeypatch.setattr(data, 'binding', lambda *args: selected)
     monkeypatch.setattr(data, 'definition_path', lambda track, name: output / 'definitions' / name)
     assert selected_input() == (output / 'definitions/tasks.jsonl', descriptor['sha256'], scorer['revision'])

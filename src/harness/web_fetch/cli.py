@@ -18,7 +18,6 @@ from harness.report_languages import (
 )
 from harness.web_fetch.accounts import print_account_checklist
 from harness.web_fetch.config import (
-    DEFAULT_CALL_TIMEOUT_SECONDS,
     add_failure_retry_argument,
     load_dataset,
     load_provider_config,
@@ -28,7 +27,8 @@ from harness.web_fetch.config import (
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.report_build import build_report
-from harness.web_fetch.runner import rescore_evaluation, run_evaluation
+from harness.web_fetch.benchmarks import BENCHMARKS, FROZEN_INPUTS, LiveSuite
+from harness.web_fetch.runner import rescore_evaluation, run_evaluation, run_frozen_cohort
 from harness.data_home import data_home
 
 EXAMPLES = Path(__file__).parent / "data"
@@ -117,8 +117,6 @@ OWNER_COMMANDS = {
                                         "Apply a certified latency correction"),
     "webmainbench-content-review": ("harness.web_fetch.review_execution", "content_review_main",
                                     "Prepare or resume a source-grounded content review"),
-    "webmainbench-full-run": ("harness.web_fetch.webmainbench_certification", "main",
-                              "Run a certified complete cohort"),
     "webmainbench-full-score": ("harness.web_fetch.webmainbench_certification", "main_score",
                                 "Score a certified complete cohort"),
     "webmainbench-full-assemble": ("harness.web_fetch.webmainbench_assembly", "main",
@@ -137,12 +135,104 @@ def default_run_dir() -> Path:
     return data_home() / "runs" / stamp
 
 
+def add_run_arguments(run: argparse.ArgumentParser) -> None:
+    """The one argument definition of the Web Fetch run stage."""
+    add_language_argument(run)
+    run.add_argument("--benchmark", choices=BENCHMARKS.names(), default=LiveSuite.name,
+                     help="Benchmark adapter that selects, serves and scores the cases (default: %(default)s)")
+    run.add_argument("--dataset", type=Path,
+                     help="Dataset file; defaults to the selected benchmark's locked input")
+    run.add_argument("--content-scope", choices=("main", "full"), help="Acceptance and report scope when scoring both scopes")
+    run.add_argument("--score-scope", choices=("main", "full", "both"), help="Compute only one scope or both (default for annotated tasks)")
+    run.add_argument("--provider-config", type=Path,
+                     help="Provider configuration; defaults to the selected benchmark's configuration")
+    run.add_argument("--providers", default="fixture", help="Comma-separated names, or configured for the provider config default cohort")
+    run.add_argument("--case-ids", default="", help="Optional comma-separated case IDs")
+    run.add_argument("--case-ids-file", type=Path,
+                     help="Frozen case selection manifest of a frozen-input benchmark")
+    run.add_argument("--profile", type=Path, help="External run profile of a frozen-input benchmark")
+    run.add_argument("--expected-version", help="Exact release version required for the measured method")
+    run.add_argument("--expected-dataset-sha256",
+                     help="Frozen source SHA-256; explicit dataset files retain the original-corpus default")
+    run.add_argument("--official-scorer-commit",
+                     help="Scorer commit recorded with the run; scoring is performed separately")
+    run.add_argument("--preserve-original-origin", action="store_true",
+                     help="Serve frozen bytes through a loopback proxy while retaining each source URL")
+    run.add_argument("--limit", type=int, help="Measure only the first N selected frozen cases")
+    run.add_argument("--task-kind", choices=TASK_KINDS,
+                     help="Select one task kind; intersects with --case-ids")
+    run.add_argument("--runs", type=int, default=1)
+    run.add_argument("--timeout", type=float,
+                     help="Per-call deadline in seconds; defaults to the selected benchmark's deadline")
+    run.add_argument("--delay", type=float, default=0.5)
+    run.add_argument(
+        "--provider-concurrency",
+        type=int,
+        default=4,
+        help="Run this many providers in parallel; cases stay sequential within each provider",
+    )
+    run.add_argument("--env-file", type=Path)
+    run.add_argument("--output", type=Path, default=None)
+    run.add_argument("--fail-on-failure", action="store_true")
+    run.add_argument("--no-report", action="store_true",
+                     help="Save scored results and evidence without building local HTML")
+    add_failure_retry_argument(run)
+    run.add_argument("--certified", action="store_true",
+                     help="Run certified collection instead; the selected benchmark's certifier "
+                          "parses the remaining options")
+
+
+LIVE_ONLY = ("content_scope", "score_scope", "case_ids", "task_kind")
+FROZEN_ONLY = ("case_ids_file", "profile", "expected_version", "expected_dataset_sha256",
+               "official_scorer_commit", "preserve_original_origin", "limit")
+
+
 def command_run(args: argparse.Namespace) -> int:
+    benchmark = BENCHMARKS.get(args.benchmark)
+    frozen = benchmark.capabilities().has(FROZEN_INPUTS)
+    misplaced = [name for name in (LIVE_ONLY if frozen else FROZEN_ONLY) if getattr(args, name)]
+    if misplaced or (frozen and args.runs != 1):
+        names = ", ".join("--" + name.replace("_", "-") for name in misplaced or ["runs"])
+        raise SystemExit(f"{names} does not apply to the {args.benchmark} benchmark")
+    if args.provider_config is None:
+        args.provider_config = benchmark.default_provider_config
+    if args.timeout is None:
+        args.timeout = benchmark.default_timeout
+    if frozen:
+        return command_run_frozen(benchmark, args)
+    if args.dataset is None:
+        args.dataset = benchmark.default_dataset
+    return command_run_live(benchmark, args)
+
+
+def run_in_process(argv: Sequence[str]) -> int:
+    """Run the stage in-process for a certifying owner; returns the exit status."""
+    parser = argparse.ArgumentParser(prog="webstone run")
+    add_run_arguments(parser)
+    args = parser.parse_args(list(argv))
+    if args.output is None:
+        args.output = default_run_dir()
+    return command_run(args)
+
+
+def command_run_frozen(benchmark, args: argparse.Namespace) -> int:
+    """Measure one method on frozen inputs; scoring and reports are later stages."""
+    names = [name.strip() for name in args.providers.split(",") if name.strip()]
+    if len(names) != 1:
+        raise SystemExit("A frozen-input benchmark measures one method per run; pass one --providers name")
+    args.provider = names[0]
+    benchmark.resolve(args)
+    run_frozen_cohort(benchmark, args)
+    return 0
+
+
+def command_run_live(benchmark, args: argparse.Namespace) -> int:
     if args.output.exists() or args.output.is_symlink():
         raise SystemExit("Output must be a new directory; existing evidence is immutable")
     load_runtime_env(args.env_file)
     language = None if args.no_report else resolve_report_language(args.output / "report", args.language)
-    dataset_meta, cases = load_dataset(args.dataset, content_scope=args.content_scope, scoring_scope=args.score_scope)
+    dataset_meta, cases = benchmark.cases({"dataset": args.dataset, "content_scope": args.content_scope,
+                                           "scoring_scope": args.score_scope}).as_pair()
     provider_configs = load_provider_config(args.provider_config)
     selection = resolve_provider_selection(args.providers, args.provider_config)
     names = [name.strip() for name in selection.split(",") if name.strip()]
@@ -167,6 +257,7 @@ def command_run(args: argparse.Namespace) -> int:
         delay=args.delay,
         provider_concurrency=args.provider_concurrency,
         max_failure_retries=args.max_failure_retries,
+        benchmark=benchmark,
     )
     if args.no_report:
         print(f"Results: {(args.output / 'results.jsonl').resolve()}")
@@ -351,30 +442,7 @@ def build_parser(root_commands: Mapping[str, str] | None = None,
     sub = parser.add_subparsers(dest="command", required=True)
 
     run = sub.add_parser("run", help="Run providers and generate a multi-page report")
-    add_language_argument(run)
-    run.add_argument("--dataset", type=Path, default=EXAMPLES / "fixture-dataset.json")
-    run.add_argument("--content-scope", choices=("main", "full"), help="Acceptance and report scope when scoring both scopes")
-    run.add_argument("--score-scope", choices=("main", "full", "both"), help="Compute only one scope or both (default for annotated tasks)")
-    run.add_argument("--provider-config", type=Path, default=EXAMPLES / "fixture-providers.json")
-    run.add_argument("--providers", default="fixture", help="Comma-separated names, or configured for the provider config default cohort")
-    run.add_argument("--case-ids", default="", help="Optional comma-separated case IDs")
-    run.add_argument("--task-kind", choices=TASK_KINDS,
-                     help="Select one task kind; intersects with --case-ids")
-    run.add_argument("--runs", type=int, default=1)
-    run.add_argument("--timeout", type=float, default=DEFAULT_CALL_TIMEOUT_SECONDS)
-    run.add_argument("--delay", type=float, default=0.5)
-    run.add_argument(
-        "--provider-concurrency",
-        type=int,
-        default=4,
-        help="Run this many providers in parallel; cases stay sequential within each provider",
-    )
-    run.add_argument("--env-file", type=Path)
-    run.add_argument("--output", type=Path, default=None)
-    run.add_argument("--fail-on-failure", action="store_true")
-    run.add_argument("--no-report", action="store_true",
-                     help="Save scored results and evidence without building local HTML")
-    add_failure_retry_argument(run)
+    add_run_arguments(run)
     run.set_defaults(handler=command_run)
 
     report = sub.add_parser("report", help="Rebuild HTML from an existing run directory")
@@ -433,6 +501,11 @@ def main(argv: Sequence[str] | None = None, *,
          root_commands: Mapping[str, str] | None = None, prog: str = "webstone") -> None:
     arguments = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser(root_commands, prog)
+    if arguments[:1] == ["run"] and "--certified" in arguments[1:]:
+        from harness.web_fetch.certification import main as certify
+
+        certify([value for value in arguments[1:] if value != "--certified"])
+        return
     if arguments[:1] and (arguments[0] in OWNER_COMMANDS or arguments[0] in STAGE_OWNERS):
         run_stage(STAGES, arguments[0], arguments[1:], parser.prog)
         return

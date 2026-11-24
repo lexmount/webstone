@@ -9,7 +9,6 @@ from harness.web_fetch.wcxb_dataset import choose, full_test_exclusions, validat
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency
 from harness.web_fetch.wcxb_scoring import classify, score
 from lexbench_webfetch.metrics import percentile
-from harness.web_fetch.webmainbench_runner import PROVIDERS, WCXB_PROVIDERS
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,10 +28,6 @@ class WCXBContractTests(unittest.TestCase):
     def test_conditional_latency_is_unavailable_without_delivered_pages(self):
         self.assertEqual(format_wcxb_conditional_latency(None), '—')
         self.assertEqual(format_wcxb_conditional_latency(1234.2), '1,234 ms')
-
-    def test_wcxb_participants_do_not_inherit_webmainbench_version_rows(self):
-        self.assertIn('moli-1.1.7', PROVIDERS)
-        self.assertNotIn('moli-1.1.7', WCXB_PROVIDERS)
 
     def test_frozen_manifest_is_unique_and_stratified(self):
         raw = (ROOT / 'evaluation/public-wcxb-test-qualified.json').read_bytes()
@@ -152,7 +147,8 @@ if __name__ == '__main__':
 def test_wcxb_execution_reads_versions_only_from_selected_profile(tmp_path, monkeypatch):
     from types import SimpleNamespace
     import pytest
-    from harness.web_fetch import webmainbench_runner as runner
+    from harness.web_fetch import runner
+    from harness.web_fetch.benchmarks import BENCHMARKS
     from tests.wcxb_fixture import create_cohort
 
     fixture = create_cohort(tmp_path / 'inputs', providers=('moli', 'chromium'))
@@ -161,7 +157,7 @@ def test_wcxb_execution_reads_versions_only_from_selected_profile(tmp_path, monk
         output=tmp_path / 'new-run', case_ids_file=fixture['sample_manifest'],
         benchmark='wcxb', provider='moli', dataset=fixture['source'],
         profile=fixture['profile_path'], limit=None, env_file=tmp_path / '.env',
-        config=tmp_path / 'providers.json', preserve_original_origin=False,
+        provider_config=tmp_path / 'providers.json', preserve_original_origin=False,
     )
     observed = []
     class Method:
@@ -185,10 +181,10 @@ def test_wcxb_execution_reads_versions_only_from_selected_profile(tmp_path, monk
         profile['expected_versions'] = declared
         args.profile.write_text(json.dumps(profile), encoding='utf-8')
         with pytest.raises(ValueError, match=error):
-            runner.run(args)
+            runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
         assert not args.output.exists()
     profile['expected_versions'] = {'moli': '2.3.4', 'chromium': '150.0'}
     args.profile.write_text(json.dumps(profile), encoding='utf-8')
     with pytest.raises(Admitted):
-        runner.run(args)
+        runner.run_frozen_cohort(BENCHMARKS.get(args.benchmark), args)
     assert observed == ['identity', 'identity']

@@ -1576,9 +1576,9 @@ def verify_full_cohort_commands(root, source_root):
     calls = []
 
     def synthetic_child(command, **kwargs):
-        if '--provider' in command:
-            assert command[1:3] == ['-m', 'harness.web_fetch.webmainbench_runner']
-            provider = command[command.index('--provider') + 1]
+        if '--providers' in command:
+            assert command[1:6] == ['-m', 'harness.web_fetch', 'run', '--benchmark', 'webmainbench']
+            provider = command[command.index('--providers') + 1]
             shard = Path(command[command.index('--output') + 1])
             fixture['measured_shard'](shard, provider, records, profile)
         elif '--evidence' in command:
@@ -1606,11 +1606,10 @@ def verify_full_cohort_commands(root, source_root):
             certification.main_score(['--source', 'source.jsonl', '--scorer', 'scorer', '--profile', 'profile.json', '--cohort', 'run'])
         assert len(calls) == 4
         assert (work / 'run/scoring-certificate.json').is_file()
-        for module in ('webmainbench_runner', 'webmainbench_scoring'):
-            original([sys.executable, '-m', 'harness.web_fetch.' + module, '--help'], check=True,
-                     capture_output=True, text=True, cwd=work)
-        for command in ('webmainbench-full-run', 'webmainbench-full-score'):
-            original([sys.executable, '-m', 'harness.web_fetch', command, '--help'],
+        original([sys.executable, '-m', 'harness.web_fetch.webmainbench_scoring', '--help'], check=True,
+                 capture_output=True, text=True, cwd=work)
+        for command in (['run', '--help'], ['webmainbench-full-score', '--help']):
+            original([sys.executable, '-m', 'harness.web_fetch', *command],
                      check=True, capture_output=True, text=True, cwd=work)
     finally:
         os.chdir(previous)

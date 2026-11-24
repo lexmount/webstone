@@ -346,8 +346,12 @@ def certify_case_correction(argv=None):
         subprocess.run(
             [
                 sys.executable,
-                str((ROOT / "scripts/run_webmainbench_benchmark.py")),
-                "--provider",
+                "-m",
+                "harness.web_fetch",
+                "run",
+                "--benchmark",
+                "webmainbench",
+                "--providers",
                 provider,
                 "--dataset",
                 str(args.dataset),

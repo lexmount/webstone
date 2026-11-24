@@ -22,10 +22,9 @@ from harness.reporting.privacy import WCXB_ERROR
 from harness.reporting.publication import atomic_create
 from harness.web_fetch import wcxb_metrics
 from harness.safety import reject_evidence_symlinks
-from harness.web_fetch.wcxb_dataset import validate_manifest
+from harness.web_fetch.wcxb_dataset import load_wcxb_source, selected_wcxb_input, validate_manifest
 from harness.web_fetch.wcxb_latency import load_full_paired_latency
 from harness.web_fetch.wcxb_metrics import snippet_check, word_f1
-from harness.web_fetch.webmainbench_runner import load_wcxb_source, selected_wcxb_input
 
 # Provenance of the adapted metric in wcxb_metrics.py; upstream code is never loaded.
 UPSTREAM_EVALUATOR_SHA256 = 'ae4ad6299e190177fbb04a7c1190077fc6086b3fa0f31fb37a6538a5e979c559'
@@ -99,6 +98,26 @@ def metric_implementation_binding(profile: dict, *, read=None, certificate=None,
         if not binds_current(summary.get(key, None if required else actual)):
             raise ValueError('WCXB summary metric implementation binding mismatch')
     return actual
+
+
+METRIC_KEYS = ("precision", "recall", "f1", "with_rate", "without_rate")
+
+
+def case_metrics(predicted: str, ground_truth: dict) -> dict[str, float]:
+    """The five official metrics of one output against its frozen ground truth."""
+    precision, recall, f1 = word_f1(predicted, ground_truth["main_content"])
+    with_rate = snippet_check(predicted, ground_truth["with"])
+    without_rate = snippet_check(predicted, ground_truth["without"])
+    values = (precision, recall, f1, with_rate, without_rate)
+    if any(
+        not isinstance(value, Real)
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+        or not 0 <= value <= 1
+        for value in values
+    ):
+        raise ValueError("WCXB evaluator returned invalid metrics")
+    return dict(zip(METRIC_KEYS, map(float, values), strict=True))
 
 
 def public_error(value: str | None) -> str | None:
@@ -498,19 +517,9 @@ def _score(*, source, sample_manifest, evidence_root, profile_path, staging):
                 if len(predicted) != row["output_chars"]:
                     raise ValueError("WCXB logical output length differs")
                 reference = gt["main_content"]
-                precision, recall, f1 = word_f1(predicted, reference)
-                with_rate = snippet_check(predicted, gt["with"])
-                without_rate = snippet_check(predicted, gt["without"])
-                if any(
-                    not isinstance(value, Real)
-                    or isinstance(value, bool)
-                    or not math.isfinite(value)
-                    or not 0 <= value <= 1
-                    for value in (precision, recall, f1, with_rate, without_rate)
-                ):
-                    raise ValueError("WCXB evaluator returned invalid metrics")
-                precision, recall, f1, with_rate, without_rate = map(
-                    float, (precision, recall, f1, with_rate, without_rate)
+                metrics = case_metrics(predicted, gt)
+                precision, recall, f1, with_rate, without_rate = (
+                    metrics[key] for key in METRIC_KEYS
                 )
                 diagnosis = classify(row, predicted, precision, recall, reference)
                 diagnoses["excluded" if case_id in exclusions else diagnosis] += 1

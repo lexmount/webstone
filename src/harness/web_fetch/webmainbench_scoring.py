@@ -16,10 +16,8 @@ from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import file_sha256, load_jsonl
 from harness.web_fetch.webmainbench_evidence import read_jsonl
-from harness.web_fetch.webmainbench_runner import selected_input
+from harness.web_fetch.webmainbench_dataset import DATASET_SHA256, SCORER_COMMIT, selected_input
 
-SCORER_COMMIT = "9d991bdc00c57b57521499494d96be85c31317ba"
-DATASET_SHA256 = "0efaa4b49a45e320a27fe6e5a0b6aad5b57259fc3321ac3448519cacc74c537e"
 METRIC_SOURCE_MANIFEST_SHA256 = "d1a503f7a475da2e118f008f9a63c49cba6fb2378b08de01fb2c3c4c1b96dc31"
 CORE_METRICS = ("text_edit", "code_edit", "table_edit", "table_TEDS", "formula_edit")
 
@@ -121,6 +119,17 @@ def metric_dict(value) -> dict:
         "details": value.details,
         **({"error": value.error_message} if not value.success else {}),
     }
+
+
+def official_metrics(calculator, predicted: str, reference: str) -> dict:
+    """Score one delivered output with the prepared pinned calculator."""
+    calculated = calculator.calculate_all(
+        predicted_content=predicted,
+        groundtruth_content=reference,
+        predicted_content_list=None,
+        groundtruth_content_list=None,
+    )
+    return {name: metric_dict(value) for name, value in calculated.items()}
 
 
 def aggregate(rows: list[dict]) -> dict:
@@ -276,17 +285,8 @@ def main() -> None:
             artifact = args.evidence / row["artifact_path"]
             if file_sha256(artifact) != row["output_sha256"]:
                 raise ValueError(f"Artifact hash mismatch: {row['track_id']}")
-            if row["ok"]:
-                predicted = artifact.read_text(encoding="utf-8")
-                calculated = calculator.calculate_all(
-                    predicted_content=predicted,
-                    groundtruth_content=reference,
-                    predicted_content_list=None,
-                    groundtruth_content_list=None,
-                )
-                metrics = {name: metric_dict(value) for name, value in calculated.items()}
-            else:
-                metrics = {}
+            metrics = (official_metrics(calculator, artifact.read_text(encoding="utf-8"), reference)
+                       if row["ok"] else {})
             result = {**row, "metrics": metrics}
             stream.write(json.dumps(result, ensure_ascii=False) + "\n")
             scored.append(result)
