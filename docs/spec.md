@@ -5,7 +5,7 @@ This page is the standard that Webstone code, documentation and reviews follow.
 must hold when it changes. The two agree on ownership, and where existing code
 does not yet meet a rule here, [Migration](#migration) applies.
 
-[Model](#model) · [Stages](#stages-and-artifacts) · [Extension points](#extension-points) · [Report instances](#report-instances) · [Report templates](#report-templates) · [Commands](#command-surface) · [Rules](#rules) · [Where a change goes](#where-a-change-goes) · [Enforcement](#enforcement) · [Migration](#migration)
+[Model](#model) · [Stages](#stages-and-artifacts) · [One pipeline per track](#one-pipeline-per-track) · [Extension points](#extension-points) · [Report instances](#report-instances) · [Report templates](#report-templates) · [Commands](#command-surface) · [Rules](#rules) · [Where a change goes](#where-a-change-goes) · [Enforcement](#enforcement) · [Migration](#migration)
 
 ## Model
 
@@ -23,6 +23,13 @@ branch in shared code.
 The pipeline is shared. A new benchmark, method or report instance adds an
 adapter and data. It does not add a runner, a renderer, a checker or a
 conditional in a shared module.
+
+Shared code is expected to change. It grows when an instance needs something
+the interfaces cannot yet express: a new hook, capability, schema field or
+slot that any instance can use. What a shared module must not contain is
+knowledge of one instance, such as `if provider == ...`, a benchmark's size or
+a report's sentence. The test for a shared-code change is whether it reads the
+same with every instance name removed.
 
 **Figure 1. A report instance is data that selects adapters; the pipeline does not change.**
 
@@ -96,6 +103,41 @@ Every artifact has a named, versioned schema, and the stage that reads it
 validates it. A reader can therefore take an artifact produced on another
 machine, by another person, and continue from that point.
 
+## One pipeline per track
+
+Benchmarks in the same track run through the same pipeline from input
+preparation to report. The track owns the skeleton: the order of steps, the call
+boundary, deadlines and retries, record writing, certification, aggregation and
+the report build. A benchmark supplies only the steps that differ, through its
+adapter.
+
+**Figure 3. The track owns the skeleton; a benchmark fills the marked steps.**
+
+```mermaid
+flowchart LR
+    subgraph Track["Track pipeline (one implementation)"]
+        direction LR
+        A["Load cases"] --> B["Prepare input environment"] --> C["Check method identity"] --> D["Call method<br/>per case"] --> E["Write call records"] --> F["Score"] --> G["Aggregate populations"] --> H["Build report"]
+    end
+    BA["Benchmark adapter"] -. "cases" .-> A
+    BA -. "inputs: live site, served fixture,<br/>deployed environment" .-> B
+    BA -. "scorer" .-> F
+    BA -. "populations, metrics,<br/>expected matrix" .-> G
+    BA -. "views" .-> H
+    MA["Method adapter"] -. "identity" .-> C
+    MA -. "call, projection" .-> D
+```
+
+A benchmark that serves frozen pages from a local server, one that calls live
+sites and one that needs a deployed environment differ in the input environment
+step, not in the runner. A benchmark with its own metric differs in the scorer
+and the populations, not in the certifier or the report builder. A benchmark
+does not get its own run loop, record files, certifier or generator.
+
+Two tracks may share steps through the shared packages, but they are not
+required to share one skeleton: a fetch call and an agent episode have different
+shapes.
+
 ## Extension points
 
 These are the only places where code specific to one method, benchmark or track
@@ -136,9 +178,11 @@ class MethodAdapter(Protocol):
 class BenchmarkAdapter(Protocol):
     name: str
 
-    def cases(self, lock) -> Iterable[Case]: ...
+    def cases(self, lock, profile) -> Iterable[Case]: ...
+    def inputs(self, cases) -> ContextManager[InputEnvironment]: ...  # live, fixture or deployed
     def score(self, case, scored_input) -> Score: ...  # task rules come from case data
     def populations(self) -> list[Population]: ...     # denominators, families, metric sets
+    def views(self) -> list[SectionHook]: ...          # optional report sections
 
 
 class TrackStages(Protocol):          # fixed keys; a track supplies each or declares it absent
@@ -265,9 +309,9 @@ author's working session.
 2. **Dependencies point inward.** Shared packages import no track. A track imports
    shared packages and its own adapters, not another track. Adapters import the
    interface they implement.
-3. **One implementation per stage.** A track has one runner, one scorer entry, one
-   report builder, one release gate and one publisher. A second benchmark or
-   method reuses them through an adapter.
+3. **One pipeline per track.** A track has one runner, one scorer entry, one
+   report builder, one release gate and one publisher. Every benchmark and
+   method in the track reuses them through an adapter.
 4. **Artifacts are the only coupling.** Stage inputs and outputs are persisted,
    schema-versioned and validated on read. No stage passes state through
    globals, context variables or undeclared keys.
@@ -278,8 +322,9 @@ author's working session.
    the interface. Shared code does not probe adapters with `getattr` or by type
    name.
 7. **Extend the interface, not the caller.** When an instance does not fit, change
-   the interface for all adapters. A conditional on one adapter's name in shared
-   code is the signal that an interface is missing.
+   the shared code so that any adapter can use the new hook, capability or
+   field. A conditional on one adapter's name in shared code is the signal that
+   an interface is missing.
 8. **Instance content is bound data.** Prose, numbers and labels for one report
    live in its bound content and are rendered from there in each language.
 9. **Reproduction is a command sequence.** The documented commands, a clean
@@ -293,7 +338,7 @@ author's working session.
 
 ## Where a change goes
 
-**Figure 3. Deciding where a change belongs.**
+**Figure 5. Deciding where a change belongs.**
 
 ```mermaid
 flowchart TD
@@ -310,17 +355,18 @@ flowchart TD
     F -- no --> G["Stop: it is instance-specific.<br/>Find the adapter or data that owns it"]
 ```
 
-| Change | Expected to touch | Not expected to touch |
+| Change | Instance-specific part lives in | Shared code changes only to |
 | --- | --- | --- |
-| Add a method | One adapter module, its registry entry, example config, pricing or catalog data, its tests | Runner, scorer, projection or routing code shared by other methods, renderer, checker |
-| Add a benchmark | One benchmark adapter, data lock entry, case data, its tests | Runner loop, certifier, CLI dispatch, renderer |
-| Add a report instance | Profile and bound content outside Git | Any file under `src/` |
-| Add a track | A track package implementing the stage registration, an example, tests | Other tracks, shared packages except their registries |
-| Add a report view | A section hook and its release rule | A branch on benchmark or method in the renderer |
-| Add a report variant | A registered slot selection with an example and tests | A new generator or a copied renderer |
+| Add a method | One adapter module, its registry entry, example config, pricing or catalog data, its tests | Add a hook or capability that any method can declare |
+| Add a benchmark | One benchmark adapter, data lock entry, case data, its tests | Add a pipeline step or adapter hook that any benchmark can fill |
+| Add a report instance | Profile and bound content outside Git | Nothing |
+| Add a track | A track package implementing the stage registration, an example, tests | Register the track; move a step two tracks now share into a shared package |
+| Add a report view | A section hook and its release rule | Add a slot that any track can fill |
+| Add a report variant | A registered slot selection with an example and tests | Add a slot or label option that any variant can select |
 
-A diff that falls in the right-hand column is either an interface extension,
-which the description must state and justify for all adapters, or a violation.
+A change to shared code states in its description which interface it extends
+and why every adapter can use it. A shared-code change that names one instance,
+or that only one instance can ever use, is a violation.
 
 ## Enforcement
 
