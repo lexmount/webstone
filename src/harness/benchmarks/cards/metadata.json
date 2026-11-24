@@ -314,6 +314,7 @@
     }
   },
   "headless-browser": {
+    "upstream_source": "harness.benchmarks.headless_source:definitions",
     "pretty_name": "LexBench-Headless-Browser",
     "repo_id": "Lexmount/LexBench-Headless-Browser",
     "previous_repo_ids": [],
