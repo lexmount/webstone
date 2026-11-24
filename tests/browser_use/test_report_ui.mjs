@@ -18,24 +18,6 @@ const rows = [
   {dataset: {tier: 'easy', result: 'pass', model: 'model-a', engine: 'chromium'}, textContent: 'complete'},
 ];
 const count = {textContent: ''};
-const matrixControls = [
-  {dataset: {matrixFilter: 'relation'}, value: 'mixed', addEventListener() {}},
-  {dataset: {matrixFilter: 'kind'}, value: '', addEventListener() {}},
-];
-const comparisonRows = [
-  {dataset: {tier: 'hard', relation: 'mixed', kind: 'RETRIEVE'}},
-  {dataset: {tier: 'easy', relation: 'all_pass', kind: 'NAVIGATE'}},
-  {dataset: {tier: 'medium', relation: 'all_fail', kind: 'MUTATE'}},
-];
-const matrixCount = {textContent: ''};
-const matrixRoot = {
-  querySelectorAll(selector) {
-    if (selector === '[data-matrix-filter]') return matrixControls;
-    if (selector === 'tbody tr[data-tier]') return comparisonRows;
-    return [];
-  },
-  querySelector(selector) { return selector === '[data-matrix-count]' ? matrixCount : null; },
-};
 const diagnosisDialog = {
   open: false,
   showModal() { this.open = true; },
@@ -58,15 +40,13 @@ const document = {
   querySelectorAll(selector) {
     if (selector === '[data-filter]') return controls;
     if (selector === '[data-search]') return [search];
-    if (selector === 'tbody tr[data-tier]:not([data-relation])') return rows;
+    if (selector === 'tbody tr[data-tier]:not([data-explorer-row])') return rows;
     if (selector === '[data-visible-count]') return [count];
-    if (selector === '[data-matrix-filter]') return matrixControls;
     if (selector === 'dialog') return [diagnosisDialog];
     return [];
   },
   querySelector(selector) { return selector === '[data-search]' ? search : null; },
   getElementById(id) {
-    if (id === 'configuration-matrix') return matrixRoot;
     if (id === 'diagnosis-example') return diagnosisDialog;
     return null;
   },
@@ -94,12 +74,6 @@ assert.equal(search.value, 'missing');
 assert.equal(controls[0].value, 'fail');
 assert.deepEqual(rows.map(row => row.hidden), [false, true]);
 assert.equal(count.textContent, '1 / 2');
-assert.deepEqual(comparisonRows.map(row => row.hidden), [false, true, true]);
-assert.equal(matrixCount.textContent, '1 / 3');
-
-matrixControls[0].value = 'all_fail';
-vm.runInContext('filterMatrix()', context);
-assert.deepEqual(comparisonRows.map(row => row.hidden), [true, true, false]);
 
 vm.runInContext("openDiagnosis('diagnosis-example')", context);
 assert.equal(diagnosisDialog.open, true);

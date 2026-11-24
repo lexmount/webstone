@@ -40,9 +40,10 @@ from harness.browser_use.publication import (
     trajectory_label,
 )
 from harness.browser_use.report_i18n import (
+    MESSAGES,
     bilingual_text,
+    chinese_link,
     english_rationale,
-    report_text,
     write_english_report,
 )
 from harness.browser_use.selection import (
@@ -52,20 +53,24 @@ from harness.browser_use.selection import (
     report_selection_path,
     validate_against_official,
 )
+from harness.browser_use.template import TEMPLATE, VARIANT
+from harness.distribution import repository_root
 from harness.environments.browser import engine_label
 from harness.environments.participants import profile_engines
 from harness.environments.webarena.sites import site_labels
 from harness.record_io import load_jsonl, optional_file_sha256, read_json, write_json
 from harness.report_languages import (
+    REPORT_PAGE_MARKER,
     add_language_argument,
     includes_english,
     primary_report_language,
     select_report_language,
     write_language_contract,
 )
+from harness.reporting import explorer, shell
 from harness.reporting.assets import bound_json_asset
-from harness.reporting.style import STYLE as SHARED_STYLE
-from harness.reporting.templates import template_identity
+from harness.reporting.locales import catalog_text
+from harness.reporting.templates import compose, template_identity
 from lexbench_webfetch.metrics import percentile
 
 
@@ -73,7 +78,7 @@ def recorded_commit(record: dict) -> str | None:
     """Read the harness commit, including evidence recorded before the Webstone rename."""
     return record.get("webstone_commit") or record.get("browser_eval_commit")
 
-_ZH, _english = report_text("zh"), report_text("en")
+_ZH, _english = catalog_text(MESSAGES, "zh"), catalog_text(MESSAGES, "en")
 
 
 class _Authored(str):
@@ -379,16 +384,10 @@ def _table(
     table_id: str = "",
     classes: str = "",
 ) -> str:
-    head = "".join(f"<th>{x if isinstance(x, Safe) else _e(x)}</th>" for x in headers)
-    body = "".join(
-        "<tr>" + "".join(f"<td>{x if isinstance(x, Safe) else _e(x)}</td>" for x in row) + "</tr>"
-        for row in rows
+    return shell.table(
+        [_html(x) for x in headers], [shell.cells([_html(x) for x in row]) for row in rows], sortable=False,
+        header_html=True, caption=caption, table_id=table_id, classes=classes,
     )
-    cap = f"<caption>{_e(caption)}</caption>" if caption else ""
-    attrs = (f' id="{_e(table_id)}"' if table_id else "") + (
-        f' class="{_e(classes)}"' if classes else ""
-    )
-    return f'<div class="table-wrap"><table{attrs}>{cap}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
 def _attempt_id(row: dict[str, Any]) -> str:
@@ -909,63 +908,66 @@ def _adoption_top3(evidence: dict[str, Any]) -> str:
 def _same_task_comparison(
     tasks: list[dict[str, Any]], attempts: list[dict[str, Any]], participants: Participants
 ) -> str:
-    """Render one task-by-configuration matrix; never reduce it to pairwise controls."""
+    """Render the shared same-task explorer over every registered model-by-browser configuration."""
 
     results = {(_row_model(row), str(row["engine"]), int(row["task_id"])): row for row in attempts}
-    engines = participants.engines_baseline_first
-    configurations = [(model, engine) for model in participants.models for engine in engines]
+    configurations = [(model, engine) for model in participants.models for engine in participants.engines_baseline_first]
     if len(configurations) < 2:
         return ('<p class="muted-box">' + t("same_task_comparison.at_least_two_configurations_are_required", "At least two configurations are required for a same-task comparison.") + "</p>")
+    labels = {"pass": t("same_task_comparison.pass", "Pass"), "fail": t("same_task_comparison.fail", "Fail"),
+              "missing": t("same_task_comparison.not_measured", "Not measured")}
+
+    def outcome(model: str, engine: str, task_id: int) -> explorer.Outcome:
+        result = results.get((model, engine, task_id))
+        if result is None:
+            return explorer.Outcome("missing", labels["missing"])
+        state = "pass" if float(result["score"]) == 1 else "fail"
+        return explorer.Outcome(state, labels[state], f"results/{model}-{engine}-{task_id}.html")
 
     rows = []
     for task in tasks:
-        task_id = int(task["task_id"])
-        states = []
-        cells = []
-        for model, engine in configurations:
-            result = results.get((model, engine, task_id))
-            if result is None:
-                state, label = "missing", t("same_task_comparison.not_measured", "Not measured")
-            elif float(result["score"]) == 1:
-                state, label = "pass", t("same_task_comparison.pass", "Pass")
-            else:
-                state, label = "fail", t("same_task_comparison.fail", "Fail")
-            states.append(state)
-            cells.append(
-                f'<td><a class="outcome-pill {state}" href="results/{model}-{engine}-{task_id}.html">'
-                f"{label}</a></td>"
-                if result is not None
-                else ('<td><span class="outcome-pill missing">' + t("same_task_comparison.not_measured", "Not measured") + "</span></td>")
-            )
-        present = [state for state in states if state != "missing"]
-        relation = (
-            "all_pass"
-            if present and all(state == "pass" for state in present)
-            else "all_fail"
-            if present and all(state == "fail" for state in present)
-            else "mixed"
-        )
-        site = str(task["sites"][0])
-        task_cell = (
-            f'<div class="task-cell"><a href="datasets/{task_id}.html">#{task_id} · '
-            f'{_raw(task["rationale"])}</a><div class="task-meta">'
-            f'<span class="track-badge">{_e(_tier_label(task["tier"]))}</span>'
-            f'<span class="track-badge">{_e(SITE_LABELS.get(site, site))}</span>'
-            f'<span class="track-badge">{_e(task["task_type"])}</span></div></div>'
-        )
-        rows.append(
-            f'<tr data-tier="{_e(task["tier"])}" data-site="{_e(site)}" '
-            f'data-kind="{_e(task["task_type"])}" data-relation="{relation}" '
-            f'data-search="{_e(str(task.get("intent") or task.get("rationale") or ""))}">'
-            f"<td>{task_cell}</td>{''.join(cells)}</tr>"
-        )
-
-    headers = "".join(
-        f'<th>{_e(participants.models[model])}<br><span class="table-kicker">{_e(participants.engines[engine])}</span></th>'
-        for model, engine in configurations
-    )
-    return (
-        '<article class="browser-comparison" id="configuration-matrix"><header class="comparison-heading"><div><h3>' + t("same_task_comparison.same_task_all_configuration_matrix", "Same-task all-configuration matrix") + "</h3><p>" + t("same_task_comparison.each_row_is_one_task_and", "Each row is one task and each column is one model-by-browser configuration. New configurations add columns only.") + '</p></div><b class="comparison-count" data-matrix-count></b></header><div class="filters matrix-filters"><label>' + t("same_task_comparison.outcome_pattern", "Outcome pattern") + ' <select data-matrix-filter="relation"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="mixed" selected>' + t("same_task_comparison.outcomes_differ", "Outcomes differ") + '</option><option value="all_pass">' + t("same_task_comparison.all_pass", "All pass") + '</option><option value="all_fail">' + t("same_task_comparison.all_fail", "All fail") + "</option></select></label><label>" + t("same_task_comparison.tier", "Tier") + ' <select data-matrix-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-matrix-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option>' + _site_options() + '</select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-matrix-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + '</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label></div><div class="comparison-result"><div class="table-wrap"><table class="comparison-table configuration-matrix"><thead><tr><th>' + t("same_task_comparison.task", "Task") + f"</th>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></div></article>"
+        task_id, site = int(task["task_id"]), str(task["sites"][0])
+        rows.append(explorer.Task(
+            cell=(f'<div class="task-cell"><a href="datasets/{task_id}.html">#{task_id} · '
+                  f'{_raw(task["rationale"])}</a><div class="task-meta">'
+                  f'<span class="track-badge">{_e(_tier_label(task["tier"]))}</span>'
+                  f'<span class="track-badge">{_e(SITE_LABELS.get(site, site))}</span>'
+                  f'<span class="track-badge">{_e(task["task_type"])}</span></div></div>'),
+            outcomes={f"{model}-{engine}": outcome(model, engine, task_id) for model, engine in configurations},
+            filters={"tier": str(task["tier"]), "site": site, "kind": str(task["task_type"])},
+            search=str(task.get("intent") or task.get("rationale") or ""),
+        ))
+    any_value = t("same_task_comparison.all", "All")
+    return explorer.same_task_explorer(
+        "configuration-matrix",
+        [explorer.Participant(f"{model}-{engine}", _e(participants.models[model]), _e(participants.engines[engine]))
+         for model, engine in configurations],
+        rows,
+        baseline=f"{configurations[0][0]}-{configurations[0][1]}",
+        labels=explorer.Labels(
+            title=t("same_task_comparison.same_task_all_configuration_matrix", "Same-task all-configuration matrix"),
+            description=t("same_task_comparison.each_row_is_one_task_and", "Each row is one task and each column is one model-by-browser configuration. New configurations add columns only."),
+            task=t("same_task_comparison.task", "Task"),
+            baseline=t("same_task_comparison.baseline", "Baseline"),
+            compare=t("same_task_comparison.compared_configurations", "Compared configurations"),
+            relation=t("same_task_comparison.outcome_pattern", "Outcome pattern"),
+            any=any_value,
+            relations={
+                "differs": t("same_task_comparison.outcomes_differ", "Outcomes differ"),
+                "baseline_passes": t("same_task_comparison.baseline_passes", "Baseline passes, a compared configuration fails"),
+                "comparison_passes": t("same_task_comparison.comparison_passes", "Baseline fails, a compared configuration passes"),
+                "all_pass": t("same_task_comparison.all_pass", "All pass"),
+                "all_fail": t("same_task_comparison.all_fail", "All fail"),
+            },
+        ),
+        filters=[
+            explorer.Filter("tier", t("same_task_comparison.tier", "Tier"),
+                            [(tier, _e(_tier_label(tier))) for tier in ("easy", "medium", "hard")]),
+            explorer.Filter("site", t("same_task_comparison.site", "Site"),
+                            [(site, _e(label)) for site, label in SITE_LABELS.items() if site in ALLOWED_SITES]),
+            explorer.Filter("kind", t("same_task_comparison.type", "Type"),
+                            [(kind, kind) for kind in ("RETRIEVE", "NAVIGATE", "MUTATE")]),
+        ],
     )
 
 
@@ -1261,55 +1263,76 @@ def _resource_comparison_table(
     )
 
 
-REPORT_JS = (Path(__file__).parent / "assets" / "report.js").read_text(encoding="utf-8")
-REPORT_STYLE = (
-    SHARED_STYLE
-    + (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8")
-)
-def _nav() -> list[tuple[str, str, str]]:
-    return [
-    ("", "Browser Use", "home"),
-    ("datasets/", t("nav.dataset", "Dataset"), "datasets"),
-    ("methodology/", t("nav.methodology", "Methodology"), "methodology"),
-    ("analysis/", t("nav.results_analysis", "Results analysis"), "analysis"),
-    ("review/", t("nav.review", "Review"), "review"),
-    ("fixes/", t("nav.fix_log", "Fix log"), "fixes"),
-    ("adoption/", t("nav.browsers_tested", "Browsers tested"), "adoption"),
-    ("reproduce/", t("nav.environment_and_reproduction", "Environment and reproduction"), "reproduce"),
-    ("changes/", t("nav.changes", "Changes"), "changes"),
-    ("accounts/", t("nav.accounts_and_setup", "Accounts and setup"), "accounts"),
-    ("en/", "English", "en"),
-    ]
+REPORT_JS = (Path(__file__).parent / "assets" / "report.js").read_text(encoding="utf-8") + explorer.SCRIPT
+REPORT_STYLE = (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8")
+_HEAD = (REPORT_PAGE_MARKER + '<link rel="stylesheet" href="assets/style.css">'
+         '<script defer src="assets/report.js"></script>')
 
 
-def _page(*, title: str, active: str, body: str, depth: int = 0) -> str:
-    local_base = "../" * depth or "./"
-    links = "".join(
-        f'<a href="{href}"'
-        + (' class="brand"' if key == "home" else "")
-        + (' aria-current="page"' if key == active else "")
-        + f">{_e(label)}</a>"
-        for href, label, key in _nav()
+def _nav_labels() -> dict[str, str]:
+    """Navigation labels by template page key; the English sources are the template titles."""
+    return {
+        "home": "Browser Use",
+        "datasets": t("nav.dataset", "Dataset"),
+        "methodology": t("nav.methodology", "Methodology"),
+        "analysis": t("nav.results_analysis", "Results analysis"),
+        "review": t("nav.review", "Review"),
+        "fixes": t("nav.fix_log", "Fix log"),
+        "adoption": t("nav.browsers_tested", "Browsers tested"),
+        "reproduce": t("nav.environment_and_reproduction", "Environment and reproduction"),
+        "changes": t("nav.changes", "Changes"),
+        "accounts": t("nav.accounts_and_setup", "Accounts and setup"),
+    }
+
+
+def _nav_route(route: str) -> str:
+    return route.removesuffix("index.html")
+
+
+def _html(value: Any) -> str:
+    return value if isinstance(value, Safe) else _e(value)
+
+
+def _page(*, route: str, title: str, active: str, eyebrow: str, heading: Any, body: str) -> str:
+    """One report page in the shared shell; ``active`` names the template page it belongs to."""
+    pages = TEMPLATE.variant(VARIANT).pages
+    labels = _nav_labels()
+    owner = TEMPLATE.variant(VARIANT).page(active)
+    # The English pass links full routes, which its rewrite moves under `en/`.
+    target = (lambda route: route) if _language() == "en" else _nav_route
+    links = shell.navigation([(target(page.route), _e(labels[page.key])) for page in pages], target(owner.route))
+    # The English pass links back to the same Chinese route; its link rewrite keeps hreflang links.
+    language = chinese_link(route) if _language() == "en" else '<a href="en/">English</a>'
+    controls = links + language + '<button class="theme-toggle" onclick="theme()">' + t("page.toggle_theme", "Toggle theme") + "</button>"
+    footer = ('<footer class="footer"><div class="wrap"><p>' + t("page.conclusions_apply_only_to_this_preregistered", "Conclusions apply only to this preregistered sample, agent, model, and runtime configuration. Presentation changes do not alter measured results.") + "</p></div></footer>")
+    return shell.page(
+        lang="zh-CN", base="../" * route.count("/") or "./",
+        title=t("page.browser_use_evaluation", "{title} · Browser Use evaluation", title=title),
+        heading=None, heading_html=_html(heading), style="", script="", head=_HEAD, nav=controls,
+        eyebrow=_e(eyebrow), notice="", role=owner.role, body=body, dialog="", footer_html=footer,
     )
-    return (f'<!doctype html><html lang="zh-CN"><head><base href="{local_base}"><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + t("page.browser_use_evaluation", "{title} · Browser Use evaluation", title=_e(title)) + f'</title><link rel="stylesheet" href="assets/style.css"><script defer src="assets/report.js"></script></head><body><header class="top"><nav class="wrap">{links}<button class="theme-toggle" onclick="theme()">' + t("page.toggle_theme", "Toggle theme") + f'</button></nav></header><main class="page-main">{body}</main><footer class="footer"><div class="wrap"><p>' + t("page.conclusions_apply_only_to_this_preregistered", "Conclusions apply only to this preregistered sample, agent, model, and runtime configuration. Presentation changes do not alter measured results.") + "</p></div></footer></body></html>")
+
+
+def _write_page(stage: Path, route: str, **page: Any) -> None:
+    (stage / route).parent.mkdir(parents=True, exist_ok=True)
+    (stage / route).write_text(_page(route=route, **page), encoding="utf-8")
+
+
+def _lead(lead: Any) -> str:
+    """The page lead under the shell heading."""
+    return f'<section class="hero compact"><div class="wrap"><p class="lead">{_html(lead)}</p></div></section>'
 
 
 def _evidence_viewer_page() -> str:
-    body = _hero(
-        "Execution evidence",
-        t("evidence_viewer_page.complete_execution_evidence", "Complete execution evidence"),
-        t("evidence_viewer_page.shows_the_sanitized_response_evaluator_record", "Shows the sanitized response, evaluator record, event stream, trajectory, measurements, and public-frame index for this physical execution in their original structure."),
-    )
+    body = _lead(t("evidence_viewer_page.shows_the_sanitized_response_evaluator_record", "Shows the sanitized response, evaluator record, event stream, trajectory, measurements, and public-frame index for this physical execution in their original structure."))
     body += (
         ('<section class="section evidence-viewer-shell"><div class="wrap"><div class="evidence-viewer-head"><h2>' + t("evidence_viewer_page.execution_evidence_json", "Execution evidence JSON") + '</h2><a id="evidence-raw-link" class="button-link" hidden download>' + t("evidence_viewer_page.download_raw_json", "Download raw JSON") + '</a></div><p id="evidence-viewer-status" class="fine" role="status">' + t("evidence_viewer_page.loading_evidence", "Loading evidence…") + '</p><pre id="evidence-viewer-content" class="json-view" tabindex="0"></pre></div></section><script>')
         + (Path(__file__).parent / "assets" / "evidence-viewer.js").read_text(encoding="utf-8")
         + "</script>"
     )
-    return _page(title=t("evidence_viewer_page.complete_execution_evidence", "Complete execution evidence"), active="analysis", body=body)
-
-
-def _hero(eyebrow: str, title: str, lead: str) -> str:
-    return f'<section class="hero compact"><div class="wrap"><div class="eyebrow">{_e(eyebrow)}</div><h1>{title if isinstance(title, Safe) else _e(title)}</h1><p class="lead">{lead if isinstance(lead, Safe) else _e(lead)}</p></div></section>'
+    heading = t("evidence_viewer_page.complete_execution_evidence", "Complete execution evidence")
+    return _page(route="evidence-viewer.html", title=heading, active="analysis",
+                 eyebrow="Execution evidence", heading=heading, body=body)
 
 
 def _section(title: str, body: str) -> str:
@@ -1709,11 +1732,11 @@ def _extract_trace_screenshots(
 
 
 def _artifact_links(result_id: str, execution: int) -> str:
-    root = f"artifacts/{result_id}/executions/{execution}"
-    viewer = f"evidence-viewer.html?src={root}/execution-evidence.json"
-    return (
-        f'<div class="page-links"><a href="{viewer}">' + t("artifact_links.view_complete_execution_evidence_on_this", "View complete execution evidence on this page") + f'</a><a href="{root}/execution-evidence.json" download>' + t("evidence_viewer_page.download_raw_json", "Download raw JSON") + "</a></div>"
-    )
+    path = f"artifacts/{result_id}/executions/{execution}/execution-evidence.json"
+    return '<div class="page-links">' + shell.evidence_link(
+        path, t("artifact_links.view_complete_execution_evidence_on_this", "View complete execution evidence on this page"),
+        viewer="evidence-viewer.html", raw_label=t("evidence_viewer_page.download_raw_json", "Download raw JSON"),
+    ) + "</div>"
 
 
 def _write_execution_artifacts(
@@ -2189,7 +2212,8 @@ def _article_body(
     automatic_failure_counts: Counter[str],
     trajectory_replay_bridge: dict[str, Any] | None,
     participants: Participants,
-) -> str:
+) -> tuple[Safe, dict[str, str]]:
+    """Return the home heading and its template slots, generated from the scored results."""
     task_count = len(tasks)
     configurations = {(row['model'], row['engine']) for row in attempts}
     configuration_count = len(configurations)
@@ -2238,27 +2262,35 @@ def _article_body(
     coverage = review.get('coverage') or {}
     reviewed = int(coverage.get('reviewed_attempts') or 0)
     recorded = int(coverage.get('recorded_attempts') or 0)
-    return (
-        '<article class="publication-article interpretation-v2"><header class="essay-head"><div class="eyebrow">Browser Use</div><h1>'
-        + _translated("article_body.browser_use_results_across_declared_tasks", "Browser Use results across {task_count} declared tasks", task_count=task_count, scope=scope)
-        + '</h1><p class="lead">'
+    heading = _translated("article_body.browser_use_results_across_declared_tasks", "Browser Use results across {task_count} declared tasks", task_count=task_count, scope=scope)
+    lead = (
+        '<header class="essay-head"><p class="lead">'
         + _translated("article_body.the_declared_scope_contains_tasks_and", "The declared scope contains {task_count} tasks and {configuration_count} configurations; {attempts_count}/{expected_count} logical results are recorded. Official evaluator results remain unchanged. A separate {clean_count}-task diagnostic subset excludes {excluded_count} tasks with verified external interference.", task_count=task_count, configuration_count=configuration_count, attempts_count=len(attempts), expected_count=expected_count, excluded_count=len(excluded), clean_count=clean_count)
-        + ('</p><p class="page-links"><a href="datasets/">' + t("article_body.view_dataset", "View dataset") + '</a><a href="analysis/">' + t("article_body.inspect_all_results", "Inspect all results") + '</a><a href="data/interpretation-evidence.json" download>' + t("article_body.download_claims_and_evidence", "Download claims and evidence") + "</a></p></header><section><h2>")
+        + ('</p><p class="page-links"><a href="datasets/">' + t("article_body.view_dataset", "View dataset") + '</a><a href="analysis/">' + t("article_body.inspect_all_results", "Inspect all results") + '</a><a href="data/interpretation-evidence.json" download>' + t("article_body.download_claims_and_evidence", "Download claims and evidence") + "</a></p></header>")
+    )
+    core = (
+        '<section><h2>'
         + _translated("article_body.core_metrics_across_tasks", "Core metrics across {task_count} tasks", task_count=task_count) + '</h2>'
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), t("article_body.tasks_passed", "Tasks passed"), t("article_body.pass_rate", "Pass rate"), t("article_body.agent_total_time", "Agent total time"), t("article_body.browsertool_latency", "BrowserTool latency"), 'Tokens'],
                  _summary_comparison_rows(summary, participants), table_id='home-core-metrics', classes='core-comparison-table')
         + '<p class="source-note">' + _translated("article_body.every_configuration_uses_the_same_task", "Every configuration uses the same task scope; result pages retain all physical executions.") + '</p></section>'
-        + ("<section><h2>" + t("article_body.compare_browsers_task_by_task", "Compare browsers task by task") + "</h2>")
+    )
+    pairs_section = (
+        ("<section><h2>" + t("article_body.compare_browsers_task_by_task", "Compare browsers task by task") + "</h2>")
         + _table([t("resource_comparison_table.model", "Model"), t("article_body.browser_a", "Browser A"), t("article_body.browser_b", "Browser B"), t("article_body.matched_tasks", "Matched tasks"), t("article_body.both_passed", "Both passed"), t("article_body.a_passed_b_failed", "A passed, B failed"), t("article_body.a_failed_b_passed", "A failed, B passed"), t("article_body.both_failed", "Both failed")], comparison_rows)
         + _trajectory_replay_control(trajectory_replay_bridge, participants, attempts) + '</section>'
-        + ('<section id="failure-findings"><h2>' + t("article_body.programmatic_failure_location_and_reviewed_root", "Programmatic failure location and reviewed root cause") + "</h2>")
+    )
+    findings = (
+        ('<section id="failure-findings"><h2>' + t("article_body.programmatic_failure_location_and_reviewed_root", "Programmatic failure location and reviewed root cause") + "</h2>")
         + _translated("article_body.programmatic_findings_identify_failed_rules_cause", "Programmatic findings identify failed rules; cause reviews explain the evidence-supported cause. They serve different purposes.")
         + _automatic_failure_figure(automatic_failure_counts) + _failure_scope_figure(verified_causes)
         + ''.join(chapters) + '<h3>' + _translated("article_body.official_results_and_post_hoc_diagnostics", "Official results and post-hoc diagnostics") + '</h3>'
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), bilingual_text(t("article_body.passes_on_tasks", "Passes on {clean_count} tasks", clean_count=clean_count), f'Passes across {clean_count} tasks'), t("article_body.pass_rate", "Pass rate")], clean_rows,
                  table_id='home-qualified-results', classes='core-comparison-table')
         + '<p class="source-note">' + _translated("article_body.the_diagnostic_subset_does_not_replace", "The diagnostic subset does not replace official scores. Original failure evidence remains available.") + '</p></section>'
-        + ("<section><h2>" + t("article_body.review_coverage_and_boundaries", "Review coverage and boundaries") + '</h2><div class="audit-ladder"><article><h3>' + t("article_body.evidence_integrity", "Evidence integrity") + "</h3>")
+    )
+    coverage = (
+        ("<section><h2>" + t("article_body.review_coverage_and_boundaries", "Review coverage and boundaries") + '</h2><div class="audit-ladder"><article><h3>' + t("article_body.evidence_integrity", "Evidence integrity") + "</h3>")
         + _translated("article_body.integrity_checks_cover_physical_execution_evidence", "Integrity checks cover {reviewed}/{recorded} physical-execution evidence bundles.", reviewed=reviewed, recorded=recorded)
         + ("</article><article><h3>" + t("article_body.official_programmatic_evaluation", "Official programmatic evaluation") + "</h3>")
         + _translated("article_body.each_task_checks_the_final_answer", "Each task checks the final answer and declared network effects, without an LLM judge.")
@@ -2274,8 +2306,10 @@ def _article_body(
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), t("article_body.agent_path_p50", "Agent path P50"), 'BrowserTool P50', 'Tokens P50', t("article_body.peak_memory_p50", "Peak memory P50"), t("article_body.cpu_time_p50", "CPU time P50")], resource_rows,
                  table_id='home-resource-table', classes='core-comparison-table')
         + _translated("article_body.the_common_success_subset_retains_each", "The common-success subset retains each configuration’s recorded environment; it does not establish resource efficiency under identical conditions.")
-        + '</section></article>'
+        + '</section>'
     )
+    return heading, {"lead": lead, "core-comparison": core, "summary": pairs_section, "findings": findings,
+                     "coverage": coverage}
 
 
 def _filters(participants: Participants, *, attempts: bool = False, dataset: bool = False) -> str:
@@ -2349,14 +2383,12 @@ def _task_table(tasks: list[dict[str, Any]], participants: Participants) -> str:
         t("task_table.official_hard_subset", "Official hard subset"),
         t("task_table.task_contract", "Task contract"),
     ]
-    headers = "".join(
-        f'<th><button class="sort-button" onclick="sortTable(\'task-table\',{i})">{_e(x)} ↕</button></th>'
+    headers = [
+        f'<button class="sort-button" onclick="sortTable(\'task-table\',{i})">{_e(x)} ↕</button>'
         for i, x in enumerate(labels)
-    )
-    return (
-        _filters(participants, dataset=True)
-        + f'<div class="table-wrap"><table id="task-table"><thead><tr>{headers}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
-    )
+    ]
+    return _filters(participants, dataset=True) + shell.table(
+        headers, rows, sortable=False, header_html=True, table_id="task-table")
 
 
 def _diagnosis_dialog(
@@ -2464,8 +2496,8 @@ def _attempt_table(
             f'data-model="{p["model"]}" data-engine="{p["engine"]}" data-failure="{failure}" '
             f'data-search="{_e(" ".join([p["id"], str(task.get("intent") or ""), automatic_failure, subcategory, reason, _failure_diagnosis(result_record, row)]))}">{cells}</tr>'
         )
-    headers = "".join(
-        f"<th>{_e(x)}</th>"
+    headers = [
+        _e(x)
         for x in [
             t("filters.result", "Result"),
             t("attempt_table.run_configuration", "Run configuration"),
@@ -2477,10 +2509,10 @@ def _attempt_table(
             t("attempt_table.owner_and_treatment", "Owner and treatment"),
             t("attempt_table.evidence", "Evidence"),
         ]
-    )
+    ]
     return (
         _filters(participants, attempts=True)
-        + f'<div class="table-wrap"><table id="result-table"><thead><tr>{headers}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>'
+        + shell.table(headers, rows, sortable=False, header_html=True, table_id="result-table")
         + "".join(dialogs)
     )
 
@@ -2579,8 +2611,8 @@ def _write_fix_log(stage: Path, model: dict[str, Any]) -> None:
         return f'<a href="{_e(artifacts[identifier]["href"])}">{_e(label)}</a>'
 
     def save(name: str, title: str, body: str) -> None:
-        page = _page(title=title, active="fixes", body=body, depth=1)
-        (folder / name).write_text(page, encoding="utf-8")
+        _write_page(stage, f"fixes/{name}", title=title, active="fixes", eyebrow="Fix evidence",
+                    heading=title, body=body)
 
     title = t("nav.fix_log", "Fix log")
     intro = t("fix_log.fix_evidence_is_separate_from_historical", "Fix evidence is separate from historical scores: root causes, changes, and validation limits do not replace official results.")
@@ -2588,7 +2620,7 @@ def _write_fix_log(stage: Path, model: dict[str, Any]) -> None:
     for record in model["records"]:
         scope = t("fix_log.diagnostic_validation", "Diagnostic validation") if record["scope"] == "diagnostic" else t("fix_log.formal_scope_validation", "Formal-scope validation")
         rows.append([Safe(f'<a href="fixes/{record["id"]}.html">{_e(record["title"][lang])}</a>'), scope])
-        body = _hero("Fix evidence", record["title"][lang], scope)
+        body = _lead(scope)
         for key, label in (("symptom", t("fix_log.symptom", "Symptom")), ("root_cause", t("fix_log.code_and_process_root_cause", "Code and process root cause")), ("principle", t("fix_log.fix_principle", "Fix principle"))):
             body += _section(label, f'<p>{_e(record[key][lang])}</p>')
         body += _section(t("fix_log.code_locations", "Code locations"), "".join(
@@ -2636,9 +2668,8 @@ def _write_fix_log(stage: Path, model: dict[str, Any]) -> None:
             body += f"<p><a href=\"{_e(record['pr_url'])}\">{t('fix_log.change_pr', 'Change PR')}</a></p>"
         body += f"<p><a href=\"fixes/\">{title}</a> · <a href=\"data/fix-log.json\">{t('fix_log.structured_evidence_index', 'Structured evidence index')}</a></p>"
         save(f'{record["id"]}.html', record["title"][lang], body)
-    body = _hero("Fix evidence", title, intro)
-    body += _table([t("fix_log.fix", "Fix"), t("fix_log.validation_scope", "Validation scope")], rows) if rows else f"<p>{t('fix_log.no_fix_records_with_bound_validation', 'No fix records with bound validation evidence are available.')}</p>"
-    save("index.html", title, body)
+    inventory = _table([t("fix_log.fix", "Fix"), t("fix_log.validation_scope", "Validation scope")], rows) if rows else f"<p>{t('fix_log.no_fix_records_with_bound_validation', 'No fix records with bound validation evidence are available.')}</p>"
+    save("index.html", title, compose("review", {"summary": _lead(intro) + inventory}))
     write_json(stage / "data/fix-log.json", {**model, "artifacts": list(artifacts.values())}, parents=True)
 
 
@@ -2864,7 +2895,7 @@ def _load_report_inputs(
         qualified_tasks=qualified_tasks,
         qualified_summary=qualified_summary,
         model_names="、".join(participants.models.values()),
-        adoption_evidence=_read_json(Path("research/browser-use-benchmark-adoption.json")),
+        adoption_evidence=_read_json(repository_root() / "research/browser-use-benchmark-adoption.json"),
     )
 
 
@@ -2918,7 +2949,7 @@ def _write_home_page(
     attempts = inputs.attempts
     verified_causes = inputs.verified_causes
     tasks = inputs.tasks
-    article = _article_body(
+    heading, fills = _article_body(
         attempts,
         tasks,
         verified_causes,
@@ -2927,10 +2958,10 @@ def _write_home_page(
         trajectory_replay_bridge,
         participants,
     )
-    home = f'<section class="section"><div class="wrap">{article}</div></section>'
-    (stage / "index.html").write_text(
-        _page(title=t("home_page.home", "Home"), active="home", body=home), encoding="utf-8"
-    )
+    home = ('<section class="section"><div class="wrap"><article class="publication-article interpretation-v2">'
+            + compose("home", fills) + "</article></div></section>")
+    _write_page(stage, "index.html", title=t("home_page.home", "Home"), active="home", eyebrow="Browser Use",
+                heading=heading, body=home)
 
 
 def _write_changes_page(stage: Path, inputs: ReportInputs) -> dict[str, Any]:
@@ -2939,18 +2970,16 @@ def _write_changes_page(stage: Path, inputs: ReportInputs) -> dict[str, Any]:
     _, release_data = bound_json_asset(
         profile.get("report_history"), root=profile_path.parent)
     releases = release_data.get("browser_use_releases") or []
-    changes = _hero(
-        "Report releases",
-        t("changes_page.changelog", "Changelog"),
+    changes = _lead(
         t("changes_page.each_release_records_only_formal_corrections", "Each release records only formal corrections that affect reader interpretation. Effects on conclusions, denominators, latency, and evidence are shown directly, with supporting details available on demand."),
     ) + _release_history(releases, str(_record_text({
         "history_scope": release_data.get("history_scope"),
         "i18n": {"en": {"history_scope": (release_data.get("history_scope_i18n") or {}).get("en")}},
     }, "history_scope") or ""))
     write_json(stage / "report-changes.json", release_data, parents=True)
-    (stage / "changes/index.html").write_text(
-        _page(title=t("nav.changes", "Changes"), active="changes", body=changes, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "changes/index.html", title=t("nav.changes", "Changes"), active="changes",
+                eyebrow="Report releases", heading=t("changes_page.changelog", "Changelog"),
+                body=compose("changes", {"history": changes}))
     return release_data
 
 
@@ -2960,16 +2989,15 @@ def _write_dataset_index(stage: Path, inputs: ReportInputs) -> None:
     task_count = inputs.task_count
     tier_counts = inputs.tier_counts
     adoption_evidence = inputs.adoption_evidence
-    datasets = _hero(
-        "Dataset",
-        t("dataset_index.candidate_benchmarks_selection_rationale_and_preregistered", "Candidate benchmarks, selection rationale and {task_count} preregistered tasks", task_count=task_count),
+    heading = t("dataset_index.candidate_benchmarks_selection_rationale_and_preregistered", "Candidate benchmarks, selection rationale and {task_count} preregistered tasks", task_count=task_count)
+    lead = _lead(
         t("dataset_index.first_separate_final_outcome_evaluation_action", "First separate final-outcome evaluation, action prediction, and model judging. Scores from different variants of one benchmark family are not interchangeable."),
     )
-    datasets += _section(
+    definition = _section(
         t("dataset_index.top_three_public_adoption_signals", "Top three public adoption signals"),
         _adoption_top3(adoption_evidence),
     )
-    datasets += (
+    definition += (
         _section(
             t("dataset_index.mind2web_splits_are_not_easy_medium", "Mind2Web splits are not easy, medium, and hard"),
             ("<p>" + t("dataset_index.original_mind2web_measures_cross_task_cross", "Original Mind2Web measures cross-task, cross-website and cross-domain generalization. Online-Mind2Web has no standard three-tier split; Mind2Web 2 groups short, medium and long tasks by action span. This report preregisters {easy} easy, {medium} medium and {hard} hard tasks by operation length.", easy=tier_counts['easy'], medium=tier_counts['medium'], hard=tier_counts['hard']) + "</p>"),
@@ -2982,11 +3010,11 @@ def _write_dataset_index(stage: Path, inputs: ReportInputs) -> None:
             t("dataset_index.dataset_scope", "Dataset scope"),
             ("<p>" + t("dataset_index.all_tasks_were_fixed_before_model", "All {task_count} tasks were fixed before model execution, covering four deployed sites and RETRIEVE, NAVIGATE and MUTATE outcome contracts. This page describes tasks and acceptance rules. Pass rates, timings, trajectories and feasibility observations belong in results analysis.", task_count=task_count) + "</p>"),
         )
-        + _section(t("dataset_index.tasks", "{task_count} tasks", task_count=task_count), _task_table(tasks, participants))
     )
-    (stage / "datasets/index.html").write_text(
-        _page(title=t("nav.dataset", "Dataset"), active="datasets", body=datasets, depth=1), encoding="utf-8"
-    )
+    inventory = _section(t("dataset_index.tasks", "{task_count} tasks", task_count=task_count), _task_table(tasks, participants))
+    _write_page(stage, "datasets/index.html", title=t("nav.dataset", "Dataset"), active="datasets",
+                eyebrow="Dataset", heading=heading,
+                body=compose("datasets", {"lead": lead, "definition": definition, "inventory": inventory}))
 
 
 def _write_task_pages(stage: Path, inputs: ReportInputs) -> None:
@@ -2996,17 +3024,15 @@ def _write_task_pages(stage: Path, inputs: ReportInputs) -> None:
     tasks = inputs.tasks
     for task in tasks:
         task_id, site = int(task["task_id"]), task["sites"][0]
-        detail = _hero(
-            f"Task #{task_id}",
-            _rationale(task),
+        lead = _lead(
             t("task_pages.official_task_identity_public_intent_and", "Official task identity, public intent, and programmatic acceptance contract. Measured outcomes appear in Results and are kept separate from the dataset definition."),
         )
-        detail += _section(
+        definition = _section(
             t("task_pages.task_identity", "Task identity"),
             ('<div class="detail-grid"><div class="kv"><b>' + t("same_task_comparison.site", "Site") + f'</b>{_e(SITE_LABELS.get(site, site))}</div><div class="kv"><b>' + t("task_pages.project_tier", "Project tier") + "</b>" + t("task_pages.minimum_steps", "{tier} · {estimated_min_steps} minimum steps", tier=_e(_tier_label(task['tier'])), estimated_min_steps=_e(task['estimated_min_steps'])) + '</div><div class="kv"><b>' + t("task_pages.task_type", "Task type") + f"</b>{_e(task['task_type'])}</div><div class=\"kv\"><b>" + t("task_pages.official_hard_subset", "Official hard subset") + f"</b>{t('task_table.yes', 'Yes') if task['official_hard'] else t('task_table.no', 'No')}</div></div><h3>" + t("task_pages.public_task_intent", "Public task intent") + f"</h3><p>{_e(task['intent'])}</p><p class=\"fine\">" + t("task_pages.official_source", "Official source:") + f"<a href=\"https://github.com/ServiceNow/webarena-verified\">WebArena‑Verified {_e(environment.get('webarena_verified_version', '—'))}</a> " + t("task_pages.task_template_id_revision", "· Task #{task_id} · template ID {value} · revision {value_2}", task_id=task_id, value=task.get('intent_template_id') or '—', value_2=task.get('revision') or '—') + "</p>"),
         )
-        detail += _section(t("task_pages.ground_truth_official_acceptance_contract", "Ground truth · official acceptance contract"), _task_contract_html(task))
-        detail += _section(
+        definition += _section(t("task_pages.ground_truth_official_acceptance_contract", "Ground truth · official acceptance contract"), _task_contract_html(task))
+        inventory = _section(
             t("task_pages.view_measured_results_for_this_task", "View measured results for this task"),
             ("<p>" + t("task_pages.dataset_pages_remain_frozen_inputs_measured", "Dataset pages remain frozen inputs. Measured outputs, verdicts, and trajectories appear on result pages.") + '</p><div class="page-links">')
             + "".join(
@@ -3017,59 +3043,21 @@ def _write_task_pages(stage: Path, inputs: ReportInputs) -> None:
             )
             + ('<a href="analysis/#same-task">' + t("task_pages.compare_all_browsers", "Compare all browsers") + "</a></div>"),
         )
-        (stage / f"datasets/{task_id}.html").write_text(
-            _page(title=t("task_pages.task", "Task {task_id}", task_id=task_id), active="datasets", body=detail, depth=1),
-            encoding="utf-8",
-        )
+        _write_page(stage, f"datasets/{task_id}.html", title=t("task_pages.task", "Task {task_id}", task_id=task_id),
+                    active="datasets", eyebrow=f"Task #{task_id}", heading=_rationale(task),
+                    body=compose("datasets", {"lead": lead, "definition": definition, "inventory": inventory}))
 
 
-def _methodology_intro() -> str:
-    benchmarks = [
-        [
-            "WebArena‑Verified",
-            t("methodology_intro.self_hosted_interactive_websites", "Self-hosted interactive websites"),
-            t("methodology_intro.final_json_plus_required_network_side", "Final JSON plus required network side effects"),
-            t("methodology_intro.programmatic_no_llm_judge", "Programmatic; no LLM judge"),
-            t("methodology_intro.heavy_deployment_strongest_fit_for_browser", "Heavy deployment; strongest fit for browser A/B testing"),
-        ],
-        ["Mind2Web", t("methodology_intro.offline_webpage_snapshots", "Offline webpage snapshots"), t("methodology_intro.target_element_and_action_at_each", "Target element and action at each step"), t("methodology_intro.programmatic_action_metrics", "Programmatic action metrics"), t("methodology_intro.evaluates_process_imitation", "Evaluates process imitation")],
-        [
-            "Online‑Mind2Web",
-            t("methodology_intro.136_live_websites", "136 live websites"),
-            t("methodology_intro.action_history_and_final_completion", "Action history and final completion"),
-            t("methodology_intro.webjudge_plus_human_labels", "WebJudge plus human labels"),
-            t("methodology_intro.drift_captcha_and_judge_bias", "Drift, CAPTCHA, and judge bias"),
-        ],
-        [
-            "WebVoyager",
-            t("methodology_intro.visual_interaction_with_live_websites", "Visual interaction with live websites"),
-            t("methodology_intro.final_answer_and_execution_evidence", "Final answer and execution evidence"),
-            t("methodology_intro.multimodal_llm_plus_human_verification", "Multimodal LLM plus human verification"),
-            t("methodology_intro.weaker_exact_reproducibility", "Weaker exact reproducibility"),
-        ],
-        [
-            "Mind2Web 2",
-            t("methodology_intro.long_horizon_multi_site_search", "Long-horizon multi-site search"),
-            t("methodology_intro.research_answer_with_citations", "Research answer with citations"),
-            t("methodology_intro.rubric_agent_as_a_judge", "Rubric Agent-as-a-Judge"),
-            t("methodology_intro.not_the_first_choice_for_ui", "Not the first choice for UI browser cores"),
-        ],
-        [
-            "BU Bench V1",
-            t("methodology_intro.100_mixed_tasks", "100 mixed tasks"),
-            t("methodology_intro.final_outcomes_and_trajectories", "Final outcomes and trajectories"),
-            "Google judge LLM",
-            t("methodology_intro.cloud_browser_conditions_affect_comparability", "Cloud-browser conditions affect comparability"),
-        ],
-        ["Odysseys", t("methodology_intro.200_long_horizon_multi_site_tasks", "200 long-horizon multi-site tasks"), t("methodology_intro.rubric_completion", "Rubric completion"), t("methodology_intro.model_grading", "Model grading"), t("methodology_intro.high_cost", "High cost")],
-    ]
-    return _hero(
-        "Methodology",
-        t("methodology_intro.evaluate_final_outcomes_not_a_reference", "Evaluate final outcomes, not a reference click path"),
-        _translated("methodology_intro.scores_come_from_the_official_evaluator", "Scores come from the official evaluator bound by the execution records; deterministic auditing checks evidence consistency."),
-    ) + _section(
+def _candidate_benchmarks(evidence: dict[str, Any]) -> str:
+    """The acceptance boundaries of the candidate benchmarks, from the adoption research record."""
+    rows = [[item["benchmark"], *((item.get(_language()) or item["en"])[field]
+                                  for field in ("evaluates", "target", "scoring", "limit"))]
+            for item in evidence.get("candidate_benchmarks") or []]
+    if not rows:
+        return ""
+    return _section(
         t("methodology_intro.acceptance_boundaries_of_candidate_benchmarks", "Acceptance boundaries of candidate benchmarks"),
-        _table(["Benchmark", t("methodology_intro.what_it_evaluates", "What it evaluates"), t("methodology_intro.acceptance_target", "Acceptance target"), t("methodology_intro.scoring", "Scoring"), t("methodology_intro.limit", "Limit")], benchmarks),
+        _table(["Benchmark", t("methodology_intro.what_it_evaluates", "What it evaluates"), t("methodology_intro.acceptance_target", "Acceptance target"), t("methodology_intro.scoring", "Scoring"), t("methodology_intro.limit", "Limit")], rows),
     )
 
 
@@ -3187,15 +3175,16 @@ def _methodology_evaluators() -> str:
 
 
 def _write_methodology_page(stage: Path, inputs: ReportInputs) -> None:
-    methodology = _methodology_intro()
-    methodology += _methodology_scoring_chain(inputs)
-    methodology += _methodology_deployment(inputs)
-    methodology += _methodology_protocol(inputs)
-    methodology += _methodology_evaluators()
-    (stage / "methodology/index.html").write_text(
-        _page(title=t("nav.methodology", "Methodology"), active="methodology", body=methodology, depth=1),
-        encoding="utf-8",
-    )
+    lead = _lead(_translated("methodology_intro.scores_come_from_the_official_evaluator", "Scores come from the official evaluator bound by the execution records; deterministic auditing checks evidence consistency."))
+    protocol = _candidate_benchmarks(inputs.adoption_evidence)
+    protocol += _methodology_scoring_chain(inputs)
+    protocol += _methodology_deployment(inputs)
+    protocol += _methodology_protocol(inputs)
+    protocol += _methodology_evaluators()
+    _write_page(stage, "methodology/index.html", title=t("nav.methodology", "Methodology"), active="methodology",
+                eyebrow="Methodology",
+                heading=t("methodology_intro.evaluate_final_outcomes_not_a_reference", "Evaluate final outcomes, not a reference click path"),
+                body=compose("methodology", {"lead": lead, "protocol": protocol}))
 
 
 def _write_analysis_page(stage: Path, inputs: ReportInputs) -> None:
@@ -3206,33 +3195,31 @@ def _write_analysis_page(stage: Path, inputs: ReportInputs) -> None:
     task_count = inputs.task_count
     result_count = inputs.result_count
     excluded_task_ids = inputs.excluded_task_ids
-    analysis = _hero(
-        "Results",
-        t("nav.results_analysis", "Results analysis"),
+    lead = _lead(
         t("analysis_page.all_configurations_appear_in_one_comparison", "All configurations appear in one comparison and task matrix; failed results open their diagnosis and evidence."),
     )
-    analysis += _section(
+    lead += _section(
         t("analysis_page.complete_task_results_entry", "Complete {tasks_count}-task results entry", tasks_count=len(tasks)),
         '<p>' + _translated("analysis_page.the_homepage_compares_pass_rates_latency", "The homepage compares pass rates, latency, tokens and browser resources across all configurations. This page owns the same-task matrix and result diagnosis.") + ('</p><p class="page-links"><a href="./#home-core-metrics">' + t("analysis_page.view_core_metrics_on_the_home", "View core metrics on the home page") + "</a></p>"),
     )
-    analysis += _section(
+    comparison = _section(
         t("analysis_page.same_task_comparison_across_all_configurations", "Same-task comparison across all configurations: complete {tasks_count}-task set", tasks_count=len(tasks)),
         "<p>" + _translated("analysis_page.each_row_is_a_registered_task", "Each row is a registered task, with {models_count} columns for model-by-browser configurations. Filter for disagreement, all-pass or all-fail tasks.", models_count=len(participants.models) * len(participants.engines)) + "</p>"
         + _same_task_comparison(tasks, attempts, participants),
     ).replace('<section class="section">', '<section class="section" id="same-task">', 1)
-    analysis += _section(
+    comparison += _section(
         t("analysis_page.browsertool_action_latency", "BrowserTool action latency"),
         ("<p>" + t("analysis_page.for_each_action_every_model_by", "For each action, every model-by-browser configuration is compared together by mean per-call wall time, and only a unique global minimum is marked. Total time and call count depend on agent workload and provide context rather than a speed ranking.") + "</p>")
         + _action_duration_cards(attempts, participants),
     )
-    analysis += _section(
+    inventory = _section(
         t("analysis_page.results_and_failure_diagnoses", "{result_count} results and failure diagnoses", result_count=result_count),
         ("<p>" + t("analysis_page.all_official_results_for_the_preregistered", "All official results for the {task_count} preregistered tasks are retained; {excluded_task_ids_count} tasks are marked as affected by external interference. Failures are shown by default. Open a diagnosis to inspect the failure stage, program error, reviewed cause, trajectory, screenshots and logs.", task_count=task_count, excluded_task_ids_count=len(excluded_task_ids)) + "</p>")
         + _attempt_table(attempts, tasks, participants, verified_causes),
     )
-    (stage / "analysis/index.html").write_text(
-        _page(title=t("nav.results_analysis", "Results analysis"), active="analysis", body=analysis, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "analysis/index.html", title=t("nav.results_analysis", "Results analysis"), active="analysis",
+                eyebrow="Results", heading=t("nav.results_analysis", "Results analysis"),
+                body=compose("results", {"lead": lead, "inventory": inventory, "comparison": comparison}))
 
 
 def _write_result_executions(
@@ -3279,10 +3266,12 @@ def _evidence_index_entry(
     }
 
 
-def _result_hero(public: dict[str, Any], participants: Participants, failure_point: str) -> str:
-    return _hero(
-        public["id"],
-        f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · Task #{public['task_id']}",
+def _result_heading(public: dict[str, Any], participants: Participants) -> str:
+    return f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · Task #{public['task_id']}"
+
+
+def _result_hero(public: dict[str, Any], failure_point: str) -> str:
+    return _lead(
         (
             t("result_hero.the_failure_occurred_at_the_exact", "The failure occurred at {failure_point}. The exact program error, reviewed root cause, and corresponding execution evidence are provided below.", failure_point=failure_point)
             if float(public["score"]) < 1
@@ -3430,7 +3419,7 @@ def _write_result_page(
     )
     remediation_owner, remediation_action, external_interference = _remediation(cause_code)
     subcategory, reason = localized_cause(verified_causes, public["id"], _language())
-    detail = _result_hero(public, participants, failure_point)
+    detail = _result_hero(public, failure_point)
     # Pages declare <base href="../"> so every internal URL is rooted at
     # the report bundle, including same-page fragment links.
     attempt_page = f"results/{public['id']}.html"
@@ -3471,9 +3460,8 @@ def _write_result_page(
             _screenshot_gallery(public["id"], execution_records),
         )
     detail += _result_evidence_section(public, execution_records, resource, checks, metadata)
-    (stage / f"results/{public['id']}.html").write_text(
-        _page(title=public["id"], active="analysis", body=detail, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, f"results/{public['id']}.html", title=public["id"], active="analysis", eyebrow=public["id"],
+                heading=_result_heading(public, participants), body=detail)
     return _evidence_index_entry(public, row, execution_records)
 
 
@@ -3496,22 +3484,20 @@ def _write_result_pages(stage: Path, inputs: ReportInputs) -> list[dict[str, Any
 
 
 def _write_review_page(stage: Path, release_data: dict[str, Any]) -> None:
-    review_page = _hero(
-        "Review history",
-        t("review_page.review_and_revision_history", "Review and revision history"),
+    review_page = _lead(
         t("review_page.each_round_records_its_scope_findings", "Each round records its scope, findings, formal corrections, and remaining items. Per-task verdict evidence remains on result detail pages."),
     )
     review_page += _section(
         t("review_page.current_status", "Current status"),
         ('<p class="callout success"><strong>' + t("review_page.release_gate", "Release gate:") + "</strong>" + t("review_page.evidence_files_hashes_scores_statuses_the", "Evidence files, hashes, scores, statuses, the official version, and report links passed programmatic consistency checks.") + "</p><p>" + t("review_page.the_official_webarena_verified_evaluator_is", "The official WebArena-Verified evaluator is the scoring authority. This history records checks and revisions to the implementation and report; it does not replace task scoring.") + "</p>"),
     )
-    review_page += _section(
+    rounds = _section(
         t("review_page.review_rounds", "Review rounds"),
         _review_history(release_data.get("browser_use_reviews") or []),
     )
-    (stage / "review/index.html").write_text(
-        _page(title=t("nav.review", "Review"), active="review", body=review_page, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "review/index.html", title=t("nav.review", "Review"), active="review", eyebrow="Review history",
+                heading=t("review_page.review_and_revision_history", "Review and revision history"),
+                body=compose("review", {"summary": review_page, "notes": rounds}))
 
 
 def _adoption_versions_section(inputs: ReportInputs) -> str:
@@ -3572,7 +3558,7 @@ def _adoption_conditions_section(inputs: ReportInputs) -> str:
                 [t("adoption_conditions_section.action_interface", "Action interface"), "CowAgent BrowserTool · CDP", t("adoption_conditions_section.deliver_agent_actions_to_the_browser", "Deliver agent actions to the browser")],
                 [
                     t("adoption_conditions_section.evaluation", "Evaluation"),
-                    t("adoption_conditions_section.official_webarena_verified_1_2_3", "Official WebArena-Verified 1.2.3 evaluator"),
+                    t("adoption_conditions_section.official_webarena_verified_evaluator", "Official WebArena-Verified {version} evaluator", version=inputs.environment.get("webarena_verified_version") or "—"),
                     t("adoption_conditions_section.score_final_json_and_required_network", "Score final JSON and required network side effects"),
                 ],
                 [
@@ -3587,20 +3573,18 @@ def _adoption_conditions_section(inputs: ReportInputs) -> str:
 
 
 def _write_adoption_page(stage: Path, inputs: ReportInputs) -> None:
-    adoption = _hero(
-        "Participants",
-        t("adoption_page.browsers_tested_and_fixed_experimental_controls", "Browsers tested and fixed experimental controls"),
+    lead = _lead(
         t("adoption_page.this_report_compares_browsers_results_are", "This report compares browsers. Results are calculated separately for each model, while CowAgent, tasks, resource limits, sites, and evaluators remain fixed."),
     )
-    adoption += _adoption_versions_section(inputs)
-    adoption += _adoption_conditions_section(inputs)
-    adoption += _section(
+    protocol = _adoption_versions_section(inputs) + _adoption_conditions_section(inputs)
+    notes = _section(
         t("adoption_page.adding_another_browser", "Adding another browser"),
         ("<p>" + t("adoption_page.register_the_new_browser_s_container", "Register the new browser's container image, version, and CDP endpoint, then complete the same frozen task set under the shared controls. The leaderboard adds a browser row, the task matrix adds a browser column, and statistical comparisons are generated per browser pair rather than collapsing multiple browsers into one win/loss label.") + "</p>"),
     )
-    (stage / "adoption/index.html").write_text(
-        _page(title=t("nav.browsers_tested", "Browsers tested"), active="adoption", body=adoption, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "adoption/index.html", title=t("nav.browsers_tested", "Browsers tested"), active="adoption",
+                eyebrow="Participants",
+                heading=t("adoption_page.browsers_tested_and_fixed_experimental_controls", "Browsers tested and fixed experimental controls"),
+                body=compose("methodology", {"lead": lead, "protocol": protocol, "notes": notes}))
 
 
 def _write_engine_pages(stage: Path, inputs: ReportInputs) -> list[list[Any]]:
@@ -3623,9 +3607,8 @@ def _write_engine_pages(stage: Path, inputs: ReportInputs) -> list[list[Any]]:
                 str(image.get("id") or "—"),
             ]
         )
-        body = _hero(
-            "Engine", participants.engines[engine], t("engine_pages.runtime_identity_complete_task_results_and", "Runtime identity, complete task results, and failure evidence for this browser.")
-        ) + _section(
+        lead = _lead(t("engine_pages.runtime_identity_complete_task_results_and", "Runtime identity, complete task results, and failure evidence for this browser."))
+        protocol = _section(
             t("engine_pages.runtime_identity", "Runtime identity"),
             _table(
                 [t("engine_pages.field", "Field"), t("result_evidence_section.value", "Value")],
@@ -3652,14 +3635,13 @@ def _write_engine_pages(stage: Path, inputs: ReportInputs) -> list[list[Any]]:
             )
             + ('<p class="fine">' + t("engine_pages.version_and_image_identity_bound_reproducibility", "Version and image identity bound reproducibility and do not affect scoring.") + "</p>"),
         )
-        body += _section(
+        notes = _section(
             t("engine_pages.view_all_results_for_this_browser", "View all results for this browser"),
             ("<p>" + t("engine_pages.the_report_keeps_one_result_inventory", "The report keeps one result inventory. The link below opens it with this browser preselected; failure diagnoses, trajectories, page frames, and logs are all reached from that inventory.") + f'</p><div class="report-entry-links"><a class="button-link" href="analysis/index.html?f_engine={engine}#result-table">' + t("engine_pages.open_the_filtered_result_inventory", "Open the filtered result inventory →") + "</a></div>"),
         )
-        (stage / f"engines/{engine}.html").write_text(
-            _page(title=participants.engines[engine], active="adoption", body=body, depth=1),
-            encoding="utf-8",
-        )
+        _write_page(stage, f"engines/{engine}.html", title=participants.engines[engine], active="adoption",
+                    eyebrow="Engine", heading=participants.engines[engine],
+                    body=compose("methodology", {"lead": lead, "protocol": protocol, "notes": notes}))
     return engine_rows
 
 
@@ -3772,31 +3754,29 @@ def _reproduce_isolation_section(participants: Participants) -> str:
 
 def _write_reproduce_page(stage: Path, inputs: ReportInputs, engine_rows: list[list[Any]]) -> None:
     result_count = inputs.result_count
-    reproduce = _hero(
-        "Reproduction",
-        t("reproduce_page.reproduction_starts_with_the_public_repository", "Reproduction starts with the public repository, preregistered cohort, and fixed runtime identities"),
+    lead = _lead(
         t("reproduce_page.the_public_bundle_provides_sanitized_projections", "The public bundle provides sanitized projections. Model credentials, cookies, and complete network bodies do not enter Git or the site."),
     )
-    reproduce += _reproduce_identity_section(inputs, engine_rows)
-    reproduce += _reproduce_deployment_section(inputs)
-    reproduce += _reproduce_isolation_section(inputs.participants)
-    reproduce += _section(
+    notes = _reproduce_identity_section(inputs, engine_rows)
+    notes += _reproduce_deployment_section(inputs)
+    notes += _reproduce_isolation_section(inputs.participants)
+    commands = lead + _section(
         t("reproduce_page.public_reproduction_entry_points", "Public reproduction entry points"),
         ('<p><a href="https://github.com/lexmount/webstone">lexmount/webstone</a> ' + t("reproduce_page.is_the_canonical_source_for_code", "is the canonical source for code, task definitions, and lockfiles.") + '</p><pre><code>./examples/browser_use/run.sh\nmake browser-use-review EVIDENCE="$BROWSER_USE_EVIDENCE"\nmake browser-use-report EVIDENCE="$BROWSER_USE_EVIDENCE"\nmake browser-use-report-check EVIDENCE="$BROWSER_USE_EVIDENCE"</code></pre><div class="page-links"><a href="data/selection.json">selection.json</a><a href="data/results.jsonl">results.jsonl</a><a href="data/evidence-index.json">evidence-index.json</a><a href="data/failure-cause-review.json">failure-cause-review.json</a><a href="data/summary.json">summary.json</a><a href="data/environment.json">environment.json</a><a href="data/review.json">review.json</a><a href="data/publication-privacy.json">publication-privacy.json</a></div><p class="fine">' + t("reproduce_page.the_sanitized_answer_evaluator_output_events", "The sanitized answer, evaluator output, events, and trajectory for each physical execution are located under") + " <code>artifacts/&lt;result-id&gt;/executions/&lt;n&gt;/</code>；<code>evidence-index.json</code> " + t("reproduce_page.lists_all_logical_results_their_physical", "lists all {result_count} logical results, their physical executions, download paths, and public-file hashes.", result_count=result_count) + "</p>"),
     )
-    (stage / "reproduce/index.html").write_text(
-        _page(title=t("nav.environment_and_reproduction", "Environment and reproduction"), active="reproduce", body=reproduce, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "reproduce/index.html", title=t("nav.environment_and_reproduction", "Environment and reproduction"),
+                active="reproduce", eyebrow="Reproduction",
+                heading=t("reproduce_page.reproduction_starts_with_the_public_repository", "Reproduction starts with the public repository, preregistered cohort, and fixed runtime identities"),
+                body=compose("reproduce", {"commands": commands, "notes": notes}))
 
 
 def _write_accounts_page(stage: Path, inputs: ReportInputs) -> None:
     reasoning_effort = _recorded(inputs.reasoning_effort)
     model_names = inputs.model_names
-    accounts = _hero(
-        "Accounts",
-        t("accounts_page.local_site_accounts_model_access_and", "Local site accounts, model access, and publication access are separate"),
+    lead = _lead(
         t("accounts_page.keys_cookies_and_real_personal_information", "Keys, cookies, and real personal information are not shown. Built-in test emails and usernames in official contracts remain as synthetic ground truth."),
-    ) + _section(
+    )
+    protocol = _section(
         t("accounts_page.access_and_cost", "Access and cost"),
         _table(
             [t("accounts_page.scope", "Scope"), t("accounts_page.configuration_in_this_run", "Configuration in this run"), t("accounts_page.paid_external_account", "Paid external account")],
@@ -3807,9 +3787,10 @@ def _write_accounts_page(stage: Path, inputs: ReportInputs) -> None:
             ],
         ),
     )
-    (stage / "accounts/index.html").write_text(
-        _page(title=t("accounts_page.accounts", "Accounts"), active="accounts", body=accounts, depth=1), encoding="utf-8"
-    )
+    _write_page(stage, "accounts/index.html", title=t("accounts_page.accounts", "Accounts"), active="accounts",
+                eyebrow="Accounts",
+                heading=t("accounts_page.local_site_accounts_model_access_and", "Local site accounts, model access, and publication access are separate"),
+                body=compose("methodology", {"lead": lead, "protocol": protocol}))
 
 
 def _write_interpretation_evidence(
@@ -3967,7 +3948,7 @@ def _write_audit(stage: Path, inputs: ReportInputs) -> dict[str, Any]:
     audit = {
         "schema": "lex_browser_use_report/3",
         "profile_sha256": optional_file_sha256(profile_path),
-        "template": template_identity("browser-use"),
+        "template": {**template_identity("browser-use"), **TEMPLATE.record(VARIANT)},
         "result_count": len(attempts),
         "score_authority": {
             bundle["model"]: (

@@ -355,3 +355,47 @@ def test_english_prose_check_skips_only_marked_raw_text(tmp_path, monkeypatch):
         pages[result] = original.replace("Awaiting review", leak)
         with pytest.raises(ValueError, match="Chinese prose: .*gpt-5.6-sol-moli-44"):
             checker._check_english_prose(pages)
+
+
+def _swap_slots(page: Path, first: str, second: str) -> None:
+    text = page.read_text(encoding="utf-8")
+    for old, new in ((first, "\0"), (second, first), ("\0", second)):
+        text = text.replace(f'data-slot="{old}"', f'data-slot="{new}"')
+    page.write_text(text, encoding="utf-8")
+
+
+@pytest.mark.parametrize("defect, expected", [
+    (None, "current pre-registered selection"),
+    ("order", "differ from the results template order"),
+    ("role", "does not fill its template role home"),
+    ("english", "does not fill its template role methodology"),
+    ("missing", "missing one or more required report pages"),
+    ("unrecorded", "Unregistered browser-use report variant"),
+], ids=["matches", "section-order", "page-role", "english-edition", "missing-page", "no-variant"])
+def test_check_verifies_template_pages_and_section_order(tmp_path, monkeypatch, defect, expected):
+    report, evidence, _ = build_browser_use_fixture(tmp_path, monkeypatch, "en")
+    profile = authority(tmp_path / "authority", engines=["chromium", "moli"],
+                        baseline_engine="chromium",
+                        engine_labels={"chromium": "Chromium", "moli": "Moli"},
+                        models=["gpt-5.6-sol"], model_labels={"gpt-5.6-sol": "GPT-5.6 Sol"})
+    audit = json.loads((report / "report-data.json").read_text(encoding="utf-8"))
+    # The selection check follows the template gate, so reaching it proves the pages match.
+    audit.update(profile_sha256=hashlib.sha256(profile.read_bytes()).hexdigest(),
+                 selection_sha256="stale")
+    if defect == "order":
+        _swap_slots(report / "analysis/index.html", "inventory", "comparison")
+    elif defect == "role":
+        home = report / "index.html"
+        home.write_text(home.read_text(encoding="utf-8").replace(
+            'data-page-role="home"', 'data-page-role="results"'), encoding="utf-8")
+    elif defect == "english":
+        page = report / "en/accounts/index.html"
+        page.write_text(page.read_text(encoding="utf-8").replace(
+            'data-page-role="methodology"', 'data-page-role="review"'), encoding="utf-8")
+    elif defect == "missing":
+        (report / "fixes/index.html").unlink()
+    elif defect == "unrecorded":
+        audit["template"].pop("variant")
+    (report / "report-data.json").write_text(json.dumps(audit), encoding="utf-8")
+    with pytest.raises(ValueError, match=expected):
+        checker.check(report, evidence, SELECTION, require_complete=False, profile_path=profile)

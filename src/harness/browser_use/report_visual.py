@@ -200,7 +200,7 @@ def check(report: Path, receipt: Path) -> None:
       }
     }
     const textOverflow=[];
-    for(const element of document.querySelectorAll('.hero h1,.hero .lead')){
+    for(const element of document.querySelectorAll('main>h1,.hero .lead')){
       if(element.scrollWidth > element.clientWidth + 2){
         textOverflow.push(element.tagName+'.'+element.className);
       }

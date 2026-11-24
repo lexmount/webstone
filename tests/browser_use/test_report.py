@@ -2146,3 +2146,17 @@ def test_logical_results_require_a_model_and_leave_their_input_unchanged() -> No
 
     with pytest.raises(ValueError, match="does not identify its model"):
         _logical_results([{"engine": "e", "task_id": 1, "attempt": 1}])
+
+
+def test_english_navigation_follows_the_template_and_links_back(tmp_path: Path, monkeypatch):
+    from bs4 import BeautifulSoup
+
+    from harness.browser_use.template import TEMPLATE, VARIANT
+
+    output, _, _ = build_browser_use_fixture(tmp_path, monkeypatch, "en")
+    page = (output / "en/datasets/44.html").read_text(encoding="utf-8")
+    nav = BeautifulSoup(page, "html.parser").nav
+    links = [(a["href"], a.get_text()) for a in nav.select("a")]
+    english = [("en/" + item.route, item.title) for item in TEMPLATE.variant(VARIANT).pages]
+    assert links == [*english, ("datasets/44.html", "中文")]
+    assert nav.select_one("[aria-current]")["href"] == "en/datasets/index.html"

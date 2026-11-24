@@ -100,5 +100,14 @@
       "adopters": ["Browser Use"],
       "interaction": true
     }
+  ],
+  "candidate_benchmarks": [
+    {"benchmark": "WebArena‑Verified", "en": {"evaluates": "Self-hosted interactive websites", "target": "Final JSON plus required network side effects", "scoring": "Programmatic; no LLM judge", "limit": "Heavy deployment; strongest fit for browser A/B testing"}, "zh": {"evaluates": "自托管真实交互", "target": "最终 JSON + 必要网络副作用", "scoring": "程序化；无 LLM judge", "limit": "部署重，最适合内核 A/B"}},
+    {"benchmark": "Mind2Web", "en": {"evaluates": "Offline webpage snapshots", "target": "Target element and action at each step", "scoring": "Programmatic action metrics", "limit": "Evaluates process imitation"}, "zh": {"evaluates": "离线网页快照", "target": "每步目标元素与操作", "scoring": "程序化动作指标", "limit": "评过程模仿"}},
+    {"benchmark": "Online‑Mind2Web", "en": {"evaluates": "136 live websites", "target": "Action history and final completion", "scoring": "WebJudge plus human labels", "limit": "Drift, CAPTCHA, and judge bias"}, "zh": {"evaluates": "136 个真实网站", "target": "动作历史与最终完成", "scoring": "WebJudge + 人工标签", "limit": "漂移、CAPTCHA、judge 偏差"}},
+    {"benchmark": "WebVoyager", "en": {"evaluates": "Visual interaction with live websites", "target": "Final answer and execution evidence", "scoring": "Multimodal LLM plus human verification", "limit": "Weaker exact reproducibility"}, "zh": {"evaluates": "实时网站视觉交互", "target": "最终回答与执行证据", "scoring": "多模态 LLM + 人工核验", "limit": "精确复现较弱"}},
+    {"benchmark": "Mind2Web 2", "en": {"evaluates": "Long-horizon multi-site search", "target": "Research answer with citations", "scoring": "Rubric Agent-as-a-Judge", "limit": "Not the first choice for UI browser cores"}, "zh": {"evaluates": "长链多站搜索", "target": "带引用研究答案", "scoring": "rubric Agent-as-a-Judge", "limit": "非 UI 内核首选"}},
+    {"benchmark": "BU Bench V1", "en": {"evaluates": "100 mixed tasks", "target": "Final outcomes and trajectories", "scoring": "Google judge LLM", "limit": "Cloud-browser conditions affect comparability"}, "zh": {"evaluates": "100 个混合任务", "target": "最终结果与轨迹", "scoring": "Google judge LLM", "limit": "云浏览器条件影响可比性"}},
+    {"benchmark": "Odysseys", "en": {"evaluates": "200 long-horizon multi-site tasks", "target": "Rubric completion", "scoring": "Model grading", "limit": "High cost"}, "zh": {"evaluates": "200 个长链多站任务", "target": "rubric 完成度", "scoring": "模型评审", "limit": "成本高"}}
   ]
 }

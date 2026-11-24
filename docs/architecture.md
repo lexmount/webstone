@@ -90,6 +90,7 @@ through configuration, registries or explicit parameters.
 | Common report assets, links, presentation, the release gate (`release_check.py`) and the publisher (`publish.py`) | `src/harness/reporting/` |
 | Report template contract: page roles, slot order, track templates, variants and section hooks ([spec](spec.md#report-templates)) | `src/harness/reporting/templates.py` |
 | Shared page shell and components (navigation, theme, language switch, tables, directional highlights, evidence links) and the message catalog API | `src/harness/reporting/shell.py`, `src/harness/reporting/locales.py` |
+| Same-task explorer: tasks by registered participants, with a baseline, compared participants and outcome relations | `src/harness/reporting/explorer.py` |
 | Public evidence projection and the shared report stylesheet | `src/harness/reporting/publication_privacy.py`, `src/harness/reporting/style.py` |
 | Generated-language inventory and absent-English notice | `src/harness/report_languages.py` |
 | Independent reviewer subprocess execution | `src/harness/review_runner.py` |
@@ -142,7 +143,9 @@ The report owns its selected template identity, input hashes and generated
 languages. Ported tracks record the base template, track template, variant and
 their versions in the report manifest, mark each page's role and slots, and
 their release checks compare the built pages with that recorded template; Web
-Search is the first track on the template (`src/harness/web_search/template.py`). The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
+Search and Browser Use are on the template (`src/harness/web_search/template.py`,
+`src/harness/browser_use/template.py`); `check_template_pages` in
+`src/harness/reporting/release_check.py` runs that comparison for every edition. The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
 routes, measurements and evidence links; absent English has only a notice and
 return link.
 

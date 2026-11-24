@@ -264,6 +264,37 @@ def test_theme_check_waits_for_visual_change_and_rejects_broken_controls(browser
         page.close()
 
 
+def test_same_task_explorer_follows_baseline_comparisons_and_relations(tmp_path, browser):
+    from harness.reporting.explorer import SCRIPT
+    from tests.test_report_explorer import render_fixture
+
+    (tmp_path / "index.html").write_text(
+        f'<!doctype html><html><body>{render_fixture()}<script>{SCRIPT}</script></body></html>', encoding="utf-8")
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **DESKTOP_LIGHT)
+        try:
+            page.goto(origin)
+            visible = lambda: [r.inner_text().split()[0] for r in page.locator("tr[data-explorer-row]:visible").all()]
+            assert visible() == ["t1", "t2"] and page.locator("[data-explorer-count]").inner_text() == "2 / 4"
+            page.locator("[data-explorer-relation]").select_option("baseline_passes")
+            assert visible() == ["t1"]
+            page.locator("[data-explorer-relation]").select_option("comparison_passes")
+            assert visible() == ["t2"]
+            page.locator('[data-explorer-compare] input[value="c"]').uncheck()
+            assert visible() == ["t2"] and not page.locator('th[data-participant="c"]').is_visible()
+            page.locator("[data-explorer-relation]").select_option("all_pass")
+            assert visible() == ["t1", "t3"]
+            page.locator("[data-explorer-baseline]").select_option("b")
+            assert page.locator('[data-explorer-compare] input[value="b"]').is_disabled()
+            assert visible() == ["t1", "t3"]
+            page.locator("[data-explorer-relation]").select_option("differs")
+            assert visible() == ["t2"]
+            page.locator("[data-explorer-filter]").select_option("easy")
+            assert visible() == []
+        finally:
+            page.close()
+
+
 def test_generated_browser_use_success_failure_and_evidence_viewer(tmp_path, monkeypatch, browser, display):
     from tests.browser_use.test_report import build_browser_use_fixture
     from harness.reporting.visual import QuietHandler

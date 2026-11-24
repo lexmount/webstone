@@ -96,3 +96,11 @@ def test_release_fields_read_the_edition_being_rendered(monkeypatch) -> None:
     assert report_module._record_text(release, "title") == release["title"]
     monkeypatch.setattr(report_module, "t", report_module._EN)
     assert report_module._record_text(release, "title") == release["i18n"]["en"]["title"]
+
+
+def test_navigation_labels_are_the_template_titles(monkeypatch) -> None:
+    from harness.browser_use.template import TEMPLATE, VARIANT
+
+    monkeypatch.setattr(report_module, "t", report_module._EN)
+    pages = TEMPLATE.variant(VARIANT).pages
+    assert report_module._nav_labels() == {page.key: page.title for page in pages}
