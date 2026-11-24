@@ -3034,7 +3034,7 @@ def _saved_renderer_projection(output, model):
 
 def _render_projection(output, model):
     """Render the verified route/path projection through the shared generator."""
-    from harness.web_fetch.report import generate
+    from harness.web_fetch.report import render_report
     from harness.web_fetch.report_model import report_model
     dataset, records, identities, scope = _saved_renderer_projection(output, model)
     _write(output/'dataset.json', dataset)
@@ -3050,7 +3050,7 @@ def _render_projection(output, model):
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})
     admission = _FINAL_ADMISSION.get()
-    return generate(output, report_model(
+    return render_report(output, report_model(
         dataset, records, participants=model['providers'], suites=dataset['report_suites'],
         source_admission=admission.get('projection') if admission and admission['output'] == Path(output).resolve() else None,
         authored_interpretation=False, frozen_scores=True))

@@ -13,7 +13,7 @@ from unittest.mock import patch
 from harness.web_fetch.report import (
     TRACKS, _body_region_evidence, _body_scoring_text, body_region_rows, overview_all_call_latency, attempt_row, case_rate,
     composite_contract_details, composite_result_evidence, failure_category,
-    generate, overview_card, ranking, reason, run_log_section,
+    render_report, overview_card, ranking, reason, run_log_section,
     stable_anchor_evidence, stable_answer_panel, stable_checks,
     write_support,
 )
@@ -94,29 +94,29 @@ class ReportBodyScopeTests(unittest.TestCase):
             for row in rows:
                 artifact=out/row['artifact_path'];artifact.parent.mkdir(parents=True,exist_ok=True);artifact.write_text('output', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':cases},rows,[]))
+                render_report(out, report_model({'cases':cases},rows,[]))
                 detail_paths=[out/'attempts'/f"{row['attempt_id']}.html" for row in rows]
                 before=[path.read_bytes() for path in detail_paths]
                 dataset_before=(out/'datasets/first.html').read_bytes()
                 from harness.web_fetch.failure_diagnosis import diagnose
                 for row in rows:row['diagnosis']=diagnose(row,cases[0],'')
-                generate(out, report_model({'cases':cases},rows,[],presentation_only=True))
+                render_report(out, report_model({'cases':cases},rows,[],presentation_only=True))
                 self.assertEqual([path.read_bytes() for path in detail_paths],before)
-                generate(out, report_model({'cases':cases},rows,[],presentation_only=True,detail_attempt_ids={rows[0]['attempt_id']}))
+                render_report(out, report_model({'cases':cases},rows,[],presentation_only=True,detail_attempt_ids={rows[0]['attempt_id']}))
                 self.assertIn('不支持所需输出格式',detail_paths[0].read_text(encoding='utf-8'))
                 self.assertNotEqual(detail_paths[0].read_bytes(),before[0])
                 self.assertEqual(detail_paths[1].read_bytes(),before[1])
                 self.assertEqual((out/'datasets/first.html').read_bytes(),dataset_before)
                 other_dataset=(out/'datasets/second.html').read_bytes()
                 cases[0]['name']='Updated frozen task name'
-                generate(out, report_model({'cases':cases},rows,[],presentation_only=True,dataset_case_ids={'first'}))
+                render_report(out, report_model({'cases':cases},rows,[],presentation_only=True,dataset_case_ids={'first'}))
                 self.assertIn('Updated frozen task name',(out/'datasets/first.html').read_text(encoding='utf-8'))
                 self.assertEqual((out/'datasets/second.html').read_bytes(),other_dataset)
                 self.assertEqual(detail_paths[1].read_bytes(),before[1])
                 with self.assertRaisesRegex(ValueError,'Unknown dataset'):
-                    generate(out, report_model({'cases':cases},rows,[],presentation_only=True,dataset_case_ids={'absent'}))
+                    render_report(out, report_model({'cases':cases},rows,[],presentation_only=True,dataset_case_ids={'absent'}))
                 with self.assertRaisesRegex(ValueError,'Unknown detail'):
-                    generate(out, report_model({'cases':cases},rows,[],presentation_only=True,detail_attempt_ids={'absent'}))
+                    render_report(out, report_model({'cases':cases},rows,[],presentation_only=True,detail_attempt_ids={'absent'}))
 
     def test_media_report_families_follow_the_deliverable(self):
         from harness.web_fetch.models import REPORT_FAMILIES, report_family
@@ -521,7 +521,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True);artifact.write_text('output', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             self.assertEqual(json.loads((out/'report-languages.json').read_text(encoding='utf-8'))['languages'],['zh'])
             self.assertIn('英文报告未生成',(out/'en/index.html').read_text(encoding='utf-8'))
             self.assertFalse((out/'en/attempts').exists())
@@ -554,7 +554,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True)
             artifact.write_text('alpha beta gamma delta', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[],include_english=True))
+                render_report(out, report_model({'cases':[c]},[r],[],include_english=True))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             self.assertLess(detail.index('标准答案与实际返回'),detail.index('为什么这样判'))
             self.assertIn('alpha beta gamma delta',detail)
@@ -588,7 +588,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True)
             artifact.write_text('', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[],include_english=True))
+                render_report(out, report_model({'cases':[c]},[r],[],include_english=True))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             english=(out/'en/attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             for phrase in ['href="#run-log"','id="run-log"','查看运行日志与证据',
@@ -615,7 +615,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             artifact.write_text('output', encoding='utf-8')
             log_path=out/r['call_log_path'];log_path.write_bytes(log)
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             self.assertIn('查看本次真实日志',detail)
             self.assertIn('<ol class="log-lines">',detail)
@@ -678,7 +678,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                 artifact=out/row['artifact_path'];artifact.parent.mkdir(parents=True,exist_ok=True)
                 artifact.write_text('output', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[first,second],[]))
+                render_report(out, report_model({'cases':[c]},[first,second],[]))
             for name in ('fixture-a','fixture-b'):
                 page=out/'providers'/f'{name}.html'
                 self.assertTrue(page.is_file(),name)
@@ -702,7 +702,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             artifact.write_text('output', encoding='utf-8')
             log=out/debug_path;log.parent.mkdir(parents=True);log.write_bytes(debug)
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[],include_english=True))
+                render_report(out, report_model({'cases':[c]},[r],[],include_english=True))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             self.assertIn('ERROR challenge page returned',detail)
             self.assertIn('../'+debug_path,detail)
@@ -730,7 +730,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             artifact.write_text('output', encoding='utf-8')
             log=out/debug_path;log.parent.mkdir(parents=True);log.write_bytes(debug)
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             first_level=detail.split('<details class="diagnostic-log">',1)[0]
             self.assertIn('这次调用正常形成了可评分输出。',first_level)
@@ -750,7 +750,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True)
             artifact.write_text('Dummy PDF file', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             for phrase in ['冻结源文件的全部可提取正文共 14 个字符', '标准答案没有省略',
                            '只验证短文档文字提取', '不用于证明多页、表格或附录完整性']:
@@ -766,7 +766,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True);artifact.write_text('', encoding='utf-8')
             delivered=out/'artifacts/fixture/image/file.bin';delivered.write_bytes(b'pngbytes')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             for phrase in ['目标文件','本任务验收原始文件字节，不要求 Markdown','image/png','8','abc123','匹配']:
                 self.assertIn(phrase,detail)
@@ -829,7 +829,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                 artifact.write_text('\n'.join(r['metrics']['resource_candidate_urls']), encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), \
                     patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':cases},records,[],include_english=True))
+                render_report(out, report_model({'cases':cases},records,[],include_english=True))
             for (identifier, matched, recall, precision, extra, _, zh_detail, en_reason),r in zip(scenarios,records,strict=True):
                 zh=(out/'attempts'/f'{r["attempt_id"]}.html').read_text(encoding='utf-8')
                 en=(out/'en/attempts'/f'{r["attempt_id"]}.html').read_text(encoding='utf-8')
@@ -917,7 +917,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True);artifact.write_text('output', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
-                generate(out, report_model({'cases':[c]},[r],[]))
+                render_report(out, report_model({'cases':[c]},[r],[]))
             detail=(out/'attempts'/f"{r['attempt_id']}.html").read_text(encoding='utf-8')
             for phrase in ['稳定内容检查','条目结构检查','完整且唯一条目数','稳定内容核对点','heading','Catalog','&lt;item&gt;']:
                 self.assertIn(phrase,detail)
@@ -1038,7 +1038,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                 self.assertFalse((staging/'private_artifacts').exists())
             with patch('harness.web_fetch.report_build.require_verified_reference_checks'), \
                  patch('harness.web_fetch.report_build.diagnose',return_value=None), \
-                 patch('harness.web_fetch.report_build.generate',side_effect=inspect_generate) as generated:
+                 patch('harness.web_fetch.report_build.render_report',side_effect=inspect_generate) as generated:
                 build_report(source,out)
             generated.assert_called_once()
 
@@ -1052,7 +1052,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                 r['metrics']['acceptance_contract_sha256']=actual
                 (source/'dataset.json').write_text(json.dumps({'cases':[c]}), encoding='utf-8')
                 (source/'results.jsonl').write_text(json.dumps(r)+'\n', encoding='utf-8')
-                with patch('harness.web_fetch.report_build.generate') as generated:
+                with patch('harness.web_fetch.report_build.render_report') as generated:
                     with self.assertRaisesRegex(ValueError,'Acceptance contract hash missing or mismatched'):
                         build_report(source,out)
                 generated.assert_not_called()
@@ -1065,7 +1065,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             source=Path(directory)/'source';source.mkdir();out=Path(directory)/'report'
             (source/'dataset.json').write_text(json.dumps({'cases':[c]}), encoding='utf-8')
             (source/'results.jsonl').write_text(json.dumps(r)+'\n', encoding='utf-8')
-            with patch('harness.web_fetch.report_build.generate') as generated:
+            with patch('harness.web_fetch.report_build.render_report') as generated:
                 with self.assertRaisesRegex(ValueError,'Stale scoring implementation'):
                     build_report(source,out)
             generated.assert_not_called()

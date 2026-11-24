@@ -334,18 +334,18 @@ def test_uniform_summaries_cannot_promote_unverified_native_evidence(tmp_path, m
 
 
 def test_generic_renderer_cannot_self_authorize_final_results(tmp_path):
-    from harness.web_fetch.report import generate
+    from harness.web_fetch.report import render_report
     from harness.web_fetch.report_model import report_model
     output = build(tmp_path, matrix(tmp_path)).parent
     dataset = json.loads((output/'dataset.json').read_bytes())
     records = [json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines()]
     with pytest.raises(ValueError, match='source-backed admission'):
-        generate(output, report_model(dataset, records, []))
+        render_report(output, report_model(dataset, records, []))
 
 
 def test_admitted_model_rejects_results_changed_after_admission(tmp_path):
     from harness.record_io import canonical_json_sha256
-    from harness.web_fetch.report import generate
+    from harness.web_fetch.report import render_report
     from harness.web_fetch.report_model import report_model
     output = build(tmp_path, matrix(tmp_path)).parent
     dataset = json.loads((output/'dataset.json').read_bytes())
@@ -353,7 +353,7 @@ def test_admitted_model_rejects_results_changed_after_admission(tmp_path):
     model = report_model(dataset, records, [], source_admission=canonical_json_sha256([dataset, records]))
     records[0]['ok'] = not records[0]['ok']
     with pytest.raises(ValueError, match='source-backed admission'):
-        generate(output, model)
+        render_report(output, model)
 
 
 def test_final_checker_requires_original_sources(tmp_path):

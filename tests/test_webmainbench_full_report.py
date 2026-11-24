@@ -8,7 +8,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from harness.reporting.presentation import check_presentation
-from harness.web_fetch.report import generate_webmainbench_full
+from harness.web_fetch.report import render_report
 from harness.web_fetch.report_build import public_webmainbench_scoring_projection
 from harness.web_fetch.webmainbench_report_check import (
     check_diagnosis_inventory,
@@ -139,7 +139,7 @@ def render_full_report(tmp_path, binding_name, extra_methods=0, *, call_counts=N
          "cause": "Fixture failed", "treatment": "Investigate", "status": "open"}]}), encoding="utf-8")
     (tmp_path / "physical-attempts.jsonl").write_text("".join(json.dumps(row) + "\n" for row in physical), encoding="utf-8")
     (tmp_path / "moli-content-fixed-report.json").write_text(json.dumps({"source_commit": "683b297e1b99b5bbe27284dc8b5e657eaacf8996"}), encoding="utf-8")
-    generate_webmainbench_full(tmp_path, dataset, rows, summaries, profile)
+    render_report(tmp_path, dataset, rows, summaries, profile, variant='webmainbench-full')
     return providers, rows
 
 

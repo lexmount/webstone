@@ -101,7 +101,7 @@ def test_english_home_explains_unknown_and_missing_results(tmp_path, monkeypatch
         artifact = tmp_path/row['artifact_path']
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text('output', encoding='utf-8')
-    report.generate(tmp_path, report_model({'cases': cases}, records, [], include_english=True))
+    report.render_report(tmp_path, report_model({'cases': cases}, records, [], include_english=True))
     home = (tmp_path/'en/index.html').read_text(encoding='utf-8')
     assert '1 task-family overview' in home
     assert '1 family rankings' in home
@@ -122,13 +122,13 @@ def test_family_participants_do_not_include_other_tracks(declared_missing):
     first['provider'], other['provider'] = 'web-only', 'dynamic-only'
     plan = {'web': ['web-only'] + (['missing-web'] if declared_missing else []),
             'dynamic': ['dynamic-only']}
-    token = report._RENDER_CONTEXT.set(report.RenderContext(coverage_plan=plan))
+    token = report.set_render_context(report.RenderContext(coverage_plan=plan))
     try:
         markup = report.ranking([first, other], {'web': web, 'dynamic': dynamic}, 'web')
         card = report.overview_card([first, other], {'web': web, 'dynamic': dynamic},
                                     'web', 'Web', ['web-only', 'dynamic-only'])
     finally:
-        report._RENDER_CONTEXT.reset(token)
+        report.reset_render_context(token)
     soup = BeautifulSoup(markup, 'html.parser')
     assert bool(soup.select('td[data-rank]')) is (not declared_missing)
     assert ('仅供诊断' in card) is declared_missing
@@ -138,12 +138,12 @@ def test_overall_ranks_require_even_wholly_missing_declared_methods():
     from harness.web_fetch import report
     c = case('example', kind='body', track='web')
     row = record(c)
-    token = report._RENDER_CONTEXT.set(report.RenderContext(
+    token = report.set_render_context(report.RenderContext(
         coverage_plan={'web': ['fixture', 'missing-method']}))
     try:
         markup = report.overall_ranking([row], {c['id']: c})
     finally:
-        report._RENDER_CONTEXT.reset(token)
+        report.reset_render_context(token)
     soup = BeautifulSoup(markup, 'html.parser')
     assert not soup.select('td[data-rank]')
     assert not soup.select('#ranking-overall .comparison-winner')
@@ -177,7 +177,7 @@ def test_declared_participant_without_calls_gets_an_english_route(tmp_path, monk
         artifact.write_text('output', encoding='utf-8')
     monkeypatch.setattr(report, 'saved_matrix_scope_section', lambda *args, **kwargs: '')
     participants = [{'id': records[0]['provider'], 'label': 'Measured'}, {'id': 'declared-only', 'label': 'Declared'}]
-    report.generate(tmp_path, report_model({'cases': cases}, records, [], participants=participants,
+    report.render_report(tmp_path, report_model({'cases': cases}, records, [], participants=participants,
                                            include_english=True))
     assert (tmp_path/'providers/declared-only.html').is_file()
     assert (tmp_path/'en/providers/declared-only.html').is_file()

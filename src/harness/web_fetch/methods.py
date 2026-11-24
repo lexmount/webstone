@@ -5,13 +5,13 @@ import inspect
 import json
 import re
 from collections import Counter
-from contextvars import ContextVar
 from copy import deepcopy
 from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
 from harness.distribution import bundled_data_path
+from harness.web_fetch.report_model import method_scope, with_method_scope
 
 
 def _resolve_catalog_templates(data):
@@ -69,10 +69,6 @@ def report_method_catalog(language="zh"):
     return _catalog_value(_raw_report_method_catalog(), language=language)
 
 
-_REPORT_RECORDS = ContextVar("webfetch_report_records", default={})
-_REPORT_EXECUTION_CONFIGS = ContextVar("webfetch_report_execution_configs", default={})
-
-
 def frozen_execution_configs(manifests):
     """Read installation bindings only from bytes named by execution manifests.
 
@@ -116,8 +112,9 @@ def frozen_execution_configs(manifests):
 def _browser_installation_access(name, selected, registered, access, language):
     if registered.get("kind") != "browser" or access.get("type") != "local":
         return access
-    measured = selected or _REPORT_RECORDS.get().get(name)
-    config = ((_REPORT_EXECUTION_CONFIGS.get().get(name) or _REPORT_METHODS.get().get(name)) if measured
+    scope = method_scope()
+    measured = selected or scope.records.get(name)
+    config = ((scope.execution_configs.get(name) or scope.registry.get(name)) if measured
               else browser_method_registry().get(name))
     engine = (measured or {}).get("provider_metadata", {}).get("engine")
     if config and engine and config.get("engine") != engine:
@@ -140,7 +137,7 @@ def _browser_installation_access(name, selected, registered, access, language):
 def report_method(name, record=None, *, language="zh"):
     """Resolve run IDs through recorded identity and the execution registry."""
     methods = (report_method_catalog() if language == "zh" else report_method_catalog(language))["methods"]
-    record = record or _REPORT_RECORDS.get().get(name, {})
+    record = record or method_scope().records.get(name, {})
     metadata = record.get("provider_metadata") or {}
     if metadata.get("engine"):
         return methods.get(metadata["engine"], {})
@@ -175,7 +172,7 @@ def versioned_method_label(registered, base, version):
 
 
 def method_access(name, records, *, language="zh"):
-    bound = _REPORT_METHODS.get().get(name, {}).get("report_access")
+    bound = method_scope().registry.get(name, {}).get("report_access")
     if bound is not None:
         return {**bound,
                 "account": bound.get("account_en", bound["account"]) if language == "en" else bound["account"],
@@ -209,16 +206,13 @@ def _execution_browser_method_registry():
         return {}
 
 
-_REPORT_METHODS = ContextVar("webfetch_report_methods", default={})
-
-
 def browser_method_registry():
     """Combine reusable adapters with the selected instance's frozen registry."""
-    return {**_execution_browser_method_registry(), **_REPORT_METHODS.get()}
+    return {**_execution_browser_method_registry(), **method_scope().registry}
 
 
 def native_browser_engine(name, record=None):
-    record = record or _REPORT_RECORDS.get().get(name, {})
+    record = record or method_scope().records.get(name, {})
     recorded = (record.get("provider_metadata") or {}).get("engine")
     if recorded:
         return recorded
@@ -231,22 +225,16 @@ def native_browser_engine(name, record=None):
 
 
 def browser_method_label(name, *, language="zh"):
-    measured = _MEASURED_LABELS.get().get(name)
+    scope = method_scope()
+    measured = scope.labels.get(name)
     if measured:
         return measured[language]
-    record = _REPORT_RECORDS.get().get(name, {})
+    record = scope.records.get(name, {})
     engine = (record.get("provider_metadata") or {}).get("engine")
     if engine:
         return report_method(name, record).get("label", {}).get(language, engine)
     return (browser_method_registry().get(name, {}).get("label")
             or report_method(name).get("label", {}).get(language, name))
-
-
-_MEASURED_LABELS = ContextVar("webfetch_measured_labels", default={})
-
-
-def measured_method_label(name, fallback):
-    return _MEASURED_LABELS.get().get(name, {}).get("zh", fallback)
 
 
 def method_version(record, provenance=None, *, language="zh"):
@@ -294,13 +282,12 @@ def with_measured_method_labels(render):
         provenance = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
         identities = {item["binary_sha256"]: item for item in provenance.get("implementations", [])
                       if item.get("binary_sha256")}
-        records_token = _REPORT_RECORDS.set({row["provider"]: row for row in records})
         arguments = signature.bind(out, dataset, records, *args, **kwargs).arguments
-        configs_token = _REPORT_EXECUTION_CONFIGS.set(
-            frozen_execution_configs(arguments["manifests"]) if "manifests" in arguments
-            else _REPORT_EXECUTION_CONFIGS.get())
+        configs = (frozen_execution_configs(arguments["manifests"]) if "manifests" in arguments
+                   else method_scope().execution_configs)
         labels = {}
-        try:
+        with with_method_scope(records={row["provider"]: row for row in records},
+                               execution_configs=configs):
             for name in {row["provider"] for row in records}:
                 registered = report_method(name)
                 subset = [row for row in records if row["provider"] == name]
@@ -336,8 +323,7 @@ def with_measured_method_labels(render):
                         value = messages["mixed_builds"].format(
                             label=base, counts=messages["separator"].join(parts))
                     labels[name][language] = value
-            token = _MEASURED_LABELS.set(labels)
-            try:
+            with with_method_scope(labels=labels):
                 display = {name: {language: browser_method_label(name, language=language)
                                   for language in ('zh', 'en')}
                            for name in {row['provider'] for row in records}}
@@ -348,22 +334,14 @@ def with_measured_method_labels(render):
                             value[language] += f' ({name})'
                 labels.update(display)
                 return render(out, dataset, records, *args, **kwargs)
-            finally:
-                _MEASURED_LABELS.reset(token)
-        finally:
-            _REPORT_EXECUTION_CONFIGS.reset(configs_token)
-            _REPORT_RECORDS.reset(records_token)
     @wraps(render)
     def wrapped(out, dataset, records, *args, **kwargs):
         comparison = dataset.get("comparison")
         saved = Path(out) / "dataset.json"
         if comparison is None and saved.is_file():
             comparison = json.loads(saved.read_text(encoding="utf-8")).get("comparison", {})
-        token = _REPORT_METHODS.set((comparison or {}).get("method_registry", _REPORT_METHODS.get()))
-        try:
+        with with_method_scope(registry=(comparison or {}).get("method_registry", method_scope().registry)):
             return render_with_labels(out, dataset, records, *args, **kwargs)
-        finally:
-            _REPORT_METHODS.reset(token)
     return wrapped
 
 

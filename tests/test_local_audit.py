@@ -492,8 +492,8 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
             refresh_local_presentation(output, binding_path)
     assert {path.relative_to(output).as_posix(): _digest(path)
             for path in output.rglob('*') if path.is_file()} == before
-    from harness.web_fetch.report_build import generate as current_renderer
-    with patch('harness.web_fetch.report_build.generate', wraps=current_renderer) as rendered:
+    from harness.web_fetch.report_build import render_report as current_renderer
+    with patch('harness.web_fetch.report_build.render_report', wraps=current_renderer) as rendered:
         refresh_local_presentation(output, binding_path)
     assert rendered.call_args.args[1].options.authored_interpretation is False
     for relative in ("assets/report.js", "assets/style.css"):

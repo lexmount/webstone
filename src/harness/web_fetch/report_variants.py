@@ -89,6 +89,50 @@ class ReportVariant:
             raise VariantUsageError(str(error)) from error
 
 
+@dataclass(frozen=True)
+class ComparisonKind:
+    """What a dataset comparison kind declares about its evidence.
+
+    Build, check and package read these properties; none compares kind names.
+    """
+
+    name: str
+    # An uncertified complete local matrix bound by a pre-call local-run contract.
+    local_measurement: bool = False
+    # A diagnostic run that is never a release.
+    diagnostic: bool = False
+    # The cohort compares headless conversion engines of the execution registry.
+    headless_cohort: bool = False
+    # A synthetic example of the report, not a measurement.
+    synthetic: bool = False
+    # Module that validates the cohort's certification receipt before a report is built
+    # (``require_report_certification``) and names its bound files (``certification_files``).
+    certification: str | None = None
+
+    def certification_owner(self):
+        import importlib
+        return importlib.import_module(self.certification) if self.certification else None
+
+
+COMPARISON_KINDS: dict[str, ComparisonKind] = {item.name: item for item in (
+    ComparisonKind('uniform_native_local_measurement', local_measurement=True),
+    ComparisonKind('web_fetch_diagnostic', diagnostic=True),
+    ComparisonKind('headless_html', headless_cohort=True),
+    ComparisonKind('headless_markdown', headless_cohort=True),
+    ComparisonKind('synthetic_browser_report', synthetic=True),
+    ComparisonKind('risk_control_100_moli', certification='harness.web_fetch.risk_control'),
+)}
+
+
+def comparison_kind(kind: str | None) -> ComparisonKind:
+    """The declaration of a comparison kind; an undeclared kind has no special evidence."""
+    return COMPARISON_KINDS.get(kind) or ComparisonKind(str(kind))
+
+
+def dataset_kind(dataset) -> ComparisonKind:
+    return comparison_kind((dataset or {}).get('comparison', {}).get('kind'))
+
+
 VARIANTS: dict[str, ReportVariant] = {}
 
 

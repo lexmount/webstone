@@ -8,6 +8,7 @@ import shutil
 from collections import defaultdict
 
 from harness.reporting.presentation import esc
+from harness.web_fetch.report_variants import comparison_kind
 from harness.web_fetch.storage import research_evidence_dir
 
 ROOT=repository_root()
@@ -55,7 +56,7 @@ def select_cohort_history(data, dataset, records):
     ):
         kind='headless_markdown'
     if not kind:kind='generic'
-    headless=kind in {'headless_html','headless_markdown'}
+    headless=comparison_kind(kind).headless_cohort
     releases=published_releases(data.get('releases',[]), require_state=data.get('schema_version',2)>=3)
     boundary=next((i for i,row in enumerate(releases) if row.get('id')==HEADLESS_HISTORY_START),None)
     selected=[]

@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from harness.report_languages import write_language_contract
 from harness.reporting.assets import load_bound_content, restore_bound_content
 from harness.reporting.packs import write_packs
-from harness.web_fetch.report import _wmb_guide
+from harness.web_fetch.webmainbench_report import _wmb_guide
 from harness.web_fetch.webmainbench_report_check import validate_sample_content
 
 

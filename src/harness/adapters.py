@@ -134,7 +134,11 @@ class BenchmarkAdapter(Protocol):
         ...
 
     def views(self) -> list[Any]:
-        """Report sections (``harness.reporting.templates.SectionHook``) for track hook points; often none."""
+        """Report views for track hook points; often none.
+
+        A ``harness.reporting.templates.SectionHook`` fills one slot; a
+        ``PageSetHook`` writes the page set of the variant it names.
+        """
         ...
 
 

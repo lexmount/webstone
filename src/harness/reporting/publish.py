@@ -334,6 +334,13 @@ def _publish_receipt(config: ReceiptRelease, mode: str, *, transport=None):
         raise ValueError("Publication receipt must be a JSON object")
     if config.receipt.resolve() == config.journal.resolve():
         raise ValueError("Publication authority, receipt and operation journal must be distinct")
+    # The release owns its title and the receipt its share link; a requested
+    # value must name the same one rather than be dropped.
+    if requested.title is not None and requested.title != config.title:
+        raise ValueError("Requested publication title differs from the release title")
+    if requested.share_url is not None and requested.share_url != (
+            result.get("share_url") or (profile.get("publication") or {}).get("share_url")):
+        raise ValueError("Requested share link differs from the saved publication")
     if requested.site is not None:
         if mode == "create":
             raise ValueError("A new site is named by the service; do not request a site with --create")

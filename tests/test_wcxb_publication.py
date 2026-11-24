@@ -86,7 +86,7 @@ def test_profile_bound_submission_uses_declared_files_and_verifies_share(report)
     assert set(site.files) == {'index.html', release.INVENTORY}
     after = json.loads(profile_path.read_bytes())
     assert after == {**before, 'artifact_hub_expected_version': 'ver_new'}
-    assert [row[0] for row in checks] == ['semantic', 'links']
+    assert [row[0] for row in checks] == ['links', 'semantic']  # the shared release gate's order
     assert any(path == '/v/public-token' for path, _, _ in site.calls)
     journal = next(kwargs['work'].glob('wcxb-update-*.json'))
     assert json.loads(journal.read_bytes())['verified'] is True
@@ -231,4 +231,4 @@ def test_package_only_cli_never_publishes_or_loads_credentials(report, monkeypat
     assert result['files'] == 2
     assert (paths['work'] / 'wcxb-current.zip').is_file()
     assert (paths['work'] / 'wcxb-package.json').is_file()
-    assert [item[0] for item in checks] == ['semantic', 'links']
+    assert [item[0] for item in checks] == ['links', 'semantic']  # the shared release gate's order

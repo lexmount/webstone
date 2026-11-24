@@ -16,6 +16,7 @@ from harness.web_fetch import adjudication_evidence, local_execution_contract
 from harness.reporting.publication_privacy import read_evidence_binding
 from harness.web_fetch.reference_inputs import benchmark_input_path, input_tree
 from harness.web_fetch.reliability import assess_reliability
+from harness.web_fetch.report_variants import dataset_kind
 
 ROOT = repository_root()
 MANIFEST_NAME = "local-audit-manifest.json"
@@ -401,7 +402,7 @@ def require_complete_local_inventory(dataset: dict, records: list[dict]) -> dict
     """Allow explicit unknown verdicts locally, never missing physical results."""
 
     comparison = dataset.get("comparison", {})
-    if (comparison.get("kind") != "uniform_native_local_measurement"
+    if (not dataset_kind(dataset).local_measurement
             or comparison.get("publication_state") != "local_audit_only_not_for_release"):
         raise ValueError("Incomplete adjudication is only allowed in a local measurement")
     reliability = assess_reliability(dataset, records)
@@ -426,7 +427,7 @@ def require_local_measurement(source: Path, dataset: dict, records: list[dict]) 
 def require_local_audit(source: Path, dataset: dict, records: list[dict]) -> dict:
     """Validate final inputs, complete evidence inventory, and inherited review."""
     comparison = dataset.get("comparison", {})
-    if comparison.get("kind") == "uniform_native_local_measurement":
+    if dataset_kind(dataset).local_measurement:
         if comparison.get("publication_state") != "local_audit_only_not_for_release":
             raise ValueError("Local measurement cannot claim certification")
         return require_local_measurement(source, dataset, records)

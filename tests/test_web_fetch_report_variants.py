@@ -96,7 +96,7 @@ def test_release_check_rejects_pages_that_leave_their_template(tmp_path):
         check_template_pages(tmp_path, {"template": None})
     _template_report(tmp_path)
     (tmp_path / "review/index.html").unlink()
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(ValueError, match="missing its review page"):
         check_template_pages(tmp_path, manifest)
 
 
@@ -110,9 +110,30 @@ def test_report_suites_must_match_case_report_families():
 
 
 def test_sample_guide_check_reads_the_role_marked_main(tmp_path):
-    from harness.web_fetch.report import _wmb_write
+    from harness.web_fetch.webmainbench_report import _wmb_write
     from harness.web_fetch.webmainbench_report_check import bound_guide
     _wmb_write(tmp_path, "guide/index.html", "Guide", "<p>bound guide</p>")
     page = (tmp_path / "guide/index.html").read_text(encoding="utf-8")
     assert 'data-page-role="interpretation"' in page
     assert bound_guide(page) == "<p>bound guide</p>"
+
+
+def test_benchmark_page_sets_are_views_on_the_one_render_entry(tmp_path):
+    from harness.reporting.templates import PageSetHook
+    from harness.web_fetch.benchmarks import BENCHMARKS
+    from harness.web_fetch.template import TEMPLATE
+    views = {hook.key for _, benchmark in BENCHMARKS.items() for hook in benchmark.views()
+             if isinstance(hook, PageSetHook)}
+    assert views == {"wcxb", "webmainbench-sample", "webmainbench-full"}
+    assert views <= {variant.name for variant in TEMPLATE.variants}
+
+
+def test_benchmark_page_set_records_and_fills_its_variant(tmp_path):
+    from harness.web_fetch.report import render_report
+    from harness.web_fetch.template import check_recorded_template
+    from tests.wcxb_fixture import create_report_inputs
+    inputs = create_report_inputs(tmp_path, english_source=True)
+    render_report(*inputs, include_english=True, variant="wcxb")
+    manifest = json.loads((inputs[0] / "report-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["template"]["variant"] == "wcxb"
+    check_recorded_template(inputs[0])

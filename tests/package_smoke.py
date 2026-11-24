@@ -1191,14 +1191,14 @@ def verify_wcxb_scoring(root, source_root):
 def verify_wcxb_rendering(root, source_root):
     """The installed WCXB renderer reads explicit staged inputs, outside the checkout."""
     from harness.report_languages import check_language_contract, generated_languages
-    from harness.web_fetch.report import generate_wcxb
+    from harness.web_fetch.report import render_report
     from harness.web_fetch.wcxb_report_check import check_bound_interpretation
 
     fixture = runpy.run_path(str(source_root / 'tests/wcxb_fixture.py'))
     for english in (False, True):
         inputs = fixture['create_report_inputs'](root / f'wcxb-render-{english}',
                                                  english_source=english)
-        generate_wcxb(*inputs, include_english=english)
+        render_report(*inputs, include_english=english, variant='wcxb')
         report = inputs[0]
         import re
 

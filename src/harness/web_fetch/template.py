@@ -5,10 +5,11 @@ Every page writer marks its route's role from these tables, and the release
 check compares a built report with the variant its manifest records.
 """
 
+import json
 from pathlib import Path
 
-from harness.reporting.release_check import language_editions, read_page
-from harness.reporting.templates import Page, TrackTemplate, Variant, check_page, recorded_variant, resolve_template
+from harness.reporting.release_check import check_template_pages as check_variant_pages
+from harness.reporting.templates import Page, TrackTemplate, Variant, recorded_variant, resolve_template
 
 
 def _pages(rows, footer=()):
@@ -80,9 +81,19 @@ def check_template_pages(root: Path, manifest, *, authority_root=None):
     variant = recorded_variant(record, TEMPLATE)
     expected = {**(resolve_template("webfetch", root=authority_root) if authority_root else
                    resolve_template("webfetch")), **TEMPLATE.record(variant.name)}
-    if manifest["template"] != expected:
+    if record != expected:
         raise ValueError("Report manifest differs from the maintained template")
-    for _, prefix in language_editions(root):
-        for page in variant.pages:
-            check_page(read_page(root / prefix / page.route), page)
-    return variant
+    return check_variant_pages(root, record, TEMPLATE)
+
+
+def check_recorded_template(root: Path):
+    """A benchmark or track page set fills the variant its manifest records.
+
+    The record names template and variant versions; reports built before it was
+    recorded have no manifest entry and keep verifying.
+    """
+    path = root / "report-manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    if "template" in manifest:
+        return check_variant_pages(root, manifest["template"], TEMPLATE)
+    return None

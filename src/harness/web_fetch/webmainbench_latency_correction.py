@@ -1,4 +1,10 @@
-"""Certify, apply and verify frozen latency cohorts without changing scored evidence."""
+"""Certify, apply and verify frozen latency cohorts without changing scored evidence.
+
+Each correction campaign (methods and versions, page and result counts, rounds,
+selected round and known failures) is declared in
+``data/webmainbench-latency-corrections.json``; receipts and certificates name
+their declaration by kind.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +27,22 @@ from harness.record_io import file_sha256, parse_jsonl
 from harness.web_fetch import webmainbench_dataset
 
 
+def _declarations() -> list[dict]:
+    registry = json.loads(
+        (Path(__file__).parent / "data/webmainbench-latency-corrections.json").read_bytes())
+    if registry.get("schema_version") != 1:
+        raise ValueError("Unsupported latency correction registry")
+    return registry["corrections"]
+
+
+def declared_correction(kind, *, key: str = "receipt_kind") -> dict:
+    """The declared correction campaign a receipt or certificate kind names."""
+    found = [item for item in _declarations() if item[key] == kind]
+    if len(found) != 1:
+        raise ValueError("Undeclared WebMainBench latency correction: " + str(kind))
+    return found[0]
+
+
 def prior_results_path(root: Path) -> Path:
     if (root / "latency-corrections.json").is_file():
         validate_latency_correction(root)
@@ -35,34 +57,36 @@ def validate_latency_correction(root: Path) -> dict | None:
     receipt = json.loads(
         contained_path(root, "latency-corrections.json").read_text(encoding="utf-8")
     )
+    declared = declared_correction(receipt.get("kind"))
+    methods = declared["methods"]
+    changed_count = declared["case_count"] * len(methods)
     prior_path = contained_path(root, "prior-latency-results.jsonl")
     current_path = contained_path(root, "results.jsonl")
     prior_bytes = prior_path.read_bytes()
     current_bytes = current_path.read_bytes()
     if (
         receipt.get("schema_version") != 1
-        or receipt.get("kind") != "webmainbench_moli_200_balanced_latency_only_v1"
         or receipt.get("prior_results_sha256") != hashlib.sha256(prior_bytes).hexdigest()
         or (receipt.get("output_results_sha256") != hashlib.sha256(current_bytes).hexdigest())
-        or (receipt.get("selected_round") != 2)
-        or (receipt.get("changed_result_count") != 400)
+        or (receipt.get("selected_round") != declared["selected_round"])
+        or (receipt.get("changed_result_count") != changed_count)
     ):
         raise ValueError("Invalid WebMainBench latency correction binding")
     previous = parse_jsonl(prior_bytes.decode("utf-8"), skip_blank=True)
     current = parse_jsonl(current_bytes.decode("utf-8"), skip_blank=True)
-    if len(previous) != len(current) or len(current) != 1200:
+    if len(previous) != len(current) or len(current) != declared["result_count"]:
         raise ValueError("WebMainBench latency correction changed result inventory")
     changes = receipt.get("changes")
-    if not isinstance(changes, list) or len(changes) != 400:
+    if not isinstance(changes, list) or len(changes) != changed_count:
         raise ValueError("WebMainBench latency correction has incomplete scope")
     by_attempt = {item.get("attempt_id"): item for item in changes}
-    if len(by_attempt) != 400:
+    if len(by_attempt) != changed_count:
         raise ValueError("WebMainBench latency correction duplicated an attempt")
     expected = set()
     for old, new in zip(previous, current):
         if old.get("attempt_id") != new.get("attempt_id"):
             raise ValueError("WebMainBench latency correction reordered results")
-        changed = old.get("provider") in ("moli", "moli-1.1.7")
+        changed = old.get("provider") in methods
         if changed:
             expected.add(old["attempt_id"])
             before_metadata = old.get("provider_metadata", {})
@@ -71,7 +95,7 @@ def validate_latency_correction(root: Path) -> dict | None:
             change = by_attempt.get(old["attempt_id"], {})
             if (
                 correction.get("kind") != "certified_balanced_final_round"
-                or correction.get("selected_round") != 2
+                or correction.get("selected_round") != declared["selected_round"]
                 or correction.get("original_elapsed_ms") != old["elapsed_ms"]
                 or (correction.get("corrected_elapsed_ms") != new["elapsed_ms"])
                 or (change.get("before_ms") != old["elapsed_ms"])
@@ -99,7 +123,7 @@ def validate_latency_correction(root: Path) -> dict | None:
         elif old != new:
             raise ValueError("WebMainBench latency correction changed another provider")
     if set(by_attempt) != expected:
-        raise ValueError("WebMainBench latency correction omitted a Moli result")
+        raise ValueError("WebMainBench latency correction omitted a corrected method result")
     return receipt
 
 
@@ -196,13 +220,13 @@ def host_sample() -> dict:
     }
 
 
-def snapshot(dataset: Path, sample: Path, official: Path) -> dict:
+def snapshot(dataset: Path, sample: Path, official: Path, case_count: int) -> dict:
     selected, binding = webmainbench_dataset.load_selected_ids(sample)
     source = {row["track_id"]: row for row in webmainbench_dataset.load_source(dataset, selected)}
     recorded = json.loads((official / "dataset.json").read_text(encoding="utf-8"))
     cases = {row["id"]: row for row in recorded["cases"]}
     if (
-        len(source) != 200
+        len(source) != case_count
         or set(source) != set(cases)
         or binding["sha256"] != recorded["sample_manifest_sha256"]
     ):
@@ -242,6 +266,8 @@ def certify(argv: list[str] | None = None) -> None:
     from harness.web_fetch.webmainbench_latency_diagnostic import _repeat_calls
 
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--correction", required=True,
+                        help="receipt kind of the declared correction campaign")
     for name in (
         "older",
         "newer",
@@ -254,6 +280,8 @@ def certify(argv: list[str] | None = None) -> None:
     ):
         parser.add_argument("--" + name, type=Path, required=True)
     args = parser.parse_args(argv)
+    declared = declared_correction(args.correction)
+    older_version, newer_version = declared["methods"].values()
     if args.output.exists():
         raise ValueError("Certified output directory already exists")
     source_path = Path(__file__)
@@ -267,7 +295,7 @@ def certify(argv: list[str] | None = None) -> None:
     clean_process_checks = 1
     before_host = host_sample()
     validate_host_sample(before_host)
-    before = snapshot(args.dataset, args.sample, args.official_evidence)
+    before = snapshot(args.dataset, args.sample, args.official_evidence, declared["case_count"])
     command = [
         sys.executable,
         "-m",
@@ -288,7 +316,7 @@ def certify(argv: list[str] | None = None) -> None:
         str(args.output),
         "--all-cases",
         "--rounds",
-        "2",
+        str(declared["rounds"]),
         "--formal-correction",
     ]
     process = subprocess.Popen(command, cwd=ROOT)
@@ -303,19 +331,20 @@ def certify(argv: list[str] | None = None) -> None:
                 encoding="utf-8"
             )
             raise ValueError(
-                f"Concurrent browser benchmark started during Moli timing: {competing}"
+                f"Concurrent browser benchmark started during {declared['label']} timing: {competing}"
             )
         clean_process_checks += 1
     if process.returncode:
         raise subprocess.CalledProcessError(process.returncode, command)
     after_host = host_sample()
     validate_host_sample(after_host)
-    after = snapshot(args.dataset, args.sample, args.official_evidence)
+    after = snapshot(args.dataset, args.sample, args.official_evidence, declared["case_count"])
     if before != after:
-        raise ValueError("Source or references changed during Moli calls")
+        raise ValueError(f"Source or references changed during {declared['label']} calls")
     selection = json.loads((args.output / "selection.json").read_text(encoding="utf-8"))
-    expected_prior = {"1.1.5": file_sha256(args.prior_older), "1.1.7": file_sha256(args.prior_newer)}
-    expected_binaries = {"1.1.5": file_sha256(args.older), "1.1.7": file_sha256(args.newer)}
+    expected_prior = {older_version: file_sha256(args.prior_older),
+                      newer_version: file_sha256(args.prior_newer)}
+    expected_binaries = {older_version: file_sha256(args.older), newer_version: file_sha256(args.newer)}
     case_rows = {
         case_id: {
             "input_html_sha256": value,
@@ -336,37 +365,40 @@ def certify(argv: list[str] | None = None) -> None:
         before["sample_sha256"],
         expected_prior,
         expected_binaries,
-        200,
-        2,
+        declared["case_count"],
+        declared["rounds"],
     )
     authority = {
-        "selected_round": 2,
+        "selected_round": declared["selected_round"],
         "rule": "final_round_for_every_version_and_page; never select a fastest call",
         "scope": "latency only; preserve original output, scoring and verdict",
     }
     if selection.get("authority") != authority:
         raise ValueError("Final-round authority was not declared before calls")
     failures = [row for row in calls if not row["_body_present"]]
+    known = declared["expected_failures"]
     if (
-        len(failures) != 4
-        or len({row["case_id"] for row in failures}) != 1
-        or any("langrensha.163.com/wanfa/guize/" not in row["stderr"] for row in failures)
+        len(failures) != known["calls"]
+        or len({row["case_id"] for row in failures}) != known["cases"]
+        or any(known["stderr"] not in row["stderr"] for row in failures)
     ):
         raise ValueError("Corrected cohort failure scope changed")
     source_binding = bind_certifier_source(args.output, source_path, frozen_source)
     receipt = {
-        "kind": "certified_webmainbench_moli_latency_crossover_v1",
+        "kind": declared["certificate_kind"],
+        # The campaign rules this certificate was made under; applying it requires the same rules.
+        "correction_declaration": declared,
         "precheck": before,
         "postcheck": after,
         "selection_sha256": binding["selection_json_sha256"],
         "calls_sha256": binding["calls_jsonl_sha256"],
         "physical_calls": len(calls),
         "failed_calls": len(failures),
-        "selected_round": 2,
+        "selected_round": declared["selected_round"],
         "versions": expected_binaries,
         "prior_results_sha256": expected_prior,
         "environment_exclusion": {
-            "rule": "no other browser benchmark process before or during Moli timing",
+            "rule": f"no other browser benchmark process before or during {declared['label']} timing",
             "clean_process_checks": clean_process_checks,
             "certifying_runner_sha256": source_binding["sha256"],
             "certifying_runner_source": source_binding,
@@ -377,7 +409,7 @@ def certify(argv: list[str] | None = None) -> None:
         json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8"
     )
-    print("Certified WebMainBench Moli latency cohort:", args.output)
+    print(f"Certified WebMainBench {declared['label']} latency cohort:", args.output)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -391,33 +423,37 @@ def main(argv: list[str] | None = None) -> None:
         raise ValueError("Output already exists or cohort is known to have host interference")
     cert_path = args.cohort / "certification.json"
     cert = json.loads(cert_path.read_text(encoding="utf-8"))
+    declared = declared_correction(cert.get("kind"), key="certificate_kind")
+    # Certificates from before the declaration was retained name it only by kind.
+    if "correction_declaration" in cert and cert["correction_declaration"] != declared:
+        raise ValueError("Latency correction declaration changed since certification")
+    methods = declared["methods"]
     selection_bytes = (args.cohort / "selection.json").read_bytes()
     exclusion = cert.get("environment_exclusion", {})
     verify_certifier_source(args.cohort, exclusion)
     resources = cert.get("host_resources", {})
     for point in ("before", "after"):
         validate_host_sample(resources.get(point))
-    frozen = snapshot(args.dataset, args.sample, args.base)
+    frozen = snapshot(args.dataset, args.sample, args.base, declared["case_count"])
     if (
-        cert.get("kind") != "certified_webmainbench_moli_latency_crossover_v1"
-        or cert.get("precheck") != frozen
+        cert.get("precheck") != frozen
         or cert.get("postcheck") != frozen
-        or (cert.get("physical_calls") != 800)
-        or (cert.get("failed_calls") != 4)
-        or (cert.get("selected_round") != 2)
+        or (cert.get("physical_calls") != declared["case_count"] * declared["rounds"] * len(methods))
+        or (cert.get("failed_calls") != declared["expected_failures"]["calls"])
+        or (cert.get("selected_round") != declared["selected_round"])
         or (
             exclusion.get("rule")
-            != "no other browser benchmark process before or during Moli timing"
+            != f"no other browser benchmark process before or during {declared['label']} timing"
         )
         or type(exclusion.get("clean_process_checks")) is not int
         or exclusion["clean_process_checks"] < 2
         or (cert.get("selection_sha256") != hashlib.sha256(selection_bytes).hexdigest())
         or (cert.get("calls_sha256") != file_sha256(args.cohort / "calls.jsonl"))
     ):
-        raise ValueError("Moli latency cohort is not certified against the formal references")
+        raise ValueError(f"{declared['label']} latency cohort is not certified against the formal references")
     selection = json.loads(selection_bytes)
     if selection.get("authority") != {
-        "selected_round": 2,
+        "selected_round": declared["selected_round"],
         "rule": "final_round_for_every_version_and_page; never select a fastest call",
         "scope": "latency only; preserve original output, scoring and verdict",
     }:
@@ -436,8 +472,8 @@ def main(argv: list[str] | None = None) -> None:
         frozen["sample_sha256"],
         cert["prior_results_sha256"],
         cert["versions"],
-        200,
-        2,
+        declared["case_count"],
+        declared["rounds"],
     )
     if set(selection["case_ids"]) != set(cases):
         raise ValueError("Latency correction omitted a frozen page")
@@ -448,19 +484,21 @@ def main(argv: list[str] | None = None) -> None:
             or first["round"] != second["round"]
             or first["version"] == second["version"]
         ):
-            raise ValueError("Moli versions were not called serially on each page")
+            raise ValueError(f"{declared['label']} versions were not called serially on each page")
         order.setdefault(first["case_id"], []).append(first["version"])
-    if any(sorted(versions) != ["1.1.5", "1.1.7"] for versions in order.values()):
-        raise ValueError("Moli first-call order was not reversed on every page")
-    final = {(row["version"], row["case_id"]): row for row in calls if row["round"] == 2}
-    if len(final) != 400:
-        raise ValueError("Moli final round is incomplete")
+    if any(sorted(versions) != sorted(methods.values()) for versions in order.values()):
+        raise ValueError(f"{declared['label']} first-call order was not reversed on every page")
+    final = {(row["version"], row["case_id"]): row for row in calls
+             if row["round"] == declared["selected_round"]}
+    changed_count = declared["case_count"] * len(methods)
+    if len(final) != changed_count:
+        raise ValueError(f"{declared['label']} final round is incomplete")
     prior_path = args.base / "results.jsonl"
     old_bytes = prior_path.read_bytes()
     records = parse_jsonl(old_bytes, skip_blank=True)
     changes = []
     for record in records:
-        version = {"moli": "1.1.5", "moli-1.1.7": "1.1.7"}.get(record["provider"])
+        version = methods.get(record["provider"])
         if version is None:
             continue
         call = final[version, record["case_id"]]
@@ -469,11 +507,11 @@ def main(argv: list[str] | None = None) -> None:
         original = record["elapsed_ms"]
         metadata = record.setdefault("provider_metadata", {})
         if metadata.get("binary_sha256") != cert["versions"][version]:
-            raise ValueError("Corrected call changed Moli binary: " + record["attempt_id"])
+            raise ValueError("Corrected call changed the method binary: " + record["attempt_id"])
         record["elapsed_ms"] = call["elapsed_ms"]
         metadata["latency_correction"] = {
             "kind": "certified_balanced_final_round",
-            "selected_round": 2,
+            "selected_round": declared["selected_round"],
             "original_elapsed_ms": original,
             "corrected_elapsed_ms": call["elapsed_ms"],
             "cohort_call_output_sha256": call["output_sha256"],
@@ -486,18 +524,18 @@ def main(argv: list[str] | None = None) -> None:
                 "after_ms": call["elapsed_ms"],
             }
         )
-    if len(changes) != 400:
-        raise ValueError("Latency correction did not cover both complete Moli methods")
+    if len(changes) != changed_count:
+        raise ValueError("Latency correction did not cover every complete corrected method")
     shutil.copytree(args.base, args.output)
     (args.output / "prior-latency-results.jsonl").write_bytes(old_bytes)
     corrected = "".join(json.dumps(row, ensure_ascii=True) + "\n" for row in records).encode()
     (args.output / "results.jsonl").write_bytes(corrected)
     receipt = {
         "schema_version": 1,
-        "kind": "webmainbench_moli_200_balanced_latency_only_v1",
-        "selection": "all 200 pages, both Moli versions, final round of the balanced crossover",
-        "selected_round": 2,
-        "changed_result_count": 400,
+        "kind": declared["receipt_kind"],
+        "selection": declared["selection"],
+        "selected_round": declared["selected_round"],
+        "changed_result_count": changed_count,
         "prior_results_sha256": hashlib.sha256(old_bytes).hexdigest(),
         "output_results_sha256": hashlib.sha256(corrected).hexdigest(),
         "certification_sha256": file_sha256(cert_path),
@@ -520,7 +558,7 @@ def main(argv: list[str] | None = None) -> None:
                 "byte_identical_rerun_outputs": sum(
                     row["provider_metadata"]["latency_correction"]["content_byte_identical"]
                     for row in records
-                    if row["provider"] in ("moli", "moli-1.1.7")
+                    if row["provider"] in methods
                 ),
             },
             ensure_ascii=False,

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from harness.web_fetch.webmainbench_diagnostics import scan_suspicions
-from harness.web_fetch.report import _wmb_error_page
+from harness.web_fetch.webmainbench_report import _wmb_error_page
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE, require_valid_teds_for_release
 
 

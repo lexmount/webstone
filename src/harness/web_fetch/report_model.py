@@ -8,7 +8,9 @@ render options from it; nothing reaches the renderer through module state.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field, fields, replace
 
 from harness.record_io import canonical_json_sha256
 from harness.web_fetch.models import report_family
@@ -127,3 +129,80 @@ def report_model(dataset, records, manifests=(), *, participants=(), suites=(), 
         participants=tuple(Participant(item['id'], item.get('label', item['id'])) for item in participants),
         suites=tuple(Suite(item['id'], item['label'], tuple(item['case_ids'])) for item in suites),
         options=RenderOptions(**options), source_admission=source_admission)
+
+
+@dataclass(frozen=True)
+class MethodScope:
+    """The measured methods one render describes: rows, call-time configurations,
+    the instance's frozen method registry and labels bound to recorded versions."""
+
+    records: Mapping = field(default_factory=dict)
+    execution_configs: Mapping = field(default_factory=dict)
+    registry: Mapping = field(default_factory=dict)
+    labels: Mapping = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class RenderContext:
+    """Render state derived from one ``ReportModel`` and its measured methods.
+
+    It is the renderer's only shared state: ``rendering`` installs the model's
+    participants and suites, and ``with_method_scope`` the measured methods.
+    """
+
+    labels: Mapping[str, str] = field(default_factory=dict)
+    suites: tuple = ()
+    banner: str = ''
+    english_generated: bool = False
+    score_audit: dict | None = None
+    coverage_plan: dict | None = None
+    scope_presentation: dict | None = None
+    descriptive_ranks: bool = False
+    result_views: dict | None = None
+    methods: MethodScope = field(default_factory=MethodScope)
+
+
+_RENDER_CONTEXT = ContextVar('webfetch_render_context', default=RenderContext())
+
+
+def render_context() -> RenderContext:
+    return _RENDER_CONTEXT.get()
+
+
+def set_render_context(context: RenderContext):
+    return _RENDER_CONTEXT.set(context)
+
+
+def reset_render_context(token) -> None:
+    _RENDER_CONTEXT.reset(token)
+
+
+@contextmanager
+def rendering(model=None, *, descriptive_ranks=False, result_views=None):
+    """Render with the participants and suites of ``model``; shared views may opt into descriptive ranks.
+
+    The measured-method scope of an enclosing render is kept.
+    """
+    token = _RENDER_CONTEXT.set(RenderContext(
+        labels=model.labels if model else {}, suites=model.suites if model else (),
+        descriptive_ranks=descriptive_ranks, result_views=result_views,
+        methods=_RENDER_CONTEXT.get().methods))
+    try:
+        yield
+    finally:
+        _RENDER_CONTEXT.reset(token)
+
+
+def method_scope() -> MethodScope:
+    return _RENDER_CONTEXT.get().methods
+
+
+@contextmanager
+def with_method_scope(**changes):
+    """Render with some measured-method fields replaced; the rest of the context is kept."""
+    current = _RENDER_CONTEXT.get()
+    token = _RENDER_CONTEXT.set(replace(current, methods=replace(current.methods, **changes)))
+    try:
+        yield
+    finally:
+        _RENDER_CONTEXT.reset(token)

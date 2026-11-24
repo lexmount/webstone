@@ -27,7 +27,6 @@ from harness.web_fetch.adjudication_evidence import (
 )
 from harness.web_fetch.artifacts import (
     copy_cohort_evidence,
-    diagnostic_log_binding,
     materialize_reference_checks,
     materialize_task_references,
     record_public_call_log_bindings,
@@ -60,17 +59,13 @@ from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report import (
     TRACKS,
     failure_category,
-    generate,
-    generate_cohort_diagnostic,
-    generate_public_benchmark_research,
-    generate_wcxb,
-    generate_webmainbench,
-    generate_webmainbench_full,
+    render_report,
     measured,
     succeeded,
-    webmainbench_full_machine_issue,
 )
 from harness.web_fetch.report_changes import webmainbench_history
+from harness.web_fetch.report_variants import comparison_kind, dataset_kind
+from harness.web_fetch.webmainbench_report import webmainbench_full_machine_issue
 from harness.web_fetch.report_diagnostic import (
     check_diagnostic_report,
     load_diagnostic,
@@ -79,7 +74,6 @@ from harness.web_fetch.report_diagnostic import (
 from harness.web_fetch.report_version import check_release
 from harness.web_fetch.resource_cohort import validate_cohort
 from harness.web_fetch.result_review import require_result_review
-from harness.web_fetch.risk_control import validate_risk_control_certification
 from harness.safety import (
     copy_evidence_file,
     evidence_tree_identity,
@@ -183,7 +177,7 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
             target.write_bytes(raw)
         model_bytes = (source / "report.json").read_bytes()
         (staging / "report.json").write_bytes(model_bytes)
-        generate_cohort_diagnostic(staging, model)
+        render_report(staging, model, variant='diagnostic-cohorts')
         manifest = {"schema_version": 1, "template": template,
                     "evidence_state": "diagnostic", "certified": False,
                     "languages": ["zh"], "provider_calls_added": 0,
@@ -205,23 +199,11 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
     return output / "index.html"
 
 
-def require_risk_control_certification(source: Path, dataset: dict, records: list[dict]) -> None:
-    """Validate the complete profile-bound risk-control cohort before reporting."""
-
-    comparison = dataset.get("comparison", {})
-    if comparison.get("kind") != "risk_control_100_moli":
-        return
-    path = contained_path(source, "certification.json")
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("Risk-control report requires a certification receipt")
-    profile_path = repository_root() / "evaluation/risk-control/run-profile.json"
-    receipt = json.loads(path.read_text(encoding="utf-8"))
-    validate_risk_control_certification(source, dataset, records, receipt, profile_path)
-    for record in records:
-        metadata = record.get("provider_metadata", {})
-        if (diagnostic_log_binding(metadata) is None
-                or metadata.get("diagnostic_log_truncated") is not False):
-            raise ValueError("Risk-control certification requires complete diagnostic logs")
+def require_declared_certification(source: Path, dataset: dict, records: list[dict]) -> None:
+    """Validate the certification receipt the dataset's comparison kind declares, if any."""
+    owner = dataset_kind(dataset).certification_owner()
+    if owner is not None:
+        owner.require_report_certification(source, dataset, records)
 
 
 def scoring_scope(records, cases):
@@ -267,7 +249,7 @@ def build_public_benchmark_research(source: Path, output: Path, *, include_engli
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix='.research-report-build-', dir=output.parent))
     try:
-        generate_public_benchmark_research(staging, research, include_english=include_english)
+        render_report(staging, research, include_english=include_english, variant='public-benchmark-research')
         record_build_version(staging)
         if sample is not None:
             shutil.copy2(sample_path, staging / 'sample-manifest.json')
@@ -348,7 +330,7 @@ def _build_frozen_presentation(source, output, presentation_binding, *,
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
         if release_binding:
             manifest['benchmark_release'] = release_binding
-        generate(staging, report_model(dataset, records, batches, include_english=include_english,
+        render_report(staging, report_model(dataset, records, batches, include_english=include_english,
                  authored_interpretation=authored_interpretation,
                  show_local_status_banners=show_local_status_banners, frozen_scores=True))
         # Scores remain frozen, but cached inventory/summary files must describe
@@ -532,7 +514,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             show_local_status_banners=show_local_status_banners, profile_path=profile_path)
     dataset_probe = json.loads(contained_path(source, 'dataset.json').read_text(encoding='utf-8'))
     diagnostic_preview = (diagnostic_preview and
-        dataset_probe.get('comparison', {}).get('kind') == 'web_fetch_diagnostic')
+        dataset_kind(dataset_probe).diagnostic)
     if not local_audit and not diagnostic_preview:
         require_certifiable_evidence(dataset_probe)
     from harness.web_fetch.report_variants import variant_for_kind
@@ -559,7 +541,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
     records = validate_records(load_jsonl(contained_path(source,'results.jsonl')), SCORED_RESULT,
                                source='results.jsonl')
     validate_report_ids(dataset,records)
-    require_risk_control_certification(source, dataset, records)
+    require_declared_certification(source, dataset, records)
     cases = {c['id']:c for c in dataset['cases']}
     if local_audit:
         result_review = require_local_audit(source, dataset, records)
@@ -756,11 +738,9 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             (staging/name).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
         if (source / 'certification.json').is_file():
             shutil.copy2(source / 'certification.json', staging / 'certification.json')
-            if dataset.get('comparison', {}).get('kind') == 'risk_control_100_moli':
-                from harness.web_fetch.risk_control import risk_control_verification_binding
-                receipt = json.loads((source / 'certification.json').read_text(encoding='utf-8'))
-                verification_name, _ = risk_control_verification_binding(receipt)
-                for name in ('dataset.json', 'manifest.json', 'execution.json', verification_name):
+            owner = dataset_kind(dataset).certification_owner()
+            if owner is not None:
+                for name in owner.certification_files(source):
                     shutil.copy2(contained_path(source, name), staging / name)
         reliability=assess_reliability(dataset,records)
         (staging/'reliability.json').write_text(json.dumps(reliability,ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
@@ -864,7 +844,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         if (source/'file-rerun-selection.json').is_file():
             shutil.copy2(source/'file-rerun-selection.json', staging/'file-rerun-selection.json')
             shutil.copytree(source/'history/file-baseline', staging/'history/file-baseline')
-        if dataset.get("comparison", {}).get("kind") == "uniform_native_local_measurement":
+        if dataset_kind(dataset).local_measurement:
             shutil.copy2(source / "local-run-contract.json", staging / "local-run-contract.json")
             if (source/"providers.json").is_file():
                 from harness.reporting.publication_privacy import require_public_method_options
@@ -911,7 +891,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         original_scope = dataset.get('content_scope')
         dataset, records = _select_report_scope(staging, dataset, records, content_scope)
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
-        generate(staging, report_model(dataset, records, manifests, include_english=include_english,
+        render_report(staging, report_model(dataset, records, manifests, include_english=include_english,
                  authored_interpretation=authored_interpretation if dataset.get('content_scope') == original_scope else False,
                  show_local_status_banners=show_local_status_banners))
         if language is not None:
@@ -928,7 +908,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             template_manifest['retry_acceptance_scopes'] = scope_state['retry_scopes']
         if release_binding:
             template_manifest['benchmark_release'] = release_binding
-        if dataset.get('comparison', {}).get('kind') == 'uniform_native_local_measurement':
+        if dataset_kind(dataset).local_measurement:
             template_manifest.update(evidence_state='local_measurement', certified=False,
                 languages=template_manifest['generated_languages'], provider_calls_added=0)
         from harness.reporting.versions import bind_build_version
@@ -1119,7 +1099,7 @@ def build_webmainbench_report(source: Path, output: Path, *, include_english: bo
         copy_bound_assets(content_source, staging, {
             content_binding['relative_path']: content_binding['sha256']})
         shutil.copy2(content_binding_path, staging / 'report-content-binding.json')
-        generate_webmainbench(staging, dataset, records, summaries, manifests, review, research, corrections, adoption, fixture_correction, teds_revision, anomaly_review, latency_diagnostic, include_english=include_english, report_content=report_content)
+        render_report(staging, dataset, records, summaries, manifests, review, research, corrections, adoption, fixture_correction, teds_revision, anomaly_review, latency_diagnostic, include_english=include_english, report_content=report_content, variant='webmainbench-sample')
         record_build_version(staging)
         if language is not None:
             select_report_language(staging, language)
@@ -1344,8 +1324,8 @@ def build_webmainbench_full_report(source: Path, output: Path, *, authority_root
                 if file_sha256(asset_source) != asset['sha256']:
                     raise ValueError('Report illustration changed: ' + asset['name'])
                 shutil.copy2(asset_source, staging / 'assets' / asset['name'])
-        generate_webmainbench_full(staging, dataset, records,
-                                   summaries, display_profile)
+        render_report(staging, dataset, records,
+                                   summaries, display_profile, variant='webmainbench-full')
         record_build_version(staging)
         from harness.web_fetch.webmainbench_report_check import (
             check as check_webmainbench_full,
@@ -1536,8 +1516,8 @@ def build_wcxb_report(source: Path, corpus: Path, sample_path: Path, profile: di
                 'page_type': record['meta']['page_type'],
                 'with': gt.get('with') or [], 'without': gt.get('without') or [],
             }
-        generate_wcxb(staging, rows, summary, ground_truth, identities, profile, report_content,
-                      include_english=include_english)
+        render_report(staging, rows, summary, ground_truth, identities, profile, report_content,
+                      include_english=include_english, variant='wcxb')
         evidence_root = staging / 'evidence'
         evidence_root.mkdir()
         evidence_hashes = {}
@@ -1618,7 +1598,7 @@ def validate_local_presentation(output: Path, binding_path: Path):
     binding = json.loads(binding_path.read_text(encoding='utf-8'))
     manifest_path = contained_path(output, 'report-manifest.json')
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if (binding.get('comparison_kind') != 'uniform_native_local_measurement'
+    if (not comparison_kind(binding.get('comparison_kind')).local_measurement
             or manifest.get('evidence_state') != 'local_measurement'
             or manifest.get('certified') is not False
             or manifest.get('languages') != list(generated_languages(output))
@@ -1815,7 +1795,7 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         staging = Path(scratch) / 'report'
         shutil.copytree(output, staging, copy_function=copy_evidence_file)
         batches = json.loads((output / 'execution.json').read_text(encoding='utf-8'))['batches']
-        generate(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
+        render_report(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
                  frozen_scores=True, authored_interpretation=authored_interpretation,
                  detail_attempt_ids=detail_attempt_ids,
                  diagnostic_view_paths=diagnostic_view_paths,

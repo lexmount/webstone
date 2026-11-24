@@ -230,7 +230,7 @@ class ResourceContractLifecycleTests(unittest.TestCase):
                     current["metrics"]["resource_acceptance_contract_sha256"] = actual
                 (source / "dataset.json").write_text(json.dumps({"cases": [case]}), encoding="utf-8")
                 (source / "results.jsonl").write_text(json.dumps(current) + "\n", encoding="utf-8")
-                with patch("harness.web_fetch.report_build.generate") as generated:
+                with patch("harness.web_fetch.report_build.render_report") as generated:
                     with self.assertRaisesRegex(
                         ValueError, "Resource acceptance contract hash missing or mismatched",
                     ):

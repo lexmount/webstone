@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 import pytest
 from bs4 import BeautifulSoup
 
-from harness.web_fetch.report import generate, local_audit_banner, overall_ranking, ranking
+from harness.web_fetch.report import render_report, local_audit_banner, overall_ranking, ranking
 from harness.web_fetch.report_model import report_model
 from tests.test_report_body_scope import case, record
 
@@ -40,7 +40,7 @@ def test_uncertified_status_cannot_be_suppressed(tmp_path):
                                           'publication_state': 'local_audit_only_not_for_release'}}
     assert '本地未认证诊断结果' in local_audit_banner(dataset)
     with pytest.raises(ValueError, match='cannot be hidden'):
-        generate(tmp_path / 'report', report_model(dataset, [], [], show_local_status_banners=False))
+        render_report(tmp_path / 'report', report_model(dataset, [], [], show_local_status_banners=False))
     assert not (tmp_path / 'report').exists()
 
 

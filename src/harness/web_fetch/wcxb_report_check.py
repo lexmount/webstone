@@ -34,6 +34,7 @@ from harness.data_home import data_home
 from harness.env_file import parse_env_file
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency
 from harness.web_fetch.wcxb_scoring import paired_latency_methods
+from harness.web_fetch.template import check_recorded_template
 
 ROOT = repository_root()
 
@@ -314,6 +315,7 @@ def check_bound_interpretation(root: Path, binding: dict) -> None:
 
 def check(root: Path, *, authority_root: Path | None = None, profile_path: Path | None = None) -> None:
     root = open_report(root)
+    check_recorded_template(root)
     repository = (authority_root or ROOT).resolve()
     if profile_path is None:
         if authority_root is None:

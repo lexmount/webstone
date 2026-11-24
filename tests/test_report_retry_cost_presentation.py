@@ -32,11 +32,11 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     assert len(passed.select('.comparison-winner')) == 3
     assert '15 ms' in passed.get_text()
 
-    token = report._RENDER_CONTEXT.set(report.RenderContext(descriptive_ranks=True))
+    token = report.set_render_context(report.RenderContext(descriptive_ranks=True))
     try:
         combined = BeautifulSoup(overall_ranking(rows, cases, passing_latency=True), 'html.parser')
     finally:
-        report._RENDER_CONTEXT.reset(token)
+        report.reset_render_context(token)
     assert combined.select_one('#successful-final-call-latency') is None
     main = combined.select_one('#ranking-overall')
     passed, failed = main.select('tbody tr')

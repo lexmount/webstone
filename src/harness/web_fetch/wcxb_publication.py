@@ -24,6 +24,8 @@ from harness.reporting.publication_target import (
     require_publication_version,
 )
 from harness.reporting.publish import StagedUpdate
+from harness.reporting.release_check import ReleaseRules
+from harness.reporting.release_check import validate_release as gate
 from harness.reporting.publish import publish as publish_release
 from harness.web_fetch import wcxb_report_check
 from harness.safety import evidence_tree_identity, reject_evidence_symlinks
@@ -76,9 +78,11 @@ def package(source: Path, archive: Path, receipt: Path, *, authority_root: Path,
         raise ValueError('Publication authority is not WCXB')
 
     def validate():
-        inventory(source, profile)
-        wcxb_report_check.check(source, authority_root=authority_root, profile_path=profile_path)
-        report_links.check(source)
+        gate(source, ReleaseRules(
+            identity=lambda root: inventory(root, profile),
+            evidence=lambda root: wcxb_report_check.check(root, authority_root=authority_root,
+                                                          profile_path=profile_path),
+            links=report_links.check))
 
     def attest(staged):
         files = inventory(source, profile)

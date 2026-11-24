@@ -33,7 +33,7 @@ def test_trusted_extractor_probe_and_existing_output(tmp_path):
                     reason="explicit full visual gate requires local Chrome")
 def test_wcxb_visual_generated_report(tmp_path):
     from harness.reporting.visual import browser_executable
-    from harness.web_fetch.report import generate_wcxb
+    from harness.web_fetch.report import render_report
     from tests.wcxb_fixture import create_report_inputs
 
     inputs = create_report_inputs(tmp_path, english_source=False)
@@ -54,7 +54,7 @@ def test_wcxb_visual_generated_report(tmp_path):
                    if row['case_id'] == case_id}
         (inputs[0] / 'evidence' / f'{case_id}.json').write_text(json.dumps({
             'source_html': '<main>Independent article 0</main>', 'outputs': outputs}), encoding='utf-8')
-    generate_wcxb(*inputs)
+    render_report(*inputs, variant='wcxb')
     (inputs[0] / "wcxb-scores.jsonl").write_text("".join(json.dumps(row) + "\n" for row in inputs[1]), encoding='utf-8')
     check_visual(inputs[0], browser_executable())
 
