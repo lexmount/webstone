@@ -114,12 +114,36 @@ def fetch_frozen(provider, hosted, case, html: str, timeout: float) -> ProviderR
         )
 
 
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(scheme: str, netloc: str) -> tuple[str, str, int | None]:
+    """Full origin identity: scheme, case-folded host and effective port.
+
+    Only an absent port takes the scheme default; a malformed or out-of-range
+    port raises ``ValueError``.
+    """
+    parsed = urlsplit("//" + netloc)
+    scheme = scheme.casefold()
+    port = parsed.port
+    return scheme, (parsed.hostname or "").casefold(), DEFAULT_PORTS.get(scheme) if port is None else port
+
+
+def _request_origin(scheme: str, netloc: str) -> tuple[str, str, int | None] | None:
+    """The origin a request names, or None when its authority is malformed."""
+    try:
+        return _origin(scheme, netloc)
+    except ValueError:
+        return None
+
+
 @contextmanager
 def fixture_server(records: list[dict], preserve_original_origin: bool = False):
     bodies = {}
     path_fallbacks = {}
     ambiguous_paths = set()
     hosts = set()
+    tunnels = set()
     for record in records:
         if not preserve_original_origin:
             bodies["/case/" + record["track_id"]] = record["html"].encode("utf-8")
@@ -129,7 +153,13 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
         if not host:
             raise ValueError("Frozen record URL lacks a hostname: " + record["track_id"])
         hosts.add(host)
-        path_key = (host.casefold(), parsed.path or "/")
+        try:
+            origin = _origin(parsed.scheme, parsed.netloc)
+        except ValueError as error:
+            raise ValueError("Frozen record URL has an invalid port: " + record["track_id"]) from error
+        if origin[0] == "https":
+            tunnels.add(origin[1:])
+        path_key = (*origin, parsed.path or "/")
         key = (*path_key, parsed.query)
         if key in bodies:
             raise ValueError("Frozen fixture URL is not unique: " + record["url"])
@@ -139,10 +169,12 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
         else:
             path_fallbacks[path_key] = bodies[key]
 
-    def frozen_body(host_header: str, request_path: str):
-        host = host_header.rsplit(":", 1)[0].strip("[]").casefold()
+    def frozen_body(scheme: str, host_header: str, request_path: str):
         parsed = urlsplit(request_path)
-        path_key = (host, parsed.path or "/")
+        origin = _request_origin(scheme, host_header)
+        if origin is None:
+            return None
+        path_key = (*origin, parsed.path or "/")
         exact = bodies.get((*path_key, parsed.query))
         if exact is not None:
             return exact
@@ -162,7 +194,7 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
-            body = (frozen_body(self.headers.get("Host", ""), self.path)
+            body = (frozen_body("https", self.headers.get("Host", ""), self.path)
                     if preserve_original_origin else bodies.get(urlsplit(self.path).path))
             write_frozen(self, body)
 
@@ -207,6 +239,10 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
 
         class ProxyHandler(BaseHTTPRequestHandler):
             def do_CONNECT(self):  # noqa: N802 - BaseHTTPRequestHandler API
+                origin = _request_origin("https", self.path)
+                if origin is None or origin[1:] not in tunnels:
+                    self.send_error(404)
+                    return
                 upstream = socket.create_connection(("127.0.0.1", server.server_port), timeout=5)
                 self.send_response(200, "Connection Established")
                 self.end_headers()
@@ -226,7 +262,7 @@ def fixture_server(records: list[dict], preserve_original_origin: bool = False):
             def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
                 parsed = urlsplit(self.path)
                 request_path = parsed.path + (("?" + parsed.query) if parsed.query else "")
-                write_frozen(self, frozen_body(parsed.netloc, request_path))
+                write_frozen(self, frozen_body(parsed.scheme, parsed.netloc, request_path))
 
             def log_message(self, _format, *_args):
                 return
@@ -256,7 +292,8 @@ def verify_loopback_sandbox(endpoint: str, ca_cert: Path, record: dict,
     """Prove that the measured child can read the fixture but cannot connect externally."""
     parsed = urlsplit(endpoint)
     origin = urlsplit(record["url"])
-    path = origin.path or "/" if preserve_original_origin else "/case/" + record["track_id"]
+    path = ((origin.path or "/") + ("?" + origin.query if origin.query else "")
+            if preserve_original_origin else "/case/" + record["track_id"])
     direct_probe = (
         "import errno,hashlib,json,socket,ssl,sys;"
         "host,port,path,expected,ca=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4],sys.argv[5];"
@@ -271,26 +308,43 @@ def verify_loopback_sandbox(endpoint: str, ca_cert: Path, record: dict,
         "print(json.dumps(result));"
         "sys.exit(0 if result['loopback_body_sha256']==expected and result['external_connect_errno'] in (errno.EPERM,errno.EACCES) else 9)"
     )
-    proxy_probe = (
-        "import errno,hashlib,json,socket,ssl,sys;"
-        "proxy,port,host,path,expected,ca=sys.argv[1],int(sys.argv[2]),sys.argv[3],sys.argv[4],sys.argv[5],sys.argv[6];"
-        "raw=socket.create_connection((proxy,port),2);"
-        "raw.sendall(('CONNECT '+host+':443 HTTP/1.0\\r\\nHost: '+host+'\\r\\n\\r\\n').encode());"
-        "head=b'';"
-        "\nwhile b'\\r\\n\\r\\n' not in head:\n head+=raw.recv(4096)\n"
-        "s=ssl.create_default_context(cafile=ca).wrap_socket(raw,server_hostname=host);"
-        "s.sendall(('GET '+path+' HTTP/1.0\\r\\nHost: '+host+'\\r\\n\\r\\n').encode());"
-        "response=b'';"
-        "\nwhile True:\n chunk=s.recv(65536)\n if not chunk: break\n response+=chunk\n"
-        "s.close();body=response.split(b'\\r\\n\\r\\n',1)[1];"
-        "result={'loopback_body_sha256':hashlib.sha256(body).hexdigest()};"
-        "\ntry:\n socket.create_connection(('1.1.1.1',443),1);result['external_connect_errno']=0\n"
-        "except OSError as exc:\n result['external_connect_errno']=exc.errno\n"
-        "print(json.dumps(result));"
-        "sys.exit(0 if result['loopback_body_sha256']==expected and result['external_connect_errno'] in (errno.EPERM,errno.EACCES) else 9)"
-    )
+    proxy_probe = r"""
+import errno, hashlib, json, socket, ssl, sys
+proxy, port, scheme, host, authority, path, expected, ca = sys.argv[1:9]
+s = socket.create_connection((proxy, int(port)), 2)
+request = path
+if scheme == 'https':
+    tunnel = authority if authority.rsplit(']', 1)[-1].count(':') else authority + ':443'
+    s.sendall(('CONNECT ' + tunnel + ' HTTP/1.0\r\nHost: ' + tunnel + '\r\n\r\n').encode())
+    head = b''
+    while b'\r\n\r\n' not in head:
+        head += s.recv(4096)
+    s = ssl.create_default_context(cafile=ca).wrap_socket(s, server_hostname=host)
+else:
+    request = scheme + '://' + authority + path
+s.sendall(('GET ' + request + ' HTTP/1.0\r\nHost: ' + authority + '\r\n\r\n').encode())
+response = b''
+while True:
+    chunk = s.recv(65536)
+    if not chunk:
+        break
+    response += chunk
+s.close()
+body = response.split(b'\r\n\r\n', 1)[1]
+result = {'loopback_body_sha256': hashlib.sha256(body).hexdigest()}
+try:
+    socket.create_connection(('1.1.1.1', 443), 1)
+    result['external_connect_errno'] = 0
+except OSError as exc:
+    result['external_connect_errno'] = exc.errno
+print(json.dumps(result))
+sys.exit(0 if result['loopback_body_sha256'] == expected
+         and result['external_connect_errno'] in (errno.EPERM, errno.EACCES) else 9)
+"""
     probe = proxy_probe if preserve_original_origin else direct_probe
-    probe_args = [origin.hostname or "", path] if preserve_original_origin else [path]
+    probe_args = ([origin.scheme.casefold(), origin.hostname or "",
+                   origin.netloc.rsplit("@", 1)[-1], path]
+                  if preserve_original_origin else [path])
     completed = subprocess.run(
         [*sandbox_exec_command(LOOPBACK_SANDBOX_PROFILE), sys.executable, "-c", probe,
          parsed.hostname or "127.0.0.1", str(parsed.port), *probe_args,

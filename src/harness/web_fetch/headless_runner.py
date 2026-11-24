@@ -16,7 +16,8 @@ from lexbench_webfetch.scoring import score_attempt
 from harness.record_io import load_jsonl
 from harness.web_fetch.artifacts import materialize_task_references
 from harness.web_fetch.config import (
-    add_failure_retry_argument,
+    add_run_arguments,
+    check_run_arguments,
     derive_comparison,
     load_dataset,
     load_provider_settings,
@@ -88,18 +89,18 @@ def select_cohort(settings, *, resource=False, cohort=None, providers=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--dataset", type=Path, default=(ROOT / "evaluation/dataset.json"))
-    parser.add_argument("--config", type=Path, default=(ROOT / "configs/providers.headless.json"))
-    parser.add_argument(
-        "--providers", help="Comma-separated registered methods; defaults to the selected cohort"
+    add_run_arguments(
+        parser, "output", "dataset", "provider_config", "providers", "case_ids", "workers", "timeout",
+        "max_failure_retries", "env_file",
+        output={"required": True},
+        dataset={"default": ROOT / "evaluation/dataset.json"},
+        provider_config={"default": ROOT / "configs/providers.headless.json"},
+        providers={"help": "Comma-separated registered methods; defaults to the selected cohort"},
+        timeout={"default": 45},
+        env_file={"help": "Explicit dotenv file; defaults to repository .env"},
     )
     parser.add_argument("--cohort", help="Cohort declared in the provider configuration")
-    parser.add_argument("--case-ids")
     parser.add_argument("--tracks", help="Comma-separated task families; default all")
-    parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--timeout", type=float, default=45)
-    add_failure_retry_argument(parser)
     parser.add_argument(
         "--resource-sample-interval-ms",
         type=int,
@@ -111,10 +112,8 @@ def main(argv=None):
     )
     parser.add_argument("--resource-cpus", type=float, default=2.0)
     parser.add_argument("--resource-memory", default="2g")
-    parser.add_argument(
-        "--env-file", type=Path, help="Explicit dotenv file; defaults to repository .env"
-    )
     args = parser.parse_args(argv)
+    check_run_arguments(parser, args)
     if args.output.exists():
         parser.error("Output exists; measured evidence must not be overwritten")
     if args.resource_sample_interval_ms is not None:
@@ -139,7 +138,7 @@ def main(argv=None):
             parser.error("Unknown case ID")
     if not cases:
         parser.error("Selected task scope is empty")
-    settings = load_provider_settings(args.config)
+    settings = load_provider_settings(args.provider_config)
     cohort, cohort_config, config = select_cohort(
         settings,
         resource=args.resource_sample_interval_ms is not None,
@@ -229,7 +228,7 @@ def main(argv=None):
         dataset_path=args.dataset,
         cases=cases,
         providers=providers,
-        provider_config_path=args.config,
+        provider_config_path=args.provider_config,
         runs=1,
         timeout=args.timeout,
         delay=0.5,
@@ -284,7 +283,7 @@ def main(argv=None):
     materialize_task_references(args.output, input_trees, [case.id for case in cases])
     manifest = json.loads((args.output / "manifest.json").read_text(encoding="utf-8"))
     manifest["dataset"]["source"] = args.dataset.name
-    manifest["provider_config_source"] = args.config.name
+    manifest["provider_config_source"] = args.provider_config.name
     manifest["environment"].pop("hostname", None)
     for provider in manifest["providers"]:
         provider["implementation_identity"] = implementation_identities[provider["name"]]

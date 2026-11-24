@@ -294,7 +294,7 @@ webmainbench-run: runtime-check ## Run one WebMainBench provider shard: PROVIDER
 
 webmainbench-score: runtime-check ## Score one WebMainBench shard: EVIDENCE
 	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE=/absolute/path/to/provider-shard is required' >&2; exit 2)
-	$(UV) run --frozen --extra webmainbench-eval python -m harness.web_fetch webmainbench-score --evidence "$(EVIDENCE)" $(if $(SOURCE),--dataset "$(SOURCE)",) $(if $(SCORER),--scorer-repo "$(SCORER)",) $(if $(DATASET_SHA256),--expected-dataset-sha256 "$(DATASET_SHA256)",) $(if $(REVISION),--revision "$(REVISION)",)
+	$(UV) run --frozen --extra webmainbench-eval python -m harness.web_fetch score --benchmark webmainbench --evidence "$(EVIDENCE)" $(if $(SOURCE),--dataset "$(SOURCE)",) $(if $(SCORER),--scorer-repo "$(SCORER)",) $(if $(DATASET_SHA256),--expected-dataset-sha256 "$(DATASET_SHA256)",) $(if $(REVISION),--revision "$(REVISION)",)
 
 webmainbench-review: runtime-check ## Review WebMainBench results: RUN_ROOT, SOURCE, REVIEW
 	$(call require_profile,WEBMAINBENCH_PROFILE)

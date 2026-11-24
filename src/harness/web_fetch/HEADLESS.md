@@ -239,7 +239,7 @@ uv run --frozen python scripts/run_certified_benchmark.py --dataset DATASET --ou
 ```
 
 A cohort outside certification runs through
-`uv run --frozen python -m harness.web_fetch headless-run --output RUN --config PROVIDERS`;
+`uv run --frozen python -m harness.web_fetch headless-run --output RUN --provider-config PROVIDERS`;
 its output is diagnostic evidence only.
 
 ### Certify a new run

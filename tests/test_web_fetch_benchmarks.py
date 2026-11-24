@@ -47,7 +47,7 @@ def test_frozen_adapter_builds_call_inputs_from_records(name):
 
 def test_benchmark_choices_come_from_the_registry():
     parser = argparse.ArgumentParser()
-    cli.add_run_arguments(parser)
+    cli.add_run_stage_arguments(parser)
     choices = next(action.choices for action in parser._actions if action.dest == "benchmark")
     assert tuple(choices) == BENCHMARKS.names()
     assert {"default", "webmainbench", "wcxb"} <= set(BENCHMARKS.names())

@@ -20,7 +20,7 @@ from typing import Any
 from lexbench_webfetch.models import EvalCase
 from lexbench_webfetch.scoring import score_attempt
 
-from harness.adapters import Capabilities, Registry
+from harness.adapters import Capabilities, Registry, owner_stage
 from harness.distribution import repository_root
 from harness.record_io import bytes_sha256
 from harness.web_fetch.config import DEFAULT_CALL_TIMEOUT_SECONDS
@@ -160,6 +160,10 @@ class FrozenPageBenchmark:
         """Run and certify the profile's complete method matrix."""
         raise NotImplementedError
 
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        """Score saved outputs: one run, or a certified cohort when ``certified``."""
+        raise NotImplementedError
+
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         raise NotImplementedError
 
@@ -181,14 +185,24 @@ class WebMainBench(FrozenPageBenchmark):
 
         main(argv)
 
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        if certified:
+            owner_stage("harness.web_fetch.webmainbench_certification", "main_score", "",
+                        takes_argv=True)(argv)
+        else:
+            owner_stage("harness.web_fetch.webmainbench_scoring", "main", "")(argv)
+
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         from harness.benchmarks.data import binding, dependencies
-        from harness.web_fetch.webmainbench_dataset import load_selected_ids, load_source
+        from harness.web_fetch.webmainbench_dataset import CASE_COUNT, load_selected_ids, load_source
 
         selected = selection = None
         if profile.case_ids_file:
             selected, selection = load_selected_ids(profile.case_ids_file, profile.expected_dataset_sha256)
-        records = load_source(profile.dataset, selected, profile.expected_dataset_sha256)
+        # A certifier passes its profile so the declared corpus size reaches the run.
+        declared = json.loads(profile.profile.read_text(encoding="utf-8")) if profile.profile else {}
+        records = load_source(profile.dataset, selected, profile.expected_dataset_sha256,
+                              expected_count=declared.get("case_count", CASE_COUNT))
         expected_versions = {}
         if profile.expected_version:
             expected_versions[profile.provider] = profile.expected_version
@@ -239,6 +253,10 @@ class WCXB(FrozenPageBenchmark):
 
         main(argv)
 
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        """WCXB scores only certified cohorts; ``--certified`` changes nothing."""
+        owner_stage("harness.web_fetch.wcxb_scoring", "main", "")(argv)
+
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         from harness.web_fetch.wcxb_dataset import load_wcxb_source, validate_manifest
 
@@ -285,6 +303,39 @@ class WCXB(FrozenPageBenchmark):
 BENCHMARKS.register(LiveSuite.name, LiveSuite())
 BENCHMARKS.register(WebMainBench.name, WebMainBench())
 BENCHMARKS.register(WCXB.name, WCXB())
+
+
+def certify_methods(output_root: Path, providers: list[str], *, unchanged, measure, verify,
+                    reused: dict[str, tuple[Path, dict]] | None = None) -> list[dict]:
+    """The shared certification procedure for a frozen-input method matrix.
+
+    ``unchanged()`` raises when a frozen input (source, selection, scorer,
+    profile or binary) differs from its preflight binding; it runs around every
+    method. ``measure(provider, shard)`` runs one method into a new shard and
+    returns its verified receipt; ``reused`` maps a method to the shard and
+    receipt of a prior certified cohort instead. After the last method,
+    ``verify(provider, shard, receipt)`` rechecks every shard against its
+    receipt. The benchmark writes its own hash-bound certificate from the
+    returned receipts.
+    """
+    import shutil
+
+    reused = reused or {}
+    receipts = []
+    for provider in providers:
+        unchanged()
+        shard = output_root / provider
+        if provider in reused:
+            prior, receipt = reused[provider]
+            shutil.copytree(prior, shard, symlinks=False)
+        else:
+            receipt = measure(provider, shard)
+        receipts.append(receipt)
+        unchanged()
+    for provider, receipt in zip(providers, receipts, strict=True):
+        verify(provider, output_root / provider, receipt)
+    unchanged()
+    return receipts
 
 
 def frozen_benchmark_names() -> tuple[str, ...]:

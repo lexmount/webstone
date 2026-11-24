@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 import re
 import sys
 from collections import Counter
@@ -23,8 +22,8 @@ from harness.web_fetch import (
 )
 from harness.web_fetch.benchmarks import BENCHMARKS, FROZEN_INPUTS, LiveSuite
 from harness.web_fetch.config import (
-    DEFAULT_CALL_TIMEOUT_SECONDS,
-    add_failure_retry_argument,
+    add_run_arguments,
+    check_run_arguments,
     resolve_provider_selection,
 )
 from harness.web_fetch.reference_inputs import read_dataset_bytes
@@ -201,32 +200,26 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--benchmark", choices=(LiveSuite.name,), default=LiveSuite.name,
                         help="Benchmark adapter; frozen-input benchmarks take their own certifier options")
-    parser.add_argument("--dataset", type=Path, default=(ROOT / "evaluation/dataset.json"))
+    add_run_arguments(
+        parser, "dataset", "output", "providers", "workers", "timeout", "max_failure_retries",
+        "call_order", "env_file", "provider_config",
+        dataset={"default": ROOT / "evaluation/dataset.json"},
+        output={"required": True},
+        providers={"required": True},
+        workers={"help": "Bounded independent provider concurrency; paired latency needs 1"},
+        provider_config={"help": "Instance-specific provider settings passed unchanged to the shared runner"},
+    )
     parser.add_argument("--benchmark-release", type=Path,
                         help="Frozen benchmark edition; checked before any external calls")
-    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, required=True)
-    parser.add_argument("--providers", required=True, help="Comma-separated names or configured with --provider-config")
     selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--case-ids", help="Explicit legacy case selection")
+    add_run_arguments(selection, "case_ids", case_ids={"help": "Explicit legacy case selection"})
     selection.add_argument("--population", type=Path,
                            help="Revision-bound population JSON; selects all declared cases in one suite")
     parser.add_argument("--population-suite", help="Suite in --population, matching the exported dataset")
-    parser.add_argument("--workers", type=int, default=None,
-                        help="Bounded independent provider concurrency; paired latency needs 1")
-    parser.add_argument("--timeout", type=float, default=DEFAULT_CALL_TIMEOUT_SECONDS,
-                        help="Per-call deadline passed to the shared runner")
-    add_failure_retry_argument(parser)
-    parser.add_argument("--call-order", choices=("provider", "case-alternating"), default="provider")
     parser.add_argument("--capture-workers", type=int, default=8)
     parser.add_argument("--browser-capture-attempts", type=int, default=2)
     parser.add_argument("--browser-binary")
-    parser.add_argument("--env-file", type=Path)
-    parser.add_argument(
-        "--provider-config",
-        type=Path,
-        help="Instance-specific provider settings passed unchanged to the shared runner",
-    )
     parser.add_argument("--reference-promotion", type=Path)
     parser.add_argument(
         "--retrieval-mode",
@@ -243,12 +236,7 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     args = parser.parse_args(argv)
-    if args.workers is None:
-        args.workers = 1
-    if not math.isfinite(args.timeout) or args.timeout <= 0:
-        parser.error("--timeout must be positive and finite")
-    if args.provider_config and not args.provider_config.is_file():
-        parser.error("--provider-config must be an existing file")
+    check_run_arguments(parser, args)
     try:
         args.providers = resolve_provider_selection(args.providers, args.provider_config)
     except ValueError as error:

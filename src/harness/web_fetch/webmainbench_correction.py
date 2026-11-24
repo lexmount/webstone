@@ -186,10 +186,14 @@ def certify_case_correction(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("source", "dataset", "scorer", "output", "fixed-binary"):
         parser.add_argument("--" + name, type=Path, required=True)
-    parser.add_argument("--moli-binary", type=Path)
+    parser.add_argument("--baseline-binary", type=Path,
+                        help="Binary of the unchanged method named by --runner-provider")
     parser.add_argument("--prior-correction", type=Path)
     parser.add_argument("--provider", help="Correct only this evidence provider alias")
-    parser.add_argument("--runner-provider", help="Runner provider used for --provider")
+    parser.add_argument("--fixed-provider",
+                        help="Evidence alias of the corrected binary in a complete correction")
+    parser.add_argument("--runner-provider",
+                        help="Registered provider that runs the corrected binary")
     parser.add_argument("--case-id", required=True)
     args = parser.parse_args(argv)
     if args.output.exists():
@@ -205,16 +209,18 @@ def certify_case_correction(argv=None):
         raise ValueError("Correction provider is not in the source matrix")
     if args.provider and args.prior_correction:
         parser.error("--prior-correction cannot be combined with --provider")
-    if not args.provider and len(providers) != 6:
-        raise ValueError("Complete correction requires all six methods")
     source_sha256 = source_dataset["source_dataset_sha256"]
     source_case = load_records(args.dataset, source_sha256)[args.case_id]
-    fixed_provider = args.provider or "moli-fixed"
+    fixed_provider = args.provider or args.fixed_provider
+    if fixed_provider not in selected:
+        parser.error("--fixed-provider must name a method of the source matrix")
     binaries = {fixed_provider: args.fixed_binary}
-    if args.moli_binary:
-        binaries["moli"] = args.moli_binary
-    if not args.provider and (not args.prior_correction) and ("moli" not in binaries):
-        parser.error("--moli-binary is required without --prior-correction")
+    if args.baseline_binary:
+        if args.runner_provider not in selected or args.runner_provider == fixed_provider:
+            parser.error("--baseline-binary requires --runner-provider to name another source method")
+        binaries[args.runner_provider] = args.baseline_binary
+    if not args.provider and not args.prior_correction and not args.baseline_binary:
+        parser.error("--baseline-binary is required without --prior-correction")
     for name, binary in binaries.items():
         if file_sha256(binary) != selected[name]["provider_metadata"]["binary_sha256"]:
             raise ValueError("Binary differs from frozen cohort: " + name)
@@ -243,8 +249,8 @@ def certify_case_correction(argv=None):
         prior_rows = read_rows(args.prior_correction / "results.jsonl")
         prior_physical = read_rows(args.prior_correction / "physical-attempts.jsonl")
         prior_certificate_sha256 = file_sha256(certificate_path)
-        inherited = {row["provider"]: row for row in prior_rows if row["provider"] != "moli-fixed"}
-        if set(inherited) != set(providers) - {"moli-fixed"}:
+        inherited = {row["provider"]: row for row in prior_rows if row["provider"] != fixed_provider}
+        if set(inherited) != set(providers) - {fixed_provider}:
             raise ValueError("Prior origin correction does not cover unchanged methods")
         for name, row in inherited.items():
             old = selected[name]
@@ -273,7 +279,7 @@ def certify_case_correction(argv=None):
             file_sha256(contained_path(args.prior_correction, call["physical_artifact_path"]))
             != call["output_sha256"]
             for call in prior_physical
-            if call["provider"] != "moli-fixed"
+            if call["provider"] != fixed_provider
         ):
             raise ValueError("Prior origin correction physical artifact changed")
     plan = {
@@ -300,11 +306,11 @@ def certify_case_correction(argv=None):
         )
         if args.provider
         else (
-            "five unchanged methods inherited from a bound prior certified correction; "
-            "the final physical call for moli-fixed was selected before execution"
+            f"{len(providers) - 1} unchanged methods inherited from a bound prior certified correction; "
+            f"the final physical call for {fixed_provider} was selected before execution"
         )
         if args.prior_correction
-        else "final physical call; all six methods selected before execution",
+        else f"final physical call; all {len(providers)} methods selected before execution",
     }
     if prior_certificate_sha256:
         plan["prior_correction_certificate_sha256"] = prior_certificate_sha256
@@ -315,7 +321,7 @@ def certify_case_correction(argv=None):
     corrected = []
     physical = []
     for name in providers:
-        if args.prior_correction and name != "moli-fixed":
+        if args.prior_correction and name != fixed_provider:
             row = next(row for row in prior_rows if row["provider"] == name)
             corrected.append(row)
             for call in prior_physical:
@@ -328,13 +334,7 @@ def certify_case_correction(argv=None):
             copy_contained_artifact(args.prior_correction, target, args.output, target)
             print(name, row["ok"], row["output_chars"], "inherited", flush=True)
             continue
-        provider = (
-            args.runner_provider
-            if name == args.provider and args.runner_provider
-            else "moli"
-            if name == "moli-fixed"
-            else name
-        )
+        provider = args.runner_provider if name == fixed_provider and args.runner_provider else name
         shard = args.output / name
         env = dict(os.environ)
         if name in binaries:

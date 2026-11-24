@@ -14,8 +14,11 @@ from threading import RLock
 
 from lexbench_webfetch.paths import contained_path
 
-from harness.record_io import file_sha256, load_jsonl
-from harness.web_fetch.webmainbench_evidence import read_jsonl
+from harness.record_io import file_sha256
+from harness.record_schema import read_records
+from harness.web_fetch.models import (
+    FROZEN_RESULT, FROZEN_SCORED_RESULT, measured_frozen_result, score_frozen_result,
+)
 from harness.web_fetch.webmainbench_dataset import DATASET_SHA256, SCORER_COMMIT, selected_input
 
 METRIC_SOURCE_MANIFEST_SHA256 = "d1a503f7a475da2e118f008f9a63c49cba6fb2378b08de01fb2c3c4c1b96dc31"
@@ -270,7 +273,7 @@ def main() -> None:
         raise ValueError("Scored evidence exists; refusing to overwrite")
 
     source = load_records(args.dataset, args.expected_dataset_sha256)
-    logical = load_jsonl(args.evidence / "results.jsonl", skip_blank=True)
+    logical = read_records(args.evidence / "results.jsonl", FROZEN_RESULT)
     if len({row["track_id"] for row in logical}) != len(logical):
         raise ValueError("Logical results contain duplicate track IDs")
     calculator = official_calculator(
@@ -287,7 +290,7 @@ def main() -> None:
                 raise ValueError(f"Artifact hash mismatch: {row['track_id']}")
             metrics = (official_metrics(calculator, artifact.read_text(encoding="utf-8"), reference)
                        if row["ok"] else {})
-            result = {**row, "metrics": metrics}
+            result = score_frozen_result(row, metrics)
             stream.write(json.dumps(result, ensure_ascii=False) + "\n")
             scored.append(result)
             print(f"[{index}/{len(logical)}] scored {row['provider']} {row['track_id']}", flush=True)
@@ -329,14 +332,14 @@ def main() -> None:
 
 
 def verify_score(shard: Path, provider: str, case_ids: set[str], scorer: Path, profile: dict) -> dict:
-    scored = read_jsonl(shard / "scored-results.jsonl")
-    measured = read_jsonl(shard / "results.jsonl")
+    scored = read_records(shard / "scored-results.jsonl", FROZEN_SCORED_RESULT)
+    measured = read_records(shard / "results.jsonl", FROZEN_RESULT)
     summary = json.loads((shard / "score-summary.json").read_text(encoding="utf-8"))
     if (len(scored) != profile["case_count"] or len(measured) != len(scored)
             or {row["track_id"] for row in scored} != case_ids
             or len({row["track_id"] for row in scored}) != len(scored)
             or any(row["provider"] != provider for row in scored)
-            or [{key: value for key, value in row.items() if key != "metrics"} for row in scored] != measured
+            or [measured_frozen_result(row) for row in scored] != measured
             or summary.get("provider") != provider or summary.get("case_count") != len(scored)
             or summary.get("scorer", {}).get("commit") != profile["official_scorer_commit"]
             or summary.get("scorer", {}).get("metric_config") != profile["metric_config"]

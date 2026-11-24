@@ -18,9 +18,11 @@ from lexbench_webfetch.metrics import percentile
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256, json_bytes, parse_jsonl
+from harness.record_schema import NUMBER, TEXT, RecordSchema, validate_records
 from harness.reporting.privacy import WCXB_ERROR
 from harness.reporting.publication import atomic_create
 from harness.web_fetch import wcxb_metrics
+from harness.web_fetch.models import FROZEN_CALL_RECORD, FROZEN_RESULT
 from harness.safety import reject_evidence_symlinks
 from harness.web_fetch.wcxb_dataset import load_wcxb_source, selected_wcxb_input, validate_manifest
 from harness.web_fetch.wcxb_latency import load_full_paired_latency
@@ -101,6 +103,13 @@ def metric_implementation_binding(profile: dict, *, read=None, certificate=None,
 
 
 METRIC_KEYS = ("precision", "recall", "f1", "with_rate", "without_rate")
+# One scored row per method and case in ``wcxb-scores.jsonl``.
+SCORED_RESULT = RecordSchema(
+    "webfetch.wcxb_scored_result", 1,
+    {"method": "provider", "case": "case_id", "elapsed": "total_elapsed_ms",
+     "evidence": "output_sha256", "verdict": "ok"},
+    {"attempt_id": TEXT, "delivered": (bool,), **{key: NUMBER for key in METRIC_KEYS}},
+)
 
 
 def case_metrics(predicted: str, ground_truth: dict) -> dict[str, float]:
@@ -442,7 +451,7 @@ def _score(*, source, sample_manifest, evidence_root, profile_path, staging):
             result_bytes = inputs.read(run_dir / "results.jsonl")
             if hashlib.sha256(result_bytes).hexdigest() != bound["results_sha256"]:
                 raise ValueError("Certified results changed: " + provider)
-            rows = parse_jsonl(result_bytes)
+            rows = validate_records(parse_jsonl(result_bytes), FROZEN_RESULT, source="results.jsonl")
             execution = json.loads(inputs.read(run_dir / "execution.json"))
             validate_execution(execution, bound, source_hash, sample_hash, case_count, profile)
             if len(rows) != case_count or {row["track_id"] for row in rows} != set(ground_truth):
@@ -451,7 +460,8 @@ def _score(*, source, sample_manifest, evidence_root, profile_path, staging):
                 raise ValueError("Duplicate WCXB logical attempt IDs")
             physical_file = run_dir / "physical-attempts.jsonl"
             physical_bytes = inputs.read(physical_file)
-            physical = parse_jsonl(physical_bytes, skip_blank=True)
+            physical = validate_records(parse_jsonl(physical_bytes, skip_blank=True), FROZEN_CALL_RECORD,
+                                        source="physical-attempts.jsonl")
             if len({row["attempt_id"] for row in physical}) != len(physical):
                 raise ValueError("Duplicate WCXB physical attempt IDs")
             by_case = {}

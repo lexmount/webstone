@@ -1191,7 +1191,7 @@ def verify_wcxb_scoring(root, source_root):
     assert len(rows) == 6
     assert sum(row['delivered'] for row in rows) == 5
     subprocess.run([
-        sys.executable, '-m', 'harness.web_fetch', 'wcxb-score', '--help',
+        sys.executable, '-m', 'harness.web_fetch', 'score', '--benchmark', 'wcxb', '--help',
     ], check=True, cwd=root, capture_output=True, text=True)
 
 
@@ -1608,7 +1608,7 @@ def verify_full_cohort_commands(root, source_root):
         assert (work / 'run/scoring-certificate.json').is_file()
         original([sys.executable, '-m', 'harness.web_fetch.webmainbench_scoring', '--help'], check=True,
                  capture_output=True, text=True, cwd=work)
-        for command in (['run', '--help'], ['webmainbench-full-score', '--help']):
+        for command in (['run', '--help'], ['score', '--benchmark', 'webmainbench', '--certified', '--help']):
             original([sys.executable, '-m', 'harness.web_fetch', *command],
                      check=True, capture_output=True, text=True, cwd=work)
     finally:

@@ -60,7 +60,7 @@ def test_report_builder_keeps_known_legacy_metric_admission(tmp_path, scored, mo
     value.pop('metric_implementation_sha256')
     summary.write_text(json.dumps(value), encoding='utf-8')
     monkeypatch.setattr(report_build, 'load_bound_content', lambda *args, **kwargs: {})
-    monkeypatch.setattr(report_build, 'load_jsonl', lambda *args, **kwargs: (_ for _ in ()).throw(AdmissionPassed()))
+    monkeypatch.setattr(report_build, 'read_records', lambda *args, **kwargs: (_ for _ in ()).throw(AdmissionPassed()))
     with pytest.raises(AdmissionPassed):
         report_build.build_wcxb_report(options['evidence_root'], options['source'], options['sample_manifest'],
                                        profile, tmp_path / 'report', content_binding={}, authority_root=tmp_path)

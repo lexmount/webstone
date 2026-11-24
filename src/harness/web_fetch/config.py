@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -28,11 +29,55 @@ def nonnegative_int(value: str) -> int:
     return number
 
 
-def add_failure_retry_argument(parser) -> None:
-    parser.add_argument(
-        '--max-failure-retries', type=nonnegative_int, choices=(0, 1), default=DEFAULT_FAILURE_RETRIES,
-        help=f'Retry a failed task once at most (default: {DEFAULT_FAILURE_RETRIES}; 0 disables retries); use the final call',
-    )
+# The one argument definition of the Web Fetch run stage. Every run entry
+# (``webstone run``, the task-group runner, certifiers, ``headless-run`` and
+# ``risk-control``) selects its options here; an entry may change a default,
+# requirement or help text, never the flag or its meaning.
+RUN_OPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
+    'dataset': ('--dataset', {'type': Path, 'help': 'Dataset file'}),
+    'output': ('--output', {'type': Path, 'help': 'New run directory; measured evidence is immutable'}),
+    'env_file': ('--env-file', {'type': Path, 'help': 'Explicit dotenv file with evaluation credentials'}),
+    'provider_config': ('--provider-config', {'type': Path, 'help': 'Provider configuration'}),
+    'providers': ('--providers', {
+        'help': 'Comma-separated provider names, or configured for the configuration default cohort'}),
+    'case_ids': ('--case-ids', {'help': 'Comma-separated case IDs'}),
+    'profile': ('--profile', {'type': Path, 'help': 'Run profile'}),
+    'runs': ('--runs', {'type': int, 'default': 1, 'help': 'Logical runs per case and provider'}),
+    'timeout': ('--timeout', {'type': float, 'default': DEFAULT_CALL_TIMEOUT_SECONDS,
+                              'help': 'Positive per-call deadline in seconds, retained in execution evidence'}),
+    'max_failure_retries': ('--max-failure-retries', {
+        'type': nonnegative_int, 'choices': (0, 1), 'default': DEFAULT_FAILURE_RETRIES,
+        'help': (f'Retry a failed task once at most (default: {DEFAULT_FAILURE_RETRIES}; '
+                 '0 disables retries); use the final call')}),
+    'workers': ('--workers', {'type': int, 'default': 1,
+                              'help': 'Providers run in parallel; cases stay sequential within each provider'}),
+    'call_order': ('--call-order', {
+        'choices': ('provider', 'case-alternating'), 'default': 'provider',
+        'help': 'Run serially by task with alternating method order, or use provider batches'}),
+    'no_report': ('--no-report', {'action': 'store_true',
+                                  'help': 'Save evidence without building local HTML'}),
+}
+
+
+def add_run_arguments(parser, *names: str, **overrides: dict[str, Any]) -> None:
+    """Add the selected shared run options; ``overrides`` adjust one option's settings."""
+    for name in names:
+        flag, settings = RUN_OPTIONS[name]
+        parser.add_argument(flag, **{**settings, **overrides.get(name, {})})
+
+
+def check_run_arguments(parser, args) -> None:
+    """Reject invalid values of the shared run options an entry selected."""
+    timeout = getattr(args, 'timeout', None)
+    if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+        parser.error('--timeout must be positive and finite')
+    for name in ('runs', 'workers'):
+        value = getattr(args, name, None)
+        if value is not None and value < 1:
+            parser.error(f'--{name} must be positive')
+    provider_config = getattr(args, 'provider_config', None)
+    if provider_config is not None and not provider_config.is_file():
+        parser.error('--provider-config must be an existing file')
 
 
 def _validate_retrieval_hints(item: dict[str, Any]) -> None:

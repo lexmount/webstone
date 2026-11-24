@@ -29,7 +29,7 @@ def command(tmp_path, monkeypatch):
     artifact = evidence / 'answer.txt'
     artifact.write_text('saved answer', encoding='utf-8')
     (evidence / 'results.jsonl').write_text(json.dumps({'track_id': 'same-case', 'provider': 'fixture',
-        'ok': True, 'artifact_path': artifact.name, 'output_sha256': file_sha256(artifact), 'meta': {}}) + '\n', encoding='utf-8')
+        'ok': True, 'attempt_id': 'fixture__same-case__r001', 'elapsed_ms': 10, 'artifact_path': artifact.name, 'output_sha256': file_sha256(artifact), 'meta': {}}) + '\n', encoding='utf-8')
     def select(path, expected, commit):
         return path or dataset, expected or selected_sha, commit or current_commit
     monkeypatch.setattr(scoring, 'selected_input', select)

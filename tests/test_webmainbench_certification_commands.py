@@ -32,7 +32,6 @@ def command_inputs(tmp_path, monkeypatch):
     )
     for path in ("profile.json", "evaluation/webmainbench-full/current-report.json"):
         write_json(root / path, profile)
-    monkeypatch.setattr(certification, "CASE_COUNT", CASES)
     return root, profile, records
 
 

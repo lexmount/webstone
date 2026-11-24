@@ -75,6 +75,9 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
                         "provider": provider,
                         "track_id": case,
                         "attempt_id": f"{provider}__{case}__p{physical:02d}",
+                        "physical_attempt": physical,
+                        "ok": physical == attempts,
+                        "elapsed_ms": 10,
                         "physical_artifact_path": physical_path,
                         "output_sha256": file_sha256(shard / physical_path),
                     }

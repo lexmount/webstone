@@ -1,3 +1,4 @@
+import argparse
 import socket
 import unittest
 import json
@@ -78,6 +79,22 @@ class WebMainBenchRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "dataset hash mismatch"):
                 load_records(path)
             self.assertEqual(len(load_records(path, corrected_hash)), 545)
+
+    def test_profile_declared_case_count_reaches_the_run(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / "corpus.jsonl"
+            source.write_text("".join(json.dumps({**RECORD, "track_id": f"case-{index}"}) + "\n"
+                                      for index in range(3)), encoding="utf-8")
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            profile = Path(folder) / "profile.json"
+            profile.write_text(json.dumps({"case_count": 3}), encoding="utf-8")
+            options = argparse.Namespace(
+                dataset=source, case_ids_file=None, expected_dataset_sha256=digest, profile=profile,
+                provider="fixture", expected_version=None, official_scorer_commit=None)
+            self.assertEqual(len(BENCHMARKS.get("webmainbench").cases(options)), 3)
+            options.profile = None
+            with self.assertRaisesRegex(ValueError, "Expected 545 records"):
+                BENCHMARKS.get("webmainbench").cases(options)
 
     def test_cloudflare_timeout_becomes_retryable_result(self):
         case = BENCHMARKS.get("webmainbench").case(RECORD, RECORD["url"])
