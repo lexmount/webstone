@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import html
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harness.record_io import write_json
 from harness.reporting import explorer, shell
 from harness.reporting.templates import compose
 
@@ -187,10 +187,8 @@ def write_chinese_only(root: Path) -> None:
 
     A flat report has no language switch, so it carries no English not-generated route.
     """
-    (root / "report-languages.json").write_text(
-        json.dumps({"languages": ["zh"], "english_status": "not_generated"}) + "\n",
-        encoding="utf-8",
-    )
+    contract = {"languages": ["zh"], "english_status": "not_generated"}
+    write_json(root / "report-languages.json", contract)
 
 
 def explorer_labels(

@@ -193,7 +193,8 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     rendered = (reports / "trajectory-replay-evaluation-latest.html").read_text(encoding="utf-8")
     assert "结论与产品建议" in rendered
     assert 'lang="zh-CN"' in rendered
-    record = json.loads((reports / "trajectory-replay-evaluation-latest-data.json").read_text())
+    data = reports / "trajectory-replay-evaluation-latest-data.json"
+    record = json.loads(data.read_text(encoding="utf-8"))
     assert check_template_pages(reports, record["template"], TEMPLATE).name == "curated"
     assert "本报告仅提供中文版" in rendered
     assert "评测集包含 1 个结果唯一的任务" in rendered
