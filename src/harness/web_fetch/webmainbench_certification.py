@@ -15,6 +15,7 @@ from lexbench_webfetch.paths import contained_path, safe_identifier
 from harness.record_io import file_sha256
 from harness.record_schema import read_records
 from harness.web_fetch.models import FROZEN_CALL_RECORD, FROZEN_RESULT
+from harness.web_fetch.benchmarks import certify_methods
 from harness.web_fetch.config import load_provider_config
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers.headless import engine_definition
@@ -193,14 +194,19 @@ def main(argv: list[str] | None = None) -> None:
     args.output_root.mkdir(parents=True)
     (args.output_root / "preflight.json").write_text(
         json.dumps({"profile_sha256": profile_sha, **before}, indent=2) + "\n", encoding="utf-8")
-    summaries = []
-    for provider in profile["providers"]:
+
+    def unchanged() -> None:
         _unchanged(bound)
+        if source_binding(args.source, args.scorer, profile) != before:
+            raise ValueError("Source, scorer or profile changed during provider calls")
+        verify_source_checkout(profile, args.binary_source)
+
+    def measure(provider: str, shard: Path) -> dict:
         print("Starting certified full-cohort method: " + provider, flush=True)
         command = [sys.executable, "-m", "harness.web_fetch", "run", "--benchmark", "webmainbench",
                    "--providers", provider, "--dataset", str(args.source),
                    "--provider-config", str(args.config), "--profile", str(args.profile),
-                   "--output", str(args.output_root / provider),
+                   "--output", str(shard),
                    "--timeout", str(profile["timeout_seconds"]),
                    "--max-failure-retries", str(profile["max_failure_retries"])]
         command += [
@@ -213,19 +219,19 @@ def main(argv: list[str] | None = None) -> None:
         if args.env_file is not None:
             command += ["--env-file", str(args.env_file)]
         subprocess.run(command, check=True)
-        summaries.append(verify_shard(args.output_root / provider, provider, case_ids, profile))
+        summary = verify_shard(shard, provider, case_ids, profile)
         expected_binary = profile.get("binary_sha256")
-        if expected_binary and json.loads((args.output_root / provider / "execution.json").read_text(encoding="utf-8"))[
+        if expected_binary and json.loads((shard / "execution.json").read_text(encoding="utf-8"))[
                 "implementation_identity"]["binary_sha256"] != expected_binary:
             raise ValueError("Measured binary differs from declared version")
-        _unchanged(bound)
-        if source_binding(args.source, args.scorer, profile) != before:
-            raise ValueError("Source, scorer or profile changed during provider calls")
-        verify_source_checkout(profile, args.binary_source)
-    for expected in summaries:
-        provider = expected["provider"]
-        if verify_shard(args.output_root / provider, provider, case_ids, profile) != expected:
+        return summary
+
+    def verify(provider: str, shard: Path, expected: dict) -> None:
+        if verify_shard(shard, provider, case_ids, profile) != expected:
             raise ValueError(provider + ": measured evidence changed before certification")
+
+    summaries = certify_methods(args.output_root, profile["providers"], unchanged=unchanged,
+                                measure=measure, verify=verify)
     certificate = {"schema_version": 1, "kind": "certified_webmainbench_545_full_v1",
                    "profile_sha256": profile_sha, "preflight": before,
                    "postflight": source_binding(args.source, args.scorer, profile),

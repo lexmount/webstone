@@ -4,11 +4,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import shutil
 from pathlib import Path
 
 from harness.distribution import repository_root
 from harness.record_io import load_jsonl
+from harness.web_fetch.benchmarks import certify_methods
 from harness.web_fetch.cli import run_in_process
 from harness.web_fetch.wcxb_dataset import load_wcxb_source, selected_wcxb_input, validate_manifest
 from harness.web_fetch.wcxb_scoring import (
@@ -110,16 +110,17 @@ def main(argv: list[str]) -> None:
     if replace - {item["provider"] for item in old_runs}:
         parser.error("Replacement method is absent from the prior certified cohort")
     args.output_root.mkdir(parents=True)
-    runs = []
-    reusable = {item["provider"]: item for item in old_runs if item["provider"] not in replace}
-    for provider in providers:
-        if provider in reusable:
-            shutil.copytree(
-                args.reuse_certified_root / provider, args.output_root / provider, symlinks=False
-            )
-            runs.append(reusable[provider])
-            continue
-        output = args.output_root / provider
+    reusable = {item["provider"]: (args.reuse_certified_root / item["provider"], item)
+                for item in old_runs if item["provider"] not in replace}
+
+    def unchanged() -> None:
+        if metric_implementation_binding(profile) != metric_hash:
+            raise ValueError('WCXB metric implementation changed during certification')
+        _, current = load_wcxb_source(args.dataset, manifest=args.sample_manifest)
+        if current != before or hashlib.sha256(args.sample_manifest.read_bytes()).hexdigest() != sample_before:
+            raise ValueError("WCXB references changed during provider calls")
+
+    def measure(provider: str, output: Path) -> dict:
         run_in_process(
             [
                 "--benchmark",
@@ -152,24 +153,25 @@ def main(argv: list[str]) -> None:
         rows = load_jsonl(output / "results.jsonl")
         if len(rows) != len(selected) or {row["track_id"] for row in rows} != expected_ids:
             raise ValueError("Incomplete WCXB result matrix: " + provider)
-        runs.append(
-            {
-                "provider": provider,
-                "run_id": execution["run_id"],
-                "identity": execution["implementation_identity"],
-                "results_sha256": hashlib.sha256(
-                    (output / "results.jsonl").read_bytes()
-                ).hexdigest(),
-            }
-        )
+        return {
+            "provider": provider,
+            "run_id": execution["run_id"],
+            "identity": execution["implementation_identity"],
+            "results_sha256": hashlib.sha256(
+                (output / "results.jsonl").read_bytes()
+            ).hexdigest(),
+        }
+
+    def verify(provider: str, output: Path, receipt: dict) -> None:
+        if hashlib.sha256((output / "results.jsonl").read_bytes()).hexdigest() != receipt["results_sha256"]:
+            raise ValueError("WCXB measured results changed before certification: " + provider)
+
+    runs = certify_methods(args.output_root, providers, unchanged=unchanged, measure=measure,
+                           verify=verify, reused=reusable)
     # Each build the profile pins is measured by exactly one participant.
     paired_latency_methods(profile, {"providers": runs})
-    if metric_implementation_binding(profile) != metric_hash:
-        raise ValueError('WCXB metric implementation changed during certification')
-    _, after = load_wcxb_source(args.dataset, manifest=args.sample_manifest)
-    sample_after = hashlib.sha256(args.sample_manifest.read_bytes()).hexdigest()
-    if after != before or sample_after != sample_before:
-        raise ValueError("WCXB references changed during provider calls")
+    # certify_methods ended with unchanged(): every input still matches its preflight hash.
+    after, sample_after = before, sample_before
     receipt = {
         "schema_version": 1,
         "benchmark": manifest["dataset_id"],

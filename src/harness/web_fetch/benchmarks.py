@@ -305,6 +305,39 @@ BENCHMARKS.register(WebMainBench.name, WebMainBench())
 BENCHMARKS.register(WCXB.name, WCXB())
 
 
+def certify_methods(output_root: Path, providers: list[str], *, unchanged, measure, verify,
+                    reused: dict[str, tuple[Path, dict]] | None = None) -> list[dict]:
+    """The shared certification procedure for a frozen-input method matrix.
+
+    ``unchanged()`` raises when a frozen input (source, selection, scorer,
+    profile or binary) differs from its preflight binding; it runs around every
+    method. ``measure(provider, shard)`` runs one method into a new shard and
+    returns its verified receipt; ``reused`` maps a method to the shard and
+    receipt of a prior certified cohort instead. After the last method,
+    ``verify(provider, shard, receipt)`` rechecks every shard against its
+    receipt. The benchmark writes its own hash-bound certificate from the
+    returned receipts.
+    """
+    import shutil
+
+    reused = reused or {}
+    receipts = []
+    for provider in providers:
+        unchanged()
+        shard = output_root / provider
+        if provider in reused:
+            prior, receipt = reused[provider]
+            shutil.copytree(prior, shard, symlinks=False)
+        else:
+            receipt = measure(provider, shard)
+        receipts.append(receipt)
+        unchanged()
+    for provider, receipt in zip(providers, receipts, strict=True):
+        verify(provider, output_root / provider, receipt)
+    unchanged()
+    return receipts
+
+
 def frozen_benchmark_names() -> tuple[str, ...]:
     return tuple(name for name, adapter in BENCHMARKS.items()
                  if adapter.capabilities().has(FROZEN_INPUTS))
