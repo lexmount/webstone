@@ -90,19 +90,20 @@ flowchart LR
 | Prepare inputs | Profile, data lock | Frozen dataset | `src/harness/benchmarks/` and the benchmark adapter | Read measured outputs |
 | Run | Frozen dataset, method adapters | Call records and raw evidence | `src/harness/benchmark_execution.py` and the track runner | Score, or drop a physical call |
 | Score | Call records, frozen dataset | Scored results | The benchmark's scorer (`src/lexbench_*` or the pinned upstream evaluator) | Call a method, or select rules by method name |
-| Build report | Scored results with their dataset and evidence bindings; optionally review records and bound content | Report directory | `src/harness/reporting/` and the track's report module | Call a method, rescore, or embed instance content |
+| Build report | Run directory; optionally review records and bound content | Report directory | `src/harness/reporting/` and the track's report module | Call a method, rescore, or embed instance content |
 | Check and package | Report directory | Package | `src/harness/reporting/` | Change scores or evidence |
 | Publish | Package, publication target | Publication receipt | `src/harness/reporting/publish.py` | Rebuild the report |
-| Export result | Scored results, receipt | Result submission | `src/harness/results/` | Require hand-entered measurements |
+| Export result | Run directory; the publication receipt when the report was published | Result submission | `src/harness/results/` | Require hand-entered measurements |
 
-Artifacts travel as a **run directory**: one directory that contains the frozen
-dataset, the call records with their raw evidence, the scored results and a
-manifest. Every reference between them is a path relative to that directory
+Artifacts travel as a **run directory**: one directory that contains a frozen
+copy of the profile, the frozen dataset, the call records with their raw
+evidence, the scored results and a manifest. Every reference between them is a path relative to that directory
 plus a hash. A run directory copied to another machine is complete: a stage
 resolves each reference inside it, verifies the hash, and fails when a file is
 missing or differs. It does not look elsewhere or fall back to another copy.
 Scored results also carry the method identities, so the report stage needs the
-run directory and nothing else. Review records and bound content are optional
+run directory and nothing else; the profile it uses is the frozen copy inside
+it. An export without a publication receipt records the result as unpublished. Review records and bound content are optional
 inputs, passed explicitly and bound the same way.
 
 Every artifact has a named, versioned schema, and the stage that reads it
@@ -203,7 +204,8 @@ content**.
 
 - The profile names the benchmarks, methods, exact versions, scope, expected
   counts, publication target and language. It lives beside the external
-  evidence and is passed explicitly to each stage.
+  evidence. The run stage receives it explicitly and freezes a copy into the
+  run directory; later stages read that copy.
 - Bound content holds everything written for that one report: interpretation
   prose, figures, labels that differ from the catalog, release history, dated
   notes and any sentence that quotes a measured value, in every language the
@@ -265,7 +267,7 @@ role of its own.
 
 Defaults:
 
-- **A report builds from scored results and a profile alone.** With no authored
+- **A report builds from the run directory alone.** With no authored
   content, every page role renders from data: rankings, counts, failure
   distributions, metric definitions and reproduction commands. A build never
   requires hand-written prose, and a missing authored slot renders as its
