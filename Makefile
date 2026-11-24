@@ -90,7 +90,7 @@ test-extraction-sdk: ## Test native extraction protocols with the service's lock
 	WEBSTONE_TEST_NATIVE_SDKS=1 LITELLM_LOCAL_MODEL_COST_MAP=True PYTHONPATH=src UV_PROJECT_ENVIRONMENT="$(EXTRACTION_SDK_ENV)" $(UV) run --frozen --project deploy/web-extract --python 3.12 python -m unittest discover -s tests/web_extract -p test_native_sdk_protocol.py
 
 help: ## List documented targets
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z0-9 -]*:.*## / {printf "  %-36s %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z0-9-]*:.*## / {printf "  %-36s %s\n", $$1, $$2}' $(firstword $(MAKEFILE_LIST))
 
 format: ## Fix and format selected files: FILES="path.py ..."
 	@test -n "$(FILES)" || (echo 'FILES="path.py ..." is required; hash-bound and legacy modules must not be reformatted wholesale' >&2; exit 2)
@@ -168,9 +168,28 @@ package-check: runtime-check ## Verify sdist and wheel installation
 
 # Track stage verbs: `make <stage> TRACK=<track> ARGS="..."` runs `webstone <track> <stage>`.
 # `make report` keeps building the profile-bound Web Fetch report.
-run score check package publish export: runtime-check ## Run a track stage: TRACK=<track> ARGS="..."
+define track_stage
 	@test -n "$(TRACK)" || (echo 'TRACK=<webfetch|web-search|web-extract|trajectory-replay|browser-use> is required' >&2; exit 2)
 	$(PY) -m harness.cli "$(TRACK)" $@ $(ARGS)
+endef
+
+run: runtime-check ## Run a track's collection stage: TRACK, ARGS
+	$(track_stage)
+
+score: runtime-check ## Score a track's saved evidence: TRACK, ARGS
+	$(track_stage)
+
+check: runtime-check ## Check a track's built report: TRACK, ARGS
+	$(track_stage)
+
+package: runtime-check ## Package a track's checked report: TRACK, ARGS
+	$(track_stage)
+
+publish: runtime-check ## Publish a track's packaged report: TRACK, ARGS
+	$(track_stage)
+
+export: runtime-check ## Export a track's results: TRACK, ARGS
+	$(track_stage)
 
 report: runtime-check ## Build the Web Fetch report: PROFILE, EVIDENCE
 	$(call require_profile)

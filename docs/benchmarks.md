@@ -358,9 +358,12 @@ its file-count limit. It verifies every task/result page and evidence payload
 against the uncompressed report, then exercises exported routes in every saved
 language. Compression preserves all logical results and physical-call evidence.
 
-The Make targets accept `PROFILE`, `OUTPUT` and `VISUAL_RECEIPT` for these tracks;
-replay build/package targets also accept `REVIEW`, and packaging accepts `ARCHIVE`
-and `ATTESTATION`. Packaging creates a local archive and does not publish it.
+The report and release-check Make targets accept `PROFILE`, `OUTPUT` and
+`VISUAL_RECEIPT` for these tracks, and the replay build target also accepts `REVIEW`.
+Packaging creates a local archive and does not publish it. Publishing is a separate,
+explicitly authorized step on a packaged report:
+`uv run --frozen python -m harness.trajectory_replay publish --profile /absolute/instance/profile.json`
+(or `make publish TRACK=trajectory-replay ARGS="--profile ..."`).
 
 For WCXB, select a profile-bound evidence directory and a fresh output with
 `scripts/build_report.py --profile /absolute/instance/profile.json`. Keep its
