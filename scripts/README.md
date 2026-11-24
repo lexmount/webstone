@@ -97,15 +97,18 @@ show the rest, except the commands listed under "Kept as is (#151)".
 
 The scripts below stay outside that entry point for the reason in each row.
 The decision recorded for #174 is to leave the public WebArena replay scripts
-and the WebArena environment scripts as scripts, here and under "Kept as is
-(#151)". They get no new module entry, and the public replay stays isolated from
-the curated entry point.
+and the WebArena environment scripts as scripts. The exception is public
+WebArena qualification, repair and recording audits (#335): they are the
+subcommands of `uv run --frozen python -m harness.trajectory_replay qualification`, implemented
+in `src/harness/trajectory_replay/public_webarena/` and described in
+`docs/trajectory-replay-protocol.md`; repair proposal kinds are registered in
+`qualification.REPAIR_KINDS`. Public replay tasks, scores and reports stay
+isolated from the curated suite.
 
 | Script | Reached from |
 | --- | --- |
 | `run_remote_three_method_cohort.py` | `evaluation/trajectory-replay/webarena-verified/README.md`; `remote_execution.cohort_reference_hashes` binds this file's hash as `command_entry` in every cohort certificate |
-| `apply_webarena_qualification.py`, `audit_webarena_recorded_outcomes.py`, `audit_webarena_traces.py`, `build_webarena_codex_repair_suite.py`, `build_webarena_native_scope.py`, `build_webarena_repair_batch.py`, `build_webarena_repair_packet.py`, `build_webarena_repair_probe.py`, `build_webarena_repair_queue.py`, `build_webarena_repair_validation_suite.py`, `build_webarena_suite.py`, `fetch_webarena_traces.py`, `run_webarena_codex_repairs.py`, `run_webarena_qualification.py`, `smoke_webarena_runtime.py`, `supersede_webarena_task_browser_results.py`, `verify_webarena_evaluator_exclusions.py` | Public WebArena replay, isolated from the curated entry point: `docs/trajectory-replay-protocol.md` |
-| `propose_webarena_action_repair.py`, `propose_webarena_autowait_repairs.py`, `propose_webarena_capture_target.py`, `propose_webarena_evaluator_fill_repair.py`, `propose_webarena_observed_repair.py`, `propose_webarena_replace_target.py` | Public WebArena replay: `docs/trajectory-replay-protocol.md`, "Public WebArena repair proposals" |
+| `audit_webarena_traces.py`, `build_webarena_suite.py`, `fetch_webarena_traces.py` | Public WebArena replay, isolated from the curated entry point: `docs/trajectory-replay-protocol.md` |
 | `release_webarena_trajectory_report.py` | Public WebArena replay: `make public-webarena-report`, `-audit`, `-release`; it checks and packages the bundle itself |
 | `publish_public_webarena_report.py` | Public WebArena replay: executed by `src/harness/trajectory_replay/public_webarena/release.py` |
 | `lock_webarena_images.py`, `manage_webarena_environment.py`, `manage_webarena_rainbond_pool.py`, `verify_webarena_env_contract.py`, `verify_webarena_map.py` | WebArena environment, owned by `harness.environments.webarena`: `deploy/webarena/README.md`, `docs/webarena-fixed-trajectory-reproduction.md`, `examples/trajectory_replay/public_webarena/README.md` |
@@ -140,7 +143,6 @@ function and its exclusive tests together.
 | `harness.trajectory_replay catalog-audit-acceptance`, `catalog-audit-actions` | sole entries to the catalog sweep and failed-repair audit and the evaluate-action audit |
 | `harness.trajectory_replay catalog-consolidate`, `catalog-rebind` | sole entries to freezing accepted trajectories into one deployment-bound catalog and binding a frozen catalog to another site deployment |
 | `harness.trajectory_replay catalog-comparison-inputs` | sole entry to compiling catalog replay evidence into shared comparison report inputs |
-| `build_webarena_authoring_suite.py`, `build_webarena_observation_suite.py`, `build_webarena_evidence_revalidation_suite.py`, `build_webarena_qualification_subset.py`, `build_webarena_requalification_suite.py`, `finalize_webarena_adjudication.py` | queue, revalidation and finalization commands of `src/harness/trajectory_replay/public_webarena/qualification.py`; "Qualification decisions and immutable outputs" in `docs/trajectory-replay-protocol.md` describes them without naming the scripts |
 | `build_webarena_trace_catalog.py` | rebuilds the checked-in 179-task human-trace catalog from official inputs |
 | `run_real_smoke.sh` | runner for the opt-in `tests/test_real_smoke.py` live-provider class; only that test names it |
 

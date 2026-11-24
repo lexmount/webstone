@@ -151,7 +151,7 @@ loads only the selected self-hosted site roots, and writes redacted HAR plus a
 trajectory qualification or measured browser evidence:
 
 ```text
-uv run --frozen python -m scripts.smoke_webarena_runtime --config <runtime-config> --output <evidence>/diagnostics/runtime-smoke --site shopping_admin --site shopping --site reddit
+uv run --frozen python -m harness.trajectory_replay qualification runtime-smoke --config <runtime-config> --output <evidence>/diagnostics/runtime-smoke --site shopping_admin --site shopping --site reddit
 ```
 
 Add `--verify-login` to exercise the same pre-measurement form-login path. Authentication completes
@@ -292,7 +292,7 @@ branch. The output requires full-scope requalification before measurement. Use a
 new `--output` path; `--replace-generated` is limited to a generated revision of
 the same base dataset and never authorizes replacing measured evidence.
 
-`scripts/build_webarena_native_scope.py` selects a task population before
+`uv run --frozen python -m harness.trajectory_replay qualification native-scope` selects a task population before
 qualification or measurement from the declared site image architectures and
 evidence-backed evaluator exclusions. Use explicit `--suite`, `--image-lock`
 and `--evaluator-exclusions` inputs for a new experiment. The qualification
@@ -306,7 +306,10 @@ predecessor actions, candidate hashes and stable source files, then writes a new
 manifest without modifying prior evidence. A revision that changes action count
 requires an explicit readiness migration when readiness rules are present.
 
-The public WebArena queue, revalidation, finalization and application commands share
+The public WebArena qualification, repair and audit stages are subcommands of
+`uv run --frozen python -m harness.trajectory_replay qualification`; `--help` lists them. The queue (`repair-queue`),
+revalidation (`repair-validation-suite`, `evidence-revalidation-suite`, `subset`,
+`requalification-suite`), finalization (`finalize`) and application (`apply`) subcommands share
 `src/harness/trajectory_replay/public_webarena/qualification.py`. Every declared task and decision must occur exactly
 once. A resumable shard must retain its raw `attempt.json` as well as its summary and HAR.
 A JSONL attempt projection must match that raw record, including scalar types; a passing summary
@@ -333,7 +336,11 @@ WebArena track and does not modify canonical tasks, measured outcomes or qualifi
 `diagnostics.py` builds the authoring input and runs bounded read-only Codex jobs;
 `qualification.py` derives and validates the pending probe or batch.
 
-The six `scripts/propose_webarena_*.py` commands use that same qualification module.
+`uv run --frozen python -m harness.trajectory_replay qualification propose KIND` uses that same qualification module; each
+registered repair kind (`action-repair`, `observed-repair`, `capture-target`, `replace-target`,
+`autowait-repairs`, `evaluator-fill-repair`) declares its own arguments. The `observation-suite`
+and `authoring-suite` subcommands derive the non-canonical observation probe and warm-site
+authoring suites that observed repairs and authoring runs consume.
 Use action repairs for exact guarded splices, target replacement for a stale locator,
 and capture or observed repairs for answers collected from declared DOM observations.
 Evaluator-fill proposals use exact official payload values; auto-wait proposals require
@@ -348,7 +355,7 @@ Outputs bind input hashes, the original trajectory and the executable task contr
 applying a proposal after that trajectory or evaluator contract changes fails. Keep
 these generated proposals outside Git alongside private qualification evidence.
 
-Build a packet with `scripts/build_webarena_repair_packet.py --suite <suite>
+Build a packet with `uv run --frozen python -m harness.trajectory_replay qualification repair-packet --suite <suite>
 --attempt <attempt.json> --output <packet.json>`. Packet version 2 separates raw attempt
 provenance from the three author-readable evidence references: screenshot, final page
 and sanitized HAR. The job receives a packet without the raw attempt path. The program
@@ -357,15 +364,14 @@ must be regenerated from their original inputs; they are retained as historical 
 and are not accepted for new jobs. Read-only execution and these authoring instructions
 do not provide operating-system isolation from every readable file on the host.
 
-`scripts/run_webarena_codex_repairs.py --suite <suite> --packet <packet.json>
+`uv run --frozen python -m harness.trajectory_replay qualification codex-repairs --suite <suite> --packet <packet.json>
 --output-root <new-directory>` accepts repeated `--packet` arguments, `--max-workers`,
 `--timeout-seconds`, `--codex-binary`, `--model` and `--reasoning-effort`. Its receipts bind
 the selected configuration and input hashes. Failed jobs and inputs that change during
 execution leave an incomplete batch rather than a qualification claim.
 
-Use `scripts/build_webarena_repair_probe.py` for one proposal,
-`scripts/build_webarena_repair_batch.py` for a general batch, or
-`scripts/build_webarena_codex_repair_suite.py` for the existing Codex two-pass validation
+Use the `repair-probe` subcommand for one proposal, `repair-batch` for a general batch, or
+`codex-repair-suite` for the existing Codex two-pass validation
 protocol. Each takes `--suite`, `--proposal` and `--output`; batch commands accept repeated
 proposals. They validate the resulting suite before exposing a new immutable output.
 Two independent qualification passes remain required by the validation protocol.
@@ -388,7 +394,7 @@ response, HAR and declared evidence must match their hashes and remain unchanged
 during evaluation. Its new output is diagnostic evidence and does not replace
 the saved verdict or certify a new experiment.
 
-For a declared corrective rerun, `scripts/supersede_webarena_task_browser_results.py`
+For a declared corrective rerun, `uv run --frozen python -m harness.trajectory_replay qualification supersede`
 requires the complete `--replace TASK_ID/ENGINE` scope and an evidenced `--reason`.
 It checks the shared protocol, browser identity, task contract, attempt sequence,
 raw records and bound page evidence. The new run retains every source call and
@@ -413,8 +419,8 @@ Offline input and evidence audits use the maintained diagnostic modules:
   an explicit browser binary and blocked page requests. It requires Playwright;
   its results are assertion diagnostics rather than task scores.
 - The isolated public WebArena track uses
-  `scripts/audit_webarena_recorded_outcomes.py` and
-  `scripts/verify_webarena_evaluator_exclusions.py` for hash-bound recording audits.
+  `uv run --frozen python -m harness.trajectory_replay qualification audit-recorded-outcomes` and
+  `uv run --frozen python -m harness.trajectory_replay qualification verify-evaluator-exclusions` for hash-bound recording audits.
   Recording audits inject the official expected answer to isolate network
   evaluation; they do not represent current-environment browser execution.
 
@@ -541,7 +547,7 @@ are rejected. Derived qualification suites are validated
 before writing, and an existing different output is never replaced.
 
 ```text
-uv run --frozen python -m scripts.run_webarena_qualification --suite "$HUMAN_CANDIDATES" --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --max-site-workers 3 --evidence-root <evidence>/qualification
+uv run --frozen python -m harness.trajectory_replay qualification run --suite "$HUMAN_CANDIDATES" --native-scope evaluation/browser-use-public/webarena-amd64-scope.json --webarena-config <runtime-config> --env-file .env --browser-docker-host unix:///var/run/docker.sock --max-site-workers 3 --evidence-root <evidence>/qualification
 ```
 
 Merge the batch attempt files into one correction queue. A repaired or observation-annotated task
@@ -554,9 +560,9 @@ adjudication; do not validate a hand-edited suite whose normalized provenance di
 canonical result.
 
 ```text
-uv run --frozen python -m scripts.build_webarena_repair_queue --suite "$HUMAN_CANDIDATES" --attempts <batch-1>/attempts.jsonl <batch-2>/attempts.jsonl --output <evidence>/qualification/queue.json
-uv run --frozen python -m scripts.build_webarena_repair_validation_suite --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/proposed.json --output <evidence>/qualification/repair-suite.json
+uv run --frozen python -m harness.trajectory_replay qualification repair-queue --suite "$HUMAN_CANDIDATES" --attempts <batch-1>/attempts.jsonl <batch-2>/attempts.jsonl --output <evidence>/qualification/queue.json
+uv run --frozen python -m harness.trajectory_replay qualification repair-validation-suite --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/proposed.json --output <evidence>/qualification/repair-suite.json
 uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite <evidence>/qualification/repair-suite.json --webarena-config <runtime-config> --qualification-run --qualification-pass-index 1 --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/repairs/pass-1
 uv run --frozen python -m harness.trajectory_replay.public_webarena.cli --suite <evidence>/qualification/repair-suite.json --webarena-config <runtime-config> --qualification-run --qualification-pass-index 2 --qualification-required-passes 2 --engines chromium --failure-retries 0 --output <evidence>/qualification/repairs/pass-2
-uv run --frozen python -m scripts.apply_webarena_qualification --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/adjudicated.json --output <evidence>/qualification/qualified-suite.json
+uv run --frozen python -m harness.trajectory_replay qualification apply --suite "$HUMAN_CANDIDATES" --qualification <evidence>/qualification/adjudicated.json --output <evidence>/qualification/qualified-suite.json
 ```
