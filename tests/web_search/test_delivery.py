@@ -131,7 +131,8 @@ def test_separate_language_editions_keep_every_call_and_link_the_counterpart(tmp
     if language == 'en':
         entry = BeautifulSoup((destination / 'index.html').read_bytes(), 'html.parser')
         assert entry.html['lang'] == 'en'
-        assert entry.iframe['src'] == 'en/index.html'
+        assert entry.h1.get_text() == page.h1.get_text()
+        assert entry.find('base') is None
         shell = BeautifulSoup((destination / 'detail.html').read_bytes(), 'html.parser')
         assert shell.html['lang'] == 'en'
         assert shell.find('base') is None
@@ -247,3 +248,30 @@ def test_an_unbuilt_english_edition_is_not_published_as_a_complete_translation(t
     with pytest.raises(ValueError, match='generated language'):
         export(source, tmp_path / 'english', language='en', counterpart_url='https://reports.example.org/s/chinese')
     assert not (tmp_path / 'english').exists()
+
+
+@pytest.mark.parametrize('language', ['en', 'zh'])
+def test_restored_result_navigation_opens_the_paired_publication(tmp_path, language):
+    from playwright.sync_api import sync_playwright
+    from harness.reporting.visual import browser_executable, local_report_server
+
+    example(tmp_path)
+    source, destination = tmp_path / 'report', tmp_path / 'delivery'
+    build(source, source=tmp_path / 'fixture', include_english=True)
+    counterpart = 'https://reports.example.org/s/other-edition'
+    export(source, destination, language=language, counterpart_url=counterpart)
+    manifest = json.loads((source / 'manifest.json').read_bytes())
+    prefix = 'en/' if language == 'en' else ''
+    route = prefix + 'details/' + manifest['rows'][0]['id'] + '.html'
+    with local_report_server(destination) as origin, sync_playwright() as engine:
+        browser = engine.chromium.launch(executable_path=browser_executable(), headless=True)
+        try:
+            page = browser.new_page()
+            page.goto(origin + '/index.html')
+            assert page.locator('html').get_attribute('lang').startswith(language)
+            page.goto(origin + '/detail.html#' + route)
+            page.locator('[data-result-summary]').wait_for()
+            label = '中文' if language == 'en' else 'English'
+            assert page.locator('nav').get_by_text(label, exact=True).get_attribute('href') == counterpart
+        finally:
+            browser.close()

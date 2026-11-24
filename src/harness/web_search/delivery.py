@@ -17,7 +17,8 @@ from harness.web_search.core import write_json
 from harness.web_search.messages import zh_text
 
 ASSETS = Path(__file__).with_name("assets")
-BRIDGE = "\n" + ASSETS.joinpath("delivery-bridge.js").read_text(encoding="utf-8")
+BRIDGE = "\n" + ASSETS.joinpath("delivery-bridge.js").read_text(encoding="utf-8").replace(
+    "__CHINESE_LABEL__", zh_text("Chinese"))
 LOADER = "\n" + ASSETS.joinpath("delivery-loader.js").read_text(encoding="utf-8").replace(
     "__DOWNLOAD_LABEL_ZH__", zh_text("Download original response"))
 
@@ -34,7 +35,7 @@ def _delivery_link(value, packed=()):
     return value
 
 
-def transform_page(text, *, packed=(), comparison_files=None, language=None, counterpart_url=None):
+def transform_page(text, *, packed=(), comparison_files=None, counterpart_url=None):
     doc = BeautifulSoup(text, "html.parser")
     bridge = doc.new_tag("script")
     bridge.string = BRIDGE
@@ -44,7 +45,7 @@ def transform_page(text, *, packed=(), comparison_files=None, language=None, cou
         for attr in ("href", "data-detail"):
             value = node.get(attr, "")
             if value:
-                if attr == 'href' and node.find_parent('nav') and counterpart_url and node.get_text(strip=True) in ('English', '中文'):
+                if attr == 'href' and node.find_parent('nav') and counterpart_url and node.get_text(strip=True) in ('English', zh_text('Chinese')):
                     node[attr] = counterpart_url
                     continue
                 node[attr] = _delivery_link(value, packed)
@@ -73,12 +74,11 @@ def _public_files(manifest, language=None):
     return routes | {a['path'] for a in manifest['bundle']} | {'manifest.json'}
 
 
-def _english_entry():
-    return ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>Web Search report</title><style>html,body,iframe{margin:0;width:100%;height:100%;border:0}'
-            'iframe{display:block}</style></head><body>'
-            '<iframe title="Complete English Web Search report" src="en/index.html"></iframe></body></html>')
+def _english_entry(text):
+    page = BeautifulSoup(text, 'html.parser')
+    for base in page.select('base'):
+        base.decompose()
+    return str(page)
 
 
 def export(source, destination, *, language=None, counterpart_url=None):
@@ -95,7 +95,9 @@ def export(source, destination, *, language=None, counterpart_url=None):
     public_files = _public_files(manifest, language)
     shards, mapping, hashes = {}, {}, {}
     details = {}
-    for route in set(manifest['routes']) & public_files:
+    for route in manifest['routes']:
+        if route not in public_files:
+            continue
         if route.startswith('details/') or '/details/' in route:
             details.setdefault(Path(route).stem, []).append(route)
     for row in manifest["rows"]:
@@ -130,7 +132,7 @@ def export(source, destination, *, language=None, counterpart_url=None):
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(transform_page(raw.decode(), packed=mapping, comparison_files=comparison_files,
-                                         language=language, counterpart_url=counterpart_url).encode() if path.endswith(".html") else raw)
+                                         counterpart_url=counterpart_url).encode() if path.endswith(".html") else raw)
     for path, raw in comparison_files.items():
         target = destination / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -146,7 +148,8 @@ def export(source, destination, *, language=None, counterpart_url=None):
     if language == 'en':
         for base in shell.select('base'):
             base.decompose()
-        (destination / 'index.html').write_text(_english_entry(), encoding='utf-8')
+        (destination / 'index.html').write_text(
+            _english_entry((destination / entry).read_text(encoding='utf-8')), encoding='utf-8')
     shell.main.clear()
     pre = shell.new_tag("pre")
     pre["data-delivery-target"] = ""
@@ -186,13 +189,14 @@ def verify(source, destination):
             continue
         raw = (source / path).read_bytes()
         expected = transform_page(raw.decode(), packed=index['files'], comparison_files=comparison_files,
-                                  language=language, counterpart_url=counterpart_url).encode() if path.endswith(".html") else raw
+                                  counterpart_url=counterpart_url).encode() if path.endswith(".html") else raw
         if (destination / path).read_bytes() != expected:
             raise ValueError("Delivery page changed")
     for path, raw in comparison_files.items():
         target = destination / path
         if target.is_symlink() or not target.is_file() or target.read_bytes() != raw:
             raise ValueError('Comparison data changed')
-    if language == 'en' and (destination / 'index.html').read_text(encoding='utf-8') != _english_entry():
+    if language == 'en' and (destination / 'index.html').read_text(encoding='utf-8') != _english_entry(
+            (destination / 'en/index.html').read_text(encoding='utf-8')):
         raise ValueError('English delivery entry changed')
     return True

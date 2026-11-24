@@ -2668,8 +2668,12 @@ def main(argv=None):
         else:
             check(args.output)
         from harness.web_search.delivery import export
-        export(args.output, args.export_delivery, language=args.delivery_language,
-               counterpart_url=args.counterpart_url)
+        options = {}
+        if args.delivery_language is not None:
+            options['language'] = args.delivery_language
+        if args.counterpart_url is not None:
+            options['counterpart_url'] = args.counterpart_url
+        export(args.output, args.export_delivery, **options)
         print(args.export_delivery)
         return
     if args.release_check:
