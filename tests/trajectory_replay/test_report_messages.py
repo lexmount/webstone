@@ -10,7 +10,10 @@ from harness.reporting.source_policy import HAN
 from harness.trajectory_replay.messages import MESSAGES, report_text
 
 PACKAGE = MESSAGES.parent
-RENDERERS = ("webarena_report.py", "failure_matrix.py", "report.py", "public_webarena/report.py")
+RENDERERS = (
+    "webarena_report.py", "failure_matrix.py", "report.py", "public_webarena/report.py",
+    "core/report.py",
+)
 SEMANTIC_ID = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 
 

@@ -574,14 +574,24 @@
    "en/results.html": {
     "headings": [
      "h1: Results analysis",
+     "h3: Programmatic finding and evaluator rule",
+     "h3: Reviewed cause and treatment",
+     "h3: Same-task method comparison",
      "h2: Failures by family and subtype",
      "h2: Browser action latency",
-     "h2: Conditional distributions on each method’s successful tasks",
-     "h2: Same-task method comparison",
-     "h3: Programmatic finding and evaluator rule",
-     "h3: Reviewed cause and treatment"
+     "h2: Conditional distributions on each method’s successful tasks"
     ],
     "tables": [
+     [
+      "Task | Method | Site | Verdict | Actions | Failure stage | Reviewed category | Detail",
+      "#29Diagnose | Chromium | reddit | Pass | 1/1 | — | — | Evidence page",
+      "#29Diagnose | Moli 1.1.3 | reddit | Fail | 0/1 | Browser action | Synthetic action failure | Evidence page",
+      "#29Diagnose | Moli 1.1.7 | reddit | Pass | 1/1 | — | — | Evidence page"
+     ],
+     [
+      "Task | Chromium | Moli 1.1.3 | Moli 1.1.7",
+      "#29 reddit | Pass | Fail | Pass"
+     ],
      [
       "Method | Failures / tasks | Other / unreviewed",
       "Synthetic action failure",
@@ -595,16 +605,6 @@
      [
       "Metric | Chromium · n=1/1 | Moli 1.1.3 · n=0/1 | Moli 1.1.7 · n=1/1",
       "End-to-end time | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0/0; missing 0 | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0"
-     ],
-     [
-      "Task | Site | Official pass | Fail",
-      "#29 | reddit | Chromium · PassMoli 1.1.7 · Pass | Moli 1.1.3 · Fail"
-     ],
-     [
-      "Task | Method | Site | Verdict | Actions | Failure stage | Reviewed category | Detail",
-      "#29Diagnose | Chromium | reddit | Pass | 1/1 | — | — | Evidence page",
-      "#29Diagnose | Moli 1.1.3 | reddit | Fail | 0/1 | Browser action | Synthetic action failure | Evidence page",
-      "#29Diagnose | Moli 1.1.7 | reddit | Pass | 1/1 | — | — | Evidence page"
      ]
     ]
    },
@@ -739,14 +739,24 @@
    "results.html": {
     "headings": [
      "h1: 结果分析",
+     "h3: 程序判定与验收规则",
+     "h3: 复核原因与处理",
+     "h3: 同题方法对比",
      "h2: 失败分布：大类与子类",
      "h2: 浏览器动作耗时",
-     "h2: 各方法成功任务的条件分布",
-     "h2: 同题方法对比",
-     "h3: 程序判定与验收规则",
-     "h3: 复核原因与处理"
+     "h2: 各方法成功任务的条件分布"
     ],
     "tables": [
+     [
+      "任务 | 方法 | 站点 | 判定 | 动作 | 失败环节 | 复核分类 | 详情",
+      "#29诊断 | Chromium | reddit | 通过 | 1/1 | — | — | 证据页",
+      "#29诊断 | Moli 1.1.3 | reddit | 失败 | 0/1 | 浏览器动作 | 合成动作失败 | 证据页",
+      "#29诊断 | Moli 1.1.7 | reddit | 通过 | 1/1 | — | — | 证据页"
+     ],
+     [
+      "任务 | Chromium | Moli 1.1.3 | Moli 1.1.7",
+      "#29 reddit | 通过 | 失败 | 通过"
+     ],
      [
       "方法 | 失败 / 任务 | 其他／未复核",
       "合成动作失败",
@@ -760,16 +770,6 @@
      [
       "指标 | Chromium · n=1/1 | Moli 1.1.3 · n=0/1 | Moli 1.1.7 · n=1/1",
       "端到端耗时 | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0/0; 缺失 0 | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0"
-     ],
-     [
-      "任务 | 站点 | 官方通过 | 失败",
-      "#29 | reddit | Chromium · 通过Moli 1.1.7 · 通过 | Moli 1.1.3 · 失败"
-     ],
-     [
-      "任务 | 方法 | 站点 | 判定 | 动作 | 失败环节 | 复核分类 | 详情",
-      "#29诊断 | Chromium | reddit | 通过 | 1/1 | — | — | 证据页",
-      "#29诊断 | Moli 1.1.3 | reddit | 失败 | 0/1 | 浏览器动作 | 合成动作失败 | 证据页",
-      "#29诊断 | Moli 1.1.7 | reddit | 通过 | 1/1 | — | — | 证据页"
      ]
     ]
    },
@@ -809,9 +809,9 @@
    }
   },
   "routes": [
-   "article.html 2fa1e6da27e8a42b912b",
-   "assets/app.js 59f560f2cd0654c5553e",
-   "assets/report.css a99feba9063335ed09bf",
+   "article.html 339136f6418031cf67d9",
+   "assets/app.js 08ff178ba4eeceefae88",
+   "assets/report.css 34bccab3ad0b81e06177",
    "data/evidence/chromium-29.json 7af41bab3cc4a2417d33",
    "data/evidence/moli-fixed-29.json d12c19c0ec05c0651285",
    "data/evidence/moli-old-29.json 9825a8e65f76172b61ee",
@@ -821,30 +821,30 @@
    "data/trajectory/chromium-29.json 4dbd87bb8442b8983070",
    "data/trajectory/moli-fixed-29.json 4eebb464e35447d582ff",
    "data/trajectory/moli-old-29.json e23ca9b49bdc27567ec3",
-   "dataset.html d96ca43e317778d9d7a0",
-   "en/article.html a03cfaada304897d43df",
-   "en/dataset.html 3813dd2bc44063cfd763",
-   "en/environment.html 586a25b571ce3b46539e",
-   "en/evidence-viewer.html ff07562f3998360bcae0",
-   "en/index.html 0d597037c6f37ad94555",
-   "en/interpretation.html 1d1c9156f0f93a9c60c4",
-   "en/result/chromium-29.html 4a2df68e8cd61314df20",
-   "en/result/moli-fixed-29.html db588017544218b8ca30",
-   "en/result/moli-old-29.html a86fff7eaf3cf6caca52",
-   "en/results.html d511cf05f46a0b246bb4",
-   "en/review.html 73466abb59e02cc5ab6a",
-   "en/task/29.html 1e518a575aae385e8ea7",
-   "environment.html be15cbc04ff2aaeecf3c",
-   "evidence-viewer.html ec849ee1040fec6bd7e4",
-   "index.html 88e3e2a0f53352885fd1",
-   "interpretation.html 45f1fe1e8ed0e43e9867",
-   "report-manifest.json f2c388ff5947755f79fe",
-   "result/chromium-29.html caf72bc16052afd3caa2",
-   "result/moli-fixed-29.html 7d47821d4abd8cb8360f",
-   "result/moli-old-29.html b02c7a48d5a563f9ee95",
-   "results.html 34203f349014cec00156",
-   "review.html 596956b4cb515cd6c22f",
-   "task/29.html a56982270707c07c0ec3",
+   "dataset.html 3bf9a73f4e9018a40ce3",
+   "en/article.html 1debbc8747029e928773",
+   "en/dataset.html 5716489e8aef7e1ab043",
+   "en/environment.html d93ed0c843fb0c881aa1",
+   "en/evidence-viewer.html 7d3e24f38684a1ccf7dd",
+   "en/index.html 371ec9368db7f86dfeef",
+   "en/interpretation.html 10d4db45b5d30bf4ff20",
+   "en/result/chromium-29.html 266790f6661974b0ea55",
+   "en/result/moli-fixed-29.html 28df8f8e4fc19e92f42b",
+   "en/result/moli-old-29.html 2c12c51349f64ebab4b0",
+   "en/results.html df84200758a9717c2aa1",
+   "en/review.html 511e4f9079f64867b39e",
+   "en/task/29.html 5f67fed038777e427d47",
+   "environment.html 07a788af80be4b175594",
+   "evidence-viewer.html 1b3faebc023ed3d629d4",
+   "index.html 2b30c9d2938e6c3c152a",
+   "interpretation.html 89a1fbb841b2fdb3f74d",
+   "report-manifest.json 1df797612d17917282c3",
+   "result/chromium-29.html e5edf2ec9522668251bf",
+   "result/moli-fixed-29.html d6741afd6a8f4a7c9d25",
+   "result/moli-old-29.html 85453235e67640dfd4a4",
+   "results.html bd7b1510f5d71605fb4d",
+   "review.html cdcaa53bf65218b1af47",
+   "task/29.html 62d09c5bec9e0c61ced6",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  },

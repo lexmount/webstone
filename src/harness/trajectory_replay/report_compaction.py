@@ -191,7 +191,7 @@ def check_compact_navigation(report: Path) -> None:
                     if row is None:
                         continue
                     page.goto(f"{origin}/{prefix}result.html?key={row['key']}")
-                    page.locator('header.top').wait_for()
+                    page.locator('header.top, body > nav').first.wait_for()
                     if page.locator('html').get_attribute('lang') != language:
                         raise ValueError('compact result language differs')
                     step = page.locator('button[data-open-step]').first
@@ -207,11 +207,11 @@ def check_compact_navigation(report: Path) -> None:
                     if observed != expected:
                         raise ValueError('compact served evidence differs from its bound payload')
                     page.goto(f"{origin}/{prefix}task.html?id={row['task_id']}")
-                    page.locator('header.top').wait_for()
+                    page.locator('header.top, body > nav').first.wait_for()
                     page.locator('a[href*="result.html?key="]').first.click()
-                    page.locator('header.top').wait_for()
+                    page.locator('header.top, body > nav').first.wait_for()
                     page.locator('nav a[href*="index.html"]').first.click()
-                    page.locator('header.top').wait_for()
+                    page.locator('header.top, body > nav').first.wait_for()
                 page.close()
         finally:
             browser.close()

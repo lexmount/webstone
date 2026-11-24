@@ -82,9 +82,11 @@ def page(*, lang, base, title, heading, style, script, nav, eyebrow, notice, rol
     """One complete report page; ``nav`` already holds navigation, language and theme controls.
 
     ``head`` adds linked assets or metadata; an empty ``style`` or ``script`` is left out, so a
-    track may link shared files instead. ``heading_html`` replaces the escaped ``heading``.
+    track may link shared files instead. ``heading_html`` replaces the escaped ``heading``. A
+    ``base`` of None leaves the base URL to the host, for reports whose hosted preview sets it.
     """
-    return (f'<!doctype html><html lang="{lang}"><head><base href="{base}"><meta charset="utf-8">'
+    base_tag = "" if base is None else f'<base href="{base}">'
+    return (f'<!doctype html><html lang="{lang}"><head>{base_tag}<meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{esc(title)}</title>{head}' + (f'<style>{style}</style>' if style else '')
             + f'</head><body><nav>{nav}</nav>'

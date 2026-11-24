@@ -124,8 +124,11 @@ def _plain(participant):
 
 
 # Shows the baseline and the selected comparisons, then keeps rows whose outcomes hold the
-# selected relation. Missing outcomes take part in no relation.
+# selected relation. Missing outcomes take part in no relation. A page may load the script
+# after DOMContentLoaded (for example from an inserted script element), so it initializes
+# at once when the document is already parsed.
 SCRIPT = """
 function filterExplorer(root){const baseline=root.querySelector('[data-explorer-baseline]')?.value,boxes=[...root.querySelectorAll('[data-explorer-compare] input')],compared=boxes.filter(b=>b.checked&&b.value!==baseline).map(b=>b.value),relation=root.querySelector('[data-explorer-relation]')?.value||'',filters=[...root.querySelectorAll('[data-explorer-filter]')];boxes.forEach(b=>{b.disabled=b.value===baseline});root.querySelectorAll('[data-participant]').forEach(c=>{const k=c.dataset.participant;c.hidden=k!==baseline&&!compared.includes(k);c.toggleAttribute('data-baseline',k===baseline)});let visible=0,total=0;root.querySelectorAll('tbody tr[data-explorer-row]').forEach(r=>{total++;const state=k=>r.querySelector('[data-participant="'+k+'"]')?.dataset.outcome||'missing',base=state(baseline),others=compared.map(state).filter(s=>s!=='missing'),states=(base==='missing'?[]:[base]).concat(others),holds={differs:new Set(states).size>1,baseline_passes:base==='pass'&&others.includes('fail'),comparison_passes:base==='fail'&&others.includes('pass'),all_pass:states.length>0&&states.every(s=>s==='pass'),all_fail:states.length>0&&states.every(s=>s==='fail')},hidden=Boolean(relation&&!holds[relation])||filters.some(c=>c.value&&r.dataset[c.dataset.explorerFilter]!==c.value);r.hidden=hidden;if(!hidden)visible++});const count=root.querySelector('[data-explorer-count]');if(count)count.textContent=visible+' / '+total}
-document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('[data-explorer]').forEach(root=>{root.querySelectorAll('select,input').forEach(c=>c.addEventListener('change',()=>filterExplorer(root)));filterExplorer(root)}));
+function initExplorers(){document.querySelectorAll('[data-explorer]').forEach(root=>{root.querySelectorAll('select,input').forEach(c=>c.addEventListener('change',()=>filterExplorer(root)));filterExplorer(root)})}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initExplorers);else initExplorers();
 """

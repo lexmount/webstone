@@ -363,7 +363,7 @@ def test_grouped_correctness_marks_only_the_higher_rate_as_winner():
         },
         "resource_comparison": {"intersection_attempts": 0},
     }
-    rendered = _results_page(manifest, summary)
+    rendered = "".join(_results_page(manifest, summary).values())
     assert rendered.count('class="better">2/2') == 2
     assert 'class="better">1/2' not in rendered
 
@@ -398,18 +398,19 @@ def test_results_page_builds_task_matrix_and_filters_for_three_engines():
         "resource_comparison": {"intersection_results": 0, "by_engine": {}},
     }
 
-    rendered = _results_page(manifest, summary)
+    rendered = _results_page(manifest, summary)["comparison"]
 
-    assert 'id="compare-a"' in rendered
-    assert '<option value="webkit">Webkit</option>' in rendered
-    assert '<input type="checkbox" value="webkit" checked>Webkit' in rendered
-    assert "结果有分歧" in rendered
-    assert "A 通过，其余未通过" in rendered
-    assert "所选浏览器全部通过" in rendered
-    assert "通过浏览器" in rendered
-    assert "未通过浏览器" in rendered
-    assert "Chromium · 通过" in rendered
-    assert "Webkit · 未通过" in rendered
+    # The shared same-task explorer: one column per registered browser, baseline first.
+    baseline = '<select data-explorer-baseline><option value="chromium" selected>Chromium</option>'
+    assert baseline in rendered
+    assert '<input type="checkbox" value="webkit" checked> Webkit' in rendered
+    assert '<option value="differs" selected>结果有分歧</option>' in rendered
+    assert "基准通过，有比较项未通过" in rendered
+    assert "所选全部通过" in rendered
+    assert 'data-explorer-filter="complexity"' in rendered
+    for engine, state in (("chromium", "pass"), ("webkit", "fail")):
+        cell = f'<td data-participant="{engine}" data-outcome="{state}">'
+        assert cell + f'<a class="outcome-pill {state}"' in rendered
     assert "--engine-count" not in rendered
 
 
@@ -442,7 +443,7 @@ def test_summary_decisions_follow_reversed_results_and_resource_ratios():
             },
         },
     }
-    rendered = _summary_page(manifest, summary, PASSING_AUDIT)
+    rendered = "".join(_summary_page(manifest, summary, PASSING_AUDIT).values())
     assert "Moli 通过数最多" in rendered
     assert "速度、CPU、内存和网络另列，不合成总分" in rendered
     assert "参评浏览器 / Moli" in rendered
@@ -541,8 +542,8 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path, 
     results = (reports / "webarena-trajectory-replay-latest-results.html").read_text(
         encoding="utf-8"
     )
-    assert 'id="compare-relation"' in results
-    assert 'id="compare-engines"' in results
+    assert "data-explorer-relation" in results
+    assert "data-explorer-compare" in results
     assert "TRACE_ONLY_SEARCH_MARKER" in results
     detail_files = list(reports.glob("*-task-*.html"))
     assert len(detail_files) == 1
@@ -557,10 +558,11 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path, 
     for control in ("f-status", "f-combined", "f-action", "f-query", "f-all", "execution-empty"):
         assert f'id="{control}"' in results
     assert '<option value="fail" selected>错误</option>' in results
+    # Template order: the result inventory, then the same-task comparison.
     assert (
-        results.index("<h2>浏览器组合对比</h2>")
-        < results.index('<section class="card" id="failure-review">')
+        results.index('<section class="card" id="failure-review">')
         < results.index('<section class="card" id="execution-results">')
+        < results.index('<section class="card" id="task-comparison">')
     )
     assert results.count('class="execution-card"') == 1
     homepage = (reports / "webarena-trajectory-replay-latest.html").read_text(encoding="utf-8")

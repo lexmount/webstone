@@ -25,7 +25,8 @@
       "source_urls": [
         "https://github.com/ServiceNow/webarena-verified",
         "https://github.com/web-arena-x/webarena/tree/main/resources"
-      ]
+      ],
+      "engineering_rationale": "自托管、程序评分，并有公开人类轨迹可做固定重放"
     },
     {
       "name": "Online-Mind2Web",
@@ -49,7 +50,8 @@
       "source_urls": [
         "https://github.com/OSU-NLP-Group/Online-Mind2Web",
         "https://github.com/browser-use/online-mind2web"
-      ]
+      ],
+      "engineering_rationale": "用于第二阶段公开生态对比；真实网站和 judge 漂移不适合做首轮内核隔离"
     },
     {
       "name": "BU Bench V1",
@@ -70,7 +72,8 @@
       "stability": "适合对照 Browser Use 的公开实践，但控制程度低于自托管 benchmark",
       "known_issues": "数据来源混合且研究题较多，浏览器、模型、搜索策略和 judge 影响相互混杂",
       "engineering_rank": 3,
-      "source_urls": ["https://github.com/browser-use/benchmark"]
+      "source_urls": ["https://github.com/browser-use/benchmark"],
+      "engineering_rationale": "用于对照 Browser Use 官方实践；混合任务与 LLM judge 会引入额外变量"
     },
     {
       "name": "WebVoyager",
@@ -240,5 +243,41 @@
       "engineering_rank": null,
       "source_urls": ["https://github.com/OSU-NLP-Group/Mind2Web-2"]
     }
-  ]
+  ],
+  "selection_notes": {
+    "rationale": {
+      "heading": "为什么选择 WebArena-Verified",
+      "paragraphs": [
+        "本轮要隔离浏览器变量：同一条公开轨迹、可重建网页、程序验收最终状态。WebArena-Verified 能同时提供这三点。厂商采用数另列，不能代替工程适用性判断。",
+        "候选集按测量对象分类，不跨类排名；原始 Mind2Web 的离线动作预测不算端到端网页操作。"
+      ]
+    },
+    "adoption_scope": "只统计 OpenAI、Anthropic、Google、DeepSeek、智谱/ChatGLM、Moonshot/Kimi 的第一方材料；同一机构同一家族只计一次。此处 Mind2Web 只计在线版，不把离线动作预测算作端到端网页操作。平票再按最新官方采用、公开获取和可复现性排序。",
+    "adoption_gaps": "本次限定的一方材料中没有检出可计入 DeepSeek 或 Moonshot/Kimi 的端到端 browser-use benchmark 记录。这不等于这些机构从未做过内部评测。",
+    "engineering_scope": "WebVoyager 只保留为历史参照。OSWorld 2.0 太宽，ScreenSpot-Pro 只测单步定位；它们都不会进入本轮固定轨迹正式分母。",
+    "sections": [
+      {
+        "heading": "Mind2Web 家族的三套评测",
+        "items": [
+          "原始 Mind2Web 是离线 HTML 和动作预测数据集。它适合比较元素选择与动作预测，不能真正比较 {engines}。",
+          "Online-Mind2Web 在 300 个真实网站任务上判断最终任务是否完成。截图、URL 和轨迹是 judge 证据，并不要求复现固定动作序列；WebJudge 是 LLM-as-a-judge。",
+          "Online-Mind2Web 的 easy、medium、hard 按人工参考路径长度划分，分别为不超过 5 步、6 到 10 步、至少 11 步。这个标签不是网站难度，也不是 agent 实际执行步数。",
+          "Mind2Web 2 有 130 个长程研究任务，评估实时搜索、综合回答和引用归因，属于网页研究类。"
+        ]
+      },
+      {
+        "heading": "Browser Use 官方实践",
+        "paragraphs": [
+          "Browser Use 当前公开仓库同时维护 BU Bench V1 和 Online-Mind2Web 运行结果。前者有 100 个经过筛选的混合任务，后者便于与公开生态比较。两者都保留运行轨迹，但都没有可直接当作标准操作路径的 gold trajectory。",
+          "本项目采用它们对任务失效、验证码、外部认证和不可验收任务的处理原则，也保留完整轨迹；不照搬多次采样或 bootstrapping，因为这里测的是固定路径与浏览器兼容性。"
+        ]
+      },
+      {
+        "heading": "运行架构",
+        "paragraphs": [
+          "这些用例不要求 AMD。远端 Intel x86-64 主机可以运行官方 amd64 镜像。{candidates} 条官方 WebArena 人类录制中，本项目在运行前排除了 {non_native} 条只适配 arm64 Wikipedia 环境的任务，并排除了 {evaluator_defects} 条已确认的 evaluator 缺陷；{qualified} 条进入 amd64 资格验证。最终只有冷 Chromium 重放、程序 evaluator 和证据完整性同时通过的 {tasks} 条轨迹进入正式任务分母。"
+        ]
+      }
+    ]
+  }
 }

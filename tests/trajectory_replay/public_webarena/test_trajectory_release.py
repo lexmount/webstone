@@ -15,7 +15,7 @@ from harness.trajectory_replay.public_webarena.publication import (
     check_report_bundle,
     stage_report,
 )
-from harness.trajectory_replay.public_webarena.report import METRICS
+from harness.trajectory_replay.public_webarena.report import METRICS, PAGE_LABELS, VARIANT
 from tests.public_webarena_fixture import write_report_fixture
 
 
@@ -69,6 +69,38 @@ def test_stage_builds_report_without_mutating_source_evidence(tmp_path, monkeypa
     )
     homepage.write_text(broken, encoding="utf-8")
     with pytest.raises(ValueError, match="neutral metric must not declare a winner"):
+        check_report_bundle(staged)
+
+
+def test_bundle_check_keeps_verifying_bundles_built_before_the_template(tmp_path):
+    source, _ = write_report_fixture(tmp_path)
+    staged = tmp_path / "staged"
+    stage_report(source, staged)
+    reports = staged / "reports"
+    # Rewrite the bundle into the pre-template shape: no template record, the old navigation.
+    audit_path = reports / "webarena-trajectory-replay-latest-data.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    del audit["template"]
+    audit_path.write_text(json.dumps(audit), encoding="utf-8")
+
+    def legacy_nav(active: str) -> str:
+        return '<nav aria-label="报告分页">' + "".join(
+            f'<a href="{page.route}" '
+            + ("class=active aria-current=page" if page.key == active else "")
+            + f'>{number}. {PAGE_LABELS[page.key]}</a>'
+            for number, page in enumerate(VARIANT.pages, 1)
+        ) + "</nav>"
+
+    for page in VARIANT.pages:
+        path = reports / page.route
+        text = path.read_text(encoding="utf-8")
+        start, end = text.index("<nav>"), text.index("</nav>") + len("</nav>")
+        path.write_text(text[:start] + legacy_nav(page.key) + text[end:], encoding="utf-8")
+    assert check_report_bundle(staged)["pages"] == 6
+    home = reports / VARIANT.pages[0].route
+    home.write_text(home.read_text(encoding="utf-8").replace(
+        "class=active aria-current=page", "", 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="wrong active report navigation"):
         check_report_bundle(staged)
 
 

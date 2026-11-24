@@ -31,12 +31,13 @@ from harness.trajectory_replay.public_webarena.config import (
     site_password_spellings,
 )
 from harness.trajectory_replay.public_webarena.result_audit import audit_result_set
+from harness.trajectory_replay.template import PUBLIC_STEM
 from lexbench_webfetch.paths import contained_path
 
 CLIENT = PublicationClient("Public-WebArena-Report-Publisher/1.0", put_timeout=90)
 # A pending operation replays its original bytes under its idempotency key, so this name stays.
 UPLOAD_NAME = "webfetch"
-REPORT_STEM = "webarena-trajectory-replay-latest"
+REPORT_STEM = PUBLIC_STEM
 
 
 
@@ -295,27 +296,42 @@ def build(formal_root: Path, archive: Path, attestation: Path, *, authority: Pat
 
 
 def check_report_bundle(formal_root: Path) -> dict[str, int]:
-    from harness.trajectory_replay.public_webarena.report import METRICS, PAGES
+    from harness.reporting.release_check import check_template_pages
+    from harness.trajectory_replay.public_webarena.report import METRICS, PAGE_LABELS
+    from harness.trajectory_replay.template import TEMPLATE
 
     reports = formal_root / "reports"
-    pages_checked = 0
-    for index, (_slug, label, filename) in enumerate(PAGES, 1):
-        path = reports / filename
+    audit = _read_json(reports / f"{REPORT_STEM}-data.json")
+    if "template" in audit:
+        # Every registered page fills its template role in order and is in the navigation.
+        variant = check_template_pages(reports, audit["template"], TEMPLATE)
+        link = '<a href="{route}"( aria-current="page")?>{label}</a>'
+        nav_pattern = r"<nav>(.*?)</nav>"
+        active_pattern = r'<a href="[^"]+" aria-current="page">(.*?)</a>'
+    else:
+        # Bundles built before the template record keep their earlier navigation markup.
+        variant = TEMPLATE.variant("public")
+        link = '<a href="{route}" ?(class=active aria-current=page)?>{label}</a>'
+        nav_pattern = r'<nav aria-label="报告分页">(.*?)</nav>'
+        active_pattern = r"<a [^>]*aria-current=page[^>]*>(.*?)</a>"
+    pages = [
+        (page.route, f"{n}. {PAGE_LABELS[page.key]}") for n, page in enumerate(variant.pages, 1)
+    ]
+    expected = "".join(
+        link.format(route=re.escape(route), label=re.escape(label)) for route, label in pages
+    )
+    for route, label in pages:
+        path = reports / route
         if not path.is_file():
-            raise ValueError(f"missing report page: {filename}")
-        text = path.read_text(encoding="utf-8")
-        nav = re.search(r'<nav aria-label="报告分页">(.*?)</nav>', text, re.DOTALL)
+            raise ValueError(f"missing report page: {route}")
+        nav = re.search(nav_pattern, path.read_text(encoding="utf-8"), re.DOTALL)
         if not nav:
-            raise ValueError(f"missing report navigation: {filename}")
-        for expected_index, (_, expected_label, expected_filename) in enumerate(PAGES, 1):
-            expected = f'href="{expected_filename}"'
-            label_markup = f">{expected_index}. {expected_label}</a>"
-            if expected not in nav.group(1) or label_markup not in nav.group(1):
-                raise ValueError(f"incomplete report navigation: {filename}")
-        active = re.findall(r"<a [^>]*aria-current=page[^>]*>(.*?)</a>", nav.group(1))
-        if active != [f"{index}. {label}"]:
-            raise ValueError(f"wrong active report navigation: {filename}")
-        pages_checked += 1
+            raise ValueError(f"missing report navigation: {route}")
+        if not re.fullmatch(expected, nav.group(1)):
+            raise ValueError(f"incomplete report navigation: {route}")
+        if re.findall(active_pattern, nav.group(1)) != [label]:
+            raise ValueError(f"wrong active report navigation: {route}")
+    pages_checked = len(pages)
 
     homepage = (reports / f"{REPORT_STEM}.html").read_text(encoding="utf-8")
     specs = [spec for _, metrics in METRICS for spec in metrics]

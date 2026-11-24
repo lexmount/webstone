@@ -305,12 +305,12 @@ def check(report: Path, receipt: Path) -> None:
                     assert route_page.locator("#step-dialog[open]").count() == 0
                     assert step_button.evaluate("element => element === document.activeElement")
                     if (report / "interpretation.html").is_file():
-                        route_page.locator("nav a[data-report-interpretation]").click()
+                        route_page.locator('nav a[href$="interpretation.html"]').click()
                         route_page.wait_for_url(
                             f"http://127.0.0.1:{server.server_port}/api/preview/replay~fixture/interpretation.html"
                         )
-                        route_page.locator("article.interpretation h1").wait_for()
-                        article_nav = route_page.locator("nav a[data-report-interpretation]")
+                        route_page.locator("main h1").wait_for()
+                        article_nav = route_page.locator('nav a[href$="interpretation.html"]')
                         assert article_nav.get_attribute("aria-current") == "page"
                     route_page.locator('nav a[href*="index.html"]').first.click()
                     route_page.wait_for_url(
