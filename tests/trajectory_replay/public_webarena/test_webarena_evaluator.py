@@ -5,8 +5,8 @@ from urllib.parse import urlencode
 
 import pytest
 
-from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.core.evaluators import EvaluatorRegistry, TaskEvidence
+from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.public_webarena.evaluators import WebArenaVerifiedEvaluator
 
 _NAVIGATE_HEADERS = [

@@ -12,6 +12,7 @@ import pytest
 
 from harness import env_file, runtime_env
 from harness.environments.browser import (
+    container_engines,
     engine_cdp_port,
     start_browser_container,
 )
