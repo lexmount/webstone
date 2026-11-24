@@ -29,6 +29,8 @@ def wait_until_gone(pid, seconds=5):
 
 
 # Records its session id and its own child's pid, then outlives any timeout.
+# The timeout only has to outlast interpreter startup so the record exists.
+STARTUP_TIMEOUT = 1.5
 PARENT_WITH_CHILD = """
 import os, subprocess, sys, time
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
@@ -84,7 +86,7 @@ def test_foreground_timeout_kills_only_the_direct_child_in_this_session(tmp_path
     started = tmp_path / "started"
     with pytest.raises(subprocess.TimeoutExpired):
         run_reviewer([*python(PARENT_WITH_CHILD), str(started)],
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3)
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=STARTUP_TIMEOUT)
     session, grandchild = read_started(started)
     try:
         assert session == os.getsid(0)
@@ -99,7 +101,7 @@ def test_session_timeout_kills_the_whole_group_and_reaps_the_reviewer(tmp_path):
     process = sessions.start([*python(PARENT_WITH_CHILD), str(started)],
                              stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with pytest.raises(subprocess.TimeoutExpired):
-        sessions.communicate(process, b"", timeout=3)
+        sessions.communicate(process, b"", timeout=STARTUP_TIMEOUT)
     session, grandchild = read_started(started)
     assert session == process.pid != os.getsid(0)
     assert process.returncode == -9

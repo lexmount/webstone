@@ -1,16 +1,29 @@
 """Track-scoped execution uses the real runner with local fixture providers."""
+import contextlib
 import io
 import json
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from harness.web_fetch import benchmark_runner as run_benchmark
+from harness.web_fetch import runner
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.base import Provider
 from harness.web_fetch.providers.firecrawl import FirecrawlProvider
+
+
+def without_inter_call_delay():
+    """The CLI fixes a 0.5 s pause between calls; tests do not need to wait for it."""
+    if runner.time is not time:  # A test already installed its own clock.
+        return contextlib.nullcontext()
+    clock = SimpleNamespace(monotonic=time.monotonic, perf_counter=time.perf_counter,
+                            sleep=lambda seconds: None, time=time.time)
+    return patch.object(runner, 'time', clock)
 
 
 class BenchmarkSelectionTests(unittest.TestCase):
@@ -205,7 +218,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
         with patch.object(run_benchmark, 'ROOT', self.root), \
                 patch.object(run_benchmark, 'load_runtime_env'), \
                 patch.object(run_benchmark, 'build_report', return_value='built') as build, \
-                redirect_stdout(io.StringIO()):
+                without_inter_call_delay(), redirect_stdout(io.StringIO()):
             run_benchmark.main(['--output', str(self.output), *args])
         return build
 
@@ -261,6 +274,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
 
     def test_alternating_cohort_stops_when_a_timed_out_call_cannot_be_cancelled(self):
         import threading
+
         from harness.web_fetch.config import load_dataset
         from harness.web_fetch.runner import IncompleteEvaluationError, run_evaluation
 
@@ -432,7 +446,7 @@ class BenchmarkSelectionTests(unittest.TestCase):
     def test_dynamic_subset_builds_a_real_report(self):
         with patch.object(run_benchmark, 'ROOT', self.root), \
                 patch.object(run_benchmark, 'load_runtime_env'), \
-                redirect_stdout(io.StringIO()):
+                without_inter_call_delay(), redirect_stdout(io.StringIO()):
             run_benchmark.main(['--output', str(self.output), '--track', 'dynamic',
                                 '--providers', 'fixture-one'])
         report = self.output/'report'
