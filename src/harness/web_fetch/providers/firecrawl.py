@@ -17,6 +17,8 @@ from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 
 class FirecrawlProvider(Provider):
+    capability_flags = frozenset({'http_402_is_account_capacity', 'ignores_minimum_text_fragments'})
+
     @staticmethod
     def native_answer_selection(selection):
         """Pre-call answer selection; part of the frozen policy identity."""

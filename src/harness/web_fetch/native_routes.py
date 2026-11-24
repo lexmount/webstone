@@ -149,7 +149,7 @@ def _request_parameters(provider, case, cell, timeout_seconds):
         endpoint, arguments = provider.native_http_arguments(case, timeout_seconds)
         if canonical_json_sha256(endpoint) != cell['endpoint_sha256']:
             raise ValueError('Native request builder differs from its declared endpoint')
-        return normalized_http_parameters(case, arguments)
+        return normalized_http_parameters(provider, case, arguments)
     if cell['transport'] == 'cli':
         command = provider.native_cli_command(case)
         return {'argv': ['<native-binary>', *command[1:-1], '<input-url>'],
@@ -183,32 +183,26 @@ def encode_http_target_url(url):
     return quote(url, safe=":/?#[]@!$&'()*+,;=%")
 
 
-def normalized_http_parameters(case, arguments):
+def url_input_slot(body, case):
+    """Replace a top-level ``url`` or one-item ``urls`` task input with a placeholder."""
+    inputs = (case.url, encode_http_target_url(case.url))
+    slots = [key for key in ('url', 'urls') if key in body]
+    if slots == ['url'] and body['url'] in inputs:
+        body['url'] = '<input-url>'
+        return True
+    if slots == ['urls'] and body['urls'] in ([value] for value in inputs):
+        body['urls'] = ['<input-url>']
+        return True
+    return False
+
+
+def normalized_http_parameters(provider, case, arguments):
+    """Frozen transport parameters; the provider locates its own task input."""
     body = deepcopy(arguments.get('json_body'))
     if not isinstance(body, dict):
         raise ValueError('Native HTTP request lacks its declared input field')
-    slots = [key for key in ('url', 'urls') if key in body]
-    if slots == ['url'] and body['url'] in (case.url, encode_http_target_url(case.url)):
-        body['url'] = '<input-url>'
-    elif slots == ['urls'] and body['urls'] in ([case.url], [encode_http_target_url(case.url)]):
-        body['urls'] = ['<input-url>']
-    elif (not slots and body.get('messages') == [{'role': 'user', 'content': case.url}]
-          and body.get('tool_choice') == {'type': 'tool', 'name': 'web_fetch'}):
-        body['messages'][0]['content'] = '<input-url>'
-    elif (not slots and isinstance(body.get('extract'), dict)
-          and 'dom_id' not in body['extract']
-          and body['extract'].get('url') in (case.url, encode_http_target_url(case.url))):
-        body['extract']['url'] = '<input-url>'
-    else:
+    if not provider.normalize_native_http_body(body, case):
         raise ValueError('Native HTTP input differs from the frozen task URL')
-    # Native fetch-use requires a fresh opaque UUID per physical invocation.
-    # Normalize only this session token, never task or extraction parameters.
-    if 'session_id' in body and 'X-Browser-Use-API-Key' in arguments.get('headers', {}):
-        import uuid
-        token = body['session_id']
-        if not isinstance(token, str) or str(uuid.UUID(token)) != token:
-            raise ValueError('Native fetch session must be a canonical UUID')
-        body['session_id'] = '<ephemeral-session-id>'
     return {'method': arguments.get('method', 'GET'), 'body': body,
             'headers_sha256': canonical_json_sha256(arguments.get('headers', {})),
             'timeout_seconds': arguments.get('timeout'), 'max_bytes': arguments.get('max_bytes')}

@@ -24,7 +24,8 @@ from harness.web_fetch.reference_lifecycle import (
 )
 from harness.web_fetch.retrieval_hints import parse_retrieval_hints
 from harness.safety import reject_evidence_symlinks
-from harness.web_fetch.task_outputs import require_native_task_routes
+from harness.web_fetch.providers.base import provider_capabilities
+from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
 _IDENTITY_FIELDS = {
     "label",
@@ -42,6 +43,10 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Comparison input must be a JSON object: " + str(path))
     return value
+
+
+def _comparable_builds(provider_type: Any) -> bool:
+    return provider_capabilities(provider_type).has("fixed_native_build_comparison")
 
 
 def _native_contract(config: dict[str, Any]) -> dict[str, Any]:
@@ -167,7 +172,7 @@ def audit_fixed_native_comparison(
     for provider in providers:
         item = configured[provider]
         if (
-            item.get("type") != "moli_webfetch"
+            not _comparable_builds(item.get("type"))
             or item.get("wait_until") != "done"
             or item.get("dynamic_wait_until") != "domstable"
             or item.get("uniform_native_parameters") is not True
@@ -309,7 +314,7 @@ def audit_fixed_native_comparison(
         )
         diagnostic = diagnostic_log_binding(metadata)
         if (
-            row.get("provider_type") != "moli_webfetch"
+            not _comparable_builds(row.get("provider_type"))
             or (not missing_timeout_identity and observed_identity != expected_identity)
             or "retry" in metadata
             or diagnostic is None

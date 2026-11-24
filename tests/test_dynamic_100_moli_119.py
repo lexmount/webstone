@@ -121,7 +121,7 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
     owner, tree, relative, bound = _authority_binding(
         delayed_correction["source_authority"]["path"])
     assert bound == delayed_correction["source_authority"]["sha256"]
-    from harness.web_fetch.task_outputs import require_native_task_routes
+    from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
     by_id = {case.id: case for case in typed_cases}
     raw_by_id = {case["id"]: case for case in cases}

@@ -671,7 +671,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
     def test_main_rerun_rejects_legacy_firecrawl_402_only(self) -> None:
         rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         firecrawl = next(row for row in rows if row["provider"] == "firecrawl")
-        firecrawl.update(ok=False, status_code=402, error_type="api_error")
+        firecrawl.update(ok=False, status_code=402, error_type="api_error", provider_type="firecrawl")
         (self.main / "results.jsonl").write_text(
             "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
         )

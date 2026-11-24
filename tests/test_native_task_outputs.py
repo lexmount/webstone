@@ -103,7 +103,7 @@ class NativeTaskOutputTests(unittest.TestCase):
 
 class NativeRoutePublicationTests(unittest.TestCase):
     def test_standard_body_contract_allows_only_native_markdown_except_chromium(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         case = {'id': 'body', 'url': 'https://example.com/',
                 'track': 'dynamic', 'task_kind': 'body'}
@@ -138,7 +138,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                     **metadata, 'output_contract': 'native_html'}}])
 
     def test_dynamic_native_markdown_accepts_registered_builds_but_not_conversion(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         from harness.web_fetch.methods import browser_method_registry
         case={'id':'dynamic-page','url':'https://example.com/app','track':'dynamic','task_kind':'body'}
         native={'route':'dynamic_native_markdown','output':'markdown','dump':'markdown'}
@@ -158,7 +158,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                 require_native_task_routes([{**case,'track':'web'}],[row])
 
     def test_moli_native_dynamic_family_requires_one_shared_route(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         case = {'id':'dynamic-page','url':'https://example.com/app','track':'dynamic',
                 'task_kind':'body','retrieval_hints':{'version':3,'mode':'native'}}
@@ -197,7 +197,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
 
     @patch("harness.web_fetch.retrieval_hints._verify_contract_source")
     def test_iframe_contract_accepts_native_markdown_receipts_without_content_assembly(self, _source):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         case = {'id':'dynamic-iframe','url':'https://example.com/frames','track':'dynamic',
                 'task_kind':'body','retrieval_hints':{'version':3,'mode':'native',
@@ -233,7 +233,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                                                     'provider_metadata':bad}])
 
     def test_dynamic_family_native_frame_option_has_exact_receipt_and_no_converter(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         frames = {'requested':True, 'support':'native_markdown_omits_child_document',
                   'interface':'--load-resources iframe + --with-frames',
                   'harness_content_assembly':False}
@@ -270,7 +270,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                     'provider_metadata':{**meta,'extractor':'obscura_native_markdown'}}])
 
     def test_kitesurf_dynamic_route_is_limited_to_dynamic_native_markdown(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         meta = {'route':'browser_rendering_markdown_dynamic',
                 'extractor':'cloudflare_native_markdown','browser':'kitesurf',
@@ -284,7 +284,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                 'provider':'kitesurf','case_id':'page','provider_metadata':meta}])
 
     def test_moli_video_body_requires_native_markdown(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         case={'id':'video-body','url':'https://example.com/watch','track':'video','task_kind':'body'}
         row={'provider':'moli','case_id':'video-body','provider_metadata':{
@@ -296,7 +296,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                 'output_projection_sha256':'0'*64}}])
 
     def test_native_browsers_use_native_markdown_for_page_media_and_embedded_documents(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 
         cases = [
             {'id':'image-resource','url':'https://example.com/gallery','track':'image',
@@ -334,7 +334,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                         'output_projection_sha256':'0'*64}}])
 
     def test_page_routes_prioritize_native_output_and_keep_required_identity(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         pages=[{'id':'page','url':'https://example.com/page','track':'challenge','task_kind':'structure'}]
         accepted={'moli':{'route':'ordinary_markdown','output':'markdown'},
                   'lightpanda':{'extractor':'lightpanda_native_markdown'},
@@ -366,7 +366,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                     require_native_task_routes(case_scope,[{**stopped,'ok':True}])
 
     def test_configuration_failures_cannot_be_published_as_browser_results(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         cases=[{'id':'pdf','url':'https://example.com/file.pdf','track':'document','task_kind':'body'}]
         native={'moli':{'route':'ordinary_markdown','output':'markdown'},
                 'lightpanda':{'extractor':'lightpanda_native_markdown'},
@@ -381,7 +381,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                     require_native_task_routes(cases,[{**row,'error_type':'configuration'}])
 
     def test_document_text_cannot_be_supplied_by_external_converter(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         cases=[{'id':'pdf','url':'https://example.com/file.pdf','track':'document','task_kind':'body'}]
         native={'moli':{'route':'ordinary_markdown','output':'markdown'},
                 'lightpanda':{'extractor':'lightpanda_native_markdown'},
@@ -404,7 +404,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                 'output_contract':'readable_document_text'}}])
 
     def test_kitesurf_resource_uses_native_markdown(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         cases=[{'id':'images','url':'https://example.com/','track':'image','task_kind':'resource'}]
         meta={'browser':'kitesurf','route':'browser_rendering_markdown',
               'extractor':'cloudflare_native_markdown','output_contract':'markdown'}
@@ -416,7 +416,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
                 require_native_task_routes(cases,[{**row,'provider_metadata':bad}])
 
     def test_network_timeout_with_only_runner_receipts_is_not_an_adapter_substitution(self):
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         cases=[{'id':'images','url':'https://example.com/','track':'image','task_kind':'resource'}]
         row={'provider':'kitesurf','case_id':'images','ok':False,'error_type':'timeout',
              'provider_metadata':{'call_log':{'path':'call.json','sha256':'0'*64},
@@ -428,7 +428,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
 
     def test_resource_routes_bind_each_native_markdown_and_chromium_projection(self):
         import hashlib
-        from harness.web_fetch.task_outputs import require_native_task_routes, resource_expression
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes, resource_expression
         cases=[{'id':'images','url':'https://example.com/','track':'image','task_kind':'resource'}]
         digest=hashlib.sha256(resource_expression('image').encode()).hexdigest()
         resource_frames={'requested':True,'support':'native','interface':'--with-frames',

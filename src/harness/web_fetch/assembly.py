@@ -28,6 +28,7 @@ from harness.web_fetch.artifacts import (
     materialize_task_references,
 )
 from harness.reporting.publication_privacy import project_execution_manifest
+from harness.web_fetch.providers.base import provider_capabilities
 from harness.web_fetch.reference_inputs import input_tree, read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import (
     latency_correction_original_elapsed,
@@ -608,13 +609,13 @@ def _without_reference(case):
     return value
 
 
-def _provider_request_contract(case, provider):
+def _provider_request_contract(case, provider_type):
     """Return the task fields that can affect this provider's physical call.
 
-    Firecrawl records ``minimum_text_fragments`` as unsupported and never puts
-    it in the Scrape request.  A cohort frozen immediately before that
-    evaluator-only completion diagnostic was added is therefore physically
-    equivalent for Firecrawl, while request-bearing task fields remain exact.
+    A method declaring ``ignores_minimum_text_fragments`` records that field as
+    unsupported and never puts it in its request.  A cohort frozen immediately
+    before that evaluator-only completion diagnostic was added is therefore
+    physically equivalent for it, while request-bearing task fields remain exact.
     """
     value = _without_reference(case)
     # Reader-facing explanation and independent reference provenance are not
@@ -631,7 +632,7 @@ def _provider_request_contract(case, provider):
         # to the explicit mutable_body_policy field without being rerun.
         benchmark.pop("snapshot_metric_scope", None)
         benchmark.pop("stable_annotation", None)
-    if provider == "firecrawl":
+    if provider_capabilities(provider_type).has("ignores_minimum_text_fragments"):
         completion = value.get("retrieval_hints", {}).get("completion", {})
         completion.pop("minimum_text_fragments", None)
     return value
@@ -988,8 +989,8 @@ def _assemble(run, certificates, replacements, output, additions=None, provider_
                 raise ValueError('Unknown/duplicate provider replacement: '+row['case_id']+'/'+row['provider'])
             case=incoming[row['case_id']]
             comparison=canonical_cases.get(row['case_id'],cases[row['case_id']])
-            if _provider_request_contract(case, row['provider']) != \
-                    _provider_request_contract(comparison, row['provider']):
+            if _provider_request_contract(case, row.get('provider_type')) != \
+                    _provider_request_contract(comparison, row.get('provider_type')):
                 raise ValueError('Provider replacement changed task rules: '+row['case_id'])
             if requires_fresh_reference(comparison):
                 if case.get('ground_truth_main_content')!=comparison.get('ground_truth_main_content'):

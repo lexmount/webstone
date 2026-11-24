@@ -50,14 +50,14 @@ class TargetUrlEncodingTest(unittest.TestCase):
                 body = options['json_body']
                 sent = body.get('url', (body.get('urls') or [None])[0])
                 self.assertEqual(sent, encode_http_target_url(case.url))
-                normalized_http_parameters(case, options)
+                normalized_http_parameters(provider, case, options)
                 self.assertEqual(case.url, 'https://example.com/中文?q=%2F')
                 if 'url' in body:
                     body['url'] = 'https://other.example/'
                 else:
                     body['urls'] = ['https://other.example/']
                 with self.assertRaises(ValueError):
-                    normalized_http_parameters(case, options)
+                    normalized_http_parameters(provider, case, options)
 
     def test_browserbase_transport_receives_uri_not_iri(self):
         case = EvalCase('unicode', 'Unicode URL', 'https://example.com/中文', 'static', [])

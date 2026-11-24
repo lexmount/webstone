@@ -19,7 +19,8 @@ from harness.web_fetch.artifacts import (
 )
 from harness.web_fetch.native_projection import native_field_value
 from harness.web_fetch.network_dns import validate_dns_mode
-from harness.web_fetch.network_preflight import GUARDED_NATIVE_TYPES, require_usable_public_dns
+from harness.web_fetch.network_preflight import require_usable_public_dns
+from harness.web_fetch.providers.base import native_local_network
 from harness.reporting.publication_privacy import read_evidence_binding
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 
@@ -256,7 +257,7 @@ def _require_local_runner_inputs(source, contract, execution, records):
     require_usable_public_dns(network)
     method_types = {name: configuration['providers'][name].get('method_type',
                     configuration['providers'][name]['type']) for name in contract['providers']}
-    if any(value in GUARDED_NATIVE_TYPES for value in method_types.values()):
+    if any(native_local_network(value) for value in method_types.values()):
         hosts = network.get('hosts', [])
         expected_hosts = {urlsplit(case['url']).hostname for case in canonical}
         if (len(hosts) != len(expected_hosts) or {host.get('host') for host in hosts} != expected_hosts
@@ -264,7 +265,7 @@ def _require_local_runner_inputs(source, contract, execution, records):
             raise ValueError('Local runner public DNS scope is incomplete')
     for batch in execution['batches']:
         name = batch['providers'][0]['name']
-        guarded = method_types[name] in GUARDED_NATIVE_TYPES
+        guarded = native_local_network(method_types[name])
         if (batch['providers'][0].get('type') != method_types[name]
                 or (guarded and not batch['providers'][0].get('implementation_identity'))
                 or any(row.get('provider_type') != method_types[name]
@@ -310,7 +311,7 @@ def _require_bound_dns_mode(configuration, providers, network):
         validate_dns_mode(config.get('dns_mode', 'system'))
         for name in providers
         for config in [configuration['providers'][name]]
-        if config.get('method_type', config['type']) in GUARDED_NATIVE_TYPES
+        if native_local_network(config.get('method_type', config['type']))
     }
     if modes and modes != {observed}:
         raise ValueError('Local runner DNS differs from frozen provider configuration')

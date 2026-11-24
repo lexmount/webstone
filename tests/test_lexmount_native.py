@@ -150,14 +150,14 @@ def test_native_nested_input_rejects_url_drift_and_snapshot_reuse():
     assert len(ledger.cells) == 1
     _, args = instance.native_http_arguments(case, 30)
     assert '%E4%B8%AD' in args['json_body']['extract']['url']
-    assert normalized_http_parameters(case, args)['body']['extract']['url'] == '<input-url>'
+    assert normalized_http_parameters(instance, case, args)['body']['extract']['url'] == '<input-url>'
     args['json_body']['extract']['dom_id'] = 'previous-snapshot'
     with pytest.raises(ValueError, match='frozen task URL'):
-        normalized_http_parameters(case, args)
+        normalized_http_parameters(instance, case, args)
     del args['json_body']['extract']['dom_id']
     args['json_body']['extract']['url'] = 'https://other.example/'
     with pytest.raises(ValueError, match='frozen task URL'):
-        normalized_http_parameters(case, args)
+        normalized_http_parameters(instance, case, args)
 
 
 @pytest.mark.parametrize('status,raw', [

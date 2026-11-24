@@ -25,6 +25,16 @@ _ENGINES = {
 
 class LexmountProvider(Provider):
     capability_flags = frozenset({'malformed_envelope_is_evidence'})
+
+    def normalize_native_http_body(self, body, case):
+        if 'url' in body or 'urls' in body:
+            return super().normalize_native_http_body(body, case)
+        extract = body.get('extract')
+        if (isinstance(extract, dict) and 'dom_id' not in extract
+                and extract.get('url') in (case.url, encode_http_target_url(case.url))):
+            extract['url'] = '<input-url>'
+            return True
+        return False
     native_configuration_fields = Provider.native_configuration_fields + (
         'engine', 'trace_include_steps')
 

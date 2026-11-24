@@ -57,6 +57,15 @@ class ClaudeFetchProvider(Provider):
     capability_flags = frozenset({'malformed_envelope_is_evidence'})
     native_configuration_fields = (*Provider.native_configuration_fields, 'model', 'max_tokens', 'tool')
 
+    def normalize_native_http_body(self, body, case):
+        if 'url' in body or 'urls' in body:
+            return super().normalize_native_http_body(body, case)
+        if (body.get('messages') == [{'role': 'user', 'content': case.url}]
+                and body.get('tool_choice') == {'type': 'tool', 'name': 'web_fetch'}):
+            body['messages'][0]['content'] = '<input-url>'
+            return True
+        return False
+
     def __init__(self, name, config):
         super().__init__(name, config)
         self._process = None
