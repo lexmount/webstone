@@ -23,12 +23,16 @@ NUMBER = (int, float)
 TEXT = (str,)
 OPTIONAL_TEXT = (str, type(None))
 
-# Common role -> accepted value types. Every schema binds each role to a field.
+# Common role -> accepted value types. Every schema binds each role to a field, or to
+# ``None`` when its record kind does not carry the role (a call record whose verdict
+# comes from scoring, or a row that is itself the bound evidence file).
 COMMON_ROLES: dict[str, tuple[type, ...]] = {
     "method": TEXT,      # method (provider, browser or model configuration) identity
-    "case": TEXT,        # task or case identifier
+    "case": (str, int),  # task or case identifier; some benchmarks number their tasks
     "elapsed": NUMBER,   # call duration in milliseconds
-    "evidence": TEXT,    # binding to the raw output: run-relative path or digest
+    # Binding to the raw output: run-relative path, digest, or an object of such bindings
+    # (for example ``{"path", "sha256"}`` or one path per artifact).
+    "evidence": (str, dict),
     "verdict": (bool,),  # whether the call delivered a usable response
 }
 
@@ -41,7 +45,7 @@ class RecordSchemaError(ValueError):
 class RecordSchema:
     name: str
     version: int
-    roles: Mapping[str, str]
+    roles: Mapping[str, str | None]
     fields: Mapping[str, tuple[type, ...]] = field(default_factory=dict)
     optional: Mapping[str, tuple[type, ...]] = field(default_factory=dict)
     # Roles whose field may hold null, such as the elapsed time of an untimed call.
@@ -50,8 +54,8 @@ class RecordSchema:
     def __post_init__(self) -> None:
         if set(self.roles) != set(COMMON_ROLES):
             raise ValueError(f"{self.id}: bind every common role: {', '.join(COMMON_ROLES)}")
-        if not self.nullable <= set(COMMON_ROLES):
-            raise ValueError(f"{self.id}: only common roles can be nullable")
+        if not self.nullable <= {role for role, key in self.roles.items() if key is not None}:
+            raise ValueError(f"{self.id}: only bound common roles can be nullable")
 
     @property
     def id(self) -> str:
@@ -59,7 +63,7 @@ class RecordSchema:
 
     def required(self) -> dict[str, tuple[type, ...]]:
         roles = {self.roles[role]: (*types, type(None)) if role in self.nullable else types
-                 for role, types in COMMON_ROLES.items()}
+                 for role, types in COMMON_ROLES.items() if self.roles[role] is not None}
         return {**roles, **self.fields}
 
     def extend(self, name: str, version: int, **fields: tuple[type, ...]) -> RecordSchema:

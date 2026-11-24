@@ -12,14 +12,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from harness.browser_use.publication import read_attempts
 from harness.browser_use.selection import load_pilot
-from harness.record_io import file_sha256, load_jsonl
+from harness.record_io import file_sha256
 
 REQUIRED_ARTIFACTS = ("network_har", "agent_trace", "response", "evaluation", "events")
-
-
-def _read_attempts(path: Path) -> list[dict[str, Any]]:
-    return load_jsonl(path, skip_blank=True)
 
 
 def review_results(*, evidence: Path, selection_sha256: str) -> dict[str, Any]:
@@ -33,7 +30,7 @@ def review_results(*, evidence: Path, selection_sha256: str) -> dict[str, Any]:
     if manifest.get("selection_sha256") != selection_sha256:
         raise ValueError("manifest does not match the pre-registered selection")
 
-    rows = _read_attempts(attempts_path)
+    rows = read_attempts(attempts_path)
     model = str((manifest.get("protocol") or {}).get("model") or "")
     if not model:
         raise ValueError("manifest protocol must identify the evidence model")

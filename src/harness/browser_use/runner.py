@@ -23,6 +23,7 @@ from webarena_verified.environments.container.manager import ContainerManager
 
 from harness.benchmark_execution import exclusive_policy
 from harness.browser_use.model import OpenAIResponsesModel
+from harness.browser_use.publication import ATTEMPT_RECORD
 from harness.browser_use.selection import PilotTask, load_pilot, validate_against_official
 from harness.container_isolation import require_linux_cgroup_v2
 from harness.env_file import parse_env_file
@@ -69,7 +70,7 @@ from harness.resource_accounting import (
     ResourceSampler,
 )
 
-SCHEMA = "lex_browser_use_attempt/1"
+SCHEMA = ATTEMPT_RECORD.id
 
 
 def _read_dotenv(path: Path) -> dict[str, str]:

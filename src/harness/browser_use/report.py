@@ -30,6 +30,7 @@ from harness.browser_use.failure_cause_review import (
     review_path as failure_review_path,
 )
 from harness.browser_use.publication import (
+    read_attempts,
     evaluator_summary,
     evidence_metadata,
     read_public_json,
@@ -212,11 +213,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _read_attempts(evidence: Path) -> list[dict[str, Any]]:
     path = evidence / "attempts.jsonl"
-    return (
-        load_jsonl(path, skip_blank=True)
-        if path.is_file()
-        else []
-    )
+    return read_attempts(path) if path.is_file() else []
 
 
 def _evidence_paths(evidence: Path | Iterable[Path]) -> list[Path]:
