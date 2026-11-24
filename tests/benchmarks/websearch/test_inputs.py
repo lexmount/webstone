@@ -210,17 +210,20 @@ def test_benchmark_runtime_avoids_execution_tracks_and_provider_clients():
             ), path.name
 
 
-def test_current_cli_uses_suite_names_and_preserves_frozen_snapshots(tmp_path):
-    import subprocess
-    import sys
+def test_current_cli_uses_suite_names_and_preserves_frozen_snapshots(monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from lexbench_websearch.cli import main
 
     def call(*args):
-        return subprocess.run(
-            [sys.executable, "-m", "lexbench_websearch.cli", *args],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-        )
+        monkeypatch.setattr("sys.argv", ["lexbench-websearch", *args])
+        try:
+            main()
+            code = 0
+        except SystemExit as stopped:
+            code = stopped.code
+        out, err = capsys.readouterr()
+        return SimpleNamespace(returncode=code, stdout=out, stderr=err)
 
     listed = call("list")
     assert listed.returncode == 0

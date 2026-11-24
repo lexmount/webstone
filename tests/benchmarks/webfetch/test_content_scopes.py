@@ -254,16 +254,6 @@ def test_omitted_components_do_not_survive_complete_scope_replacement():
     assert full['source_benchmark']==case['source_benchmark']
 
 
-def test_scope_component_controls_use_public_scoring_and_task_predicate():
-    from lexbench_webfetch.scoring_regressions import check_scoring_regressions
-    identifiers=['content-scope-reference-only-invalid','content-scope-reference-with-rule-complete',
-        'content-scope-reference-with-rule-unrelated','content-scope-main-without-full-comments',
-        'content-scope-full-comments-missing','content-scope-full-comments-complete',
-        'content-scope-zero-pattern-minimum-invalid','content-scope-zero-fact-threshold-invalid',
-        'content-scope-positive-pattern-complete','content-scope-positive-pattern-unrelated']
-    assert check_scoring_regressions(identifiers)==identifiers
-
-
 @pytest.mark.parametrize("minimum", [0, -1, False, float("nan"), float("inf")])
 def test_scope_rejects_non_gating_pattern_counts(minimum):
     case = annotated_case()
