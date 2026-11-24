@@ -126,9 +126,11 @@ def measured_shard(root, provider, records, profile):
         (root / relative).write_text("synthetic response", encoding="utf-8")
         row = {"provider": provider, "track_id": case, "ok": True,
                "attempt_id": f"{provider}__{case}__r001", "artifact_path": relative,
-               "output_sha256": file_sha256(root / relative), "physical_attempt_count": 1}
+               "output_sha256": file_sha256(root / relative), "physical_attempt_count": 1,
+               "elapsed_ms": 10}
         rows.append(row)
         calls.append({"provider": provider, "track_id": case, "attempt_id": f"{provider}__{case}__p01",
+                      "physical_attempt": 1, "ok": True, "elapsed_ms": 10,
                       "physical_artifact_path": relative, "output_sha256": row["output_sha256"]})
     write_rows(root / "results.jsonl", rows)
     write_rows(root / "physical-attempts.jsonl", calls)

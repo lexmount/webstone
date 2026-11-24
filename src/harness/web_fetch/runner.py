@@ -47,7 +47,8 @@ from harness.web_fetch.benchmarks import LiveSuite
 from harness.web_fetch.call_boundary import fetch_with_deadline, worker_unresolved
 from harness.web_fetch.config import DEFAULT_FAILURE_RETRIES, load_provider_config
 from harness.web_fetch.diagnostics import CallDiagnostics
-from harness.web_fetch.models import AttemptRecord, ProviderResult
+from harness.record_schema import validate_records
+from harness.web_fetch.models import CALL_RECORD, AttemptRecord, ProviderResult
 from harness.web_fetch.native_projection import (
     require_native_answer_projection,
     require_native_projection_schema,
@@ -1119,7 +1120,9 @@ def run_evaluation(
 
 
 def load_records(run_dir: Path) -> list[dict[str, Any]]:
-    return load_jsonl(contained_path(run_dir, "results.jsonl"), skip_blank=True)
+    """The run's call records, validated before the score stage reads them."""
+    return validate_records(load_jsonl(contained_path(run_dir, "results.jsonl"), skip_blank=True),
+                            CALL_RECORD, source="results.jsonl")
 
 
 def rescore_evaluation(

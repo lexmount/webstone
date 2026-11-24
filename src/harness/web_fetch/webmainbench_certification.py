@@ -13,6 +13,8 @@ from pathlib import Path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256
+from harness.record_schema import read_records
+from harness.web_fetch.models import FROZEN_CALL_RECORD, FROZEN_RESULT
 from harness.web_fetch.config import load_provider_config
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers.headless import engine_definition
@@ -103,8 +105,9 @@ def verify_source_checkout(profile: dict, checkout: Path | None) -> None:
 
 
 def verify_shard(shard: Path, provider: str, case_ids: set[str], profile: dict) -> dict:
-    rows = read_jsonl(contained_path(shard, "results.jsonl", reject_symlinks=True))
-    physical = read_jsonl(contained_path(shard, "physical-attempts.jsonl", reject_symlinks=True))
+    rows = read_records(contained_path(shard, "results.jsonl", reject_symlinks=True), FROZEN_RESULT)
+    physical = read_records(contained_path(shard, "physical-attempts.jsonl", reject_symlinks=True),
+                            FROZEN_CALL_RECORD)
     execution = _read_json(shard, "execution.json")
     dataset = _read_json(shard, "dataset.json")
     if (len(rows) != profile["case_count"] or {row["track_id"] for row in rows} != case_ids

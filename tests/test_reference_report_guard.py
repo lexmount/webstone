@@ -15,7 +15,8 @@ class ReferenceReportGuardTests(unittest.TestCase):
                 'track': 'web', 'ground_truth_main_content': 'new answer'}
         record = {'attempt_id': 'p__c__r001', 'provider': 'p', 'case_id': 'c',
                   'artifact_path': 'artifacts/p/c/run.txt',
-                  'metrics': {'scoring_source_sha256': SCORING_SOURCE_SHA256}, 'ok': True}
+                  'metrics': {'scoring_source_sha256': SCORING_SOURCE_SHA256}, 'ok': True,
+                  'started_at': '2026-01-01T00:00:00+00:00', 'elapsed_ms': 1.0}
         (root/'dataset.json').write_text(json.dumps({'cases': [case]}), encoding='utf-8')
         (root/'results.jsonl').write_text(json.dumps(record)+'\n', encoding='utf-8')
         (root/'manifest.json').write_text(json.dumps({'attempt_ids': [record['attempt_id']],

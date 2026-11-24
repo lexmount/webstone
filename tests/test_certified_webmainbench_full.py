@@ -39,8 +39,9 @@ def _cohort(tmp_path: Path) -> Path:
         rows.append({"provider": "moli", "track_id": case_id, "ok": True,
                      "attempt_id": f"moli-{case_id}-logical",
                      "artifact_path": logical_path, "output_sha256": _digest(body),
-                     "physical_attempt_count": 1})
+                     "physical_attempt_count": 1, "elapsed_ms": 10})
         calls.append({"provider": "moli", "attempt_id": f"moli-{case_id}-1", "track_id": case_id,
+                      "physical_attempt": 1, "ok": True, "elapsed_ms": 10,
                       "physical_artifact_path": physical_path, "output_sha256": _digest(body)})
     _write_jsonl(shard / "results.jsonl", rows)
     _write_jsonl(shard / "physical-attempts.jsonl", calls)

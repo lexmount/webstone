@@ -16,6 +16,7 @@ from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
 from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 
 from harness.record_io import file_sha256, load_jsonl, optional_file_sha256
+from harness.record_schema import read_records, validate_records
 from harness.report_languages import generated_languages, includes_english, select_report_language
 from harness.reporting.assets import copy_bound_assets, load_bound_content
 from harness.reporting.templates import resolve_template
@@ -37,6 +38,7 @@ from harness.web_fetch.artifacts import (
 from harness.web_fetch.cohort_exclusions import require_cohort_exclusions
 from harness.web_fetch.failure_diagnosis import diagnose
 from harness.web_fetch.local_audit import require_local_audit
+from harness.web_fetch.models import FROZEN_SCORED_RESULT, SCORED_RESULT
 from harness.web_fetch.local_revision import (
     require_current_task_replacement,
     require_local_task_replacement,
@@ -88,7 +90,7 @@ from harness.data_home import data_home
 from harness.web_fetch.storage import require_selection_history
 from harness.web_fetch.wcxb_dataset import validate_manifest
 from harness.web_fetch.wcxb_latency import load_full_paired_latency
-from harness.web_fetch.wcxb_scoring import paired_latency_methods
+from harness.web_fetch.wcxb_scoring import SCORED_RESULT as WCXB_SCORED_RESULT, paired_latency_methods
 from harness.web_fetch.webmainbench_correction import validate as validate_case_correction
 from harness.web_fetch.webmainbench_diagnostics import (
     validate_reference_revision,
@@ -551,7 +553,8 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             content_scope = saved_scope
     if authored_interpretation is None:
         authored_interpretation = bool(dataset.get('comparison', {}).get('report_interpretation'))
-    records = load_jsonl(contained_path(source,'results.jsonl'))
+    records = validate_records(load_jsonl(contained_path(source,'results.jsonl')), SCORED_RESULT,
+                               source='results.jsonl')
     validate_report_ids(dataset,records)
     require_risk_control_certification(source, dataset, records)
     cases = {c['id']:c for c in dataset['cases']}
@@ -1025,7 +1028,7 @@ def build_webmainbench_report(source: Path, output: Path, *, include_english: bo
     report_content = load_bound_content(
         content_source, content_binding, evidence_root=source, authority_root=authority)
     dataset = json.loads(contained_path(source, 'dataset.json').read_text(encoding='utf-8'))
-    records = load_jsonl(contained_path(source, 'results.jsonl'), skip_blank=True)
+    records = read_records(contained_path(source, 'results.jsonl'), FROZEN_SCORED_RESULT)
     teds_revision = validate_teds_revision_if_present(source, records)
     summaries = json.loads(contained_path(source, 'score-summaries.json').read_text(encoding='utf-8'))
     manifests = json.loads(contained_path(source, 'execution.json').read_text(encoding='utf-8'))['batches']
@@ -1170,7 +1173,7 @@ def build_webmainbench_full_report(source: Path, output: Path, *, authority_root
             or scoring_certificate.get('source_binding') != certificate['postflight']):
         raise ValueError('Complete scoring certificate mismatch')
     dataset = json.loads((source / 'dataset.json').read_text(encoding='utf-8'))
-    records = read_jsonl(source / 'results.jsonl')
+    records = read_records(source / 'results.jsonl', FROZEN_SCORED_RESULT)
     repo = authority_root
     registry_path = repo / 'evaluation/webmainbench-full/moli-variants.json'
     registry = json.loads(registry_path.read_text(encoding='utf-8'))
@@ -1409,7 +1412,7 @@ def build_wcxb_report(source: Path, corpus: Path, sample_path: Path, profile: di
     if [x['provider'] for x in certificate['providers']] != providers:
         raise ValueError('WCXB participant registry differs from the certificate')
     paired_methods = paired_latency_methods(profile, certificate) if profile.get('latency_correction_receipt_sha256') else {}
-    rows = load_jsonl(source / 'wcxb-scores.jsonl', skip_blank=True)
+    rows = read_records(source / 'wcxb-scores.jsonl', WCXB_SCORED_RESULT)
     case_ids = {r['track_id'] for r in records}
     if profile.get('latency_correction_receipt_sha256'):
         correction_root = source / 'latency-correction'
@@ -1631,7 +1634,8 @@ def validate_local_presentation(output: Path, binding_path: Path):
     if binding.get('publication_projection'):
         require_host_metadata_projection(output, binding['publication_projection'])
     dataset = json.loads((output / 'dataset.json').read_text(encoding='utf-8'))
-    records = load_jsonl(contained_path(output, 'results.jsonl'))
+    records = validate_records(load_jsonl(contained_path(output, 'results.jsonl')), SCORED_RESULT,
+                               source='results.jsonl')
     check_release(output, dataset, records)
     if binding.get('publication_evidence_views'):
         require_public_evidence_view_inventory(output, binding['publication_evidence_views'], records)

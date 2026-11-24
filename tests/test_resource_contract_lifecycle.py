@@ -211,6 +211,8 @@ class ResourceContractLifecycleTests(unittest.TestCase):
                 "content_sha256": hashlib.sha256(b"output").hexdigest(),
             },
             "ok": True,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "elapsed_ms": 1.0,
         }
         wrong = digest({
             "expected_resources": case["expected_resources"],

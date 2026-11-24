@@ -14,7 +14,9 @@ from pathlib import Path
 
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
+from harness.record_schema import read_records
 from harness.reporting.privacy import WEBMAINBENCH
+from harness.web_fetch.models import FROZEN_CALL_RECORD, FROZEN_RESULT, FROZEN_SCORED_RESULT
 from harness.web_fetch.webmainbench_certification import verify_shard
 from harness.web_fetch.webmainbench_evidence import (
     alias_row,
@@ -141,7 +143,7 @@ def _assemble_cohort(
             raise ValueError(
                 provider + ": score certificate differs from verified scores"
             )
-        rows = read_jsonl(shard / "scored-results.jsonl")
+        rows = read_records(shard / "scored-results.jsonl", FROZEN_SCORED_RESULT)
         if not reviewed_sample and (
             scored_receipt["scored_results_sha256"]
             != file_sha256(shard / "scored-results.jsonl")
@@ -173,14 +175,14 @@ def _assemble_cohort(
                     or summary.get("scorer", {}).get("metric_config") != score_config
                     or summary.get("official_aggregate") != aggregate(rows)):
                 raise ValueError(provider + ": scored summary differs from declared sample contract")
-        logical = {row["track_id"]: row for row in read_jsonl(shard / "results.jsonl")}
+        logical = {row["track_id"]: row for row in read_records(shard / "results.jsonl", FROZEN_RESULT)}
         for row in rows:
             base = logical[row["track_id"]]
             if {k: v for k, v in row.items() if k != "metrics"} != base:
                 raise ValueError(provider + ": scoring changed measured result")
             copy_bound(shard, output, row["artifact_path"], row["output_sha256"])
             results.append(public_value({**row, "case_id": row["track_id"]}))
-        attempts = read_jsonl(shard / "physical-attempts.jsonl")
+        attempts = read_records(shard / "physical-attempts.jsonl", FROZEN_CALL_RECORD)
         for attempt in attempts:
             copy_bound(
                 shard,

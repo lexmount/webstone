@@ -40,7 +40,7 @@ def test_run_accepts_selection_bound_to_actual_historical_or_corrected_corpus(tm
     selected = sample(tmp_path / 'selection.json', parent)
     monkeypatch.setattr(dataset, 'selected_input', lambda *args: (tmp_path / 'source.jsonl', parent, 'c' * 40))
     calls = []
-    def load(path, ids, expected):
+    def load(path, ids, expected, **_):
         calls.append((ids, expected))
         return [{'track_id': 'shared-case'}]
     monkeypatch.setattr(dataset, 'load_source', load)
