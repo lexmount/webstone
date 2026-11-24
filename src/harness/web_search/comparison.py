@@ -383,8 +383,10 @@ def metric_definitions(panel, level, labels, zh=False):
         'source_hit': (t('matched queries / all queries'), t('Query fraction with a verified reference page in the first five. URL equivalents and verified document copies count.')),
         'answer_match': (t('matched queries / all queries'), t('Reference-answer text appears in a title or primary preview among the first five results. Explicit aliases and numeric ranges are accepted; this is not answer correctness.') if level == 'l1' else t('Reference-answer text appears in an additional excerpt among the first five. Titles and primary previews are excluded; this is not answer correctness.')),
         'answer_grade': (t('mean(grade), 0–3'), t('Generated-answer usefulness is graded 0–3, then averaged over all scenario queries.')),
-        'correct': (t('correct / all queries'), t('Official SimpleQA grading: correct answers divided by every factual query. Incorrect, missing and not-attempted answers do not count as correct.')),
     }
+    for item in search_benchmarks():
+        definitions.update({key: (t(formula), t(explanation))
+                            for key, (formula, explanation) in item.text.get('metric_notes', {}).items()})
     definitions['publisher_rr'] = (definitions['source_rr'][0], t('Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.'))
     definitions['publisher_hit'] = (definitions['source_hit'][0], t('Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.'))
     body = '<details class="metric-guide" data-metric-definitions><summary>' + t('Metric definitions') + '</summary>'
@@ -436,10 +438,13 @@ def render_level_summary(view, zh=False, *, content=None):
                   publisher_rr=t('Publisher-only MRR@5'), publisher_hit=t('Publisher-only Hit@5'),
                   failed_calls=t('Failed requests'), empty_outputs=t('Empty outputs'),
                   answer_match=t('Answer Match@5') if level == 'l1' else t('Extra-text Answer Match@5'),
-                  answer_grade=t('Answer usefulness / 3'), correct=t('SimpleQA accuracy'),
+                  answer_grade=t('Answer usefulness / 3'),
                   citation_support=t('Citation support'), cited_urls_in_results=t('Cited URLs in results'),
                   context_characters=t('Text characters / query'), mean_ms=t('Mean ms'),
                   p50_ms=t('P50 ms'), p95_ms=t('P95 ms'))
+    # Benchmark-specific metrics take the label their benchmark declares.
+    labels.update({metric['key']: t(metric['label']) for panel in view['benchmarks'].values()
+                   for metric in panel['metrics'] if metric['key'] not in labels})
     body = '<section class="level-summary" data-level-panel="' + level + '" data-output-level="' + level + '" id="' + level + '">'
     body += '<h2>' + level.upper() + ' · ' + titles[level] + '</h2>'
     if len(methods) > 1:

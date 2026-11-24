@@ -98,6 +98,7 @@ def catalog_keys():
     keys = {GUIDE_OVERVIEW}
     for item in ordered():
         keys.add(item.label)
+        keys.update(label for level in ('l1', 'l2', 'l3') for _, label in item.metric_sets(level, []))
         for value in item.text.values():
             if isinstance(value, str):
                 keys.add(value)
@@ -224,6 +225,10 @@ BENCHMARKS.register('factual', SearchBenchmark(
             l3=('Is the generated answer correct against the reference answer?',
                 'The official SimpleQA rubric classifies answers as correct, incorrect or not attempted.')),
         model_graded=frozenset({'l3'}),
+        metric_notes=dict(correct=(
+            'correct / all queries',
+            'Official SimpleQA grading: correct answers divided by every factual query. Incorrect, missing and '
+            'not-attempted answers do not count as correct.')),
         purpose=dict(
             l1='Factual questions test whether the first five results find a verified reference page and rank it early.',
             l2='Factual questions test answer-text coverage in additional excerpts, excluding titles and primary previews.',
