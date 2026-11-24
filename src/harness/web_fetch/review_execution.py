@@ -1357,7 +1357,7 @@ CONTENT_SCHEMA = {
 }
 
 
-def prepare_content_review(evidence, correction, work, *, provider="moli-fixed"):
+def prepare_content_review(evidence, correction, work, *, provider):
     reject_evidence_symlinks(evidence)
     reject_evidence_symlinks(correction)
     bindings = content_review_bindings(evidence, correction, provider)
@@ -1561,7 +1561,8 @@ def content_review_main(argv=None):
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--correction", type=Path, required=True)
     parser.add_argument("--work", type=Path, required=True)
-    parser.add_argument("--provider", default="moli-fixed")
+    parser.add_argument("--provider", required=True,
+                        help="Evidence alias of the corrected method under review")
     parser.add_argument("--model", default="gpt-6-astra")
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--workers", type=int, default=3)
