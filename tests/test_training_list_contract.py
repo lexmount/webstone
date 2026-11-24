@@ -47,11 +47,11 @@ def test_complete_list_passes_public_scorer(combined):
     assert task_passed(True,result,case['task_kind']) is True
 
 
-@pytest.mark.parametrize('missing',['title','number','name','attempts','accepted','difficulty'])
-def test_incomplete_training_list_fails_public_scorer(missing):
+def test_incomplete_training_list_fails_public_scorer():
     case=training_case()
-    result=score_attempt(case,training_output(missing=missing).encode(),ok=True,final_url=case['url'])
-    assert task_passed(True,result,case['task_kind']) is False
+    for missing in ('title','number','name','attempts','accepted','difficulty'):
+        result=score_attempt(case,training_output(missing=missing).encode(),ok=True,final_url=case['url'])
+        assert task_passed(True,result,case['task_kind']) is False, missing
 
 
 def test_training_quantity_and_section_scope_remain_required():

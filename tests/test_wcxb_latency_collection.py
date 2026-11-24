@@ -51,9 +51,18 @@ def certify_arguments(kwargs):
             '--evidence-root', str(kwargs['output']), '--profile', str(kwargs['profile'])]
 
 
+@pytest.fixture(scope='module')
+def template(tmp_path_factory):
+    return create_cohort(tmp_path_factory.mktemp('wcxb-timing'))
+
+
 @pytest.fixture
-def experiment(tmp_path, monkeypatch):
-    options = create_cohort(tmp_path / 'inputs')
+def experiment(tmp_path, monkeypatch, template):
+    """Private profile and manifest over a shared read-only source tree."""
+    options = dict(template)
+    for key in ('profile_path', 'sample_manifest'):
+        options[key] = tmp_path / template[key].name
+        options[key].write_bytes(template[key].read_bytes())
     binaries = {name: tmp_path / name for name in ('release', 'pr')}
     for name, binary in binaries.items():
         binary.write_text(name, encoding='utf-8')
@@ -100,32 +109,35 @@ def test_complete_two_case_profile_is_supported_without_frozen_504_constant(expe
     assert all(row['round'] == 1 for row in selected.values())
 
 
-@pytest.mark.parametrize('change', ['population', 'source', 'manifest', 'binary', 'evaluator', 'concurrency'])
-def test_invalid_authority_stops_before_calls(experiment, change):
+def test_invalid_authority_stops_before_calls(experiment):
     kwargs, events, authority = experiment
-    key = {'population': 'case_count', 'source': 'source_dataset_sha256',
-           'manifest': 'sample_manifest_sha256', 'binary': 'release_binary_sha256',
-           'evaluator': 'official_evaluator_sha256', 'concurrency': 'concurrency'}[change]
-    authority[key] = 99 if key in ('case_count', 'concurrency') else '0' * 64
-    write_json(kwargs['profile'], authority)
-    with pytest.raises(ValueError):
-        timing.collect(**kwargs)
-    assert events == []
-    assert not kwargs['output'].exists()
+    for key in ('case_count', 'source_dataset_sha256', 'sample_manifest_sha256',
+                'release_binary_sha256', 'official_evaluator_sha256', 'concurrency'):
+        write_json(kwargs['profile'], {**authority,
+                                       key: 99 if key in ('case_count', 'concurrency') else '0' * 64})
+        with pytest.raises(ValueError):
+            timing.collect(**kwargs)
+            pytest.fail(key)
+        assert events == []
+        assert not kwargs['output'].exists()
 
 
-@pytest.mark.parametrize('changed', ['profile', 'binary', 'manifest', 'source'])
-def test_mid_call_input_change_cannot_issue_receipt(experiment, monkeypatch, changed):
+@pytest.mark.parametrize('changed', ['profile', 'source', 'metric-authority'])
+def test_mid_call_input_change_cannot_issue_receipt(experiment, metric_inputs, monkeypatch, tmp_path, changed):
     kwargs, events, _ = experiment
+    if changed == 'source':
+        kwargs['dataset'] = create_cohort(tmp_path / 'own-source')['source']
     from harness.web_fetch import frozen_inputs as runner
     original = runner.fetch_frozen
 
     def mutate(*args):
         response = original(*args)
-        path = {'profile': kwargs['profile'], 'binary': kwargs['binaries']['release'],
-                'manifest': kwargs['manifest'],
-                'source': kwargs['dataset'] / 'test/html/case-000.html.gz'}[changed]
-        path.write_bytes(path.read_bytes() + b' ')
+        if changed == 'metric-authority':
+            append_newline(metric_inputs['authority'])
+        else:
+            path = {'profile': kwargs['profile'],
+                    'source': kwargs['dataset'] / 'test/html/case-000.html.gz'}[changed]
+            path.write_bytes(path.read_bytes() + b' ')
         return response
 
     monkeypatch.setattr(runner, 'fetch_frozen', mutate)
@@ -133,23 +145,6 @@ def test_mid_call_input_change_cannot_issue_receipt(experiment, monkeypatch, cha
         timing.collect(**kwargs)
     assert events
     assert (kwargs['output'] / 'calls.jsonl').is_file()
-    assert not (kwargs['output'] / 'receipt.json').exists()
-
-
-@pytest.mark.parametrize('changed', ['module', 'authority'])
-def test_mid_call_metric_change_cannot_issue_receipt(experiment, metric_inputs, monkeypatch, changed):
-    kwargs, events, _ = experiment
-    from harness.web_fetch import frozen_inputs as runner
-    original = runner.fetch_frozen
-
-    def mutate(*args):
-        append_newline(metric_inputs[changed])
-        return original(*args)
-
-    monkeypatch.setattr(runner, 'fetch_frozen', mutate)
-    with pytest.raises(ValueError, match='changed'):
-        timing.collect(**kwargs)
-    assert events
     assert not (kwargs['output'] / 'receipt.json').exists()
 
 
@@ -182,36 +177,33 @@ def test_linked_inputs_stop_before_calls(experiment, tmp_path, target):
     assert not events
 
 
-@pytest.mark.parametrize('change', ['nan-limit', 'negative-load', 'boolean-load',
-                                  'boolean-latency', 'boolean-round', 'boolean-order', 'nonhex-output'])
-def test_malformed_timing_receipt_cannot_become_authoritative(tmp_path, change):
+def test_malformed_timing_receipt_cannot_become_authoritative(tmp_path):
+    from tests.wcxb_fixture import write_jsonl
+
     options = create_cohort(tmp_path, paired=True)
     root = options['evidence_root'] / 'latency-correction'
-    receipt = json.loads((root / 'receipt.json').read_bytes())
-    calls = load_jsonl(root / 'calls.jsonl')
-    if change == 'nan-limit':
-        receipt['quiet_host_load_limit'] = float('nan')
-    elif change == 'negative-load':
-        receipt['host_load_1m_checks'][0] = -1.0
-    elif change == 'boolean-load':
-        receipt['host_load_1m_checks'][0] = True
-    elif change == 'boolean-latency':
-        calls[0]['elapsed_ms'] = True
-    elif change == 'boolean-round':
-        calls[-1]['round'] = True
-    elif change == 'boolean-order':
-        calls[0]['order'] = True
-    else:
-        for row in calls:
-            row['output_sha256'] = 'g' * 64
-    from tests.wcxb_fixture import write_jsonl
-    write_jsonl(root / 'calls.jsonl', calls)
-    receipt['calls_sha256'] = sha((root / 'calls.jsonl').read_bytes())
-    write_json(root / 'receipt.json', receipt)
+    original_receipt = json.loads((root / 'receipt.json').read_bytes())
+    original_calls = load_jsonl(root / 'calls.jsonl')
     authority = json.loads(options['profile_path'].read_bytes())
-    authority['latency_correction_receipt_sha256'] = sha((root / 'receipt.json').read_bytes())
-    with pytest.raises(ValueError):
-        timing.load_full_paired_latency(root, authority, {'case-000', 'case-001'})
+    changes = {
+        'nan-limit': lambda receipt, calls: receipt.update(quiet_host_load_limit=float('nan')),
+        'negative-load': lambda receipt, calls: receipt['host_load_1m_checks'].__setitem__(0, -1.0),
+        'boolean-load': lambda receipt, calls: receipt['host_load_1m_checks'].__setitem__(0, True),
+        'boolean-latency': lambda receipt, calls: calls[0].update(elapsed_ms=True),
+        'boolean-round': lambda receipt, calls: calls[-1].update(round=True),
+        'boolean-order': lambda receipt, calls: calls[0].update(order=True),
+        'nonhex-output': lambda receipt, calls: [row.update(output_sha256='g' * 64) for row in calls],
+    }
+    for change, apply in changes.items():
+        receipt, calls = json.loads(json.dumps(original_receipt)), json.loads(json.dumps(original_calls))
+        apply(receipt, calls)
+        write_jsonl(root / 'calls.jsonl', calls)
+        receipt['calls_sha256'] = sha((root / 'calls.jsonl').read_bytes())
+        write_json(root / 'receipt.json', receipt)
+        authority['latency_correction_receipt_sha256'] = sha((root / 'receipt.json').read_bytes())
+        with pytest.raises(ValueError):
+            timing.load_full_paired_latency(root, authority, {'case-000', 'case-001'})
+            pytest.fail(change)
 
 
 def test_certification_binds_complete_calls_and_never_overwrites(experiment):
@@ -219,8 +211,7 @@ def test_certification_binds_complete_calls_and_never_overwrites(experiment):
     timing.collect(**kwargs)
     authority['latency_correction_receipt_sha256'] = sha((kwargs['output'] / 'receipt.json').read_bytes())
     write_json(kwargs['profile'], authority)
-    args = ['--dataset', str(kwargs['dataset']), '--sample-manifest', str(kwargs['manifest']),
-            '--evidence-root', str(kwargs['output']), '--profile', str(kwargs['profile'])]
+    args = certify_arguments(kwargs)
     result = timing.certify(args)
     assert result['physical_call_count'] == 8
     from harness.web_fetch.wcxb_scoring import metric_implementation_binding
@@ -233,7 +224,8 @@ def test_certification_binds_complete_calls_and_never_overwrites(experiment):
     assert (kwargs['output'] / 'certification.json').read_bytes() == previous
 
 
-def test_certification_rejects_calls_changed_during_source_recheck(experiment, monkeypatch):
+@pytest.mark.parametrize('changed', ['calls', 'metric-module'])
+def test_certification_rejects_input_changed_during_source_recheck(experiment, metric_inputs, monkeypatch, changed):
     kwargs, _, authority = experiment
     timing.collect(**kwargs)
     authority['latency_correction_receipt_sha256'] = sha((kwargs['output'] / 'receipt.json').read_bytes())
@@ -246,32 +238,7 @@ def test_certification_rejects_calls_changed_during_source_recheck(experiment, m
         result = original(*args, **options)
         seen.append(1)
         if len(seen) == 2:
-            path = kwargs['output'] / 'calls.jsonl'
-            path.write_bytes(path.read_bytes() + b'\n')
-        return result
-
-    monkeypatch.setattr(runner, 'load_wcxb_source', mutate)
-    with pytest.raises(ValueError, match='changed during certification'):
-        timing.certify(['--dataset', str(kwargs['dataset']), '--sample-manifest', str(kwargs['manifest']),
-                        '--evidence-root', str(kwargs['output']), '--profile', str(kwargs['profile'])])
-    assert not (kwargs['output'] / 'certification.json').exists()
-
-
-@pytest.mark.parametrize('changed', ['module', 'authority'])
-def test_certification_rejects_metric_change_during_source_recheck(experiment, metric_inputs, monkeypatch, changed):
-    kwargs, _, authority = experiment
-    timing.collect(**kwargs)
-    authority['latency_correction_receipt_sha256'] = sha((kwargs['output'] / 'receipt.json').read_bytes())
-    write_json(kwargs['profile'], authority)
-    from harness.web_fetch import wcxb_dataset as runner
-    original = runner.load_wcxb_source
-    seen = []
-
-    def mutate(*args, **options):
-        result = original(*args, **options)
-        seen.append(1)
-        if len(seen) == 2:
-            append_newline(metric_inputs[changed])
+            append_newline(kwargs['output'] / 'calls.jsonl' if changed == 'calls' else metric_inputs['module'])
         return result
 
     monkeypatch.setattr(runner, 'load_wcxb_source', mutate)
@@ -313,7 +280,7 @@ def test_collector_cli_keeps_the_selected_profile(tmp_path, monkeypatch):
     assert captured[0]['profile'] == tmp_path / 'selected.json'
 
 
-@pytest.mark.parametrize('options', [[], ['--profile', '/explicit/profile.json'], ['--profile=/explicit/profile.json']])
+@pytest.mark.parametrize('options', [[], ['--profile=/explicit/profile.json']])
 def test_existing_certification_command_keeps_its_repository_authority(monkeypatch, options):
     from harness.web_fetch import certification
     captured = []

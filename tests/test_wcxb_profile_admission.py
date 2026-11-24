@@ -1,5 +1,6 @@
 """Profile-bound WCXB selections and metric results stay authoritative at admission."""
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -14,10 +15,25 @@ class AdmissionPassed(RuntimeError):
     pass
 
 
-@pytest.mark.parametrize('mismatch', ['summary', 'certificate', 'missing-new-summary'])
-def test_report_builder_rejects_metric_binding_before_creating_output(tmp_path, monkeypatch, mismatch):
-    options = create_cohort(tmp_path / 'cohort')
+@pytest.fixture(scope='module')
+def scored_template(tmp_path_factory):
+    options = create_cohort(tmp_path_factory.mktemp('wcxb-admission'))
     wcxb_scoring.score(**options)
+    return options
+
+
+@pytest.fixture
+def scored(tmp_path, scored_template):
+    """A private copy of scored evidence over the shared read-only source."""
+    options = dict(scored_template)
+    options['evidence_root'] = tmp_path / 'evidence'
+    shutil.copytree(scored_template['evidence_root'], options['evidence_root'], symlinks=True)
+    return options
+
+
+@pytest.mark.parametrize('mismatch', ['summary', 'certificate', 'missing-new-summary'])
+def test_report_builder_rejects_metric_binding_before_creating_output(tmp_path, scored, monkeypatch, mismatch):
+    options = scored
     profile = json.loads(options['profile_path'].read_bytes())
     name = 'certification.json' if mismatch == 'certificate' else 'wcxb-score-summary.json'
     path = options['evidence_root'] / name
@@ -36,9 +52,8 @@ def test_report_builder_rejects_metric_binding_before_creating_output(tmp_path, 
     assert not output.exists()
 
 
-def test_report_builder_keeps_known_legacy_metric_admission(tmp_path, monkeypatch):
-    options = create_cohort(tmp_path / 'cohort')
-    wcxb_scoring.score(**options)
+def test_report_builder_keeps_known_legacy_metric_admission(tmp_path, scored, monkeypatch):
+    options = scored
     profile = json.loads(options['profile_path'].read_bytes())
     summary = options['evidence_root'] / 'wcxb-score-summary.json'
     value = json.loads(summary.read_bytes())
@@ -76,9 +91,16 @@ def test_other_profile_source_edition_requires_explicit_source(tmp_path, monkeyp
     assert wcxb_dataset.selected_wcxb_input(explicit, profile=profile) == (explicit, selected)
 
 
+@pytest.fixture(scope='module')
+def historical_corpus(tmp_path_factory):
+    return corpus(tmp_path_factory.mktemp('wcxb-511'), 511, historical=True)
+
+
 @pytest.mark.parametrize('defect', [None, 'missing', 'extra', 'reference', 'hash'])
-def test_qualified_v2_selection_from_full_511_source_is_source_verified(tmp_path, defect):
-    source, path, manifest = corpus(tmp_path, 511, historical=True)
+def test_qualified_v2_selection_from_full_511_source_is_source_verified(tmp_path, historical_corpus, defect):
+    source, _, manifest = historical_corpus
+    manifest = json.loads(json.dumps(manifest))
+    path = tmp_path / 'selected.json'
     manifest['schema_version'] = 2
     manifest['cases'] = [{**case, 'url': f"https://example.test/{case['file_id']}",
                           'reference': f"Independent reference {case['file_id']}", 'with': [], 'without': []}

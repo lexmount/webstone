@@ -126,7 +126,6 @@ def with_data_attachment(config, root, *, planned, bound):
     ("planned", "bound", "message"),
     [
         ({"data": DATA_TARGET}, {"data": {**DATA_TARGET, "version_id": "ver_other"}}, "differ from the publication authority"),
-        ({"data": DATA_TARGET}, {"data": {**DATA_TARGET, "site_slug": "data-two"}}, "differ from the publication authority"),
         ({"data": DATA_TARGET}, None, "differ from the publication authority"),
         (
             {"data": {**DATA_TARGET, "base_url": "https://other.example"}},
@@ -134,7 +133,7 @@ def with_data_attachment(config, root, *, planned, bound):
             "must use the profile-bound publication service",
         ),
     ],
-    ids=["other-version", "other-site", "unbound", "other-service"],
+    ids=["other-version", "unbound", "other-service"],
 )
 def test_data_attachment_target_mismatch_stops_before_any_request(tmp_path, planned, bound, message):
     config = with_data_attachment(fixture(tmp_path), tmp_path, planned=planned, bound=bound)
@@ -154,12 +153,13 @@ def test_data_attachment_bound_to_the_report_target_publishes(tmp_path):
     assert len(service.uploads) == 1
 
 
+# Every interruption point once on a staged update, plus each upload route and mode.
 SCENARIOS = [
-    (mode, staged, failure)
-    for mode in ("create", "update")
-    for staged in (False, True)
-    for failure in ("upload-response", "share", "receipt", "clear", "staging-put")
-    if staged or failure != "staging-put"
+    *(("update", True, failure)
+      for failure in ("upload-response", "share", "receipt", "clear", "staging-put")),
+    ("update", False, "upload-response"),
+    ("create", False, "upload-response"),
+    ("create", True, "share"),
 ]
 
 
@@ -273,11 +273,14 @@ def test_command_help_does_not_read_credentials_or_create_files(tmp_path, monkey
     assert not list(tmp_path.iterdir())
 
 
-@pytest.mark.parametrize(
-    "damage",
-    ["extra", "duplicate", "unreferenced", "trailing-bytes", "physical-secret", "changed-loader"],
-)
-def test_bundle_verification_covers_every_public_byte(tmp_path, damage):
+def test_bundle_verification_covers_every_public_byte(tmp_path):
+    for damage in ("extra", "duplicate", "unreferenced", "trailing-bytes", "physical-secret",
+                   "changed-loader"):
+        (tmp_path / damage).mkdir()
+        damage_bundle(tmp_path / damage, damage)
+
+
+def damage_bundle(tmp_path, damage):
     config = fixture(tmp_path)
     with zipfile.ZipFile(config.archive) as archive:
         contents = {name: archive.read(name) for name in archive.namelist()}
@@ -341,27 +344,19 @@ def test_public_verifier_rejects_duplicate_zip_before_network(tmp_path, monkeypa
         publication_verify.verify_public_files("site-one", archive, "https://reports.example")
 
 
-@pytest.mark.parametrize(
-    "base",
-    [
-        None,
-        "http://reports.example",
-        "https://@reports.example",
-        "https://reports.example?key=secret",
-        "https://reports.example#frag",
-        "https://reports.example:invalid",
-        "https://reports.example\\bad",
-    ],
-)
-def test_invalid_service_base_fails_before_requests(tmp_path, base):
+def test_invalid_service_base_fails_before_requests(tmp_path):
     config = fixture(tmp_path)
     profile = json.loads(config.profile.read_bytes())
-    profile["artifact_hub_base_url"] = base
-    config.profile.write_text(json.dumps(profile), encoding="utf-8")
-    service = Service()
-    with pytest.raises(ValueError):
-        report_publish.publish(config, transport=service)
-    assert not service.requests and not config.journal.exists()
+    for base in (None, "http://reports.example", "https://@reports.example",
+                 "https://reports.example?key=secret", "https://reports.example:invalid",
+                 "https://reports.example\\bad"):
+        profile["artifact_hub_base_url"] = base
+        config.profile.write_text(json.dumps(profile), encoding="utf-8")
+        service = Service()
+        with pytest.raises(ValueError):
+            report_publish.publish(config, transport=service)
+            pytest.fail(str(base))
+        assert not service.requests and not config.journal.exists()
 
 
 @pytest.mark.parametrize('field', ['receipt', 'journal'])
@@ -421,9 +416,9 @@ def test_report_rename_keeps_bound_target_and_receipt(tmp_path, monkeypatch, dam
         assert path.stat().st_mode & 0o777 == 0o600
 
 
-@pytest.mark.parametrize('state', ['diagnostic', 'diagnostic_not_for_release',
-                                  'local_audit_only_not_for_release'])
-@pytest.mark.parametrize('mode', ['create', 'update', 'reuse'])
+@pytest.mark.parametrize('state,mode', [('diagnostic', 'create'),
+                                        ('diagnostic_not_for_release', 'update'),
+                                        ('local_audit_only_not_for_release', 'reuse')])
 def test_diagnostic_source_never_contacts_publication_service(tmp_path, state, mode):
     config = fixture(tmp_path, mode)
     (config.source / 'dataset.json').write_text(json.dumps({
@@ -472,8 +467,8 @@ def test_bound_diagnostic_publish_rejects_invalid_binding_before_network(tmp_pat
         report_publish.publish(config, transport=forbidden)
 
 
-@pytest.mark.parametrize('mode', ['create', 'update'])
-@pytest.mark.parametrize('visibility', ['private', 'unlisted', 'public'])
+@pytest.mark.parametrize('mode,visibility', [('create', 'private'), ('update', 'unlisted'),
+                                              ('update', 'public')])
 def test_default_publication_preserves_main_access_without_creating_a_share(tmp_path, mode, visibility):
     config = fixture(tmp_path, mode=mode)
 

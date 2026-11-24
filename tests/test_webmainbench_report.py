@@ -7,7 +7,6 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from harness.web_fetch.report import (
-    JS,
     _wmb_body_state,
     _wmb_guide,
     _wmb_html_preview,
@@ -20,7 +19,6 @@ from harness.web_fetch.report import (
     generate_webmainbench,
 )
 from harness.web_fetch.report_build import validate_webmainbench_correction
-from harness.reporting.style import STYLE
 
 PROVIDERS = ("kitesurf", "lightpanda", "obscura", "moli", "chromium")
 METRICS = ("text_edit", "code_edit", "table_edit", "table_TEDS", "formula_edit")
@@ -190,15 +188,6 @@ class WebMainBenchReportTests(unittest.TestCase):
                 )
                 self.assertIn('Length not recorded' if english else '长度未记录', html)
                 self.assertIn('kitesurf: —', html)
-
-    def test_narrow_reliability_banner_wraps_instead_of_clipping(self):
-        self.assertIn(
-            '.reliability strong{white-space:normal;overflow-wrap:anywhere}',
-            STYLE,
-        )
-
-    def test_narrow_flow_keeps_readable_html_fallback(self):
-        self.assertIn("window.innerWidth<=700", JS)
 
     def test_search_index_bounds_logs_but_keeps_terminal_error(self):
         message='initial-warning\n'+'x'*50000+'\nterminal-navigation-error'

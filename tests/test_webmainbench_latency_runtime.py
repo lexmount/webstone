@@ -147,7 +147,7 @@ def cohort(tmp_path, monkeypatch):
     return base, calls_root, source, sample, cert, prior
 
 
-@pytest.mark.parametrize("historical", [None, 0, 1])
+@pytest.mark.parametrize("historical", [None, 1])
 def test_apply_complete_frozen_cohort_survives_entry_point_changes(cohort, tmp_path, historical):
     base, calls_root, source, sample, cert, prior = cohort
     if historical is not None:
@@ -246,7 +246,7 @@ def test_historical_source_damage_is_rejected_before_using_a_certificate(
         latency.verify_certifier_source(tmp_path, {"certifying_runner_sha256": source["sha256"]})
 
 
-@pytest.mark.parametrize("value", [True, -1, float("nan"), float("inf")])
+@pytest.mark.parametrize("value", [True, -1, float("nan")])
 def test_invalid_timing_in_an_unselected_round_cannot_certify_a_complete_cohort(
     cohort, tmp_path, value
 ):

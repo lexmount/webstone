@@ -8,10 +8,12 @@ from harness.web_fetch.webmainbench_evidence import copy_alias_artifacts, copy_b
 
 
 @pytest.mark.parametrize("boundary", ["full", "variant"])
-@pytest.mark.parametrize(
-    "link", [None, "source_file", "source_directory", "target_file", "target_directory"]
-)
-def test_certified_copy_accepts_bound_bytes_and_rejects_internal_links(tmp_path, boundary, link):
+def test_certified_copy_accepts_bound_bytes_and_rejects_internal_links(tmp_path, boundary):
+    for link in (None, "source_file", "source_directory", "target_file", "target_directory"):
+        check_copy(tmp_path / str(link), boundary, link)
+
+
+def check_copy(tmp_path, boundary, link):
     source, output = tmp_path / "source", tmp_path / "output"
     original = source / "artifacts/original/answer.md"
     original.parent.mkdir(parents=True)

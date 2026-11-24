@@ -1,21 +1,39 @@
 """Certified entry points honor caller paths and reject drift before issuing a receipt."""
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from harness.record_io import file_sha256
 from harness.web_fetch import webmainbench_certification as certification
 from harness.web_fetch.webmainbench_scoring import CORE_METRICS, aggregate
 from tests.webmainbench_case_fixture import certification_fixture, measured_shard, write_rows
 from tests.helpers import write_json
 
 
+CASES = 5
+
+
 @pytest.fixture
 def command_inputs(tmp_path, monkeypatch):
+    """The shared fixture shrunk to five cases; the 545 count is a dataset constant."""
     monkeypatch.chdir(tmp_path)
-    return certification_fixture(tmp_path)
+    root, profile, records = certification_fixture(tmp_path)
+    records = records[:CASES]
+    write_rows(root / "source.jsonl", records)
+    ids = "".join(row["track_id"] + "\n" for row in records).encode()
+    profile.update(
+        case_count=CASES,
+        source_dataset_sha256=file_sha256(root / "source.jsonl"),
+        case_ids_sha256=hashlib.sha256(ids).hexdigest(),
+    )
+    for path in ("profile.json", "evaluation/webmainbench-full/current-report.json"):
+        write_json(root / path, profile)
+    monkeypatch.setattr(certification, "CASE_COUNT", CASES)
+    return root, profile, records
 
 
 def arguments():
@@ -64,27 +82,24 @@ def test_explicit_profile_and_default_config_belong_to_caller_directory(command_
     assert (command_inputs[0] / "run/cohort-certificate.json").is_file()
 
 
-@pytest.mark.parametrize("damage", ["empty", "duplicate", "unknown", "version", "timeout", "retries"])
-def test_invalid_profile_stops_before_any_child(command_inputs, monkeypatch, damage):
-    root, profile, _ = command_inputs
-    if damage == "empty":
-        profile["providers"] = []
-    elif damage == "duplicate":
-        profile["providers"].append(profile["providers"][0])
-    elif damage == "unknown":
-        profile["providers"].append("unregistered")
-    elif damage == "version":
-        del profile["versions"]["obscura"]
-    elif damage == "timeout":
-        profile["timeout_seconds"] = 0
-    else:
-        profile["max_failure_retries"] = -1
-    write_json(root / "profile.json", profile)
+def test_invalid_profile_stops_before_any_child(command_inputs, monkeypatch):
+    root, original, _ = command_inputs
     commands = install_child(command_inputs, monkeypatch)
-    with pytest.raises((SystemExit, ValueError)):
-        certification.main(arguments())
-    assert commands == []
-    assert not (root / "run").exists()
+    providers = original["providers"]
+    for damage in (
+        {"providers": []},
+        {"providers": [*providers, providers[0]]},
+        {"providers": [*providers, "unregistered"]},
+        {"versions": {name: value for name, value in original["versions"].items() if name != "obscura"}},
+        {"timeout_seconds": 0},
+        {"max_failure_retries": -1},
+    ):
+        write_json(root / "profile.json", {**original, **damage})
+        with pytest.raises((SystemExit, ValueError)):
+            certification.main(arguments())
+            pytest.fail(str(damage))
+        assert commands == []
+        assert not (root / "run").exists()
 
 
 def test_dirty_scorer_is_rejected_before_calls(command_inputs, monkeypatch):
