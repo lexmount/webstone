@@ -8,22 +8,11 @@ from typing import Any
 
 from harness.record_schema import validate_records
 from harness.results.export import provider, rounded, scored_result_schema, submission
-from harness.web_search.benchmarks import BENCHMARKS
+from harness.web_search.benchmarks import ordered
 from harness.web_search.core import latency
 from harness.web_search.report import load_run, scoring_rows
 from lexbench_websearch.scoring import task_acceptance
 
-# Search benchmark -> (submission benchmark, definition, quality metrics read from the
-# scored call: submission metric -> (row metric, scale)). Scenario relevance needs the
-# separate relevance review, so its quality metrics are not part of a scored run.
-SUBMISSIONS = {
-    "scenario": ("lexbench-websearch", "title-snippet-v2",
-                 {"ndcg5": None, "precision5": None, "success5": None}),
-    "factual": ("simpleqa-verified", "source-match-v2",
-                {"mrr5": ("labeled_source_rr_5", 1), "hit5": ("labeled_source_hit_5", 100),
-                 "answerMatch5": ("answer_in_preview_5", 100)}),
-}
-BENCHMARK_IDS = tuple(item[0] for item in SUBMISSIONS.values())
 # The scored call as the exporter reads it; ``passed`` is a delivered, non-empty result list.
 SCORED_RESULT = scored_result_schema("websearch.scored_result", 1, metrics=(dict,),
                                      results=(list,))
@@ -43,20 +32,21 @@ def _mean(values: list[float]) -> float | None:
 def export(run_dir: Path | str, receipt: dict[str, Any] | None = None,
            benchmark: str | None = None) -> dict[str, Any]:
     profile, rows, _ = load_run(Path(run_dir))
-    present = [name for name in SUBMISSIONS
-               if any(BENCHMARKS.get(name).member(case) for case in profile["cases"])]
+    exported = [item for item in ordered() if item.submission]
+    present = [item for item in exported if item.cases(profile)]
     if benchmark is None:
         if len(present) != 1:
             raise ValueError("The run holds several benchmarks; select one with --benchmark")
-        name = present[0]
+        selected = present[0]
     else:
-        name = next((key for key, item in SUBMISSIONS.items() if item[0] == benchmark), None)
-        if name is None:
-            raise ValueError(f"Unknown benchmark {benchmark}; choose {', '.join(BENCHMARK_IDS)}")
-        if name not in present:
+        selected = next((item for item in exported if item.submission[0] == benchmark), None)
+        if selected is None:
+            choices = ", ".join(item.submission[0] for item in exported)
+            raise ValueError(f"Unknown benchmark {benchmark}; choose {choices}")
+        if selected not in present:
             raise ValueError(f"The run has no {benchmark} cases")
-    site_id, definition, quality = SUBMISSIONS[name]
-    case_ids = {case["id"] for case in profile["cases"] if BENCHMARKS.get(name).member(case)}
+    site_id, definition, quality = selected.submission
+    case_ids = {case["id"] for case in selected.cases(profile)}
     records = validate_records(
         [_scored(row) for row in scoring_rows(profile, rows) if row["case_id"] in case_ids],
         SCORED_RESULT, source="results.jsonl")
