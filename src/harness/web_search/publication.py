@@ -4,14 +4,13 @@ import argparse
 import json
 import shutil
 import subprocess
-import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.data_home import data_home
 from harness.distribution import repository_root
 from harness.record_io import bytes_sha256
-from harness.reporting.publication import PublicationClient
+from harness.reporting.publication import PublicationClient, package_archive
 from harness.reporting.publish import ReceiptRelease, publish_receipt_release
 from harness.web_search import delivery as report_delivery
 from harness.web_search import profiles
@@ -84,12 +83,11 @@ def prepare(report, visual, content, sources, work, *, profile):
     report_delivery.export(report, work / "delivery")
     bind("delivery_index", work / "delivery/delivery-index.json", "delivery-index.json")
     archive = work / "report.zip"
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-        for file in sorted((work / "delivery").rglob("*")):
-            if file.is_symlink():
-                raise ValueError("Publication archive contains a symlink")
-            if file.is_file():
-                output.write(file, file.relative_to(work / "delivery"))
+    # The report and its inputs were checked above; the plan binds the archive hash below.
+    package_archive(work / "delivery", archive, work / "package-attestation.json", inputs=(),
+                    validate=lambda: None,
+                    attest=lambda staged: {"schema": "search-package-attestation/1",
+                                           "archive_sha256": bytes_sha256(staged.read_bytes())})
     review = json.loads((inputs / "independent-review.json").read_bytes()) if manifest.get("independent_review_sha256") else None
     relevance = json.loads((inputs / "relevance.json").read_bytes()) if manifest.get("relevance_sha256") else None
     profile = manifest["profile"]
@@ -140,7 +138,8 @@ def verify_plan(report, work):
 
 
 CLIENT = PublicationClient("Web-Search-Report-Publisher/1.0", put_timeout=90)
-# A pending operation replays its original bytes under its idempotency key, so this name stays.
+# Existing Search targets were first uploaded under this name. A pending operation replays its
+# original bytes under its idempotency key, so the name is fixed data and must not follow the track.
 UPLOAD_NAME = "webfetch"
 
 
