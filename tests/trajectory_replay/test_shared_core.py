@@ -468,37 +468,27 @@ def test_reset_still_clears_context_state_when_page_storage_cannot_be_reached():
 
 
 @pytest.mark.parametrize(
-    "failing_method",
-    ["Network.enable", "Network.clearBrowserCache", "Network.clearBrowserCookies"],
+    ("failing_method", "session_error"),
+    [
+        ("Network.clearBrowserCache", None),
+        ("Page.resetNavigationHistory", None),
+        (None, RuntimeError("no CDP session")),
+    ],
+    ids=["cache-clear", "history-reset", "no-session"],
 )
-def test_reset_leaves_a_blank_page_when_a_cdp_clear_fails(failing_method):
-    page = _reset_page(failing_method)
+def test_reset_leaves_a_blank_page_when_a_cdp_step_fails(failing_method, session_error):
+    page = _reset_page(*filter(None, [failing_method]), session_error=session_error)
 
     docker_runner.reset_browser_state(page, {"https://a.test"})
 
     _assert_cookies_cleared_and_page_blank(page)
+    if failing_method == "Page.resetNavigationHistory":
+        assert _cleared_origins(page) == ["https://a.test"]
+        page.context.new_cdp_session.return_value.detach.assert_called_once_with()
 
 
-def test_reset_detaches_and_leaves_a_blank_page_when_history_reset_fails():
-    page = _reset_page("Page.resetNavigationHistory")
-
-    docker_runner.reset_browser_state(page, {"https://a.test"})
-
-    assert _cleared_origins(page) == ["https://a.test"]
-    _assert_cookies_cleared_and_page_blank(page)
-    page.context.new_cdp_session.return_value.detach.assert_called_once_with()
-
-
-def test_reset_leaves_a_blank_page_without_a_cdp_session():
-    page = _reset_page(session_error=RuntimeError("no CDP session"))
-
-    docker_runner.reset_browser_state(page, {"https://a.test"})
-
-    _assert_cookies_cleared_and_page_blank(page)
-
-
-@pytest.mark.parametrize(("attempt", "is_retry"), [(1, False), (2, True)])
-def test_attempt_identity_opens_every_attempt_row(attempt, is_retry):
+def test_attempt_identity_opens_every_attempt_row():
+    attempt, is_retry = 2, True
     task = _browser_task(tags=("retrieve", "form"))
 
     assert docker_runner.attempt_identity("moli", task, attempt, is_retry=is_retry) == {
@@ -558,9 +548,6 @@ def test_ground_truth_validation_records_exactly_the_declared_evidence_fields():
     assert docker_runner.ground_truth_validation({"schema": "ground-truth/1"}) == {
         key: "ground-truth/1" if key == "schema" else None for key in evidence
     }
-
-
-def test_ground_truth_validation_stays_absent_without_evidence():
     assert docker_runner.ground_truth_validation(None) is None
 
 

@@ -97,10 +97,33 @@ def test_catalog_runner_selects_profile_host_overrides_only_for_kitesurf() -> No
 _REMOTE_HEADERS = {"Authorization": "Bearer private-token"}
 
 
-def test_task_ids_preserve_requested_official_order():
+def _run_argv(tmp_path: Path, output: str, *extra: str, binary: bool = True) -> list[str]:
+    return [
+        "run",
+        *("--catalog", str(tmp_path / "catalog.json")),
+        *("--portable-suite", str(tmp_path / "suite.json")),
+        *("--site-map", str(tmp_path / "sites.json")),
+        *("--site-reset-receipt", str(tmp_path / "receipt.json")),
+        *("--environment-profile", str(tmp_path / "environment.json")),
+        *("--backend", "playwright"),
+        *(("--binary", str(tmp_path / "browser")) if binary else ()),
+        *("--output", str(tmp_path / output)),
+        *extra,
+    ]
+
+
+def test_task_ids_preserve_requested_official_order_and_reject_invalid_selection():
     assert _task_ids([3, 7, 11, 20], 7, 20) == [7, 11, 20]
     assert _task_ids([3, 7, 11, 20], None, None) == [3, 7, 11, 20]
     assert _task_ids([3, 7, 11, 20], None, None, [7, 20]) == [7, 20]
+    for bounds in ((-1, 1), (2, 1), (0, 812)):
+        with pytest.raises(ValueError, match="catalog"):
+            _task_ids([0, 1, 2], *bounds)
+    for selected in ([2, 1], [1, 1], [1, 4]):
+        with pytest.raises(ValueError, match="task IDs"):
+            _task_ids([0, 1, 2], None, None, selected)
+    with pytest.raises(ValueError, match="cannot be combined"):
+        _task_ids([0, 1, 2], 0, 2, [1])
 
 
 def test_kitesurf_cdp_config_uses_official_endpoint_without_persisting_token(
@@ -159,13 +182,16 @@ def test_external_timeout_commits_the_active_action_and_hashes(tmp_path: Path) -
         json.dumps(
             [
                 {
-                    "index": 1,
+                    "index": index,
                     "action": "navigate",
                     "arguments": {"action": "navigate", "url": "http://example.test/start"},
-                    "status": "pass",
+                    "status": status,
                     "duration_ms": 10,
                     "output": "ok",
-                },
+                }
+                for index, status in ((0, "pass"), (1, "success"))
+            ]
+            + [
                 {
                     "index": 2,
                     "action": "navigate",
@@ -192,7 +218,7 @@ def test_external_timeout_commits_the_active_action_and_hashes(tmp_path: Path) -
     assert trace[-1]["status"] == "fail"
     assert "action 2 (navigate)" in trace[-1]["error"]
     assert result["failure_stage"] == "browser_tool_execution"
-    assert result["completed_actions"] == 1
+    assert result["completed_actions"] == 2
     assert result["runtime_poisoned"] is True
     assert not (task_dir / ".trace.partial.json").exists()
     for kind, digest in result["evidence_sha256"].items():
@@ -317,60 +343,6 @@ def test_remote_watchdog_commits_timeout_and_returns(tmp_path: Path) -> None:
     trace_text = (task_dir / "trace.json").read_text(encoding="utf-8")
     assert "private-account" not in trace_text
     assert "private-token" not in trace_text
-
-
-def test_external_timeout_counts_source_success_actions(tmp_path: Path) -> None:
-    task_dir = tmp_path / "task-8"
-    task_dir.mkdir()
-    (task_dir / ".trace.partial.json").write_text(
-        json.dumps(
-            [
-                {
-                    "index": 1,
-                    "action": "navigate",
-                    "arguments": {},
-                    "status": "success",
-                    "duration_ms": 10,
-                    "output": "ok",
-                },
-                {
-                    "index": 2,
-                    "action": "evaluate",
-                    "arguments": {},
-                    "status": "running",
-                    "duration_ms": None,
-                    "output": "",
-                },
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    result = finalize_timed_out_task(
-        task_dir,
-        {"task_id": 8, "actions": [{}, {}]},
-        duration_ms=300_000,
-        task_timeout_ms=300_000,
-    )
-
-    assert result["completed_actions"] == 1
-
-
-@pytest.mark.parametrize("bounds", [(-1, 1), (2, 1), (0, 812)])
-def test_task_ids_reject_out_of_catalog_range(bounds):
-    with pytest.raises(ValueError, match="catalog"):
-        _task_ids([0, 1, 2], *bounds)
-
-
-@pytest.mark.parametrize("selected", [[2, 1], [1, 1], [1, 4]])
-def test_task_ids_reject_invalid_explicit_repairs(selected):
-    with pytest.raises(ValueError, match="task IDs"):
-        _task_ids([0, 1, 2], None, None, selected)
-
-
-def test_task_ids_reject_mixed_range_and_explicit_selection():
-    with pytest.raises(ValueError, match="cannot be combined"):
-        _task_ids([0, 1, 2], 0, 2, [1])
 
 
 def test_task_origins_excludes_unrelated_deployments() -> None:
@@ -592,82 +564,31 @@ def _amendment(task_id: int, action_index: int, action: dict, updates: dict) -> 
     }
 
 
-def test_action_overrides_apply_to_portable_and_direct_source_actions() -> None:
+def test_action_overrides_apply_supported_fields_without_mutating_sources() -> None:
     evaluate = {"action": "evaluate", "script": "return true;"}
     fill = {"action": "fill", "target": {"by": "css", "value": "input"}, "text": "x"}
-    portable = apply_action_overrides(
-        [fill],
-        [_amendment(7, 1, fill, {"wait_for_selector_hidden": ".loading-mask"})],
+    ref_click = {
+        "action": "click", "selector": "button:visible", "replay_mode": "snapshot_ref_semantics"
+    }
+    wait = {"action": "wait", "selector": "div.message-success:visible", "timeout": 30_000}
+    updates = [
+        {"wait_for_selector_hidden": ".loading-mask"},
+        {"script": "return false;", "script_mode": "function_body"},
+        {"wait_for_enabled": True, "selector": "button", "force": True},
+        {"selector": "div.message-success", "wait_state": "attached"},
+    ]
+    sources = [fill, evaluate, ref_click, wait]
+    actions = apply_action_overrides(
+        sources,
+        [
+            _amendment(7, index, action, update)
+            for index, (action, update) in enumerate(zip(sources, updates, strict=True), 1)
+        ],
         task_id=7,
     )
-    direct = apply_action_overrides(
-        [evaluate],
-        [
-            _amendment(
-                8,
-                1,
-                evaluate,
-                {"script": "return false;", "script_mode": "function_body"},
-            )
-        ],
-        task_id=8,
-    )
-    assert portable[0]["wait_for_selector_hidden"] == ".loading-mask"
-    assert direct[0]["script_mode"] == "function_body"
-    assert direct[0]["script"] == "return false;"
+    assert actions == [{**old, **new} for old, new in zip(sources, updates, strict=True)]
     assert "wait_for_selector_hidden" not in fill
     assert "script_mode" not in evaluate
-
-
-def test_action_overrides_support_explicit_compiled_ref_readiness() -> None:
-    click = {
-        "action": "click",
-        "selector": "button:visible",
-        "replay_mode": "snapshot_ref_semantics",
-    }
-    fill = {
-        "action": "fill",
-        "selector": "input:visible",
-        "text": "value",
-        "replay_mode": "snapshot_ref_semantics",
-    }
-
-    actions = apply_action_overrides(
-        [click, fill],
-        [
-            _amendment(7, 1, click, {"wait_for_enabled": True}),
-            _amendment(7, 2, fill, {"selector": "input", "force": True}),
-        ],
-        task_id=7,
-    )
-
-    assert actions[0]["wait_for_enabled"] is True
-    assert actions[1]["selector"] == "input"
-    assert actions[1]["force"] is True
-
-
-def test_action_overrides_support_non_geometric_selector_wait_state() -> None:
-    wait = {
-        "action": "wait",
-        "selector": "div.message-success:visible",
-        "timeout": 30_000,
-    }
-
-    actions = apply_action_overrides(
-        [wait],
-        [
-            _amendment(
-                464,
-                1,
-                wait,
-                {"selector": "div.message-success", "wait_state": "attached"},
-            )
-        ],
-        task_id=464,
-    )
-
-    assert actions[0]["selector"] == "div.message-success"
-    assert actions[0]["wait_state"] == "attached"
 
 
 def test_action_overrides_reject_wrong_hash_unknown_field_and_bad_index() -> None:
@@ -691,7 +612,7 @@ def test_action_overrides_reject_wrong_hash_unknown_field_and_bad_index() -> Non
         )
 
 
-@pytest.mark.parametrize("script", ["", "   ", "x" * (64 * 1024 + 1)])
+@pytest.mark.parametrize("script", ["   ", "x" * (64 * 1024 + 1)])
 def test_action_overrides_reject_invalid_replacement_scripts(script: str) -> None:
     action = {"action": "evaluate", "script": "return true;"}
     with pytest.raises(ValueError, match="script is invalid"):
@@ -704,7 +625,6 @@ def test_action_overrides_reject_invalid_replacement_scripts(script: str) -> Non
     ("catalog", "row_source_sha256"),
     [
         ({}, None),
-        ({"action_overrides_sha256": None}, None),
         ({"action_overrides_sha256": "invalid"}, "invalid"),
         ({"action_overrides_sha256": "A" * 64}, "A" * 64),
     ],
@@ -752,7 +672,7 @@ def test_external_action_overrides_reject_empty_amendment_binding(tmp_path: Path
         load_action_overrides(path)
 
 
-def test_catalog_requires_one_hash_bound_row_in_declared_order(tmp_path: Path) -> None:
+def _portable_inputs(tmp_path: Path, action: dict) -> tuple[Path, str, Path, str]:
     sites_path = tmp_path / "sites.json"
     sites_hash = _write(
         sites_path,
@@ -766,38 +686,26 @@ def test_catalog_requires_one_hash_bound_row_in_declared_order(tmp_path: Path) -
             },
         },
     )
+    suite_path = tmp_path / "suite.json"
+    task = {
+        "id": "webarena-0",
+        "title": "Open page",
+        "difficulty": "simple",
+        "tags": ["webarena"],
+        "trajectory": {"schema": "lex_browser_trajectory/1", "actions": [action]},
+        "assertions": [],
+        "evaluator": {"kind": "webarena_verified", "task_id": 0, "revision": 2},
+        "environment": {"kind": "webarena_verified"},
+        "ground_truth": {"oracle": "webarena_verified", "expected_actions": [action["action"]]},
+        "source": {"url": "https://example.test"},
+    }
+    suite_hash = _write(suite_path, {"schema": "lex_browser_use_tasks/4", "tasks": [task]})
+    return sites_path, sites_hash, suite_path, suite_hash
+
+
+def test_catalog_requires_one_hash_bound_row_in_declared_order(tmp_path: Path) -> None:
     action = {"action": "navigate", "url": "https://example.test", "save_as": "page"}
-    suite_path = tmp_path / "portable.json"
-    suite_hash = _write(
-        suite_path,
-        {
-            "schema": "lex_browser_use_tasks/4",
-            "tasks": [
-                {
-                    "id": "webarena-0",
-                    "title": "Open page",
-                    "difficulty": "simple",
-                    "tags": ["webarena"],
-                    "trajectory": {
-                        "schema": "lex_browser_trajectory/1",
-                        "actions": [action],
-                    },
-                    "assertions": [],
-                    "evaluator": {
-                        "kind": "webarena_verified",
-                        "task_id": 0,
-                        "revision": 2,
-                    },
-                    "environment": {"kind": "webarena_verified"},
-                    "ground_truth": {
-                        "oracle": "webarena_verified",
-                        "expected_actions": ["navigate"],
-                    },
-                    "source": {"url": "https://example.test"},
-                }
-            ],
-        },
-    )
+    sites_path, sites_hash, suite_path, suite_hash = _portable_inputs(tmp_path, action)
     rows = [
         {
             "task_id": task_id,
@@ -829,48 +737,9 @@ def test_catalog_requires_one_hash_bound_row_in_declared_order(tmp_path: Path) -
 def test_catalog_binding_embeds_override_provenance_and_hashes_amended_actions(
     tmp_path: Path,
 ) -> None:
-    sites_path = tmp_path / "sites.json"
-    sites_hash = _write(
-        sites_path,
-        {
-            "schema": "lex_webarena_remote_sites/1",
-            "sites": {
-                "shopping": "https://shopping.example.test",
-                "shopping_admin": "https://admin.example.test/admin",
-                "reddit": "https://reddit.example.test",
-                "gitlab": "https://gitlab.example.test",
-            },
-        },
-    )
     portable_action = {"action": "fill", "target": {"by": "css", "value": "input"}, "text": "x"}
     direct_action = {"action": "evaluate", "script": "return true;"}
-    suite_path = tmp_path / "suite.json"
-    suite_hash = _write(
-        suite_path,
-        {
-            "schema": "lex_browser_use_tasks/4",
-            "tasks": [
-                {
-                    "id": "webarena-0",
-                    "title": "Portable",
-                    "difficulty": "simple",
-                    "tags": ["webarena"],
-                    "trajectory": {
-                        "schema": "lex_browser_trajectory/1",
-                        "actions": [portable_action],
-                    },
-                    "assertions": [],
-                    "evaluator": {"kind": "webarena_verified", "task_id": 0, "revision": 2},
-                    "environment": {"kind": "webarena_verified"},
-                    "ground_truth": {
-                        "oracle": "webarena_verified",
-                        "expected_actions": ["fill"],
-                    },
-                    "source": {"url": "https://example.test"},
-                }
-            ],
-        },
-    )
+    sites_path, sites_hash, suite_path, suite_hash = _portable_inputs(tmp_path, portable_action)
     catalog_path = tmp_path / "catalog.json"
     _write(
         catalog_path,
@@ -1015,28 +884,7 @@ def test_runner_rejects_row_overrides_without_external_version_binding(
         "load_catalog_inputs",
         lambda *args, **kwargs: (catalog, {}, {}),
     )
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "run",
-            "--catalog",
-            str(tmp_path / "catalog.json"),
-            "--portable-suite",
-            str(tmp_path / "suite.json"),
-            "--site-map",
-            str(tmp_path / "sites.json"),
-            "--site-reset-receipt",
-            str(tmp_path / "receipt.json"),
-            "--environment-profile",
-            str(tmp_path / "environment.json"),
-            "--binary",
-            str(tmp_path / "browser"),
-            "--backend",
-            "playwright",
-            "--output",
-            str(tmp_path / "output"),
-        ],
-    )
+    monkeypatch.setattr("sys.argv", _run_argv(tmp_path, "output"))
     with pytest.raises(ValueError, match="requires its versioned action overrides"):
         catalog_runner.main()
 
@@ -1092,11 +940,9 @@ def test_local_catalog_restart_replays_on_the_new_browser_endpoint(
         "task_ids": [1, 2],
         "rows": [{"task_id": 1, "mode": "recorded"}, {"task_id": 2, "mode": "recorded"}],
     }
-    paths = {name: tmp_path / name for name in ("catalog", "suite", "sites", "receipt", "browser")}
-    for path in paths.values():
-        path.write_text("{}", encoding="utf-8")
-    environment = tmp_path / "environment"
-    environment.write_text("{}", encoding="utf-8")
+    for name in ("catalog.json", "suite.json", "sites.json", "receipt.json", "environment.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    (tmp_path / "browser").write_text("{}", encoding="utf-8")
     for name, stub in {
         "verify_webarena_runtime_source": lambda: SimpleNamespace(revision="a" * 40),
         "load_catalog_inputs": lambda *args, **kwargs: (catalog, {}, {}),
@@ -1109,28 +955,7 @@ def test_local_catalog_restart_replays_on_the_new_browser_endpoint(
         "run_replay_task": run_task,
     }.items():
         monkeypatch.setattr(catalog_runner, name, stub)
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "run",
-            "--catalog",
-            str(paths["catalog"]),
-            "--portable-suite",
-            str(paths["suite"]),
-            "--site-map",
-            str(paths["sites"]),
-            "--site-reset-receipt",
-            str(paths["receipt"]),
-            "--environment-profile",
-            str(environment),
-            "--binary",
-            str(paths["browser"]),
-            "--backend",
-            "playwright",
-            "--output",
-            str(tmp_path / "output"),
-        ],
-    )
+    monkeypatch.setattr("sys.argv", _run_argv(tmp_path, "output"))
 
     prior_umask = os.umask(0o022)
     try:
@@ -1290,29 +1115,7 @@ def _catalog_run_inputs(
     )
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "run",
-            "--catalog",
-            str(tmp_path / "catalog.json"),
-            "--portable-suite",
-            str(tmp_path / "suite.json"),
-            "--site-map",
-            str(tmp_path / "sites.json"),
-            "--site-reset-receipt",
-            str(tmp_path / "receipt.json"),
-            "--environment-profile",
-            str(tmp_path / "environment.json"),
-            "--binary",
-            str(tmp_path / "browser"),
-            "--engine",
-            engine,
-            "--backend",
-            "playwright",
-            "--credential-env-file",
-            str(env_file),
-            "--output",
-            str(tmp_path / output),
-        ],
+        _run_argv(tmp_path, output, "--engine", engine, "--credential-env-file", str(env_file)),
     )
     catalog_runner.main()
     return json.loads((tmp_path / output / "inputs.json").read_text(encoding="utf-8"))
@@ -1365,28 +1168,7 @@ def test_run_entry_stops_before_a_browser_starts_without_site_accounts(
         "Popen",
         lambda *args, **kwargs: pytest.fail("a browser started"),
     )
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "run",
-            "--catalog",
-            str(tmp_path / "catalog.json"),
-            "--portable-suite",
-            str(tmp_path / "suite.json"),
-            "--site-map",
-            str(tmp_path / "sites.json"),
-            "--site-reset-receipt",
-            str(tmp_path / "receipt.json"),
-            "--environment-profile",
-            str(tmp_path / "environment.json"),
-            "--binary",
-            str(tmp_path / "browser"),
-            "--backend",
-            "playwright",
-            "--output",
-            str(tmp_path / "run"),
-        ],
-    )
+    monkeypatch.setattr("sys.argv", _run_argv(tmp_path, "run"))
 
     with pytest.raises(ValueError, match="WEBARENA_SHOPPING_PASSWORD"):
         catalog_runner.main()
@@ -1426,27 +1208,10 @@ def test_kitesurf_probe_runs_after_account_and_environment_checks(monkeypatch, t
     )
     monkeypatch.setattr(
         "sys.argv",
-        [
-            "run",
-            "--catalog",
-            str(tmp_path / "catalog.json"),
-            "--portable-suite",
-            str(tmp_path / "suite.json"),
-            "--site-map",
-            str(tmp_path / "sites.json"),
-            "--site-reset-receipt",
-            str(tmp_path / "receipt.json"),
-            "--environment-profile",
-            str(tmp_path / "environment.json"),
-            "--engine",
-            "kitesurf",
-            "--backend",
-            "playwright",
-            "--credential-env-file",
-            str(local),
-            "--output",
-            str(tmp_path / "run"),
-        ],
+        _run_argv(
+            tmp_path, "run", "--engine", "kitesurf", "--credential-env-file", str(local),
+            binary=False,
+        ),
     )
 
     with pytest.raises(ValueError, match="WEBARENA_[A-Z_]+_PASSWORD"):

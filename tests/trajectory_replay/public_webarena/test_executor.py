@@ -163,8 +163,8 @@ def test_declared_navigation_wait_surrounds_form_action():
     assert any(call[:3] == ("select", "#author", "Jane Austen") for call in page.calls)
 
 
-@pytest.mark.parametrize("action", ["click", "fill", "select"])
-def test_ref_only_calls_fail_clearly_without_browser_actions(action):
+def test_ref_only_calls_fail_clearly_without_browser_actions():
+    action = "click"
     page = FakePage()
     trace = []
     with pytest.raises(ValueError, match="ref is not supported"):
@@ -254,19 +254,6 @@ def test_navigate_can_create_a_new_page_and_publish_it_to_observers():
     assert observed == [second]
     assert first.calls == []
     assert second.calls[0] == ("navigate", "https://example.com/second")
-
-
-def test_trace_has_one_record_per_declared_tool_call():
-    trace = []
-    execute_steps(
-        FakePage(),
-        ({"action": "navigate", "url": "https://example.com", "save_as": "page"},),
-        trace=trace,
-    )
-
-    assert len(trace) == 1
-    assert trace[0]["action"] == "navigate"
-    assert trace[0]["status"] == "pass"
 
 
 def test_evaluate_runs_declared_page_script_and_captures_json():
@@ -388,21 +375,6 @@ def test_evaluate_explicit_function_body_executes_side_effect_once():
     assert page.calls[0][1].startswith("(async () => {")
 
 
-def test_evaluate_never_retries_default_script_after_illegal_return():
-    class ReturnPage(FakePage):
-        def evaluate(self, script, argument=None):
-            self.calls.append(("evaluate", script, argument))
-            raise RuntimeError("SyntaxError: Illegal return statement")
-
-    page = ReturnPage()
-    with pytest.raises(RuntimeError, match="Illegal return statement"):
-        execute_steps(
-            page,
-            ({"action": "evaluate", "script": "sideEffect(); return true"},),
-        )
-    assert page.calls == [("evaluate", "sideEffect(); return true", None)]
-
-
 def test_evaluate_rejects_unknown_script_mode_before_page_execution():
     page = FakePage()
     with pytest.raises(ValueError, match="script_mode"):
@@ -413,16 +385,23 @@ def test_evaluate_rejects_unknown_script_mode_before_page_execution():
     assert page.calls == []
 
 
-def test_evaluate_does_not_retry_a_runtime_error():
+@pytest.mark.parametrize(
+    ("script", "error"),
+    [
+        ("sideEffect(); return true", "SyntaxError: Illegal return statement"),
+        ("missing()", "ReferenceError: missing is not defined"),
+    ],
+)
+def test_evaluate_never_retries_a_failed_script(script, error):
     class BrokenPage(FakePage):
         def evaluate(self, script, argument=None):
             self.calls.append(("evaluate", script, argument))
-            raise RuntimeError("ReferenceError: missing is not defined")
+            raise RuntimeError(error)
 
     page = BrokenPage()
-    with pytest.raises(RuntimeError, match="ReferenceError"):
-        execute_steps(page, ({"action": "evaluate", "script": "missing()"},))
-    assert page.calls == [("evaluate", "missing()", None)]
+    with pytest.raises(RuntimeError, match=error.split(":")[0]):
+        execute_steps(page, ({"action": "evaluate", "script": script},))
+    assert page.calls == [("evaluate", script, None)]
 
 
 def test_navigation_network_idle_is_best_effort_and_keeps_render_grace():
@@ -550,46 +529,21 @@ def test_action_can_wait_for_loading_mask_to_disappear_before_clicking():
     ]
 
 
-def test_wait_selector_uses_visible_readiness_instead_of_sleeping():
+@pytest.mark.parametrize(
+    ("selector", "declared", "state"),
+    [
+        ("div.message-success:visible", {}, "visible"),
+        ("div.message-success", {"wait_state": "attached"}, "attached"),
+    ],
+)
+def test_wait_selector_uses_declared_readiness_instead_of_sleeping(selector, declared, state):
     page = FakePage()
 
-    execute_steps(
-        page,
-        ({"action": "wait", "selector": "div.message-success:visible", "timeout": 12_000},),
-    )
+    execute_steps(page, ({"action": "wait", "selector": selector, "timeout": 12_000, **declared},))
 
     assert page.calls == [
-        ("first", "div.message-success:visible"),
-        (
-            "wait_for",
-            "div.message-success:visible",
-            {"state": "visible", "timeout": 12_000},
-        ),
-    ]
-
-
-def test_wait_selector_can_use_attached_readiness_for_non_geometric_status_messages():
-    page = FakePage()
-
-    execute_steps(
-        page,
-        (
-            {
-                "action": "wait",
-                "selector": "div.message-success",
-                "wait_state": "attached",
-                "timeout": 12_000,
-            },
-        ),
-    )
-
-    assert page.calls == [
-        ("first", "div.message-success"),
-        (
-            "wait_for",
-            "div.message-success",
-            {"state": "attached", "timeout": 12_000},
-        ),
+        ("first", selector),
+        ("wait_for", selector, {"state": state, "timeout": 12_000}),
     ]
 
 

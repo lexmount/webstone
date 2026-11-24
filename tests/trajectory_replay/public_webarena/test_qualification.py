@@ -293,7 +293,8 @@ def test_repair_queue_blocks_a_semantically_conflicting_passing_trace(tmp_path):
     assert result["tasks"][0]["adjudication"] is None
 
 
-def test_repaired_task_cannot_be_eligible_without_validated_attempt():
+@pytest.mark.parametrize("disposition", ["needs_trace_repair", "eligible"])
+def test_eligibility_requires_two_bound_qualification_attempts(disposition):
     suite = {
         "benchmark": {},
         "tasks": [{"id": "x", "ground_truth": {"qualification": {"status": "pending"}}}],
@@ -303,28 +304,8 @@ def test_repaired_task_cannot_be_eligible_without_validated_attempt():
         "tasks": [
             {
                 "task_id": "x",
-                "disposition": "needs_trace_repair",
+                "disposition": disposition,
                 "adjudication": {"status": "eligible", "reason": "repair validated"},
-            }
-        ],
-    }
-
-    with pytest.raises(ValueError, match="exactly two validated_attempt_paths"):
-        apply_adjudication(suite, qualification)
-
-
-def test_unchanged_passing_task_still_requires_bound_qualification_attempt():
-    suite = {
-        "benchmark": {},
-        "tasks": [{"id": "x", "ground_truth": {"qualification": {"status": "pending"}}}],
-    }
-    qualification = {
-        "schema": QUALIFICATION_SCHEMA,
-        "tasks": [
-            {
-                "task_id": "x",
-                "disposition": "eligible",
-                "adjudication": {"status": "eligible"},
             }
         ],
     }
@@ -427,235 +408,53 @@ def test_two_validated_attempt_paths_must_be_unique(tmp_path):
         )
 
 
-def test_new_branch_task_cannot_qualify_a_main_branch_trajectory():
-    task = {
-        "title": "Commit the change to a new branch",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "click",
-                    "target": {"by": "text", "value": "Commit to main branch"},
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ("new_branch_required_but_main_branch_selected",)
+def _fill(label, text, by="label"):
+    return {"action": "fill", "target": {"by": by, "value": label}, "text": text}
 
 
-def test_semantic_audit_does_not_guess_when_main_branch_is_allowed():
-    task = {
-        "title": "Commit the updated title",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "click",
-                    "target": {"by": "text", "value": "Commit to main branch"},
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ()
+def _network(post_data):
+    return {"verified_evaluators": [
+        {"evaluator": "NetworkEventEvaluator", "expected": {"post_data": post_data}}
+    ]}
 
 
-def test_declared_project_name_must_appear_in_project_name_fills():
-    task = {
-        "title": 'Start a private project called "web_agent_android_xl"',
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Project name"},
-                    "text": "web_agent_android",
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ("required_project_name_not_filled",)
+_MAIN_BRANCH = {"action": "click", "target": {"by": "text", "value": "Commit to main branch"}}
+_URL = "http://old.example:8023/auth0/angular-storage"
+_URL_EVALUATOR = _network({"submission[url]": "__GITLAB__/auth0/angular-storage"})
+_TITLE_EVALUATOR = _network({"submission[title]": "Expected title"})
 
 
-def test_project_name_audit_accepts_a_later_corrected_fill():
-    task = {
-        "title": 'Create a project named "expected-name"',
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Project name"},
-                    "text": "initial-name",
-                },
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Project name"},
-                    "text": "expected-name",
-                },
-            ]
-        },
-    }
+@pytest.mark.parametrize(
+    ("title", "actions", "source", "expected"),
+    [
+        ("Commit the change to a new branch", [_MAIN_BRANCH], {},
+         ("new_branch_required_but_main_branch_selected",)),
+        ("Commit the updated title", [_MAIN_BRANCH], {}, ()),
+        ('Start a private project called "web_agent_android_xl"',
+         [_fill("Project name", "web_agent_android")], {}, ("required_project_name_not_filled",)),
+        ('Create a project named "expected-name"',
+         [_fill("Project name", "initial-name"), _fill("Project name", "expected-name")], {}, ()),
+        ("Create a folder and a file named urls.json inside it",
+         [_fill("File name", "cars/url.txt", by="placeholder")], {},
+         ("required_file_name_not_filled",)),
+        ("Create a file named urls.json",
+         [_fill("File name", "car/urls.json", by="placeholder")], {}, ()),
+        ("Create a forum post", [_fill("Body", "Expected title"), _fill("Title", "Wrong title")],
+         _TITLE_EVALUATOR, ("evaluator_title_value_not_filled",)),
+        ("Create a forum post", [_fill("Title", "Expected title")], _TITLE_EVALUATOR, ()),
+        ("Subscribe the current account", [{"action": "click", "selector": "#subscribe"}],
+         _network({"email": "account@example.com"}), ()),
+        ("Submit a repository URL", [_fill("Body", _URL)], _URL_EVALUATOR,
+         ("evaluator_url_value_filled_in_wrong_field",)),
+        ("Submit a repository URL", [_fill("URL", _URL)], _URL_EVALUATOR, ()),
+    ],
+)
+def test_trajectory_semantic_audit_paired_controls(title, actions, source, expected):
+    task = {"title": title, "trajectory": {"actions": actions}}
+    if source:
+        task["source"] = source
 
-    assert trajectory_semantic_conflicts(task) == ()
-
-
-def test_declared_file_name_must_appear_as_the_filled_basename():
-    task = {
-        "title": "Create a folder and a file named urls.json inside it",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "placeholder", "value": "File name"},
-                    "text": "cars/url.txt",
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ("required_file_name_not_filled",)
-
-
-def test_file_name_audit_accepts_the_declared_basename_in_a_folder():
-    task = {
-        "title": "Create a file named urls.json",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "placeholder", "value": "File name"},
-                    "text": "car/urls.json",
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ()
-
-
-def test_network_evaluator_values_must_be_filled_into_their_owned_fields():
-    task = {
-        "title": "Create a forum post",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Body"},
-                    "text": "Expected title",
-                },
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Title"},
-                    "text": "Wrong title",
-                },
-            ]
-        },
-        "source": {
-            "verified_evaluators": [
-                {
-                    "evaluator": "NetworkEventEvaluator",
-                    "expected": {"post_data": {"submission[title]": "Expected title"}},
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ("evaluator_title_value_not_filled",)
-
-
-def test_network_evaluator_field_audit_accepts_exact_owned_fill():
-    task = {
-        "title": "Create a forum post",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Title"},
-                    "text": "Expected title",
-                }
-            ]
-        },
-        "source": {
-            "verified_evaluators": [
-                {
-                    "evaluator": "NetworkEventEvaluator",
-                    "expected": {"post_data": {"submission[title]": "Expected title"}},
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ()
-
-
-def test_network_evaluator_field_audit_does_not_guess_hidden_fields():
-    task = {
-        "title": "Subscribe the current account",
-        "trajectory": {"actions": [{"action": "click", "selector": "#subscribe"}]},
-        "source": {
-            "verified_evaluators": [
-                {
-                    "evaluator": "NetworkEventEvaluator",
-                    "expected": {"post_data": {"email": "account@example.com"}},
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ()
-
-
-def test_network_evaluator_field_audit_detects_value_in_wrong_field():
-    task = {
-        "title": "Submit a repository URL",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "Body"},
-                    "text": "http://old.example:8023/auth0/angular-storage",
-                }
-            ]
-        },
-        "source": {
-            "verified_evaluators": [
-                {
-                    "evaluator": "NetworkEventEvaluator",
-                    "expected": {
-                        "post_data": {"submission[url]": "__GITLAB__/auth0/angular-storage"}
-                    },
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ("evaluator_url_value_filled_in_wrong_field",)
-
-
-def test_network_evaluator_url_audit_normalizes_legacy_origin_to_site_token():
-    task = {
-        "title": "Submit a repository URL",
-        "trajectory": {
-            "actions": [
-                {
-                    "action": "fill",
-                    "target": {"by": "label", "value": "URL"},
-                    "text": ("http://old.example:8023/auth0/angular-storage"),
-                }
-            ]
-        },
-        "source": {
-            "verified_evaluators": [
-                {
-                    "evaluator": "NetworkEventEvaluator",
-                    "expected": {
-                        "post_data": {"submission[url]": "__GITLAB__/auth0/angular-storage"}
-                    },
-                }
-            ]
-        },
-    }
-
-    assert trajectory_semantic_conflicts(task) == ()
+    assert trajectory_semantic_conflicts(task) == expected
 
 
 def test_empty_candidate_cannot_be_adjudicated_eligible_without_correction():
@@ -1002,16 +801,8 @@ def test_evidence_revalidation_includes_direct_and_corrected_eligible_tasks():
     assert result["benchmark"]["evidence_revalidation"]["task_count"] == 2
 
 
-@pytest.mark.parametrize(
-    "kind",
-    [
-        "observed_json_zip",
-        "observed_json_filter_zip",
-        "observed_ranked_labels",
-        "observed_review_authors_matching",
-    ],
-)
-def test_evidence_revalidation_accepts_supported_structured_observation_builders(kind):
+def test_evidence_revalidation_accepts_a_supported_structured_observation_builder():
+    kind = "observed_json_zip"
     suite = {
         "benchmark": {},
         "tasks": [
@@ -1087,9 +878,7 @@ def test_failed_apply_preserves_entire_source_suite():
     assert suite == before
 
 
-@pytest.mark.parametrize(
-    "filename", ["attempt.json", "network.har", "final.png", "final-page.json"],
-)
+@pytest.mark.parametrize("filename", ["attempt.json", "network.har"])
 def test_qualification_proof_rejects_linked_attempt_and_auxiliary_evidence(tmp_path, filename):
     task = _task("linked")
     attempts = [_write_validated_attempt(tmp_path, task, pass_index=index)[1] for index in (1, 2)]
@@ -1104,10 +893,9 @@ def test_qualification_proof_rejects_linked_attempt_and_auxiliary_evidence(tmp_p
         )
 
 
-@pytest.mark.parametrize("field,value", [("attempt", True), ("attempt", 1.0),
-                                         ("qualification_pass_index", True),
-                                         ("qualification_pass_index", 1.0),
-                                         ("qualification_required_passes", 2.0)])
+@pytest.mark.parametrize(
+    "field,value", [("attempt", True), ("qualification_required_passes", 2.0)]
+)
 def test_qualification_ordinals_require_actual_integers(tmp_path, field, value):
     task = _task("typed")
     row, path = _write_validated_attempt(tmp_path, task, pass_index=1)

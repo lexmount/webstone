@@ -383,52 +383,38 @@ def test_provision_accepts_console_items_response_shapes(tmp_path):
     assert set(receipt["components"]) == set(STATEFUL_SITES)
 
 
-def test_provision_rejects_copied_site_without_internal_control_port(tmp_path):
-    class MissingControlPortAPI(FakeAPI):
-        def request(self, method, path, body=None):
-            if method == "GET" and path.endswith("/ports"):
-                return {"ports": []}
-            return super().request(method, path, body)
+def _without_ports(response, method, path):
+    return {"ports": []} if method == "GET" and path.endswith("/ports") else response
 
-    api = MissingControlPortAPI()
+
+def _without_image(index):
+    def damage(response, method, path):
+        if method == "POST" and path.endswith("/192/copy"):
+            response["services"][index].pop("image")
+        return response
+
+    return damage
+
+
+@pytest.mark.parametrize(
+    "damage, message",
+    [
+        (_without_ports, "must expose internal ports 80 and 8877"),
+        (_without_image(0), "has no image in response"),
+        (_without_image(-1), "initializer component has no image"),
+    ],
+    ids=["control-port", "site-image", "initializer-image"],
+)
+def test_provision_rejects_an_incomplete_copied_app_and_deletes_it(tmp_path, damage, message):
+    class DamagedAPI(FakeAPI):
+        def request(self, method, path, body=None):
+            return damage(super().request(method, path, body), method, path)
+
+    api = DamagedAPI()
     pool = _pool(tmp_path, api)
 
-    with pytest.raises(RuntimeError, match="must expose internal ports 80 and 8877"):
+    with pytest.raises(RuntimeError, match=message):
         pool.provision("run-a", 1, tmp_path / "slice-receipt.json")
-
-    assert any(method == "DELETE" for method, _path, _body in api.calls)
-
-
-def test_provision_rejects_copied_site_without_image_identity(tmp_path):
-    class MissingImageAPI(FakeAPI):
-        def request(self, method, path, body=None):
-            response = super().request(method, path, body)
-            if method == "POST" and path.endswith("/192/copy"):
-                response["services"][0].pop("image")
-            return response
-
-    api = MissingImageAPI()
-    pool = _pool(tmp_path, api)
-
-    with pytest.raises(RuntimeError, match="has no image in response"):
-        pool.provision("run-image", 1, tmp_path / "slice-receipt.json")
-
-    assert any(method == "DELETE" for method, _path, _body in api.calls)
-
-
-def test_provision_rejects_initializer_without_image_identity(tmp_path):
-    class MissingInitializerImageAPI(FakeAPI):
-        def request(self, method, path, body=None):
-            response = super().request(method, path, body)
-            if method == "POST" and path.endswith("/192/copy"):
-                response["services"][-1].pop("image")
-            return response
-
-    api = MissingInitializerImageAPI()
-    pool = _pool(tmp_path, api)
-
-    with pytest.raises(RuntimeError, match="initializer component has no image"):
-        pool.provision("run-initializer-image", 1, tmp_path / "slice-receipt.json")
 
     assert any(method == "DELETE" for method, _path, _body in api.calls)
 

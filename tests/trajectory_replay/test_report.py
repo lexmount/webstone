@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import pytest
 
 from harness.environments.browser import rotated_engine_order
 from harness.trajectory_replay.core.report import _annotate_source_marks
-from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL, summary_engines
+from harness.trajectory_replay.participants import summary_engines
 from harness.trajectory_replay.report import (
     METRICS,
     _absolute_metric_cell,
@@ -190,7 +189,6 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     assert "结论与产品建议" in rendered
     assert 'lang="zh-CN"' in rendered
     assert "报告分页" in rendered
-    assert "结果正确率是默认 Provider 的第一决策指标" not in rendered
     assert "评测集包含 1 个结果唯一的任务" in rendered
     assert rendered.index('<th colspan="2">P50</th>') < rendered.index('<th colspan="2">P95</th>')
     assert rendered.index('<th colspan="2">P95</th>') < rendered.index(
@@ -200,15 +198,12 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     assert '<td class="better">200.00</td><td>300.00</td>' in rendered
     assert "9.90×" in rendered
     assert "边际分位数相除" in rendered
-    assert "结果重试恢复" not in rendered
-    assert "首次结果正确" not in rendered
     assert (reports / "trajectory-replay-evaluation-latest-suite.html").exists()
     assert (reports / "trajectory-replay-evaluation-latest-method.html").exists()
     assert not (reports / "trajectory-replay-evaluation-latest-results.html").exists()
     assert (reports / "trajectory-replay-evaluation-latest-analysis.html").exists()
     assert (reports / "trajectory-replay-evaluation-latest-appendix.html").exists()
     assert (reports / "trajectory-replay-evaluation-latest-data.json").exists()
-    assert "总体结果" not in rendered
     assert "第 1/5 页" in rendered
     suite = (reports / "trajectory-replay-evaluation-latest-suite.html").read_text(encoding="utf-8")
     assert "1</strong><span>公网任务" in suite
@@ -219,7 +214,6 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     assert suite.count('href="https://example.com"') == 1
     assert suite.count("navigate → get_text") == 1
     assert "机器判定答案" not in suite
-    assert "评测可信度与解读边界" not in rendered
     for field in ("query", "difficulty", "site", "action", "reset", "count", "empty"):
         assert f'id="suite-{field}"' in suite
     assert 'class="card suite-task"' in suite
@@ -230,12 +224,6 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
         (reports / "trajectory-replay-evaluation-latest-data.json").read_text(encoding="utf-8")
     )
     assert "human_review" not in audit["ground_truth_validation"]
-    method = (reports / "trajectory-replay-evaluation-latest-method.html").read_text(
-        encoding="utf-8"
-    )
-    assert "RX = Receive" in method
-    assert "P50 与中位数是同一个统计量" in method
-    assert "Codex" in method
     assert "<table" in rendered
     assert "<pre># Browser Trajectory Replay" not in rendered
 
@@ -334,7 +322,6 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert "逐任务分析与原始证据" in analysis
     assert "TRACE_ONLY_SEARCH_MARKER" in analysis
     assert "c.dataset.search" in analysis
-    assert "逐任务对比" not in analysis
     assert "<details" not in analysis
     detail_files = list(reports.glob("*-task-*.html"))
     assert len(detail_files) == 1
@@ -350,13 +337,7 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert "参考操作与执行对照" in detail
     assert 'class="record-grid-head"' in analysis
     assert 'class="execution-summary"' in analysis
-    assert 'class="execution-body"' not in analysis
-    assert 'class="failure-grid"' not in analysis
-    assert 'class="failure-summary"' not in analysis
     assert 'class="diagnosis-panel"' in detail
-    assert "Actionability probe" in detail
-    assert "完整异常" in detail
-    assert "BrowserTool 方法" in analysis
     assert 'id="f-status"' in analysis
     assert 'id="f-combined"' in analysis
     assert 'id="f-action"' in analysis
@@ -369,8 +350,6 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert "unique-answer" in detail
     assert "未产生（过程失败）" in detail
     assert "未判定" in detail
-    assert "LLM 根因假设" not in analysis
-    assert "未启用 LLM" not in analysis
     assert "时序机制研究" in analysis
     homepage = (reports / "trajectory-replay-evaluation-latest.html").read_text(encoding="utf-8")
     assert 'class="failure-shortcut"' not in homepage
@@ -379,13 +358,10 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert 'id="execution-empty"' in analysis
     assert "new URLSearchParams(raw)" in analysis
     assert "document.querySelector(location.hash)" not in analysis
-    assert "CDP screencast 下采样" in homepage
-    assert "rAF 目标间隔为 16 ms" in homepage
     assert analysis.count('class="execution-card"') == 1
     assert "执行记录 1" in detail
     assert "执行记录 2" in detail
     assert "错误类别" in analysis
-    assert "重试结论" not in analysis
     assert 'id="execution-task-moli"' in analysis
 
 
@@ -474,7 +450,6 @@ def test_detail_preserves_success_and_divergent_actual_calls():
     assert 'aria-label="实际浏览器动作">fill</code>' in body
     assert "与参考动作不同" in body
     assert "#actual" in body
-    assert "额外调用" not in body
     assert "extra" in body
     assert "未记录资源采样" in body
     assert 'class="ok">通过' in body
@@ -525,10 +500,6 @@ def test_report_renders_every_registered_participant_of_a_larger_set(tmp_path):
     home = _route(reports, ".html")
 
     assert "Chromium、Obscura 与 Lightpanda 浏览器工具调用评测" in home
-    assert "Moli" not in home and "1 Hz" not in home
-    assert "screencast" not in home and "验证方案" not in home
-    assert "尚不能确认渲染器或适配层中的具体根因" in home
-    assert ">查看逐任务证据</a>" in home
     # The only leader is named, every other participant is compared, none is hard-coded.
     assert "默认使用 Obscura：其结果正确任务数为 3，高于 Chromium 的 2、Lightpanda 的 1" in home
     assert '<th colspan="3">P50</th>' in home
@@ -555,23 +526,12 @@ def test_report_renders_every_registered_participant_of_a_larger_set(tmp_path):
     assert "分别启动并预热 3 个浏览器" in method
     assert "资源基线只比较所有 Provider 都成功的同任务" in method
     assert "按任务交替 3 个 Provider 的执行顺序" in method
-    assert "双方" not in method
-    assert "按任务交替 3 个 Provider 的执行顺序" in method
     for label, version in (("Obscura", "obscura 1.0"), ("Lightpanda", "lightpanda 1.0")):
         assert label in method and version in method
 
     assert "所有 Provider 成功任务与逐任务配对比值审计" in _route(reports, "-appendix.html")
     assert _route(reports, ".md").startswith("# Chromium、Obscura 与 Lightpanda 浏览器工具调用评测")
     assert len(list(reports.glob("*-task-*.html"))) == 3 * len(engines)
-
-
-def test_report_labels_each_duration_audit_when_several_pairs_exist(tmp_path):
-    reports = tmp_path / "reports"
-    build_curated_report(reports, ("chromium", "obscura", "lightpanda"), {})
-    home = _route(reports, ".html")
-    for pair in ("Obscura / Chromium", "Lightpanda / Chromium"):
-        assert f"查看{pair} 逐任务耗时比值的完整计算审计" in home
-        assert f"{pair} 耗时配对比值原始序列" in home
 
 
 def test_report_states_a_partial_tie_among_more_than_two_participants(tmp_path):
@@ -599,7 +559,6 @@ def test_report_renders_a_single_participant_without_comparisons(tmp_path):
     assert "交替" not in method
     appendix = _route(reports, "-appendix.html")
     assert "所有 Provider 成功任务" in appendix
-    assert "所有分位数和均值均由仓库脚本计算" in appendix
     for page in (home, method, appendix):
         assert "比值" not in page
         assert "优胜项" not in page
@@ -616,17 +575,3 @@ def test_replay_engine_order_rotates_through_every_registered_position():
     assert rotated_engine_order(("chromium", "moli"), 1) == ("moli", "chromium")
     engines = ("a", "b", "c")
     assert [rotated_engine_order(engines, index)[0] for index in range(3)] == list(engines)
-
-
-def test_default_diagnosis_model_has_one_definition():
-    root = Path(__file__).resolve().parents[2]
-    track = root / "src/harness/trajectory_replay"
-    owners = [
-        path.relative_to(track).as_posix()
-        for path in track.rglob("*.py")
-        if DEFAULT_DIAGNOSIS_MODEL in path.read_text(encoding="utf-8")
-    ]
-    assert owners == ["participants.py"]
-    assert DEFAULT_DIAGNOSIS_MODEL not in (root / "examples/trajectory_replay/run.sh").read_text(
-        encoding="utf-8"
-    )

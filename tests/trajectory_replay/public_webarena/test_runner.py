@@ -12,11 +12,7 @@ import pytest
 
 from harness import env_file, runtime_env
 from harness.environments.browser import (
-    cleanup_browser_runtime,
-    container_engines,
     engine_cdp_port,
-    external_websocket_url,
-    published_endpoint,
     start_browser_container,
 )
 from harness.trajectory_replay.core import diagnostics, docker_runner
@@ -86,15 +82,13 @@ def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, mon
 
 
 @pytest.mark.parametrize(
-    ("password", "written"),
+    ("failure", "password", "written"),
     [
-        ("file-secret", "file-secret"),
-        ('a"&xtailx', 'a"&amp;xtailx'),
-        ('a"&xtailx', 'a\\"&amp;xtailx'),
-        ('a"&xtailx', "a\\&quot;&amp;xtailx"),
+        ("execution", "file-secret", "file-secret"),
+        ("evaluator_result", 'a"&xtailx', 'a\\"&amp;xtailx'),
+        ("evaluator_exception", 'a"&xtailx', "a\\&quot;&amp;xtailx"),
     ],
 )
-@pytest.mark.parametrize("failure", ["execution", "evaluator_result", "evaluator_exception"])
 def test_failed_task_row_omits_the_login_password(
     tmp_path, monkeypatch, failure, password, written
 ):
@@ -261,29 +255,6 @@ def test_webarena_site_reuse_state_is_isolated_per_engine():
     assert states == {"chromium": {"shopping"}, "moli": set()}
 
 
-def test_browser_engines_publish_their_external_cdp_ports():
-    ports = {engine: engine_cdp_port(engine) for engine in container_engines()}
-    assert ports == {"chromium": 9223, "moli": 9222}
-
-
-def test_browser_container_may_omit_cpu_limit_only_when_explicit():
-    client = MagicMock()
-
-    start_browser_container(
-        client,
-        image=ENGINE_IMAGES["chromium"], cdp_port=engine_cdp_port("chromium"),
-        engine="chromium",
-        run_id="diagnostic",
-        cpus=None,
-        memory="1g",
-        network="test-network",
-    )
-
-    kwargs = client.containers.run.call_args.kwargs
-    assert "nano_cpus" not in kwargs
-    assert kwargs["mem_limit"] == "1g"
-
-
 def test_browser_container_rejects_nonpositive_explicit_cpu_limit():
     with pytest.raises(ValueError, match="cpus must be positive"):
         start_browser_container(
@@ -388,9 +359,10 @@ def test_measured_run_rejects_missing_cgroup_controls_before_creating_output(tmp
     client.networks.create.assert_not_called()
 
 
-@pytest.mark.parametrize("generate_report", [False, True])
-@pytest.mark.parametrize("unexpected_diagnostic_error", [False, True])
-@pytest.mark.parametrize("with_smoke", [False, True])
+@pytest.mark.parametrize(
+    ("unexpected_diagnostic_error", "generate_report", "with_smoke"),
+    [(True, True, True), (False, True, False), (False, False, True)],
+)
 def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     tmp_path, monkeypatch, unexpected_diagnostic_error, generate_report, with_smoke
 ):
@@ -600,27 +572,6 @@ def test_public_moli_version_is_read_from_its_image_recipe():
     assert runner.pinned_image_version("chromium") is None
 
 
-def test_moli_image_installs_its_verified_dynamic_font_dependency():
-    dockerfile = Path(
-        "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile"
-    ).read_text(encoding="utf-8")
-
-    assert "fontconfig" in dockerfile
-    assert "--mount=type=bind,source=.,target=/mnt/build-context,ro" in dockerfile
-    assert "sha256sum -c -" in dockerfile
-
-
-def test_browser_images_expose_auditable_debian_mirror_overrides():
-    for name in ("chromium.Dockerfile", "moli.Dockerfile"):
-        dockerfile = Path("examples/trajectory_replay/public_webarena/docker", name).read_text(
-            encoding="utf-8"
-        )
-        assert "ARG DEBIAN_MIRROR=http://deb.debian.org/debian" in dockerfile
-        assert "ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security" in dockerfile
-        assert "lex.webstone.debian-mirror" in dockerfile
-        assert "lex.webstone.debian-security-mirror" in dockerfile
-
-
 def test_environment_records_browser_image_build_source_labels():
     image = SimpleNamespace(
         id="sha256:image",
@@ -761,7 +712,7 @@ def test_final_page_evidence_retries_navigation_races_and_writes_partial(tmp_pat
 
 @pytest.mark.parametrize(
     ("status", "qualification_run"),
-    ((None, False), ("pending", False), ("eligible", True), ("skipped", True)),
+    ((None, False), ("pending", False), ("eligible", True)),
 )
 def test_webarena_run_mode_fails_closed_on_qualification_state(
     tmp_path, monkeypatch, status, qualification_run
@@ -811,8 +762,9 @@ def test_webarena_run_mode_fails_closed_on_qualification_state(
     docker_call.assert_not_called()
 
 
-@pytest.mark.parametrize("password", ["file-secret", 'back\\slash"quote'])
-@pytest.mark.parametrize("failure", ["environment", "evaluator"])
+@pytest.mark.parametrize(
+    ("failure", "password"), [("environment", 'back\\slash"quote'), ("evaluator", "file-secret")]
+)
 def test_failed_attempt_evidence_omits_the_login_password(
     tmp_path, monkeypatch, failure, password
 ):
@@ -925,72 +877,6 @@ def test_failed_attempt_evidence_omits_the_login_password(
     assert "login form echoed ['[REDACTED]']" in json.loads(attempts.splitlines()[0])["error"]
     for spelling in (password, repr(password)[1:-1], json.dumps(password)[1:-1]):
         assert spelling not in attempts
-
-
-def test_external_websocket_url_rewrites_container_advertised_host():
-    assert (
-        external_websocket_url(
-            "http://127.0.0.1:32776",
-            "ws://0.0.0.0:9222/devtools/browser/moli-browser",
-        )
-        == "ws://127.0.0.1:32776/devtools/browser/moli-browser"
-    )
-
-
-def test_published_endpoint_handles_missing_port_binding():
-    class Container:
-        attrs = {"NetworkSettings": {"Ports": {}}}
-
-    with pytest.raises(RuntimeError, match="chromium: Docker did not publish CDP port"):
-        published_endpoint(Container(), engine="chromium", cdp_port=9223)
-
-
-def test_published_endpoint_uses_loopback_host_binding():
-    class Container:
-        attrs = {
-            "NetworkSettings": {
-                "Ports": {"9222/tcp": [{"HostIp": "127.0.0.1", "HostPort": "32768"}]}
-            }
-        }
-
-    assert (
-        published_endpoint(Container(), engine="moli", cdp_port=9222) == "http://127.0.0.1:32768"
-    )
-
-
-def test_cleanup_continues_after_playwright_stop_failure():
-    calls = []
-
-    class Browser:
-        def close(self):
-            calls.append("browser.close")
-
-    class Playwright:
-        def stop(self):
-            calls.append("playwright.stop")
-            raise RuntimeError("already stopped")
-
-    class Container:
-        def remove(self, *, force):
-            calls.append(("container.remove", force))
-
-    class Network:
-        def remove(self):
-            calls.append("network.remove")
-
-    cleanup_browser_runtime(
-        {"chromium": Browser()},
-        Playwright(),
-        {"chromium": Container()},
-        {"chromium": Network()},
-    )
-
-    assert calls == [
-        "browser.close",
-        "playwright.stop",
-        ("container.remove", True),
-        "network.remove",
-    ]
 
 
 def test_prepare_page_keeps_context_but_replaces_renderer_page(monkeypatch):

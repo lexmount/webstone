@@ -46,7 +46,20 @@ def wrapper_environment(tmp_path):
     return env, log
 
 
-@pytest.mark.parametrize("kind", ["directory", "file", "symlink", "dangling", "parent"])
+def run_wrapper(env, *args, cwd=None):
+    return subprocess.run(
+        ["bash", str(ROOT / "examples/trajectory_replay/run.sh"), *args],
+        cwd=cwd, env=env, capture_output=True, text=True,
+    )
+
+
+def logged_calls(log):
+    calls = log.read_text(encoding="utf-8").splitlines()
+    log.unlink()
+    return calls
+
+
+@pytest.mark.parametrize("kind", ["directory", "dangling", "parent"])
 def test_wrapper_preserves_existing_destination_before_external_work(
     tmp_path, wrapper_environment, kind
 ):
@@ -58,51 +71,39 @@ def test_wrapper_preserves_existing_destination_before_external_work(
     artifact.write_bytes(b"original evidence\n")
     if kind == "directory":
         output.mkdir()
-        (output / "attempts.jsonl").write_bytes(artifact.read_bytes())
-    elif kind == "file":
-        output.write_bytes(artifact.read_bytes())
     else:
-        output.symlink_to(original if kind in {"symlink", "parent"} else tmp_path / "missing")
+        output.symlink_to(original if kind == "parent" else tmp_path / "missing")
         if kind == "parent":
             output = output / "nested" / "new"
     env["TRAJECTORY_REPLAY_OUTPUT_DIR"] = str(output)
-    result = subprocess.run(
-        ["bash", str(ROOT / "examples/trajectory_replay/run.sh")],
-        env=env, capture_output=True, text=True,
-    )
-    assert result.returncode != 0
+    assert run_wrapper(env).returncode != 0
     assert not log.exists()
     assert artifact.read_bytes() == b"original evidence\n"
-    if kind == "directory":
-        assert (output / "attempts.jsonl").read_bytes() == artifact.read_bytes()
-    elif kind == "file":
-        assert output.read_bytes() == artifact.read_bytes()
-    else:
-        if kind == "parent":
-            assert (tmp_path / "evidence").is_symlink()
-            assert not (original / "nested").exists()
-        else:
-            assert output.is_symlink()
+    assert not (original / "nested").exists()
+    assert (tmp_path / "evidence").is_symlink() is (kind != "directory")
 
 
-def test_wrapper_defaults_to_distinct_external_run_and_report_paths(
+def test_wrapper_selects_external_or_caller_relative_output_and_honours_no_report(
     tmp_path, wrapper_environment
 ):
     env, log = wrapper_environment
-    for _ in range(2):
-        result = subprocess.run(
-            ["bash", str(ROOT / "examples/trajectory_replay/run.sh")],
-            cwd=tmp_path, env=env, capture_output=True, text=True,
-        )
-        assert result.returncode == 0, result.stderr
-    calls = log.read_text(encoding="utf-8").splitlines()
-    outputs = [Path(calls[i + 1]) for i, value in enumerate(calls) if value == "--output"]
-    reports = [Path(calls[i + 1]) for i, value in enumerate(calls) if value == "--reports"]
-    assert len(outputs) == len(set(outputs)) == 2
-    for output, report in zip(outputs, reports, strict=True):
-        assert output.is_relative_to(Path(env["WEBSTONE_DATA_HOME"]))
-        assert report == output / "report"
-        assert output.is_dir()
+    result = run_wrapper(env, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    calls = logged_calls(log)
+    output = Path(calls[calls.index("--output") + 1])
+    assert output.is_relative_to(Path(env["WEBSTONE_DATA_HOME"])) and output.is_dir()
+    assert Path(calls[calls.index("--reports") + 1]) == output / "report"
+    assert "--no-report" not in calls and "--artifacts" in calls
+
+    env["TRAJECTORY_REPLAY_OUTPUT_DIR"] = "selected-run"
+    result = run_wrapper(env, "--no-report", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    calls = logged_calls(log)
+    assert calls[calls.index("--output") + 1] == str(tmp_path / "selected-run")
+    assert (tmp_path / "selected-run").is_dir()
+    assert calls.count("--no-report") == 1
+    assert not (tmp_path / "selected-run" / "report").exists()
+    assert "Latest report:" not in result.stdout
 
 
 def test_failed_wrapper_run_preserves_a_previous_run(tmp_path, wrapper_environment):
@@ -112,30 +113,14 @@ def test_failed_wrapper_run_preserves_a_previous_run(tmp_path, wrapper_environme
     artifact = previous / "attempts.jsonl"
     artifact.write_bytes(b"completed run\n")
     env["CALL_EXIT"] = "23"
-    result = subprocess.run(
-        ["bash", str(ROOT / "examples/trajectory_replay/run.sh")],
-        env=env, capture_output=True, text=True,
-    )
+    result = run_wrapper(env)
     assert result.returncode == 23
     assert artifact.read_bytes() == b"completed run\n"
     assert "Evidence directory:" in result.stdout
     assert "--artifacts" not in log.read_text(encoding="utf-8").splitlines()
 
 
-def test_wrapper_resolves_relative_output_from_callers_directory(tmp_path, wrapper_environment):
-    env, log = wrapper_environment
-    env["TRAJECTORY_REPLAY_OUTPUT_DIR"] = "selected-run"
-    result = subprocess.run(
-        ["bash", str(ROOT / "examples/trajectory_replay/run.sh")],
-        cwd=tmp_path, env=env, capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert (tmp_path / "selected-run").is_dir()
-    calls = log.read_text(encoding="utf-8").splitlines()
-    assert calls[calls.index("--output") + 1] == str(tmp_path / "selected-run")
-
-
-@pytest.mark.parametrize("kind", ["directory", "file", "symlink", "dangling", "parent"])
+@pytest.mark.parametrize("kind", ["directory", "dangling", "parent"])
 def test_shared_runner_rejects_reused_or_linked_output_before_loading_inputs(
     tmp_path, monkeypatch, kind
 ):
@@ -213,42 +198,16 @@ def test_direct_cli_requires_explicit_inputs_and_keeps_report_with_run(monkeypat
     assert calls[0]["ground_truth_evidence_path"] == "qualification.json"
 
 
-@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS system aliases')
-@pytest.mark.parametrize('alias', ['/tmp', '/var'])
-def test_wrapper_accepts_system_temp_aliases(tmp_path, wrapper_environment, alias):
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system aliases")
+def test_wrapper_accepts_system_temp_alias(wrapper_environment):
     import tempfile
 
     env, log = wrapper_environment
-    canonical = Path('/private') / Path(alias).name
-    with tempfile.TemporaryDirectory(dir=canonical if alias == '/tmp' else tmp_path) as directory:
+    with tempfile.TemporaryDirectory(dir="/private/tmp") as directory:
         root = Path(directory)
-        output = Path(alias) / root.relative_to(canonical) / 'new-run'
-        env['TRAJECTORY_REPLAY_OUTPUT_DIR'] = str(output)
-        result = subprocess.run(['bash', str(ROOT / 'examples/trajectory_replay/run.sh')],
-                                env=env, capture_output=True, text=True)
+        env["TRAJECTORY_REPLAY_OUTPUT_DIR"] = str(Path("/tmp") / root.name / "new-run")
+        result = run_wrapper(env)
         assert result.returncode == 0, result.stderr
         calls = log.read_text(encoding="utf-8").splitlines()
-        assert calls[calls.index('--output') + 1] == str(root / 'new-run')
-        assert (root / 'new-run').is_dir()
-
-
-@pytest.mark.parametrize("exit_code", [0, 23])
-def test_wrapper_no_report_keeps_evidence_paths_and_failure_status(
-    tmp_path, wrapper_environment, exit_code
-):
-    env, log = wrapper_environment
-    env["CALL_EXIT"] = str(exit_code)
-    result = subprocess.run(
-        ["/bin/bash", str(ROOT / "examples/trajectory_replay/run.sh"), "--no-report"],
-        cwd=tmp_path, env=env, capture_output=True, text=True,
-    )
-    assert result.returncode == exit_code, result.stderr
-    calls = log.read_text(encoding="utf-8").splitlines()
-    assert calls.count("--no-report") == 1
-    output = Path(calls[calls.index("--output") + 1])
-    assert output.is_relative_to(Path(env["WEBSTONE_DATA_HOME"]))
-    assert Path(calls[calls.index("--reports") + 1]) == output / "report"
-    assert output.is_dir()
-    assert not (output / "report").exists()
-    assert "Latest report:" not in result.stdout
-    assert ("--artifacts" in calls) is (exit_code == 0)
+        assert calls[calls.index("--output") + 1] == str(root / "new-run")
+        assert (root / "new-run").is_dir()

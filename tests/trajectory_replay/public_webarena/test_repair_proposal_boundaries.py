@@ -69,17 +69,19 @@ def setup_command(tmp_path, kind):
 
 
 def run_command(kind, args):
-    return subprocess.run([sys.executable, str(ROOT / f"scripts/propose_webarena_{kind}.py"),
-                           *args], cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)},
-                          capture_output=True, text=True, timeout=20)
+    """Run the shared proposal entry point in-process; return the refusal, if any."""
+    try:
+        q.main_repair_proposal(list(args), kind=kind)
+    except (ValueError, OSError, RuntimeError, SystemExit) as error:
+        return str(error) or type(error).__name__
+    return None
 
 
 @pytest.mark.parametrize("kind", KINDS)
 def test_real_command_creates_bound_pending_proposal_and_refuses_overwrite(tmp_path, kind):
     suite, args, output = setup_command(tmp_path, kind)
     original = (tmp_path / "suite.json").read_bytes()
-    result = run_command(kind, args)
-    assert result.returncode == 0, result.stderr
+    assert run_command(kind, args) is None
     path = output / "task-1.json" if kind in BATCH else output
     content = path.read_bytes()
     proposal = json.loads(content)
@@ -97,13 +99,12 @@ def test_real_command_creates_bound_pending_proposal_and_refuses_overwrite(tmp_p
     evaluator["expected"]["post_data"]["title"] = "New title"
     with pytest.raises(ValueError, match="source task contract changed"):
         q.build_probe(changed, proposal)
-    result = run_command(kind, args)
-    assert result.returncode != 0 and "already exists" in result.stderr
+    assert "already exists" in run_command(kind, args)
     assert path.read_bytes() == content
     assert (tmp_path / "suite.json").read_bytes() == original
 
 
-@pytest.mark.parametrize("kind", KINDS)
+@pytest.mark.parametrize("kind", ["action_repair", "autowait_repairs"])
 @pytest.mark.parametrize("boundary", ["input", "link", "parent_link"])
 def test_commands_preserve_inputs_and_reject_linked_outputs(tmp_path, kind, boundary):
     _, args, output = setup_command(tmp_path, kind)
@@ -119,20 +120,20 @@ def test_commands_preserve_inputs_and_reject_linked_outputs(tmp_path, kind, boun
         linked = tmp_path / "linked"
         linked.symlink_to(real, target_is_directory=True)
         args[-1] = str(linked / "output")
-    result = run_command(kind, args)
-    assert result.returncode != 0
+    assert run_command(kind, args) is not None
     assert source.read_bytes() == original
     if boundary == "parent_link":
         assert not list(real.iterdir())
 
 
-@pytest.mark.parametrize("kind", sorted(BATCH))
-@pytest.mark.parametrize("ids", ["task-1,missing", "task-1,../escape"])
+@pytest.mark.parametrize(
+    ("kind", "ids"),
+    [("evaluator_fill_repair", "task-1,missing"), ("autowait_repairs", "task-1,../escape")],
+)
 def test_batch_failure_exposes_no_partial_directory(tmp_path, kind, ids):
     _, args, output = setup_command(tmp_path, kind)
     args[args.index("--task-ids") + 1] = ids
-    result = run_command(kind, args)
-    assert result.returncode != 0
+    assert run_command(kind, args) is not None
     assert not output.exists()
     assert not (tmp_path / "escape.json").exists()
 
@@ -152,11 +153,15 @@ def test_generation_rejects_inputs_changed_before_publication(tmp_path, monkeypa
     assert not output.exists()
 
 
-def test_standard_temporary_directory_is_supported():
+def test_script_entry_point_supports_the_standard_temporary_directory():
     import tempfile
 
     with tempfile.TemporaryDirectory() as directory:
         _, args, output = setup_command(Path(directory), "action_repair")
-        result = run_command("action_repair", args)
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/propose_webarena_action_repair.py"), *args],
+            cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)},
+            capture_output=True, text=True, timeout=20,
+        )
         assert result.returncode == 0, result.stderr
         assert output.is_file()

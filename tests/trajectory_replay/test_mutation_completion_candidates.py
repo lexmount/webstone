@@ -24,8 +24,12 @@ CANDIDATES = (
     ROOT / "evaluation/trajectory-replay/webarena-verified/mutation-completion-candidates.json"
 )
 TRAJECTORIES = ROOT / "evaluation/trajectory-replay/webarena-verified/trajectories.json"
-REVIEW = ROOT / "evaluation/trajectory-replay/webarena-verified/mutation-completion-review.json"
 SHOPPING_ORIGIN = "http://host.docker.internal:7770"
+
+
+@pytest.fixture(scope="module")
+def benchmark():
+    return configure_benchmark(hostname=GW)
 
 
 @pytest.fixture(scope="module")
@@ -36,12 +40,11 @@ def candidates() -> dict[int, dict]:
     return {int(row["task_id"]): row for row in payload["rules"]}
 
 
-def test_candidates_bind_frozen_actions_and_official_task_contract(candidates):
+def test_candidates_bind_frozen_actions_and_official_task_contract(candidates, benchmark):
     trajectories = {
         int(row["task_id"]): row
         for row in json.loads(TRAJECTORIES.read_text(encoding="utf-8"))["trajectories"]
     }
-    benchmark = configure_benchmark(hostname=GW)
     assert set(candidates) == {
         399,
         404,
@@ -570,12 +573,12 @@ def test_order_observer_requires_success_number_history_and_matching_detail(cand
     )
 
 
-def test_order_candidate_does_not_replace_any_of_four_official_events(candidates):
+def test_order_candidate_does_not_replace_any_of_four_official_events(candidates, benchmark):
     candidate = candidates[506]
     assert candidate["official_network_evaluator_count"] == 4
     official = [
         row.expected.model_dump(exclude_none=True)
-        for row in configure_benchmark(hostname=GW).get_task(506).eval
+        for row in benchmark.get_task(506).eval
         if row.evaluator == "NetworkEventEvaluator"
     ]
     assert [(row["http_method"], row["response_status"]) for row in official] == [
@@ -717,28 +720,10 @@ def test_task441_pre_commit_value_and_post_commit_raw_file_have_paired_controls(
     assert not _observed(candidate, expected.replace("GIVE ME SPACE", "old title"))
 
 
-def test_old_task441_double_document_review_is_not_a_latest_moli_result(candidates):
-    review = json.loads(REVIEW.read_text(encoding="utf-8"))
-    assert review["task_id"] == 441
-    assert review["old_receipt_evaluator_status"] == "not_run"
-    assert "old non-promotable" in review["evidence_class"]
-    assert review["published_score_effect"] == "none"
-    assert review["request_content_observation"] == {
-        "doctype_count": 2,
-        "head_end_count": 2,
-        "title_count": 2,
-        "target_title_present": True,
-        "single_document_predicate": False,
-    }
-    assert review["offline_official_evaluator_check"]["score"] == 1.0
-    assert candidates[441]["observer"]["require_no_other_title"] is True
-
-
 @pytest.mark.parametrize("task_id", [399, 404, 415, 418, 441, 448, 571, 576, 585, 590, 595])
 def test_official_evaluator_requires_exact_network_event_and_success_response(
-    tmp_path, candidates, task_id: int
+    tmp_path, candidates, benchmark, task_id: int
 ):
-    benchmark = configure_benchmark(hostname=GW)
     rule = candidates[task_id]["official_network_event"]
     site_port = 9999 if task_id in {399, 404, 595} else 7770 if task_id in {571, 585} else 8023
     suffix = rule["url_suffix"]

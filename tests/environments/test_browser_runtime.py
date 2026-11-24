@@ -51,7 +51,7 @@ def test_cdp_readiness_uses_the_published_address_and_preserves_websocket_path()
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True)
     thread.start()
     try:
         host = f"127.0.0.1:{server.server_port}"

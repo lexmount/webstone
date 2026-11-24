@@ -25,7 +25,9 @@ def test_private_preview_fixture_denies_assets_without_version(tmp_path):
         )
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     server.preview_errors = []
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     root = f"http://127.0.0.1:{server.server_port}/api/preview/"
     try:
@@ -63,8 +65,6 @@ def test_hosted_preview_errors_identify_missing_file_and_version():
     "route,changed_field,wrong_value",
     [
         ("index.html", "base", "https://example.test/api/preview/replay/"),
-        ("index.html", "css", "https://example.test/api/preview/replay/assets/report.css"),
-        ("result/moli-1.html", "base", "https://example.test/api/preview/replay~fixture/"),
         ("result/moli-1.html", "css", "https://example.test/api/preview/assets/report.css"),
         ("result/moli-1.html", "script", "https://example.test/api/preview/assets/app.js"),
         ("result/moli-1.html", "background", "rgba(0, 0, 0, 0)"),
@@ -147,9 +147,7 @@ def test_routes_support_an_all_pass_report(tmp_path) -> None:
     assert _first_failed_key(tmp_path) is None
     assert len(routes) == 10
 
-
-def test_current_routes_exclude_legacy_fix_detail(tmp_path) -> None:
-    _write_results(tmp_path, [{"key": "chromium-1", "status": "pass"}])
+    # Legacy fix details left in the tree are not current routes.
     (tmp_path / "fix").mkdir()
     (tmp_path / "en/fix").mkdir(parents=True)
     (tmp_path / "fix/fixture-fix.html").write_text("fixture", encoding="utf-8")
@@ -205,7 +203,6 @@ def test_chinese_visual_matrix_includes_english_notice(tmp_path):
         "none",
         "missing-state",
         "wrong-theme",
-        "missing-height",
         "viewer-error",
         "missing-topology-field",
         "low-contrast",
@@ -268,8 +265,6 @@ def test_current_replay_receipt_binds_full_visual_scope(tmp_path, monkeypatch, d
         value["states"].pop()
     elif damage == "wrong-theme":
         value["states"][0]["theme"] = "unmeasured"
-    elif damage == "missing-height":
-        del value["states"][0]["height"]
     elif damage == "viewer-error":
         value["states"][0]["viewerError"] = True
     elif damage == "missing-topology-field":

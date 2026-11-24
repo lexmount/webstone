@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -100,19 +101,8 @@ def test_profile_is_updated_only_with_verified_publication_values(tmp_path):
     }
 
 
-def test_verification_command_uses_required_slug_option(tmp_path):
-    command = release._verification_command(
-        {"site_slug": "site", "base_url": "https://reports.example"},
-        tmp_path / "profile.json",
-        tmp_path / "report.zip",
-    )
-    assert command[1:6] == ["-m", "harness.web_fetch", "site-verify", "--slug", "site"]
-    assert command[6:8] == ["--profile", str(tmp_path / "profile.json")]
-    assert "--export" in command
-    assert command[-2:] == ["--expected-archive", str(tmp_path / "report.zip")]
-
-
 def publication_fixture(root):
+    """Build a published report in ``root`` (reused by test_reporting_publish_client)."""
     from harness.trajectory_replay.public_webarena import publication
 
     source, profile = write_report_fixture(root)
@@ -124,26 +114,48 @@ def publication_fixture(root):
         "share_url": "https://reports.example/v/token",
     }
     profile.write_text(json.dumps(document), encoding="utf-8")
-    staged = root / "staged"
-    publication.stage_report(source, staged)
-    archive, proof = root / "report.zip", root / "proof.json"
-    publication.build(staged, archive, proof, authority=profile)
-    receipt = root / "receipt.json"
-    receipt.write_text(
+    publication.stage_report(source, root / "staged")
+    publication.build(root / "staged", root / "report.zip", root / "proof.json", authority=profile)
+    (root / "receipt.json").write_text(
         json.dumps(
             {"slug": "site-one", "versionId": "ver_old", "base_url": "https://reports.example"}
         ),
-        encoding="utf-8"
+        encoding="utf-8",
     )
-    return source, profile, staged, archive, proof, receipt, root / "operation.json"
+    return _publication_paths(root)
+
+
+def _publication_paths(root):
+    return (
+        root / "source",
+        root / "evaluation/browser-use-public/current-report.json",
+        root / "staged",
+        root / "report.zip",
+        root / "proof.json",
+        root / "receipt.json",
+        root / "operation.json",
+    )
+
+
+@pytest.fixture(scope="module")
+def _built_publication(tmp_path_factory):
+    root = tmp_path_factory.mktemp("publication")
+    publication_fixture(root)
+    return root
+
+
+@pytest.fixture
+def publication_files(_built_publication, tmp_path):
+    shutil.copytree(_built_publication, tmp_path, dirs_exist_ok=True)
+    return _publication_paths(tmp_path)
 
 
 @pytest.mark.parametrize("failure", ["upload-response", "share"])
-def test_public_replay_submission_recovers_without_second_activation(tmp_path, failure):
+def test_public_replay_submission_recovers_without_second_activation(publication_files, failure):
     from harness.trajectory_replay.public_webarena.publication import publish_current
     from tests.test_webfetch_report_publish import Service
 
-    source, profile, staged, archive, proof, receipt, journal = publication_fixture(tmp_path)
+    source, profile, staged, archive, proof, receipt, journal = publication_files
     service = Service(failure)
     before = profile.read_bytes()
     with pytest.raises(OSError, match="simulated"):
@@ -158,13 +170,13 @@ def test_public_replay_submission_recovers_without_second_activation(tmp_path, f
 
 @pytest.mark.parametrize("saved_submission", [False, True])
 def test_public_replay_publication_stops_before_requests_while_a_site_login_is_unset(
-    tmp_path, monkeypatch, saved_submission
+    publication_files, tmp_path, monkeypatch, saved_submission
 ):
     from harness import env_file
     from harness.trajectory_replay.public_webarena.publication import publish_current
     from tests.test_webfetch_report_publish import Service
 
-    source, profile, staged, archive, proof, receipt, journal = publication_fixture(tmp_path)
+    source, profile, staged, archive, proof, receipt, journal = publication_files
     if saved_submission:
         receipt.write_text(
             json.dumps(
@@ -190,12 +202,12 @@ def test_public_replay_publication_stops_before_requests_while_a_site_login_is_u
 
 @pytest.mark.parametrize("damage", ["site", "share", "proof", "package"])
 def test_public_replay_preflight_rejects_wrong_authority_or_package_before_requests(
-    tmp_path, damage
+    publication_files, damage
 ):
     from harness.trajectory_replay.public_webarena.publication import publish_current
     from tests.test_webfetch_report_publish import Service
 
-    source, profile, staged, archive, proof, receipt, journal = publication_fixture(tmp_path)
+    source, profile, staged, archive, proof, receipt, journal = publication_files
     if damage == "site":
         document = json.loads(receipt.read_text(encoding="utf-8"))
         document["slug"] = "other-site"
@@ -220,11 +232,13 @@ def test_public_replay_preflight_rejects_wrong_authority_or_package_before_reque
     assert service.requests == []
 
 
-def test_release_retains_submission_when_export_verification_is_interrupted(tmp_path, monkeypatch):
+def test_release_retains_submission_when_export_verification_is_interrupted(
+    publication_files, tmp_path, monkeypatch
+):
     from harness.trajectory_replay.public_webarena import publication
     from tests.test_webfetch_report_publish import Service
 
-    source, profile, staged, archive, proof, receipt, journal = publication_fixture(tmp_path)
+    source, profile, staged, archive, proof, receipt, journal = publication_files
     target = tmp_path / "publish/webarena-fixed-trajectory-site-receipt.json"
     target.parent.mkdir()
     target.write_bytes(receipt.read_bytes())

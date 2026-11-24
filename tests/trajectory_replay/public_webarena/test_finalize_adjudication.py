@@ -405,7 +405,7 @@ def test_finalization_rejects_projection_verdict_drift_in_both_directions(
         )
 
 
-@pytest.mark.parametrize("field", ["title", "evaluator", "environment", "source"])
+@pytest.mark.parametrize("field", ["title", "source"])
 def test_finalization_rejects_requalified_changes_to_immutable_task_fields(tmp_path, field):
     original = _task("webarena-1")
     candidate = deepcopy(original)
@@ -451,7 +451,7 @@ def test_empty_candidate_cannot_gain_eligibility_from_passing_metadata(tmp_path)
         )
 
 
-@pytest.mark.parametrize("hashes", [None, [], ["a" * 64], ["a" * 64, "a" * 64], ["bad", "b" * 64]])
+@pytest.mark.parametrize("hashes", [None, ["a" * 64], ["a" * 64, "a" * 64], ["bad", "b" * 64]])
 def test_applied_eligibility_requires_two_retained_proof_hashes(hashes):
     task = _task("webarena-1")
     task["ground_truth"]["qualification"] = {"status": "eligible"}

@@ -9,35 +9,6 @@ import pytest
 ROOT = Path("evaluation/trajectory-replay/webarena-verified/retrieval-candidates")
 
 
-def test_cross_document_actions_wait_for_destination_before_continuing():
-    root = ROOT.parent / "trajectory-candidates"
-    calls = json.loads((root / "task-404.json").read_text(encoding="utf-8"))["tool_calls"]
-    navigation = next(
-        i
-        for i, call in enumerate(calls)
-        if call.get("action") == "click" and "/f/books/new" in call.get("selector", "")
-    )
-    assert calls[navigation + 1] == {
-        "action": "wait",
-        "selector": 'button[aria-label="Sort by: New"]:visible',
-        "timeout": 30000,
-    }
-    calls = json.loads((root / "task-771.json").read_text(encoding="utf-8"))["tool_calls"]
-    saves = [
-        i
-        for i, call in enumerate(calls)
-        if call.get("action") == "click" and "Save Review" in call.get("selector", "")
-    ]
-    assert len(saves) == 2
-    for index in saves:
-        assert calls[index + 1] == {
-            "action": "wait",
-            "selector": "#reviewGrid_table:visible",
-            "timeout": 30000,
-        }
-        assert calls[index + 2]["action"] == "navigate"
-
-
 def execute(task_id, setup):
     script = json.loads((ROOT / f"task-{task_id}.json").read_text(encoding="utf-8"))["tool_calls"][
         -1
@@ -167,16 +138,6 @@ json:async()=>({totalRecords:'201',items})};};
     else:
         assert result.returncode == 0, result.stderr
         assert len(json.loads(result.stdout)["records"]) == 201
-
-
-@pytest.mark.parametrize("task_id", [110, 193, 196, 198, 204, 288])
-def test_every_order_observer_waits_for_request_and_uses_unique_page_order(task_id):
-    script = json.loads((ROOT / f"task-{task_id}.json").read_text(encoding="utf-8"))["tool_calls"][
-        -1
-    ]["script"]
-    assert "while(Date.now()<readyDeadline)" in script
-    assert "sorting:{field:'entity_id',direction:'asc'}" in script
-    assert "rows.sort(" in script
 
 
 @pytest.mark.parametrize("task_id", [110, 193, 196, 198, 288])

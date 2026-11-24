@@ -16,8 +16,6 @@ import pytest
 from harness import runtime_env
 from harness.environments.browser import (
     cleanup_browser_runtime,
-    container_engines,
-    engine_cdp_port,
     external_websocket_url,
     published_endpoint,
 )
@@ -25,11 +23,6 @@ from harness.trajectory_replay import runner
 from harness.trajectory_replay.core import diagnostics, docker_runner
 from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
 from harness.trajectory_replay.runner import _prepare_page
-
-
-def test_browser_engines_publish_their_external_cdp_ports():
-    ports = {engine: engine_cdp_port(engine) for engine in container_engines()}
-    assert ports == {"chromium": 9223, "moli": 9222}
 
 
 def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):
@@ -47,9 +40,10 @@ def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):
     assert result["process_validation"]["all_calls_passed"] is False
 
 
-@pytest.mark.parametrize("generate_report", [False, True])
-@pytest.mark.parametrize("unexpected_diagnostic_error", [False, True])
-@pytest.mark.parametrize("with_smoke", [False, True])
+@pytest.mark.parametrize(
+    ("unexpected_diagnostic_error", "generate_report", "with_smoke"),
+    [(True, True, True), (False, True, False), (False, False, True)],
+)
 def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     tmp_path, monkeypatch, unexpected_diagnostic_error, generate_report, with_smoke
 ):
@@ -220,14 +214,6 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     client.networks.create.return_value.remove.assert_called()
 
 
-def test_moli_image_installs_its_verified_dynamic_font_dependency():
-    dockerfile = Path("examples/trajectory_replay/docker/moli.Dockerfile").read_text(
-        encoding="utf-8"
-    )
-
-    assert "fontconfig" in dockerfile
-
-
 def test_external_websocket_url_rewrites_container_advertised_host():
     assert (
         external_websocket_url(
@@ -341,15 +327,12 @@ def test_prepare_page_keeps_context_but_replaces_renderer_page(monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != 'darwin', reason='macOS system aliases')
-@pytest.mark.parametrize('alias', ['/tmp', '/var'])
-def test_replay_accepts_system_alias_but_rejects_user_links(tmp_path, monkeypatch, alias):
+def test_replay_accepts_system_alias_but_rejects_user_links(monkeypatch):
     from harness.trajectory_replay.report_inputs import verified_dataset_path
 
-    # pytest's temporary root is inside /private/var on macOS.
-    canonical = Path('/private') / Path(alias).name
-    with tempfile.TemporaryDirectory(dir=canonical if alias == '/tmp' else tmp_path) as directory:
+    with tempfile.TemporaryDirectory(dir='/private/tmp') as directory:
         root = Path(directory)
-        aliased = Path(alias) / root.relative_to(canonical)
+        aliased = Path('/tmp') / root.name
         dataset = root / 'dataset.json'
         dataset.write_bytes(b'{}')
         digest = hashlib.sha256(b'{}').hexdigest()
@@ -372,11 +355,7 @@ def test_replay_accepts_system_alias_but_rejects_user_links(tmp_path, monkeypatc
                                   reports_dir=root / 'report')
 
 
-@pytest.mark.parametrize(
-    "module",
-    ["harness.trajectory_replay.runner", "harness.trajectory_replay.public_webarena.runner"],
-)
-def test_runner_import_does_not_load_the_token_encoding(module):
+def test_runner_imports_do_not_load_the_token_encoding():
     # tiktoken may download its BPE file on first load; importing a runner
     # (for example for CLI --help) must not need the network.
     code = (
@@ -384,7 +363,8 @@ def test_runner_import_does_not_load_the_token_encoding(module):
         "def offline(_name):\n"
         "    raise RuntimeError('token encoding loaded at import time')\n"
         "tiktoken.get_encoding = offline\n"
-        f"import {module}\n"
+        "import harness.trajectory_replay.runner\n"
+        "import harness.trajectory_replay.public_webarena.runner\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],

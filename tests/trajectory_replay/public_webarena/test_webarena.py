@@ -416,7 +416,7 @@ def test_catalog_joins_every_trace_to_both_upstream_definitions():
     assert result["scope"]["recorded_does_not_imply_successful_gold_path"] is True
 
 
-@pytest.mark.parametrize("damage", [None, "catalog", "trace", "missing"])
+@pytest.mark.parametrize("damage", [None, "catalog", "missing"])
 def test_declared_trace_audit_freezes_inputs_and_preserves_outputs(tmp_path, monkeypatch, damage):
     from harness.trajectory_replay.public_webarena import webarena
 

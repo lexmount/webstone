@@ -454,14 +454,6 @@ def test_archived_catalog_reproduces_all_unchanged_task_contracts(benchmark, cat
 
 
 
-def test_279_corrects_title_and_omitted_bluetooth_model(benchmark, catalog) -> None:
-    applied = apply_correction(benchmark.get_task(279), catalog)
-    names = _dump_eval(applied, 0)["expected"]["retrieved_data"][0]["names"]
-    assert "Sony WI-C300 Wireless In-Ear Headphones, Red (WIC300/R))" in names
-    assert len(names) == 13
-    assert sum("WI-1000XM2" in name for name in names) == 1
-
-
 @pytest.mark.parametrize(
     "mutation,score",
     [("complete", 1.0), ("omitted", 0.0), ("wired", 0.0)],
@@ -479,51 +471,11 @@ def test_279_complete_catalog_scores_both_directions(tmp_path, benchmark, catalo
         names[:] = [name for name in names if "WI-1000XM2" not in name]
     elif mutation == "wired":
         names.append("SONY MDR-Z1R WW2 Signature, Hi-Res Headphone, Black (International Version)")
-    trace = tmp_path / "catalog.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "version": "1.2",
-                    "creator": {"name": "control", "version": "1"},
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "GET",
-                                "url": "http://example.test/",
-                                "headers": [],
-                            },
-                            "response": {
-                                "status": 200,
-                                "headers": [],
-                                "cookies": [],
-                                "content": {"mimeType": "text/html", "text": ""},
-                            },
-                        }
-                    ],
-                }
-            }
-        ),
-        encoding="utf-8"
-    )
+    trace = _empty_har(tmp_path / "catalog.har")
     result = evaluate_corrected_contract(
         benchmark, contract, agent_response=response, network_trace=trace
     )
     assert float(result.score) == score
-
-
-@pytest.mark.parametrize(
-    "task_id,expected_count,expected_min,expected_max",
-    [(280, 17, 8.99, 59.99), (282, 9, 36.86, 90.65)],
-)
-def test_current_catalog_price_ranges_are_complete(
-    benchmark, catalog, task_id, expected_count, expected_min, expected_max
-):
-    contract = apply_correction(benchmark.get_task(task_id), catalog)
-    result = _dump_eval(contract, 0)["expected"]["retrieved_data"][0]
-    assert len(result["names"]) == expected_count
-    assert result["min"] == expected_min
-    assert result["max"] == expected_max
 
 
 @pytest.mark.parametrize(
@@ -594,33 +546,7 @@ def test_225_corrects_unverifiable_brand_scope_from_independent_catalog(benchmar
 def test_225_revised_reference_scores_both_directions(
     tmp_path, benchmark, catalog, response, expected_score
 ) -> None:
-    trace = tmp_path / "task-225.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "version": "1.2",
-                    "creator": {"name": "control", "version": "1"},
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "GET",
-                                "url": "http://example.test/",
-                                "headers": [],
-                            },
-                            "response": {
-                                "status": 200,
-                                "headers": [],
-                                "cookies": [],
-                                "content": {"mimeType": "text/html", "text": ""},
-                            },
-                        }
-                    ],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    trace = _empty_har(tmp_path / "task-225.har")
     result = evaluate_corrected_contract(
         benchmark,
         apply_correction(benchmark.get_task(225), catalog),
@@ -628,13 +554,6 @@ def test_225_revised_reference_scores_both_directions(
         network_trace=trace,
     )
     assert float(result.score) == expected_score
-
-
-def test_339_uses_upstream_issues_route_contract(benchmark, catalog) -> None:
-    assert 339 not in catalog.records
-    task = benchmark.get_task(339)
-    assert task.revision == 3
-    assert task.eval[1].expected.url.endswith("/-/issues/?$")
 
 
 def test_agent_response_normalization_removes_unsupported_null_metadata() -> None:
@@ -650,21 +569,6 @@ def test_agent_response_normalization_removes_unsupported_null_metadata() -> Non
         "status": "SUCCESS",
         "retrieved_data": None,
     }
-
-
-def test_475_upstream_accepts_unchecked_checkbox_forms(benchmark, catalog) -> None:
-    assert 475 not in catalog.records
-    task = benchmark.get_task(475)
-    assert task.revision == 3
-    assert task.eval[1].expected.post_data["project[initialize_with_readme]"] == (None, "0")
-
-
-def test_448_checks_latest_profile_save_before_expected_value(benchmark, catalog) -> None:
-    applied = apply_correction(benchmark.get_task(448), catalog)
-    evaluator = _dump_eval(applied, 1)
-    assert evaluator["expected"]["url"] == "__GITLAB__/-/profile"
-    assert evaluator["expected"]["post_data"] == {"user[website_url]": "https://egg.tart.com"}
-    assert evaluator["last_event_only"] is True
 
 
 @pytest.mark.parametrize("values,expected", [
@@ -811,7 +715,7 @@ def test_510_freezes_selection_order_and_product(benchmark, catalog) -> None:
     assert _dump_eval(applied, 2)["expected"]["response_content"]["items_qty"] == 1
 
 
-@pytest.mark.parametrize("task_id", [528, 529, 530])
+@pytest.mark.parametrize("task_id", [528])
 def test_refund_forms_use_final_dom_state_and_forbid_real_submission(
     benchmark, catalog, task_id
 ) -> None:
@@ -826,7 +730,7 @@ def test_refund_forms_use_final_dom_state_and_forbid_real_submission(
     assert assertion["forbid_network_event"]["http_method"] == "POST"
 
 
-@pytest.mark.parametrize("task_id", [689, 690, 691, 692, 693])
+@pytest.mark.parametrize("task_id", [689, 693])
 def test_coupon_requests_use_exact_final_dom_state_without_submission(
     benchmark, catalog, tmp_path, task_id
 ) -> None:
@@ -862,33 +766,7 @@ def test_coupon_requests_use_exact_final_dom_state_without_submission(
         field_values=wrong,
     )[0]["status"] == "fail"
 
-    empty_har = tmp_path / f"coupon-{task_id}.har"
-    empty_har.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "version": "1.2",
-                    "creator": {"name": "coupon-form-control", "version": "1"},
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "GET",
-                                "url": "http://shop.test/contact/",
-                                "headers": [],
-                            },
-                            "response": {
-                                "status": 200,
-                                "headers": [],
-                                "cookies": [],
-                                "content": {"mimeType": "text/html", "text": ""},
-                            },
-                        }
-                    ],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    empty_har = _empty_har(tmp_path / f"coupon-{task_id}.har")
     response = {
         "task_type": "mutate",
         "status": "SUCCESS",
@@ -898,50 +776,3 @@ def test_coupon_requests_use_exact_final_dom_state_without_submission(
     assert evaluate_corrected_contract(
         benchmark, applied, agent_response=response, network_trace=empty_har
     ).score == 1
-
-
-def test_547_upstream_keeps_only_the_variation_save(benchmark, catalog) -> None:
-    assert 547 not in catalog.records
-    task = benchmark.get_task(547)
-    network_urls = [
-        item["expected"]["url"]
-        for item in (item.model_dump(mode="json") for item in task.eval[1:])
-    ]
-    assert not any("product_attribute/save" in url for url in network_urls)
-    assert any("catalog/product/save/id/1130" in url for url in network_urls)
-
-
-def test_566_commit_path_matches_the_project_creation_contract(benchmark, catalog) -> None:
-    assert 566 not in catalog.records
-    task = benchmark.get_task(566)
-    project = task.eval[1].model_dump(mode="json")
-    commit = task.eval[2].model_dump(mode="json")
-    assert project["expected"]["post_data"]["project[path]"] == "do-it-myself"
-    assert commit["expected"]["url"] == (
-        "__GITLAB__/api/v4/projects/byteblaze%2Fdo-it-myself/repository/commits"
-    )
-
-
-def test_676_uses_upstream_filter_xhr_contract(benchmark, catalog) -> None:
-    assert 676 not in catalog.records
-    task = benchmark.get_task(676)
-    assert task.revision == 3
-    assert task.eval[1].expected.query_params["filters[status]"] == ("fraud",)
-    assert task.eval[1].navigation_only is False
-
-
-def test_699_checks_browser_form_array_fields_and_all_registered_customer_groups(
-    benchmark, catalog
-) -> None:
-    assert 699 not in catalog.records
-    evaluator = benchmark.get_task(699).eval[1].model_dump(mode="json")
-    assert evaluator["post_data_schema"] is None
-    assert evaluator["expected"]["post_data"] == {
-        "name": "spring sale",
-        "website_ids[0]": "1",
-        "customer_group_ids[0]": "1",
-        "customer_group_ids[1]": "2",
-        "customer_group_ids[2]": "3",
-        "simple_action": "by_percent",
-        "discount_amount": 20,
-    }

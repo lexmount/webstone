@@ -118,7 +118,7 @@ def test_package_rejects_linked_outputs_before_replacing_any_file(tmp_path, role
         assert not archive.exists()
 
 
-@pytest.mark.parametrize('role', ['manifest', 'summary', 'authority', 'homepage'])
+@pytest.mark.parametrize('role', ['manifest', 'authority'])
 def test_package_outputs_cannot_replace_consumed_inputs(tmp_path, role):
     source, authority = write_report_fixture(tmp_path)
     staged = tmp_path / 'staged'

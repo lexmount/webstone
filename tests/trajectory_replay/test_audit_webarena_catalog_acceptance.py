@@ -182,8 +182,12 @@ def test_request_bridge_identity_is_credential_free_and_canonical() -> None:
         )
 
 
+TASKS = 12
+SPLIT = 6
+
+
 def _scope(tmp_path, ids=None):
-    ids = list(range(812)) if ids is None else ids
+    ids = list(range(TASKS)) if ids is None else ids
     path = tmp_path / "scope.json"
     path.write_text(
         json.dumps(
@@ -562,24 +566,24 @@ def test_current_evaluation_rejects_an_unknown_declared_revision(tmp_path, monke
 def test_acceptance_keeps_one_ordered_sweep_and_only_repairs_a_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    early = _run(tmp_path, "early", list(range(400)), {66: "fail"})
-    late = _run(tmp_path, "late", list(range(400, 812)), {})
-    repair = _run(tmp_path, "repair", [66], {})
+    early = _run(tmp_path, "early", list(range(SPLIT)), {3: "fail"})
+    late = _run(tmp_path, "late", list(range(SPLIT, TASKS)), {})
+    repair = _run(tmp_path, "repair", [3], {})
 
     ledger = acceptance.audit(scope, [early, late], [repair])
 
     assert ledger["counts"] == {
-        "total": 812,
-        "pass": 812,
+        "total": TASKS,
+        "pass": TASKS,
         "unresolved": 0,
-        "physical_attempts": 813,
+        "physical_attempts": TASKS + 1,
         "excluded_duplicate_attempts": 0,
     }
-    assert [attempt["status"] for attempt in ledger["rows"][66]["attempts"]] == [
+    assert [attempt["status"] for attempt in ledger["rows"][3]["attempts"]] == [
         "fail",
         "pass",
     ]
-    assert len(ledger["rows"][67]["attempts"]) == 1
+    assert len(ledger["rows"][4]["attempts"]) == 1
     assert ledger["schema"] == "lex_trajectory_replay_catalog_acceptance/1"
 
 
@@ -599,12 +603,12 @@ def test_acceptance_supports_a_noncontiguous_catalog_scope(tmp_path, monkeypatch
 def test_acceptance_binds_repair_on_a_fresh_site_without_repeating_passes(tmp_path, monkeypatch):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    sweep = _run(tmp_path, "sweep", list(range(812)), {496: "fail"})
-    repair = _run(tmp_path, "repair", [496], {}, preparation="spare-slice")
+    sweep = _run(tmp_path, "sweep", list(range(TASKS)), {9: "fail"})
+    repair = _run(tmp_path, "repair", [9], {}, preparation="spare-slice")
 
     ledger = acceptance.audit(scope, [sweep], [repair])
 
-    assert ledger["counts"]["pass"] == 812
+    assert ledger["counts"]["pass"] == TASKS
     assert ledger["site_preparation_receipt_sha256s"] == ["same-reset", "spare-slice"]
     assert ledger["runs"][1]["site_reset_receipt_sha256"] == "spare-slice"
 
@@ -621,8 +625,8 @@ def test_acceptance_binds_repair_on_a_fresh_site_without_repeating_passes(tmp_pa
 def test_acceptance_rejects_mixed_sweep_contracts(tmp_path, monkeypatch, change, message):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    early = _run(tmp_path, "early", list(range(400)), {})
-    late = _run(tmp_path, "late", list(range(400, 812)), {}, **change)
+    early = _run(tmp_path, "early", list(range(SPLIT)), {})
+    late = _run(tmp_path, "late", list(range(SPLIT, TASKS)), {}, **change)
 
     with pytest.raises(ValueError, match=message):
         acceptance.audit(scope, [early, late], [])
@@ -631,8 +635,8 @@ def test_acceptance_rejects_mixed_sweep_contracts(tmp_path, monkeypatch, change,
 def test_acceptance_rejects_rerunning_a_pass(tmp_path, monkeypatch):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    sweep = _run(tmp_path, "sweep", list(range(812)), {})
-    repeated = _run(tmp_path, "repeated", [66], {})
+    sweep = _run(tmp_path, "sweep", list(range(TASKS)), {})
+    repeated = _run(tmp_path, "repeated", [3], {})
 
     with pytest.raises(ValueError, match="repair does not follow a failure"):
         acceptance.audit(scope, [sweep], [repeated])
@@ -643,24 +647,24 @@ def test_acceptance_records_an_explicit_duplicate_without_replacing_first_pass(
 ):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    sweep = _run(tmp_path, "sweep", list(range(812)), {500: "fail"})
-    repair = _run(tmp_path, "repair", [499, 500], {})
+    sweep = _run(tmp_path, "sweep", list(range(TASKS)), {8: "fail"})
+    repair = _run(tmp_path, "repair", [7, 8], {})
 
-    ledger = acceptance.audit(scope, [sweep], [repair], excluded_duplicate_repair_tasks={499})
+    ledger = acceptance.audit(scope, [sweep], [repair], excluded_duplicate_repair_tasks={7})
 
-    assert len(ledger["rows"][499]["attempts"]) == 1
-    assert [row["status"] for row in ledger["rows"][500]["attempts"]] == [
+    assert len(ledger["rows"][7]["attempts"]) == 1
+    assert [row["status"] for row in ledger["rows"][8]["attempts"]] == [
         "fail",
         "pass",
     ]
-    assert ledger["counts"]["physical_attempts"] == 814
-    assert ledger["excluded_attempts"][0]["task_id"] == 499
+    assert ledger["counts"]["physical_attempts"] == TASKS + 2
+    assert ledger["excluded_attempts"][0]["task_id"] == 7
 
 
 def test_acceptance_rejects_an_order_gap(tmp_path, monkeypatch):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    gap = _run(tmp_path, "gap", [task_id for task_id in range(812) if task_id != 500], {})
+    gap = _run(tmp_path, "gap", [task_id for task_id in range(TASKS) if task_id != 8], {})
 
     with pytest.raises(ValueError, match="incomplete or changed official order"):
         acceptance.audit(scope, [gap], [])
@@ -698,7 +702,7 @@ def test_acceptance_records_v2_participant_and_execution_contract(tmp_path, monk
     sweep = _run(
         tmp_path,
         "sweep",
-        list(range(812)),
+        list(range(TASKS)),
         {},
         schema="lex_webarena_full_replay_run/2",
         engine="moli",
@@ -723,7 +727,7 @@ def test_acceptance_carries_the_resolved_routing_binding(tmp_path, monkeypatch, 
     sweep = _run(
         tmp_path,
         "sweep",
-        list(range(812)),
+        list(range(TASKS)),
         {},
         schema="lex_webarena_full_replay_run/2",
         engine="moli",
@@ -741,8 +745,8 @@ def test_acceptance_carries_the_resolved_routing_binding(tmp_path, monkeypatch, 
 def test_acceptance_rejects_runs_with_different_resolved_routing(tmp_path, monkeypatch):
     monkeypatch.setattr(acceptance, "_verified_attempt", _fake_verified)
     scope = _scope(tmp_path)
-    early = _run(tmp_path, "early", list(range(400)), {})
-    late = _run(tmp_path, "late", list(range(400, 812)), {})
+    early = _run(tmp_path, "early", list(range(SPLIT)), {})
+    late = _run(tmp_path, "late", list(range(SPLIT, TASKS)), {})
     for directory, routing in ((early, "first-route"), (late, "first-route")):
         inputs = json.loads((directory / "inputs.json").read_text(encoding="utf-8"))
         inputs["environment_host_overrides_sha256"] = routing

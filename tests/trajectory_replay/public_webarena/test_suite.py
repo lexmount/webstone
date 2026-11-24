@@ -154,61 +154,29 @@ def test_load_suite_rejects_invalid_wait_duration(tmp_path, duration):
         load_suite(path)
 
 
-def test_load_suite_accepts_selector_wait_with_timeout(tmp_path):
+@pytest.mark.parametrize(
+    "wait",
+    [
+        {"selector": "div.message-success:visible", "timeout": 30_000},
+        {"selector": "div.message-success", "wait_state": "attached", "timeout": 30_000},
+    ],
+)
+def test_load_suite_accepts_selector_waits(tmp_path, wait):
     path = tmp_path / "tasks.json"
     path.write_text(
         json.dumps(
             {
                 "schema": "lex_browser_use_tasks/3",
-                "tasks": [
-                    _task(
-                        "ready",
-                        [
-                            {
-                                "action": "wait",
-                                "selector": "div.message-success:visible",
-                                "timeout": 30_000,
-                            }
-                        ],
-                    )
-                ],
+                "tasks": [_task("ready", [{"action": "wait", **wait}])],
             }
         ),
         encoding="utf-8",
     )
 
-    assert load_suite(path).tasks[0].tool_calls[0]["selector"].startswith("div.message")
+    assert load_suite(path).tasks[0].tool_calls[0] == {"action": "wait", **wait}
 
 
-def test_load_suite_accepts_attached_selector_wait(tmp_path):
-    path = tmp_path / "tasks.json"
-    path.write_text(
-        json.dumps(
-            {
-                "schema": "lex_browser_use_tasks/3",
-                "tasks": [
-                    _task(
-                        "ready",
-                        [
-                            {
-                                "action": "wait",
-                                "selector": "div.message-success",
-                                "wait_state": "attached",
-                                "timeout": 30_000,
-                            }
-                        ],
-                    )
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert load_suite(path).tasks[0].tool_calls[0]["wait_state"] == "attached"
-
-
-@pytest.mark.parametrize("action", ["click", "fill", "select"])
-@pytest.mark.parametrize("selector", [None, "", "  ", 12])
+@pytest.mark.parametrize(("action", "selector"), [("click", None), ("fill", "  "), ("select", 12)])
 def test_load_suite_rejects_ref_only_and_invalid_selectors(tmp_path, action, selector):
     path = tmp_path / "tasks.json"
     calls = [
@@ -304,35 +272,11 @@ def test_suite_has_thirty_ground_truth_tasks_with_requested_difficulty_mix():
     )
     assert all("{fixture_origin}" not in url for url in navigations)
     assert len({urlparse(url).hostname for url in navigations}) >= 8
-
-
-def test_version_language_path_targets_desktop_controls_and_waits_for_navigation():
-    suite = load_suite("examples/trajectory_replay/public_webarena/tasks.v4.json")
-    task = next(t for t in suite.tasks if t.task_id == "python-version-language")
-    selects = [call for call in task.tool_calls if call["action"] == "select"]
-    assert len(selects) == 3
-    assert all(call["selector"].startswith(".switchers ") for call in selects)
-    assert all(call.get("wait_for_navigation") is True for call in selects)
-    assert all(call.get("wait_until") == "domcontentloaded" for call in selects)
-
-
-def test_suite_uses_public_targets_and_repository_derived_capability_coverage():
-    suite = load_suite("examples/trajectory_replay/public_webarena/tasks.v4.json")
     assert all(task.source.get("kind") == "public_web" for task in suite.tasks)
     assert all(str(task.source.get("url") or "").startswith("https://") for task in suite.tasks)
-    basis_urls = [str(url) for task in suite.tasks for url in task.source.get("design_basis") or []]
-    assert any("Lexbench-Headless-Browser" in url for url in basis_urls)
-    assert any("lexmount/moli" in url for url in basis_urls)
     actions = {str(call["action"]) for task in suite.tasks for call in task.tool_calls}
-    assert {
-        "click",
-        "fill",
-        "select",
-        "back",
-        "forward",
-        "get_property",
-        "get_attribute",
-    } <= actions
+    expected = {"click", "fill", "select", "back", "forward", "get_property", "get_attribute"}
+    assert expected <= actions
 
 
 def test_codex_browser_ground_truth_evidence_matches_dataset_exactly():

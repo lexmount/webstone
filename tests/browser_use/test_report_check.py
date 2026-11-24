@@ -193,25 +193,27 @@ BUILT_BEFORE_THE_MOVE = {"track": "browser-use", "renderer": "src/harness/browse
                          "entrypoint": "scripts/build_browser_use_report.py"}
 
 
-@pytest.mark.parametrize("template, rejected", [
-    (BUILT_BEFORE_THE_MOVE, False),
-    ({**BUILT_BEFORE_THE_MOVE, "renderer": "src/other/report.py"}, True),
-    ({**BUILT_BEFORE_THE_MOVE, "track": "other"}, True),
-    (None, True),
-], ids=["old-entry-point", "other-renderer", "other-track", "no-template"])
-def test_check_binds_the_renderer_not_the_entry_point(tmp_path, monkeypatch, template, rejected):
+def test_check_binds_the_renderer_not_the_entry_point(tmp_path, monkeypatch):
     report, evidence, _ = build_browser_use_fixture(tmp_path, monkeypatch)
     profile = authority(tmp_path / "authority", engines=["chromium", "moli"],
                         baseline_engine="chromium",
                         engine_labels={"chromium": "Chromium", "moli": "Moli"},
                         models=["gpt-5.6-sol"], model_labels={"gpt-5.6-sol": "GPT-5.6 Sol"})
-    audit = json.loads((report / "report-data.json").read_text(encoding="utf-8"))
-    # The check right after the template gate fails on this hash, so reaching it proves a pass.
-    audit.update(template=template, profile_sha256="from-another-profile")
-    (report / "report-data.json").write_text(json.dumps(audit), encoding="utf-8")
-    expected = "bypasses the maintained" if rejected else "different instance profile"
-    with pytest.raises(ValueError, match=expected):
-        checker.check(report, evidence, SELECTION, require_complete=False, profile_path=profile)
+    data = report / "report-data.json"
+    audit = json.loads(data.read_text(encoding="utf-8"))
+    for template, rejected in (
+        (BUILT_BEFORE_THE_MOVE, False),
+        ({**BUILT_BEFORE_THE_MOVE, "renderer": "src/other/report.py"}, True),
+        ({**BUILT_BEFORE_THE_MOVE, "track": "other"}, True),
+        (None, True),
+    ):
+        # The check right after the template gate fails on this hash, so reaching it is a pass.
+        data.write_text(json.dumps({**audit, "template": template,
+                                    "profile_sha256": "from-another-profile"}), encoding="utf-8")
+        expected = "bypasses the maintained" if rejected else "different instance profile"
+        with pytest.raises(ValueError, match=expected):
+            checker.check(report, evidence, SELECTION, require_complete=False,
+                          profile_path=profile)
 
 
 def test_template_gate_needs_no_registry_without_a_profile_hash(monkeypatch):
@@ -285,19 +287,12 @@ def test_public_privacy_without_site_passwords_still_separates_clean_from_sensit
         report_check_without_site_passwords.check_public_privacy(tmp_path)
 
 
-@pytest.mark.parametrize(
-    "password",
-    [
-        "synthetic-shopping-secret",
-        "synthetic-shopping_admin-secret",
-        "synthetic-reddit-secret",
-        "synthetic-gitlab-secret",
-    ],
-)
-def test_public_privacy_still_rejects_the_current_site_passwords(tmp_path, password):
-    (tmp_path / "data.json").write_text(json.dumps({"note": password}), encoding="utf-8")
-    with pytest.raises(ValueError, match="published report contains sensitive text"):
-        checker.check_public_privacy(tmp_path)
+def test_public_privacy_still_rejects_the_current_site_passwords(tmp_path):
+    for password in ("synthetic-shopping-secret", "synthetic-shopping_admin-secret",
+                     "synthetic-reddit-secret", "synthetic-gitlab-secret"):
+        (tmp_path / "data.json").write_text(json.dumps({"note": password}), encoding="utf-8")
+        with pytest.raises(ValueError, match="published report contains sensitive text"):
+            checker.check_public_privacy(tmp_path)
 
 
 def _private_address() -> str:
@@ -305,15 +300,12 @@ def _private_address() -> str:
     return ".".join(("10", "77", "3", "9"))
 
 
-@pytest.mark.parametrize(
-    "text",
-    [f"http://{_private_address()}:7780/admin", f"gateway {_private_address()}"],
-)
-def test_public_report_fails_closed_on_an_unredacted_recording_host(tmp_path, monkeypatch, text):
+def test_public_report_fails_closed_on_an_unredacted_recording_host(tmp_path, monkeypatch):
     monkeypatch.setenv("WEBARENA_RECORDING_GATEWAYS", "")
-    (tmp_path / "data.json").write_text(json.dumps({"note": text}), encoding="utf-8")
-    with pytest.raises(ValueError, match="WEBARENA_RECORDING_GATEWAYS"):
-        checker.check_public_privacy(tmp_path)
+    for text in (f"http://{_private_address()}:7780/admin", f"gateway {_private_address()}"):
+        (tmp_path / "data.json").write_text(json.dumps({"note": text}), encoding="utf-8")
+        with pytest.raises(ValueError, match="WEBARENA_RECORDING_GATEWAYS"):
+            checker.check_public_privacy(tmp_path)
 
 
 def test_new_evidence_without_a_private_host_needs_no_gateway(tmp_path, monkeypatch):
@@ -335,37 +327,31 @@ def test_listed_recording_host_is_redacted_and_then_passes(tmp_path, monkeypatch
     checker.check_public_privacy(tmp_path)
 
 
-def _failed_rule(**fields):
-    return [{"evaluator_name": "AgentResponseEvaluator", "score": 0, **fields}]
+def test_english_prose_check_skips_only_marked_raw_text(tmp_path, monkeypatch):
+    def failed_rule(**fields):
+        return {"evaluator_name": "AgentResponseEvaluator", "score": 0, **fields}
 
-
-@pytest.mark.parametrize("leak, evaluators, rendered", [
-    (None, None, None),
-    (None, _failed_rule(assertions=[{"assertion_msgs": ["Value mismatch: got '你好'"]}]),
-     "<span data-raw-text>Value mismatch: got &#x27;你好&#x27;</span>"),
-    (None, _failed_rule(error_msg="回答错误"), "<span data-raw-text>回答错误</span>"),
-    (None, _failed_rule(error_msg="Expected done, got 你好"),
-     "expected <span data-raw-text>done</span>, observed <span data-raw-text>你好</span>."),
-    ("authored", None, None),
-    ("reused-raw-text", None, None),
-], ids=["typed-argument", "assertion-message", "error-message", "status-values",
-        "authored", "reused-raw-text"])
-def test_english_prose_check_skips_only_marked_raw_text(
-    tmp_path, monkeypatch, leak, evaluators, rendered
-):
     report, _, _ = build_browser_use_fixture(
         tmp_path, monkeypatch, "en", failed=True, arguments={"action": "type", "text": "你好"},
-        evaluators=evaluators,
+        evaluators=[
+            failed_rule(assertions=[{"assertion_msgs": ["Value mismatch: got '你好'"]}]),
+            failed_rule(error_msg="回答错误"),
+            failed_rule(error_msg="Expected done, got 你好"),
+        ],
     )
     pages = {page: page.read_text(encoding="utf-8") for page in (report / "en").rglob("*.html")}
     result = report / "en/results/gpt-5.6-sol-moli-44.html"
-    assert "<span data-raw-text>type 你好</span>" in pages[result]
-    if rendered:
+    for rendered in (
+        "<span data-raw-text>type 你好</span>",
+        "<span data-raw-text>Value mismatch: got &#x27;你好&#x27;</span>",
+        "<span data-raw-text>回答错误</span>",
+        "expected <span data-raw-text>done</span>, observed <span data-raw-text>你好</span>.",
+    ):
         assert rendered in pages[result]
-    if leak is None:
-        checker._check_english_prose(pages)
-        return
-    authored = "待复核" if leak == "authored" else "type 你好"
-    pages[result] = pages[result].replace("Awaiting review", authored)
-    with pytest.raises(ValueError, match="Chinese prose: .*gpt-5.6-sol-moli-44"):
-        checker._check_english_prose(pages)
+    checker._check_english_prose(pages)
+    original = pages[result]
+    # Authored Chinese, or raw text copied outside its marker, is a leak.
+    for leak in ("待复核", "type 你好"):
+        pages[result] = original.replace("Awaiting review", leak)
+        with pytest.raises(ValueError, match="Chinese prose: .*gpt-5.6-sol-moli-44"):
+            checker._check_english_prose(pages)

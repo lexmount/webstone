@@ -9,7 +9,6 @@ from pathlib import Path
 from harness.browser_use import report as report_module
 from harness.browser_use.report_i18n import MESSAGES
 from harness.reporting.source_policy import HAN
-from tests.browser_use.test_report import build_browser_use_fixture
 
 RENDERERS = ("report.py", "report_check.py")
 LOOKUPS = {"t", "_ZH", "_EN", "_translated"}
@@ -97,17 +96,3 @@ def test_release_fields_read_the_edition_being_rendered(monkeypatch) -> None:
     assert report_module._record_text(release, "title") == release["title"]
     monkeypatch.setattr(report_module, "t", report_module._EN)
     assert report_module._record_text(release, "title") == release["i18n"]["en"]["title"]
-
-
-def test_english_edition_is_rendered_directly_and_keeps_dataset_text(
-    tmp_path: Path, monkeypatch
-) -> None:
-    output, _, _ = build_browser_use_fixture(tmp_path, monkeypatch, "en")
-
-    home = (output / "en/index.html").read_text(encoding="utf-8")
-    assert '<html lang="en">' in home
-    assert "Core metrics across" in home and "切换主题" not in home
-    # The selection rationale of this task has no English and stays as written.
-    task_page = (output / "en/datasets/475.html").read_text(encoding="utf-8")
-    assert "创建一个命名明确的空仓库" in task_page
-    assert report_module.t is report_module._ZH

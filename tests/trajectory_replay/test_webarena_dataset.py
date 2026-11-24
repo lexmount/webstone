@@ -367,143 +367,109 @@ def _receipt(
     }
 
 
-def test_qualification_receipt_rejects_missing_attempt_identifier(tmp_path: Path) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [1])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 1,
-                    "canonical_candidate_id": "candidate",
-                    "replay_status": "ready",
-                    "candidates": [
-                        {
-                            "id": "candidate",
-                            "tool_calls": [{"action": "snapshot"}],
-                            "recorded_response": {},
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    payload = _receipt(
-        seeds,
-        profile,
-        task_ids=[1],
-        attempts=[
-            {
-                "task_id": 1,
-                "source_candidate_id": "candidate",
-                "engine": "chromium",
-                "process_status": "pass",
-                "evaluator_status": "pass",
-            }
-        ],
-    )
-    payload["attempts"][0]["task_id"] = None
-    receipt = _write(tmp_path / "receipt.json", payload)
+_AUTONOMOUS = {
+    "method": {"model": "model", "engine": "chromium"},
+    "source_execution": 1,
+    "source": {},
+}
 
-    with pytest.raises(ValueError, match="invalid attempt task_id"):
+
+def _expert(repair_sha256: str) -> dict[str, object]:
+    return {
+        "candidate_kind": "expert_repair",
+        "tool_calls": [{"action": "navigate", "url": "http://host"}],
+        "source": {
+            "kind": "expert_repair_spec",
+            "repair_spec_sha256": repair_sha256,
+            "details": {"author": "reviewed"},
+        },
+        "repair_basis": {"root_cause": "wrong route selection"},
+    }
+
+
+def _fixture(tmp_path: Path, task_id: int, candidate=None, *, expert=False):
+    """Profile, one-task seed manifest and a receipt builder for its canonical candidate."""
+    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [task_id])
+    candidate_id = f"expert-{task_id}" if expert else f"candidate-{task_id}"
+    seeds = _write(tmp_path / "seeds.json", {
+        "schema": "lex_browser_use_replay_seeds/2",
+        "source": {"selection_sha256": selection_sha256},
+        "expert_repairs": {"repair_spec_sha256": repair_sha256},
+        "tasks": [{
+            "task_id": task_id,
+            "canonical_candidate_id": candidate_id,
+            "replay_status": "ready",
+            "candidates": [{
+                "id": candidate_id,
+                "action_count": 1,
+                "tool_calls": [{"action": "snapshot"}],
+                "recorded_response": {"status": "SUCCESS"},
+                **(_expert(repair_sha256) if expert else _AUTONOMOUS),
+                **(candidate or {}),
+            }],
+        }],
+    })
+
+    def receipt(run_id="run", scope="qualification", **attempt) -> dict[str, object]:
+        row = {"task_id": task_id, "source_candidate_id": candidate_id, "engine": "chromium",
+               "process_status": "pass", "evaluator_status": "pass",
+               "completed_action_count": 1, **attempt}
+        return _receipt(seeds, profile, task_ids=[task_id], attempts=[row], run_id=run_id,
+                        execution_scope=scope)
+
+    return profile, seeds, repair_sha256, receipt
+
+
+def _rejects(tmp_path: Path, seeds: Path, profile: Path, payload, message: str) -> None:
+    receipt = _write(tmp_path / "receipt.json", payload)
+    with pytest.raises(ValueError, match=message):
         build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
+
+
+def _rewrite_evidence(attempt: dict, kind: str, value: object) -> Path:
+    path = Path(attempt["evidence"][kind]["path"])
+    path.write_text(json.dumps(value), encoding="utf-8")
+    attempt["evidence"][kind]["sha256"] = _sha256(path)
+    return path
+
+
+def test_qualification_receipt_rejects_missing_attempt_identifier(tmp_path: Path) -> None:
+    profile, seeds, _, receipt = _fixture(tmp_path, 1)
+    payload = receipt()
+    payload["attempts"][0]["task_id"] = None
+    _rejects(tmp_path, seeds, profile, payload, "invalid attempt task_id")
 
 
 @pytest.mark.parametrize("reset_per_task", [True, False])
 def test_promotion_requires_candidate_to_pass_reference_qualification(
     tmp_path: Path, reset_per_task: bool
 ) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [44])
+    profile, seeds, _, receipt = _fixture(
+        tmp_path, 44, {"tool_calls": [{"action": "navigate", "url": "http://host"}]}
+    )
     profile_payload = json.loads(profile.read_text(encoding="utf-8"))
     profile_payload["execution"]["reset_before_every_task"] = reset_per_task
     profile_payload["execution"]["retry_failed_task"] = False
     _write(profile, profile_payload)
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 44,
-                    "canonical_candidate_id": "candidate-44",
-                    "replay_status": "ready",
-                    "intent": "Open todos",
-                    "sites": ["gitlab"],
-                    "start_urls": ["__GITLAB__"],
-                    "candidates": [
-                        {
-                            "id": "candidate-44",
-                            "method": {"model": "model", "engine": "chromium"},
-                            "source_execution": 1,
-                            "action_count": 1,
-                            "tool_calls": [{"action": "navigate", "url": "http://host"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {
-                                "events_sha256": "events",
-                                "response_sha256": "response",
-                                "evaluation_sha256": "evaluation",
-                            },
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    passing_payload = _receipt(
-            seeds,
-            profile,
-            task_ids=[44],
-            run_id="run-44",
-            attempts=[
-                {
-                    "task_id": 44,
-                    "source_candidate_id": "candidate-44",
-                    "engine": engine,
-                    "process_status": "pass",
-                    "evaluator_status": "pass",
-                    "completed_action_count": 1,
-                }
-                for engine in ("chromium",)
-            ],
-        )
-    passing_payload["isolation"]["reset_before_every_task"] = reset_per_task
-    receipt = _write(tmp_path / "receipt.json", passing_payload)
-    failed_payload = _receipt(
-            seeds,
-            profile,
-            task_ids=[44],
-            run_id="failed-run-44",
-            attempts=[
-                {
-                    "task_id": 44,
-                    "source_candidate_id": "candidate-44",
-                    "engine": "chromium",
-                    "process_status": "fail",
-                    "evaluator_status": "not_run",
-                    "completed_action_count": 0,
-                }
-            ],
-        )
-    failed_payload["isolation"]["reset_before_every_task"] = reset_per_task
-    failed_receipt = _write(tmp_path / "failed-receipt.json", failed_payload)
+    receipts = []
+    for name, attempt in (
+        ("failed-run-44", {"process_status": "fail", "evaluator_status": "not_run",
+                           "completed_action_count": 0}),
+        ("run-44", {}),
+    ):
+        payload = receipt(run_id=name, **attempt)
+        payload["isolation"]["reset_before_every_task"] = reset_per_task
+        receipts.append(_write(tmp_path / f"{name}.json", payload))
 
-    result = build_verified_trajectory_dataset(
-        seeds, [failed_receipt, receipt], profile_path=profile
-    )
+    result = build_verified_trajectory_dataset(seeds, receipts, profile_path=profile)
 
     assert result["counts"] == {"verified_tasks": 1, "verified_trajectories": 1}
-    assert result["trajectories"][0]["verification"]["model_calls"] == 0
-    assert result["trajectories"][0]["verification"]["browsers"] == ["chromium"]
+    verification = result["trajectories"][0]["verification"]
+    assert verification["model_calls"] == 0
+    assert verification["browsers"] == ["chromium"]
+    assert verification["contract"] == {"kind": "official_task_contract"}
+    assert verification["receipt_run_ids"] == ["run-44"]
     assert result["promotion_policy"]["measured_browsers_are_not_promotion_gates"] is True
-    assert result["trajectories"][0]["verification"]["contract"] == {
-        "kind": "official_task_contract"
-    }
-    assert result["trajectories"][0]["verification"]["receipt_run_ids"] == ["run-44"]
     assert result["semantics"]["browser_use_agent_visibility"] == "hidden"
     assert result["provenance"]["observation_protocol"] == OBSERVATION_PROTOCOL
 
@@ -515,7 +481,6 @@ def test_promotion_requires_candidate_to_pass_reference_qualification(
         "arguments": {"action": "navigate"},
         "result": "Navigated\n--- Page Snapshot ---\n[Snapshot error: gone]",
     },
-    {"arguments": {"action": "snapshot"}},
     {"arguments": {"action": "snapshot"}, "result": ""},
     {"arguments": {"action": "navigate"}, "result": "Navigated successfully"},
 ])
@@ -539,123 +504,24 @@ def test_qualification_keeps_literal_page_content_and_successful_observations():
 
 
 def test_promotion_rejects_incomplete_method_task_matrix(tmp_path: Path) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [1])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 1,
-                    "canonical_candidate_id": "candidate",
-                    "replay_status": "ready",
-                    "candidates": [
-                        {
-                            "id": "candidate",
-                            "method": {"model": "model", "engine": "chromium"},
-                            "source_execution": 1,
-                            "action_count": 1,
-                            "tool_calls": [{"action": "snapshot"}],
-                            "recorded_response": {},
-                            "source": {
-                                "events_sha256": "events",
-                                "response_sha256": "response",
-                                "evaluation_sha256": "evaluation",
-                            },
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    receipt_payload = _receipt(
-        seeds,
-        profile,
-        task_ids=[1],
-        attempts=[
-            {
-                "task_id": 1,
-                "source_candidate_id": "candidate",
-                "engine": "chromium",
-                "process_status": "pass",
-                "evaluator_status": "pass",
-                "completed_action_count": 1,
-            }
-        ],
-    )
-    receipt_payload["attempts"] = []
-    receipt = _write(tmp_path / "receipt.json", receipt_payload)
-
-    try:
-        build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
-    except ValueError as error:
-        assert "complete method-task matrix" in str(error)
-    else:
-        raise AssertionError("partial qualification receipt must not be promotable")
+    profile, seeds, _, receipt = _fixture(tmp_path, 1)
+    payload = receipt()
+    payload["attempts"] = []
+    _rejects(tmp_path, seeds, profile, payload, "complete method-task matrix")
 
 
 def test_promotion_supports_hash_bound_expert_repair(tmp_path: Path) -> None:
     correction = _effective_correction_bindings()[448]
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [448])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 448,
-                    "canonical_candidate_id": "expert-448",
-                    "replay_status": "ready",
-                    "candidates": [
-                        {
-                            "id": "expert-448",
-                            "candidate_kind": "expert_repair",
-                            "action_count": 1,
-                            "tool_calls": [{"action": "navigate", "url": "http://host"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {
-                                "kind": "expert_repair_spec",
-                                "repair_spec_sha256": repair_sha256,
-                                "details": {"author": "reviewed"},
-                            },
-                            "repair_basis": {"root_cause": "wrong route selection"},
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    receipt = _write(
-        tmp_path / "receipt.json",
-        _receipt(
-            seeds,
-            profile,
-            task_ids=[448],
-            run_id="run-448",
-            attempts=[
-                {
-                    "task_id": 448,
-                    "source_candidate_id": "expert-448",
-                    "engine": engine,
-                    "process_status": "pass",
-                    "evaluator_status": "pass",
-                    "completed_action_count": 1,
-                    "contract_correction_id": correction[0],
-                    "contract_correction_source_sha256": correction[1],
-                    "corrected_task_sha256": correction[2],
-                }
-                for engine in ("chromium",)
-            ],
-        ),
-    )
+    profile, seeds, repair_sha256, receipt = _fixture(tmp_path, 448, expert=True)
+    path = _write(tmp_path / "receipt.json", receipt(
+        contract_correction_id=correction[0],
+        contract_correction_source_sha256=correction[1],
+        corrected_task_sha256=correction[2],
+    ))
 
-    result = build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
-
-    trajectory = result["trajectories"][0]
+    trajectory = build_verified_trajectory_dataset(seeds, [path], profile_path=profile)[
+        "trajectories"
+    ][0]
     assert trajectory["source"]["kind"] == "expert_repair_spec"
     assert trajectory["source"]["repair_spec_sha256"] == repair_sha256
     assert trajectory["verification"]["contract"] == {
@@ -669,269 +535,56 @@ def test_promotion_supports_hash_bound_expert_repair(tmp_path: Path) -> None:
 def test_promotion_accepts_qualification_shard_but_rejects_nonisolated_receipt(
     tmp_path: Path,
 ) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [1])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 1,
-                    "replay_status": "ready",
-                    "canonical_candidate_id": "expert-1",
-                    "candidates": [
-                        {
-                            "id": "expert-1",
-                            "candidate_kind": "expert_repair",
-                            "action_count": 1,
-                            "tool_calls": [{"action": "navigate", "url": "http://host"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {
-                                "kind": "expert_repair_spec",
-                                "repair_spec_sha256": repair_sha256,
-                                "details": {"author": "reviewed"},
-                            },
-                            "repair_basis": {"root_cause": "wrong route selection"},
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    shard_path = _write(
-        tmp_path / "qualification-shard.json",
-        _receipt(
-            seeds,
-            profile,
-            task_ids=[1],
-            attempts=[
-                {
-                    "task_id": 1,
-                    "source_candidate_id": "expert-1",
-                    "engine": "chromium",
-                    "process_status": "pass",
-                    "evaluator_status": "pass",
-                    "completed_action_count": 1,
-                }
-            ],
-            execution_scope="qualification_shard",
-        ),
-    )
-    result = build_verified_trajectory_dataset(seeds, [shard_path], profile_path=profile)
+    profile, seeds, _, receipt = _fixture(tmp_path, 1, expert=True)
+    shard = _write(tmp_path / "shard.json", receipt(scope="qualification_shard"))
+    result = build_verified_trajectory_dataset(seeds, [shard], profile_path=profile)
     assert result["counts"]["verified_tasks"] == 1
 
-    nonisolated = _receipt(seeds, profile, task_ids=[1], attempts=[])
-    isolation = nonisolated["isolation"]
-    assert isinstance(isolation, dict)
-    isolation["method_parallelism"] = 2
-    nonisolated_path = _write(tmp_path / "nonisolated.json", nonisolated)
-    try:
-        build_verified_trajectory_dataset(seeds, [nonisolated_path], profile_path=profile)
-    except ValueError as error:
-        assert "required isolation" in str(error)
-    else:
-        raise AssertionError("nonisolated receipt must not be promotable")
+    nonisolated = receipt()
+    nonisolated["attempts"] = []
+    nonisolated["isolation"]["method_parallelism"] = 2
+    _rejects(tmp_path, seeds, profile, nonisolated, "required isolation")
 
 
-def test_promotion_rejects_receipt_claim_when_evaluation_evidence_failed(
-    tmp_path: Path,
-) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [1])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 1,
-                    "replay_status": "ready",
-                    "canonical_candidate_id": "candidate-1",
-                    "candidates": [
-                        {
-                            "id": "candidate-1",
-                            "method": {"model": "model", "engine": "chromium"},
-                            "source_execution": 1,
-                            "action_count": 1,
-                            "tool_calls": [{"action": "snapshot"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {
-                                "events_sha256": "events",
-                                "response_sha256": "response",
-                                "evaluation_sha256": "evaluation",
-                            },
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    receipt_payload = _receipt(
-        seeds,
-        profile,
-        task_ids=[1],
-        attempts=[
-            {
-                "task_id": 1,
-                "source_candidate_id": "candidate-1",
-                "engine": engine,
-                "process_status": "pass",
-                "evaluator_status": "pass",
-                "completed_action_count": 1,
-            }
-            for engine in ("chromium",)
-        ],
-    )
-    evaluation = Path(receipt_payload["attempts"][0]["evidence"]["evaluation"]["path"])
-    evaluation.write_text(
-        json.dumps({"task_id": 1, "status": "fail", "score": 0}), encoding="utf-8"
-    )
-    receipt_payload["attempts"][0]["evidence"]["evaluation"]["sha256"] = _sha256(evaluation)
-    receipt = _write(tmp_path / "receipt.json", receipt_payload)
-
-    try:
-        build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
-    except ValueError as error:
-        assert "passing score" in str(error)
-    else:
-        raise AssertionError("a receipt pass claim must not override failed evaluator evidence")
+def test_promotion_rejects_receipt_claim_when_evaluation_evidence_failed(tmp_path: Path) -> None:
+    profile, seeds, _, receipt = _fixture(tmp_path, 1)
+    payload = receipt()
+    _rewrite_evidence(payload["attempts"][0], "evaluation",
+                      {"task_id": 1, "status": "fail", "score": 0})
+    _rejects(tmp_path, seeds, profile, payload, "passing score")
 
 
 @pytest.mark.parametrize("degraded_observation", [False, True])
 def test_promotion_rejects_trace_that_differs_from_canonical_actions(
     tmp_path: Path, degraded_observation: bool
 ) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [1])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 1,
-                    "replay_status": "ready",
-                    "canonical_candidate_id": "candidate-1",
-                    "candidates": [
-                        {
-                            "id": "candidate-1",
-                            "method": {"model": "model", "engine": "chromium"},
-                            "source_execution": 1,
-                            "action_count": 1,
-                            "tool_calls": [{"action": "snapshot"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {},
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    receipt_payload = _receipt(
-        seeds,
-        profile,
-        task_ids=[1],
-        attempts=[
-            {
-                "task_id": 1,
-                "source_candidate_id": "candidate-1",
-                "engine": engine,
-                "process_status": "pass",
-                "evaluator_status": "pass",
-                "completed_action_count": 1,
-            }
-            for engine in ("chromium",)
-        ],
-    )
-    attempt = receipt_payload["attempts"][0]
-    trace_path = Path(attempt["evidence"]["trace"]["path"])
+    profile, seeds, _, receipt = _fixture(tmp_path, 1)
+    payload = receipt()
+    attempt = payload["attempts"][0]
     different_arguments = (
         [{"action": "snapshot"}]
         if degraded_observation
         else [{"action": "navigate", "url": "https://example.com"}]
     )
-    trace_path.write_text(
-        json.dumps([{
-            "index": 1, "arguments": different_arguments[0], "status": "success",
-            "result": "[Snapshot error: context destroyed]",
-        }]),
-        encoding="utf-8",
-    )
-    attempt["evidence"]["trace"]["sha256"] = _sha256(trace_path)
+    _rewrite_evidence(attempt, "trace", [{
+        "index": 1, "arguments": different_arguments[0], "status": "success",
+        "result": "[Snapshot error: context destroyed]",
+    }])
     attempt["executed_tool_calls_sha256"] = _json_sha256(different_arguments)
     attempt["replay_calls_binding_sha256"] = replay_calls_binding_sha256(
         different_arguments, allowed_hosts=replay_site_hosts(different_arguments)
     )
-    receipt = _write(tmp_path / "receipt.json", receipt_payload)
-
-    try:
-        build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
-    except ValueError as error:
-        expected = "snapshot error" if degraded_observation else "canonical replay actions"
-        assert expected in str(error)
-    else:
-        raise AssertionError("a different successful trace must not be promotable")
+    expected = "snapshot error" if degraded_observation else "canonical replay actions"
+    _rejects(tmp_path, seeds, profile, payload, expected)
 
 
 def test_promotion_rejects_missing_official_evaluator(tmp_path: Path) -> None:
-    profile, selection_sha256, repair_sha256 = _profile(tmp_path, [44])
-    seeds = _write(
-        tmp_path / "seeds.json",
-        {
-            "schema": "lex_browser_use_replay_seeds/2",
-            "source": {"selection_sha256": selection_sha256},
-            "expert_repairs": {"repair_spec_sha256": repair_sha256},
-            "tasks": [
-                {
-                    "task_id": 44,
-                    "replay_status": "ready",
-                    "canonical_candidate_id": "candidate-44",
-                    "candidates": [
-                        {
-                            "id": "candidate-44",
-                            "method": {"model": "model", "engine": "chromium"},
-                            "source_execution": 1,
-                            "action_count": 1,
-                            "tool_calls": [{"action": "snapshot"}],
-                            "recorded_response": {"status": "SUCCESS"},
-                            "source": {},
-                        }
-                    ],
-                }
-            ],
-        },
+    profile, seeds, _, receipt = _fixture(tmp_path, 44)
+    payload = receipt()
+    attempt = payload["attempts"][0]
+    evaluation = json.loads(
+        Path(attempt["evidence"]["evaluation"]["path"]).read_text(encoding="utf-8")
     )
-    receipt_payload = _receipt(
-        seeds,
-        profile,
-        task_ids=[44],
-        attempts=[
-            {
-                "task_id": 44,
-                "source_candidate_id": "candidate-44",
-                "engine": engine,
-                "process_status": "pass",
-                "evaluator_status": "pass",
-                "completed_action_count": 1,
-            }
-            for engine in ("chromium",)
-        ],
-    )
-    attempt = receipt_payload["attempts"][0]
-    evaluation_path = Path(attempt["evidence"]["evaluation"]["path"])
-    evaluation = json.loads(evaluation_path.read_text(encoding="utf-8"))
     evaluation["evaluators_results"] = evaluation["evaluators_results"][:1]
-    evaluation_path.write_text(json.dumps(evaluation), encoding="utf-8")
-    attempt["evidence"]["evaluation"]["sha256"] = _sha256(evaluation_path)
-    receipt = _write(tmp_path / "receipt.json", receipt_payload)
-
-    try:
-        build_verified_trajectory_dataset(seeds, [receipt], profile_path=profile)
-    except ValueError as error:
-        assert "canonical input" in str(error)
-    else:
-        raise AssertionError("omitting an official evaluator must not be promotable")
+    _rewrite_evidence(attempt, "evaluation", evaluation)
+    _rejects(tmp_path, seeds, profile, payload, "canonical input")

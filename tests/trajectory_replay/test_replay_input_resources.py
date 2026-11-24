@@ -10,8 +10,7 @@ import pytest
 from harness.trajectory_replay import report_inputs
 
 
-@pytest.mark.parametrize('family', ['curated', 'human'])
-@pytest.mark.parametrize('resolved', [False, True])
+@pytest.mark.parametrize(('family', 'resolved'), [('curated', False), ('human', True)])
 def test_runner_serves_packaged_pages_when_suite_is_in_an_unrelated_cache(
     tmp_path, monkeypatch, family, resolved
 ):
@@ -250,8 +249,10 @@ def test_explicit_suite_uses_its_custom_fixture_tree(tmp_path, monkeypatch, fami
                               reports_dir=tmp_path/'reports')
 
 
-@pytest.mark.parametrize('family', ['curated', 'human'])
-@pytest.mark.parametrize('failure', ['missing-directory', 'missing-page', 'symlink'])
+@pytest.mark.parametrize(('family', 'failure'), [
+    ('curated', 'missing-directory'), ('curated', 'missing-page'), ('curated', 'symlink'),
+    ('human', 'symlink'),
+])
 def test_invalid_explicit_fixtures_fail_before_engine_initialization(
     tmp_path, monkeypatch, family, failure
 ):

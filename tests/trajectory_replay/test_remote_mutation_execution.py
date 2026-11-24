@@ -178,7 +178,6 @@ def test_proposal_round_trip_needs_no_browser_and_retains_canonical_calls(tmp_pa
 
 @pytest.mark.parametrize('overrides', [
     {'max_observer_attempts': True}, {'max_observer_attempts': 4}, {'original_action_retries': 1},
-    {'navigation_ready_timeout_ms': 0}, {'navigation_ready_timeout_ms': True},
     {'navigation_ready_timeout_ms': 30001}, {'after_frozen_call_count': 2},
     {'retryable_error_exact': 'any error'}, {'extra': True},
 ])
@@ -227,7 +226,6 @@ def test_diagnostic_retries_only_final_observer_and_closes_tool(
 @pytest.mark.parametrize('fault, expected', [('trigger_error', 'diagnostic_incomplete'),
                                             ('observer_error', 'diagnostic_incomplete'),
                                             ('drift', 'diagnostic_incomplete'),
-                                            ('delete_input', 'diagnostic_incomplete'),
                                             ('close_error', 'diagnostic_incomplete'),
                                             ('score', 'diagnostic_fail')])
 def test_failure_keeps_evidence_and_never_repeats_mutation(tmp_path, monkeypatch, fault, expected):

@@ -179,9 +179,7 @@ def _frozen_sanitize_text(value: str) -> str:
     return re.sub(r"/(?:Users|home|private|tmp|var|opt)/[^\s\"']+", "<LOCAL_PATH>", text)
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
+REDACTION_SAMPLES = (
         ("http://" + GW + ":7780/admin/sales/order/view/order_id/302/"),
         ("http://host.docker.internal:7780/catalog and http://" + GW + ":7770/cart"),
         ("login synthetic-reddit-user / synthetic-reddit-secret at http://" + GW + ":9999/login"),
@@ -189,10 +187,12 @@ def _frozen_sanitize_text(value: str) -> str:
         ("gateway " + GW + " and alias host.docker.internal:3000/#map"),
         "loopback http://127.0.0.1:7770/ stays unredacted",
         "Bearer abc.def from /Users/example/run/output.json",
-    ],
-)
-def test_public_redaction_output_is_unchanged(text: str) -> None:
-    assert sanitize_text(text) == _frozen_sanitize_text(text)
+    )
+
+
+def test_public_redaction_output_is_unchanged() -> None:
+    for text in REDACTION_SAMPLES:
+        assert sanitize_text(text) == _frozen_sanitize_text(text), text
 
 
 def test_public_redaction_still_removes_every_site_password() -> None:
@@ -315,36 +315,27 @@ def test_registry_rejects_shared_ports(tmp_path: Path) -> None:
         topology._load(path)
 
 
-@pytest.mark.parametrize("field", ["recorded_ports", "official_trace_ports"])
-def test_registry_rejects_ports_attributed_to_two_sites(tmp_path: Path, field: str) -> None:
-    payload = json.loads(topology.TOPOLOGY_PATH.read_text(encoding="utf-8"))
-    payload["sites"]["wikipedia"][field].append(payload["sites"]["reddit"][field][-1])
+def test_registry_rejects_ports_attributed_to_two_sites(tmp_path: Path) -> None:
     path = tmp_path / "topology.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    for field in ("recorded_ports", "official_trace_ports"):
+        payload = json.loads(topology.TOPOLOGY_PATH.read_text(encoding="utf-8"))
+        payload["sites"]["wikipedia"][field].append(payload["sites"]["reddit"][field][-1])
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match=f"{field} must attribute each port once: wikipedia"):
+            topology._load(path)
 
-    with pytest.raises(ValueError, match=f"{field} must attribute each port once: wikipedia"):
-        topology._load(path)
 
-
-@pytest.mark.parametrize("password", ["", "   ", None])
-def test_registry_rejects_a_blank_password_variable(tmp_path: Path, password: str | None) -> None:
-    payload = json.loads(topology.TOPOLOGY_PATH.read_text(encoding="utf-8"))
-    payload["sites"]["gitlab"]["credentials_env"]["password"] = password
+def test_registry_rejects_a_blank_or_missing_password_variable(tmp_path: Path) -> None:
     path = tmp_path / "topology.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="password variable: gitlab"):
-        topology._load(path)
-
-
-def test_registry_rejects_a_missing_site_password_variable(tmp_path: Path) -> None:
-    payload = json.loads(topology.TOPOLOGY_PATH.read_text(encoding="utf-8"))
-    del payload["sites"]["gitlab"]["credentials_env"]["password"]
-    path = tmp_path / "topology.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="password variable: gitlab"):
-        topology._load(path)
+    for password in ("", "   ", None, "missing"):
+        payload = json.loads(topology.TOPOLOGY_PATH.read_text(encoding="utf-8"))
+        if password == "missing":
+            del payload["sites"]["gitlab"]["credentials_env"]["password"]
+        else:
+            payload["sites"]["gitlab"]["credentials_env"]["password"] = password
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        with pytest.raises(ValueError, match="password variable: gitlab"):
+            topology._load(path)
 
 
 def test_registry_consumers_import_without_the_optional_webarena_evaluator() -> None:
@@ -453,13 +444,11 @@ def test_private_recorded_host_outside_the_configured_gateways_stops(monkeypatch
     assert remote_runtime.rebind_remote_calls(target, sites, {"192.168.0.3"}) == target
 
 
-@pytest.mark.parametrize(
-    "value", ["192.0.2.5:7770", "http://192.0.2.5", "192.0.2.5/path", "host name"]
-)
-def test_gateway_entries_must_be_bare_hosts(monkeypatch, value: str) -> None:
-    monkeypatch.setenv("WEBARENA_RECORDING_GATEWAYS", value)
-    with pytest.raises(ValueError, match="WEBARENA_RECORDING_GATEWAYS entries must be bare"):
-        list(topology.RECORDING_GATEWAYS)
+def test_gateway_entries_must_be_bare_hosts(monkeypatch) -> None:
+    for value in ("192.0.2.5:7770", "http://192.0.2.5", "192.0.2.5/path", "host name"):
+        monkeypatch.setenv("WEBARENA_RECORDING_GATEWAYS", value)
+        with pytest.raises(ValueError, match="WEBARENA_RECORDING_GATEWAYS entries must be bare"):
+            list(topology.RECORDING_GATEWAYS)
 
 
 def test_gateways_follow_the_configured_value(monkeypatch) -> None:

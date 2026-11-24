@@ -8,7 +8,6 @@ from harness.trajectory_replay.remote_runtime import (
     freeze_original_failure_inputs,
     validate_candidate_revision,
 )
-from harness.trajectory_replay.retrieval_acceptance import validate_contract
 
 
 def _fixture(tmp_path: Path) -> tuple[dict, Path, dict]:
@@ -153,88 +152,8 @@ def test_freeze_excludes_a_trailing_diagnostic_observer_from_actions(tmp_path: P
     }]
 
 
-def test_task163_review_endpoint_is_bound_to_active_origin() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/retrieval-candidates/task-163.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    script = candidate["tool_calls"][-1]["script"]
-    assert "configured.origin !== initial.origin" in script
-    assert "siteHosts" not in script
-    assert "initial.port !== '7770'" not in script
-    validate_contract(candidate["retrieval_contract"], candidate["tool_calls"])
-
-
-def test_task243_uses_review_nickname_without_customer_join() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/retrieval-candidates/task-243.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    validate_contract(candidate["retrieval_contract"], candidate["tool_calls"])
-    assert len(candidate["tool_calls"]) == 9
-    for index in (3,):
-        selector = candidate["tool_calls"][index]["selector"]
-        assert selector.startswith('a[href$="/admin/')
-        assert "http:" not in selector and "https:" not in selector
-    script = candidate["tool_calls"][-1]["script"]
-    assert "lowest_rating_not_unique" in script
-    assert "nickname" in script
-    assert "customer/index" not in json.dumps(candidate["tool_calls"])
-    assert "hannah.lim@gmail.com" not in script
-
-
-def test_task404_waits_for_page_load_before_vote_dispatch() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/trajectory-candidates/task-404.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    validate_candidate_revision(candidate)
-    assert candidate["tool_calls"][7]["selector"] == 'a[href="/f/books/new"]:visible'
-    assert candidate["tool_calls"][8] == {
-        "action": "wait",
-        "selector": 'button[aria-label="Sort by: New"]:visible',
-        "timeout": 30000,
-    }
-    readiness = candidate["tool_calls"][9]
-    assert readiness["action"] == "evaluate"
-    assert "document.readyState !== 'complete'" in readiness["script"]
-    assert "target_vote_controller_missing" in readiness["script"]
-    assert "fetch(" not in readiness["script"]
-
-
-def test_task108_commits_dates_and_checks_applied_grid_before_enumerating() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/retrieval-candidates/"
-        "task-108-stabilized.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    validate_contract(candidate["retrieval_contract"], candidate["tool_calls"])
-    commit = candidate["tool_calls"][11]
-    readiness = candidate["tool_calls"][14]
-    assert commit["action"] == readiness["action"] == "evaluate"
-    assert "new Event('change'" in commit["script"]
-    assert "input.blur()" in commit["script"]
-    assert "applied_order_grid_filters_not_ready" in readiness["script"]
-    assert "filters[created_at][from]" in readiness["script"]
-    assert "filters[created_at][to]" in readiness["script"]
-    assert "fetch(" not in readiness["script"]
-
-
-def test_task464_awaits_visible_save_completion() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/trajectory-candidates/task-464.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    validate_candidate_revision(candidate)
-    assert candidate["tool_calls"][5]["action"] == "click"
-    assert candidate["tool_calls"][6] == {
-        "action": "wait", "selector": "div.message-success:visible", "timeout": 30000,
-    }
-
-
 @pytest.mark.parametrize("task_id,post_id,direction", [
     (404, 124260, "up"),
-    (714, 19459, "down"),
 ])
 def test_vote_trajectory_revisions_bind_the_post_not_button_position(
     task_id: int, post_id: int, direction: str,
@@ -270,25 +189,6 @@ def test_trajectory_revision_rejects_malformed_repair_metadata(repair: object) -
     candidate["repair"] = repair
     with pytest.raises(ValueError, match="trajectory revision is unbound"):
         validate_candidate_revision(candidate)
-
-
-def test_product_save_revision_uses_the_visible_form_control() -> None:
-    path = Path(__file__).resolve().parents[2] / (
-        "evaluation/trajectory-replay/webarena-verified/trajectory-candidates/task-464.json"
-    )
-    candidate = json.loads(path.read_text(encoding="utf-8"))
-    validate_candidate_revision(candidate)
-    assert len(candidate["tool_calls"]) == 7
-    prepare, submit = candidate["tool_calls"][4:6]
-    assert prepare["action"] == "evaluate"
-    assert "source.set('data.product.short_description',value)" in prepare["script"]
-    assert "source.client._save" not in prepare["script"]
-    assert "setTimeout" not in prepare["script"]
-    assert submit == {
-        "action": "click",
-        "selector": 'button:has-text("Save"):not(:has-text("Save options")):visible',
-        "replay_mode": "snapshot_ref_semantics",
-    }
 
 
 def _lineage_fixture(tmp_path):

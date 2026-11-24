@@ -15,14 +15,23 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src"
 
 
-def run_module(*arguments, cwd):
+def run(capsys, *arguments):
+    with pytest.raises(SystemExit) as stopped:
+        main(list(arguments))
+    captured = capsys.readouterr()
+    return stopped.value.code, captured.out, captured.err
+
+
+def test_module_entry_point_lists_every_command_without_loading_owners(tmp_path):
+    probe = ("import runpy, sys\n"
+             "sys.argv = ['x', '--help']\n"
+             "try:\n    runpy.run_module('harness.trajectory_replay', run_name='__main__')\n"
+             "except SystemExit as stopped:\n    assert stopped.code == 0\n"
+             "assert 'harness.trajectory_replay.webarena_report' not in sys.modules\n"
+             "assert 'harness.trajectory_replay.runner' not in sys.modules\n")
     path = os.pathsep.join(filter(None, [str(SOURCE), os.environ.get("PYTHONPATH")]))
-    return subprocess.run([sys.executable, "-m", "harness.trajectory_replay", *arguments], cwd=cwd,
-                          env={**os.environ, "PYTHONPATH": path}, text=True, capture_output=True)
-
-
-def test_top_level_help_lists_every_command(tmp_path):
-    result = run_module("--help", cwd=tmp_path)
+    result = subprocess.run([sys.executable, "-c", probe], cwd=tmp_path, text=True,
+                            capture_output=True, env={**os.environ, "PYTHONPATH": path})
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith(f"usage: {PROG} ")
     listed = " ".join(result.stdout.split())
@@ -30,68 +39,49 @@ def test_top_level_help_lists_every_command(tmp_path):
         assert name in listed and summary in listed
 
 
-def test_top_level_help_does_not_load_owners(tmp_path):
-    probe = ("import sys; from harness.trajectory_replay.cli import main\n"
-             "try:\n    main(['--help'])\nexcept SystemExit:\n    pass\n"
-             "assert 'harness.trajectory_replay.webarena_report' not in sys.modules\n"
-             "assert 'harness.trajectory_replay.runner' not in sys.modules\n")
-    path = os.pathsep.join(filter(None, [str(SOURCE), os.environ.get("PYTHONPATH")]))
-    result = subprocess.run([sys.executable, "-c", probe], cwd=tmp_path, text=True,
-                            capture_output=True, env={**os.environ, "PYTHONPATH": path})
-    assert result.returncode == 0, result.stderr
+OWNER_OPTIONS = {
+    "evaluate": "--ground-truth-evidence", "replay": "--qualified-dataset",
+    "seeds": "--evidence", "expert-seeds": "--repairs", "promote": "--receipt",
+    "catalog-report": "--portable-suite", "audit-readiness": "--results",
+    "dataset-revision": "--corrections", "check": "--profile", "visual": "--receipt",
+}
 
 
-@pytest.mark.parametrize("command", sorted(COMMANDS))
-def test_every_command_reaches_its_owner_help(tmp_path, command):
+def test_every_command_reaches_its_owner_help_under_the_public_name(capsys):
     pytest.importorskip("webarena_verified")
-    result = run_module(command, "--help", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert " ".join(result.stdout.split()).startswith(f"usage: {PROG} {command} ")
-
-
-@pytest.mark.parametrize("command, option", [
-    ("evaluate", "--ground-truth-evidence"),
-    ("replay", "--qualified-dataset"),
-    ("seeds", "--evidence"),
-    ("expert-seeds", "--repairs"),
-    ("promote", "--receipt"),
-    ("catalog-report", "--portable-suite"),
-    ("audit-readiness", "--results"),
-    ("dataset-revision", "--corrections"),
-    ("check", "--profile"),
-    ("visual", "--receipt"),
-])
-def test_command_help_comes_from_its_owner_under_the_public_name(tmp_path, command, option):
-    pytest.importorskip("webarena_verified")
-    result = run_module(command, "--help", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert " ".join(result.stdout.split()).startswith(f"usage: {PROG} {command} ")
-    assert option in result.stdout
+    for command in sorted(COMMANDS):
+        code, out, err = run(capsys, command, "--help")
+        assert code == 0, (command, err)
+        assert " ".join(out.split()).startswith(f"usage: {PROG} {command} "), command
+        assert OWNER_OPTIONS.get(command, "") in out, command
 
 
 @pytest.mark.parametrize("arguments", [[], ["unknown"]])
-def test_missing_or_unknown_command_fails_without_running_an_owner(tmp_path, arguments):
-    result = run_module(*arguments, cwd=tmp_path)
-    assert result.returncode == 2
-    assert f"usage: {PROG} " in result.stderr
+def test_missing_or_unknown_command_fails_without_running_an_owner(capsys, arguments):
+    code, _, err = run(capsys, *arguments)
+    assert code == 2
+    assert f"usage: {PROG} " in err
 
 
-def test_owner_rejects_an_unknown_option_the_router_passed_through(tmp_path):
-    result = run_module("audit-readiness", "--results", "a", "--output", "b", "--not-an-option",
-                        cwd=tmp_path)
-    assert result.returncode == 2
-    assert "--not-an-option" in result.stderr
+def test_owner_rejects_an_unknown_option_the_router_passed_through(capsys):
+    code, _, err = run(capsys, "audit-readiness", "--results", "a", "--output", "b",
+                       "--not-an-option")
+    assert code == 2
+    assert "--not-an-option" in err
 
 
-def test_positional_report_argument_reaches_the_owner(tmp_path):
+def test_positional_report_argument_reaches_the_owner(tmp_path, capsys):
     pytest.importorskip("webarena_verified")
     report = tmp_path / "source"
     report.mkdir()
     linked = tmp_path / "linked"
     linked.symlink_to(report, target_is_directory=True)
-    result = run_module("check", str(linked), cwd=tmp_path)
-    assert result.returncode != 0
-    assert "symlink" in result.stderr.lower()
+    try:
+        code, _, err = run(capsys, "check", str(linked))
+    except Exception as error:  # the owner may raise instead of exiting
+        code, err = 1, str(error)
+    assert code != 0
+    assert "symlink" in err.lower()
 
 
 def test_mutation_diagnostic_exit_status_reaches_the_process(monkeypatch):

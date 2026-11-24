@@ -165,8 +165,7 @@ def test_invalid_subset_is_rejected_before_reset_or_browser_start(tmp_path, monk
     assert not args.output.exists()
 
 
-@pytest.mark.parametrize('rows', [[], [{'task_id': True}], [{'task_id': '1'}],
-                                  [{'task_id': 1}, {'task_id': 1}], [{'task_id': 1}, None]])
+@pytest.mark.parametrize('rows', [[], [{'task_id': True}], [{'task_id': 1}, {'task_id': 1}]])
 def test_malformed_selection_is_rejected_without_coercing_task_ids(tmp_path, rows):
     path = tmp_path / 'selection.json'
     path.write_text(

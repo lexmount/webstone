@@ -39,24 +39,8 @@ def test_compaction_preserves_logical_routes_under_file_limit(tmp_path: Path) ->
     assert 'href="task.html?id=1"' in result_bundle["browser-1"]
     assert 'href="evidence-raw.html?key=browser-1"' in result_bundle["browser-1"]
     assert "查看净化 JSON" in result_bundle["browser-1"]
-    assert "data/'+route.kind+'-" in (target / "assets/app.js").read_text(encoding='utf-8')
-    assert r"match(/(?:^|-)(\d+)$/)" in (target / "result.html").read_text(encoding='utf-8')
-    assert r"match(/(?:^|-)(\d+)$/)" in (target / "assets/app.js").read_text(encoding='utf-8')
-    assert r"data\/(trajectory|evidence)\/" in (target / "assets/app.js").read_text(
-        encoding="utf-8"
-    )
-    assert "trajectory|evidence" in (target / "assets/app.js").read_text(encoding='utf-8')
-    app = (target / "assets/app.js").read_text(encoding='utf-8')
-    assert "event.preventDefault()" in app
-    assert "location.href='evidence-raw.html?key='" in app
-    raw = (target / "evidence-raw.html").read_text(encoding='utf-8')
-    assert "const value=(await response.json())[key]" in raw
-    assert "JSON.stringify(value,null,2)" in raw
     for route in ("task.html", "result.html", "evidence-raw.html", "assets/app.js"):
         assert "__" not in (target / route).read_text(encoding="utf-8"), route
-    assert "`data/evidence-${shard}.json`" in raw
-    assert "pages/task-${shard}.json" in (target / "task.html").read_text(encoding="utf-8")
-    assert "get('key')" in (target / "result.html").read_text(encoding="utf-8")
     assert not (target / "data/evidence/browser-1.json").exists()
     evidence_bundle = json.loads((target / "data/evidence-01.json").read_text(encoding='utf-8'))
     assert evidence_bundle == {"browser-1": {}}

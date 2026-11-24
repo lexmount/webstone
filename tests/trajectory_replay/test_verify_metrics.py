@@ -9,79 +9,6 @@ import pytest
 from harness.trajectory_replay.metrics import summarize_attempts
 
 
-def test_independent_audit_detects_tampered_aggregate_and_paired_operands(tmp_path):
-    script = Path(__file__).resolve().parents[2] / "examples/trajectory_replay/verify_metrics.py"
-    spec = importlib.util.spec_from_file_location("verify_metrics", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    rows = [
-        {
-            "engine": engine,
-            "task_id": "a",
-            "attempt": 1,
-            "status": "pass",
-            "duration_ms": duration,
-            "resource": {"memory_peak_bytes": memory},
-        }
-        for engine, duration, memory in (("chromium", 100, 200), ("moli", 50, 80))
-    ]
-    (tmp_path / "attempts.jsonl").write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
-    summary = summarize_attempts(rows, engines=("chromium", "moli"))
-    path = tmp_path / "summary.json"
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    assert module.verify(tmp_path)["status"] == "pass"
-    summary["resource_comparison"]["by_engine"]["moli"]["duration_ms"]["p95"] = 99
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(ValueError, match="moli.duration_ms.p95"):
-        module.verify(tmp_path)
-    summary = summarize_attempts(rows, engines=("chromium", "moli"))
-    summary["resource_comparison"]["paired_ratios"]["metrics"]["duration_ms"]["values"][0][
-        "numerator"
-    ] = 49
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(ValueError, match="numerator"):
-        module.verify(tmp_path)
-    summary["resource_comparison"]["by_engine"]["moli"].clear()
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(ValueError, match="required metric set"):
-        module.verify(tmp_path)
-
-
-def test_independent_audit_follows_a_larger_participant_set(tmp_path):
-    script = Path(__file__).resolve().parents[2] / "examples/trajectory_replay/verify_metrics.py"
-    spec = importlib.util.spec_from_file_location("verify_metrics", script)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    engines = ("chromium", "moli", "obscura")
-    rows = [
-        {
-            "engine": engine,
-            "task_id": "a",
-            "attempt": 1,
-            "status": "pass",
-            "duration_ms": duration,
-            "resource": {"memory_peak_bytes": memory},
-        }
-        for engine, duration, memory in zip(engines, (100, 50, 25), (200, 80, 40), strict=True)
-    ]
-    (tmp_path / "attempts.jsonl").write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
-    summary = summarize_attempts(rows, engines=engines)
-    path = tmp_path / "summary.json"
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    assert module.verify(tmp_path)["status"] == "pass"
-
-    relative = summary["resource_comparison"]["relative_ratios"]["by_engine"]
-    relative["obscura"]["duration_ms"]["values"][0]["numerator"] = 24
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(ValueError, match="numerator"):
-        module.verify(tmp_path)
-
-    summary = summarize_attempts(rows[:2], engines=engines[:2])
-    path.write_text(json.dumps(summary), encoding="utf-8")
-    with pytest.raises(ValueError, match="required provider set"):
-        module.verify(tmp_path)
-
-
 def _audit_module():
     script = Path(__file__).resolve().parents[2] / "examples/trajectory_replay/verify_metrics.py"
     spec = importlib.util.spec_from_file_location("verify_metrics", script)
@@ -108,6 +35,12 @@ def _audited_summary(tmp_path, engines):
     return summary
 
 
+def _rejects(tmp_path, summary, message):
+    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        _audit_module().verify(tmp_path)
+
+
 @pytest.mark.parametrize(
     "engines",
     [("chromium",), ("chromium", "moli"), ("moli", "chromium"), ("chromium", "moli", "obscura")],
@@ -119,30 +52,55 @@ def test_independent_audit_accepts_the_labels_a_real_summary_publishes(tmp_path,
     assert _audit_module().verify(tmp_path)["status"] == "pass"
 
 
-def test_independent_audit_rejects_swapped_paired_labels(tmp_path):
-    summary = _audited_summary(tmp_path, ("chromium", "moli"))
-    paired = summary["resource_comparison"]["paired_ratios"]
-    paired["numerator_engine"], paired["denominator_engine"] = "chromium", "moli"
-    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="paired ratio labels"):
-        _audit_module().verify(tmp_path)
+def _swap_paired(numerator, denominator):
+    def change(summary):
+        paired = summary["resource_comparison"]["paired_ratios"]
+        paired["numerator_engine"], paired["denominator_engine"] = numerator, denominator
+    return change
 
 
-def test_independent_audit_rejects_a_paired_label_on_a_larger_set(tmp_path):
-    summary = _audited_summary(tmp_path, ("chromium", "moli", "obscura"))
-    paired = summary["resource_comparison"]["paired_ratios"]
-    paired["numerator_engine"], paired["denominator_engine"] = "moli", "chromium"
-    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+def _tamper(section):
+    def change(summary):
+        comparison = summary["resource_comparison"]
+        if section == "aggregate":
+            comparison["by_engine"]["moli"]["duration_ms"]["p95"] = 99
+        elif section == "paired":
+            comparison["paired_ratios"]["metrics"]["duration_ms"]["values"][0]["numerator"] = 49
+        elif section == "metric-set":
+            comparison["by_engine"]["moli"].clear()
+        elif section == "relative":
+            comparison["relative_ratios"]["by_engine"]["obscura"]["duration_ms"]["values"][0][
+                "numerator"
+            ] = 24
+        else:
+            comparison["relative_ratios"]["baseline_engine"] = "moli"
+    return change
 
-    with pytest.raises(ValueError, match="paired ratio labels"):
-        _audit_module().verify(tmp_path)
+
+@pytest.mark.parametrize(
+    ("engines", "change", "message"),
+    [
+        (("chromium", "moli"), _tamper("aggregate"), "moli.duration_ms.p95"),
+        (("chromium", "moli"), _tamper("paired"), "numerator"),
+        (("chromium", "moli"), _tamper("metric-set"), "required metric set"),
+        (("chromium", "moli", "obscura"), _tamper("relative"), "numerator"),
+        (("chromium", "moli", "obscura"), _tamper("baseline"), "relative ratio baseline"),
+        (("chromium", "moli"), _swap_paired("chromium", "moli"), "paired ratio labels"),
+        (("chromium", "moli", "obscura"), _swap_paired("moli", "chromium"),
+         "paired ratio labels"),
+    ],
+    ids=["aggregate", "paired-operand", "metric-set", "relative-operand", "relative-baseline",
+         "swapped-labels", "paired-label-on-larger-set"],
+)
+def test_independent_audit_rejects_tampered_summary(tmp_path, engines, change, message):
+    summary = _audited_summary(tmp_path, engines)
+    change(summary)
+    _rejects(tmp_path, summary, message)
 
 
-def test_independent_audit_rejects_a_changed_relative_baseline(tmp_path):
-    summary = _audited_summary(tmp_path, ("chromium", "moli", "obscura"))
-    summary["resource_comparison"]["relative_ratios"]["baseline_engine"] = "moli"
-    (tmp_path / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
-
-    with pytest.raises(ValueError, match="relative ratio baseline"):
-        _audit_module().verify(tmp_path)
+def test_independent_audit_rejects_a_smaller_provider_set_than_attempts(tmp_path):
+    engines = ("chromium", "moli", "obscura")
+    _audited_summary(tmp_path, engines)
+    attempts = (tmp_path / "attempts.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in attempts.splitlines()]
+    _rejects(tmp_path, summarize_attempts(rows[:2], engines=engines[:2]), "required provider set")

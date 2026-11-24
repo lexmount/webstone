@@ -1,5 +1,6 @@
 """Counterexamples for the frozen task corrections, using the real evaluator."""
 
+import functools
 import hashlib
 import json
 from pathlib import Path
@@ -18,9 +19,7 @@ from harness.trajectory_replay.webarena_corrections import (
     load_corrections,
 )
 
-ARCHIVED = Path(
-    "evaluation/trajectory-replay/webarena-verified/revisions/task-corrections-20260918.json"
-)
+CURRENT = Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json")
 SHOP = "http://host.docker.internal:7770"
 ADMIN = "http://host.docker.internal:7780/admin"
 MAP = "http://host.docker.internal:3000"
@@ -45,24 +44,29 @@ def entry(url, *, data=None, body=None, status=200):
                         "text": json.dumps(body) if body is not None else ""}}}
 
 
-def scores(tmp_path, task_id, entries, catalog_path=ARCHIVED):
-    benchmark = (
-        remote_benchmark({
-            WebArenaSite.SHOPPING: SHOP,
-            WebArenaSite.SHOPPING_ADMIN: ADMIN,
-            WebArenaSite.REDDIT: "http://host.docker.internal:9999",
-            WebArenaSite.GITLAB: "http://host.docker.internal:8023",
-            WebArenaSite.MAP: MAP,
-            WebArenaSite.WIKIPEDIA: WIKIPEDIA,
-        })
-        if task_id in {429, 430}
-        else configure_benchmark()
-    )
+@functools.cache
+def _benchmark(remote: bool):
+    if not remote:
+        return configure_benchmark()
+    return remote_benchmark({
+        WebArenaSite.SHOPPING: SHOP,
+        WebArenaSite.SHOPPING_ADMIN: ADMIN,
+        WebArenaSite.REDDIT: "http://host.docker.internal:9999",
+        WebArenaSite.GITLAB: "http://host.docker.internal:8023",
+        WebArenaSite.MAP: MAP,
+        WebArenaSite.WIKIPEDIA: WIKIPEDIA,
+    })
+
+
+@functools.cache
+def _catalog():
+    return load_corrections(CURRENT, require_current_upstream=True)
+
+
+def scores(tmp_path, task_id, entries):
+    benchmark = _benchmark(task_id in {429, 430})
     task = benchmark.get_task(task_id)
-    catalog = load_corrections(
-        catalog_path,
-        require_current_upstream=Path(catalog_path) != ARCHIVED,
-    )
+    catalog = _catalog()
     path = tmp_path / f"synthetic-{task_id}.har"
     path.write_text(
         json.dumps(
@@ -93,7 +97,6 @@ def scores(tmp_path, task_id, entries, catalog_path=ARCHIVED):
             benchmark, corrected, agent_response=response, network_trace=path
         ).score,
     )
-
 
 
 @pytest.mark.parametrize("rows,expected", [
@@ -128,7 +131,6 @@ def test_current_548_reuses_existing_blue_and_preserves_seeded_name(tmp_path, ro
         tmp_path,
         548,
         events,
-        Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json"),
     ) == (expected, expected)
 
 
@@ -191,7 +193,6 @@ def test_current_configurable_size_tasks_use_native_create_options(
         tmp_path,
         task_id,
         events,
-        Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json"),
     ) == (expected, expected)
 
 
@@ -223,7 +224,6 @@ def test_current_423_uses_native_filtered_mass_status(
         tmp_path,
         423,
         events,
-        Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json"),
     ) == (expected, expected)
 
 
@@ -244,7 +244,6 @@ def test_current_college_map_corrections_use_live_object_kinds(tmp_path, task_id
         tmp_path,
         task_id,
         events,
-        Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json"),
     ) == (0, expected)
 
 
@@ -269,19 +268,13 @@ def cart_entries(quantity=1, *, name=PRODUCT, include_totals=True):
     return entries
 
 
-@pytest.mark.parametrize("quantity,expected", [(1, (1, 1)), (2, (0, 1))])
-def test_archived_510_removal_exposes_quantity_acceptance_gap(tmp_path, quantity, expected):
-    assert scores(tmp_path, 510, cart_entries(quantity)) == expected
-
-
 @pytest.mark.parametrize("values,expected", [
     ({"quantity": 1}, 1), ({"quantity": 2}, 0),
     ({"include_totals": False}, 0), ({"name": "Different product"}, 0),
 ], ids=["tr-510-quantity-one", "tr-510-reject-quantity-two",
         "tr-510-reject-missing-totals", "tr-510-reject-wrong-product"])
 def test_current_510_restores_upstream_quantity_and_name(tmp_path, values, expected):
-    current = Path("evaluation/trajectory-replay/webarena-verified/task-corrections.json")
-    assert scores(tmp_path, 510, cart_entries(**values), current) == (expected, expected)
+    assert scores(tmp_path, 510, cart_entries(**values)) == (expected, expected)
 
 
 def test_510_revision_receipt_binds_rules_and_candidate():

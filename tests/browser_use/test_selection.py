@@ -30,9 +30,8 @@ def test_unstable_task_exclusions_are_machine_readable() -> None:
     assert _task_exclusion(44) is None
 
 
-@pytest.mark.parametrize(
-    ("value", "schema"),
-    [
+def test_json_schema_checks_each_supported_type() -> None:
+    for value, schema in (
         ({"value": "ok"}, {"type": "object"}),
         (["ok"], {"type": "array"}),
         ("ok", {"type": "string"}),
@@ -40,24 +39,17 @@ def test_unstable_task_exclusions_are_machine_readable() -> None:
         (1, {"type": "integer"}),
         (True, {"type": "boolean"}),
         (None, {"type": "null"}),
-    ],
-)
-def test_json_schema_accepts_supported_types(value: object, schema: dict[str, object]) -> None:
-    _validate_json_schema(value, schema, path="expected.retrieved_data")
-
-
-@pytest.mark.parametrize(
-    ("value", "schema"),
-    [
+    ):
+        _validate_json_schema(value, schema, path="expected.retrieved_data")
+    # Booleans are not numbers and floats are not integers.
+    for value, schema in (
         (None, {"type": "string"}),
         (True, {"type": "number"}),
         (1.5, {"type": "integer"}),
         (0, {"type": "boolean"}),
-    ],
-)
-def test_json_schema_rejects_wrong_types(value: object, schema: dict[str, object]) -> None:
-    with pytest.raises(ValueError, match="expected.retrieved_data: expected"):
-        _validate_json_schema(value, schema, path="expected.retrieved_data")
+    ):
+        with pytest.raises(ValueError, match="expected.retrieved_data: expected"):
+            _validate_json_schema(value, schema, path="expected.retrieved_data")
 
 
 def test_json_schema_validates_nested_contract_keywords() -> None:

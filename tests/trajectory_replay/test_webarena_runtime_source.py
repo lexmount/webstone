@@ -75,36 +75,25 @@ def test_accepts_exact_lexmount_fork_revision_and_owned_module(monkeypatch, tmp_
     assert identity.module_root == expected_root.resolve()
 
 
-def test_rejects_servicenow_repository(monkeypatch, tmp_path):
-    _install(
-        monkeypatch,
-        tmp_path,
-        _direct_url(url="https://github.com/ServiceNow/webarena-verified.git"),
-    )
-    with pytest.raises(RuntimeError, match="Lexmount fork"):
-        runtime_source.verify_webarena_runtime_source()
-
-
-@pytest.mark.parametrize("direct_url", [None, {"archive_info": {}}, {"url": "pypi"}])
-def test_rejects_pypi_or_missing_direct_url(monkeypatch, tmp_path, direct_url):
-    _install(monkeypatch, tmp_path, direct_url)
-    with pytest.raises(RuntimeError, match="direct_url"):
-        runtime_source.verify_webarena_runtime_source()
-
-
-def test_rejects_wrong_commit(monkeypatch, tmp_path):
-    _install(monkeypatch, tmp_path, _direct_url(revision="b" * 40))
-    with pytest.raises(RuntimeError, match="revision"):
-        runtime_source.verify_webarena_runtime_source()
-
-
 @pytest.mark.parametrize(
-    "direct_url",
-    ["{", [], {"url": FORK, "vcs_info": "git"}, _direct_url(requested_revision=1)],
+    ("direct_url", "options", "match"),
+    [
+        (_direct_url(url="https://github.com/ServiceNow/webarena-verified.git"), {},
+         "Lexmount fork"),
+        (None, {}, "direct_url"),
+        ({"archive_info": {}}, {}, "direct_url"),
+        (_direct_url(revision="b" * 40), {}, "revision"),
+        ("{", {}, "metadata"),
+        ({"url": FORK, "vcs_info": "git"}, {}, "metadata"),
+        (_direct_url(requested_revision=1), {}, "metadata|revision"),
+        (_direct_url(), {"owns_package": False}, "does not own"),
+    ],
+    ids=["servicenow", "missing", "archive", "wrong-commit", "invalid-json", "vcs-not-object",
+         "requested-revision-type", "not-owner"],
 )
-def test_rejects_malformed_metadata(monkeypatch, tmp_path, direct_url):
-    _install(monkeypatch, tmp_path, direct_url)
-    with pytest.raises(RuntimeError, match="metadata|revision"):
+def test_rejects_untrusted_runtime_source(monkeypatch, tmp_path, direct_url, options, match):
+    _install(monkeypatch, tmp_path, direct_url, **options)
+    with pytest.raises(RuntimeError, match=match):
         runtime_source.verify_webarena_runtime_source()
 
 
@@ -112,12 +101,6 @@ def test_rejects_module_path_injection(monkeypatch, tmp_path):
     injected = tmp_path / "injected" / "webarena_verified"
     _install(monkeypatch, tmp_path / "distribution", _direct_url(), module_root=injected)
     with pytest.raises(RuntimeError, match="import path"):
-        runtime_source.verify_webarena_runtime_source()
-
-
-def test_rejects_distribution_without_package_ownership(monkeypatch, tmp_path):
-    _install(monkeypatch, tmp_path, _direct_url(), owns_package=False)
-    with pytest.raises(RuntimeError, match="does not own"):
         runtime_source.verify_webarena_runtime_source()
 
 
