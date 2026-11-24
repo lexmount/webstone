@@ -2643,7 +2643,12 @@ def main(argv=None):
     parser.add_argument("--publication-plan", type=Path)
     parser.add_argument("--export-delivery", type=Path, metavar="DESTINATION",
                         help="Export the checked report into lossless case shards for bounded-file hosts")
+    parser.add_argument('--delivery-language', choices=('en', 'zh'),
+                        help='Export one complete language edition without duplicating its counterpart')
+    parser.add_argument('--counterpart-url', help='Public HTTPS link to the other complete language edition')
     args = parser.parse_args(argv)
+    if (args.delivery_language or args.counterpart_url) and not args.export_delivery:
+        parser.error('Language delivery options require --export-delivery')
     if args.revise_paragraphs:
         if any(value for key, value in vars(args).items() if key not in ('output', 'revise_paragraphs')):
             parser.error('Paragraph revisions accept only --output and --revise-paragraphs')
@@ -2663,7 +2668,8 @@ def main(argv=None):
         else:
             check(args.output)
         from harness.web_search.delivery import export
-        export(args.output, args.export_delivery)
+        export(args.output, args.export_delivery, language=args.delivery_language,
+               counterpart_url=args.counterpart_url)
         print(args.export_delivery)
         return
     if args.release_check:

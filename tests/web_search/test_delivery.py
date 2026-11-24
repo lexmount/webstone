@@ -106,6 +106,47 @@ class DeliveryScenarios(unittest.TestCase):
                 verify(root / "report", root / "delivery")
 
 
+@pytest.mark.parametrize('language', ['en', 'zh'])
+def test_separate_language_editions_keep_every_call_and_link_the_counterpart(tmp_path, language):
+    example(tmp_path)
+    source, destination = tmp_path / 'report', tmp_path / 'delivery'
+    build(source, source=tmp_path / 'fixture', include_english=True)
+    counterpart = 'https://reports.example.org/s/other-edition'
+    export(source, destination, language=language, counterpart_url=counterpart)
+    assert verify(source, destination)
+    manifest = json.loads((source / 'manifest.json').read_bytes())
+    index = json.loads((destination / 'delivery-index.json').read_bytes())
+    expected_calls = {item['evidence']['path'] for row in manifest['rows']
+                      for item in [row, *row.get('attempts', [])]}
+    assert expected_calls <= index['files'].keys()
+    details = [path for path in index['files'] if '/details/' in path or path.startswith('details/')]
+    assert len(details) == len(manifest['rows'])
+    assert all(path.startswith('en/') == (language == 'en') for path in details)
+    route = 'en/index.html' if language == 'en' else 'index.html'
+    page = BeautifulSoup((destination / route).read_bytes(), 'html.parser')
+    switches = [link for link in page.select('nav a') if link.get_text(strip=True) in ('English', '中文')]
+    assert switches and all(link['href'] == counterpart for link in switches)
+    if language == 'en':
+        entry = BeautifulSoup((destination / 'index.html').read_bytes(), 'html.parser')
+        assert entry.html['lang'] == 'en'
+        assert entry.iframe['src'] == 'en/index.html'
+        shell = BeautifulSoup((destination / 'detail.html').read_bytes(), 'html.parser')
+        assert shell.html['lang'] == 'en'
+        assert shell.find('base') is None
+    else:
+        assert not (destination / 'en').exists()
+
+
+def test_language_exports_reject_missing_translations_and_unsafe_counterparts(tmp_path):
+    example(tmp_path)
+    source = tmp_path / 'report'
+    for language, counterpart in [('fr', 'https://reports.example.org/s/other'), ('zh', 'javascript:alert(1)'),
+                                  ('zh', 'https://user:password@reports.example.org/s/other')]:
+        with pytest.raises(ValueError, match='generated language and public HTTPS counterpart'):
+            export(source, tmp_path / 'invalid', language=language, counterpart_url=counterpart)
+        assert not (tmp_path / 'invalid').exists()
+
+
 @pytest.mark.parametrize('prefix', ['', 'en/'])
 def test_large_comparison_stays_browsable_under_host_html_limit(tmp_path, prefix):
     from playwright.sync_api import sync_playwright
@@ -193,3 +234,12 @@ def test_delivered_detail_sections_open_the_original_file_before_scrolling(tmp_p
             assert 'Unable to load saved evidence' not in page.locator('body').inner_text()
         finally:
             browser.close()
+
+
+def test_an_unbuilt_english_edition_is_not_published_as_a_complete_translation(tmp_path):
+    example(tmp_path)
+    source = tmp_path / 'report'
+    assert json.loads((source / 'manifest.json').read_bytes())['languages'] == ['zh']
+    with pytest.raises(ValueError, match='generated language'):
+        export(source, tmp_path / 'english', language='en', counterpart_url='https://reports.example.org/s/chinese')
+    assert not (tmp_path / 'english').exists()
