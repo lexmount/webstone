@@ -1,6 +1,6 @@
 # Architecture
 
-Use this page to find the code responsible for a change. For running evaluations, start with the [README](../README.md).
+Use this page to find the code responsible for a change. For running evaluations, start with the [README](../README.md). The [repository specification](spec.md) defines the stage interfaces and rules a change must meet.
 
 [Data flow](#data-flow) · [Code owners](#code-boundaries) · [Stored inputs](#repository-and-external-inputs) · [Report releases](#reports-and-publication) · [Review tools](#verification)
 
