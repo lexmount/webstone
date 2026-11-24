@@ -26,7 +26,7 @@ BODY_SLOTS = {
     "methodology": "protocol",
     "results": "inventory",
     "interpretation": "findings",
-    "review": "summary",
+    "review": "notes",
 }
 # Authored page introductions lead the page unless a variant places them after the home comparison.
 AFTER_COMPARISON = {"index": "summary"}
@@ -61,13 +61,25 @@ MODE_VARIANTS = {
     "field-extraction-cohort": "record-cohort",
     "field-extraction-suite": "suite",
 }
-READER_ROUTES = tuple(key for key, _, _ in _READER_PAGES)
-
-
 def variant_for_mode(mode):
     return TEMPLATE.variant(MODE_VARIANTS.get(mode, "product"))
 
 
+def intro_follows_comparison(route, mode):
+    """Whether this variant places the page's authored intro after its core comparison."""
+    return route in variant_for_mode(mode).options["intro_slots"]
+
+
 def intro_slot(route, mode):
-    """The slot that holds a page's authored introduction in this variant."""
-    return variant_for_mode(mode).options["intro_slots"].get(route, "lead")
+    """The slot that holds a page's authored introduction in this variant.
+
+    An intro leads its page in the role's first content slot unless the variant
+    places it after the core comparison.
+    """
+    variant = variant_for_mode(mode)
+    placed = variant.options["intro_slots"].get(route)
+    if placed:
+        return placed
+    role = variant.page(route).role
+    slots = PAGE_ROLES[role]
+    return "lead" if "lead" in slots else next(slot for slot in slots if slot != BODY_SLOTS[role])

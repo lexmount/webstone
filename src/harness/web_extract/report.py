@@ -56,7 +56,13 @@ from harness.web_extract.pipeline import (
 )
 from harness.web_extract.product_fields import DECLARED, REPORTED, REPORTED_DERIVED, label_key
 from harness.web_extract.report_ui import JS
-from harness.web_extract.template import BODY_SLOTS, TEMPLATE, intro_slot, variant_for_mode
+from harness.web_extract.template import (
+    BODY_SLOTS,
+    TEMPLATE,
+    intro_follows_comparison,
+    intro_slot,
+    variant_for_mode,
+)
 
 VERSION = "web-extract-research/1"
 STAGES = {
@@ -209,8 +215,8 @@ def page(
         if intro:
             introduction = "<section data-page-intro>" + intro + "</section>"
             slot = intro_slot(route, state)
-            if slot == "lead":
-                fills["lead"] = introduction
+            if not intro_follows_comparison(route, state):
+                fills[slot] = introduction
             else:
                 core, rest = split_after_comparison(body)
                 fills = {"core-comparison": core, slot: introduction, "findings": rest}
@@ -478,11 +484,12 @@ def intro_is_correctly_placed(document, node, route, mode):
     if (slot is None or slot.parent is not document.main or slot.get("data-slot") != expected
             or slot.find_all(True, recursive=False) != [node]):
         return False
-    if expected == "lead":
+    if not intro_follows_comparison(Path(route).stem, mode):
         return document.main.find(True, recursive=False) is slot
     core = slot.find_previous_sibling()
-    return (core is not None and core.get("data-slot") == "core-comparison"
-            and core.find_all(True, recursive=False)[-1] is home_comparison_end(core))
+    children = core.find_all(True, recursive=False) if core is not None else []
+    return (core is not None and core.get("data-slot") == "core-comparison" and bool(children)
+            and children[-1] is home_comparison_end(core))
 
 
 def report_editions(manifest):

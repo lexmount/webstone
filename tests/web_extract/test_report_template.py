@@ -67,3 +67,19 @@ def test_product_report_builds_from_the_run_alone(tmp_path):
     with pytest.raises(ValueError, match="declared price contract"):
         check(output, profile=home / "profile.json", home=home, release=True,
               visual_receipt=tmp_path / "unused.json")
+
+
+def test_review_intro_leads_the_review_page_and_empty_core_slots_fail_placement(tmp_path):
+    from harness.web_extract.report import intro_is_correctly_placed, page
+
+    rendered = BeautifulSoup(page("zh", "review", "Review", "<p>Generated</p>",
+                                  languages=("zh",), intro="<p>Authored</p>"), "html.parser")
+    intro = rendered.select_one("[data-page-intro]")
+    assert [n["data-slot"] for n in rendered.select("main > [data-slot]")] == ["summary", "notes"]
+    assert intro_is_correctly_placed(rendered, intro, "review.html", "compatibility")
+
+    document = BeautifulSoup(
+        '<main data-page-role="home"><div data-slot="core-comparison"></div>'
+        '<div data-slot="summary"><section data-page-intro></section></div></main>', "html.parser")
+    assert not intro_is_correctly_placed(
+        document, document.select_one("[data-page-intro]"), "index.html", "field-extraction-cohort")
