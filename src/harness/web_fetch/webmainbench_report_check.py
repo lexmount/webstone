@@ -24,7 +24,7 @@ from harness.report_languages import (
 from harness.reporting.assets import load_bound_content
 from harness.reporting.release_check import checked_page, language_editions, open_report, read_page
 from harness.web_fetch.report import EXTRA, JS, STYLE
-from harness.web_fetch.template import check_recorded_template, check_template_pages
+from harness.web_fetch.template import check_recorded_template
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE
 from harness.web_fetch.report_changes import webmainbench_history
 from harness.safety import reject_evidence_symlinks
@@ -264,8 +264,7 @@ def check(root: Path, *, authority_root: Path | None = None) -> None:
     failure_analysis = json.loads(failure_bytes)
     manifest = read_json(root / "report-manifest.json")
     # Reports built before the variant was recorded keep verifying without it.
-    if "template" in manifest:
-        check_template_pages(root, manifest, authority_root=repo)
+    check_recorded_template(root)
     if {key: value for key, value in manifest.items() if key != "template"} != {
             "schema_version": 1, "report": "webmainbench-545-full",
             "languages": ["zh"], "case_count": case_count, "provider_count": provider_count,

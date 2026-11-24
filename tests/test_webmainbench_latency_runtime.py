@@ -393,3 +393,13 @@ def test_latency_commands_have_help_without_private_inputs(command, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
+
+
+def test_certificate_declaration_must_match_the_current_campaign(cohort, tmp_path):
+    base, calls_root, source, sample, cert, _ = cohort
+    declared = latency.declared_correction(cert["kind"], key="certificate_kind")
+    cert["correction_declaration"] = {**declared, "selected_round": 1}
+    write_json(calls_root / "certification.json", cert)
+    with pytest.raises(ValueError, match="declaration changed since certification"):
+        latency.main(["--base", str(base), "--cohort", str(calls_root), "--dataset", str(source),
+                      "--sample", str(sample), "--output", str(tmp_path / "corrected")])

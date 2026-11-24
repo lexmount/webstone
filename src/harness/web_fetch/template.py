@@ -86,9 +86,14 @@ def check_template_pages(root: Path, manifest, *, authority_root=None):
     return check_variant_pages(root, record, TEMPLATE)
 
 
-def check_recorded_template(root: Path, *, authority_root=None):
-    """Check the variant a report records; reports built before recording it have no manifest entry."""
+def check_recorded_template(root: Path):
+    """A benchmark or track page set fills the variant its manifest records.
+
+    The record names template and variant versions; reports built before it was
+    recorded have no manifest entry and keep verifying.
+    """
     path = root / "report-manifest.json"
     manifest = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     if "template" in manifest:
-        check_template_pages(root, manifest, authority_root=authority_root)
+        return check_variant_pages(root, manifest["template"], TEMPLATE)
+    return None

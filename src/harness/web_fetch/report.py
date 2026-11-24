@@ -1964,11 +1964,14 @@ def render_report(out,*inputs,variant=None,**options):
 
 
 def _record_template(out,variant):
- """Record the rendered variant in the report manifest, beside what the page set recorded itself."""
- from harness.web_fetch.template import report_template
+ """Record the rendered variant in the report manifest, beside what the page set recorded itself.
+
+ The record names the base, track and variant versions only, so an installed package records it too.
+ """
+ from harness.web_fetch.template import TEMPLATE
  path=out/'report-manifest.json'
  manifest=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {'schema_version':1}
- manifest['template']=report_template(variant)
+ manifest['template']=TEMPLATE.record(variant)
  path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 
 

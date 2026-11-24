@@ -386,6 +386,8 @@ def certify(argv: list[str] | None = None) -> None:
     source_binding = bind_certifier_source(args.output, source_path, frozen_source)
     receipt = {
         "kind": declared["certificate_kind"],
+        # The campaign rules this certificate was made under; applying it requires the same rules.
+        "correction_declaration": declared,
         "precheck": before,
         "postcheck": after,
         "selection_sha256": binding["selection_json_sha256"],
@@ -422,6 +424,9 @@ def main(argv: list[str] | None = None) -> None:
     cert_path = args.cohort / "certification.json"
     cert = json.loads(cert_path.read_text(encoding="utf-8"))
     declared = declared_correction(cert.get("kind"), key="certificate_kind")
+    # Certificates from before the declaration was retained name it only by kind.
+    if "correction_declaration" in cert and cert["correction_declaration"] != declared:
+        raise ValueError("Latency correction declaration changed since certification")
     methods = declared["methods"]
     selection_bytes = (args.cohort / "selection.json").read_bytes()
     exclusion = cert.get("environment_exclusion", {})
