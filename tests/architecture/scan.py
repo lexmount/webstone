@@ -118,7 +118,17 @@ def write_allowlist(path: Path, found: dict[str, list[str]]) -> None:
     path.write_text(json.dumps(dict(sorted(found.items())), indent=2) + "\n", encoding="utf-8")
 
 
+def shrink_allowlist(path: Path, found: dict[str, list[str]]) -> list[str]:
+    """Write ``found`` only when it adds nothing; return the additions otherwise."""
+    added, _ = allowlist_drift(found, read_allowlist(path)) if path.exists() else ([], [])
+    if not added:
+        write_allowlist(path, found)
+    return added
+
+
 if __name__ == "__main__":
     sys.path.insert(0, str(SOURCE))
-    write_allowlist(LAYERING_ALLOWLIST, layering_violations())
-    write_allowlist(INSTANCE_LITERAL_ALLOWLIST, instance_literals())
+    growth = shrink_allowlist(LAYERING_ALLOWLIST, layering_violations())
+    growth += shrink_allowlist(INSTANCE_LITERAL_ALLOWLIST, instance_literals())
+    if growth:
+        sys.exit("Allowlists only shrink; fix these instead of listing them:\n  " + "\n  ".join(growth))
