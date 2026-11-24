@@ -12,7 +12,7 @@ also require page controls, surrounding text and comments. Media and original
 file delivery remain task requirements in either scope.
 
 Use `--content-scope main|full` with `lexbench-webfetch score`, or the Web Fetch
-`run`, `rescore` and `validate` commands. Selection happens before execution or
+`run`, `score` and `validate` commands. Selection happens before execution or
 scoring. Explicit selection fails for tasks without both annotations. Legacy
 tasks keep their existing behavior when no scope is selected. Scores bind the
 selected profile hash; reuse saved responses for score-only comparisons.
@@ -62,7 +62,7 @@ the final tool result's native text is scored, while all model text remains
 diagnostic. Base64 document results are not replaced by model-generated text.
 
 Use `--score-scope main`, `--score-scope full` or `--score-scope both` with
-`webstone run`, `webstone rescore` or `lexbench-webfetch score`. A single scope
+`webstone run`, `webstone score` or `lexbench-webfetch score`. A single scope
 computes only that rule set and builds a single-view report. When omitted,
 annotated tasks default to both. An explicit `--content-scope` selects acquisition, retry and report requirements. Without it, paired-score reports default to full content.
 

@@ -3,6 +3,7 @@
 import json
 from copy import deepcopy
 
+from harness.adapters import STAGES
 from harness.distribution import repository_root
 from harness.env_file import local_setting
 
@@ -31,6 +32,26 @@ METRIC_CONTRACT = {
 }
 
 
+# Keys a track entry may declare: its owner and example, and one command per stage verb
+# (harness.adapters.STAGES) or per existing registry stage. "build" is the report verb's key
+# here; built reports record whole entries, so existing keys are not renamed. A
+# profile-selected variant keeps its stage as the suffix: "<variant>_<stage>", such as
+# "wcxb_build" or "snapshot_audit_publish".
+TEMPLATE_FIELDS = frozenset({
+    "renderer", "entrypoint", "tests", "example", "example_env", "example_version",
+    "execution_owner", "execution_tests", "variants", "benchmark", "profile",
+})
+STAGE_KEYS = frozenset({*STAGES, "build", "release_check", "tests", "example", "example_build",
+                        "example_check", "revision"})
+
+
+def unknown_template_keys(entry):
+    """Return keys that are neither a field, a stage nor a ``<variant>_<stage>`` variant."""
+    return sorted(key for key in entry if key not in TEMPLATE_FIELDS and key not in STAGE_KEYS
+                  and not any(key.endswith("_" + stage) and key != "_" + stage
+                              for stage in STAGE_KEYS))
+
+
 def metric_contract():
     """Return runtime requirements without requiring checkout-only authoring files."""
     return deepcopy(METRIC_CONTRACT)
@@ -57,6 +78,9 @@ def resolve_template(track, *, root=ROOT):
         raise ValueError("Report template needs a version-pinned example")
     if "metric_contract" in result or "presentation_contract" in result or "execution_contract" in result:
         raise ValueError("A report track cannot replace the shared required metric contract")
+    unknown = unknown_template_keys(result)
+    if unknown:
+        raise ValueError("Report template keys must name a stage verb: " + ", ".join(unknown))
     return {"track": track, **result}
 
 

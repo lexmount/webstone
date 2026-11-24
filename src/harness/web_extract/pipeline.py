@@ -27,11 +27,11 @@ from urllib.parse import quote, quote_plus, urlsplit
 from harness.benchmark_execution import ExecutionPolicy, Job, run_jobs
 from harness.data_home import data_home as shared_data_home
 from harness.distribution import repository_root
+from harness.http_client import request
 from harness.record_io import bytes_sha256 as digest
 from harness.record_io import read_json as shared_read_json
 from harness.runtime_env import load_runtime_env
 from harness.web_extract.dataset import benchmark_config, input_mode
-from harness.http_client import request
 from lexbench_webfetch.paths import validate_http_url
 
 ROOT = repository_root()

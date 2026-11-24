@@ -371,6 +371,16 @@ class ReportTemplateTests(unittest.TestCase):
             save()
             with self.assertRaisesRegex(ValueError, 'cannot replace'):
                 resolve_template('future', root=root)
+            del row['execution_contract']
+            row['publish'] = row['wcxb_check'] = 'synthetic command'
+            save()
+            self.assertEqual(resolve_template('future', root=root)['publish'], 'synthetic command')
+            for key in ('deploy', 'wcxb_deploy'):
+                with self.subTest(key=key):
+                    save_row = dict(row, **{key: 'synthetic command'})
+                    path.write_text(json.dumps({'schema_version': 1, 'tracks': {'future': save_row}}), encoding='utf-8')
+                    with self.assertRaisesRegex(ValueError, 'must name a stage verb: ' + key):
+                        resolve_template('future', root=root)
 
     def test_future_tracks_inherit_cost_latency_and_resource_decisions(self):
         with tempfile.TemporaryDirectory() as temp:

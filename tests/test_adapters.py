@@ -83,5 +83,9 @@ def test_track_stages_fix_the_verbs():
     stages = TrackStages(run=run, report=run, extra={"prepare": run})
     assert stages.supported() == ("run", "report")
     assert set(stages.supported()) <= set(STAGES)
+    assert stages.names() == ("run", "report", "prepare")
+    assert stages.command("prepare") is run
+    with pytest.raises(ValueError, match="Unknown stage: score"):
+        stages.command("score")
     with pytest.raises(ValueError, match="cannot replace fixed stages"):
         TrackStages(extra={"run": run})

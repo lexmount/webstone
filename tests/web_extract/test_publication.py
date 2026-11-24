@@ -61,6 +61,7 @@ def dataset_pin(home, case_ids=("page",)):
 def test_release_binds_native_execution_and_accepts_privacy_projection(
     tmp_path, damage, mode, segments=False
 ):
+    from harness.reporting.publication_privacy import project_evidence_view
     from harness.web_extract.cli import main
     from harness.web_extract.pipeline import normalize
     from harness.web_extract.report import (
@@ -68,7 +69,6 @@ def test_release_binds_native_execution_and_accepts_privacy_projection(
         redact_account_endpoint,
         verify_completion_audit,
     )
-    from harness.reporting.publication_privacy import project_evidence_view
 
     home = tmp_path / "inputs"
     run = home / "runs/run"
@@ -503,8 +503,8 @@ def test_incomplete_target_never_packages_or_dispatches(tmp_path, monkeypatch):
 def test_publication_uses_frozen_audit_even_when_public_receipts_are_rewritten(
     tmp_path, monkeypatch, damage, local_example
 ):
-    from harness.web_extract.report import publication_host_names
     from harness.reporting.publication_privacy import project_evidence_view
+    from harness.web_extract.report import publication_host_names
 
     source, target, work, visual = setup_report(tmp_path)
     frozen = tmp_path / "frozen"

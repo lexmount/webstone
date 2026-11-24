@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import sys
 from collections.abc import Mapping, Sequence
@@ -11,6 +10,7 @@ from pathlib import Path
 from lexbench_webfetch.metrics import task_passed
 from lexbench_webfetch.models import TASK_KINDS
 
+from harness.adapters import TrackStages, owner_stage, run_stage
 from harness.report_languages import (
     ReportLanguageError,
     add_language_argument,
@@ -126,6 +126,10 @@ OWNER_COMMANDS = {
     "webmainbench-full-check": ("harness.web_fetch.webmainbench_report_check", "main",
                                 "Check a complete report"),
 }
+
+# Fixed stage verbs served by an owner command above. The owner names stay: bound report
+# templates and guides name them.
+STAGE_OWNERS = {"check": "report-revision-check", "package": "site-package", "publish": "site-publish"}
 
 
 def default_run_dir() -> Path:
@@ -337,10 +341,11 @@ def diagnostic_check_main() -> None:
     print(json.dumps(result))
 
 
-def build_parser(root_commands: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
+def build_parser(root_commands: Mapping[str, str] | None = None,
+                 prog: str = "webstone") -> argparse.ArgumentParser:
     """Parse Web Fetch stages; ``harness.cli`` passes its own commands so help lists them."""
     parser = argparse.ArgumentParser(
-        prog="webstone",
+        prog=prog,
         description="Web Fetch evaluations for Webstone. Run retrieval tasks and build reports from saved evidence.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -378,15 +383,15 @@ def build_parser(root_commands: Mapping[str, str] | None = None) -> argparse.Arg
     add_language_argument(report)
     report.set_defaults(handler=command_report)
 
-    rescore = sub.add_parser("rescore", help="Recompute metrics/report from persisted artifacts and task rules")
-    rescore.add_argument("run_dir", type=Path)
-    rescore.add_argument("--dataset", type=Path, required=True)
-    rescore.add_argument("--content-scope", choices=("main", "full"))
-    rescore.add_argument("--score-scope", choices=("main", "full", "both"))
-    rescore.add_argument("--no-report", action="store_true",
+    score = sub.add_parser("score", help="Recompute metrics/report from persisted artifacts and task rules")
+    score.add_argument("run_dir", type=Path)
+    score.add_argument("--dataset", type=Path, required=True)
+    score.add_argument("--content-scope", choices=("main", "full"))
+    score.add_argument("--score-scope", choices=("main", "full", "both"))
+    score.add_argument("--no-report", action="store_true",
                          help="Rescore saved data without rebuilding HTML; existing reports are unchanged")
-    add_language_argument(rescore)
-    rescore.set_defaults(handler=command_rescore)
+    add_language_argument(score)
+    score.set_defaults(handler=command_rescore)
 
     compose = sub.add_parser(
         "compose", help="Write a saved-matrix specification comparing several run directories")
@@ -417,31 +422,19 @@ def build_parser(root_commands: Mapping[str, str] | None = None) -> argparse.Arg
     accounts.add_argument("--env-file", type=Path)
     accounts.set_defaults(handler=command_accounts)
     summaries = {**(root_commands or {}),
+                 **{name: OWNER_COMMANDS[owner][2] for name, owner in STAGE_OWNERS.items()},
                  **{name: summary for name, (_, _, summary) in OWNER_COMMANDS.items()}}
     for name, summary in summaries.items():
         sub.add_parser(name, help=summary, add_help=False)
     return parser
 
 
-def run_owner_command(prog: str, name: str, arguments: Sequence[str]) -> None:
-    module, function, _ = OWNER_COMMANDS[name]
-    # Resolve the owner only when selected.
-    handler = getattr(importlib.import_module(module), function)
-    invoked = sys.argv
-    # Owners read sys.argv: several record their own source hash, so their mains stay unchanged.
-    sys.argv = [f"{prog} {name}", *arguments]
-    try:
-        handler()
-    finally:
-        sys.argv = invoked
-
-
 def main(argv: Sequence[str] | None = None, *,
-         root_commands: Mapping[str, str] | None = None) -> None:
+         root_commands: Mapping[str, str] | None = None, prog: str = "webstone") -> None:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    parser = build_parser(root_commands)
-    if arguments[:1] and arguments[0] in OWNER_COMMANDS:
-        run_owner_command(parser.prog, arguments[0], arguments[1:])
+    parser = build_parser(root_commands, prog)
+    if arguments[:1] and (arguments[0] in OWNER_COMMANDS or arguments[0] in STAGE_OWNERS):
+        run_stage(STAGES, arguments[0], arguments[1:], parser.prog)
         return
     args = parser.parse_args(arguments)
     if getattr(args, "output", "sentinel") is None:
@@ -451,3 +444,26 @@ def main(argv: Sequence[str] | None = None, *,
     except ReportLanguageError as error:
         parser.error(str(error))
     raise SystemExit(result)
+
+
+def _parsed(name: str):
+    """A stage this module's own parser defines."""
+    def stage(argv: list[str]) -> None:
+        main([name, *argv], prog=sys.argv[0].removesuffix(" " + name))
+
+    return stage
+
+
+def _owner(name: str):
+    module, function, summary = OWNER_COMMANDS[name]
+    return owner_stage(module, function, summary)
+
+
+STAGES = TrackStages(
+    run=_parsed("run"),
+    score=_parsed("score"),
+    report=_parsed("report"),
+    **{stage: _owner(owner) for stage, owner in STAGE_OWNERS.items()},
+    extra={"validate": _parsed("validate"), "accounts": _parsed("accounts"),
+           **{name: _owner(name) for name in OWNER_COMMANDS}},
+)

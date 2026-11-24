@@ -85,3 +85,38 @@ def test_dataset_pin_forwards_help_without_a_checkout(flag, monkeypatch, capsys)
     assert stopped.value.code == 0
     assert "--select" in capsys.readouterr().out
     assert sys.argv == ["webstone"]
+
+
+def track_stages():
+    import importlib
+
+    from harness.cli import TRACKS
+
+    return [(track.command, stage) for track in TRACKS.values()
+            for stage in importlib.import_module(track.cli).STAGES.supported()]
+
+
+@pytest.mark.parametrize(("track", "stage"), track_stages())
+def test_every_declared_stage_runs_as_webstone_track_stage(track, stage, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["caller"])
+    with pytest.raises(SystemExit) as stopped:
+        main([track, stage, "--help"])
+    assert stopped.value.code == 0
+    assert " ".join(capsys.readouterr().out.split()).startswith(f"usage: webstone {track} {stage} ")
+    assert sys.argv == ["caller"]
+
+
+def test_stage_reaches_its_registered_implementation(monkeypatch):
+    from harness.adapters import TrackStages
+    from harness.browser_use import cli
+
+    calls = []
+    monkeypatch.setattr(cli, "STAGES", TrackStages(
+        package=lambda argv: calls.append(("package", sys.argv[0], argv)),
+        extra={"visual": lambda argv: calls.append(("visual", sys.argv[0], argv))}))
+    monkeypatch.setattr(sys, "argv", ["caller"])
+    main(["browser-use", "package", "report", "--flag"])
+    main(["browser-use", "visual"])
+    assert calls == [("package", "webstone browser-use package", ["report", "--flag"]),
+                     ("visual", "webstone browser-use visual", [])]
+    assert sys.argv == ["caller"]
