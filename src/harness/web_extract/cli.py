@@ -140,7 +140,8 @@ def build_parser(prog=None):
         "--reference-revision", type=Path, help="Source-bound record reference correction"
     )
     p = sub.add_parser("report")
-    p.add_argument("--content", type=Path, required=True)
+    p.add_argument("--content", type=Path,
+                   help="Bound authored content; without it the report renders generated defaults")
     p.add_argument("--profile", type=Path, required=True, help="External report-instance profile")
     p.add_argument("--output", type=Path, required=True)
     add_language_argument(p)

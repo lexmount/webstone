@@ -10,7 +10,8 @@ compare a built report with the template its manifest records.
 import json
 from collections.abc import Callable, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from harness.adapters import STAGES
 from harness.distribution import repository_root
@@ -72,6 +73,7 @@ class Variant:
     version: int
     pages: tuple[Page, ...]
     absent: frozenset[str] = frozenset()  # base roles this variant does not fill
+    options: Mapping[str, Any] = field(default_factory=dict)  # the track's slot and label selections
 
     def __post_init__(self):
         roles = {page.role for page in self.pages}
@@ -79,10 +81,10 @@ class Variant:
             raise ValueError(f"Variant {self.name} uses an undeclared page role")
         if roles & self.absent or roles | self.absent != PAGE_ROLES.keys():
             raise ValueError(f"Variant {self.name} must fill or declare absent every page role")
-        for field in ("key", "route"):
-            values = [getattr(page, field) for page in self.pages]
+        for name in ("key", "route"):
+            values = [getattr(page, name) for page in self.pages]
             if len(values) != len(set(values)):
-                raise ValueError(f"Variant {self.name} repeats a page {field}")
+                raise ValueError(f"Variant {self.name} repeats a page {name}")
 
     def page(self, key):
         return next(page for page in self.pages if page.key == key)

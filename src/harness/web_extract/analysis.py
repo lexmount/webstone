@@ -10,6 +10,7 @@ from pathlib import Path
 
 from harness.web_extract.pipeline import PRODUCT, PROFILE, digest, official_scorer
 from harness.web_extract.pipeline import PRODUCT_FIELDS as FIELDS
+from harness.web_extract.product_fields import NUMERIC, REPORTED, REPORTED_DERIVED
 
 
 def score_model_comparison(plan_path, run, contract_path, home, *, stage, repair=None):
@@ -89,7 +90,8 @@ def score_model_comparison(plan_path, run, contract_path, home, *, stage, repair
                 "success") else None
             fields = field_results(Path(home), reference, native)
             excluded = set(case.get("reference_excluded_fields", []))
-            fields = {k: v for k, v in fields.items() if k not in excluded and k != "OutOfStock"}
+            fields = {k: v for k, v in fields.items()
+                      if k not in excluded and k not in REPORTED_DERIVED}
             complete = not (set(case["schema"]["properties"]) & excluded)
         counts = {
             k: sum(v[k] for v in fields.values() if v["status"] != "unavailable")
@@ -193,10 +195,10 @@ def field_results(home, reference, row, *, profile=PROFILE):
     scorer = matchers(home, profile, source_sha)
     prediction = (row.get("normalized_fields") or {}) if row.get("http_status") == 200 else {}
     result = {}
-    for field in (*FIELDS, "OutOfStock"):
+    for field in REPORTED:
         expected = set(reference.get(field, []))
         actual = prediction.get(field)
-        match = scorer["decimal_matching"] if field == "price" else scorer["hard_matching"]
+        match = scorer["decimal_matching"] if field in NUMERIC else scorer["hard_matching"]
         try:
             tp, fp, fn = match(expected, actual)
         except InvalidOperation:
@@ -236,12 +238,12 @@ def product_audit_scores(truth, reviews, methods, excluded, scorer):
     result = {}
     for method in methods:
         result[method] = {}
-        for field in (*FIELDS, "OutOfStock"):
+        for field in REPORTED:
             values = [
                 reviews[method + ":" + cid]["audited_fields"][field]
                 for cid in truth
                 if field not in excluded.get(cid, [])
-                and not (field == "OutOfStock" and "availability" in excluded.get(cid, []))
+                and REPORTED_DERIVED.get(field) not in excluded.get(cid, [])
             ]
             result[method][field] = {
                 **(

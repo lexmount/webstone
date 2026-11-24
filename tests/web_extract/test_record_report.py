@@ -46,11 +46,10 @@ def test_interpretation_intro_and_core_first_home_rules_hold_together(tmp_path, 
     check(output, home=home, profile=home / "profile.json")
     soup = BeautifulSoup((output / "zh/index.html").read_text(encoding="utf-8"), "html.parser")
     if damage == "home-intro":
-        from harness.web_extract.report import home_comparison_end
+        from harness.web_extract.report import intro_is_correctly_placed
 
-        assert soup.select_one("[data-page-intro]").find_previous_sibling() is home_comparison_end(
-            soup
-        )
+        assert intro_is_correctly_placed(
+            soup, soup.select_one("[data-page-intro]"), "index.html", mode)
     current = soup.select_one("main table[data-completion-metrics]")
     while current is not soup.main:
         assert not any(str(node).strip() for node in current.previous_siblings)
@@ -143,8 +142,8 @@ def test_authored_page_intro_precedes_generated_tables_and_is_release_bound(tmp_
         initial / "data/completion-metrics.json").read_bytes()
     soup = BeautifulSoup((output / "zh/interpretation.html").read_text(encoding="utf-8"),
                          "html.parser")
-    intro = soup.select_one("main > [data-page-intro]")
-    assert intro is not None and soup.main.find(True, recursive=False) is intro
+    intro = soup.select_one("main > [data-slot=lead] > [data-page-intro]")
+    assert intro is not None and soup.main.find(True, recursive=False) is intro.parent
 
     def alter(raw):
         page = BeautifulSoup(raw, "html.parser")
