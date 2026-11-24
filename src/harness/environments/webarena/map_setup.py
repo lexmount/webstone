@@ -505,7 +505,9 @@ def main(argv=None) -> int:
         help="Omit osm2pgsql flatnode import/update cache for frozen queries",
     )
     args = parser.parse_args(argv)
-    component = json.loads(args.contract.read_text(encoding="utf-8"))["components"]["map"]
+    # The site that declares data archives; this runs in the container without the registry.
+    components = json.loads(args.contract.read_text(encoding="utf-8"))["components"]
+    (component,) = [item for item in components.values() if "data_urls" in item]
     local_services = component["local_services"]
     setup(
         args.root,

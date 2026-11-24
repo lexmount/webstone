@@ -66,6 +66,8 @@ class SiteAdapter:
     reset_baseline_check: bool = False
     # The admin is served over HTTPS behind a proxy and loads Magento's script loader.
     admin_https: bool = False
+    # Setup first verifies the downloaded data archives named by the delivery contract.
+    data_archives: bool = False
 
     @property
     def topology(self) -> dict[str, Any]:
@@ -332,7 +334,7 @@ _ADAPTERS = (
         container_healthcheck=True,
         reset_baseline_check=True,
     ),
-    SiteAdapter("map", session_login=_no_session_login),
+    SiteAdapter("map", session_login=_no_session_login, data_archives=True),
     SiteAdapter("wikipedia", session_login=_no_session_login),
 )
 

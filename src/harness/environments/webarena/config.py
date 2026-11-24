@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harness.environments.webarena.map_archives import archive_component
 from harness.environments.webarena.sites import SITE_NAMES
 from harness.environments.webarena.topology import (
     ENV_CTRL_CONTAINER_PORT,
@@ -216,7 +217,8 @@ def verify_deployment_contract(root: Path) -> dict:
             or (path.parent / config["image_lock"]).resolve() != lock_path.resolve()
         ):
             raise ValueError("deployment must reference the canonical image lock")
-    if set(delivery.get("components") or {}) != sites - {"wikipedia"}:
+    # A site is delivered as a component exactly when its topology declares a container port.
+    if set(delivery.get("components") or {}) - sites:
         raise ValueError("site delivery inventory differs")
     if set(SITE_CONTAINER_PORTS) != set(delivery["components"]):
         raise ValueError("topology registry container ports differ from site delivery")
@@ -250,7 +252,7 @@ def verify_deployment_contract(root: Path) -> dict:
                 raise ValueError(
                     f"site delivery container ports differ from the topology registry: {site}"
                 )
-    map_site = delivery["components"]["map"]
+    map_site = archive_component(delivery)
     names = [Path(urlparse(url).path).name for url in map_site["data_urls"]]
     if map_site.get("local_services") != MAP_LOCAL_SERVICE_PORTS:
         raise ValueError("Map local service ports differ from the topology registry")

@@ -13,7 +13,7 @@ from webarena_verified.types.task import WebArenaSite
 from harness.environments.webarena.config import RuntimeConfig
 from harness.environments.webarena.manager import EnvironmentManager
 from harness.environments.webarena.map_archives import verify_archives
-from harness.environments.webarena.sites import SHARED_SITES, SITE_NAMES
+from harness.environments.webarena.sites import SHARED_SITES, SITE_NAMES, site_declares
 
 
 def _write_receipt(path: Path | None, payload: dict[str, Any]) -> None:
@@ -41,7 +41,7 @@ def main() -> None:
     if args.command == "setup" and (
         not args.data_dir or any(name not in SHARED_SITES for name in names)
     ):
-        parser.error("setup requires --site map|wikipedia and --data-dir")
+        parser.error(f"setup requires --site {'|'.join(SHARED_SITES)} and --data-dir")
     manager = (
         EnvironmentManager(config, defer_removal=args.defer_removal)
         if args.command != "setup"
@@ -51,7 +51,11 @@ def main() -> None:
     for name in names:
         try:
             if args.command == "setup":
-                archives = verify_archives(Path(args.data_dir)) if name == "map" else []
+                archives = (
+                    verify_archives(Path(args.data_dir))
+                    if site_declares(name, "data_archives")
+                    else []
+                )
                 result = setup_init(site=WebArenaSite(name), data_dir=Path(args.data_dir))
                 rows.append({"site": name, "result": result, "archives": archives})
             elif args.command == "verify":
