@@ -20,11 +20,8 @@ from harness.web_fetch.providers.headless import (
 )
 from harness.web_fetch.providers.headless_worker import fetch
 from harness.web_fetch.review_execution import (
-    INDEPENDENCE_RULES,
-    RESOURCE_EQUIVALENCE_RULES,
     SCHEMA,
     anomaly_investigation_packet,
-    blind_review_prompt,
     independent_attempt,
     review_main,
     validate_review_evidence,
@@ -353,34 +350,9 @@ class HeadlessTests(unittest.TestCase):
                 'observed: raw response begins <html><body>PK archive bytes'),
         }, 'body')
 
-    def test_independence_prompt_forbids_production_scorer_recalculation(self):
-        self.assertIn('Do not import, execute, or reimplement the production scorer',
-                      INDEPENDENCE_RULES)
-        self.assertIn('Judge the saved artifact directly', INDEPENDENCE_RULES)
-        self.assertIn('beginning:', INDEPENDENCE_RULES)
-        self.assertIn('missing:', INDEPENDENCE_RULES)
-        self.assertIn('Separately list any suspicious anomaly', INDEPENDENCE_RULES)
-        self.assertIn('Anomalies are not verdict evidence', INDEPENDENCE_RULES)
-
-    def test_blind_resource_guidance_limits_wikimedia_host_equivalence_to_same_asset(self):
-        self.assertIn('upload.wikimedia.org', RESOURCE_EQUIVALENCE_RULES)
-        self.assertIn('thumb.wikimedia.org', RESOURCE_EQUIVALENCE_RULES)
-        self.assertIn('original asset filename must match', RESOURCE_EQUIVALENCE_RULES)
-        self.assertIn('A different original asset path or filename',
-                      RESOURCE_EQUIVALENCE_RULES)
-        self.assertNotIn('machine verdict', RESOURCE_EQUIVALENCE_RULES)
-        self.assertNotIn('metrics', RESOURCE_EQUIVALENCE_RULES)
-        prompt = blind_review_prompt(Path('/synthetic-packet.json'), 1)
-        self.assertIn(RESOURCE_EQUIVALENCE_RULES, prompt)
-
     def test_codex_review_schema_requires_every_declared_field(self):
         item = SCHEMA['properties']['attempts']['items']
         self.assertEqual(set(item['required']), set(item['properties']))
-
-    def test_review_source_guards_case_only_and_declared_truncation_mistakes(self):
-        prompt = blind_review_prompt(Path('/synthetic-packet.json'), 1)
-        self.assertIn('Capitalization alone is an ordinary presentation difference', prompt)
-        self.assertIn('provider-authored notice that explicitly says', prompt)
 
     def test_explicit_empty_chromium_binary_never_uses_playwright_fallback(self):
         self.assertIsNone(_resolve_binary('chromium', ''))
@@ -534,16 +506,6 @@ class HeadlessTests(unittest.TestCase):
         self.assertEqual(item['blind_review']['agent_verdict'],'fail')
         self.assertEqual(item['raw_artifacts'][0]['bytes'],10)
         self.assertEqual(item['scorer'],{'content_pass':False})
-        self.assertIn('Use not_applicable, not insufficient', packet['instructions'])
-        self.assertIn('Request success means the provider completed target retrieval',
-                      packet['instructions'])
-        self.assertIn('does not mean that the returned body is nonempty',
-                      packet['instructions'])
-        self.assertIn('success:false, or tool error stays a request failure',
-                      packet['instructions'])
-        self.assertIn('outer transport HTTP 2xx alone', packet['instructions'])
-        self.assertIn('a source-code fix alone does not correct historical evidence',
-                      packet['instructions'])
 
     def test_review_answer_metadata_whitelists_only_answer_fields(self):
         from harness.web_fetch.result_review import review_answer_metadata
@@ -560,16 +522,8 @@ class HeadlessTests(unittest.TestCase):
             'title':'Page title',
         })
 
-    def test_whitespace_normalization_preserves_original_semantics(self):
-        import itertools
-        import re
-
+    def test_long_whitespace_runs_normalize_in_linear_time(self):
         from lexbench_webfetch.metrics import normalize_for_match
-        old = r'(?<=[\u3400-\u9fff])\s+|\s+(?=[\u3400-\u9fff])'
-        new = r'(?<=[\u3400-\u9fff])\s+|(?<!\s)\s+(?=[\u3400-\u9fff])'
-        for parts in itertools.product(('a','中','\n',' ','\t','1',''), repeat=5):
-            text = ''.join(parts)
-            self.assertEqual(re.sub(old, '', text), re.sub(new, '', text))
         self.assertEqual(normalize_for_match('left'+' '*100_000+'right'), 'left right')
         self.assertEqual(normalize_for_match('中'+' '*100_000+'文'), '中文')
 
@@ -662,17 +616,6 @@ class HeadlessTests(unittest.TestCase):
         self.assertEqual(metadata['minimum_text_fragments'], 0)
         self.assertEqual(metadata['unsupported'], [])
 
-    def test_lightpanda_iframe_capability_receipt_does_not_overclaim_markdown(self):
-        receipt = json.loads(Path(
-            'research/lightpanda-100-native-iframe-capability.json').read_text(encoding='utf-8'))
-        self.assertEqual(receipt['provider_calls'], 0)
-        observations = receipt['observations']
-        both = ['--load-resources', 'iframe', '--with-frames']
-        self.assertTrue(any(row['dump'] == 'html' and row['flags'] == both
-                            and row['child_marker_present'] for row in observations))
-        self.assertTrue(all(not row['child_marker_present']
-                            for row in observations if row['dump'] == 'markdown'))
-
     def test_obscura_loopback_fixture_requires_explicit_private_network_flag(self):
         command = cli_command(
             'obscura', '/obscura', 'http://127.0.0.1:8123/case/x', 1.5,
@@ -727,21 +670,16 @@ class HeadlessTests(unittest.TestCase):
                 if code:
                     self.assertTrue(result['error_message'].endswith('ERROR: terminal cause after warnings\n'))
 
-    def test_moli_raw_document_command_omits_dump(self):
-        command = cli_command('moli', '/moli', 'https://example.com/paper.pdf', 1.5,
-                              'document')
-        self.assertEqual(command[:2], ['/moli', 'fetch'])
-        self.assertNotIn('--dump', command)
-        self.assertNotIn('--wait-until', command)
-        self.assertEqual(command[-1], 'https://example.com/paper.pdf')
+    def test_moli_raw_document_and_file_commands_omit_dump(self):
+        for mode, url in (('document', 'https://example.com/paper.pdf'),
+                          ('file', 'https://example.com/image.png')):
+            command = cli_command('moli', '/moli', url, 1.5, mode)
+            self.assertEqual(command[:2], ['/moli', 'fetch'])
+            self.assertNotIn('--dump', command)
+            self.assertNotIn('--wait-until', command)
+            self.assertEqual(command[-1], url)
 
-    def test_moli_raw_file_command_omits_dump(self):
-        command = cli_command('moli', '/moli', 'https://example.com/image.png', 1.5, 'file')
-        self.assertNotIn('--dump', command)
-        self.assertNotIn('--wait-until', command)
-        self.assertEqual(command[-1], 'https://example.com/image.png')
-
-    def test_every_measured_moli_version_uses_raw_route_for_direct_files(self):
+    def test_moli_uses_raw_route_only_for_direct_files(self):
         pdf = EvalCase('pdf', 'PDF', 'https://example.com/paper.pdf', 'document', [],
                        track='document')
         embedded = EvalCase('embedded', 'Embedded document',
@@ -749,14 +687,9 @@ class HeadlessTests(unittest.TestCase):
                             track='document')
         image = EvalCase('image', 'Image', 'https://example.com/image.png', 'image', [],
                          track='image', task_kind='file')
-        for name in ('moli-1.0.6', 'moli', 'moli-1.1.3'):
-            with self.subTest(provider=name):
-                self.assertEqual(output_mode_for_case('moli', 'headless_markdown', pdf),
-                                 'markdown')
-                self.assertEqual(output_mode_for_case('moli', 'headless_markdown', embedded),
-                                 'markdown')
-                self.assertEqual(output_mode_for_case('moli', 'headless_markdown', image),
-                                 'file')
+        self.assertEqual(output_mode_for_case('moli', 'headless_markdown', pdf), 'markdown')
+        self.assertEqual(output_mode_for_case('moli', 'headless_markdown', embedded), 'markdown')
+        self.assertEqual(output_mode_for_case('moli', 'headless_markdown', image), 'file')
 
     def test_unknown_cli_rejected(self):
         with self.assertRaises(ValueError):

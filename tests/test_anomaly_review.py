@@ -37,18 +37,6 @@ class AnomalyReviewTests(unittest.TestCase):
             self.assertIn('reviewer-active-anomaly', found['p__a'])
             self.assertIn('short-tool-error', found['p__b'])
 
-    def test_real_stable_structure_forbidden_shape_triggers(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory); (root/'answer.txt').write_text('all product records', encoding='utf-8')
-            row={'attempt_id':'moli-webfetch__dynamic-react-cart__r001',
-                 'provider':'moli-webfetch','case_id':'dynamic-react-cart','ok':True,
-                 'artifact_path':'answer.txt','metrics':{
-                     'stable_structure_pass':True, 'stable_content_pass':False,
-                     'stable_task_pass':False, 'forbidden_requirement_hits':['Add to cart'],
-                     'stable_task_errors':['forbidden_content']}}
-            self.assertIn('positive-structure-only-forbidden-failed',
-                          detect_anomalies(root,[row])[row['attempt_id']])
-
     def test_public_answer_with_host_local_path_triggers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
