@@ -162,3 +162,22 @@ def test_overview_and_rankings_exclude_the_same_tasks():
     assert BeautifulSoup(overall_ranking(records, cases), 'html.parser').select_one('td[data-rank]')
     assert overview_card(records, cases, 'web', 'Web', ['fixture']) == overview_card(
         records[:1], {'included': included}, 'web', 'Web', ['fixture'])
+
+
+def test_declared_participant_without_calls_gets_an_english_route(tmp_path, monkeypatch):
+    from harness.web_fetch import report
+    from harness.web_fetch.report_model import report_model
+    monkeypatch.setattr(report, 'write_support', lambda *args, **kwargs: None)
+    monkeypatch.setattr('harness.web_fetch.report_explainer.render_explainer', lambda *args, **kwargs: 'article')
+    cases = [case(str(i), kind='body', track='web') for i in range(2)]
+    records = [record(c) for c in cases]
+    for row in records:
+        artifact = tmp_path/row['artifact_path']
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text('output', encoding='utf-8')
+    monkeypatch.setattr(report, 'saved_matrix_scope_section', lambda *args, **kwargs: '')
+    participants = [{'id': records[0]['provider'], 'label': 'Measured'}, {'id': 'declared-only', 'label': 'Declared'}]
+    report.generate(tmp_path, report_model({'cases': cases}, records, [], participants=participants,
+                                           include_english=True))
+    assert (tmp_path/'providers/declared-only.html').is_file()
+    assert (tmp_path/'en/providers/declared-only.html').is_file()

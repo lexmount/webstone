@@ -2263,9 +2263,7 @@ def generate(out:Path,model:ReportModel):
  # The model keeps its inputs by reference; admit them again at the render boundary.
  model.require_admission()
  with rendering(model):
-  entry=_render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
-  _write_uncalled_participants(Path(out),model)
- return entry
+  return _render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
 
 
 def _write_uncalled_participants(out,model):
@@ -2767,6 +2765,8 @@ def _render_model(out,dataset,records,manifests,*,model):
   if heading is None or source_heading is None:raise ValueError('Saved diagnostic viewer header is unavailable: '+relative)
   note=source_heading.find_next('p')
   diagnostic_view_page(out,str(Path(relative).with_suffix('.txt')),heading.get_text(),note.get_text() if note else '')
+ # Every Chinese route, including declared participants without calls, exists before translation.
+ _write_uncalled_participants(out,model)
  if include_english:
   write_english_report(out,source_routes=english_routes)
  if presentation_only and (out/'report-languages.json').is_file():

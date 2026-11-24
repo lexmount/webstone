@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
 
 from harness.record_io import canonical_json_sha256
+from harness.web_fetch.models import report_family
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,11 @@ class ReportModel:
             if (len({suite.id for suite in self.suites}) != len(self.suites)
                     or len(grouped) != len(set(grouped)) or set(grouped) != case_ids):
                 raise ValueError('Report suites must partition every case exactly once')
+            # The renderer ranks a suite by each case's report family, so they must agree.
+            family = {case_id: suite.id for suite in self.suites for case_id in suite.case_ids}
+            if any((case.get('report_family') or report_family(case)) != family[case.get('id')]
+                   for case in self.dataset['cases']):
+                raise ValueError("Report suites must match each case's report family")
         unknown = (set(self.options.detail_attempt_ids) - {row['attempt_id'] for row in self.records}
                    if self.options.detail_attempt_ids else ())
         if unknown:

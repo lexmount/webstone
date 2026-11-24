@@ -98,3 +98,21 @@ def test_release_check_rejects_pages_that_leave_their_template(tmp_path):
     (tmp_path / "review/index.html").unlink()
     with pytest.raises(FileNotFoundError):
         check_template_pages(tmp_path, manifest)
+
+
+def test_report_suites_must_match_case_report_families():
+    from harness.web_fetch.report_model import report_model
+    cases = [{"id": "a", "track": "web"}, {"id": "b", "track": "dynamic"}]
+    report_model({"cases": cases}, [], suites=[{"id": "web", "label": "Web", "case_ids": ["a"]},
+                                               {"id": "dynamic", "label": "Dynamic", "case_ids": ["b"]}])
+    with pytest.raises(ValueError, match="report family"):
+        report_model({"cases": cases}, [], suites=[{"id": "custom", "label": "All", "case_ids": ["a", "b"]}])
+
+
+def test_sample_guide_check_reads_the_role_marked_main(tmp_path):
+    from harness.web_fetch.report import _wmb_write
+    from harness.web_fetch.webmainbench_report_check import bound_guide
+    _wmb_write(tmp_path, "guide/index.html", "Guide", "<p>bound guide</p>")
+    page = (tmp_path / "guide/index.html").read_text(encoding="utf-8")
+    assert 'data-page-role="interpretation"' in page
+    assert bound_guide(page) == "<p>bound guide</p>"
