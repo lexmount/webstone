@@ -321,8 +321,7 @@ def test_import_is_allowlisted_and_dataset_adjacent_repository_copy_is_not_used(
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS system directory aliases")
-@pytest.mark.parametrize("alias", ["/tmp", "/var"])
-@pytest.mark.parametrize("side", ["source", "destination", "both"])
+@pytest.mark.parametrize(("alias", "side"), [("/tmp", "source"), ("/var", "destination"), ("/tmp", "both")])
 def test_frozen_import_accepts_system_aliases(inputs, alias, side, monkeypatch):
     dataset, manifest_path, source, _ = inputs
     original = external_dataset(inputs)
@@ -699,14 +698,15 @@ def bound_checkout(tmp_path):
     return checkout
 
 
-@pytest.mark.parametrize("relative", _BOUND_INPUT_DIRECTORIES)
-@pytest.mark.parametrize("artifact", ["dataset.json", "sources/private.txt", "list-references/private.json"])
-def test_binding_only_checkout_rejects_copied_reference_inputs(bound_checkout, relative, artifact):
-    copied = bound_checkout / relative / artifact
-    copied.parent.mkdir(parents=True, exist_ok=True)
-    copied.write_text("synthetic private input", encoding="utf-8")
-    with pytest.raises(ValueError, match="duplicated in checkout"):
-        check_reference_input_boundary(bound_checkout / "evaluation")
+def test_binding_only_checkout_rejects_copied_reference_inputs(bound_checkout):
+    for relative in _BOUND_INPUT_DIRECTORIES:
+        for artifact in ("dataset.json", "sources/private.txt", "list-references/private.json"):
+            copied = bound_checkout / relative / artifact
+            copied.parent.mkdir(parents=True, exist_ok=True)
+            copied.write_text("synthetic private input", encoding="utf-8")
+            with pytest.raises(ValueError, match="duplicated in checkout"):
+                check_reference_input_boundary(bound_checkout / "evaluation")
+            copied.unlink()
 
 
 def test_binding_only_checkout_accepts_clean_historical_directories(bound_checkout):

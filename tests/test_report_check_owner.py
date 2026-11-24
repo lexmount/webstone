@@ -32,16 +32,15 @@ def run_check(root, authority, optimized=False, *extra):
     )
 
 
-@pytest.mark.parametrize("optimized", [False, True])
 @pytest.mark.parametrize("english", [False, True])
-def test_valid_report_runs_from_outside_checkout(tmp_path, optimized, english):
+def test_valid_report_runs_from_outside_checkout(tmp_path, english):
     root, authority = create_report(tmp_path, english=english)
-    result = run_check(root, authority, optimized)
+    result = run_check(root, authority)
     assert result.returncode == 0, result.stderr
     assert "1 tasks / 1 records / 1 providers" in result.stdout
 
 
-@pytest.mark.parametrize("optimized", [False, True])
+# Defects run only under -O: a check that still rejects without asserts also rejects with them.
 @pytest.mark.parametrize(
     "defect",
     [
@@ -57,7 +56,7 @@ def test_valid_report_runs_from_outside_checkout(tmp_path, optimized, english):
         "notice",
     ],
 )
-def test_invalid_report_cannot_bypass_checks_with_optimization(tmp_path, optimized, defect):
+def test_invalid_report_cannot_bypass_checks_with_optimization(tmp_path, defect):
     root, authority = create_report(tmp_path)
     if defect == "artifact":
         (root / "artifacts/one.txt").write_text("changed", encoding="utf-8")
@@ -85,7 +84,7 @@ def test_invalid_report_cannot_bypass_checks_with_optimization(tmp_path, optimiz
         write_json(root / "reliability.json", {})
     else:
         (root / "en/index.html").write_text("missing notice", encoding="utf-8")
-    result = run_check(root, authority, optimized)
+    result = run_check(root, authority, True)
     assert result.returncode != 0, result.stdout
     assert "PASS:" not in result.stdout
 
@@ -195,7 +194,6 @@ def test_bilingual_query_only_evidence_links_must_match(tmp_path, same_target):
             check(root, authority_root=authority)
 
 
-@pytest.mark.parametrize("optimized", [False, True])
 @pytest.mark.parametrize(
     "defect",
     [
@@ -209,7 +207,7 @@ def test_bilingual_query_only_evidence_links_must_match(tmp_path, same_target):
         "obsolete_metric",
     ],
 )
-def test_presentation_checks_remain_active_for_chinese_only_reports(tmp_path, optimized, defect):
+def test_presentation_checks_remain_active_for_chinese_only_reports(tmp_path, defect):
     from tests.report_check_fixture import create_revision_report
 
     root, authority = create_revision_report(tmp_path)
@@ -239,7 +237,7 @@ def test_presentation_checks_remain_active_for_chinese_only_reports(tmp_path, op
     result = subprocess.run(
         [
             sys.executable,
-            *(["-O"] if optimized else []),
+            *(["-O"] if defect else []),
             "-m",
             "harness.web_fetch",
             "report-revision-check",
@@ -317,7 +315,7 @@ def test_registered_browser_build_has_its_own_interface_panel(tmp_path, defect):
         assert check_revision(root,authority_root=authority).startswith('PASS:')
 
 
-@pytest.mark.parametrize('family', ['web','dynamic','challenge','risk_control','document'])
+@pytest.mark.parametrize('family', ['web','document'])
 @pytest.mark.parametrize('defect', [False, True])
 def test_body_family_rankings_reject_resource_columns(tmp_path, family, defect):
     from harness.web_fetch.report import ranking

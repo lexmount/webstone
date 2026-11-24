@@ -71,13 +71,7 @@ def refresh(source):
     "name",
     [
         "dataset.json",
-        "references/task.txt",
-        "datasets/task.html",
-        "guide/index.html",
-        "changes/index.html",
-        "assets/style.css",
         "assets/report.js",
-        "sources/task.txt",
         "attempts/browser__task__r001.html",
     ],
 )

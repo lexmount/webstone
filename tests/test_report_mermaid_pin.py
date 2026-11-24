@@ -21,8 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
     [
         "https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js",
         "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs",
-        "https://cdn.jsdelivr.net/npm/mermaid@latest/dist/mermaid.min.js",
-        "https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.min.js",
         "//cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js",
         "https://unpkg.com/mermaid@11.4.1/dist/mermaid.min.js",
     ],

@@ -76,9 +76,8 @@ def example(root, recover_original=False):
     path=root/'profile.json';path.write_text(json.dumps(profile), encoding='utf-8');return source,path
 
 
-@pytest.mark.parametrize("recover_original",[False,True])
-def test_saved_matrix_keeps_native_routes_and_inspectable_review(tmp_path,recover_original):
-    source,profile=example(tmp_path,recover_original=recover_original);before={p.relative_to(source):p.read_bytes() for p in source.rglob('*') if p.is_file()}
+def test_saved_matrix_keeps_native_routes_and_inspectable_review(tmp_path):
+    source,profile=example(tmp_path,recover_original=True);before={p.relative_to(source):p.read_bytes() for p in source.rglob('*') if p.is_file()}
     out=tmp_path/'report';build_snapshot_audit(source,out,profile=profile)
     assert '2 saved calls' in check_snapshot_audit(out)
     from harness.web_fetch.report_package import validate_release

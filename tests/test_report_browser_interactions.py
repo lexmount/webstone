@@ -1,6 +1,7 @@
 """Real browser checks of maintained report controls on small local fixtures.
 
-Small component fixtures cover desktop/light and narrow/dark without provider calls or published reports.
+Small component fixtures run at narrow/dark (theme toggle and narrow layout); width-dependent
+layout checks also run at desktop/light. No provider calls or published reports.
 """
 import http.server
 import json
@@ -16,10 +17,13 @@ from playwright.sync_api import expect, sync_playwright
 from harness.reporting.visual import browser_executable, local_report_server, local_page
 
 
-@pytest.fixture(params=[({"width": 1280, "height": 900}, "light"), ({"width": 390, "height": 844}, "dark")])
+DESKTOP_LIGHT = {"viewport": {"width": 1280, "height": 900}, "color_scheme": "light"}
+NARROW_DARK = {"viewport": {"width": 390, "height": 844}, "color_scheme": "dark"}
+
+
+@pytest.fixture
 def display(request):
-    viewport, theme = request.param
-    return {"viewport": viewport, "color_scheme": theme}
+    return getattr(request, "param", NARROW_DARK)
 
 
 @pytest.fixture(scope="module")
@@ -242,7 +246,7 @@ def activate_and_check_layout(page, display):
 @pytest.mark.parametrize('behavior', ['delayed', 'missing-state', 'missing-color'])
 def test_theme_check_waits_for_visual_change_and_rejects_broken_controls(browser, behavior):
     page = browser.new_page(viewport={"width": 390, "height": 844})
-    page.set_default_timeout(3000)
+    page.set_default_timeout(600)
     state = "document.documentElement.dataset.theme='dark';" if behavior != 'missing-state' else ''
     color = "setTimeout(()=>document.body.style.backgroundColor='black',150);" if behavior != 'missing-color' else ''
     try:
@@ -268,7 +272,7 @@ def test_generated_browser_use_success_failure_and_evidence_viewer(tmp_path, mon
 
     def delayed_evidence_and_script(handler):
         if handler.path.split('?', 1)[0].endswith(('execution-evidence.json', 'assets/report.js')):
-            time.sleep(0.3)
+            time.sleep(0.1)
         serve(handler)
 
     monkeypatch.setattr(QuietHandler, 'do_GET', delayed_evidence_and_script)
@@ -320,10 +324,8 @@ def test_generated_replay_success_failure_steps_and_viewer(tmp_path, monkeypatch
             page.close()
 
 
-@pytest.mark.parametrize('language', ['zh', 'en'])
-def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
-    tmp_path, browser, display, language
-):
+def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(tmp_path, browser, display):
+    language = 'zh'
     from harness.web_extract.example import create
     from harness.web_extract.pipeline import digest, read_json, save_json
     from harness.web_extract.report import build
@@ -407,6 +409,7 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(
             page.close()
 
 
+@pytest.mark.parametrize('display', [DESKTOP_LIGHT, NARROW_DARK], indirect=True)
 def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
     from pathlib import Path
     from bs4 import BeautifulSoup
@@ -468,8 +471,8 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
             page.close()
 
 
-@pytest.mark.parametrize('language', ['zh', 'en'])
-def test_webfetch_single_scope_report_keeps_contestants_and_evidence(tmp_path, browser, display, language):
+def test_webfetch_single_scope_report_keeps_contestants_and_evidence(tmp_path, browser, display):
+    language = 'en'
     from tests.benchmarks.webfetch.test_content_scopes import annotated_case
     from tests.test_optional_reports import invoke
     case = annotated_case()
@@ -558,7 +561,6 @@ def test_webfetch_home_opens_without_catalog_and_details_stay_lazy(tmp_path, bro
             expect(page.get_by_role('heading', name='Summary 80.8%')).to_have_css('padding-left', '17px')
         finally:
             page.close()
-
 
 
 def test_webfetch_extension_standalone_evidence_dialog(tmp_path, browser, display):

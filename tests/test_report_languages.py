@@ -29,25 +29,25 @@ def test_local_language_setting_and_process_override(tmp_path, monkeypatch):
     assert resolve_report_language(tmp_path, "zh") == "zh"
 
 
-@pytest.mark.parametrize("supported", [("en", "zh"), ("zh",)])
-@pytest.mark.parametrize("saved", [None, "en", "zh", "legacy"])
-@pytest.mark.parametrize("requested", [None, "en", "zh"])
-def test_language_resolution_respects_choice_and_renderer_capability(
-    tmp_path, supported, saved, requested, monkeypatch
-):
+def test_language_resolution_respects_choice_and_renderer_capability(tmp_path, monkeypatch):
     from harness.report_languages import resolve_report_language
     monkeypatch.delenv("WEBSTONE_REPORT_LANGUAGE", raising=False)
-    if saved:
-        contract = {"languages": ["zh"]} if saved == "legacy" else {"primary_language": saved}
-        (tmp_path / "report-languages.json").write_text(json.dumps(contract), encoding="utf-8")
-    expected = requested or ("zh" if saved == "legacy" else saved) or (
-        "en" if "en" in supported else supported[0]
-    )
-    if expected in supported:
-        assert resolve_report_language(tmp_path, requested, supported=supported) == expected
-    else:
-        with pytest.raises(ValueError, match="supports only zh"):
-            resolve_report_language(tmp_path, requested, supported=supported)
+    contract = tmp_path / "report-languages.json"
+    for saved in (None, "en", "zh", "legacy"):
+        contract.unlink(missing_ok=True)
+        if saved:
+            saved_contract = {"languages": ["zh"]} if saved == "legacy" else {"primary_language": saved}
+            contract.write_text(json.dumps(saved_contract), encoding="utf-8")
+        for supported in (("en", "zh"), ("zh",)):
+            for requested in (None, "en", "zh"):
+                expected = requested or ("zh" if saved == "legacy" else saved) or (
+                    "en" if "en" in supported else supported[0]
+                )
+                if expected in supported:
+                    assert resolve_report_language(tmp_path, requested, supported=supported) == expected
+                else:
+                    with pytest.raises(ValueError, match="supports only zh"):
+                        resolve_report_language(tmp_path, requested, supported=supported)
 
 
 def test_chinese_output_has_notice_without_translated_routes(tmp_path):

@@ -5,8 +5,11 @@ from harness.web_fetch.report_explainer import render_explainer
 from harness.web_fetch.report_i18n import localize_html
 
 
-@pytest.mark.parametrize('providers', [('custom-browser',), ('moli', 'chromium', 'lightpanda', 'obscura', 'kitesurf'), ('cowagent-built-in', 'moli-webfetch')])
-@pytest.mark.parametrize('authored', [True, False])
+@pytest.mark.parametrize(('providers', 'authored'), [
+    (('custom-browser',), True),
+    (('moli', 'chromium', 'lightpanda', 'obscura', 'kitesurf'), False),
+    (('cowagent-built-in', 'moli-webfetch'), True),
+])
 def test_unbound_report_uses_its_actual_population(tmp_path, providers, authored):
     cases = {f'task-{i}': {'id': f'task-{i}', 'track': 'web', 'task_kind': 'body'} for i in range(3)}
     rows = [{'provider': name, 'provider_type': 'headless_markdown', 'case_id': case_id,

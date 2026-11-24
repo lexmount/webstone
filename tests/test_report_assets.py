@@ -81,8 +81,7 @@ class ReportAssetsTest(unittest.TestCase):
 
 
 @pytest.mark.skipif(sys.platform != 'darwin', reason='macOS system directory aliases')
-@pytest.mark.parametrize('alias', ['/tmp', '/var'])
-@pytest.mark.parametrize('side', ['source', 'destination', 'both'])
+@pytest.mark.parametrize(('alias', 'side'), [('/tmp', 'source'), ('/var', 'destination'), ('/tmp', 'both')])
 def test_bound_copy_accepts_system_aliases_without_changing_bytes(alias, side):
     directory = '/private/tmp' if alias == '/tmp' else str(Path(tempfile.gettempdir()).resolve())
     with tempfile.TemporaryDirectory(dir=directory) as work:

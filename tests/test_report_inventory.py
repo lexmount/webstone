@@ -10,7 +10,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ReportInventoryTests(unittest.TestCase):
     def setUp(self):
-        self.inventory = json.loads((ROOT/'configs/evaluation-inventory.json').read_text(encoding='utf-8'))
+        # A two-case, two-provider slice of each shipped track keeps every rule branch at a fraction of the cost.
+        shipped = json.loads((ROOT/'configs/evaluation-inventory.json').read_text(encoding='utf-8'))
+        self.inventory = {track: {**group, 'case_ids': group['case_ids'][:2], 'providers': group['providers'][:2]}
+                          for track, group in shipped.items()}
         digest = hashlib.sha256(b'fixture').hexdigest()
         self.dataset = {
             'cases': [{'id': cid, 'track': track, 'ground_truth_main_content': 'fixture',

@@ -436,12 +436,12 @@ def test_privacy_check_reuses_only_identical_bytes():
     owner._publication_risks.clear()
 
 
-def test_large_public_view_cache_still_reads_new_bytes_and_rejects_new_secret(tmp_path):
+def test_public_view_cache_still_reads_new_bytes_and_rejects_new_secret(tmp_path):
     from unittest.mock import patch
 
     from harness.reporting import publication_privacy as owner
-    raw = b'large public evidence cache fixture\n'*65000
-    assert len(raw) > 2_000_000
+    # The cache keys on (length, digest) for every size, so a small view exercises it.
+    raw = b'public evidence cache fixture\n'*100
     public, receipt = owner.project_evidence_view(
         'public-evidence/large.txt', raw, role='scored_answer')
     path = tmp_path/receipt['path']
@@ -484,7 +484,7 @@ def test_risk_cache_coalesces_concurrent_scans_and_keeps_only_bounded_digest_key
     with owner._publication_risks_lock:
         owner._publication_risks.clear()
     monkeypatch.setattr(owner, '_scan_publication_risk', scan)
-    value = b'parallel unchanged body\n'*100000
+    value = b'parallel unchanged body\n'*1000
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = [pool.submit(owner.publication_risk, value) for _ in range(4)]
         assert entered.wait(5)

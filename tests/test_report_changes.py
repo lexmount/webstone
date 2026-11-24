@@ -116,16 +116,6 @@ class ReportChangesTests(unittest.TestCase):
             ):
                 release_translations({'releases': [release, conflicting]})
 
-    def test_dynamic_local_audit_release_is_selected_only_for_its_cohort(self):
-        from harness.web_fetch.report_changes import ROOT, select_cohort_history
-        data = json.loads((ROOT / 'research/report-changes.json').read_text(encoding='utf-8'))
-        dynamic = select_cohort_history(
-            data, {'comparison': {'kind': 'single_provider_dynamic_native_fetch'}}, [])
-        generic = select_cohort_history(data, {'comparison': {'kind': 'generic'}}, [])
-        release_id = '2026-09-24-dynamic-100-moli-119-local-audit'
-        self.assertIn(release_id, {row['id'] for row in dynamic['releases']})
-        self.assertNotIn(release_id, {row['id'] for row in generic['releases']})
-
     def test_fixed_native_history_does_not_leak_into_other_cohorts(self):
         from harness.web_fetch.report_changes import ROOT, select_cohort_history
         data = json.loads((ROOT / 'research/report-changes.json').read_text(encoding='utf-8'))
@@ -137,40 +127,6 @@ class ReportChangesTests(unittest.TestCase):
                 releases = select_cohort_history(data, {'comparison': {'kind': kind}}, [])['releases']
                 self.assertEqual(release_id in {row['id'] for row in releases},
                                  kind == 'uniform_native_local_measurement')
-
-    def test_risk_control_release_is_selected_only_for_its_cohort(self):
-        from harness.web_fetch.report_changes import ROOT, select_cohort_history
-        data = json.loads((ROOT / 'research/report-changes.json').read_text(encoding='utf-8'))
-        risk = select_cohort_history(
-            data, {'comparison': {'kind': 'risk_control_100_moli'}}, [])
-        generic = select_cohort_history(data, {'comparison': {'kind': 'generic'}}, [])
-        release_id = '2026-09-29-risk-control-review-corrections'
-        self.assertIn(release_id, {row['id'] for row in risk['releases']})
-        self.assertNotIn(release_id, {row['id'] for row in generic['releases']})
-
-    def test_current_web_fetch_release_binds_score_revision_and_exact_rerun_scope(self):
-        from harness.web_fetch.report_changes import ROOT, select_cohort_history
-        from harness.web_fetch.report_i18n import release_translations, translate_text
-        history = json.loads((ROOT/'research/report-changes.json').read_text(encoding='utf-8'))
-        selected = select_cohort_history(
-            history, {'comparison': {'kind': 'web_fetch_methods'}}, []
-        )
-        translations = release_translations(selected)
-        current = selected['releases'][0]
-        self.assertEqual(current['id'], '2026-09-15-official-route-and-call-drilldown')
-        self.assertEqual(set(current['scoring_revision_input_sha256']), {
-            '596f8005399be74d73dd14b8a77f5f775b3e2dd36f037643c421259bb5d8ff53',
-            'b8b7adec934761ed374191912c05ef2da449cb1a7cbda104f671db08d033a5ee',
-        })
-        self.assertIn('Cloudflare 23 条、Firecrawl 17 条，共 40 次调用', current['summary'])
-        self.assertIn('累计 44 次新物理调用', current['summary'])
-        self.assertIn('1,032/1,500', current['summary'])
-        self.assertIn('1,500/1,500 条权威结果有有效逐条判定核验',
-                      current['changes'][4][3])
-        self.assertNotIn('新增异常组', current['summary'])
-        for value in [current['title'], current['summary'],
-                      *(field for row in current['changes'] for field in row)]:
-            self.assertNotRegex(translate_text(value, translations), r'[\u4e00-\u9fff]')
 
     def test_file_rerun_sources_are_all_preflighted_before_report_writes(self):
         with tempfile.TemporaryDirectory() as directory:

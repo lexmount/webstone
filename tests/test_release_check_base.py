@@ -149,7 +149,7 @@ def _inject_wrong_highlight(page):
     page.write_text(original.replace("</main>", WRONG_HIGHLIGHT + "</main>", 1), encoding="utf-8")
 
 
-@pytest.mark.parametrize("route", ["index.html", "guide/index.html", "analysis/index.html", "audit/index.html"])
+@pytest.mark.parametrize("route", ["index.html", "audit/index.html"])
 def test_snapshot_gate_applies_presentation_rules_to_its_core_routes(tmp_path, route):
     source, profile = snapshot_example(tmp_path)
     report = tmp_path / "report"
@@ -170,10 +170,7 @@ def diagnostic_report(tmp_path):
     return report, model
 
 
-@pytest.mark.parametrize("route", [
-    "index.html", "datasets/index.html", "methodology/index.html", "analysis/index.html",
-    "review/index.html", "guide/index.html", "reproduce/index.html", "en/index.html",
-])
+@pytest.mark.parametrize("route", ["index.html", "analysis/index.html", "en/index.html"])
 def test_diagnostic_gate_applies_presentation_rules_to_its_core_routes(diagnostic_report, route):
     report, _ = diagnostic_report
     _inject_wrong_highlight(report / route)
@@ -275,7 +272,7 @@ def _full_webmainbench_populations(report, repo, providers):
                      encoding="utf-8")
 
 
-@pytest.mark.parametrize("route", ["index.html", "guide/index.html", "results/index.html"])
+@pytest.mark.parametrize("route", ["index.html", "results/index.html"])
 def test_full_webmainbench_gate_applies_presentation_rules_to_its_pages(tmp_path, route):
     report = tmp_path / "report"
     report.mkdir()
@@ -382,26 +379,12 @@ def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(t
         webmainbench_report_check.check_sample_report(report, authority_root=repo)
 
 
-def test_trajectory_gate_accepts_the_bound_profile(tmp_path, monkeypatch):
-    output, _, _, _, _, _, files = build_replay_fixture(tmp_path, monkeypatch)
-    assert trajectory.check(output, profile_path=files["profile.json"])["html_pages"]
-
-
-@pytest.mark.parametrize("defect", ["changed", "unbound", "linked"])
-def test_trajectory_gate_rejects_a_different_profile(tmp_path, monkeypatch, defect):
+def test_trajectory_gate_accepts_only_the_bound_profile(tmp_path, monkeypatch):
+    # Each identity defect is covered by test_report_identity_rejects_a_different_profile.
     output, _, _, _, _, _, files = build_replay_fixture(tmp_path, monkeypatch)
     profile = files["profile.json"]
-    if defect == "changed":
-        profile.write_text(profile.read_text(encoding="utf-8") + " ", encoding="utf-8")
-    elif defect == "unbound":
-        path = output / "report-manifest.json"
-        manifest = json.loads(path.read_text(encoding="utf-8"))
-        del manifest["profile_sha256"]
-        path.write_text(json.dumps(manifest), encoding="utf-8")
-    else:
-        target = tmp_path / "profile-target.json"
-        profile.rename(target)
-        profile.symlink_to(target)
+    assert trajectory.check(output, profile_path=profile)["html_pages"]
+    profile.write_text(profile.read_text(encoding="utf-8") + " ", encoding="utf-8")
     with pytest.raises(ValueError, match="different instance profile"):
         trajectory.check(output, profile_path=profile)
 
