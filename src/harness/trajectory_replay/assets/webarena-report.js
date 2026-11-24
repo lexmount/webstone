@@ -9,7 +9,7 @@ document.querySelector('.theme')?.addEventListener('click',()=>{
 });
 const fetchJson=async path=>{const response=await fetch(path);if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json()};
 const enhanceTables=()=>{
-  const excluded='[data-results] table,[data-dataset-table] table,[data-task-matrix] table';
+  const excluded='[data-results] table,[data-dataset-table] table,[data-explorer] table';
   document.querySelectorAll('.table-scroll>table').forEach((table,tableIndex)=>{
     const headerRows=table.tHead?.rows||[];
     const body=table.tBodies[0];
@@ -105,36 +105,6 @@ if(datasetTable){
   };
   controls.forEach(control=>control.addEventListener(control.tagName==='INPUT'?'input':'change',applyDataset));
   applyDataset();
-}
-const matrix=document.querySelector('[data-task-matrix]');
-if(matrix){
-  const matrixRows=[...matrix.querySelectorAll('tbody tr')];
-  const relation=document.querySelector('[data-matrix-relation]');
-  relation.value='';
-  const site=document.querySelector('[data-matrix-site]');
-  const baseline=document.querySelector('[data-matrix-baseline]');
-  const boxes=[...document.querySelectorAll('[data-matrix-method]')];
-  const count=document.querySelector('[data-matrix-count]');
-  const applyMatrix=()=>{
-    boxes.forEach(box=>{box.disabled=box.value===baseline.value;box.closest('label')?.classList.toggle('disabled',box.disabled);if(box.disabled)box.checked=false});
-    const others=boxes.filter(box=>box.checked&&!box.disabled).map(box=>box.value);
-    const selected=[baseline.value,...others];
-    let shown=0;
-    matrixRows.forEach(row=>{
-      const pass=new Set((row.dataset.pass||'').split(' ').filter(Boolean));
-      const fail=new Set((row.dataset.fail||'').split(' ').filter(Boolean));
-      row.querySelectorAll('[data-participant]').forEach(link=>{link.hidden=!selected.includes(link.dataset.participant)});
-      const allMeasured=selected.every(engine=>pass.has(engine)||fail.has(engine));
-      const matchRelation=others.length>0&&(!relation.value||(allMeasured&&((relation.value==='different'&&selected.some(engine=>pass.has(engine))&&selected.some(engine=>fail.has(engine)))||(relation.value==='baseline-pass-others-fail'&&pass.has(baseline.value)&&others.every(engine=>fail.has(engine)))||(relation.value==='baseline-fail-others-pass'&&fail.has(baseline.value)&&others.every(engine=>pass.has(engine)))||(relation.value==='all-pass'&&selected.every(engine=>pass.has(engine)))||(relation.value==='all-fail'&&selected.every(engine=>fail.has(engine)))||(relation.value==='exact-pass'&&selected.every(engine=>pass.has(engine))&&pass.size===selected.length))));
-      const matchSite=!site.value||row.dataset.site===site.value;
-      row.hidden=!(matchRelation&&matchSite);
-      if(!row.hidden)shown++;
-    });
-    count.textContent=others.length?(zh?`找到 ${shown} / ${matrixRows.length} 个任务`:`Showing ${shown} / ${matrixRows.length} tasks`):(zh?'请至少选择一个对比方法':'Select at least one comparison method');
-  };
-  baseline.addEventListener('change',()=>{boxes.forEach(box=>box.checked=box.value!==baseline.value);applyMatrix()});
-  [...boxes,relation,site].forEach(control=>control.addEventListener('change',applyMatrix));
-  applyMatrix();
 }
 const inventory=document.querySelector('[data-results]');
 if(inventory){

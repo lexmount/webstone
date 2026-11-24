@@ -26,6 +26,11 @@ def main() -> None:
         "--ground-truth-evidence",
         default="examples/trajectory_replay/ground_truth_validation.json",
     )
+    parser.add_argument(
+        "--content",
+        help="Authored findings and analysis notes for this report instance, as JSON "
+        "(for example examples/trajectory_replay/moli-timing-content.json)",
+    )
     args = parser.parse_args()
 
     artifact_dir = Path(args.artifacts)
@@ -83,7 +88,8 @@ def main() -> None:
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     reports = Path(args.reports) if args.reports else artifact_dir / "report"
-    write_latest_report(reports, manifest=manifest, summary=summary)
+    content = json.loads(Path(args.content).read_text(encoding="utf-8")) if args.content else None
+    write_latest_report(reports, manifest=manifest, summary=summary, content=content)
     report_path = reports / "trajectory-replay-evaluation-latest.html"
     print(f"Recalculated {len(rows)} attempts; report: {report_path}")
 

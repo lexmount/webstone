@@ -25,7 +25,7 @@ The default tasks come from [LexBench-Trajectory-Replay on Hugging Face](https:/
 
 The script calls `python -m harness.trajectory_replay run --benchmark curated`. Every replay benchmark (`curated`, `public-webarena`, `webarena-verified`) runs through that one `run` verb. For the curated and public benchmarks, `--profile <file>` takes the measured browsers from the profile's `methods[].engine` list; `--engines` narrows that list, and without a profile every registered browser runs.
 
-Use `./examples/trajectory_replay/run.sh --no-report` to save scores and evidence without generating local HTML. Build the report later with `uv run --frozen python examples/trajectory_replay/rebuild_report.py --artifacts <evidence-directory>`; it selects the exact suite bound by the saved manifest. Publishing a report requires a separate explicit request and authorization.
+Use `./examples/trajectory_replay/run.sh --no-report` to save scores and evidence without generating local HTML. Build the report later with `uv run --frozen python examples/trajectory_replay/rebuild_report.py --artifacts <evidence-directory>`; it selects the exact suite bound by the saved manifest. The default report is generated from the data alone; `--content <file.json>` adds authored findings and analysis notes for one report instance (`moli-timing-content.json` holds the Moli screencast timing study). Publishing a report requires a separate explicit request and authorization.
 
 Run the small real-container smoke test before a release (requires the two
 evaluation images, which the command above builds):

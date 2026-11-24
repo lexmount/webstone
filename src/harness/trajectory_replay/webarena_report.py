@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 
 from harness.data_home import data_home
+from harness.distribution import bundled_data_path
 from harness.environments.participants import (
     bind_participant,
     participant_registry,
@@ -27,21 +28,25 @@ from harness.environments.participants import (
 from harness.environments.webarena.sites import site_labels
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json, write_json
 from harness.report_languages import (
+    REPORT_PAGE_MARKER,
     add_language_argument,
     includes_english,
     primary_report_language,
     select_report_language,
 )
+from harness.reporting import explorer, shell
 from harness.reporting.assets import copy_bound_assets
 from harness.reporting.locales import translate
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.privacy import TRAJECTORY_REPLAY
-from harness.reporting.templates import template_identity
+from harness.reporting.release_check import check_template_pages
+from harness.reporting.templates import compose, template_identity
 from harness.reporting.versions import bind_build_version
 from harness.trajectory_replay.catalog_contracts import (
     LEGACY_CATALOG_CONTRACTS_SCHEMA,
     LEGACY_CATALOG_REPORT_SCHEMA,
 )
+from harness.trajectory_replay.core.report import explorer_labels, write_chinese_only
 from harness.trajectory_replay.evaluator_transition import reevaluate_pass
 from harness.trajectory_replay.failure_matrix import (
     browser_failure_profile,
@@ -53,6 +58,7 @@ from harness.trajectory_replay.messages import MESSAGES, report_text
 from harness.trajectory_replay.remote_runtime import load_remote_sites, remote_benchmark
 from harness.trajectory_replay.report_inputs import bound_dataset_path, verified_dataset_path
 from harness.trajectory_replay.runtime_identity import request_bridge_identity
+from harness.trajectory_replay.template import TEMPLATE
 from harness.trajectory_replay.webarena_corrections import load_corrections
 from harness.trajectory_replay.webarena_review import (
     load_validated_failure_review,
@@ -63,19 +69,13 @@ from lexbench_webfetch.metrics import percentile
 
 ASSETS = Path(__file__).with_name("assets")
 REPORT_CSS = (ASSETS / "webarena-report.css").read_text(encoding="utf-8")
-REPORT_JS = (ASSETS / "webarena-report.js").read_text(encoding="utf-8")
+REPORT_JS = (ASSETS / "webarena-report.js").read_text(encoding="utf-8") + explorer.SCRIPT
 ARTICLE_CSS = (ASSETS / "webarena-article.css").read_text(encoding="utf-8")
+VARIANT = TEMPLATE.variant("catalog")
 
-# This notice describes one retained historical cohort, not trajectory replay in
-# general.  Keying all three immutable inputs prevents a future requalified run
-# from inheriting legacy limitations merely because it also contains 90 tasks.
-LEGACY_REPLAY_VALIDITY_INPUTS = {
-    (
-        "abaaa0e90aced74a831093f2d6d7c3371639acb984b3a2c057f3cc39632ea935",
-        "61bb38bce552b5c7eea0e1f5fcca1bc898f55e2e39ee6e72498cff346ca1e4e3",
-        "3ca5d91cfec570490df202c9cb332957f7e850b70fc5af80b684709e97ef0893",
-    )
-}
+# Validity notices for retained historical cohorts, keyed by their measured identity
+# (results, dataset and profile hashes), so a requalified run never inherits one.
+VALIDITY_NOTICES = "research/trajectory-replay-validity-notices.json"
 
 
 def _e(value: Any) -> str:
@@ -268,24 +268,24 @@ def _measured_validity_identity(
     }
 
 
-def _historical_replay_validity_notice(
-    *, results_sha256: str, dataset_sha256: str, profile_sha256: str, lang: str
-) -> str:
-    """Disclose limitations only for the hash-bound legacy 90-task cohort."""
+def _validity_notice(identity: dict[str, str]) -> dict[str, Any] | None:
+    """The registered notice whose measured identity matches this run, if any."""
+    registry = json.loads(bundled_data_path(VALIDITY_NOTICES).read_text(encoding="utf-8"))
+    if registry.get("schema") != "trajectory_replay_validity_notices/1":
+        raise ValueError("unsupported trajectory replay validity notice registry")
+    matches = [notice for notice in registry.get("notices") or []
+               if notice.get("measured_identity") == identity]
+    if len(matches) > 1:
+        raise ValueError("several validity notices match one measured identity")
+    return matches[0] if matches else None
 
-    identity = (results_sha256, dataset_sha256, profile_sha256)
-    if identity not in LEGACY_REPLAY_VALIDITY_INPUTS:
+
+def _validity_notice_html(notice: dict[str, Any] | None, lang: str) -> str:
+    """Disclose a historical cohort's registered limitations on every page that shows its results."""
+    if notice is None:
         return ""
-    t = report_text(lang)
-    heading = t("legacy.heading", "The historical 90-task scores remain, but they are not current qualification proof")
-    body = t(
-        "legacy.body",
-        "Chromium 90/90 and Moli 54/90 remain the original acceptance results for this historical fixed-trajectory cohort; no score is manually changed. "
-        "However, the legacy qualification flow accepted snapshot actions as tool-wrapper successes even when their returned content began [Snapshot error: …]. "
-        "All 74 results for the 37 RETRIEVE tasks used frozen recorded_response values for acceptance without binding answers to data read from the current page, and the historical runs used mismatched viewports: Chromium 780×437/493 and Moli 1920×1080. "
-        "These scores therefore describe fixed-path acceptance under the legacy protocol. They do not prove that all 90 trajectories satisfy the current fail-closed qualification rules or measure browser success at a common viewport. A corrected formal comparison requires renewed qualification and a complete rerun.",
-    )
-    return f'<section class="callout historical-validity"><h2>{_e(heading)}</h2><p>{_e(body)}</p></section>'
+    return (f'<section class="callout historical-validity"><h2>{_e(notice["heading"][lang])}</h2>'
+            f'<p>{_e(notice["body"][lang])}</p></section>')
 
 
 def _load_artifact(ref: dict[str, Any] | None) -> Any:
@@ -522,44 +522,33 @@ def _unique_winners(
     return winners if len(winners) == 1 else set()
 
 
-def _add_interpretation_navigation(language_root: Path, lang: str) -> None:
-    """Expose the optional article only after its page has been generated."""
-    label = report_text(lang)("nav.interpretation", "Interpretation")
-    for page in language_root.rglob("*.html"):
-        route = page.relative_to(language_root)
-        if route.parts[0] == "en" or page.name == "article.html":
-            continue
-        prefix = "../" * (len(route.parts) - 1)
-        current = ' aria-current="page"' if route.as_posix() == "interpretation.html" else ""
-        link = f'<a data-report-interpretation href="{prefix}interpretation.html"{current}>{label}</a>'
-        content = page.read_text(encoding="utf-8")
-        page.write_text(content.replace("<nav>", "<nav>" + link, 1), encoding="utf-8")
-
-
 def _nav(lang: str, active: str, *, depth: int, current_route: str = "index.html") -> str:
+    """Brand, the template pages in order, the edition switch and the theme control."""
     t = report_text(lang)
-    labels = (
-        ("index", t("nav.summary", "Summary")),
-        ("dataset", t("nav.dataset", "Dataset")),
-        ("results", t("nav.results", "Results analysis")),
-        ("environment", t("nav.environment", "Environment & method")),
-        ("review", t("nav.review", "Review history")),
-    )
+    labels = {
+        "index": t("nav.summary", "Summary"),
+        "interpretation": t("nav.interpretation", "Interpretation"),
+        "dataset": t("nav.dataset", "Dataset"),
+        "results": t("nav.results", "Results analysis"),
+        "environment": t("nav.environment", "Environment & method"),
+        "review": t("nav.review", "Review history"),
+    }
     local_prefix = "../" * depth
     switch = ("../../" if lang == "en" and depth else "../" if lang == "en" else "../en/" if depth else "en/") + current_route
     switch_label = translate(MESSAGES, "nav.other_edition", lang)
     brand = t("nav.brand", "Trajectory Replay")
     theme_label = t("nav.toggle_theme", "Toggle theme")
-    links = "".join(
-        f'<a href="{local_prefix}{slug}.html"'
-        + (' aria-current="page"' if slug == active else "")
-        + f">{label}</a>"
-        for slug, label in labels
+    links = shell.navigation(
+        [(page.route, labels[page.key]) for page in VARIANT.pages], VARIANT.page(active).route,
+        back=local_prefix,
     )
-    return f'<header class="top"><a class="brand" href="{local_prefix}index.html">{brand}</a><nav>{links}</nav><a class="language" href="{switch}">{switch_label}</a><button class="theme" type="button" aria-label="{theme_label}">◐</button></header>'
+    return (f'<a class="brand" href="{local_prefix}index.html">{brand}</a><span class="pages">{links}</span>'
+            f'<a class="language" href="{switch}">{switch_label}</a><button class="theme" type="button" aria-label="{theme_label}">◐</button>')
 
 
-def _shell(lang: str, active: str, title: str, body: str, *, depth: int = 0, current_route: str = "index.html") -> str:
+def _shell(lang: str, active: str, title: str, fills: dict[str, str], *, heading: str, eyebrow: str = "",
+           notice: str = "", depth: int = 0, current_route: str = "index.html") -> str:
+    """One report page in the shared shell; ``active`` names the template page it belongs to."""
     prefix = "../" * depth
     asset_prefix = prefix if lang == "zh" else "../" + prefix
     footer = report_text(lang)("footer.track", "WebArena-Verified 1.2.3 · Browser Trajectory Replay")
@@ -576,8 +565,29 @@ if(base){
 const css=document.querySelector('link[data-report-css]');
 css.href=css.dataset.src;
 })();</script>'''
-    body = body.replace('<img src=', '<img data-src=')
-    return f'''<!doctype html><html lang="{lang}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{_e(title)}</title><link rel="stylesheet" data-report-css data-src="{asset_prefix}assets/report.css">{preview_bootstrap}</head><body>{_nav(lang, active, depth=depth, current_route=current_route)}<main>{body}</main><footer>{footer}</footer><script type="application/x-report-app" data-report-app data-src="{asset_prefix}assets/app.js"></script><script>(function(){{document.querySelectorAll('img[data-src]').forEach(img=>img.src=img.dataset.src);const app=document.querySelector('script[data-report-app]');const loader=document.createElement('script');loader.src=app.dataset.src;app.replaceWith(loader)}})();</script></body></html>'''
+    head = (f'<link rel="stylesheet" data-report-css data-src="{asset_prefix}assets/report.css">'
+            f"{preview_bootstrap}")
+    app = (f'<script type="application/x-report-app" data-report-app data-src="{asset_prefix}assets/app.js"></script>'
+           "<script>(function(){document.querySelectorAll('img[data-src]').forEach(img=>img.src=img.dataset.src);"
+           "const app=document.querySelector('script[data-report-app]');const loader=document.createElement('script');"
+           "loader.src=app.dataset.src;app.replaceWith(loader)})();</script>")
+    role = VARIANT.page(active).role
+    body = compose(role, fills).replace('<img src=', '<img data-src=')
+    return shell.page(
+        lang=lang, base=None, title=title, heading=heading, style="", script="",
+        head=REPORT_PAGE_MARKER + head, nav=_nav(lang, active, depth=depth, current_route=current_route),
+        eyebrow=f'<span class="eyebrow">{eyebrow}</span>' if eyebrow else "", notice=notice, role=role,
+        body=body, dialog=app, footer_html=f"<footer>{footer}</footer>",
+    )
+
+
+def _interpretation_page(lang: str, title: str, article: str) -> str:
+    """The integrated article: the shell carries its title, the standalone download leads."""
+    download = report_text(lang)("interpretation.download", "Download standalone article")
+    body = re.sub(r"<h1>.*?</h1>", "", article, count=1, flags=re.S)
+    return _shell(lang, "interpretation", title,
+                  {"lead": f'<p><a href="article.html" download>{download}</a></p>', "findings": body},
+                  heading=title, current_route="interpretation.html")
 
 
 def _winner(value: str, won: bool, *, lang: str) -> str:
@@ -961,7 +971,7 @@ def _detail_page(
     )
     viewer_file = ("data/evidence/" if zh else "../data/evidence/") + key + ".json"
     body = f'''
-    <section class="detail-hero"><p class="eyebrow">{_e(key)}</p><h1>{_e(method["label"])} · {t("common.task", "Task")} #{attempt["task_id"]}</h1><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../task/{attempt["task_id"]}.html">{t("result.link.task_contract", "Task contract and fixed trajectory")}</a><a href="../results.html">{t("result.link.back_to_results", "Back to results")}</a></div></section>
+    <section class="detail-hero"><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../task/{attempt["task_id"]}.html">{t("result.link.task_contract", "Task contract and fixed trajectory")}</a><a href="../results.html">{t("result.link.back_to_results", "Back to results")}</a></div></section>
     <section class="compact-section"><h2>{t("result.peers.heading", "All method results for this task")}</h2><div class="peer-list">{''.join(peer_cells)}</div></section>
     <section class="compact-section"><div class="verdict-line {attempt["status"]}"><strong>{status}</strong><span>{_e(stage) if attempt["status"] != "pass" else (t("result.verdict.passed_note", "Fixed trajectory and official evaluation passed"))}</span></div><div class="fact-strip">{fact_html}</div></section>
     {validity_panel}
@@ -972,7 +982,9 @@ def _detail_page(
     title = (
         t("result.title", "{method} · Task #{task}", method=method['label'], task=attempt['task_id'])
     )
-    return _shell(lang, "results", title, validity_notice + body, depth=1, current_route=f"result/{key}.html")
+    heading = f'{method["label"]} · {t("common.task", "Task")} #{attempt["task_id"]}'
+    return _shell(lang, "results", title, {"inventory": body}, heading=heading, eyebrow=_e(key),
+                  notice=validity_notice, depth=1, current_route=f"result/{key}.html")
 
 
 def _task_page(
@@ -1022,7 +1034,7 @@ def _task_page(
         f'<p>{t("task.validity.body", "Site evidence does not uniquely establish this task’s reference answer. Official evaluator scores are separate from answer validity.")}</p></section>'
         if (reference_validity or {}).get("status") == "unverifiable" else ""
     )
-    body = f'''<section class="detail-hero"><p class="eyebrow">WebArena-Verified · #{task_id}</p><h1>{t("task.heading", "Task contract and fixed trajectory")}</h1><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../dataset.html">{t("task.link.back_to_dataset", "Back to dataset")}</a><a href="../results.html">{t("task.link.measured_results", "Explore measured results")}</a></div></section>
+    body = f'''<section class="detail-hero"><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../dataset.html">{t("task.link.back_to_dataset", "Back to dataset")}</a><a href="../results.html">{t("task.link.measured_results", "Explore measured results")}</a></div></section>
         {validity_panel}
         {correction_panel}
         <section class="compact-section"><div class="fact-strip"><div><span>{t("task.facts.sites", "Sites")}</span><strong>{_e(", ".join(task["task"].get("sites") or []))}</strong></div><div><span>{t("common.trajectory_source", "Trajectory source")}</span><strong>{source_label}</strong></div><div><span>{t("task.facts.planned_actions", "Planned actions")}</span><strong>{len(task.get("tool_calls") or [])}</strong></div><div><span>{t("common.task_type", "Task type")}</span><strong>{contract_summary}</strong></div></div></section>
@@ -1030,7 +1042,10 @@ def _task_page(
     <section><h2>{t("task.reference.heading", "Dataset reference path")}</h2><p>{t("task.reference.lead", "This is the dataset reference path. Each method's frozen input and actual execution appear on its result page.")}</p><div class="table-scroll"><table class="planned-table"><thead><tr><th>#</th><th>{t("common.action", "Action")}</th><th>{t("common.target", "Target")}</th><th>{t("task.reference.arguments", "Arguments")}</th></tr></thead><tbody>{''.join(planned_rows)}</tbody></table></div></section>
     <section><h2>{(t("task.evaluation.historical_heading", "Historical dataset evaluation input")) if corrected_acceptance else (t("task.evaluation.heading", "Evaluation input"))}</h2><p>{(t("task.evaluation.historical_lead", "Retained fields before correction; this comparison uses the corrected acceptance above.")) if corrected_acceptance else (t("task.evaluation.lead", "Used by the official evaluator, not an Agent prompt or the only correct path."))}</p><details><summary>{t("task.evaluation.inspect", "Inspect answer and acceptance fields")}</summary><pre>{_e(json.dumps(_clean(contract), ensure_ascii=False, indent=2))}</pre></details></section>'''
     title = t("task.title", "Task #{task} · Dataset", task=task_id)
-    return _shell(lang, "dataset", title, validity_notice + body, depth=1, current_route=f"task/{task_id}.html")
+    return _shell(lang, "dataset", title, {"definition": body},
+                  heading=t("task.heading", "Task contract and fixed trajectory"),
+                  eyebrow=f"WebArena-Verified · #{task_id}", notice=validity_notice, depth=1,
+                  current_route=f"task/{task_id}.html")
 
 
 def _assets(output: Path) -> None:
@@ -1086,13 +1101,10 @@ def build_webarena_replay_report(
     if results.get("dataset_sha256") != file_sha256(dataset_source):
         raise ValueError("aggregate is not bound to the selected corrected dataset")
     validity_identity = _measured_validity_identity(results, results_source, dataset_source)
-    legacy_key = (
-        validity_identity["results_sha256"], validity_identity["dataset_sha256"],
-        validity_identity["profile_sha256"],
-    )
+    validity_notice = _validity_notice(validity_identity)
     legacy_provenance = (
         _legacy_retrieval_provenance(results, dataset)
-        if legacy_key in LEGACY_REPLAY_VALIDITY_INPUTS else None
+        if validity_notice and validity_notice.get("retrieval_provenance") else None
     )
     output = Path(output_dir).resolve()
     tasks = {int(item["task_id"]): item for item in dataset["trajectories"]}
@@ -1258,14 +1270,14 @@ def build_webarena_replay_report(
             target = output / ("result" if lang == "zh" else "en/result") / f"{row['key']}.html"
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(
-                _detail_page(lang, attempt, tasks[key[1]], methods[key[0]], public_evidence[key], rows_by_task[key[1]], _historical_replay_validity_notice(**validity_identity, lang=lang)), encoding="utf-8"
+                _detail_page(lang, attempt, tasks[key[1]], methods[key[0]], public_evidence[key], rows_by_task[key[1]], _validity_notice_html(validity_notice, lang)), encoding="utf-8"
             )
     for task_id, task in tasks.items():
         for lang in languages:
             target = output / ("task" if lang == "zh" else "en/task") / f"{task_id}.html"
             target.parent.mkdir(parents=True, exist_ok=True)
             matching_attempt = next(item for item in attempts if int(item["task_id"]) == task_id)
-            target.write_text(_task_page(lang, task, rows_by_task[task_id], _historical_replay_validity_notice(**validity_identity, lang=lang), matching_attempt["reference_validity"], corrected_acceptance.get(task_id)), encoding="utf-8")
+            target.write_text(_task_page(lang, task, rows_by_task[task_id], _validity_notice_html(validity_notice, lang), matching_attempt["reference_validity"], corrected_acceptance.get(task_id)), encoding="utf-8")
 
     _write_clean_json(output / "data/results.json", public_rows)
     _write_clean_json(output / "data/metrics.json", {
@@ -1361,9 +1373,7 @@ def build_webarena_replay_report(
             if failure_participants
             else ""
         )
-        validity_notice = _historical_replay_validity_notice(
-            **validity_identity, lang=lang
-        )
+        notice_html = _validity_notice_html(validity_notice, lang)
         unverifiable_links = ", ".join(
             f'<a href="task/{task_id}.html">#{task_id}</a>' for task_id in unverifiable_ids
         ) or "—"
@@ -1397,13 +1407,19 @@ def build_webarena_replay_report(
             if resource_table
             else f'<section><h2>{t("home.resources.unavailable_heading", "Resource data")}</h2><p class="callout">{t("home.resources.unavailable", "This run did not record process-level CPU, memory, or network samples. Those metrics are unavailable, so the report does not show empty tables or resource rankings. End-to-end and action latency come from the retained trajectories and require no rerun.")}</p></section>'
         )
-        summary_body = f'''<section class="hero"><p class="eyebrow">{eyebrow}</p><h1>{t("home.heading", "Browser Trajectory Replay")}</h1><p>{t("home.lead", "{browsers} browsers form {methods} method configurations, each covering the same {tasks} frozen trajectory replays. {backend_note} Environment documents versions, paths and site preparation.", browsers=browser_count, methods=method_count, tasks=task_count, backend_note=backend_note)}</p><div class="detail-links"><a href="results.html">{t("home.link.outcomes", "Explore outcomes and exact errors")}</a><a href="dataset.html">{t("home.link.dataset", "Task contracts and fixed trajectories")}</a></div></section>
-        {validity_notice}
-        {f'<p class="evidence-actions"><a href="{"" if zh else "../"}data/legacy-retrieval-provenance.json">{t("home.link.legacy_provenance", "Inspect hashes for all 74 historical retrieval inputs")}</a></p>' if legacy_provenance is not None else ''}
-        <section><h2>{t("home.core_metrics", "Core metrics")}</h2><p class="callout">{core_metrics_note}</p>{core_metrics_table}</section>
-        {resource_section}
-        {failure_signatures}'''
-        (root / "index.html").write_text(_shell(lang, "index", t("home.title", "Browser Trajectory Replay"), summary_body, current_route="index.html"), encoding="utf-8")
+        legacy_link = (
+            f'<p class="evidence-actions"><a href="{"" if zh else "../"}data/legacy-retrieval-provenance.json">{t("home.link.legacy_provenance", "Inspect hashes for all {count} historical retrieval inputs", count=legacy_provenance["retrieval_results"])}</a></p>'
+            if legacy_provenance is not None else ""
+        )
+        home_fills = {
+            "status": (f'<p><a href="interpretation.html">{t("interpretation.home_link", "Interpretation: failure mechanisms, repairs and evaluation limits")}</a></p>'
+                       if interpretation_path is not None else ""),
+            "lead": f'''<section class="hero" data-browser-count="{browser_count}" data-method-count="{method_count}"><p>{t("home.lead", "{browsers} browsers form {methods} method configurations, each covering the same {tasks} frozen trajectory replays. {backend_note} Environment documents versions, paths and site preparation.", browsers=browser_count, methods=method_count, tasks=task_count, backend_note=backend_note)}</p><div class="detail-links"><a href="results.html">{t("home.link.outcomes", "Explore outcomes and exact errors")}</a><a href="dataset.html">{t("home.link.dataset", "Task contracts and fixed trajectories")}</a></div></section>{legacy_link}''',
+            "core-comparison": f'<section><h2>{t("home.core_metrics", "Core metrics")}</h2><p class="callout">{core_metrics_note}</p>{core_metrics_table}</section>',
+            "summary": resource_section,
+            "findings": failure_signatures,
+        }
+        (root / "index.html").write_text(_shell(lang, "index", t("home.title", "Browser Trajectory Replay"), home_fills, heading=t("home.heading", "Browser Trajectory Replay"), eyebrow=eyebrow, notice=notice_html, current_route="index.html"), encoding="utf-8")
 
         headers = [t("common.task", "Task"), t("common.site", "Site"), t("dataset.column.goal", "Task goal"), t("dataset.column.type", "Type"), t("common.trajectory_source", "Trajectory source"), t("dataset.column.fixed_actions", "Fixed actions"), t("dataset.column.drill_down", "Drill down")]
         matrix_rows = []
@@ -1421,8 +1437,9 @@ def build_webarena_replay_report(
         dataset_sites = sorted({site for task in tasks.values() for site in (task["task"].get("sites") or [])})
         dataset_site_options = "".join(f'<option value="{_e(site)}">{_e(site)}</option>' for site in dataset_sites)
         dataset_type_options = "".join(f'<option value="{code}">{_e(label)}</option>' for code, label in (("RETRIEVE", t("dataset.type_filter.retrieve", "Retrieve")), ("NAVIGATE", t("dataset.type_filter.navigate", "Navigate")), ("MUTATE", t("dataset.type_filter.mutate", "Mutate"))))
-        dataset_body = f'''<section class="hero"><p class="eyebrow">WebArena-Verified · {task_count}</p><h1>{t("dataset.title", "Dataset")}</h1><p>{t("dataset.lead", "{tasks} tasks share goals and acceptance rules. This page retains the dataset reference path; method-specific frozen inputs and measured verdicts appear on result pages.", tasks=task_count)}</p></section><section><div class="dataset-browser"><h2>{t("dataset.tasks_heading", "Tasks and reference paths")}</h2><p>{t("dataset.tasks_lead", "{autonomous} came from successful autonomous runs; {repaired} were repaired and checked under the recorded protocol on {reference}. Open a task for its acceptance input, full trajectory, and evidence from every browser.", autonomous=browser_use_source_count, repaired=repaired_source_count, reference=reference_label)}</p><div class="dataset-controls"><label>{t("dataset.filter.search", "Search tasks")}<input data-dataset-filter="q" type="search" placeholder="{t('dataset.filter.placeholder', 'ID, site, or goal')}"></label><label>{t("common.site", "Site")}<select data-dataset-filter="site"><option value="">{t("common.all", "All")}</option>{dataset_site_options}</select></label><label>{t("common.task_type", "Task type")}<select data-dataset-filter="type"><option value="">{t("common.all", "All")}</option>{dataset_type_options}</select></label><label>{t("common.trajectory_source", "Trajectory source")}<select data-dataset-filter="source"><option value="">{t("common.all", "All")}</option><option value="autonomous">{t("dataset.source.autonomous", "Autonomous success")}</option><option value="repaired">{t("dataset.source.repaired", "Repaired and checked")}</option></select></label></div><p class="dataset-count" data-dataset-count></p><div class="table-scroll dataset-table" data-dataset-table><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in headers)}</tr></thead><tbody>{"".join(matrix_rows)}</tbody></table></div><p class="dataset-empty" data-dataset-empty hidden>{t("dataset.empty", "No matching tasks. Change the filters.")}</p></div></section>'''
-        (root / "dataset.html").write_text(_shell(lang, "dataset", t("dataset.title", "Dataset"), validity_notice + dataset_body, current_route="dataset.html"), encoding="utf-8")
+        dataset_lead = f'''<section class="hero"><p>{t("dataset.lead", "{tasks} tasks share goals and acceptance rules. This page retains the dataset reference path; method-specific frozen inputs and measured verdicts appear on result pages.", tasks=task_count)}</p></section>'''
+        dataset_body = f'''<section><div class="dataset-browser"><h2>{t("dataset.tasks_heading", "Tasks and reference paths")}</h2><p>{t("dataset.tasks_lead", "{autonomous} came from successful autonomous runs; {repaired} were repaired and checked under the recorded protocol on {reference}. Open a task for its acceptance input, full trajectory, and evidence from every browser.", autonomous=browser_use_source_count, repaired=repaired_source_count, reference=reference_label)}</p><div class="dataset-controls"><label>{t("dataset.filter.search", "Search tasks")}<input data-dataset-filter="q" type="search" placeholder="{t('dataset.filter.placeholder', 'ID, site, or goal')}"></label><label>{t("common.site", "Site")}<select data-dataset-filter="site"><option value="">{t("common.all", "All")}</option>{dataset_site_options}</select></label><label>{t("common.task_type", "Task type")}<select data-dataset-filter="type"><option value="">{t("common.all", "All")}</option>{dataset_type_options}</select></label><label>{t("common.trajectory_source", "Trajectory source")}<select data-dataset-filter="source"><option value="">{t("common.all", "All")}</option><option value="autonomous">{t("dataset.source.autonomous", "Autonomous success")}</option><option value="repaired">{t("dataset.source.repaired", "Repaired and checked")}</option></select></label></div><p class="dataset-count" data-dataset-count></p><div class="table-scroll dataset-table" data-dataset-table><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in headers)}</tr></thead><tbody>{"".join(matrix_rows)}</tbody></table></div><p class="dataset-empty" data-dataset-empty hidden>{t("dataset.empty", "No matching tasks. Change the filters.")}</p></div></section>'''
+        (root / "dataset.html").write_text(_shell(lang, "dataset", t("dataset.title", "Dataset"), {"lead": dataset_lead, "inventory": dataset_body}, heading=t("dataset.title", "Dataset"), eyebrow=f"WebArena-Verified · {task_count}", notice=notice_html, current_route="dataset.html"), encoding="utf-8")
 
         stage_labels = {
             "browser_session_setup": t("stage.browser_session_setup", "Browser session setup"),
@@ -1445,32 +1462,39 @@ def build_webarena_replay_report(
         stage_options = "".join(f'<option value="{code}">{_e(stage_labels[code])}</option>' for code in stage_labels if code in present_stages)
         causes = {row["cause_zh"]: row["cause_zh"] if zh else row["cause_en"] for row in public_rows if row["cause_zh"]}
         cause_options = "".join(f'<option value="{_e(code)}">{_e(label)}</option>' for code, label in sorted(causes.items()))
-        result_matrix_rows = []
+        explorer_tasks = []
         for task_id, task in tasks.items():
-            pass_links = []
-            fail_links = []
-            passed_engines = []
-            failed_engines = []
-            for engine, _method in comparison_methods.items():
+            outcomes = {}
+            for engine in comparison_methods:
                 row = next((item for item in rows_by_task[task_id] if item["participant_id"] == engine), None)
                 if row is None:
                     raise ValueError(f"same-task method result is missing: {engine}/{task_id}")
-                label = _verdict_label(row["status"], row.get("semantic_status"), lang)
-                detail_url = row.get("detail_url") or f'result/{row["key"]}.html'
-                link = f'<a class="outcome-pill {row["status"]}" href="{_e(detail_url)}" data-participant="{_e(engine)}">{_e(row["browser"])} · {label}</a>'
-                if row["status"] == "pass":
-                    pass_links.append(link)
-                    passed_engines.append(engine)
-                else:
-                    fail_links.append(link)
-                    failed_engines.append(engine)
-            site = (task["task"].get("sites") or [""])[0]
-            result_matrix_rows.append(f'<tr data-site="{_e(site)}" data-pass="{_e(" ".join(passed_engines))}" data-fail="{_e(" ".join(failed_engines))}"><td><a href="task/{task_id}.html">#{task_id}</a></td><td>{_e(", ".join(task["task"].get("sites") or []))}</td><td><div class="outcome-list">{"".join(pass_links) or "—"}</div></td><td><div class="outcome-list">{"".join(fail_links) or "—"}</div></td></tr>')
-        matrix_sites = "".join(f'<option value="{_e(site)}">{_e(site)}</option>' for site in sorted({(task["task"].get("sites") or [""])[0] for task in tasks.values()}))
-        matrix_baselines = "".join(f'<option value="{_e(engine)}">{_e(item["label"])}</option>' for engine, item in comparison_methods.items())
-        matrix_checks = "".join(f'<label class="compare-chip"><input type="checkbox" data-matrix-method value="{_e(engine)}" checked>{_e(item["label"])}</label>' for engine, item in comparison_methods.items())
-        result_matrix = f'<section class="method-comparison"><div class="comparison-heading"><div><h2>{t("comparison.heading", "Same-task method comparison")}</h2><p>{t("comparison.lead", "All methods are grouped by official pass and fail. Open any outcome for its method-specific path and execution evidence.")}</p></div><span class="comparison-count" data-matrix-count></span></div><div class="comparison-controls"><label>{t("comparison.baseline", "Baseline method")}<select data-matrix-baseline>{matrix_baselines}</select></label><label>{t("comparison.relation", "Outcome relation")}<select data-matrix-relation><option value="different">{t("comparison.relation.different", "Selected methods disagree")}</option><option value="baseline-pass-others-fail">{t("comparison.relation.baseline_pass", "Baseline passes; others fail")}</option><option value="baseline-fail-others-pass">{t("comparison.relation.baseline_fail", "Baseline fails; others pass")}</option><option value="all-pass">{t("comparison.relation.all_pass", "All selected pass")}</option><option value="all-fail">{t("comparison.relation.all_fail", "All selected fail")}</option><option value="exact-pass">{t("comparison.relation.exact_pass", "Only selected methods pass")}</option><option value="">{t("comparison.relation.all_tasks", "All tasks")}</option></select></label><label>{t("common.site", "Site")}<select data-matrix-site><option value="">{t("common.all", "All")}</option>{matrix_sites}</select></label></div><fieldset class="comparison-methods"><legend>{t("comparison.methods", "Comparison methods (select at least one)")}</legend><div class="method-checks">{matrix_checks}</div></fieldset><div class="table-scroll matrix-table" data-task-matrix><table><thead><tr><th>{t("common.task", "Task")}</th><th>{t("common.site", "Site")}</th><th>{t("comparison.official_pass", "Official pass")}</th><th>{t("verdict.fail", "Fail")}</th></tr></thead><tbody>{"".join(result_matrix_rows)}</tbody></table></div></section>'
-        results_body = f'''<section class="hero"><p class="eyebrow">{len(public_rows)} {t("results.logical_outcomes", "logical outcomes")}</p><h1>{t("results.title", "Results analysis")}</h1><p>{t("results.lead", "Choose a baseline and multiple methods for same-task comparison. The inventory starts with failures; open Diagnose for the exact finding, reviewed cause, and execution evidence.")}</p></section><section class="compact-section">{result_matrix}</section><section><div class="filters"><label>{t("results.filter.search", "Search")}<input data-filter="q" placeholder="{t("results.filter.placeholder", "Task, site, or error")}"></label><label>{t("common.method", "Method")}<select data-filter="participant"><option value="">{t("common.all", "All")}</option>{browser_options}</select></label><label>{t("common.verdict", "Verdict")}<select data-filter="status"><option value="fail">{t("verdict.fail", "Fail")}</option><option value="pass">{t("verdict.pass", "Pass")}</option><option value="">{t("common.all", "All")}</option></select></label><label>{t("common.site", "Site")}<select data-filter="site"><option value="">{t("common.all", "All")}</option>{site_options}</select></label><label>{t("common.failure_stage", "Failure stage")}<select data-filter="stage"><option value="">{t("common.all", "All")}</option>{stage_options}</select></label><label>{t("common.reviewed_category", "Reviewed category")}<select data-filter="cause"><option value="">{t("common.all", "All")}</option>{cause_options}</select></label></div><p class="result-count" data-result-count></p><div class="table-scroll inventory" data-results><table><thead><tr><th>{t("common.task", "Task")}</th><th>{t("common.method", "Method")}</th><th>{t("common.site", "Site")}</th><th>{t("results.column.verdict", "Verdict")}</th><th>{t("results.column.actions", "Actions")}</th><th>{t("common.failure_stage", "Failure stage")}</th><th>{t("common.reviewed_category", "Reviewed category")}</th><th>{t("results.column.detail", "Detail")}</th></tr></thead><tbody>{''.join(result_rows)}</tbody></table></div></section><dialog id="diagnosis-dialog"><div class="dialog-head"><strong data-dialog-title></strong><button type="button" aria-label="{t("results.dialog.close", "Close")}">×</button></div><div class="dialog-body"><div class="diagnosis-facts"><div><span>{t("common.failure_stage", "Failure stage")}</span><strong data-dialog-stage></strong></div><div><span>{t("results.dialog.action_locator", "Action locator")}</span><strong data-dialog-step></strong></div><div><span>{t("common.reviewed_category", "Reviewed category")}</span><strong data-dialog-category></strong></div></div><h3>{t("results.dialog.finding", "Programmatic finding and evaluator rule")}</h3><pre data-dialog-error></pre><h3>{t("results.dialog.cause", "Reviewed cause and treatment")}</h3><p data-dialog-cause></p><p data-dialog-remediation></p><div class="evidence-actions"><a data-dialog-step-link>{t("results.dialog.open_action", "Open the relevant action")}</a><a data-dialog-link>{t("results.dialog.open_detail", "Open full detail")}</a></div></div></dialog>'''
+                outcomes[engine] = explorer.Outcome(
+                    "pass" if row["status"] == "pass" else "fail",
+                    _verdict_label(row["status"], row.get("semantic_status"), lang),
+                    row.get("detail_url") or f'result/{row["key"]}.html',
+                )
+            sites = task["task"].get("sites") or []
+            explorer_tasks.append(explorer.Task(
+                cell=f'<a href="task/{task_id}.html">#{task_id}</a> <small>{_e(", ".join(sites))}</small>',
+                outcomes=outcomes, filters={"site": sites[0] if sites else ""}, search=str(task_id),
+            ))
+        matrix_sites = sorted({(task["task"].get("sites") or [""])[0] for task in tasks.values()})
+        result_matrix = explorer.same_task_explorer(
+            "same-task-comparison",
+            [explorer.Participant(engine, _e(item["label"])) for engine, item in comparison_methods.items()],
+            explorer_tasks,
+            baseline=next(iter(comparison_methods)),
+            labels=explorer_labels(
+                t,
+                t("comparison.heading", "Same-task method comparison"),
+                t("comparison.lead", "Choose a baseline method and the methods to compare, then filter tasks by outcome relation. Open any outcome for its method-specific path and execution evidence."),
+                t("common.task", "Task"),
+                t("comparison.baseline", "Baseline method"),
+                t("comparison.methods", "Comparison methods"),
+            ),
+            filters=(explorer.Filter("site", t("common.site", "Site"), [(site, _e(site)) for site in matrix_sites]),),
+        )
         diagnostic_details = (
             failure_category_matrix(comparison_methods, public_rows, lang)
             + f'<section><h2>{t("results.action_latency.heading", "Browser action latency")}</h2>'
@@ -1481,12 +1505,11 @@ def build_webarena_replay_report(
             + _successful_distribution_table(method_rows, lang)
             + "</section>"
         )
-        results_body = results_body.replace(
-            '<section class="compact-section">',
-            diagnostic_details + '<section class="compact-section">',
-            1,
-        ).replace('<div class="filters">', '<div class="filters" id="result-inventory">', 1)
-        (root / "results.html").write_text(_shell(lang, "results", t("results.title", "Results analysis"), validity_notice + results_body, current_route="results.html"), encoding="utf-8")
+        results_lead = f'''<section class="hero"><p>{t("results.lead", "Choose a baseline and multiple methods for same-task comparison. The inventory starts with failures; open Diagnose for the exact finding, reviewed cause, and execution evidence.")}</p></section>'''
+        results_inventory = f'''<section><div class="filters" id="result-inventory"><label>{t("results.filter.search", "Search")}<input data-filter="q" placeholder="{t("results.filter.placeholder", "Task, site, or error")}"></label><label>{t("common.method", "Method")}<select data-filter="participant"><option value="">{t("common.all", "All")}</option>{browser_options}</select></label><label>{t("common.verdict", "Verdict")}<select data-filter="status"><option value="fail">{t("verdict.fail", "Fail")}</option><option value="pass">{t("verdict.pass", "Pass")}</option><option value="">{t("common.all", "All")}</option></select></label><label>{t("common.site", "Site")}<select data-filter="site"><option value="">{t("common.all", "All")}</option>{site_options}</select></label><label>{t("common.failure_stage", "Failure stage")}<select data-filter="stage"><option value="">{t("common.all", "All")}</option>{stage_options}</select></label><label>{t("common.reviewed_category", "Reviewed category")}<select data-filter="cause"><option value="">{t("common.all", "All")}</option>{cause_options}</select></label></div><p class="result-count" data-result-count></p><div class="table-scroll inventory" data-results><table><thead><tr><th>{t("common.task", "Task")}</th><th>{t("common.method", "Method")}</th><th>{t("common.site", "Site")}</th><th>{t("results.column.verdict", "Verdict")}</th><th>{t("results.column.actions", "Actions")}</th><th>{t("common.failure_stage", "Failure stage")}</th><th>{t("common.reviewed_category", "Reviewed category")}</th><th>{t("results.column.detail", "Detail")}</th></tr></thead><tbody>{''.join(result_rows)}</tbody></table></div></section><dialog id="diagnosis-dialog"><div class="dialog-head"><strong data-dialog-title></strong><button type="button" aria-label="{t("results.dialog.close", "Close")}">×</button></div><div class="dialog-body"><div class="diagnosis-facts"><div><span>{t("common.failure_stage", "Failure stage")}</span><strong data-dialog-stage></strong></div><div><span>{t("results.dialog.action_locator", "Action locator")}</span><strong data-dialog-step></strong></div><div><span>{t("common.reviewed_category", "Reviewed category")}</span><strong data-dialog-category></strong></div></div><h3>{t("results.dialog.finding", "Programmatic finding and evaluator rule")}</h3><pre data-dialog-error></pre><h3>{t("results.dialog.cause", "Reviewed cause and treatment")}</h3><p data-dialog-cause></p><p data-dialog-remediation></p><div class="evidence-actions"><a data-dialog-step-link>{t("results.dialog.open_action", "Open the relevant action")}</a><a data-dialog-link>{t("results.dialog.open_detail", "Open full detail")}</a></div></div></dialog>'''
+        results_fills = {"lead": results_lead, "inventory": results_inventory,
+                         "comparison": f'<section class="compact-section">{result_matrix}</section>' + diagnostic_details}
+        (root / "results.html").write_text(_shell(lang, "results", t("results.title", "Results analysis"), results_fills, heading=t("results.title", "Results analysis"), eyebrow=f'{len(public_rows)} {t("results.logical_outcomes", "logical outcomes")}', notice=notice_html, current_route="results.html"), encoding="utf-8")
 
         flow_labels = (
             t("environment.flow.replay_runner", "Replay runner"), t("environment.flow.browser_container", "Browser container"),
@@ -1508,7 +1531,7 @@ def build_webarena_replay_report(
   V --> X[{t("environment.flow.evidence_bound", "Evidence-bound result")}]
   X --> T[{t("environment.flow.teardown", "Teardown browser and sites")}]
   T --> R</pre>'''
-        environment_body = f'''<section class="hero"><h1>{t("environment.title", "Environment and method")}</h1><p>{t("environment.gateway_note", "The site gateway is the host gateway inside the Colima VM. Browser containers use it to reach the WebArena sites running in the same Mac virtualization environment; it is not a public test website.")}</p></section><section><h2>{t("environment.topology", "Execution topology")}</h2>{fallback}{topology}</section><section><h2>{t("environment.isolation", "Isolation rules")}</h2><div class="summary-grid"><article><strong>1</strong><p>{t("environment.isolation.fixed_port", "One fixed-port site stack permits only one running method.")}</p></article><article><strong>{task_count}</strong><p>{t("environment.isolation.coverage", "Each method covers every task after one site reset, with no reset between tasks. One final logical outcome is retained per task; extra physical calls are counted separately, and an unchanged task is not run again after passing.")}</p></article><article><strong>0</strong><p>{_e(backend_note)}</p></article></div></section><script data-topology-script>{{const node=document.querySelector('.mermaid');const loader=document.createElement('script');{mermaid_script_attributes("loader")};loader.onload=async()=>{{try{{mermaid.initialize({{startOnLoad:false,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral'}});const rendered=await mermaid.render('replay-topology',node.textContent);node.innerHTML=rendered.svg;node.hidden=false;document.querySelector('[data-topology-fallback]').hidden=true}}catch(error){{node.hidden=true}}}};document.head.appendChild(loader)}}</script>'''
+        environment_body = f'''<section class="hero"><p>{t("environment.gateway_note", "The site gateway is the host gateway inside the Colima VM. Browser containers use it to reach the WebArena sites running in the same Mac virtualization environment; it is not a public test website.")}</p></section><section><h2>{t("environment.topology", "Execution topology")}</h2>{fallback}{topology}</section><section><h2>{t("environment.isolation", "Isolation rules")}</h2><div class="summary-grid"><article><strong>1</strong><p>{t("environment.isolation.fixed_port", "One fixed-port site stack permits only one running method.")}</p></article><article><strong>{task_count}</strong><p>{t("environment.isolation.coverage", "Each method covers every task after one site reset, with no reset between tasks. One final logical outcome is retained per task; extra physical calls are counted separately, and an unchanged task is not run again after passing.")}</p></article><article><strong>0</strong><p>{_e(backend_note)}</p></article></div></section><script data-topology-script>{{const node=document.querySelector('.mermaid');const loader=document.createElement('script');{mermaid_script_attributes("loader")};loader.onload=async()=>{{try{{mermaid.initialize({{startOnLoad:false,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral'}});const rendered=await mermaid.render('replay-topology',node.textContent);node.innerHTML=rendered.svg;node.hidden=false;document.querySelector('[data-topology-fallback]').hidden=true}}catch(error){{node.hidden=true}}}};document.head.appendChild(loader)}}</script>'''
         if "Rainbond" in str((profile.get("execution") or {}).get("site_stack") or ""):
             diagram_script = environment_body[environment_body.index('<script data-topology-script>'):]
             remote_labels = (
@@ -1556,8 +1579,7 @@ def build_webarena_replay_report(
                 )) + '</tr></thead><tbody>' + ''.join(reset_rows) + '</tbody></table></div></section>'
             ) if reset_rows else ''
             environment_body = (
-                f'<section class="hero"><h1>{t("environment.title", "Environment and method")}</h1>'
-                f'<p>{t("environment.remote.lead", "All browsers use the same site map and task order; acceptance revisions are identified below and on task pages. The site baseline is restored before each method, not between tasks.")}</p></section>'
+                f'<section class="hero"><p>{t("environment.remote.lead", "All browsers use the same site map and task order; acceptance revisions are identified below and on task pages. The site baseline is restored before each method, not between tasks.")}</p></section>'
                 f'<section><h2>{t("environment.remote.flow", "Execution flow")}</h2>{remote_fallback}{remote_diagram}'
                 f'<p>{t("environment.remote.note", "Each method-level baseline receipt binds Pod replacement, image digest and site readiness. Per-task traces, network captures and scores remain separate. Methods run serially; extra physical calls cover only never-passing tasks or tasks whose frozen input changed.")}</p></section>'
                 + f'<p>{_e((profile.get("resources") or {}).get("browser_host") or (t("environment.remote.browser_host_unrecorded", "Browser host not recorded")))} · Rainbond WebArena. {_e(backend_note)}</p>'
@@ -1606,7 +1628,7 @@ def build_webarena_replay_report(
         environment_body = environment_body.replace('</section>', '</section>' + identity_section, 1)
         if measurement_note:
             environment_body += f'<p class="callout">{_e(measurement_note)}</p>'
-        (root / "environment.html").write_text(_shell(lang, "environment", t("environment.title", "Environment and method"), environment_body, current_route="environment.html"), encoding="utf-8")
+        (root / "environment.html").write_text(_shell(lang, "environment", t("environment.title", "Environment and method"), {"protocol": environment_body}, heading=t("environment.title", "Environment and method"), current_route="environment.html"), encoding="utf-8")
 
         stage_counts = Counter(row["failure_stage"] for row in public_rows)
         review_rows = (
@@ -1637,13 +1659,13 @@ def build_webarena_replay_report(
             review_status += (
                 t("review.status_unverifiable", " The {tasks} tasks with unverifiable references are excluded from the separate verifiable-task denominator.", tasks=len(unverifiable_ids))
             )
-        review_body = f'''<section class="hero"><h1>{t("review.title", "Review history")}</h1><p>{t("review.lead", "Rounds that affected the current dataset or result interpretation. Full evidence and treatment status for each failure are on result pages.")}</p></section><section><h2>{t("review.current_status", "Current status")}</h2><p>{review_status}</p></section><section><h2>{t("review.rounds", "Review rounds")}</h2><div class="table-scroll review-table"><table><thead><tr>{''.join(f'<th>{_e(label)}</th>' for label in review_headers)}</tr></thead><tbody>{review_table_rows}</tbody></table></div></section>'''
-        (root / "review.html").write_text(_shell(lang, "review", t("review.title", "Review history"), validity_notice + review_body, current_route="review.html"), encoding="utf-8")
+        review_body = f'''<section class="hero"><p>{t("review.lead", "Rounds that affected the current dataset or result interpretation. Full evidence and treatment status for each failure are on result pages.")}</p></section><section><h2>{t("review.current_status", "Current status")}</h2><p>{review_status}</p></section><section><h2>{t("review.rounds", "Review rounds")}</h2><div class="table-scroll review-table"><table><thead><tr>{''.join(f'<th>{_e(label)}</th>' for label in review_headers)}</tr></thead><tbody>{review_table_rows}</tbody></table></div></section>'''
+        (root / "review.html").write_text(_shell(lang, "review", t("review.title", "Review history"), {"summary": review_body}, heading=t("review.title", "Review history"), notice=notice_html, current_route="review.html"), encoding="utf-8")
 
         viewer_tabs = (("result", t("viewer.tab.result", "Result and resources")), ("site_reset", t("viewer.tab.site_reset", "Site reset")), ("readiness", t("viewer.tab.readiness", "Site readiness")), ("programmatic_failure", t("viewer.tab.programmatic_failure", "Programmatic finding")), ("review", t("viewer.tab.review", "Reviewed cause")), ("trajectory", t("viewer.tab.trajectory", "Actions and logs")), ("official_evaluation", t("stage.official_evaluation", "Official evaluation")))
         tab_buttons = "".join(f'<button type="button" data-evidence-tab="{key}" aria-selected="false">{label}</button>' for key, label in viewer_tabs)
-        viewer_body = f'<section class="hero"><h1>{t("viewer.title", "Evidence viewer")}</h1><p>{t("viewer.lead", "Inspect full sanitized evidence by outcome, action, programmatic finding, and review. The raw JSON remains downloadable.")}</p></section><section class="viewer"><div class="viewer-tabs" role="tablist">{tab_buttons}</div><h2 data-evidence-heading></h2><div class="evidence-actions"><a data-evidence-raw href="#">{t("common.download_sanitized_json", "Download sanitized JSON")}</a><a data-evidence-image hidden></a></div><pre data-evidence-viewer></pre></section>'
-        (root / "evidence-viewer.html").write_text(_shell(lang, "results", t("viewer.title", "Evidence viewer"), validity_notice + viewer_body, current_route="evidence-viewer.html"), encoding="utf-8")
+        viewer_body = f'<section class="hero"><p>{t("viewer.lead", "Inspect full sanitized evidence by outcome, action, programmatic finding, and review. The raw JSON remains downloadable.")}</p></section><section class="viewer"><div class="viewer-tabs" role="tablist">{tab_buttons}</div><h2 data-evidence-heading></h2><div class="evidence-actions"><a data-evidence-raw href="#">{t("common.download_sanitized_json", "Download sanitized JSON")}</a><a data-evidence-image hidden></a></div><pre data-evidence-viewer></pre></section>'
+        (root / "evidence-viewer.html").write_text(_shell(lang, "results", t("viewer.title", "Evidence viewer"), {"inventory": viewer_body}, heading=t("viewer.title", "Evidence viewer"), notice=notice_html, current_route="evidence-viewer.html"), encoding="utf-8")
 
     if interpretation_path is not None:
         source = Path(interpretation_path)
@@ -1670,10 +1692,9 @@ def build_webarena_replay_report(
                              lang=lang, image_dir=illustrations,
                              image_prefix=("assets/" if lang == "zh" else "../assets/") + "interpretation/")
             title, body = render_interpretation(**arguments)
-            download = t("interpretation.download", "Download standalone article")
-            body = f'<p><a href="article.html" download>{download}</a></p>' + body
             (language_root / "interpretation.html").write_text(
-                _shell(lang, "interpretation", title, body, current_route="interpretation.html"), encoding="utf-8")
+                _interpretation_page(lang, title, body.replace("<article ", "<article data-authored ", 1)),
+                encoding="utf-8")
             publication = profile["publication"]
             share = urlsplit(publication["share_url"])
             if not share.path.startswith("/v/") or not share.path.removeprefix("/v/"):
@@ -1686,10 +1707,6 @@ def build_webarena_replay_report(
             title, offline = render_interpretation(**arguments, standalone=True, report_url=report_url)
             (language_root / "article.html").write_text(
                 standalone_document(title, offline, lang, css), encoding="utf-8")
-            home = language_root / "index.html"
-            label = t("interpretation.home_link", "Interpretation: failure mechanisms, repairs and evaluation limits")
-            home.write_text(home.read_text(encoding="utf-8").replace("<main>", f'<main><p><a href="interpretation.html">{label}</a></p>', 1), encoding="utf-8")
-            _add_interpretation_navigation(language_root, lang)
 
     if interpretation_path is None:
         for lang in languages:
@@ -1713,13 +1730,9 @@ def build_webarena_replay_report(
                     + (t("interpretation.scope", "Measurement scope")) + '</h2><p>'
                     + _e((profile.get("measurement_notes") or {}).get(lang) or scoring)
                     + '</p></section></article>')
-            download = t("interpretation.download", "Download standalone article")
-            (root / "interpretation.html").write_text(_shell(
-                lang, "interpretation", title, f'<p><a href="article.html" download>{download}</a></p>' + body,
-                current_route="interpretation.html"), encoding="utf-8")
+            (root / "interpretation.html").write_text(_interpretation_page(lang, title, body), encoding="utf-8")
             (root / "article.html").write_text(standalone_document(
                 title, body, lang, (output / "assets/report.css").read_text(encoding="utf-8")), encoding="utf-8")
-            _add_interpretation_navigation(root, lang)
 
     if not include_english:
         # Remove authored translations only; raw task and execution evidence is immutable.
@@ -1766,7 +1779,7 @@ def build_webarena_replay_report(
     manifest = {
         "schema": "lex_webarena_trajectory_replay_report/1",
         "profile_sha256": file_sha256(profile_source),
-        "template": template_identity("trajectory-replay"),
+        "template": {**template_identity("trajectory-replay"), **TEMPLATE.record(VARIANT.name)},
         "languages": list(languages),
         "english_status": "generated" if include_english else "not_generated",
         "results_sha256": file_sha256(Path(results_path)),
@@ -1808,19 +1821,33 @@ def _catalog_site_labels() -> dict[str, str]:
     return dict(sorted(site_labels("zh").items()))
 
 
-def _catalog_shell(title: str, body: str, participant: str) -> str:
+CATALOG_VARIANT = TEMPLATE.variant("catalog-acceptance")
+# The generated slot that holds each catalog page body; the home lead stays in its lead slot.
+_CATALOG_SLOTS = {"home": "core-comparison", "datasets": "inventory", "methodology": "protocol",
+                  "results": "inventory"}
+
+
+def _catalog_shell(key: str, title: str, body: str, participant: str) -> str:
+    """One catalog page in the shared shell; ``key`` names its template page (detail pages
+    use the page that owns them). The body's leading heading becomes the page heading."""
     t = report_text("zh")
-    nav = (
-        f'<nav><a href="index.html">{t("catalog.nav.results", "Results")}</a>'
-        f'<a href="dataset.html">{t("catalog.nav.dataset", "Dataset")}</a>'
-        f'<a href="method.html">{t("catalog.nav.method", "Method and boundaries")}</a></nav>'
-    )
-    return (
-        '<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1"><base href="/">'
-        f"<title>{html.escape(title)}</title><style>{CATALOG_REPORT_CSS}</style></head><body>{nav}{body}"
-        f"<footer>{t('catalog.heading', 'WebArena-Verified full trajectory replay')} · {html.escape(participant)}</footer>"
-        "</body></html>"
+    labels = {
+        "index": t("catalog.nav.results", "Results"),
+        "dataset": t("catalog.nav.dataset", "Dataset"),
+        "method": t("catalog.nav.method", "Method and boundaries"),
+    }
+    page = CATALOG_VARIANT.page(key)
+    nav = shell.navigation([(item.route, labels[item.key]) for item in CATALOG_VARIANT.pages if item.nav],
+                           page.route)
+    heading, body = re.match(r"\s*<h1>(.*?)</h1>(.*)", body, re.S).groups()
+    lead = re.match(r'\s*(<p class="lead">.*?</p>)(.*)', body, re.S)
+    fills = ({"lead": lead.group(1), _CATALOG_SLOTS[page.role]: lead.group(2)} if lead
+             else {_CATALOG_SLOTS[page.role]: body})
+    return shell.page(
+        lang="zh-CN", base="/", title=title, heading=None, heading_html=heading,
+        style=CATALOG_REPORT_CSS, script="", head=REPORT_PAGE_MARKER, nav=nav, eyebrow="", notice="",
+        role=page.role, body=compose(page.role, fills), dialog="",
+        footer_html=f"<footer>{t('catalog.heading', 'WebArena-Verified full trajectory replay')} · {html.escape(participant)}</footer>",
     )
 
 
@@ -2009,7 +2036,7 @@ def build_catalog_acceptance_report(
             f'<a href="evidence/{task_id:03}.json">{t("catalog.case.download", "Download JSON")}</a></p></section>'
         )
         (output / "case" / f"{task_id:03}.html").write_text(
-            _catalog_shell(t("catalog.case.title", "Task {task} result", task=task_id), case_body, participant),
+            _catalog_shell("evidence", t("catalog.case.title", "Task {task} result", task=task_id), case_body, participant),
             encoding="utf-8",
         )
         catalog_row = catalog_by_id[task_id]
@@ -2048,7 +2075,7 @@ def build_catalog_acceptance_report(
 <section class="panel"><h2>{t("catalog.index.sites", "Site distribution")}</h2><p>{t("catalog.index.sites_note", "One task can involve several sites, so counts can sum to more than {tasks}.", tasks=task_count)}</p><div class="scroll"><table><thead><tr><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.index.tasks_involved", "Tasks involved")}</th></tr></thead><tbody>{site_html}</tbody></table></div></section>
 <section class="panel"><h2>{t("catalog.index.per_task", "Per-task results")}</h2><label for="find">{t("catalog.index.filter", "Filter by task ID, site or task content")}</label><p><input id="find" type="search" aria-label="{t("catalog.index.filter_label", "Filter per-task results")}"></p><div class="scroll"><table id="results"><thead><tr><th>{t("catalog.index.task_id", "Task ID")}</th><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.index.final_score", "Final score")}</th><th>{t("catalog.index.chain_records", "Acceptance chain records")}</th><th>{t("catalog.index.final_duration", "Final duration (s)")}</th></tr></thead><tbody>{''.join(result_rows)}</tbody></table></div></section><script>const q=document.getElementById("find");q.addEventListener("input",()=>{{for(const row of document.querySelectorAll("#results tbody tr"))row.hidden=!row.dataset.search.toLowerCase().includes(q.value.toLowerCase())}})</script>"""
     (output / "index.html").write_text(
-        _catalog_shell(t("catalog.index.title", "Full trajectory replay results"), index_body, participant), encoding="utf-8"
+        _catalog_shell("index", t("catalog.index.title", "Full trajectory replay results"), index_body, participant), encoding="utf-8"
     )
 
     runtime_method = (
@@ -2068,7 +2095,7 @@ def build_catalog_acceptance_report(
     )
     method_body = f"""<h1>{t("catalog.nav.method", "Method and boundaries")}</h1><section class="panel"><h2>{t("catalog.method.execution", "Execution method")}</h2><p>评测集按官方题号 {task_ids[0]}–{task_ids[-1]} 排列。每题执行冻结轨迹，由 {html.escape(engine.capitalize())} 浏览器引擎通过 {html.escape(backend.capitalize())} 协议后端完成动作。接受标准是 WebArena-Verified 官方 evaluator 返回 score 1.0。</p><p>初始扫描中断后，后续执行只选择接受账本里尚未通过的题。最终接受账本绑定每个物理调用、{runtime_method}、站点映射、轨迹、实际响应、网络证据和 evaluator 结果。</p>{f'<p>{html.escape(bridge_method)}</p>' if bridge_method else ''}</section><section class="panel"><h2>{t("catalog.method.boundary", "Code and evaluation boundary")}</h2><p>确认属于评测集或 evaluator 的通用修复维护在 lexmount/webarena-verified 的 lex-main 分支；轨迹、执行器、站点绑定、证据聚合和报告维护在 Webstone。评测答案和通过条件没有为浏览器适配而放宽。</p><p>旧 evaluator 版本下的通过证据通过固定实际响应和 HAR 离线重评，浏览器动作没有重跑。{revision_method}</p></section><section class="panel"><h2>{t("catalog.method.scope", "Result scope")}</h2><p>该结果证明当前 {html.escape(participant)} 配置下 {task_count} 题各自至少成功一次。812-case 全量 split 与既有 90-case 抽样 split 数据独立；两者共享轨迹执行和 evaluator 基础模块，并分别绑定自己的证据与发布目标。</p></section>"""
     (output / "method.html").write_text(
-        _catalog_shell(t("catalog.nav.method", "Method and boundaries"), method_body, participant), encoding="utf-8"
+        _catalog_shell("method", t("catalog.nav.method", "Method and boundaries"), method_body, participant), encoding="utf-8"
     )
 
     write_json(
@@ -2083,24 +2110,26 @@ def build_catalog_acceptance_report(
     )
     dataset_body = f"""<h1>{t("catalog.dataset.heading", "Dataset and trajectory contract")}</h1><p class="lead">{t("catalog.dataset.lead", "{tasks} tasks are frozen in official WebArena-Verified order. This page only shows task definitions; scoring and execution evidence are on the per-task result pages.", tasks=task_count)}</p><section class="panel"><div class="scroll"><table><thead><tr><th>{t("catalog.index.task_id", "Task ID")}</th><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.dataset.task", "Task")}</th></tr></thead><tbody>{dataset_rows}</tbody></table></div><p><a href="dataset-contracts.json">{t("catalog.dataset.download", "Download complete task, evaluator and fixed-action contracts")}</a></p></section>"""
     (output / "dataset.html").write_text(
-        _catalog_shell(t("catalog.dataset.heading", "Dataset and trajectory contract"), dataset_body, participant), encoding="utf-8"
+        _catalog_shell("dataset", t("catalog.dataset.heading", "Dataset and trajectory contract"), dataset_body, participant), encoding="utf-8"
     )
     (output / "contract.html").write_text(
-        _catalog_shell(t("catalog.contract.title", "Evaluation contract"), dataset_body, participant), encoding="utf-8"
+        _catalog_shell("contract", t("catalog.contract.title", "Evaluation contract"), dataset_body, participant), encoding="utf-8"
     )
     viewer = f"""<h1>{t("catalog.viewer.title", "Evidence viewer")}</h1><p><a id="back" href="index.html">{t("catalog.viewer.back", "Back to results")}</a></p><pre id="payload" role="region" aria-label="{t("catalog.viewer.label", "Complete execution evidence")}">{t("catalog.viewer.loading", "Loading...")}</pre><script>const id=new URLSearchParams(location.search).get("task");const ok=/^\\d{{3}}$/.test(id||"");if(ok){{document.getElementById("back").href="case/"+id+".html";fetch("evidence/"+id+".json").then(r=>{{if(!r.ok)throw Error("{t("catalog.viewer.missing", "Evidence does not exist")}");return r.json()}}).then(x=>document.getElementById("payload").textContent=JSON.stringify(x,null,2)).catch(e=>document.getElementById("payload").textContent=String(e))}}else document.getElementById("payload").textContent="{t("catalog.viewer.invalid", "Invalid task ID")}";</script>"""
     (output / "evidence.html").write_text(
-        _catalog_shell(t("catalog.viewer.title", "Evidence viewer"), viewer, participant), encoding="utf-8"
+        _catalog_shell("evidence", t("catalog.viewer.title", "Evidence viewer"), viewer, participant), encoding="utf-8"
     )
     notice = f'<h1>English edition not generated</h1><p>This release is Chinese only.</p><p><a href="index.html">{t("catalog.notice.back", "Back to the Chinese edition")}</a></p>'
     (output / "en").mkdir()
     (output / "en" / "index.html").write_text(
-        _catalog_shell("English edition not generated", notice, participant),
+        _catalog_shell("index", "English edition not generated", notice, participant),
         encoding="utf-8",
     )
 
+    write_chinese_only(output)
     manifest = {
         "schema": LEGACY_CATALOG_REPORT_SCHEMA,
+        "template": TEMPLATE.record(CATALOG_VARIANT.name),
         "generated_languages": ["zh"],
         "participant": {
             "engine": engine,
@@ -2157,6 +2186,9 @@ def validate_catalog_acceptance_report(
         or len(list((output / "evidence").glob("*.json"))) != task_count
     ):
         raise ValueError("catalog report manifest or route inventory is invalid")
+    # Packages built before the template record keep their earlier page shape.
+    if "template" in manifest:
+        check_template_pages(output, manifest["template"], TEMPLATE)
     expected_participant = (
         {
             "engine": profile.get("browser"),

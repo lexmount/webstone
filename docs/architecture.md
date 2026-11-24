@@ -143,8 +143,11 @@ The report owns its selected template identity, input hashes and generated
 languages. Ported tracks record the base template, track template, variant and
 their versions in the report manifest, mark each page's role and slots, and
 their release checks compare the built pages with that recorded template; Web
-Search and Browser Use are on the template (`src/harness/web_search/template.py`,
-`src/harness/browser_use/template.py`); `check_template_pages` in
+Search, Browser Use and Browser Trajectory Replay are on the template
+(`src/harness/web_search/template.py`, `src/harness/browser_use/template.py`,
+`src/harness/trajectory_replay/template.py`, whose curated, catalog,
+catalog-acceptance and public variants share one shell and the same-task
+explorer); `check_template_pages` in
 `src/harness/reporting/release_check.py` runs that comparison for every edition. The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
 routes, measurements and evidence links; absent English has only a notice and
 return link.

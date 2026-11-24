@@ -112,10 +112,10 @@ def test_replay_real_assets_evidence_dialog_and_private_nested_navigation(tmp_pa
     <strong data-dialog-title></strong><span data-dialog-stage></span><span data-dialog-step></span>
     <span data-dialog-category></span><pre data-dialog-error></pre><p data-dialog-cause></p>
     <p data-dialog-remediation></p><a data-dialog-link>Detail</a><a data-dialog-step-link>Step</a></dialog>'''
-    (tmp_path / 'index.html').write_text(_shell('zh', 'index', 'Home', '<h1>Home</h1>'), encoding='utf-8')
-    (tmp_path / 'results.html').write_text(_shell('zh', 'results', 'Results', body), encoding='utf-8')
+    (tmp_path / 'index.html').write_text(_shell('zh', 'index', 'Home', {'lead': '<p>Home</p>'}, heading='Home'), encoding='utf-8')
+    (tmp_path / 'results.html').write_text(_shell('zh', 'results', 'Results', {'inventory': body}, heading='Results'), encoding='utf-8')
     (tmp_path / 'result').mkdir()
-    (tmp_path / 'result/fixture.html').write_text(_shell('zh', 'results', 'Detail', '<h1>Detail</h1>', depth=1, current_route='result/fixture.html'), encoding='utf-8')
+    (tmp_path / 'result/fixture.html').write_text(_shell('zh', 'results', 'Detail', {'inventory': '<p>Detail</p>'}, heading='Detail', depth=1, current_route='result/fixture.html'), encoding='utf-8')
     (tmp_path / 'data/evidence').mkdir(parents=True)
     (tmp_path / 'data/results.json').write_text(json.dumps([{'key':'fixture','browser':'Synthetic','task_id':1,'failure_stage':'official_evaluation'}]), encoding='utf-8')
     (tmp_path / 'data/evidence/fixture.json').write_text(json.dumps({'official_evaluation':{'error':'Expected mutation was absent'}}), encoding='utf-8')
@@ -132,7 +132,7 @@ def test_replay_real_assets_evidence_dialog_and_private_nested_navigation(tmp_pa
             assert page.locator('[data-open-diagnosis]').evaluate('(e)=>e===document.activeElement')
             page.goto(origin + 'result/fixture.html')
             assert page.locator('link[data-report-css]').evaluate('(e)=>Boolean(e.sheet)')
-            page.locator('nav a[href="../index.html"]').click()
+            page.locator('nav a[href="../index.html"]').first.click()
             assert page.url == origin + 'index.html'
             assert page.locator('h1').inner_text() == 'Home'
         finally:

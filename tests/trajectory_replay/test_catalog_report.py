@@ -176,6 +176,10 @@ def test_build_catalog_report_keeps_setup_failures_out_of_physical_count(
     assert "1 / 1" in (output / "index.html").read_text(encoding="utf-8")
     assert "物理执行：1 次" in (output / "case/000.html").read_text(encoding="utf-8")
     assert '<base href="/">' in (output / "case/000.html").read_text(encoding="utf-8")
+    template = json.loads((output / "manifest.json").read_text(encoding="utf-8"))["template"]
+    assert template["variant"] == "catalog-acceptance"
+    case = (output / "case/000.html").read_text(encoding="utf-8")
+    assert '<main data-page-role="results">' in case
     public = json.loads((output / "evidence/000.json").read_text(encoding="utf-8"))
     assert public["physical_attempt_count"] == 1
     if hosted:

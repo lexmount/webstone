@@ -18,8 +18,14 @@ from bs4 import BeautifulSoup
 from harness.record_io import read_json
 from harness.reporting.presentation import visible_text as _visible_text
 from harness.reporting.privacy import TRAJECTORY_REPLAY
-from harness.reporting.release_check import check_report_identity, open_report, read_page
+from harness.reporting.release_check import (
+    check_report_identity,
+    check_template_pages,
+    open_report,
+    read_page,
+)
 from harness.trajectory_replay.report_languages import language_roots, report_languages
+from harness.trajectory_replay.template import TEMPLATE
 
 
 def _text_without_verified_embedded_images(text: str, image_digests: set[str]) -> str:
@@ -56,7 +62,9 @@ def _check_interpretation(
         offline = read_page(language_root / "article.html")
         article = integrated.select_one("article.interpretation")
         standalone = offline.select_one("article.interpretation")
-        if article is None or standalone is None or article.get_text() != standalone.get_text():
+        heading = integrated.select_one("main > h1")
+        if (article is None or standalone is None
+                or _article_text(article, heading) != _article_text(standalone)):
             raise ValueError("integrated and standalone article content differs")
         if offline.select("script, link[rel=stylesheet]"):
             raise ValueError("standalone article must be script-free and self-contained")
@@ -142,9 +150,14 @@ def _check_interpretation(
             if path.relative_to(language_root).parts[0] == "en":
                 continue
             page = read_page(path)
-            if page.select_one("header.top nav") is None:
+            # Template-era pages carry the interpretation link among the template pages;
+            # earlier reports injected it into their own header.
+            if page.select_one("main[data-page-role]") is not None:
+                links = page.select('body > nav > .pages a[href$="interpretation.html"]')
+            elif page.select_one("header.top nav") is not None:
+                links = page.select("header.top nav a[data-report-interpretation]")
+            else:
                 continue
-            links = page.select("header.top nav a[data-report-interpretation]")
             expected = (language_root / "interpretation.html").resolve()
             if len(links) != 1 or (path.parent / links[0].get("href", "")).resolve() != expected:
                 raise ValueError("interpretation navigation is missing or broken")
@@ -155,6 +168,15 @@ def _check_interpretation(
         raise ValueError("localized article sections differ")
 
 
+def _article_text(article, heading=None) -> tuple[str, str]:
+    """An article's title and body text; a template page carries the title as its heading."""
+    title = article.find("h1") or heading
+    text = article.get_text()
+    if article.find("h1"):
+        text = text.replace(title.get_text(), "", 1)
+    return (title.get_text() if title else ""), text
+
+
 def _check_legacy_retrieval_audit(root: Path, chinese_home: str, english_home: str) -> None:
     legacy_audit = root / "data/legacy-retrieval-provenance.json"
     if 'class="callout historical-validity"' in chinese_home:
@@ -162,14 +184,15 @@ def _check_legacy_retrieval_audit(root: Path, chinese_home: str, english_home: s
             raise ValueError("historical retrieval provenance audit is missing")
         audit = read_json(legacy_audit)
         rows = audit.get("results")
+        browsers = {row.get("browser") for row in rows} if isinstance(rows, list) else set()
         if (
             audit.get("schema") != "trajectory_replay_legacy_retrieval_provenance/1"
             or not isinstance(rows, list)
-            or audit.get("retrieval_tasks") != 37
-            or audit.get("retrieval_results") != 74
-            or audit.get("frozen_answer_matches") != 74
-            or len(rows) != 74
-            or len({row.get("task_id") for row in rows}) != 37
+            or not rows
+            or audit.get("retrieval_results") != len(rows)
+            or audit.get("frozen_answer_matches") != len(rows)
+            or len({row.get("task_id") for row in rows}) != audit.get("retrieval_tasks")
+            or len(rows) != audit.get("retrieval_tasks") * len(browsers)
             or len({(row.get("browser"), row.get("task_id")) for row in rows}) != len(rows)
             or any(
                 row.get("source") != "frozen_agent_response_not_current_page_observation"
@@ -287,51 +310,6 @@ def _check_metric_populations(metrics: dict, results: list[dict], participants: 
                         raise ValueError(
                             f"missing or nonfinite metric is represented as measured: {name}"
                         )
-
-
-def _check_affected36_comparison(
-    root: Path,
-    compare: list[dict],
-    results: list[dict],
-    affected_ids: set[int],
-    participants: list[str],
-) -> None:
-    if [item.get("id") for item in compare] != participants:
-        raise ValueError("affected-task comparison omits a registered method")
-    for item in compare:
-        matched = [
-            row
-            for row in results
-            if row["participant_id"] == item["id"] and row["task_id"] in affected_ids
-        ]
-        if (
-            len(matched) != 36
-            or item.get("total") != 36
-            or item.get("passed") != sum(row["status"] == "pass" for row in matched)
-        ):
-            raise ValueError("affected-task comparison uses a wrong denominator or score")
-    maximum = max(item["passed"] for item in compare)
-    winners = [item["id"] for item in compare if item["passed"] == maximum]
-    unique_winner = winners[0] if len(winners) == 1 else None
-    for language_root in language_roots(root):
-        home = (language_root / "index.html").read_text(encoding="utf-8")
-        if ("36 题" if language_root == root else "36 failures") not in home:
-            raise ValueError("affected-task method comparison is absent from the home page")
-        for item in compare:
-            match = re.search(
-                rf'<tr><td><a href="results\.html\?participant={re.escape(item["id"])}&status=">'
-                rf'{re.escape(item["label"])}</a></td>'
-                r'<td data-metric="affected36-pass"[^>]*>(.*?)</td>',
-                home,
-                re.S,
-            )
-            if not match or not match.group(1).startswith(f"{item['passed']}/36"):
-                raise ValueError(
-                    "affected-task score or evidence link is missing from the home page"
-                )
-            marked = 'class="winner"' in match.group(1)
-            if marked != (item["id"] == unique_winner):
-                raise ValueError("affected-task highlight is missing or assigned to a tie")
 
 
 def _check_core_comparison(
@@ -501,6 +479,25 @@ def _check_failure_matrix(page: str, results: list[dict], participants: list[str
                 raise ValueError("failure matrix inventory anchor is missing")
 
 
+def _check_same_task_explorer(page: str, participants: list[str], task_count: int) -> None:
+    """The shared explorer covers every registered participant and one row per task."""
+    explorer = BeautifulSoup(page, "html.parser").select_one("[data-explorer]")
+    if explorer is None:
+        raise ValueError("same-task comparison needs the shared explorer")
+    baseline = [option["value"] for option in explorer.select("[data-explorer-baseline] option")]
+    compared = [box["value"] for box in explorer.select("[data-explorer-compare] input")]
+    if baseline != participants or compared != participants:
+        raise ValueError(
+            "same-task comparison controls must come from the complete participant registry"
+        )
+    rows = explorer.select("tbody tr[data-explorer-row]")
+    if len(rows) != task_count or any(
+        [cell["data-participant"] for cell in row.select("td[data-participant]")] != participants
+        for row in rows
+    ):
+        raise ValueError("same-task comparison needs one outcome per participant and task")
+
+
 def _check_formal_execution_scope(manifest: dict) -> None:
     """Require method-level reset without hard-coding a benchmark split size."""
 
@@ -517,6 +514,10 @@ def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, in
     root = open_report(report_dir)
     manifest = read_json(root / "report-manifest.json")
     check_report_identity(root, manifest, "trajectory-replay", profile_path)
+    # Reports built before the template record keep their earlier page shape.
+    templated = "variant" in (manifest.get("template") or {})
+    if templated:
+        check_template_pages(root, manifest["template"], TEMPLATE)
     if profile_path is not None:
         profile = read_json(profile_path)
         if manifest.get("execution_backend") != profile.get("execution_backend"):
@@ -584,7 +585,12 @@ def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, in
             "report must contain the complete manifest-declared participant-task matrix"
         )
     home = (root / "index.html").read_text(encoding="utf-8")
-    if f"{browser_count} 款浏览器组成 {method_count} 种方法配置" not in home:
+    stated = (
+        f'data-browser-count="{browser_count}" data-method-count="{method_count}"' in home
+        if templated
+        else f"{browser_count} 款浏览器组成 {method_count} 种方法配置" in home
+    )
+    if not stated:
         raise ValueError("report home does not state the browser and method populations")
     home_soup = BeautifulSoup(home, "html.parser")
     signature = home_soup.select_one("[data-failure-signatures]")
@@ -801,7 +807,6 @@ def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, in
         "内部工作日志",
         "中位数",
         "median",
-        "后续 179 题",
     )
     for page in [*core, *chinese_details, *english_details]:
         text = page.read_text(encoding="utf-8")
@@ -919,6 +924,9 @@ def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, in
         raise ValueError("step dialog must load qualified and actual evidence on demand")
     for page in (parent / "results.html" for parent in language_roots(root)):
         rendered = page.read_text(encoding="utf-8")
+        if templated:
+            _check_same_task_explorer(rendered, participants, task_count)
+            continue
         baseline = re.search(r"<select data-matrix-baseline>(.*?)</select>", rendered, re.S)
         if baseline is None:
             raise ValueError("same-task comparison needs a baseline browser selector")

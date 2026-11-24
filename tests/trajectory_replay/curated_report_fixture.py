@@ -63,6 +63,7 @@ def build_curated_report(
     reports: Path,
     engines: tuple[str, ...],
     failures: dict[str, tuple[str, ...]],
+    content: dict | None = None,
 ) -> dict:
     """Write the report for ``engines``; ``failures`` names each engine's failed tasks."""
     rows = [
@@ -117,5 +118,5 @@ def build_curated_report(
             for task_id, complexity in _TASKS
         ],
     }
-    write_latest_report(reports, manifest=manifest, summary=summary)
+    write_latest_report(reports, manifest=manifest, summary=summary, content=content)
     return summary

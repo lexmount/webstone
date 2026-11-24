@@ -1,4 +1,4 @@
-"""Chinese paginated evidence-first browser benchmark report."""
+"""The public WebArena recording replay report: the ``public`` variant of the replay track template."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from harness.distribution import bundled_data_path
 from harness.environments.browser import container_engines, engine_label
+from harness.reporting import explorer
 from harness.trajectory_replay.core.report import (
     EVIDENCE_DIALOG_JS,
     SUITE_FILTER_JS,
@@ -28,32 +29,35 @@ from harness.trajectory_replay.core.report import (
     _source_references,
     _stat,
     _trace_text,
+    explorer_labels,
+    flat_page,
+    replay_table,
+    write_chinese_only,
 )
 from harness.trajectory_replay.messages import report_text
 from harness.trajectory_replay.participants import engine_names, summary_engines
 from harness.trajectory_replay.public_webarena.publication import REPORT_STEM, public_projection
 from harness.trajectory_replay.public_webarena.result_audit import audit_result_set
+from harness.trajectory_replay.template import TEMPLATE
 
 ASSETS = Path(__file__).parents[1] / "assets"
 REPORT_CSS = (ASSETS / "public-webarena-report.css").read_text(encoding="utf-8")
 BENCHMARK_TABS_JS = (ASSETS / "public-webarena-benchmark-tabs.js").read_text(encoding="utf-8")
-COMPARISON_JS = (ASSETS / "public-webarena-comparison.js").read_text(encoding="utf-8")
 EXECUTION_FILTER_JS = (ASSETS / "public-webarena-execution-filter.js").read_text(encoding="utf-8")
 
 # This renderer generates only the Chinese edition.
 t = report_text("zh")
 
-PAGES = tuple(
-    (slug, label, f"{REPORT_STEM}{suffix}.html")
-    for slug, label, suffix in (
-        ("index", t("replay.page.summary", "Summary"), ""),
-        ("results", t("public.page.results", "Result analysis"), "-results"),
-        ("suite", t("replay.page.suite", "Suite"), "-suite"),
-        ("research", t("public.page.research", "Selection rationale"), "-research"),
-        ("method", t("replay.page.method", "Environment and method"), "-method"),
-        ("appendix", t("replay.page.appendix", "Reproduction and appendix"), "-appendix"),
-    )
-)
+VARIANT = TEMPLATE.variant("public")
+# Navigation labels by template page key.
+PAGE_LABELS = {
+    "index": t("replay.page.summary", "Summary"),
+    "results": t("public.page.results", "Result analysis"),
+    "suite": t("replay.page.suite", "Suite"),
+    "research": t("public.page.research", "Selection rationale"),
+    "method": t("replay.page.method", "Environment and method"),
+    "appendix": t("replay.page.appendix", "Reproduction and appendix"),
+}
 
 CATEGORY_LABELS = {
     "end_to_end_browser_use": t("public.category.end_to_end", "End-to-end browser-use"),
@@ -115,28 +119,8 @@ def _validate_metric_contract() -> None:
             raise ValueError(f"resource metric interpretation is required: {spec.key}")
 
 
-def _table(
-    headers: list[str], rows: list[list[Any]], caption: str, *, source_marks: bool = False
-) -> str:
-    head = "".join(f"<th>{_e(item)}</th>" for item in headers)
-    body = "".join(
-        "<tr>"
-        + "".join(
-            f'<td data-label="{_e(headers[i])}"'
-            + (f' class="{v.css_class}"' if isinstance(v, ComparedValue) and v.css_class else "")
-            + ">"
-            + (
-                _annotate_source_marks(_e(v.text if isinstance(v, ComparedValue) else v))
-                if source_marks
-                else _e(v.text if isinstance(v, ComparedValue) else v)
-            )
-            + "</td>"
-            for i, v in enumerate(row)
-        )
-        + "</tr>"
-        for row in rows
-    )
-    return f'<div class="table-wrap stackable" role="region" aria-label="{_e(caption)}" tabindex="0"><table><caption>{_e(caption)}</caption><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+def _table(headers: list[str], rows: list[list[Any]], caption: str, *, source_marks: bool = False) -> str:
+    return replay_table(headers, rows, caption, source_marks=source_marks, stackable=True)
 
 
 def _grouped_resource_table(
@@ -249,46 +233,33 @@ def _relative_ratio_tables(
     return "".join(modules)
 
 
-def _nav(active: str) -> str:
-    return (
-        f'<nav aria-label="{t("replay.nav.pages", "Report pages")}">'
-        + "".join(
-            f'<a href="{filename}" {"class=active aria-current=page" if slug == active else ""}>{i}. {label}</a>'
-            for i, (slug, label, filename) in enumerate(PAGES, 1)
-        )
-        + "</nav>"
-    )
-
-
-def _shell(
+def _page(
     manifest: dict[str, Any],
-    active: str,
-    body: str,
+    key: str,
+    fills: dict[str, str],
     *,
     detail_title: str = "",
     back_anchor: str = "",
 ) -> str:
-    label = next(p[1] for p in PAGES if p[0] == active)
-    index = next(i for i, p in enumerate(PAGES) if p[0] == active)
+    run_id = _e(manifest.get("run_id", "unknown"))
     if not detail_title:
-        current_filename = PAGES[index][2]
-        body = body.replace('href="#', f'href="{current_filename}#')
-    prev_link = (
-        f'<a href="{PAGES[index - 1][2]}">← {PAGES[index - 1][1]}</a>' if index else "<span></span>"
-    )
-    next_link = (
-        f'<a href="{PAGES[index + 1][2]}">{PAGES[index + 1][1]} →</a>'
-        if index + 1 < len(PAGES)
-        else "<span></span>"
-    )
-    header = (
-        f'<div class="case-header"><a href="{REPORT_STEM}-results.html#{_e(back_anchor)}">← {t("public.back_to_results", "Back to evaluation results")}</a>'
-        f'<a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=_e(manifest.get("run_id", "unknown")))}</span></div>'
+        # Artifact Site injects a site-root base URL; fragment links need the file.
+        route = VARIANT.page(key).route
+        fills = {slot: body.replace('href="#', f'href="{route}#') for slot, body in fills.items()}
+    detail_nav = (
+        f'<a href="{REPORT_STEM}-results.html#{_e(back_anchor)}">← {t("public.back_to_results", "Back to evaluation results")}</a>'
+        f'<a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
         if detail_title
-        else f'<div class="brand"><div class="eyebrow">WebArena Fixed-Trajectory Replay</div><h1>{t("public.shell.heading", "WebArena fixed-trajectory replay evaluation")}</h1><div class="muted">{t("public.shell.subtitle", "Deterministic replay of public human trajectories · No Agent or model variables · Run {run_id}", run_id=_e(manifest.get("run_id", "unknown")))}</div></div>{_nav(active)}'
+        else ""
     )
-    pager = "" if detail_title else f'<div class="pager">{prev_link}{next_link}</div>'
-    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{t("public.shell.title", "{title} | WebArena fixed-trajectory replay evaluation", title=_e(detail_title) or label)}</title><style>{REPORT_CSS}</style></head><body><header><div class="wrap">{header}</div></header><main>{body}{pager}</main><footer>Lexmount WebArena Fixed-Trajectory Replay</footer></body></html>"""
+    return flat_page(
+        VARIANT, key, fills,
+        title=t("public.shell.title", "{title} | WebArena fixed-trajectory replay evaluation", title=detail_title or PAGE_LABELS[key]),
+        heading=_e(detail_title) if detail_title else t("public.shell.heading", "WebArena fixed-trajectory replay evaluation"),
+        eyebrow="" if detail_title else "WebArena Fixed-Trajectory Replay · " + t("public.shell.subtitle", "Deterministic replay of public human trajectories · No Agent or model variables · Run {run_id}", run_id=run_id),
+        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav,
+        footer="Lexmount WebArena Fixed-Trajectory Replay · " + t("replay.edition.chinese_only", "This report is available in Chinese only."),
+    )
 
 
 def _functional_rows(summary: dict[str, Any]) -> list[list[str]]:
@@ -376,8 +347,8 @@ def report_file_names(summary: dict[str, Any]) -> set[str]:
         for engine, attempts in (task.get("attempts") or task.get("failures") or {}).items()
         if attempts
     }
-    return {f"{REPORT_STEM}.md", f"{REPORT_STEM}-data.json",
-            *(filename for _, _, filename in PAGES), *details}
+    return {f"{REPORT_STEM}.md", f"{REPORT_STEM}-data.json", "report-languages.json",
+            *(page.route for page in VARIANT.pages), *details}
 
 
 def _is_webarena_manifest(manifest: dict[str, Any]) -> bool:
@@ -473,17 +444,7 @@ def _research_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
         key=lambda row: int(row["engineering_rank"]),
     )
     engineering_rows = [
-        [
-            str(row["engineering_rank"]),
-            row["name"],
-            (
-                "自托管、程序评分，并有公开人类轨迹可做固定重放"
-                if row["name"] == "WebArena-Verified"
-                else "用于第二阶段公开生态对比；真实网站和 judge 漂移不适合做首轮内核隔离"
-                if row["name"] == "Online-Mind2Web"
-                else "用于对照 Browser Use 官方实践；混合任务与 LLM judge 会引入额外变量"
-            ),
-        ]
+        [str(row["engineering_rank"]), row["name"], str(row.get("engineering_rationale") or "")]
         for row in engineering
     ]
     engineering_cards = "".join(
@@ -508,32 +469,27 @@ def _research_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
         for category, label in CATEGORY_LABELS.items()
     )
     catalog_script = f"<script>{BENCHMARK_TABS_JS}</script>"
+    notes = catalog.get("selection_notes") or {}
+    scope = _scope_counts()
+    values = {"engines": _e(compared_engines), "tasks": len(manifest.get("suite") or []), **scope}
+
+    def section(item: dict[str, Any], css: str = "card") -> str:
+        paragraphs = "".join(f"<p>{_e(text).format(**values)}</p>" for text in item.get("paragraphs") or [])
+        items = "".join(f"<li>{_e(text).format(**values)}</li>" for text in item.get("items") or [])
+        return (f'<section class="{css}"><h2>{_e(item.get("heading"))}</h2>{paragraphs}'
+                + (f"<ul>{items}</ul>" if items else "") + "</section>")
+
     return (
-        '<section class="card note"><h2>为什么选择 WebArena-Verified</h2>'
-        '<p>本轮要隔离浏览器变量：同一条公开轨迹、可重建网页、程序验收最终状态。'
-        'WebArena-Verified 能同时提供这三点。厂商采用数另列，不能代替工程适用性判断。</p>'
-        '<p>候选集按测量对象分类，不跨类排名；原始 Mind2Web 的离线动作预测不算端到端网页操作。</p></section>'
-        '<section class="card"><h2>端到端 browser-use 采用 Top 3</h2>'
-        '<p>只统计 OpenAI、Anthropic、Google、DeepSeek、智谱/ChatGLM、Moonshot/Kimi 的第一方材料；同一机构同一家族只计一次。此处 Mind2Web 只计在线版，不把离线动作预测算作端到端网页操作。平票再按最新官方采用、公开获取和可复现性排序。</p>'
-        + f'<div class="rank-grid">{adoption_cards}</div>'
-        + '<p class="muted">本次限定的一方材料中没有检出可计入 DeepSeek 或 Moonshot/Kimi 的端到端 browser-use benchmark 记录。这不等于这些机构从未做过内部评测。</p>'
+        section(notes.get("rationale") or {}, "card note")
+        + f'<section class="card"><h2>{t("public.research.adoption_heading", "End-to-end browser-use adoption top 3")}</h2>'
+        + f'<p>{_e(notes.get("adoption_scope"))}</p><div class="rank-grid">{adoption_cards}</div>'
+        + f'<p class="muted">{_e(notes.get("adoption_gaps"))}</p>'
         + f'<details><summary>{t("public.research.adoption_links", "View adoption evidence links")}</summary><ul>'
         + "".join(source_links)
         + '</ul></details></section>'
-        '<section class="card"><h2>工程适用性 Top 3</h2>'
-        + f'<div class="rank-grid">{engineering_cards}</div>'
-        + '<p>WebVoyager 只保留为历史参照。OSWorld 2.0 太宽，ScreenSpot-Pro 只测单步定位；它们都不会进入本轮固定轨迹正式分母。</p></section>'
-        '<section class="card"><h2>Mind2Web 家族的三套评测</h2><ul>'
-        '<li>原始 Mind2Web 是离线 HTML 和动作预测数据集。它适合比较元素选择与动作预测，不能真正比较 ' + _e(compared_engines) + '。</li>'
-        '<li>Online-Mind2Web 在 300 个真实网站任务上判断最终任务是否完成。截图、URL 和轨迹是 judge 证据，并不要求复现固定动作序列；WebJudge 是 LLM-as-a-judge。</li>'
-        '<li>Online-Mind2Web 的 easy、medium、hard 按人工参考路径长度划分，分别为不超过 5 步、6 到 10 步、至少 11 步。这个标签不是网站难度，也不是 agent 实际执行步数。</li>'
-        '<li>Mind2Web 2 有 130 个长程研究任务，评估实时搜索、综合回答和引用归因，属于网页研究类。</li></ul></section>'
-        '<section class="card"><h2>Browser Use 官方实践</h2>'
-        '<p>Browser Use 当前公开仓库同时维护 BU Bench V1 和 Online-Mind2Web 运行结果。前者有 100 个经过筛选的混合任务，后者便于与公开生态比较。两者都保留运行轨迹，但都没有可直接当作标准操作路径的 gold trajectory。</p>'
-        '<p>本项目采用它们对任务失效、验证码、外部认证和不可验收任务的处理原则，也保留完整轨迹；不照搬多次采样或 bootstrapping，因为这里测的是固定路径与浏览器兼容性。</p></section>'
-        '<section class="card"><h2>运行架构</h2>'
-        '<p>这些用例不要求 AMD。远端 Intel x86-64 主机可以运行官方 amd64 镜像。179 条官方 WebArena 人类录制中，本项目在运行前排除了 4 条只适配 arm64 Wikipedia 环境的任务，并排除了 3 条已确认的 evaluator 缺陷；172 条进入 amd64 资格验证。最终只有冷 Chromium 重放、程序 evaluator 和证据完整性同时通过的 '
-        f'{len(manifest.get("suite") or [])} 条轨迹进入正式任务分母。</p></section>'
+        + f'<section class="card"><h2>{t("public.research.engineering_heading", "Engineering suitability top 3")}</h2>'
+        + f'<div class="rank-grid">{engineering_cards}</div><p>{_e(notes.get("engineering_scope"))}</p></section>'
+        + "".join(section(item) for item in notes.get("sections") or [])
         + f'<section class="card"><div class="section-heading"><div><h2>{t("public.research.candidates", "Candidate suites")}</h2><p class="muted">{t("public.research.candidates_note", "Filter by category first, then expand the reproduction limits of each item; different categories are not ranked against each other.")}</p></div><span id="benchmark-count" class="muted"></span></div>'
         + f'<div class="benchmark-tabs" role="group" aria-label="{t("public.research.category_label", "Benchmark category")}">{category_buttons}</div>'
         + '<div class="benchmark-grid">' + "".join(benchmark_cards) + '</div></section>'
@@ -542,9 +498,21 @@ def _research_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
     )
 
 
+def _scope_counts() -> dict[str, int]:
+    """Candidate, excluded and qualified recording counts from the frozen amd64 scope."""
+    scope = json.loads(_report_input("webarena-amd64-scope.json").read_text(encoding="utf-8"))
+    kinds = Counter(str(task.get("exclusion_kind")) for task in scope.get("excluded_tasks") or [])
+    return {
+        "candidates": int(scope["candidate_count"]),
+        "non_native": kinds["non_native_site_image"],
+        "evaluator_defects": kinds["confirmed_upstream_evaluator_defect"],
+        "qualified": int(scope["included_count"]),
+    }
+
+
 def _summary_page(
     manifest: dict[str, Any], summary: dict[str, Any], audit: dict[str, Any]
-) -> str:
+) -> dict[str, str]:
     task_count = len(manifest.get("suite") or [])
     functional = summary.get("functional") or {}
     engines = summary_engines(summary)
@@ -617,18 +585,20 @@ def _summary_page(
     audit_strip = (
         f'<div class="audit-strip"><strong>{t("public.summary.audit_count", "{reviewed}/{total} results passed the consistency audit", reviewed=audit["logical_results_reviewed"], total=task_count * len(engines))}</strong><span>{t("public.summary.audit_note", "Underlying execution records, programmatic acceptance and aggregates agree; {count} failed results are classified from logs and call fields.", count=sum(audit["final_failures"].values()))}</span><a href="{REPORT_STEM}-method.html#verification">{t("public.summary.audit_link", "View verification scope")}</a></div>'
     )
-    return f"""<section class="card hero"><div class="eyebrow">{t("replay.page.summary", "Summary")}</div><h2>{t("public.summary.hero", "In this run, {compatibility}; {resource}. Speed, CPU, memory and network are listed separately and not merged into one score.", compatibility=compatibility_lead, resource=resource_lead)}</h2><p>{t("public.summary.hero_note", "This is a fixed replay of WebArena public human trajectories, with no Agent planning, model calls or LLM judge at run time. The numbers apply only to these {count} frozen trajectories and this environment.", count=task_count)}</p>{audit_strip}</section>
-<section class="card"><div class="section-heading"><div><h2>{t("public.summary.correctness", "Task correctness")}</h2><p class="muted">{t("public.summary.one_result", "Each task and browser publishes one result.")}</p></div><a href="{REPORT_STEM}-results.html#task-comparison">{t("public.summary.view_task_results", "View per-task results")}</a></div><div class="score-grid">{score_cards}</div>{_correctness_table(summary)}<p>{t("public.summary.call_chain_note", "{failure_summary}A completed tool-call chain can still fail programmatic acceptance: a call return only means the path finished, and the final answer, service state or HAR may still not satisfy the evaluator.", failure_summary=failure_summary)}</p></section>
-<section class="card" id="performance"><div class="section-heading"><div><h2>{t("public.summary.speed", "Speed and resources")}</h2><p class="muted">{t("public.summary.speed_scope", "Only the {count} same tasks that {engines} all passed count, using the unique public result of each.", engines=engine_list, count=paired)}</p></div></div><p>{t("public.summary.speed_note", "Absolute tables list P50, P95 and mean side by side. {ratio_intro}Only values with a clear direction and a unique winner are bold green; Observations pick no winner.", ratio_intro=ratio_intro)}</p>{_metric_tables(summary)}</section>
-<section class="card"><div class="section-heading"><div><h2>{t("public.summary.failures", "Failure overview")}</h2><p class="muted">{t("public.summary.failures_note", "The {count} failed results are grouped by the direct mechanism closest to the evidence, without presenting symptoms as browser-internal root causes.", count=final_failure_count)}</p></div><a href="{REPORT_STEM}-results.html#failure-review">{t("public.summary.view_failure_analysis", "View failure analysis")}</a></div><div class="failure-story">{failure_cards}</div><p>{t("public.summary.failures_boundary", "{boundary}page interaction evidence is still not enough to tell whether the difference comes from browser rendering, layout or the adapter layer.", boundary=failure_boundary)}</p></section>
-<section class="card"><h2>{t("public.summary.conclusion_scope", "Scope of the conclusions")}</h2><div class="reading-grid"><article><h3>{t("public.summary.compatibility", "Compatibility")}</h3><p>{t("public.summary.compatibility_note", "To cover these fixed business paths, the browser with more passes is currently the safer choice.")}</p></article><article><h3>{t("public.summary.resources", "Resources")}</h3><p>{t("public.summary.resources_note", "For tasks verified as compatible, a memory advantage has engineering value; still check the duration and network cost of that task before going live.")}</p></article><article><h3>{t("public.summary.applicability", "Applicability")}</h3><p>{t("public.summary.applicability_note", "{count} trajectories cannot represent overall browser capability or explain Agent success rates. The suite, selection rationale and method are on the following pages.", count=task_count)}</p></article></div></section>"""
+    return {
+        "lead": f"""<section class="card hero"><div class="eyebrow">{t("replay.page.summary", "Summary")}</div><h2>{t("public.summary.hero", "In this run, {compatibility}; {resource}. Speed, CPU, memory and network are listed separately and not merged into one score.", compatibility=compatibility_lead, resource=resource_lead)}</h2><p>{t("public.summary.hero_note", "This is a fixed replay of WebArena public human trajectories, with no Agent planning, model calls or LLM judge at run time. The numbers apply only to these {count} frozen trajectories and this environment.", count=task_count)}</p>{audit_strip}</section>""",
+        "core-comparison": f"""<section class="card"><div class="section-heading"><div><h2>{t("public.summary.correctness", "Task correctness")}</h2><p class="muted">{t("public.summary.one_result", "Each task and browser publishes one result.")}</p></div><a href="{REPORT_STEM}-results.html#task-comparison">{t("public.summary.view_task_results", "View per-task results")}</a></div><div class="score-grid">{score_cards}</div>{_correctness_table(summary)}<p>{t("public.summary.call_chain_note", "{failure_summary}A completed tool-call chain can still fail programmatic acceptance: a call return only means the path finished, and the final answer, service state or HAR may still not satisfy the evaluator.", failure_summary=failure_summary)}</p></section>""",
+        "summary": f"""<section class="card" id="performance"><div class="section-heading"><div><h2>{t("public.summary.speed", "Speed and resources")}</h2><p class="muted">{t("public.summary.speed_scope", "Only the {count} same tasks that {engines} all passed count, using the unique public result of each.", engines=engine_list, count=paired)}</p></div></div><p>{t("public.summary.speed_note", "Absolute tables list P50, P95 and mean side by side. {ratio_intro}Only values with a clear direction and a unique winner are bold green; Observations pick no winner.", ratio_intro=ratio_intro)}</p>{_metric_tables(summary)}</section>""",
+        "findings": f"""<section class="card"><div class="section-heading"><div><h2>{t("public.summary.failures", "Failure overview")}</h2><p class="muted">{t("public.summary.failures_note", "The {count} failed results are grouped by the direct mechanism closest to the evidence, without presenting symptoms as browser-internal root causes.", count=final_failure_count)}</p></div><a href="{REPORT_STEM}-results.html#failure-review">{t("public.summary.view_failure_analysis", "View failure analysis")}</a></div><div class="failure-story">{failure_cards}</div><p>{t("public.summary.failures_boundary", "{boundary}page interaction evidence is still not enough to tell whether the difference comes from browser rendering, layout or the adapter layer.", boundary=failure_boundary)}</p></section>""",
+        "coverage": f"""<section class="card"><h2>{t("public.summary.conclusion_scope", "Scope of the conclusions")}</h2><div class="reading-grid"><article><h3>{t("public.summary.compatibility", "Compatibility")}</h3><p>{t("public.summary.compatibility_note", "To cover these fixed business paths, the browser with more passes is currently the safer choice.")}</p></article><article><h3>{t("public.summary.resources", "Resources")}</h3><p>{t("public.summary.resources_note", "For tasks verified as compatible, a memory advantage has engineering value; still check the duration and network cost of that task before going live.")}</p></article><article><h3>{t("public.summary.applicability", "Applicability")}</h3><p>{t("public.summary.applicability_note", "{count} trajectories cannot represent overall browser capability or explain Agent success rates. The suite, selection rationale and method are on the following pages.", count=task_count)}</p></article></div></section>""",
+    }
 
 
 def _results_page(
     manifest: dict[str, Any],
     summary: dict[str, Any],
     detail_pages: dict[str, str] | None = None,
-) -> str:
+) -> dict[str, str]:
     engines = summary_engines(summary)
     complexity_rows = []
     for complexity in ("simple", "medium", "complex"):
@@ -700,10 +670,10 @@ def _results_page(
     result_overview = (
         f'<section class="card result-guide" aria-label="{t("public.results.guide_label", "Result analysis modules")}">'
         f'<div style="grid-column:1/-1"><h2>{t("public.page.results", "Result analysis")}</h2><p>{t("public.results.guide", "Start with browser differences on the same task, then read site slices, failure mechanisms and per-item acceptance evidence.")}</p></div>'
-        f'<a href="#task-comparison"><strong>{t("public.results.combination", "Browser combinations")}</strong><span>{t("public.results.combination_note", "Filter by outcome relation")}</span></a>'
-        f'<a href="#task-slices"><strong>{t("public.results.groups", "Task groups")}</strong><span>{t("public.results.groups_note", "Site and sampling groups")}</span></a>'
         f'<a href="#failure-review"><strong>{t("public.results.failure_analysis", "Failure analysis")}</strong><span>{t("public.results.failure_analysis_note", "Categories and logs")}</span></a>'
-        f'<a href="#execution-results"><strong>{t("replay.detail.execution_records", "Execution records")}</strong><span>{t("public.results.per_task_evidence", "Per-task evidence")}</span></a></section>'
+        f'<a href="#execution-results"><strong>{t("replay.detail.execution_records", "Execution records")}</strong><span>{t("public.results.per_task_evidence", "Per-task evidence")}</span></a>'
+        f'<a href="#task-comparison"><strong>{t("public.results.combination", "Browser combinations")}</strong><span>{t("public.results.combination_note", "Filter by outcome relation")}</span></a>'
+        f'<a href="#task-slices"><strong>{t("public.results.groups", "Task groups")}</strong><span>{t("public.results.groups_note", "Site and sampling groups")}</span></a></section>'
     )
     slices = (
         f'<div id="task-slices"><section class="card"><h2>{t("public.results.groups", "Task groups")}</h2><p class="muted">{t("public.results.groups_body", "Simple, medium and complex are the sampling groups of this manifest, not official WebArena difficulty labels, and have no common action-count threshold. They only describe the sample and do not support comparing browser capability across groups.")}</p>'
@@ -712,13 +682,12 @@ def _results_page(
         + _table([t("public.results.site_column", "Site"), *[engine_label(engine) for engine in engines]], site_rows, t("public.results.site_caption", "Compatibility by site")) + '</section></div>'
     )
     details = detail_pages if detail_pages is not None else {}
-    return (
-        result_overview
-        + _task_comparison(summary)
-        + slices
-        + _execution_explorer(manifest, summary, details)
-        + f'<section class="card"><h2>{t("public.results.root_cause", "Root-cause boundary")}</h2><p>{t("public.results.root_cause_body", "Failure logs can already separate environment preparation, page interaction and programmatic acceptance, but cannot yet prove in which browser-internal layer a difference arises. Later controlled experiments should fix the page, selector and call, and measure DOM update, layout, visibility and actionability recovery times; until that evidence exists, screencast, renderer or adapter layer are not stated as confirmed root causes.")}</p></section>'
-    )
+    return {
+        "lead": result_overview,
+        "inventory": _execution_explorer(manifest, summary, details),
+        "comparison": _task_comparison(summary) + slices,
+        "notes": f'<section class="card"><h2>{t("public.results.root_cause", "Root-cause boundary")}</h2><p>{t("public.results.root_cause_body", "Failure logs can already separate environment preparation, page interaction and programmatic acceptance, but cannot yet prove in which browser-internal layer a difference arises. Later controlled experiments should fix the page, selector and call, and measure DOM update, layout, visibility and actionability recovery times; until that evidence exists, screencast, renderer or adapter layer are not stated as confirmed root causes.")}</p></section>',
+    }
 
 
 def _suite_page(manifest: dict[str, Any]) -> str:
@@ -1068,7 +1037,7 @@ def _task_detail_body(
     attempt_label = t("public.detail.one_public_result", "1 public result")
     overview = (
         '<section class="card case-overview" id="case-result">'
-        f'<div class="section-heading"><h1>{_e(title)}</h1><span class="chip">{_e(engine)}</span></div>'
+        f'<div class="section-heading"><span class="chip">{_e(engine)}</span></div>'
         f'<p class="muted case-id">{_e(task_id)}</p>'
         '<div class="case-facts">'
         f'<div><span>{t("replay.detail.result", "Result")}</span><strong class="{"ok" if result == "pass" else "bad"}">{status_cell(result)}</strong></div>'
@@ -1514,10 +1483,10 @@ def _execution_details(
             )
             # Artifact Site injects a site-root base URL; fragment links need the file.
             detail_body = detail_body.replace('href="#', f'href="{detail_name}#')
-            detail_pages[detail_name] = _shell(
+            detail_pages[detail_name] = _page(
                 manifest,
                 "results",
-                detail_body,
+                {"inventory": detail_body},
                 detail_title=title,
                 back_anchor=anchor,
             )
@@ -1538,60 +1507,55 @@ def _execution_details(
 
 
 def _task_comparison(summary: dict[str, Any]) -> str:
+    """The shared same-task explorer over every registered browser."""
     engines = summary_engines(summary)
-    rows = []
-    for index, (task_id, task) in enumerate((summary.get("by_task") or {}).items(), 1):
+    labels = {
+        "pass": t("replay.status.pass", "Pass"),
+        "fail": t("public.execution.not_passed", "Did not pass"),
+        "missing": t("public.comparison.missing", "Record missing"),
+    }
+    tasks = []
+    for task_id, task in (summary.get("by_task") or {}).items():
         attempts_by_engine = task.get("attempts") or task.get("failures") or {}
-        statuses: dict[str, str] = {}
-        passed = []
-        failed = []
+        outcomes = {}
         for engine in engines:
             attempts = attempts_by_engine.get(engine) or []
             final = attempts[-1] if attempts else {}
             status = str(final.get("result_status") or final.get("status") or "missing")
-            statuses[engine] = status
-            label = t("replay.status.pass", "Pass") if status == "pass" else t("public.execution.not_passed", "Did not pass") if status == "fail" else t("public.comparison.missing", "Record missing")
-            css = "ok" if status == "pass" else "bad"
-            link = (
-                (
-                    f'<a class="outcome-pill {css}" href="{_detail_filename(str(task_id), engine)}">'
-                    f'{_e(engine_label(engine))} · {label}<span aria-hidden="true">→</span></a>'
-                )
-                if attempts
-                else f'<span class="outcome-pill {css}">{_e(engine_label(engine))} · {label}</span>'
+            state = "pass" if status == "pass" else "fail" if attempts else "missing"
+            outcomes[engine] = explorer.Outcome(
+                state, labels[state], _detail_filename(str(task_id), engine) if attempts else None
             )
-            (passed if status == "pass" else failed).append(link)
         title = str(task.get("title") or task_id)
-        rows.append(
-            f'<tr class="comparison-row" data-statuses="{_e(json.dumps(statuses, ensure_ascii=False))}" '
-            f'data-complexity="{_e(task.get("complexity") or "")}" '
-            f'data-search="{_e(_trace_text(f"{task_id} {title}"))}"><td>{index}</td>'
-            f'<td>{_e(title)}<small class="muted">{_e(task_id)}</small></td>'
-            f'<td><div class="outcome-list">{"".join(passed) or "—"}</div></td>'
-            f'<td><div class="outcome-list">{"".join(failed) or "—"}</div></td></tr>'
-        )
-    engine_options = "".join(
-        f'<option value="{_e(engine)}">{_e(engine_label(engine))}</option>' for engine in engines
-    )
-    engine_checks = "".join(
-        f'<label><input type="checkbox" value="{_e(engine)}" checked>{_e(engine_label(engine))}</label>'
-        for engine in engines
-    )
-    engine_json = json.dumps(list(engines), ensure_ascii=False).replace("</", "<\\/")
-    script = f"""<script>{COMPARISON_JS.replace("__ENGINE_LIST__", engine_json)}</script>"""
+        tasks.append(explorer.Task(
+            cell=f'{_e(title)}<small class="muted">{_e(task_id)}</small>', outcomes=outcomes,
+            filters={"complexity": str(task.get("complexity") or "")},
+            search=_trace_text(f"{task_id} {title}"),
+        ))
+    complexity = explorer.Filter("complexity", t("public.comparison.complexity", "Trajectory complexity"), [
+        ("simple", t("replay.filter.simple", "Simple")),
+        ("medium", t("replay.filter.medium", "Medium")),
+        ("complex", t("replay.filter.complex", "Complex")),
+    ])
+    matrix = explorer.same_task_explorer(
+        "task-comparison-explorer",
+        [explorer.Participant(engine, _e(engine_label(engine))) for engine in engines],
+        tasks,
+        baseline=engines[0],
+        labels=explorer_labels(
+            t,
+            t("public.comparison.title", "Browser combination comparison"),
+            t("public.comparison.note", "First choose baseline browser A and the compared browsers, then filter tasks by outcome relation. The table always keeps the result of every browser; open a status to reach the complete evidence."),
+            t("replay.column.task", "Task"),
+            t("public.comparison.browser_a", "Browser A"),
+            t("public.comparison.other_browsers", "Other compared browsers"),
+        ),
+        filters=(complexity,),
+    ) if engines else ""
     return (
-        f'<section class="card" id="task-comparison"><div class="section-heading"><div><h2>{t("public.comparison.title", "Browser combination comparison")}</h2>'
-        f'<p class="muted">{t("public.comparison.note", "First choose baseline browser A and the compared browsers, then filter tasks by outcome relation. The table always keeps the result of every browser; open a status to reach the complete evidence.")}</p></div>'
-        '<span id="comparison-count" class="muted"></span></div><div class="comparison-panel"><div class="matrix-controls">'
-        f'<label>{t("public.comparison.browser_a", "Browser A")}<select id="compare-a">{engine_options}</select></label>'
-        f'<label>{t("public.comparison.relation", "Outcome relation")}<select id="compare-relation"><option value="mixed">{t("public.comparison.mixed", "Results differ")}</option><option value="a_pass_others_fail">{t("public.comparison.a_pass", "A passed, the others did not")}</option><option value="a_fail_others_pass">{t("public.comparison.a_fail", "A did not pass, the others did")}</option><option value="all_pass">{t("public.comparison.all_pass", "All selected browsers passed")}</option><option value="all_fail">{t("public.comparison.all_fail", "No selected browser passed")}</option><option value="exact_pass">{t("public.comparison.exact_pass", "Only the selected browsers passed")}</option></select></label>'
-        f'<label>{t("public.comparison.complexity", "Trajectory complexity")}<select id="compare-complexity"><option value="">{t("public.comparison.all_complexity", "All complexities")}</option><option value="simple">{t("replay.filter.simple", "Simple")}</option><option value="medium">{t("replay.filter.medium", "Medium")}</option><option value="complex">{t("replay.filter.complex", "Complex")}</option></select></label>'
-        f'<label>{t("replay.suite.search", "Search tasks")}<input id="comparison-query" type="search" placeholder="{t("public.comparison.search_placeholder", "Task name or ID")}"></label></div>'
-        f'<fieldset class="comparison-methods" id="compare-engines"><legend>{t("public.comparison.other_browsers", "Other compared browsers")}</legend><div class="engine-checks">{engine_checks}</div></fieldset></div>'
-        f'<div class="table-wrap comparison-table" role="region" aria-label="{t("public.comparison.title", "Browser combination comparison")}" tabindex="0"><table><thead><tr><th>{t("public.comparison.index", "No.")}</th><th>{t("replay.column.task", "Task")}</th><th>{t("public.comparison.passing", "Passing browsers")}</th><th>{t("public.comparison.failing", "Failing browsers")}</th></tr></thead><tbody>'
-        + "".join(rows)
-        + f'</tbody></table></div><p class="muted">{t("public.comparison.footer", "Combination comparison locates differences; failure analysis explains direct mechanisms, and execution records keep actions, logs and programmatic acceptance details.")}</p></section>'
-        + script
+        f'<section class="card" id="task-comparison">{matrix}'
+        f'<p class="muted">{t("public.comparison.footer", "Combination comparison locates differences; failure analysis explains direct mechanisms, and execution records keep actions, logs and programmatic acceptance details.")}</p></section>'
+        f"<script>{explorer.SCRIPT}</script>"
     )
 
 
@@ -1671,10 +1635,12 @@ def _review_page(
     provenance = manifest.get("artifact_provenance") or {}
     engines = summary_engines(summary)
     evidence_fields = (manifest.get("protocol") or {}).get("required_attempt_evidence") or []
+    scope = _scope_counts()
+    task_count = len(manifest.get("suite") or [])
     rows = [
-        ["候选来源", "179 条 WebArena 官方人类录制", "来源轨迹哈希逐条登记"],
-        ["架构与 evaluator 预筛", "排除 4 条 arm64-only Wikipedia 与 3 条已证实 evaluator 缺陷", "规则在浏览器结果产生前冻结"],
-        ["轨迹资格验证", "冷 Chromium 重放 + 官方程序 evaluator + 证据完整性", "仅通过任务进入正式 30 条分母"],
+        [t("public.audit.source", "Candidate source"), t("public.audit.source_value", "{candidates} official WebArena human recordings", candidates=scope["candidates"]), t("public.audit.source_rule", "Every source trajectory hash is registered")],
+        [t("public.audit.prefilter", "Architecture and evaluator prefilter"), t("public.audit.prefilter_value", "Exclude {non_native} arm64-only Wikipedia recordings and {evaluator_defects} confirmed evaluator defects", non_native=scope["non_native"], evaluator_defects=scope["evaluator_defects"]), t("public.audit.prefilter_rule", "Rules frozen before any browser result")],
+        [t("public.audit.qualification", "Trajectory qualification"), t("public.audit.qualification_value", "Cold Chromium replay + official programmatic evaluator + evidence completeness"), t("public.audit.qualification_rule", "Only passing tasks enter the formal denominator of {tasks}", tasks=task_count)],
         [t("public.audit.task_matrix", "Formal task matrix"), t("public.audit.task_matrix_value", "{tasks} tasks × {browsers} browsers", tasks=len(manifest.get('suite') or []), browsers=len(engines)), t("public.audit.same_inputs", "Same tasks, trajectories, viewport, timeouts and acceptors")],
         [t("public.method.result_unit", "Result unit"), t("public.audit.result_unit_value", "Each task and browser publishes one result"), t("public.audit.same_scope", "Aggregates, task comparisons and details use the same scope")],
         [t("public.audit.result_scoring", "Result scoring"), t("public.audit.scoring_value", "AgentResponse / final service state / HAR network events"), t("public.audit.no_judge", "No LLM judge; missing required evidence fails")],
@@ -1697,7 +1663,7 @@ def _review_page(
         + _table([t("public.audit.stage", "Stage"), t("public.audit.scope", "Scope"), t("public.audit.rule", "Acceptance rule")], rows, t("public.audit.caption", "Qualification and formal run audit")) + '</section>'
         f'<section class="card"><h2>{t("public.audit.data_integrity", "Data integrity")}</h2>'
         + _table([t("public.audit.check", "Check"), t("public.audit.bound_value", "Bound value"), t("public.audit.status", "Status")], checks, t("public.audit.current_binding", "Current run binding")) + '</section>'
-        '<section class="card"><h2>仍然存在的边界</h2><ul><li>每个任务和浏览器只有一个公开结果，不构成置信区间。</li><li>任务来自一个冻结的 30 条子集；站点分组样本更少。</li><li>失败审查读取错误栈、BrowserTool trace 和 evaluator 输出，只能概括直接机制，不自动证明浏览器内部根因。</li></ul></section>'
+        f'<section class="card"><h2>{t("public.audit.limits", "Remaining limits")}</h2><ul><li>{t("public.audit.limit_single", "Each task and browser has one public result, which gives no confidence interval.")}</li><li>{t("public.audit.limit_subset", "Tasks come from one frozen subset of {tasks}; site groups have even fewer samples.", tasks=task_count)}</li><li>{t("public.audit.limit_review", "Failure review reads error stacks, BrowserTool traces and evaluator output; it summarizes direct mechanisms and does not by itself prove a browser-internal root cause.")}</li></ul></section>'
     )
 
 
@@ -1842,7 +1808,7 @@ def write_latest_report(
     results = _results_page(manifest, summary, detail_pages)
     keep = report_file_names(summary)
     if set(detail_pages) != keep.difference(
-        {f"{REPORT_STEM}.md", audit_name, *(filename for _, _, filename in PAGES)}
+        {f"{REPORT_STEM}.md", audit_name, "report-languages.json", *(page.route for page in VARIANT.pages)}
     ):
         raise ValueError("report detail inventory differs from the declared result population")
     for pattern in (
@@ -1860,6 +1826,7 @@ def write_latest_report(
     md_path.write_text(_markdown(manifest, summary), encoding="utf-8")
     audit = {
         "schema": "lex_browser_use_report_audit/1",
+        "template": TEMPLATE.record(VARIANT.name),
         "run_id": manifest.get("run_id"),
         "created_at": manifest.get("created_at"),
         "suite_sha256": manifest.get("suite_sha256"),
@@ -1888,16 +1855,18 @@ def write_latest_report(
     (root / audit_name).write_text(
         json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    renderers = {
+    fills = {
         "index": lambda: _summary_page(manifest, summary, result_audit),
         "results": lambda: results,
-        "suite": lambda: _suite_page(manifest),
-        "research": lambda: _research_page(manifest, summary),
-        "method": lambda: _method_page(manifest, summary) + _review_page(manifest, summary, result_audit),
-        "appendix": lambda: _appendix_page(manifest),
+        "suite": lambda: {"inventory": _suite_page(manifest)},
+        "research": lambda: {"protocol": _research_page(manifest, summary)},
+        "method": lambda: {"protocol": _method_page(manifest, summary),
+                           "notes": _review_page(manifest, summary, result_audit)},
+        "appendix": lambda: {"commands": _appendix_page(manifest)},
     }
-    for slug, _, filename in PAGES:
-        (root / filename).write_text(_shell(manifest, slug, renderers[slug]()), encoding="utf-8")
+    for page in VARIANT.pages:
+        (root / page.route).write_text(_page(manifest, page.key, fills[page.key]()), encoding="utf-8")
     for filename, document in detail_pages.items():
         (root / filename).write_text(document, encoding="utf-8")
+    write_chinese_only(root)
     return md_path

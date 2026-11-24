@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 
 from harness.environments.browser import rotated_engine_order
+from harness.reporting.release_check import check_template_pages
 from harness.trajectory_replay.core.report import _annotate_source_marks
 from harness.trajectory_replay.participants import summary_engines
 from harness.trajectory_replay.report import (
@@ -18,7 +20,10 @@ from harness.trajectory_replay.report import (
     write_latest_report,
 )
 from harness.trajectory_replay.report_inputs import replay_input_path
+from harness.trajectory_replay.template import TEMPLATE
 from tests.trajectory_replay.curated_report_fixture import build_curated_report
+
+MOLI_CONTENT = Path(__file__).parents[2] / "examples/trajectory_replay/moli-timing-content.json"
 
 
 def test_comparisons_are_neutral_for_displayed_ties_and_missing_values():
@@ -188,7 +193,9 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     rendered = (reports / "trajectory-replay-evaluation-latest.html").read_text(encoding="utf-8")
     assert "结论与产品建议" in rendered
     assert 'lang="zh-CN"' in rendered
-    assert "报告分页" in rendered
+    record = json.loads((reports / "trajectory-replay-evaluation-latest-data.json").read_text())
+    assert check_template_pages(reports, record["template"], TEMPLATE).name == "curated"
+    assert "本报告仅提供中文版" in rendered
     assert "评测集包含 1 个结果唯一的任务" in rendered
     assert rendered.index('<th colspan="2">P50</th>') < rendered.index('<th colspan="2">P95</th>')
     assert rendered.index('<th colspan="2">P95</th>') < rendered.index(
@@ -350,7 +357,8 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path):
     assert "unique-answer" in detail
     assert "未产生（过程失败）" in detail
     assert "未判定" in detail
-    assert "时序机制研究" in analysis
+    # Instance research prose comes only from bound content.
+    assert "时序机制研究" not in analysis
     homepage = (reports / "trajectory-replay-evaluation-latest.html").read_text(encoding="utf-8")
     assert 'class="failure-shortcut"' not in homepage
     assert f'href="{detail_files[0].name}"' not in homepage
@@ -536,13 +544,18 @@ def test_report_renders_every_registered_participant_of_a_larger_set(tmp_path):
 
 def test_report_states_a_partial_tie_among_more_than_two_participants(tmp_path):
     reports = tmp_path / "reports"
-    build_curated_report(reports, ("chromium", "moli", "obscura"), {"obscura": ("modal-form",)})
+    content = json.loads(MOLI_CONTENT.read_text(encoding="utf-8"))
+    build_curated_report(
+        reports, ("chromium", "moli", "obscura"), {"obscura": ("modal-form",)}, content
+    )
     home = _route(reports, ".html")
     assert "本轮 Chromium 与 Moli 的结果正确任务数相同（均为 3）" in home
-    # The screencast study follows Moli's participation, not the participant count.
-    assert "尚不能确认 screencast、渲染器或适配层中的具体根因" in home
-    assert ">查看逐任务证据与验证方案</a>" in home
-    assert "时序机制研究" in _route(reports, "-analysis.html")
+    assert "尚不能确认渲染器或适配层中的具体根因" in home
+    # Bound instance content fills the findings and analysis-notes slots.
+    assert '<div data-slot="findings">' in home and "<li data-authored><strong>时序边界" in home
+    analysis = _route(reports, "-analysis.html")
+    assert analysis.index('data-slot="inventory"') < analysis.index("时序机制研究")
+    assert '<div data-slot="notes"><div data-authored>' in analysis
 
 
 def test_report_renders_a_single_participant_without_comparisons(tmp_path):

@@ -12,11 +12,10 @@ from harness.reporting.privacy import TRAJECTORY_REPLAY
 from harness.trajectory_replay.messages import report_text
 from harness.trajectory_replay.report_inputs import bound_dataset_path
 from harness.trajectory_replay.webarena_report import (
-    LEGACY_REPLAY_VALIDITY_INPUTS,
+    VALIDITY_NOTICES,
     _clean,
     _copy_failure_screenshot,
     _detail_page,
-    _historical_replay_validity_notice,
     _legacy_retrieval_provenance,
     _load_artifact,
     _measured_validity_identity,
@@ -30,12 +29,13 @@ from harness.trajectory_replay.webarena_report import (
     _task_page,
     _unique_winners,
     _validated_planned_actions,
+    _validity_notice,
+    _validity_notice_html,
     _verdict_label,
     build_webarena_replay_report,
     require_all_reference_validity,
 )
 from harness.trajectory_replay.webarena_report_check import (
-    _check_affected36_comparison,
     _check_core_comparison,
     _check_english_localization,
     _check_formal_execution_scope,
@@ -473,42 +473,6 @@ def test_result_detail_gate_rejects_duplicate_summary_and_missing_failure_log() 
         )
 
 
-def test_affected36_comparison_rejects_wrong_score_and_tied_highlight(tmp_path: Path) -> None:
-    compare = [
-        {"id": "old", "label": "Old", "passed": 36, "total": 36},
-        {"id": "new", "label": "New", "passed": 36, "total": 36},
-    ]
-    results = [
-        {"participant_id": method, "task_id": task_id, "status": "pass"}
-        for method in ("old", "new") for task_id in range(36)
-    ]
-    def row(item, marker=""):
-        return (
-            f"""<tr><td><a href="results.html?participant={item['id']}&status=">"""
-            f"{item['label']}</a></td>"
-            f'<td data-metric="affected36-pass">36/36{marker}</td></tr>'
-        )
-    for directory, heading in ((tmp_path, "36 题"), (tmp_path / "en", "36 failures")):
-        directory.mkdir(exist_ok=True)
-        (directory / "index.html").write_text(
-            heading + "".join(row(item) for item in compare), encoding="utf-8"
-        )
-    _check_affected36_comparison(tmp_path, compare, results, set(range(36)), ["old", "new"])
-    (tmp_path / "en/index.html").write_text(
-        "36 failures" + row(compare[0], '<span class="winner">Best</span>') + row(compare[1]),
-        encoding="utf-8"
-    )
-    with pytest.raises(ValueError, match="highlight"):
-        _check_affected36_comparison(tmp_path, compare, results, set(range(36)), ["old", "new"])
-    compare[1]["passed"] = 35
-    with pytest.raises(ValueError, match="denominator or score"):
-        _check_affected36_comparison(tmp_path, compare, results, set(range(36)), ["old", "new"])
-
-
-
-
-
-
 def _method(name: str, pass_rate: float, base: float) -> dict:
     metric = {"n": 90, "mean": base, "p50": base + 1, "p95": base + 2}
     return {
@@ -776,16 +740,21 @@ def test_release_gate_includes_fix_and_diagnostic_routes(tmp_path: Path) -> None
 
 
 def test_report_shell_localizes_chinese_title_and_footer() -> None:
-    rendered = _shell("zh", "index", "浏览器轨迹重放", "<p>正文</p>")
+    rendered = _shell(
+        "zh", "index", "浏览器轨迹重放", {"lead": "<p>正文</p>"}, heading="浏览器轨迹重放"
+    )
+    assert '<main data-page-role="home">' in rendered and '<div data-slot="lead">' in rendered
     assert "<title>浏览器轨迹重放</title>" in rendered
     assert "WebArena-Verified 1.2.3 · 浏览器轨迹重放" in rendered
     assert "Browser Trajectory Replay</footer>" not in rendered
     detail = _shell(
-        "zh", "results", "结果", "<p>内容</p>", depth=1, current_route="result/moli-29.html"
+        "zh", "results", "结果", {"inventory": "<p>内容</p>"}, heading="结果", depth=1,
+        current_route="result/moli-29.html",
     )
     assert 'href="../en/result/moli-29.html"' in detail
     english = _shell(
-        "en", "results", "Result", "<p>Content</p>", depth=1, current_route="result/moli-29.html"
+        "en", "results", "Result", {"inventory": "<p>Content</p>"}, heading="Result", depth=1,
+        current_route="result/moli-29.html",
     )
     assert 'href="../../result/moli-29.html"' in english
 
@@ -795,7 +764,8 @@ def test_report_shell_preserves_private_preview_resource_base() -> None:
         (0, "index.html", "assets/report.css", "assets/app.js"),
         (1, "result/moli-29.html", "../assets/report.css", "../assets/app.js"),
     ):
-        rendered = _shell("zh", "results", "结果", "<p>证据</p>", depth=depth, current_route=route)
+        rendered = _shell("zh", "results", "结果", {"inventory": "<p>证据</p>"}, heading="结果",
+                          depth=depth, current_route=route)
         page = BeautifulSoup(rendered, "html.parser")
         assert page.select_one('link[rel="stylesheet"]')["data-src"] == css
         assert page.select_one("script[data-report-app]")["data-src"] == app
@@ -804,30 +774,19 @@ def test_report_shell_preserves_private_preview_resource_base() -> None:
         assert page.select_one("base") is None
 
 
+def _legacy_identity() -> dict[str, str]:
+    registry = json.loads(Path(VALIDITY_NOTICES).read_text(encoding="utf-8"))
+    return registry["notices"][0]["measured_identity"]
+
+
 def test_historical_validity_notice_is_hash_bound_and_bilingual() -> None:
-    results_sha256, dataset_sha256, profile_sha256 = next(iter(LEGACY_REPLAY_VALIDITY_INPUTS))
-    chinese = _historical_replay_validity_notice(
-        results_sha256=results_sha256,
-        dataset_sha256=dataset_sha256,
-        profile_sha256=profile_sha256,
-        lang="zh",
-    )
-    english = _historical_replay_validity_notice(
-        results_sha256=results_sha256,
-        dataset_sha256=dataset_sha256,
-        profile_sha256=profile_sha256,
-        lang="en",
-    )
+    notice = _validity_notice(_legacy_identity())
+    chinese = _validity_notice_html(notice, "zh")
+    english = _validity_notice_html(notice, "en")
     assert "recorded_response" in chinese and "recorded_response" in english
-    assert (
-        _historical_replay_validity_notice(
-            results_sha256="0" * 64,
-            dataset_sha256=dataset_sha256,
-            profile_sha256=profile_sha256,
-            lang="en",
-        )
-        == ""
-    )
+    assert "Chromium 90/90" in english
+    assert _validity_notice({**_legacy_identity(), "results_sha256": "0" * 64}) is None
+    assert _validity_notice_html(None, "en") == ""
 
 
 def test_validity_identity_uses_measured_profile_not_publication_profile(tmp_path: Path) -> None:
@@ -1114,6 +1073,7 @@ global.document={
   documentElement:{lang:payload.lang,dataset:{}},
   querySelector:selector=>elements[selector]??null,
   querySelectorAll:()=>[],
+  addEventListener(){},
 };
 global.localStorage={getItem:()=>null};
 global.fetch=async name=>({ok:true,json:async()=>payload[name]});
@@ -1296,13 +1256,10 @@ def test_report_rejects_symlinked_evidence_parent(tmp_path: Path) -> None:
 @pytest.mark.parametrize("legacy", [True, False])
 def test_fixed_input_pages_scope_qualification_to_measured_identity(legacy) -> None:
     lang = "en"
-    values = next(iter(LEGACY_REPLAY_VALIDITY_INPUTS))
-    identity = dict(
-        zip(("results_sha256", "dataset_sha256", "profile_sha256"), values, strict=True)
-    )
+    identity = _legacy_identity()
     if not legacy:
         identity["results_sha256"] = "f" * 64
-    notice = _historical_replay_validity_notice(**identity, lang=lang)
+    notice = _validity_notice_html(_validity_notice(identity), lang)
     task = {"task_id": 29, "task": {"intent": "Find a post"}, "tool_calls": []}
     attempt = {
         "engine": "moli",

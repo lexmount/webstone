@@ -1,0 +1,22 @@
+{
+  "schema": "trajectory_replay_validity_notices/1",
+  "notices": [
+    {
+      "id": "legacy-90-task-qualification",
+      "measured_identity": {
+        "results_sha256": "abaaa0e90aced74a831093f2d6d7c3371639acb984b3a2c057f3cc39632ea935",
+        "dataset_sha256": "61bb38bce552b5c7eea0e1f5fcca1bc898f55e2e39ee6e72498cff346ca1e4e3",
+        "profile_sha256": "3ca5d91cfec570490df202c9cb332957f7e850b70fc5af80b684709e97ef0893"
+      },
+      "retrieval_provenance": true,
+      "heading": {
+        "zh": "历史 90 题成绩保留，但不是当前资格证明",
+        "en": "The historical 90-task scores remain, but they are not current qualification proof"
+      },
+      "body": {
+        "zh": "Chromium 90/90、Moli 54/90 是这批历史固定轨迹的原始验收结果，不做人工改分。但旧资格流程曾把返回内容为 [Snapshot error: …] 的 snapshot 动作按工具包装层 success 接受；37 道 RETRIEVE 题的 74 条结果均直接使用冻结的 recorded_response 验收，没有绑定本轮页面读数；历史运行还存在 Chromium 780×437/493、Moli 1920×1080 的视口差异。因此这些分数只能描述旧协议下的固定路径验收，不能证明 90 条轨迹符合当前 fail-closed 资格规则，也不能作为统一视口下的浏览器成功率。修正后的正式比较需要重新资格验证并完整重跑。",
+        "en": "Chromium 90/90 and Moli 54/90 remain the original acceptance results for this historical fixed-trajectory cohort; no score is manually changed. However, the legacy qualification flow accepted snapshot actions as tool-wrapper successes even when their returned content began [Snapshot error: …]. All 74 results for the 37 RETRIEVE tasks used frozen recorded_response values for acceptance without binding answers to data read from the current page, and the historical runs used mismatched viewports: Chromium 780×437/493 and Moli 1920×1080. These scores therefore describe fixed-path acceptance under the legacy protocol. They do not prove that all 90 trajectories satisfy the current fail-closed qualification rules or measure browser success at a common viewport. A corrected formal comparison requires renewed qualification and a complete rerun."
+      }
+    }
+  ]
+}

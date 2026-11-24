@@ -7,11 +7,13 @@ import pytest
 from bs4 import BeautifulSoup
 
 from harness.trajectory_replay.interpretation import render_interpretation, standalone_document
-from harness.trajectory_replay.webarena_report import _add_interpretation_navigation, _shell
+from harness.trajectory_replay.webarena_report import _shell
 from harness.trajectory_replay.webarena_report_check import (
     _check_interpretation,
     _text_without_verified_embedded_images,
 )
+
+NAV_LINK = 'body > nav > .pages a[href$="interpretation.html"]'
 
 
 def test_interpretation_is_reachable_from_summary_and_nested_evidence(tmp_path):
@@ -21,13 +23,13 @@ def test_interpretation_is_reachable_from_summary_and_nested_evidence(tmp_path):
             path = root / route
             path.parent.mkdir(parents=True, exist_ok=True)
             active = "interpretation" if route == "interpretation.html" else "results"
-            path.write_text(_shell(lang, active, "Title", "<p>Evidence</p>",
+            fills = {"findings" if active == "interpretation" else "inventory": "<p>Evidence</p>"}
+            path.write_text(_shell(lang, active, "Title", fills, heading="Title",
                                    depth=route.count("/"), current_route=route), encoding="utf-8")
-        _add_interpretation_navigation(root, lang)
         for route in ("index.html", "interpretation.html", "result/example.html"):
             path = root / route
             page = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-            links = page.select('header nav a[data-report-interpretation]')
+            links = page.select(NAV_LINK)
             assert len(links) == 1
             target = (root / "interpretation.html").resolve()
             assert (path.parent / links[0]["href"]).resolve() == target
@@ -135,17 +137,17 @@ def test_release_rejects_inaccessible_interpretation_navigation(tmp_path, mutati
     build(tmp_path)
     path = tmp_path / "result/example.html"
     path.parent.mkdir()
-    path.write_text(_shell("zh", "results", "结果", "<p>证据</p>", depth=1), encoding="utf-8")
-    _add_interpretation_navigation(tmp_path, "zh")
+    path.write_text(_shell("zh", "results", "结果", {"inventory": "<p>证据</p>"}, heading="结果",
+                           depth=1), encoding="utf-8")
     _check_interpretation(tmp_path)
     page = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-    link = page.select_one("a[data-report-interpretation]")
+    link = page.select_one(NAV_LINK)
     if mutation == "missing":
         link.decompose()
     elif mutation == "wrong_depth":
         link["href"] = "interpretation.html"
     elif mutation == "duplicate":
-        page.select_one("nav").append(BeautifulSoup(str(link), "html.parser"))
+        page.select_one("nav .pages").append(BeautifulSoup(str(link), "html.parser"))
     else:
         link["aria-current"] = "page"
     path.write_text(str(page), encoding="utf-8")

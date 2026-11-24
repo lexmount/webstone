@@ -1,4 +1,4 @@
-"""Chinese paginated evidence-first browser benchmark report."""
+"""The curated public-web replay report: the ``curated`` variant of the replay track template."""
 
 from __future__ import annotations
 
@@ -25,9 +25,13 @@ from harness.trajectory_replay.core.report import (
     _source_references,
     _stat,
     _trace_text,
+    flat_page,
+    replay_table,
+    write_chinese_only,
 )
 from harness.trajectory_replay.messages import report_text
 from harness.trajectory_replay.participants import engine_names, summary_engines
+from harness.trajectory_replay.template import CURATED_STEM, TEMPLATE
 
 ASSETS = Path(__file__).with_name("assets")
 REPORT_CSS = (ASSETS / "curated-report.css").read_text(encoding="utf-8")
@@ -36,41 +40,17 @@ EXECUTION_FILTER_JS = (ASSETS / "curated-execution-filter.js").read_text(encodin
 # This renderer generates only the Chinese edition.
 t = report_text("zh")
 
-REPORT_STEM = "trajectory-replay-evaluation-latest"
-PAGES = tuple(
-    (slug, label, f"{REPORT_STEM}{suffix}.html")
-    for slug, label, suffix in (
-        ("index", t("replay.page.summary", "Summary"), ""),
-        ("suite", t("replay.page.suite", "Suite"), "-suite"),
-        ("method", t("replay.page.method", "Environment and method"), "-method"),
-        ("analysis", t("curated.page.analysis", "Per-task analysis"), "-analysis"),
-        ("appendix", t("replay.page.appendix", "Reproduction and appendix"), "-appendix"),
-    )
-)
-
-
-def _table(
-    headers: list[str], rows: list[list[Any]], caption: str, *, source_marks: bool = False
-) -> str:
-    head = "".join(f"<th>{_e(item)}</th>" for item in headers)
-    body = "".join(
-        "<tr>"
-        + "".join(
-            f'<td data-label="{_e(headers[i])}"'
-            + (f' class="{v.css_class}"' if isinstance(v, ComparedValue) and v.css_class else "")
-            + ">"
-            + (
-                _annotate_source_marks(_e(v.text if isinstance(v, ComparedValue) else v))
-                if source_marks
-                else _e(v.text if isinstance(v, ComparedValue) else v)
-            )
-            + "</td>"
-            for i, v in enumerate(row)
-        )
-        + "</tr>"
-        for row in rows
-    )
-    return f'<div class="table-wrap"><table><caption>{_e(caption)}</caption><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
+REPORT_STEM = CURATED_STEM
+VARIANT = TEMPLATE.variant("curated")
+# Navigation labels by template page key.
+PAGE_LABELS = {
+    "index": t("replay.page.summary", "Summary"),
+    "suite": t("replay.page.suite", "Suite"),
+    "method": t("replay.page.method", "Environment and method"),
+    "analysis": t("curated.page.analysis", "Per-task analysis"),
+    "appendix": t("replay.page.appendix", "Reproduction and appendix"),
+}
+_table = replay_table
 
 
 def _engines(summary: dict[str, Any]) -> tuple[str, ...]:
@@ -243,45 +223,32 @@ def _duration_pair_audit(
     )
 
 
-def _nav(active: str) -> str:
-    return (
-        f'<nav aria-label="{t("replay.nav.pages", "Report pages")}">'
-        + "".join(
-            f'<a href="{filename}" {"class=active aria-current=page" if slug == active else ""}>{i}. {label}</a>'
-            for i, (slug, label, filename) in enumerate(PAGES, 1)
-        )
-        + "</nav>"
-    )
-
-
-def _shell(
+def _page(
     manifest: dict[str, Any],
-    active: str,
-    body: str,
+    key: str,
+    fills: dict[str, str],
     engines: tuple[str, ...],
     *,
     detail_title: str = "",
     back_anchor: str = "",
 ) -> str:
     names = engine_names(engines)
-    label = next(p[1] for p in PAGES if p[0] == active)
-    index = next(i for i, p in enumerate(PAGES) if p[0] == active)
-    prev_link = (
-        f'<a href="{PAGES[index - 1][2]}">← {PAGES[index - 1][1]}</a>' if index else "<span></span>"
-    )
-    next_link = (
-        f'<a href="{PAGES[index + 1][2]}">{PAGES[index + 1][1]} →</a>'
-        if index + 1 < len(PAGES)
-        else "<span></span>"
-    )
-    header = (
-        f'<div class="case-header"><a href="{REPORT_STEM}-analysis.html#{_e(back_anchor)}">← {t("curated.back_to_analysis", "Back to per-task analysis")}</a>'
-        f'<a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=_e(manifest.get("run_id", "unknown")))}</span></div>'
+    run_id = _e(manifest.get("run_id", "unknown"))
+    detail_nav = (
+        f'<a href="{REPORT_STEM}-analysis.html#{_e(back_anchor)}">← {t("curated.back_to_analysis", "Back to per-task analysis")}</a>'
+        f'<a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
         if detail_title
-        else f'<div class="brand"><div class="eyebrow">Lexmount Browser Provider Evaluation</div><h1>{t("curated.shell.heading", "{names} browser tool-call evaluation", names=names)}</h1><div class="muted">{t("curated.shell.page_info", "Run ID: {run_id} · Page {page}/{pages}", run_id=_e(manifest.get("run_id", "unknown")), page=index + 1, pages=len(PAGES))}</div></div>{_nav(active)}'
+        else ""
     )
-    pager = "" if detail_title else f'<div class="pager">{prev_link}{next_link}</div>'
-    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{t("curated.shell.title", "{title} | {names} evaluation", title=_e(detail_title) or label, names=names)}</title><style>{REPORT_CSS}</style></head><body><header><div class="wrap">{header}</div></header><main>{body}{pager}</main><footer>Lexmount Browser Provider Evaluation</footer></body></html>"""
+    index = [page.key for page in VARIANT.pages].index(key)
+    return flat_page(
+        VARIANT, key, fills,
+        title=t("curated.shell.title", "{title} | {names} evaluation", title=detail_title or PAGE_LABELS[key], names=names),
+        heading=_e(detail_title) if detail_title else t("curated.shell.heading", "{names} browser tool-call evaluation", names=names),
+        eyebrow="" if detail_title else "Lexmount Browser Provider Evaluation · " + t("curated.shell.page_info", "Run ID: {run_id} · Page {page}/{pages}", run_id=run_id, page=index + 1, pages=len(VARIANT.pages)),
+        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav,
+        footer="Lexmount Browser Provider Evaluation · " + t("replay.edition.chinese_only", "This report is available in Chinese only."),
+    )
 
 
 def _correctness_rows(summary: dict[str, Any]) -> list[list[str]]:
@@ -363,11 +330,6 @@ def _detail_filename(task_id: str, engine: str) -> str:
     return f"{REPORT_STEM}-task-{task_id.encode().hex()}-{engine.encode().hex()}.html"
 
 
-MOLI_TIMING_FINDING = """<li><strong>时序边界：</strong>Moli 的 1 Hz 是 CDP screencast 下采样，不等于 JavaScript 或 <code>requestAnimationFrame</code> 只有 1 fps；源码中的 rAF 目标间隔为 16 ms。</li>
-"""
-MOLI_TIMING_STUDY = """<section class="card"><h2>时序机制研究</h2><div class="hypothesis-grid"><div><strong>研究假设</strong><span>低频 screencast 或其触发的布局快照，可能放大动态 DOM 更新后几何、可见性或命中测试状态的滞后。</span></div><div><strong>对照设计</strong><span>固定页面、选择器和调用，比较立即显现、双 rAF、定时器、DOM 替换、动画与视口进入；延迟覆盖 16 ms 到 1 s。</span></div><div><strong>验证指标</strong><span>记录 DOM/rAF 完成时间与 actionability 恢复时间，检验其差值是否随 screencast 条件系统性变化。</span></div></div></section>"""
-
-
 def _recommendation(summary: dict[str, Any], engines: tuple[str, ...]) -> str:
     functional = summary.get("functional") or {}
     passes = {}
@@ -407,16 +369,17 @@ def _ratio_finding(summary: dict[str, Any], engines: tuple[str, ...]) -> str:
     return f"<li>{t('curated.finding.speed', '<strong>Speed and resources:</strong> on tasks {parties} passed, {clauses}.', parties=_all_parties(engines), clauses=clauses)}</li>\n"
 
 
-def _root_cause_finding(engines: tuple[str, ...]) -> str:
-    layers, link = (
-        (t("curated.finding.layers_moli", "screencast, renderer or adapter layer"), t("curated.finding.link_moli", "View per-task evidence and the verification plan"))
-        if "moli" in engines
-        else (t("curated.finding.layers", "renderer or adapter layer"), t("curated.finding.link", "View per-task evidence"))
-    )
+def _root_cause_finding() -> str:
+    layers, link = t("curated.finding.layers", "renderer or adapter layer"), t("curated.finding.link", "View per-task evidence")
     return f"""<li>{t("curated.finding.root_cause", '<strong>Root-cause boundary:</strong> layout and actionability evidence only locates the symptom; it cannot yet confirm a specific root cause in the {layers}. <a href="trajectory-replay-evaluation-latest-analysis.html">{link}</a>.', layers=layers, link=link)}</li>"""
 
 
-def _summary_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
+def _authored(items: Any, tag: str) -> str:
+    """Bound report content, marked so the template check keeps it in content slots."""
+    return "".join(f"<{tag} data-authored>{item}</{tag}>" for item in items or ())
+
+
+def _summary_page(manifest: dict[str, Any], summary: dict[str, Any], content: dict[str, Any]) -> dict[str, str]:
     task_count = len(manifest.get("suite") or [])
     engines = _engines(summary)
     parties = _all_parties(engines)
@@ -434,11 +397,13 @@ def _summary_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
         if len(engines) > 1
         else ""
     )
-    return f"""<section class="card note"><h2>{t("curated.summary.conclusion", "Conclusion and product recommendation")}</h2><p><strong>{recommendation}</strong></p><p>{t("curated.summary.scope", "This is a public-web deterministic microbenchmark at the browser tool-call layer, not an LLM Agent ranking. The suite has {count} tasks with unique results.", count=task_count)}</p></section>
-<section class="card"><h2>{t("curated.correctness.title", "Task correctness")}</h2>{correctness}</section>
-<section class="card" id="technical-findings"><h2>{t("curated.summary.findings", "Key technical findings")}</h2><ul>
-{_ratio_finding(summary, engines)}{MOLI_TIMING_FINDING if "moli" in engines else ""}{_root_cause_finding(engines)}</ul></section>
-<section class="card" id="performance"><h2>{t("curated.summary.performance", "Speed and resources on tasks {parties} passed", parties=parties)}</h2><p>{t("curated.summary.performance_scope", "Scope: {count} same tasks {parties} passed, excluding failures and retry samples.", parties=parties, count=paired)}{highlight_legend}</p>{_metric_tables(summary)}{_duration_ratio_audit(summary)}</section>{smoke_html}"""
+    return {
+        "lead": f"""<section class="card note"><h2>{t("curated.summary.conclusion", "Conclusion and product recommendation")}</h2><p><strong>{recommendation}</strong></p><p>{t("curated.summary.scope", "This is a public-web deterministic microbenchmark at the browser tool-call layer, not an LLM Agent ranking. The suite has {count} tasks with unique results.", count=task_count)}</p></section>""",
+        "core-comparison": f"""<section class="card"><h2>{t("curated.correctness.title", "Task correctness")}</h2>{correctness}</section>""",
+        "findings": f"""<section class="card" id="technical-findings"><h2>{t("curated.summary.findings", "Key technical findings")}</h2><ul>
+{_ratio_finding(summary, engines)}{_authored(content.get("findings"), "li")}{_root_cause_finding()}</ul></section>""",
+        "coverage": f"""<section class="card" id="performance"><h2>{t("curated.summary.performance", "Speed and resources on tasks {parties} passed", parties=parties)}</h2><p>{t("curated.summary.performance_scope", "Scope: {count} same tasks {parties} passed, excluding failures and retry samples.", parties=parties, count=paired)}{highlight_legend}</p>{_metric_tables(summary)}{_duration_ratio_audit(summary)}</section>{smoke_html}""",
+    }
 
 
 def _suite_page(manifest: dict[str, Any]) -> str:
@@ -721,7 +686,7 @@ def _task_detail_body(
     process = final.get("process_status") or final.get("status")
     overview = (
         '<section class="card case-overview" id="case-result">'
-        f'<div class="section-heading"><h1>{_e(title)}</h1><span class="chip">{_e(engine)}</span></div>'
+        f'<div class="section-heading"><span class="chip">{_e(engine)}</span></div>'
         f'<p class="muted case-id">{_e(task_id)}</p>'
         '<div class="case-facts">'
         f'<div><span>{t("replay.detail.result", "Result")}</span><strong class="{"ok" if result == "pass" else "bad"}">{status_cell(result)}</strong></div>'
@@ -974,10 +939,10 @@ def _execution_details(
             )
             # Artifact Site injects a site-root base URL; fragment links need the file.
             detail_body = detail_body.replace('href="#', f'href="{detail_name}#')
-            detail_pages[detail_name] = _shell(
+            detail_pages[detail_name] = _page(
                 manifest,
                 "analysis",
-                detail_body,
+                {"inventory": detail_body},
                 _engines(summary),
                 detail_title=title,
                 back_anchor=anchor,
@@ -1103,10 +1068,10 @@ def _classify(error: str) -> str:
 
 
 def _analysis_page(
-    manifest: dict[str, Any], summary: dict[str, Any], detail_pages: dict[str, str]
-) -> str:
-    timing_study = MOLI_TIMING_STUDY if "moli" in _engines(summary) else ""
-    return f"""{timing_study}{_execution_explorer(manifest, summary, detail_pages)}"""
+    manifest: dict[str, Any], summary: dict[str, Any], detail_pages: dict[str, str], content: dict[str, Any]
+) -> dict[str, str]:
+    return {"inventory": _execution_explorer(manifest, summary, detail_pages),
+            "notes": _authored(content.get("analysis_notes"), "div")}
 
 
 def _appendix_page(manifest: dict[str, Any], engines: tuple[str, ...]) -> str:
@@ -1186,14 +1151,17 @@ def _markdown(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
 
 
 def write_latest_report(
-    reports_dir: str | Path, *, manifest: dict[str, Any], summary: dict[str, Any]
+    reports_dir: str | Path, *, manifest: dict[str, Any], summary: dict[str, Any],
+    content: dict[str, Any] | None = None,
 ) -> Path:
+    """Write the curated report; ``content`` binds optional authored findings and analysis notes."""
+    content = content or {}
     root = Path(reports_dir)
     root.mkdir(parents=True, exist_ok=True)
     audit_name = f"{REPORT_STEM}-data.json"
     detail_pages: dict[str, str] = {}
-    analysis = _analysis_page(manifest, summary, detail_pages)
-    keep = {f"{REPORT_STEM}.md", audit_name, *(filename for _, _, filename in PAGES), *detail_pages}
+    analysis = _analysis_page(manifest, summary, detail_pages, content)
+    keep = {f"{REPORT_STEM}.md", audit_name, *(page.route for page in VARIANT.pages), *detail_pages}
     for pattern in (
         "trajectory-replay-evaluation-*.md",
         "trajectory-replay-evaluation-*.html",
@@ -1206,6 +1174,7 @@ def write_latest_report(
     md_path.write_text(_markdown(manifest, summary), encoding="utf-8")
     audit = {
         "schema": "lex_browser_use_report_audit/1",
+        "template": TEMPLATE.record(VARIANT.name),
         "run_id": manifest.get("run_id"),
         "created_at": manifest.get("created_at"),
         "suite_sha256": manifest.get("suite_sha256"),
@@ -1222,15 +1191,16 @@ def write_latest_report(
         json.dumps(audit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     engines = _engines(summary)
-    renderers = {
-        "index": lambda: _summary_page(manifest, summary),
-        "suite": lambda: _suite_page(manifest),
-        "method": lambda: _method_page(manifest, engines),
+    fills = {
+        "index": lambda: _summary_page(manifest, summary, content),
+        "suite": lambda: {"inventory": _suite_page(manifest)},
+        "method": lambda: {"protocol": _method_page(manifest, engines)},
         "analysis": lambda: analysis,
-        "appendix": lambda: _appendix_page(manifest, engines),
+        "appendix": lambda: {"commands": _appendix_page(manifest, engines)},
     }
-    for slug, _, filename in PAGES:
-        (root / filename).write_text(_shell(manifest, slug, renderers[slug](), engines), encoding="utf-8")
+    for page in VARIANT.pages:
+        (root / page.route).write_text(_page(manifest, page.key, fills[page.key](), engines), encoding="utf-8")
     for filename, document in detail_pages.items():
         (root / filename).write_text(document, encoding="utf-8")
+    write_chinese_only(root)
     return md_path

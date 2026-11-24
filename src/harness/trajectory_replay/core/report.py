@@ -1,13 +1,17 @@
-"""Report helpers shared by both Trajectory Replay tracks."""
+"""Report helpers shared by the Trajectory Replay reports."""
 
 from __future__ import annotations
 
 import html
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from harness.reporting import explorer, shell
+from harness.reporting.templates import compose
 
 ASSETS = Path(__file__).parents[1] / "assets"
 SUITE_FILTER_JS = (ASSETS / "suite-filter.js").read_text(encoding="utf-8")
@@ -110,4 +114,102 @@ def _source_mark_note(values: Any) -> str:
         '<p class="source-mark-note">¶ 为原网页标题的锚点字符，参与逐字判定。</p>'
         if "¶" in str(values)
         else ""
+    )
+
+
+def replay_table(
+    headers: list[str], rows: list[list[Any]], caption: str, *, source_marks: bool = False,
+    stackable: bool = False,
+) -> str:
+    """A captioned table; ``stackable`` cells stack on narrow screens under their header label."""
+    head = "".join(f"<th>{_e(item)}</th>" for item in headers)
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f'<td data-label="{_e(headers[i])}"'
+            + (f' class="{v.css_class}"' if isinstance(v, ComparedValue) and v.css_class else "")
+            + ">"
+            + (
+                _annotate_source_marks(_e(v.text if isinstance(v, ComparedValue) else v))
+                if source_marks
+                else _e(v.text if isinstance(v, ComparedValue) else v)
+            )
+            + "</td>"
+            for i, v in enumerate(row)
+        )
+        + "</tr>"
+        for row in rows
+    )
+    wrap = (
+        f'<div class="table-wrap stackable" role="region" aria-label="{_e(caption)}" tabindex="0">'
+        if stackable
+        else '<div class="table-wrap">'
+    )
+    return (
+        f"{wrap}<table><caption>{_e(caption)}</caption><thead><tr>{head}</tr></thead>"
+        f"<tbody>{body}</tbody></table></div>"
+    )
+
+
+def flat_page(
+    variant, key: str, fills: dict[str, str], *, title: str, heading: str, eyebrow: str,
+    style: str, labels: dict[str, str], footer: str, detail_nav: str = "",
+) -> str:
+    """One page of a flat (single-directory) replay report in the shared shell.
+
+    ``labels`` translate the variant's page titles by key; a report page lists them
+    with a previous/next pager, while a detail page passes its own ``detail_nav``.
+    """
+    pages = variant.pages
+    owner = variant.page(key)
+    pager = ""
+    if detail_nav:
+        nav = detail_nav
+    else:
+        links = [(page.route, f"{n}. {labels[page.key]}") for n, page in enumerate(pages, 1)]
+        nav = shell.navigation(links, owner.route)
+        index = pages.index(owner)
+        previous = (f'<a href="{pages[index - 1].route}">← {labels[pages[index - 1].key]}</a>'
+                    if index else "<span></span>")
+        following = (f'<a href="{pages[index + 1].route}">{labels[pages[index + 1].key]} →</a>'
+                     if index + 1 < len(pages) else "<span></span>")
+        pager = f'<div class="pager">{previous}{following}</div>'
+    return shell.page(
+        lang="zh-CN", base=None, title=title, heading=None, heading_html=heading, style=style,
+        script="", nav=nav, eyebrow=eyebrow, notice="", role=owner.role,
+        body=compose(owner.role, fills) + pager, dialog="",
+        footer_html=f"<footer>{footer}</footer>",
+    )
+
+
+def write_chinese_only(root: Path) -> None:
+    """Record that a flat report has only its Chinese edition; its pages say so in the footer.
+
+    A flat report has no language switch, so it carries no English not-generated route.
+    """
+    (root / "report-languages.json").write_text(
+        json.dumps({"languages": ["zh"], "english_status": "not_generated"}) + "\n",
+        encoding="utf-8",
+    )
+
+
+def explorer_labels(
+    t, title: str, description: str, task: str, baseline: str, compare: str
+) -> explorer.Labels:
+    """Same-task explorer labels in one edition; ``t`` is that edition's catalog lookup."""
+    return explorer.Labels(
+        title=title, description=description, task=task, baseline=baseline, compare=compare,
+        relation=t("comparison.relation", "Outcome relation"),
+        any=t("comparison.relation.all_tasks", "All tasks"),
+        relations={
+            "differs": t("explorer.relation.differs", "Outcomes differ"),
+            "baseline_passes": t(
+                "explorer.relation.baseline_passes", "Baseline passes; a comparison fails"
+            ),
+            "comparison_passes": t(
+                "explorer.relation.comparison_passes", "Baseline fails; a comparison passes"
+            ),
+            "all_pass": t("explorer.relation.all_pass", "All selected pass"),
+            "all_fail": t("explorer.relation.all_fail", "All selected fail"),
+        },
     )
