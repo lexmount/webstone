@@ -83,10 +83,14 @@ flowchart LR
 | Prepare inputs | Profile, data lock | Frozen dataset | `src/harness/benchmarks/` and the benchmark adapter | Read measured outputs |
 | Run | Frozen dataset, method adapters | Call records and raw evidence | `src/harness/benchmark_execution.py` and the track runner | Score, or drop a physical call |
 | Score | Call records, frozen dataset | Scored results | The benchmark's scorer (`src/lexbench_*` or the pinned upstream evaluator) | Call a method, or select rules by method name |
-| Build report | Scored results, bound content | Report directory | `src/harness/reporting/` and the track's report module | Call a method, rescore, or embed instance content |
+| Build report | Scored results with their dataset and evidence bindings; optionally review records and bound content | Report directory | `src/harness/reporting/` and the track's report module | Call a method, rescore, or embed instance content |
 | Check and package | Report directory | Package | `src/harness/reporting/` | Change scores or evidence |
 | Publish | Package, publication target | Publication receipt | `src/harness/reporting/publish.py` | Rebuild the report |
 | Export result | Scored results, receipt | Result submission | `src/harness/results/` | Require hand-entered measurements |
+
+Scored results carry the method identities and hash bindings to the frozen
+dataset and to the evidence of each call, so the report stage needs no other
+undeclared input. Review records and bound content are optional inputs.
 
 Every artifact has a named, versioned schema, and the stage that reads it
 validates it. A reader can therefore take an artifact produced on another
@@ -161,9 +165,13 @@ content**.
 Combining results is a pipeline operation. Separately produced run directories
 for the same frozen dataset combine into one comparison through a documented
 command that discovers the runs, verifies their hashes and writes the build
-input. Any file a stage needs is either committed data or produced by a
-documented command; a stage must not depend on a file that someone writes by
-hand with computed hashes.
+input.
+
+People author declarations: the profile and the bound content. Programs derive
+everything else. A stage must not depend on a hand-written file that restates
+derived data, such as computed hashes, enumerated case identifiers or copied
+measurements. Authored files are validated and hash-bound when a stage reads
+them.
 
 Customisation remains possible and expected. It goes into the profile, the bound
 content or an adapter, never into the stage.
@@ -211,7 +219,9 @@ Defaults:
   content, every page role renders from data: rankings, counts, failure
   distributions, metric definitions and reproduction commands. A build never
   requires hand-written prose, and a missing authored slot renders as its
-  generated default.
+  generated default. When no review record exists, the Review page states that
+  no independent review is recorded; when no release history is bound, Changes
+  lists the current build only.
 - **The default report of a track and benchmark is always the same shape.** Two
   runs of the same track differ in data, never in page set, section order or
   components.
@@ -261,8 +271,9 @@ author's working session.
 4. **Artifacts are the only coupling.** Stage inputs and outputs are persisted,
    schema-versioned and validated on read. No stage passes state through
    globals, context variables or undeclared keys.
-5. **Inputs are generated or committed.** No stage needs a hand-authored file with
-   computed hashes, enumerated case identifiers or copied identifiers.
+5. **Derived inputs are generated.** People author the profile and bound content;
+   no stage needs a hand-written file with computed hashes, enumerated case
+   identifiers or copied measurements.
 6. **Interfaces are explicit.** Every hook that shared code calls is declared on
    the interface. Shared code does not probe adapters with `getattr` or by type
    name.
@@ -313,7 +324,9 @@ which the description must state and justify for all adapters, or a violation.
 
 ## Enforcement
 
-Reviews apply this page to every change. Three mechanical checks back them up:
+Reviews apply this page to every change. Three mechanical checks back them up.
+They are introduced by the tasks in the [convergence task](https://github.com/lexmount/webstone/issues/336);
+until a check exists, review is the enforcement.
 
 - **Layering check.** A test fails when a shared package imports a track, or a
   track imports another track.
@@ -328,7 +341,10 @@ Reviews apply this page to every change. Three mechanical checks back them up:
 ## Migration
 
 Existing code predates this page. New code and every touched code path conform
-from now on. Existing violations are recorded in the allowlists above and
-removed by tracked tasks. A migration preserves frozen evidence and published
+from now on. Existing violations are inventoried in the
+[convergence task](https://github.com/lexmount/webstone/issues/336) and removed
+by its tasks; once the checks above exist, their allowlists become the
+inventory. A change may leave an existing violation in place, and may not add
+one. A migration preserves frozen evidence and published
 reports, moves callers atomically, and removes the code it replaces in the same
 change.
