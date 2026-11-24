@@ -9,12 +9,15 @@ import statistics
 import struct
 import zipfile
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import dataclass
 from html import escape as esc
 from pathlib import Path
 from urllib.parse import quote, unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Comment
 
+from harness.adapters import Registry
 from harness.distribution import repository_root
 from harness.env_file import local_setting
 from harness.record_io import canonical_json_sha256
@@ -33,9 +36,9 @@ from harness.web_extract.analysis import (
 from harness.web_extract.messages import message, messages_sha256, validate_catalog
 from harness.web_extract.pipeline import (
     FIELDS,
+    METHODS,
     PRODUCT_FIELDS,
     PROFILE,
-    available_methods,
     digest,
     execution_identity,
     load_run,
@@ -1723,8 +1726,8 @@ def usage_table(methods, rows, lang, labels=None):
     labels = labels or {}
     self_hosted = {
         method
-        for method, config in available_methods().items()
-        if config.get("deployment") == "self-hosted-open-source"
+        for method, config in METHODS.items()
+        if config.self_hosted
     }
     records = []
     for method in methods:
@@ -2885,16 +2888,48 @@ def check_method_examples(output, manifest):
             raise ValueError("Method examples differ from their native input/output evidence")
 
 
+@dataclass(frozen=True)
+class ReportShape:
+    """How one task shape renders and checks a report directory.
+
+    ``build(output, content, *, home, run, language, profile)`` writes the
+    directory and ``check(output, *, release, visual_receipt)`` validates it.
+    The content's ``mode`` selects the shape; the single-schema product shape
+    renders every content that declares no other registered mode.
+    """
+
+    build: Callable
+    check: Callable
+
+
+REPORT_SHAPES: Registry[ReportShape] = Registry("Web Extract report shape")
+
+
+def report_shape(mode):
+    return REPORT_SHAPES.get(mode if mode in REPORT_SHAPES else "compatibility")
+
+
 def build(output: Path, content: Path, *, home: Path, run=None, language=None, profile=PROFILE):
+    """Render any Web Extract report; the content's mode selects the task-shape hook."""
+    require_external_output(output)
+    mode = read_json(content).get("mode") if content.is_file() else None
+    return report_shape(mode).build(
+        output, content, home=home, run=run, language=language, profile=profile
+    )
+
+
+def rendered_files(output):
+    """Hash inventory of every rendered file, bound by the report manifest."""
+    return {
+        p.relative_to(output).as_posix(): digest(p.read_bytes())
+        for p in sorted(output.rglob("*"))
+        if p.is_file()
+    }
+
+
+def _build_product(output, content, *, home, run, language, profile):
     from harness.web_extract.dataset import require_product_reference
 
-    require_external_output(output)
-    if content.is_file() and read_json(content).get("mode") == "field-extraction-suite":
-        from harness.web_extract.report_suite import build as build_suite
-
-        return build_suite(output, content, profile=profile, language=language)
-    if content.is_file() and read_json(content).get("mode") == "field-extraction-cohort":
-        return build_record_cohort(output, content, home=home, language=language, profile=profile)
     require_product_reference(home)
     validate_catalog()
     language = resolve_report_language(output, language)
@@ -3652,11 +3687,7 @@ def build(output: Path, content: Path, *, home: Path, run=None, language=None, p
         encoding="utf-8",
     )
     build_version = bind_build_version(output)
-    files = {
-        p.relative_to(output).as_posix(): digest(p.read_bytes())
-        for p in sorted(output.rglob("*"))
-        if p.is_file()
-    }
+    files = rendered_files(output)
     public_bindings, metadata_receipt = project_evidence_view(
         "public-evidence/metadata.json",
         json.dumps(bindings, ensure_ascii=False).encode(),
@@ -3918,12 +3949,13 @@ def _check_rendered_report(output: Path, *, release=False, visual_receipt=None):
     """Internal build self-check of rendered evidence and reader-facing semantics."""
     output = open_report(output)
     manifest = read_json(output / "report-manifest.json")
-    if manifest.get("mode") == "field-extraction-suite":
-        from harness.web_extract.report_suite import _check_rendered_suite
+    return report_shape(manifest.get("mode")).check(
+        output, release=release, visual_receipt=visual_receipt
+    )
 
-        return _check_rendered_suite(output, release=release, visual_receipt=visual_receipt)
-    if manifest.get("mode") == "field-extraction-cohort":
-        return _check_record_cohort(output, release=release, visual_receipt=visual_receipt)
+
+def _check_product(output, *, release=False, visual_receipt=None):
+    manifest = read_json(output / "report-manifest.json")
     link_index = LinkIndex(errors="strict")
     check_report_identity(output, manifest, "web-extract")
     if public_risk((output / "report-manifest.json").read_bytes()):
@@ -4837,7 +4869,7 @@ def record_preview(home, model, *, local_example, audit=False):
     return receipt
 
 
-def build_record_cohort(output, content, *, home, language, profile):
+def build_record_cohort(output, content, *, home, run, language, profile):
     """Render registered record schemas through the shared report layout and controls."""
     from collections import Counter
 
@@ -5653,11 +5685,7 @@ def build_record_cohort(output, content, *, home, language, profile):
         encoding="utf-8",
     )
     version = bind_build_version(output)
-    files = {
-        p.relative_to(output).as_posix(): digest(p.read_bytes())
-        for p in sorted(output.rglob("*"))
-        if p.is_file()
-    }
+    files = rendered_files(output)
     save_json(
         output / "report-manifest.json",
         {
@@ -5705,7 +5733,7 @@ def build_record_cohort(output, content, *, home, language, profile):
         },
         exclusive=True,
     )
-    _check_record_cohort(output)
+    _check_rendered_report(output)
 
 
 def _check_record_cohort(output, *, release=False, visual_receipt=None):
@@ -6165,3 +6193,32 @@ def _check_record_cohort(output, *, release=False, visual_receipt=None):
         if not required.issubset(observed):
             raise ValueError("Incomplete record report detail, theme or viewport coverage")
     return manifest
+
+
+def _build_suite(output, content, *, home, run, language, profile):
+    from harness.web_extract.report_suite import build as build_suite
+
+    return build_suite(output, content, profile=profile, language=language)
+
+
+def _check_suite(output, *, release=False, visual_receipt=None):
+    from harness.web_extract.report_suite import _check_rendered_suite
+
+    return _check_rendered_suite(output, release=release, visual_receipt=visual_receipt)
+
+
+# Resolved at call time so a composed report and its tests reach the current hooks.
+_PRODUCT_SHAPE = ReportShape(
+    build=lambda *args, **kwargs: _build_product(*args, **kwargs),
+    check=lambda *args, **kwargs: _check_product(*args, **kwargs),
+)
+for _mode in ("compatibility", "full-cohort-progress"):
+    REPORT_SHAPES.register(_mode, _PRODUCT_SHAPE)
+REPORT_SHAPES.register("field-extraction-cohort", ReportShape(
+    build=lambda *args, **kwargs: build_record_cohort(*args, **kwargs),
+    check=lambda *args, **kwargs: _check_record_cohort(*args, **kwargs),
+))
+REPORT_SHAPES.register("field-extraction-suite", ReportShape(
+    build=lambda *args, **kwargs: _build_suite(*args, **kwargs),
+    check=lambda *args, **kwargs: _check_suite(*args, **kwargs),
+))

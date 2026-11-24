@@ -1,6 +1,7 @@
 """Multi-domain native extraction, frozen references and unchanged product behavior."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -81,13 +82,14 @@ def inputs(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(swde, "CARD", card)
     monkeypatch.setitem(
-        dataset.BENCHMARKS,
+        dataset.BENCHMARKS._items,
         "swde",
-        {
-            "profile": str(card),
-            "module": "harness.web_extract.swde",
-            "reference_coverage_archive": "source/archives/groundtruth.7z",
-        },
+        replace(
+            dataset.BENCHMARKS.get("swde"),
+            profile=str(card),
+            snapshot_project=None,
+            snapshot_distribution=None,
+        ),
     )
     monkeypatch.setattr(pipeline, "load_runtime_env", lambda: None)
     monkeypatch.setattr("harness.web_extract.repair.load_runtime_env", lambda: None)
@@ -1619,7 +1621,9 @@ def test_registered_adapter_dispatch_does_not_depend_on_dataset_name(inputs, mon
     manifest["benchmark"] = "another-schema-cohort"
     pipeline.save_json(home / "dataset/manifest.json", manifest)
     monkeypatch.setitem(
-        dataset.BENCHMARKS, "another-schema-cohort", dict(dataset.BENCHMARKS["swde"])
+        dataset.BENCHMARKS._items,
+        "another-schema-cohort",
+        replace(dataset.BENCHMARKS.get("swde"), name="another-schema-cohort"),
     )
     plan = plan_for_inputs(home, ["cloudflare-json"], tmp_path / "registered.json")
     assert plan["case_count"] == 2
@@ -1641,12 +1645,9 @@ def test_swde_prepare_cannot_reuse_a_valid_other_benchmark(tmp_path, monkeypatch
 
     home = create(tmp_path / "product")
     monkeypatch.setitem(
-        dataset.BENCHMARKS,
+        dataset.BENCHMARKS._items,
         "zyte",
-        {
-            **dataset.BENCHMARKS["zyte"],
-            "profile": str(home / "profile.json"),
-        },
+        replace(dataset.BENCHMARKS.get("zyte"), profile=str(home / "profile.json")),
     )
     archive = tmp_path / "archive.bin"
     archive.write_bytes(b"pinned archive")
@@ -1744,7 +1745,15 @@ def test_clean_prepare_downloads_pinned_scorer_and_recovers_after_partial_extrac
     )
     monkeypatch.setattr(swde, "CARD", card)
     monkeypatch.setitem(
-        dataset.BENCHMARKS, "swde", {"profile": str(card), "module": "harness.web_extract.swde"}
+        dataset.BENCHMARKS._items,
+        "swde",
+        replace(
+            dataset.BENCHMARKS.get("swde"),
+            profile=str(card),
+            snapshot_project=None,
+            snapshot_distribution=None,
+            reference_coverage_archive=None,
+        ),
     )
     download = Mock(
         return_value=HttpResponse(200, "https://source.example/pinned-evaluator", {}, scorer)
@@ -2270,7 +2279,7 @@ def test_shared_instructions_reach_every_native_request_and_its_receipt(monkeypa
         "required": ["price"],
     }
     original = deepcopy(schema)
-    for key in pipeline.available_methods()[method]["keys"]:
+    for key in pipeline.METHODS.get(method).keys:
         monkeypatch.setenv(key, "synthetic")
     captured = []
 
@@ -2642,7 +2651,8 @@ def test_record_later_title_dispute_preserves_the_resolved_author(tmp_path, monk
     manifest['files']['evaluate.py'] = {'sha256': pipeline.digest(scorer.read_bytes()),
                                         'bytes': scorer.stat().st_size}
     pipeline.save_json(home / 'dataset/manifest.json', manifest)
-    monkeypatch.setitem(dataset.BENCHMARKS['swde'], 'profile', str(home / 'profile.json'))
+    monkeypatch.setitem(dataset.BENCHMARKS._items, 'swde',
+                        replace(dataset.BENCHMARKS.get('swde'), profile=str(home / 'profile.json')))
     model = pipeline.read_json(home / 'content.json')
     methods = list(model['participants'])
     truth = pipeline.read_json(home / 'dataset/dataset/ground-truth.json')
