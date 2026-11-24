@@ -54,6 +54,7 @@ from harness.web_extract.pipeline import (
     verify_execution_snapshot,
     verify_retry_history,
 )
+from harness.web_extract.product_fields import DECLARED, REPORTED, REPORTED_DERIVED, label_key
 from harness.web_extract.report_ui import JS
 
 VERSION = "web-extract-research/1"
@@ -88,16 +89,8 @@ OUTCOMES = {
     "wrong": (message("outcomes_wrong", "zh"), message("outcomes_wrong", "en")),
 }
 FIELD_LABELS = {
-    "price": (message("field_labels_price", "zh"), message("field_labels_price", "en")),
-    "sku": (message("field_labels_sku", "zh"), message("field_labels_sku", "en")),
-    "availability": (
-        message("field_labels_availability", "zh"),
-        message("field_labels_availability", "en"),
-    ),
-    "OutOfStock": (
-        message("field_labels_OutOfStock", "zh"),
-        message("field_labels_OutOfStock", "en"),
-    ),
+    field: (message(label_key("field_labels", field), "zh"), message(label_key("field_labels", field), "en"))
+    for field in REPORTED
 }
 
 
@@ -694,31 +687,23 @@ def cohort_source(source, selection, home, truth):
 
 
 def reference_populations(truth):
+    """Reference coverage per reported field; a derived field splits its source field's population."""
     total = len(truth)
-    stock = sum("OutOfStock" in r for r in truth.values())
-    return {
-        **{
-            f: {
-                "total": total,
-                "present": sum(bool(r.get(f)) for r in truth.values()),
-                "missing": sum(not r.get(f) for r in truth.values()),
-                "label": "population_values",
-            }
-            for f in ("price", "sku")
-        },
-        "availability": {
-            "total": total,
-            "present": total - stock,
-            "missing": stock,
-            "label": "population_stock",
-        },
-        "OutOfStock": {
-            "total": total,
-            "present": stock,
-            "missing": total - stock,
-            "label": "population_out",
-        },
-    }
+    sources = {source: derived for derived, source in REPORTED_DERIVED.items()}
+    populations = {}
+    for f in REPORTED:
+        if f in REPORTED_DERIVED:
+            present = sum(f in r for r in truth.values())
+            populations[f] = {"total": total, "present": present, "missing": total - present,
+                              "label": "population_out"}
+        elif f in sources:
+            derived = sum(sources[f] in r for r in truth.values())
+            populations[f] = {"total": total, "present": total - derived, "missing": derived,
+                              "label": "population_stock"}
+        else:
+            populations[f] = {"total": total, "present": sum(bool(r.get(f)) for r in truth.values()),
+                              "missing": sum(not r.get(f) for r in truth.values()), "label": "population_values"}
+    return populations
 
 
 def cost_unavailability(value, lang):
@@ -1471,7 +1456,7 @@ def cohort_metrics(methods, rows, bindings, count, lang, labels=None, *, truth=N
         methods,
     )
     scores = {m: b["scores"][m] for b in bindings if b.get("certified") for m in b["scores"]}
-    fields = ("price", "sku", "availability", "OutOfStock")
+    fields = REPORTED
     blocked = {b["contract"]["methods"][0] for b in bindings if b.get("access_blocked")}
     records = []
     for method in methods:
@@ -2046,12 +2031,7 @@ def displayed_values(value, language, *, reference=False):
 
 
 def field_table(row, lang):
-    labels = {
-        "price": message("diagnostic_labels_price", "zh"),
-        "sku": message("diagnostic_labels_sku", "zh"),
-        "availability": message("diagnostic_labels_availability", "zh"),
-        "OutOfStock": message("diagnostic_labels_OutOfStock", "zh"),
-    }
+    labels = {field: message(label_key("diagnostic_labels", field), "zh") for field in REPORTED}
     outcomes = {
         "correct": message("diagnostic_outcomes_correct", "zh"),
         "missing": message("diagnostic_outcomes_missing", "zh"),
@@ -2175,10 +2155,7 @@ def result_controls(methods, rows, names, lang):
             message("field", lang),
             [
                 ("", message("any_field", lang)),
-                ("price", message("field_labels_price", lang)),
-                ("sku", "SKU"),
-                ("availability", message("field_labels_availability", lang)),
-                ("outofstock", message("field_labels_OutOfStock", lang)),
+                *((field.lower(), message(label_key("field_labels", field), lang)) for field in REPORTED),
             ],
         )
         + select(
@@ -2216,7 +2193,7 @@ def check_audited_quality(soup, methods, scores, total, lang):
         cells = row.select("td")[1:]
         if len(cells) != 4:
             raise ValueError("Audited field inventory differs")
-        for field, cell in zip(("price", "sku", "availability", "OutOfStock"), cells, strict=True):
+        for field, cell in zip(REPORTED, cells, strict=True):
             metrics = scores[method][field]
             scored = metrics["cases"]
             if not isinstance(scored, int) or not 0 <= scored <= total:
@@ -2265,7 +2242,7 @@ def audit_explanation(audit, rows, methods, labels, lang, *, reference_view, cor
         )
         + "</p></section>"
     )
-    fields = ("price", "sku", "availability", "OutOfStock")
+    fields = REPORTED
     comparison = BeautifulSoup(
         table(
             [
@@ -2432,7 +2409,7 @@ def audit_explanation(audit, rows, methods, labels, lang, *, reference_view, cor
     for method in methods:
         selected = [r for r in rows if r["method"] == method]
         counts = []
-        for field in ("price", "sku", "availability"):
+        for field in DECLARED:
             missing = sum(r["field_results"][field]["status"] == "missing" for r in selected)
             wrong = sum(
                 r["field_results"][field]["status"] in ("wrong", "unexpected") for r in selected
@@ -3264,8 +3241,8 @@ def _build_product(output, content, *, home, run, language, profile):
                 "usage_comes_from_native_response_metadata_or_billing_headers_incl", lang
             )
         hr = []
-        fields = ("price", "sku", "availability")
-        historical_fields = (*fields, "OutOfStock")
+        fields = DECLARED
+        historical_fields = REPORTED
         for method, scores in history["scores"].items():
             cells = [esc(method)]
             for field in historical_fields:
@@ -3446,9 +3423,7 @@ def _build_product(output, content, *, home, run, language, profile):
                 table(
                     [
                         lab[15],
-                        message("field_labels_price", lang),
-                        "SKU",
-                        message("field_labels_availability", lang),
+                        *(message(label_key("field_labels", field), lang) for field in DECLARED),
                         message("stage", lang),
                         message("seconds", lang),
                     ],
@@ -3629,7 +3604,7 @@ def _build_product(output, content, *, home, run, language, profile):
                         inventory.append(
                             f'<tr data-case="{cid}" data-status="pending" data-method="{method}" data-outcome="pending" data-search="{search}"'
                             + "".join(
-                                " data-" + field + '="pending"' for field in (*FIELDS, "OutOfStock")
+                                " data-" + field + '="pending"' for field in (*FIELDS, *REPORTED_DERIVED)
                             )
                             + f"><td>{esc(names.get(method, method))}</td><td><code>{cid[:12]}</code></td><td>{message('not_executed', lang)}</td>"
                             + "<td>—</td>" * 6
@@ -3646,9 +3621,7 @@ def _build_product(output, content, *, home, run, language, profile):
                     lab[15],
                     lab[14],
                     lab[16],
-                    message("field_labels_price", lang),
-                    "SKU",
-                    message("field_labels_availability", lang),
+                    *(message(label_key("field_labels", field), lang) for field in DECLARED),
                     lab[17],
                     lab[18],
                     lab[9],
@@ -4139,9 +4112,7 @@ def _check_product(output, *, release=False, visual_receipt=None):
                     or cells[2].get_text(strip=True) != str(returned)
                 ):
                     raise ValueError("Full cohort progress count differs")
-                for field, cell in zip(
-                    ("price", "sku", "availability", "OutOfStock"), cells[3:], strict=True
-                ):
+                for field, cell in zip(REPORTED, cells[3:], strict=True):
                     value = scores.get(method, {}).get(field, {}).get("f1")
                     if cell.get_text(strip=True) != ("—" if value is None else f"{value:.3f}"):
                         raise ValueError("Displayed quality differs from certified scores")
@@ -4192,7 +4163,7 @@ def _check_product(output, *, release=False, visual_receipt=None):
                     cells = row.select("td:not([data-completion-metric])")
                     if [c.get_text(strip=True) for c in cells[2:]] != [
                         f"{scores[method][field]['f1']:.3f}"
-                        for field in ("price", "sku", "availability", "OutOfStock")
+                        for field in REPORTED
                     ]:
                         raise ValueError(
                             "Interpretation scores differ from original-reference scores"
