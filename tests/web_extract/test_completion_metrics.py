@@ -8,6 +8,28 @@ import pytest
 from harness.web_extract.analysis import completion_metrics, record_field_results
 from harness.web_extract.report import _check_rendered_report
 
+_EXAMPLES = {}
+
+
+def example_report(factory, mode, language=None):
+    """Build each example once per worker; tests that damage it must copy the output."""
+    from harness.web_extract.example import create
+
+    key = (mode, language)
+    if key not in _EXAMPLES:
+        output = factory.mktemp("example") / "report"
+        create(output, mode=mode, **({"language": language} if language else {}))
+        _EXAMPLES[key] = output
+    return _EXAMPLES[key]
+
+
+def copied_example(factory, tmp_path, mode, name="report"):
+    import shutil
+
+    output = tmp_path / name
+    shutil.copytree(example_report(factory, mode), output)
+    return output
+
 
 @pytest.mark.parametrize("values,winners", [([1, 1], 2), ([0, 0], 2), ([0.4, 0.7], 1)])
 def test_completion_highlights_every_best_value_under_the_track_contract(values, winners):
@@ -189,23 +211,18 @@ _MODES = ["full-cohort-progress", "field-extraction-cohort"]
 
 
 # Each damage reaches the same mode-independent release check; alternate the two modes.
-@pytest.mark.parametrize(
-    ("mode", "damage"),
-    [
-        (_MODES[index % 2], damage)
-        for index, damage in enumerate(
-            ["comparison", "definition", "count", "coverage", "highlight", "source", "pinning"]
-        )
-    ],
-)
-def test_release_check_rejects_misleading_supplemental_metrics(tmp_path, mode, damage):
+def test_release_check_rejects_misleading_supplemental_metrics(tmp_path_factory, tmp_path):
+    damages = ["comparison", "definition", "count", "coverage", "highlight", "source", "pinning"]
+    for index, damage in enumerate(damages):
+        output = copied_example(tmp_path_factory, tmp_path, _MODES[index % 2], damage)
+        _reject_supplemental_damage(output, damage)
+
+
+def _reject_supplemental_damage(output, damage):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
     from harness.web_extract.pipeline import digest, read_json, save_json
 
-    output = tmp_path / "report"
-    create(output, mode=mode)
     manifest_path = output / "report-manifest.json"
     manifest = read_json(manifest_path)
     if damage in ("count", "coverage"):
@@ -249,14 +266,11 @@ def test_incomplete_cohort_is_distinct_from_a_computed_empty_denominator():
     assert "denominator 0" not in text
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
-def test_new_metrics_share_the_core_table_and_explain_their_origin(tmp_path, mode):
+@pytest.mark.parametrize("mode", _MODES)
+def test_new_metrics_share_the_core_table_and_explain_their_origin(tmp_path_factory, mode):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
-
-    output = tmp_path / "report"
-    create(output, mode=mode)
+    output = example_report(tmp_path_factory, mode)
     for route in ("index", "interpretation"):
         soup = BeautifulSoup(
             (output / "zh" / (route + ".html")).read_text(encoding="utf-8"), "html.parser"
@@ -264,12 +278,18 @@ def test_new_metrics_share_the_core_table_and_explain_their_origin(tmp_path, mod
         tables = soup.select("table[data-completion-metrics]")
         assert len(tables) == 1
         assert not soup.select("section[data-completion-metrics]")
-        assert len(tables[0].select("th[data-completion-metric]")) == 2
+        assert tables[0].has_attr("data-method-column")
+        headers = tables[0].select("th[data-completion-metric]")
+        assert [h.get_text() for h in headers] == ["整页全对率", "空值处理正确率"]
+        assert all(not h.select("small") for h in headers)
         assert "本项目补充" in soup.select_one("[data-completion-links]").get_text()
         assert any(
             "F1" in th.get_text() for th in tables[0].select("th:not([data-completion-metric])")
         )
     home = BeautifulSoup((output / "zh/index.html").read_text(encoding="utf-8"), "html.parser")
+    assert home.select_one("[data-metric-guide]").find_previous(
+        "table", attrs={"data-completion-metrics": True}
+    ) is not None
     page = home.select_one("#metric-completion-page_exact").get_text()
     empty = home.select_one("#metric-completion-empty_fields").get_text()
     assert all(
@@ -387,35 +407,11 @@ def test_completion_receipt_preserves_boolean_and_count_types(tmp_path, key, rep
         check_completion_metrics(tmp_path, manifest, [row])
 
 
-@pytest.mark.parametrize('mode', ['full-cohort-progress', 'field-extraction-cohort'])
-def test_core_headers_stay_short_with_shared_source_and_reference_notes(tmp_path, mode):
+@pytest.mark.parametrize('mode', _MODES)
+def test_result_inventory_keeps_method_names_pinned(tmp_path_factory, mode):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
-
-    output = tmp_path / 'report'
-    create(output, mode=mode)
-    for route in ['index', 'interpretation']:
-        soup = BeautifulSoup((output / 'zh' / (route + '.html')).read_text(encoding='utf-8'),
-                             'html.parser')
-        headers = soup.select('th[data-completion-metric]')
-        assert [h.get_text() for h in headers] == ['整页全对率', '空值处理正确率']
-        assert all(not h.select('small') for h in headers)
-        assert '本项目补充' in soup.select_one('[data-completion-links]').get_text()
-        assert soup.select_one('table[data-completion-metrics][data-method-column]') is not None
-    soup = BeautifulSoup((output / 'zh/index.html').read_text(encoding='utf-8'), 'html.parser')
-    assert soup.select_one('[data-metric-guide]').find_previous('table',
-        attrs={'data-completion-metrics': True}) is not None
-
-
-@pytest.mark.parametrize('mode', ['full-cohort-progress', 'field-extraction-cohort'])
-def test_result_inventory_keeps_method_names_pinned(tmp_path, mode):
-    from bs4 import BeautifulSoup
-
-    from harness.web_extract.example import create
-
-    output = tmp_path / 'report'
-    create(output, mode=mode)
+    output = example_report(tmp_path_factory, mode)
     soup = BeautifulSoup((output / 'zh/results.html').read_text(encoding='utf-8'), 'html.parser')
     tables = [t for t in soup.select('table')
               if t.select_one('thead th') and t.select_one('thead th').get_text() == '方法']
@@ -452,23 +448,19 @@ def test_only_explicit_comparison_tables_pin_the_method_column(heading):
 
 
 # Every case checks its clean report first; alternating modes keeps both modes covered.
-@pytest.mark.parametrize(
-    ("mode", "location"),
-    [
-        (_MODES[index % 2], location)
-        for index, location in enumerate(["direct", "nested", "inside-owner"])
-    ],
-)
 def test_home_comparison_precedes_authored_content_and_gate_rejects_reordering(
-    tmp_path, mode, location
+    tmp_path_factory, tmp_path
 ):
+    for index, location in enumerate(["direct", "nested", "inside-owner"]):
+        output = copied_example(tmp_path_factory, tmp_path, _MODES[index % 2], location)
+        _reject_reordered_comparison(output, location)
+
+
+def _reject_reordered_comparison(output, location):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
     from harness.web_extract.pipeline import digest, read_json, save_json
 
-    output = tmp_path / "report"
-    create(output, mode=mode)
     _check_rendered_report(output)
     path = output / "zh/index.html"
     document = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
@@ -527,13 +519,10 @@ def test_completion_metrics_highlight_every_tied_best_value(rates):
         check_presentation(html.replace('class="comparison-winner"', 'class="ordinary"', 1))
 
 
-def test_metric_guide_directs_both_languages_to_the_reference_note(tmp_path):
+def test_metric_guide_directs_both_languages_to_the_reference_note(tmp_path_factory):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
-
-    output = tmp_path / 'report'
-    create(output, mode='full-cohort-progress', language='en')
+    output = example_report(tmp_path_factory, 'full-cohort-progress', language='en')
     for language, pointer, stale in [
         ('en', 'note below the comparison table', 'named in the column'),
         ('zh', '表下注释', '参考版本按表头'),
@@ -549,13 +538,10 @@ def test_metric_guide_directs_both_languages_to_the_reference_note(tmp_path):
 @pytest.mark.parametrize('mode', [
     'compatibility', 'full-cohort-progress', 'field-extraction-cohort',
 ])
-def test_home_and_each_same_page_comparison_keep_method_names_pinned(tmp_path, mode):
+def test_home_and_each_same_page_comparison_keep_method_names_pinned(tmp_path_factory, mode):
     from bs4 import BeautifulSoup
 
-    from harness.web_extract.example import create
-
-    output = tmp_path / 'report'
-    create(output, mode=mode)
+    output = example_report(tmp_path_factory, mode)
     paths = [output / 'zh/index.html', *sorted((output / 'zh').glob('case-*.html')),
              *sorted((output / 'zh').glob('c-*.html'))]
     assert len(paths) > 1
