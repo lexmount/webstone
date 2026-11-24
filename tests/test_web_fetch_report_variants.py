@@ -43,3 +43,43 @@ def test_each_comparison_kind_selects_one_variant():
     for item in VARIANTS.values():
         for kind in item.comparison_kinds:
             assert variant_for_kind(kind) is item
+
+
+def test_every_build_renders_a_registered_template_variant():
+    from harness.web_fetch.template import TEMPLATE
+    names = {item.name for item in TEMPLATE.variants}
+    assert {item.template_variant for item in VARIANTS.values()} == names
+
+
+def _template_report(root, variant="certified"):
+    from harness.web_fetch.template import TEMPLATE, report_template
+    for page in TEMPLATE.variant(variant).pages:
+        target = root / page.route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f'<main data-page-role="{page.role}"><h1>{page.title}</h1></main>', encoding="utf-8")
+    (root / "report-languages.json").write_text('{"languages": ["zh"], "primary_language": "zh"}',
+                                                 encoding="utf-8")
+    return {"template": report_template(variant)}
+
+
+def test_release_check_rejects_pages_that_leave_their_template(tmp_path):
+    from harness.web_fetch.template import check_template_pages
+    manifest = _template_report(tmp_path)
+    assert check_template_pages(tmp_path, manifest).name == "certified"
+    (tmp_path / "guide/index.html").write_text('<main data-page-role="results"></main>', encoding="utf-8")
+    with pytest.raises(ValueError, match="does not fill its template role interpretation"):
+        check_template_pages(tmp_path, manifest)
+    _template_report(tmp_path)
+    (tmp_path / "index.html").write_text(
+        '<main data-page-role="home"><div data-slot="summary"></div><div data-slot="lead"></div></main>',
+        encoding="utf-8")
+    with pytest.raises(ValueError, match="differ from the home template order"):
+        check_template_pages(tmp_path, manifest)
+    with pytest.raises(ValueError, match="different template version"):
+        check_template_pages(tmp_path, {"template": {**manifest["template"], "variant_version": 0}})
+    with pytest.raises(ValueError, match="does not record its template"):
+        check_template_pages(tmp_path, {"template": None})
+    _template_report(tmp_path)
+    (tmp_path / "review/index.html").unlink()
+    with pytest.raises(FileNotFoundError):
+        check_template_pages(tmp_path, manifest)

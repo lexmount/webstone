@@ -18,7 +18,7 @@ from harness.record_io import file_sha256, load_jsonl, read_json
 from harness.report_languages import check_language_contract, generated_languages, visible_numbers
 from harness.reporting.presentation import check_presentation
 from harness.reporting.release_check import language_editions, open_report, read_page
-from harness.reporting.templates import resolve_template
+from harness.web_fetch.template import check_template_pages
 from harness.web_fetch.adjudication_evidence import (
     require_adjudication_evidence,
     require_current_review_state,
@@ -465,9 +465,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
     manifest_path = root / 'report-manifest.json'
     if manifest_path.is_file():
         manifest = read_json(manifest_path)
-        expected_template = resolve_template('webfetch', root=repository)
-        if manifest.get('template') != expected_template:
-            raise ValueError('Report manifest differs from the maintained template')
+        check_template_pages(root, manifest, authority_root=repository)
         for name in ('dataset', 'results'):
             path = root / ('dataset.json' if name == 'dataset' else 'results.jsonl')
             if manifest.get(name + '_sha256') != hashlib.sha256(path.read_bytes()).hexdigest():

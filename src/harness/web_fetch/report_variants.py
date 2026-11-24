@@ -64,6 +64,12 @@ class ReportVariant:
     canonical_inputs: bool = True
     # The build writes a reliability record that packaging requires to be complete.
     reliability_record: bool = True
+    # The track-template variant (page set) the build renders; defaults to the variant's own name.
+    renders: str | None = None
+
+    @property
+    def template_variant(self) -> str:
+        return self.renders or self.name
 
     def validate(self, request: BuildRequest):
         extra = request.given() - self.accepts
@@ -279,7 +285,9 @@ register(ReportVariant(
     requires=frozenset({'input', 'output'}), languages=('zh',), check=_check_saved_matrix))
 register(ReportVariant(
     'refresh-presentation', 'Refresh an existing local report from its hash-bound result binding',
-    _refresh(False), accepts=frozenset({'input', 'output'}), requires=frozenset({'input', 'output'})))
+    _refresh(False), accepts=frozenset({'input', 'output'}), requires=frozenset({'input', 'output'}),
+    renders='local-audit'))
 register(ReportVariant(
     'refresh-review', 'Refresh coverage and review details from bound supplemental reviews',
-    _refresh(True), accepts=frozenset({'input', 'output'}), requires=frozenset({'input', 'output'})))
+    _refresh(True), accepts=frozenset({'input', 'output'}), requires=frozenset({'input', 'output'}),
+    renders='local-audit'))

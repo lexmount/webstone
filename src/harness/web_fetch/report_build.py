@@ -19,7 +19,7 @@ from harness.record_io import file_sha256, load_jsonl, optional_file_sha256
 from harness.record_schema import read_records, validate_records
 from harness.report_languages import generated_languages, includes_english, select_report_language
 from harness.reporting.assets import copy_bound_assets, load_bound_content
-from harness.reporting.templates import resolve_template
+from harness.web_fetch.template import report_template
 from harness.reporting.versions import bind_build_version, record_build_version
 from harness.web_fetch.adjudication_evidence import (
     require_adjudication_evidence,
@@ -169,7 +169,7 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
     input_sha256 = optional_file_sha256(source)
     if source == output or source.is_relative_to(output) or output.is_relative_to(source) or output.exists():
         raise ValueError("Diagnostic build requires a new output outside its evidence")
-    template = resolve_template("webfetch")
+    template = report_template("diagnostic-cohorts")
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".diagnostic-report-", dir=output.parent))
     try:
@@ -381,7 +381,7 @@ def write_frozen_presentation_manifest(output, manifest, *, show_local_status_ba
                 if authority.get('task_replacement_current_scope') is not None:
                     current['task_replacement_current_scope'] = authority['task_replacement_current_scope']
     languages = list(generated_languages(output))
-    current.update(template=resolve_template('webfetch'), languages=languages, generated_languages=languages,
+    current.update(template=report_template('local-audit'), languages=languages, generated_languages=languages,
                    presentation={"show_local_status_banners": show_local_status_banners,
                                  "frozen_scores": True, "authored_interpretation": authored_interpretation})
     current['webstone'] = bind_build_version(output)
@@ -898,7 +898,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
                 (staging / 'frozen-method-options.json').write_text(
                     json.dumps(options, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
             (staging / "report-manifest.json").write_text(json.dumps({
-                "schema_version": 1, "template": resolve_template("webfetch"),
+                "schema_version": 1, "template": report_template("local-audit"),
                 "evidence_state": "local_measurement", "certified": False,
                 "languages": ["zh", "en"] if include_english else ["zh"], "provider_calls_added": 0,
                 "dataset_sha256": file_sha256(source / "dataset.json"),
@@ -917,7 +917,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         if language is not None:
             select_report_language(staging, language)
         from harness.report_languages import generated_languages
-        template_manifest = {'schema_version': 1, 'template': None if diagnostic_preview else resolve_template('webfetch'),
+        template_manifest = {'schema_version': 1, 'template': None if diagnostic_preview else report_template('local-audit' if local_audit else selected.template_variant),
             'dataset_sha256': file_sha256(staging/'dataset.json'),
             'results_sha256': file_sha256(staging/'results.jsonl'),
             'generated_languages': generated_languages(staging)}

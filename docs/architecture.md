@@ -147,7 +147,10 @@ Search, Browser Use and Browser Trajectory Replay are on the template
 (`src/harness/web_search/template.py`, `src/harness/browser_use/template.py`,
 `src/harness/trajectory_replay/template.py`, whose curated, catalog,
 catalog-acceptance and public variants share one shell and the same-task
-explorer); `check_template_pages` in
+explorer). Web Fetch declares its page sets in `src/harness/web_fetch/template.py`;
+each build mode is a registered variant in `src/harness/web_fetch/report_variants.py`
+that adapts its inputs into one validated `ReportModel` (`report_model.py`), selected
+by the profile or one `--variant`. `check_template_pages` in
 `src/harness/reporting/release_check.py` runs that comparison for every edition. The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
 routes, measurements and evidence links; absent English has only a notice and
 return link.
