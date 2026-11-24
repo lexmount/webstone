@@ -1,0 +1,1795 @@
+{
+ "report": {
+  "pages": {
+   "en/index.html": {
+    "headings": [
+     "h1: English edition not generated"
+    ]
+   },
+   "first/en/index.html": {
+    "headings": [
+     "h1: English edition not generated"
+    ]
+   },
+   "first/index.html": {
+    "headings": []
+   },
+   "first/zh/accounts.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 价格与接入"
+    ],
+    "tables": [
+     [
+      "方法 | 美元／1,000 次 | 计费条件与套餐门槛 | 核对日期 | 官方来源",
+      "scrapegraph-extract | $0 synthetic | 合成数据，无实际费用 | 2026-01-01 | 1",
+      "firecrawl-json | $0 synthetic | 合成数据，无实际费用 | 2026-01-01 | 1"
+     ],
+     [
+      "方法 | 物理调用数 | 有用量回执 | 服务报告用量",
+      "scrapegraph-extract | 3 | 0 | —",
+      "firecrawl-json | 1 | 0 | —"
+     ]
+    ]
+   },
+   "first/zh/c-3fc4ccfe745870e2c0d99f71.html": {
+    "headings": [
+     "h1: two · 同页各方法对照",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 字段有差异 | 1/2 | 2.000 | 完整结果",
+      "firecrawl-json | 尚未执行 | — | — | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | A | 部分值重合 | 是 | 否"
+     ]
+    ]
+   },
+   "first/zh/c-7692c3ad3540bb803c020b3a.html": {
+    "headings": [
+     "h1: one · 同页各方法对照",
+     "h2: 结果证据",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 各字段集合均一致 | 2/2 | 1.000 | 完整结果",
+      "firecrawl-json | 各字段集合均一致 | 2/2 | 1.000 | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | AB | 符合标注 | 是 | 是"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | AB | 符合标注 | 是 | 是"
+     ]
+    ]
+   },
+   "first/zh/c-8b5b9db0c13db24256c829aa.html": {
+    "headings": [
+     "h1: three · 同页各方法对照",
+     "h2: 本次调用为什么失败",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 调用失败 | 0/2 | 3.000 | 完整结果",
+      "firecrawl-json | 尚未执行 | — | — | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | 未返回值 | 漏提取 | 否 | 否",
+      "author | AB | 未返回值 | 漏提取 | 否 | 否"
+     ]
+    ]
+   },
+   "first/zh/candidates.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 服务目录"
+    ]
+   },
+   "first/zh/d-3fc4ccfe745870e2c0d99f71.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "first/zh/d-7692c3ad3540bb803c020b3a.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "first/zh/d-8b5b9db0c13db24256c829aa.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "first/zh/dataset.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 数据集"
+    ],
+    "tables": [
+     [
+      "类别 | 页数 | 网站 | 提取字段",
+      "book | 3 | 1 | title / author"
+     ],
+     [
+      "页面 | 类别 | 网站 | 冻结页面与标注",
+      "one | book | example | 冻结页面与标注",
+      "three | book | example | 冻结页面与标注",
+      "two | book | example | 冻结页面与标注"
+     ]
+    ]
+   },
+   "first/zh/index.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 总览",
+     "h2: 耗时与价格"
+    ],
+    "tables": [
+     [
+      "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+     ],
+     [
+      "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
+      "页面命中宏平均 F1 | 来源：SWDE 页面命中统计口径，采用 MarkupLM 发布的实现。 先按网站和字段计算 F1，再对各组等权平均。每页至少命中一个答案就算命中；多报其他错误值仍可能命中。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "值级微平均 F1 | 来源：本项目补充统计，按每个字段值计算 micro F1。 汇总所有返回值与参考值。多报会降低准确率，漏报会降低召回率，再用 F1 综合两者。 例如参考 1 个值，返回 2 个且 1 个正确：准确率 50%，召回率 100%，F1 约 0.667。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "字段集合完全一致率 | 来源：本项目补充统计，逐字段比较完整值集合。 返回的整组值与参考答案完全相同的页面字段，占全部可评分页面字段的比例。 | 百分比 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "整页全对率 | 来源：本项目补充定义，不属于数据集官方指标。公式：成功交付、格式合规且全部目标字段正确的页数 ÷ 参考完整的页面总数。请求失败算错。例：10 页中 2 页参考不完整，其余 8 页有 3 页全对，则为 3/8＝37.5%。 | 百分比 | 所有方法使用同一批参考完整的页面，含失败请求。表下注释说明使用哪套参考：原参考来自数据集，校验参考经过网页证据复核。 | 越高越好",
+      "空值处理正确率 | 来源：本项目补充定义，不属于数据集官方指标。公式：正确留空的字段数 ÷ 参考明确为空的字段总数。请求失败算错；数组字段必须明确返回 []。例：5 处应为空，4 处正确留空、1 处请求失败，则为 4/5＝80%。 | 百分比 | 参考明确为空且可评分的字段，一个网页中的一个字段计一个样本；含失败请求。样本少时不据此推断整体能力。 | 越高越好",
+      "平均耗时 | 最终一次调用的平均耗时，包含失败；此前重试另行累计。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P50 耗时 | 中位数：一半有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P95 耗时 | 95% 有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "每千页费用 | 按相同接口和条件提取 1,000 页的费用。官方套餐折算与按本轮页面估算分别注明。 | 美元／1,000 页 | 本轮接口、参数，以及列明的套餐或估算假设。 | 在相同计费假设下比较"
+     ],
+     [
+      "方法 | 有计时 | 缺计时 | 平均（秒） | P50（秒） | P95（秒） | 美元／1,000 次 | 官方计费方式与套餐",
+      "scrapegraph-extract | 3 | 0 | 2.000 | 2.000 | 3.000 | $0 synthetic | 合成数据，无实际费用计费条件与来源",
+      "firecrawl-json | 1 | 0 | 1.000 | 1.000 | 1.000 | $0 synthetic | 合成数据，无实际费用计费条件与来源"
+     ]
+    ]
+   },
+   "first/zh/interpretation.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 结果解读",
+     "h2: scrapegraph-extract",
+     "h3: 字段差异分布",
+     "h2: firecrawl-json",
+     "h3: 字段差异分布"
+    ],
+    "tables": [
+     [
+      "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+     ],
+     [
+      "机器诊断 | 页数",
+      "符合标注 | 3",
+      "漏提取 | 2",
+      "部分值重合 | 1"
+     ],
+     [
+      "机器诊断 | 页数",
+      "页面加载 | 1"
+     ],
+     [
+      "机器诊断 | 页数",
+      "符合标注 | 2"
+     ],
+     [
+      "机器诊断 | 页数"
+     ]
+    ]
+   },
+   "first/zh/protocol.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 评测方法",
+     "h2: 此前重试的额外耗时",
+     "h2: 实际调用配置"
+    ],
+    "tables": [
+     [
+      "服务 | 额外重试耗时（秒） | 缺少计时的重试次数",
+      "scrapegraph-extract | 0.000 | 0",
+      "firecrawl-json | 0.000 | 0"
+     ],
+     [
+      "方案 | 同时进行的调用上限 | 执行目的 | 最小启动间隔（秒） | 调用后等待（秒）",
+      "scrapegraph-extract | — | 原记录未说明 | — | —",
+      "firecrawl-json | — | 原记录未说明 | — | —"
+     ]
+    ]
+   },
+   "first/zh/research.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 研究参考"
+    ]
+   },
+   "first/zh/results.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 评测结果",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "类别 | scrapegraph-extract | firecrawl-json",
+      "book (n=3) | — | —"
+     ],
+     [
+      "类别 | 网站 | 字段 | 页数 | scrapegraph-extract | firecrawl-json",
+      "book | example | author | 3 | — | —",
+      "book | example | title | 3 | — | —"
+     ],
+     [
+      "方法 | 页面 | 类别 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | one | book | 各字段集合均一致 | 2/2 | 1.000 | 查看证据 完整结果",
+      "firecrawl-json | one | book | 各字段集合均一致 | 2/2 | 1.000 | 查看证据 完整结果",
+      "scrapegraph-extract | three | book | 调用失败 | 0/2 | 3.000 | 查看证据 完整结果",
+      "firecrawl-json | three | book | 尚未执行 | — | — | 完整结果",
+      "scrapegraph-extract | two | book | 字段有差异 | 1/2 | 2.000 | 查看证据 完整结果",
+      "firecrawl-json | two | book | 尚未执行 | — | — | 完整结果"
+     ]
+    ]
+   },
+   "first/zh/review.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 标注与复核"
+    ]
+   },
+   "index.html": {
+    "headings": []
+   },
+   "second/en/index.html": {
+    "headings": [
+     "h1: English edition not generated"
+    ]
+   },
+   "second/index.html": {
+    "headings": []
+   },
+   "second/zh/accounts.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 价格与接入"
+    ],
+    "tables": [
+     [
+      "方法 | 美元／1,000 次 | 计费条件与套餐门槛 | 核对日期 | 官方来源",
+      "scrapegraph-extract | $0 synthetic | 合成数据，无实际费用 | 2026-01-01 | 1",
+      "firecrawl-json | $0 synthetic | 合成数据，无实际费用 | 2026-01-01 | 1"
+     ],
+     [
+      "方法 | 物理调用数 | 有用量回执 | 服务报告用量",
+      "scrapegraph-extract | 3 | 0 | —",
+      "firecrawl-json | 1 | 0 | —"
+     ]
+    ]
+   },
+   "second/zh/c-3fc4ccfe745870e2c0d99f71.html": {
+    "headings": [
+     "h1: two · 同页各方法对照",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 字段有差异 | 1/2 | 2.000 | 完整结果",
+      "firecrawl-json | 尚未执行 | — | — | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | A | 部分值重合 | 是 | 否"
+     ]
+    ]
+   },
+   "second/zh/c-7692c3ad3540bb803c020b3a.html": {
+    "headings": [
+     "h1: one · 同页各方法对照",
+     "h2: 结果证据",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 各字段集合均一致 | 2/2 | 1.000 | 完整结果",
+      "firecrawl-json | 各字段集合均一致 | 2/2 | 1.000 | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | AB | 符合标注 | 是 | 是"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | Example | 符合标注 | 是 | 是",
+      "author | AB | AB | 符合标注 | 是 | 是"
+     ]
+    ]
+   },
+   "second/zh/c-8b5b9db0c13db24256c829aa.html": {
+    "headings": [
+     "h1: three · 同页各方法对照",
+     "h2: 本次调用为什么失败",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "方法 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | 调用失败 | 0/2 | 3.000 | 完整结果",
+      "firecrawl-json | 尚未执行 | — | — | 完整结果"
+     ],
+     [
+      "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
+      "title | Example | 未返回值 | 漏提取 | 否 | 否",
+      "author | AB | 未返回值 | 漏提取 | 否 | 否"
+     ]
+    ]
+   },
+   "second/zh/candidates.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 服务目录"
+    ]
+   },
+   "second/zh/d-3fc4ccfe745870e2c0d99f71.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "second/zh/d-7692c3ad3540bb803c020b3a.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "second/zh/d-8b5b9db0c13db24256c829aa.html": {
+    "headings": [
+     "h1: book网页 · example"
+    ],
+    "tables": [
+     [
+      "字段 | 原标注",
+      "title | [\"Example\"]",
+      "author | [\"A\", \"B\"]"
+     ]
+    ]
+   },
+   "second/zh/dataset.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 数据集"
+    ],
+    "tables": [
+     [
+      "类别 | 页数 | 网站 | 提取字段",
+      "book | 3 | 1 | title / author"
+     ],
+     [
+      "页面 | 类别 | 网站 | 冻结页面与标注",
+      "one | book | example | 冻结页面与标注",
+      "three | book | example | 冻结页面与标注",
+      "two | book | example | 冻结页面与标注"
+     ]
+    ]
+   },
+   "second/zh/index.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 总览",
+     "h2: 耗时与价格"
+    ],
+    "tables": [
+     [
+      "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+     ],
+     [
+      "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
+      "页面命中宏平均 F1 | 来源：SWDE 页面命中统计口径，采用 MarkupLM 发布的实现。 先按网站和字段计算 F1，再对各组等权平均。每页至少命中一个答案就算命中；多报其他错误值仍可能命中。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "值级微平均 F1 | 来源：本项目补充统计，按每个字段值计算 micro F1。 汇总所有返回值与参考值。多报会降低准确率，漏报会降低召回率，再用 F1 综合两者。 例如参考 1 个值，返回 2 个且 1 个正确：准确率 50%，召回率 100%，F1 约 0.667。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "字段集合完全一致率 | 来源：本项目补充统计，逐字段比较完整值集合。 返回的整组值与参考答案完全相同的页面字段，占全部可评分页面字段的比例。 | 百分比 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "整页全对率 | 来源：本项目补充定义，不属于数据集官方指标。公式：成功交付、格式合规且全部目标字段正确的页数 ÷ 参考完整的页面总数。请求失败算错。例：10 页中 2 页参考不完整，其余 8 页有 3 页全对，则为 3/8＝37.5%。 | 百分比 | 所有方法使用同一批参考完整的页面，含失败请求。表下注释说明使用哪套参考：原参考来自数据集，校验参考经过网页证据复核。 | 越高越好",
+      "空值处理正确率 | 来源：本项目补充定义，不属于数据集官方指标。公式：正确留空的字段数 ÷ 参考明确为空的字段总数。请求失败算错；数组字段必须明确返回 []。例：5 处应为空，4 处正确留空、1 处请求失败，则为 4/5＝80%。 | 百分比 | 参考明确为空且可评分的字段，一个网页中的一个字段计一个样本；含失败请求。样本少时不据此推断整体能力。 | 越高越好",
+      "平均耗时 | 最终一次调用的平均耗时，包含失败；此前重试另行累计。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P50 耗时 | 中位数：一半有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P95 耗时 | 95% 有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "每千页费用 | 按相同接口和条件提取 1,000 页的费用。官方套餐折算与按本轮页面估算分别注明。 | 美元／1,000 页 | 本轮接口、参数，以及列明的套餐或估算假设。 | 在相同计费假设下比较"
+     ],
+     [
+      "方法 | 有计时 | 缺计时 | 平均（秒） | P50（秒） | P95（秒） | 美元／1,000 次 | 官方计费方式与套餐",
+      "scrapegraph-extract | 3 | 0 | 2.000 | 2.000 | 3.000 | $0 synthetic | 合成数据，无实际费用计费条件与来源",
+      "firecrawl-json | 1 | 0 | 1.000 | 1.000 | 1.000 | $0 synthetic | 合成数据，无实际费用计费条件与来源"
+     ]
+    ]
+   },
+   "second/zh/interpretation.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 结果解读",
+     "h2: scrapegraph-extract",
+     "h3: 字段差异分布",
+     "h2: firecrawl-json",
+     "h3: 字段差异分布"
+    ],
+    "tables": [
+     [
+      "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+     ],
+     [
+      "机器诊断 | 页数",
+      "符合标注 | 3",
+      "漏提取 | 2",
+      "部分值重合 | 1"
+     ],
+     [
+      "机器诊断 | 页数",
+      "页面加载 | 1"
+     ],
+     [
+      "机器诊断 | 页数",
+      "符合标注 | 2"
+     ],
+     [
+      "机器诊断 | 页数"
+     ]
+    ]
+   },
+   "second/zh/protocol.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 评测方法",
+     "h2: 此前重试的额外耗时",
+     "h2: 实际调用配置"
+    ],
+    "tables": [
+     [
+      "服务 | 额外重试耗时（秒） | 缺少计时的重试次数",
+      "scrapegraph-extract | 0.000 | 0",
+      "firecrawl-json | 0.000 | 0"
+     ],
+     [
+      "方案 | 同时进行的调用上限 | 执行目的 | 最小启动间隔（秒） | 调用后等待（秒）",
+      "scrapegraph-extract | — | 原记录未说明 | — | —",
+      "firecrawl-json | — | 原记录未说明 | — | —"
+     ]
+    ]
+   },
+   "second/zh/research.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 研究参考"
+    ]
+   },
+   "second/zh/results.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 评测结果",
+     "h2: 结果证据"
+    ],
+    "tables": [
+     [
+      "类别 | scrapegraph-extract | firecrawl-json",
+      "book (n=3) | — | —"
+     ],
+     [
+      "类别 | 网站 | 字段 | 页数 | scrapegraph-extract | firecrawl-json",
+      "book | example | author | 3 | — | —",
+      "book | example | title | 3 | — | —"
+     ],
+     [
+      "方法 | 页面 | 类别 | 机器诊断 | 字段集合完全一致率 | 耗时（秒） | 完整结果",
+      "scrapegraph-extract | one | book | 各字段集合均一致 | 2/2 | 1.000 | 查看证据 完整结果",
+      "firecrawl-json | one | book | 各字段集合均一致 | 2/2 | 1.000 | 查看证据 完整结果",
+      "scrapegraph-extract | three | book | 调用失败 | 0/2 | 3.000 | 查看证据 完整结果",
+      "firecrawl-json | three | book | 尚未执行 | — | — | 完整结果",
+      "scrapegraph-extract | two | book | 字段有差异 | 1/2 | 2.000 | 查看证据 完整结果",
+      "firecrawl-json | two | book | 尚未执行 | — | — | 完整结果"
+     ]
+    ]
+   },
+   "second/zh/review.html": {
+    "headings": [
+     "h1: 多值字段合成示例 · 标注与复核"
+    ]
+   },
+   "zh/index.html": {
+    "headings": [
+     "h1: 独立评测集合成示例",
+     "h2: first · 3 题",
+     "h3: 耗时与价格",
+     "h2: second · 3 题",
+     "h3: 耗时与价格"
+    ],
+    "tables": [
+     [
+      "方法 | 已执行 / 题数 | 值级 F1 ↑ | 页面命中 F1 ↑ | 字段完全一致率 ↑ | 结果解读",
+      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果",
+      "firecrawl-json | 1 / 3 | — | — | — | 查看结果"
+     ],
+     [
+      "方法 | 计时 / 题数 | 平均（秒）↓ | P50（秒）↓ | P95（秒）↓ | 美元 / 1,000 次 | 报价说明",
+      "scrapegraph-extract | 3 / 3 | 2.000 | 2.000 | 3.000 | $0 synthetic | 套餐与计费条件",
+      "firecrawl-json | 1 / 3 | 1.000 | 1.000 | 1.000 | $0 synthetic | 套餐与计费条件"
+     ],
+     [
+      "方法 | 已执行 / 题数 | 值级 F1 ↑ | 页面命中 F1 ↑ | 字段完全一致率 ↑ | 结果解读",
+      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果",
+      "firecrawl-json | 1 / 3 | — | — | — | 查看结果"
+     ],
+     [
+      "方法 | 计时 / 题数 | 平均（秒）↓ | P50（秒）↓ | P95（秒）↓ | 美元 / 1,000 次 | 报价说明",
+      "scrapegraph-extract | 3 / 3 | 2.000 | 2.000 | 3.000 | $0 synthetic | 套餐与计费条件",
+      "firecrawl-json | 1 / 3 | 1.000 | 1.000 | 1.000 | $0 synthetic | 套餐与计费条件"
+     ],
+     [
+      "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
+      "页面命中宏平均 F1 | 来源：SWDE 页面命中统计口径，采用 MarkupLM 发布的实现。 先按网站和字段计算 F1，再对各组等权平均。每页至少命中一个答案就算命中；多报其他错误值仍可能命中。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "值级微平均 F1 | 来源：本项目补充统计，按每个字段值计算 micro F1。 汇总所有返回值与参考值。多报会降低准确率，漏报会降低召回率，再用 F1 综合两者。 例如参考 1 个值，返回 2 个且 1 个正确：准确率 50%，召回率 100%，F1 约 0.667。 | 0–1 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "字段集合完全一致率 | 来源：本项目补充统计，逐字段比较完整值集合。 返回的整组值与参考答案完全相同的页面字段，占全部可评分页面字段的比例。 | 百分比 | 全部计划页面，调用失败也计入；完全没有参考标注的字段不参与评分。 | 越高越好",
+      "整页全对率 | 来源：本项目补充定义，不属于数据集官方指标。公式：成功交付、格式合规且全部目标字段正确的页数 ÷ 参考完整的页面总数。请求失败算错。例：10 页中 2 页参考不完整，其余 8 页有 3 页全对，则为 3/8＝37.5%。 | 百分比 | 所有方法使用同一批参考完整的页面，含失败请求。表下注释说明使用哪套参考：原参考来自数据集，校验参考经过网页证据复核。 | 越高越好",
+      "空值处理正确率 | 来源：本项目补充定义，不属于数据集官方指标。公式：正确留空的字段数 ÷ 参考明确为空的字段总数。请求失败算错；数组字段必须明确返回 []。例：5 处应为空，4 处正确留空、1 处请求失败，则为 4/5＝80%。 | 百分比 | 参考明确为空且可评分的字段，一个网页中的一个字段计一个样本；含失败请求。样本少时不据此推断整体能力。 | 越高越好",
+      "平均耗时 | 最终一次调用的平均耗时，包含失败；此前重试另行累计。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P50 耗时 | 中位数：一半有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "P95 耗时 | 95% 有计时的最终调用不超过这个时间。 | 秒 | 全部有计时的最终调用；表中列出有计时和缺计时数量。 | 越低越好",
+      "每千页费用 | 按相同接口和条件提取 1,000 页的费用。官方套餐折算与按本轮页面估算分别注明。 | 美元／1,000 页 | 本轮接口、参数，以及列明的套餐或估算假设。 | 在相同计费假设下比较"
+     ]
+    ]
+   }
+  },
+  "routes": [
+   "app.js",
+   "en/index.html",
+   "first/app.js",
+   "first/data/completion-metrics.json",
+   "first/data/metrics.json",
+   "first/en/index.html",
+   "first/index.html",
+   "first/public-evidence/firecrawl-json.json",
+   "first/public-evidence/provenance/input-profile.json",
+   "first/public-evidence/reference.json",
+   "first/public-evidence/scrapegraph-extract.json",
+   "first/public-evidence/sources.json",
+   "first/report-manifest.json",
+   "first/style.css",
+   "first/webstone-version.json",
+   "first/zh/accounts.html",
+   "first/zh/c-3fc4ccfe745870e2c0d99f71.html",
+   "first/zh/c-7692c3ad3540bb803c020b3a.html",
+   "first/zh/c-8b5b9db0c13db24256c829aa.html",
+   "first/zh/candidates.html",
+   "first/zh/d-3fc4ccfe745870e2c0d99f71.html",
+   "first/zh/d-7692c3ad3540bb803c020b3a.html",
+   "first/zh/d-8b5b9db0c13db24256c829aa.html",
+   "first/zh/dataset.html",
+   "first/zh/index.html",
+   "first/zh/interpretation.html",
+   "first/zh/protocol.html",
+   "first/zh/research.html",
+   "first/zh/results.html",
+   "first/zh/review.html",
+   "index.html",
+   "public-evidence/provenance/input-profile.json",
+   "report-manifest.json",
+   "second/app.js",
+   "second/data/completion-metrics.json",
+   "second/data/metrics.json",
+   "second/en/index.html",
+   "second/index.html",
+   "second/public-evidence/firecrawl-json.json",
+   "second/public-evidence/provenance/input-profile.json",
+   "second/public-evidence/reference.json",
+   "second/public-evidence/scrapegraph-extract.json",
+   "second/public-evidence/sources.json",
+   "second/report-manifest.json",
+   "second/style.css",
+   "second/webstone-version.json",
+   "second/zh/accounts.html",
+   "second/zh/c-3fc4ccfe745870e2c0d99f71.html",
+   "second/zh/c-7692c3ad3540bb803c020b3a.html",
+   "second/zh/c-8b5b9db0c13db24256c829aa.html",
+   "second/zh/candidates.html",
+   "second/zh/d-3fc4ccfe745870e2c0d99f71.html",
+   "second/zh/d-7692c3ad3540bb803c020b3a.html",
+   "second/zh/d-8b5b9db0c13db24256c829aa.html",
+   "second/zh/dataset.html",
+   "second/zh/index.html",
+   "second/zh/interpretation.html",
+   "second/zh/protocol.html",
+   "second/zh/research.html",
+   "second/zh/results.html",
+   "second/zh/review.html",
+   "style.css",
+   "suite.json",
+   "webstone-version.json",
+   "zh/index.html"
+  ]
+ },
+ "scored": {
+  "first/data/completion-metrics.json": {
+   "complete_methods": [],
+   "excluded_fields": {},
+   "methods": {
+    "firecrawl-json": null,
+    "scrapegraph-extract": null
+   },
+   "provider_calls_added": 0,
+   "records": true,
+   "reference_view": "original",
+   "schema": "web-extract-completion-metrics/1",
+   "source_sha256": "<sha256>"
+  },
+  "first/data/metrics.json": {
+   "firecrawl-json": {
+    "certified": false,
+    "executed": 1,
+    "failure_stages": {},
+    "field_outcomes": {
+     "correct": 2
+    },
+    "latency": {
+     "mean": 1.0,
+     "missing": 0,
+     "p50": 1.0,
+     "p95": 1.0,
+     "timed": 1
+    },
+    "physical_calls": 1,
+    "planned": 3,
+    "retry_missing_timers": 0,
+    "retry_seconds": 0.0,
+    "schema_invalid": 0,
+    "scores": null,
+    "structured": 1,
+    "unexecuted": 2
+   },
+   "scrapegraph-extract": {
+    "certified": false,
+    "executed": 3,
+    "failure_stages": {
+     "navigation": 1
+    },
+    "field_outcomes": {
+     "correct": 3,
+     "missing": 2,
+     "partial": 1
+    },
+    "latency": {
+     "mean": 2.0,
+     "missing": 0,
+     "p50": 2.0,
+     "p95": 3.0,
+     "timed": 3
+    },
+    "physical_calls": 3,
+    "planned": 3,
+    "retry_missing_timers": 0,
+    "retry_seconds": 0.0,
+    "schema_invalid": 0,
+    "scores": null,
+    "structured": 2,
+    "unexecuted": 0
+   }
+  },
+  "first/public-evidence/firecrawl-json.json": {
+   "one": {
+    "case_href": "first/zh/c-7692c3ad3540bb803c020b3a.html",
+    "case_id": "one",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 1.0,
+    "exact_fields": 2,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A",
+       "B"
+      ],
+      "exact": true,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 2
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "firecrawl-json",
+    "method_label": "firecrawl-json",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "one",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 1.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "firecrawl-json",
+      "normalized_fields": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "data": {
+        "json": {
+         "author": [
+          "A",
+          "B"
+         ],
+         "title": [
+          "Example"
+         ]
+        }
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "data": {
+      "json": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      }
+     }
+    },
+    "result_href": "first/zh/c-7692c3ad3540bb803c020b3a.html#firecrawl-json",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "exact"
+   }
+  },
+  "first/public-evidence/provenance/input-profile.json": {
+   "dataset": {
+    "cases": 3,
+    "commit": "synthetic-record-v1"
+   },
+   "local_example": true,
+   "research_report": {
+    "content": {
+     "path": "content.json",
+     "sha256": "<sha256>"
+    }
+   }
+  },
+  "first/public-evidence/reference.json": {
+   "one": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/one",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   },
+   "three": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/three",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   },
+   "two": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/two",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   }
+  },
+  "first/public-evidence/scrapegraph-extract.json": {
+   "one": {
+    "case_href": "first/zh/c-7692c3ad3540bb803c020b3a.html",
+    "case_id": "one",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 1.0,
+    "exact_fields": 2,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A",
+       "B"
+      ],
+      "exact": true,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 2
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "one",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 1.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "json": {
+        "author": [
+         "A",
+         "B"
+        ],
+        "title": [
+         "Example"
+        ]
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "json": {
+      "author": [
+       "A",
+       "B"
+      ],
+      "title": [
+       "Example"
+      ]
+     }
+    },
+    "result_href": "first/zh/c-7692c3ad3540bb803c020b3a.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "exact"
+   },
+   "three": {
+    "case_href": "first/zh/c-8b5b9db0c13db24256c829aa.html",
+    "case_id": "three",
+    "compatibility": "no_structured_output",
+    "elapsed_seconds": 3.0,
+    "exact_fields": 0,
+    "failure_stage": "navigation",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [],
+      "exact": false,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 2,
+      "fp": 0,
+      "hit": false,
+      "status": "missing",
+      "tp": 0
+     },
+     "title": {
+      "actual": [],
+      "exact": false,
+      "expected": [
+       "Example"
+      ],
+      "fn": 1,
+      "fp": 0,
+      "hit": false,
+      "status": "missing",
+      "tp": 0
+     }
+    },
+    "hit_fields": 0,
+    "http_status": 422,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "Synthetic navigation timeout",
+    "normalized_fields": {},
+    "physical_attempts": [
+     {
+      "case_id": "three",
+      "compatibility": "no_structured_output",
+      "elapsed_seconds": 3.0,
+      "http_status": 422,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {},
+      "response": {
+       "error": "Synthetic navigation timeout"
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "error": "Synthetic navigation timeout"
+    },
+    "result_href": "first/zh/c-8b5b9db0c13db24256c829aa.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "call_error"
+   },
+   "two": {
+    "case_href": "first/zh/c-3fc4ccfe745870e2c0d99f71.html",
+    "case_id": "two",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 2.0,
+    "exact_fields": 1,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A"
+      ],
+      "exact": false,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 1,
+      "fp": 0,
+      "hit": true,
+      "status": "partial",
+      "tp": 1
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "two",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 2.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {
+       "author": [
+        "A"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "json": {
+        "author": [
+         "A"
+        ],
+        "title": [
+         "Example"
+        ]
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "json": {
+      "author": [
+       "A"
+      ],
+      "title": [
+       "Example"
+      ]
+     }
+    },
+    "result_href": "first/zh/c-3fc4ccfe745870e2c0d99f71.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "field_difference"
+   }
+  },
+  "first/public-evidence/sources.json": {
+   "firecrawl-json": {
+    "case_count": 3,
+    "contract": {
+     "case_ids": [
+      "one",
+      "two",
+      "three"
+     ],
+     "dataset_manifest_sha256": "<sha256>",
+     "kind": "full_archived_extraction",
+     "methods": [
+      "firecrawl-json"
+     ],
+     "pipeline_sha256": "<sha256>"
+    },
+    "participant": {},
+    "plan_sha256": "<sha256>",
+    "receipt": {
+     "access_blocked": null,
+     "certified": false,
+     "checkpoint_sha256": "<sha256>",
+     "physical_calls": 1,
+     "scores": {}
+    },
+    "run_id": "firecrawl-json",
+    "scorer_sha256": "<sha256>"
+   },
+   "scrapegraph-extract": {
+    "case_count": 3,
+    "contract": {
+     "case_ids": [
+      "one",
+      "two",
+      "three"
+     ],
+     "dataset_manifest_sha256": "<sha256>",
+     "kind": "full_archived_extraction",
+     "methods": [
+      "scrapegraph-extract"
+     ],
+     "pipeline_sha256": "<sha256>"
+    },
+    "participant": {},
+    "plan_sha256": "<sha256>",
+    "receipt": {
+     "access_blocked": null,
+     "certified": false,
+     "checkpoint_sha256": "<sha256>",
+     "physical_calls": 3,
+     "scores": {}
+    },
+    "run_id": "scrapegraph-extract",
+    "scorer_sha256": "<sha256>"
+   }
+  },
+  "public-evidence/provenance/input-profile.json": {
+   "local_example": true,
+   "research_report": {
+    "cohorts": [
+     {
+      "content_sha256": "<sha256>",
+      "id": "first",
+      "label": "first",
+      "profile_sha256": "<sha256>",
+      "summary_html": ""
+     },
+     {
+      "content_sha256": "<sha256>",
+      "id": "second",
+      "label": "second",
+      "profile_sha256": "<sha256>",
+      "summary_html": ""
+     }
+    ],
+    "content": {
+     "path": "content.json",
+     "sha256": "<sha256>"
+    }
+   }
+  },
+  "second/data/completion-metrics.json": {
+   "complete_methods": [],
+   "excluded_fields": {},
+   "methods": {
+    "firecrawl-json": null,
+    "scrapegraph-extract": null
+   },
+   "provider_calls_added": 0,
+   "records": true,
+   "reference_view": "original",
+   "schema": "web-extract-completion-metrics/1",
+   "source_sha256": "<sha256>"
+  },
+  "second/data/metrics.json": {
+   "firecrawl-json": {
+    "certified": false,
+    "executed": 1,
+    "failure_stages": {},
+    "field_outcomes": {
+     "correct": 2
+    },
+    "latency": {
+     "mean": 1.0,
+     "missing": 0,
+     "p50": 1.0,
+     "p95": 1.0,
+     "timed": 1
+    },
+    "physical_calls": 1,
+    "planned": 3,
+    "retry_missing_timers": 0,
+    "retry_seconds": 0.0,
+    "schema_invalid": 0,
+    "scores": null,
+    "structured": 1,
+    "unexecuted": 2
+   },
+   "scrapegraph-extract": {
+    "certified": false,
+    "executed": 3,
+    "failure_stages": {
+     "navigation": 1
+    },
+    "field_outcomes": {
+     "correct": 3,
+     "missing": 2,
+     "partial": 1
+    },
+    "latency": {
+     "mean": 2.0,
+     "missing": 0,
+     "p50": 2.0,
+     "p95": 3.0,
+     "timed": 3
+    },
+    "physical_calls": 3,
+    "planned": 3,
+    "retry_missing_timers": 0,
+    "retry_seconds": 0.0,
+    "schema_invalid": 0,
+    "scores": null,
+    "structured": 2,
+    "unexecuted": 0
+   }
+  },
+  "second/public-evidence/firecrawl-json.json": {
+   "one": {
+    "case_href": "second/zh/c-7692c3ad3540bb803c020b3a.html",
+    "case_id": "one",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 1.0,
+    "exact_fields": 2,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A",
+       "B"
+      ],
+      "exact": true,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 2
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "firecrawl-json",
+    "method_label": "firecrawl-json",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "one",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 1.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "firecrawl-json",
+      "normalized_fields": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "data": {
+        "json": {
+         "author": [
+          "A",
+          "B"
+         ],
+         "title": [
+          "Example"
+         ]
+        }
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "data": {
+      "json": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      }
+     }
+    },
+    "result_href": "second/zh/c-7692c3ad3540bb803c020b3a.html#firecrawl-json",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "exact"
+   }
+  },
+  "second/public-evidence/provenance/input-profile.json": {
+   "dataset": {
+    "cases": 3,
+    "commit": "synthetic-record-v1"
+   },
+   "local_example": true,
+   "research_report": {
+    "content": {
+     "path": "content.json",
+     "sha256": "<sha256>"
+    }
+   }
+  },
+  "second/public-evidence/reference.json": {
+   "one": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/one",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   },
+   "three": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/three",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   },
+   "two": {
+    "domain": "book",
+    "site": "example",
+    "url": "https://example.org/two",
+    "values": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    }
+   }
+  },
+  "second/public-evidence/scrapegraph-extract.json": {
+   "one": {
+    "case_href": "second/zh/c-7692c3ad3540bb803c020b3a.html",
+    "case_id": "one",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 1.0,
+    "exact_fields": 2,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A",
+       "B"
+      ],
+      "exact": true,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 2
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A",
+      "B"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "one",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 1.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {
+       "author": [
+        "A",
+        "B"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "json": {
+        "author": [
+         "A",
+         "B"
+        ],
+        "title": [
+         "Example"
+        ]
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "json": {
+      "author": [
+       "A",
+       "B"
+      ],
+      "title": [
+       "Example"
+      ]
+     }
+    },
+    "result_href": "second/zh/c-7692c3ad3540bb803c020b3a.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "exact"
+   },
+   "three": {
+    "case_href": "second/zh/c-8b5b9db0c13db24256c829aa.html",
+    "case_id": "three",
+    "compatibility": "no_structured_output",
+    "elapsed_seconds": 3.0,
+    "exact_fields": 0,
+    "failure_stage": "navigation",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [],
+      "exact": false,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 2,
+      "fp": 0,
+      "hit": false,
+      "status": "missing",
+      "tp": 0
+     },
+     "title": {
+      "actual": [],
+      "exact": false,
+      "expected": [
+       "Example"
+      ],
+      "fn": 1,
+      "fp": 0,
+      "hit": false,
+      "status": "missing",
+      "tp": 0
+     }
+    },
+    "hit_fields": 0,
+    "http_status": 422,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "Synthetic navigation timeout",
+    "normalized_fields": {},
+    "physical_attempts": [
+     {
+      "case_id": "three",
+      "compatibility": "no_structured_output",
+      "elapsed_seconds": 3.0,
+      "http_status": 422,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {},
+      "response": {
+       "error": "Synthetic navigation timeout"
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "error": "Synthetic navigation timeout"
+    },
+    "result_href": "second/zh/c-8b5b9db0c13db24256c829aa.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "call_error"
+   },
+   "two": {
+    "case_href": "second/zh/c-3fc4ccfe745870e2c0d99f71.html",
+    "case_id": "two",
+    "compatibility": "structured_output",
+    "elapsed_seconds": 2.0,
+    "exact_fields": 1,
+    "failure_stage": "fields",
+    "field_labels": {},
+    "field_results": {
+     "author": {
+      "actual": [
+       "A"
+      ],
+      "exact": false,
+      "expected": [
+       "A",
+       "B"
+      ],
+      "fn": 1,
+      "fp": 0,
+      "hit": true,
+      "status": "partial",
+      "tp": 1
+     },
+     "title": {
+      "actual": [
+       "Example"
+      ],
+      "exact": true,
+      "expected": [
+       "Example"
+      ],
+      "fn": 0,
+      "fp": 0,
+      "hit": true,
+      "status": "correct",
+      "tp": 1
+     }
+    },
+    "hit_fields": 2,
+    "http_status": 200,
+    "input_sha256": "<sha256>",
+    "method": "scrapegraph-extract",
+    "method_label": "scrapegraph-extract",
+    "native_error": "",
+    "normalized_fields": {
+     "author": [
+      "A"
+     ],
+     "title": [
+      "Example"
+     ]
+    },
+    "physical_attempts": [
+     {
+      "case_id": "two",
+      "compatibility": "structured_output",
+      "elapsed_seconds": 2.0,
+      "http_status": 200,
+      "input_sha256": "<sha256>",
+      "method": "scrapegraph-extract",
+      "normalized_fields": {
+       "author": [
+        "A"
+       ],
+       "title": [
+        "Example"
+       ]
+      },
+      "response": {
+       "json": {
+        "author": [
+         "A"
+        ],
+        "title": [
+         "Example"
+        ]
+       }
+      },
+      "state": "response_received"
+     }
+    ],
+    "record_schema": true,
+    "referenced_fields": 2,
+    "response": {
+     "json": {
+      "author": [
+       "A"
+      ],
+      "title": [
+       "Example"
+      ]
+     }
+    },
+    "result_href": "second/zh/c-3fc4ccfe745870e2c0d99f71.html#scrapegraph-extract",
+    "scored_fields": 2,
+    "state": "response_received",
+    "status": "field_difference"
+   }
+  },
+  "second/public-evidence/sources.json": {
+   "firecrawl-json": {
+    "case_count": 3,
+    "contract": {
+     "case_ids": [
+      "one",
+      "two",
+      "three"
+     ],
+     "dataset_manifest_sha256": "<sha256>",
+     "kind": "full_archived_extraction",
+     "methods": [
+      "firecrawl-json"
+     ],
+     "pipeline_sha256": "<sha256>"
+    },
+    "participant": {},
+    "plan_sha256": "<sha256>",
+    "receipt": {
+     "access_blocked": null,
+     "certified": false,
+     "checkpoint_sha256": "<sha256>",
+     "physical_calls": 1,
+     "scores": {}
+    },
+    "run_id": "firecrawl-json",
+    "scorer_sha256": "<sha256>"
+   },
+   "scrapegraph-extract": {
+    "case_count": 3,
+    "contract": {
+     "case_ids": [
+      "one",
+      "two",
+      "three"
+     ],
+     "dataset_manifest_sha256": "<sha256>",
+     "kind": "full_archived_extraction",
+     "methods": [
+      "scrapegraph-extract"
+     ],
+     "pipeline_sha256": "<sha256>"
+    },
+    "participant": {},
+    "plan_sha256": "<sha256>",
+    "receipt": {
+     "access_blocked": null,
+     "certified": false,
+     "checkpoint_sha256": "<sha256>",
+     "physical_calls": 3,
+     "scores": {}
+    },
+    "run_id": "scrapegraph-extract",
+    "scorer_sha256": "<sha256>"
+   }
+  }
+ }
+}

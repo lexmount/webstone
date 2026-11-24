@@ -1,0 +1,387 @@
+{
+ "records": [
+  {
+   "case_id": "fixture-0",
+   "cost": null,
+   "elapsed_ms": 100,
+   "error": "",
+   "http_status": 200,
+   "id": "fixture-0-lexmount-r0",
+   "method": "lexmount",
+   "metrics": {
+    "anchor_hit_10": 1,
+    "anchor_hit_5": 1,
+    "content_chars": 0,
+    "content_coverage": 0.0,
+    "domain_precision": null,
+    "duplicate_rate": 0.0,
+    "ndcg_10": null,
+    "reciprocal_rank": 1.0,
+    "result_count": 1,
+    "snippet_chars": 12,
+    "summary_chars": 0
+   },
+   "results": [
+    {
+     "content": "",
+     "date": null,
+     "rank": 1,
+     "snippet": "Fixture only",
+     "summary": "",
+     "title": "Synthetic reference",
+     "url": "https://reference.invalid/0"
+    }
+   ],
+   "round": 0
+  },
+  {
+   "case_id": "fixture-0",
+   "cost": 0.005,
+   "elapsed_ms": 200,
+   "error": "",
+   "http_status": 200,
+   "id": "fixture-0-deepseek-content-r0",
+   "method": "deepseek-content",
+   "metrics": {
+    "anchor_hit_10": 1,
+    "anchor_hit_5": 1,
+    "content_chars": 0,
+    "content_coverage": 0.0,
+    "domain_precision": null,
+    "duplicate_rate": 0.0,
+    "ndcg_10": null,
+    "reciprocal_rank": 1.0,
+    "result_count": 1,
+    "snippet_chars": 12,
+    "summary_chars": 0
+   },
+   "results": [
+    {
+     "content": "",
+     "date": null,
+     "rank": 1,
+     "snippet": "Fixture only",
+     "summary": "",
+     "title": "Synthetic reference",
+     "url": "https://reference.invalid/0"
+    }
+   ],
+   "round": 0
+  },
+  {
+   "case_id": "fixture-1",
+   "cost": null,
+   "elapsed_ms": 100,
+   "error": "",
+   "http_status": 200,
+   "id": "fixture-1-lexmount-r0",
+   "method": "lexmount",
+   "metrics": {
+    "anchor_hit_10": 1,
+    "anchor_hit_5": 1,
+    "content_chars": 0,
+    "content_coverage": 0.0,
+    "domain_precision": null,
+    "duplicate_rate": 0.0,
+    "ndcg_10": null,
+    "reciprocal_rank": 1.0,
+    "result_count": 1,
+    "snippet_chars": 12,
+    "summary_chars": 0
+   },
+   "results": [
+    {
+     "content": "",
+     "date": null,
+     "rank": 1,
+     "snippet": "Fixture only",
+     "summary": "",
+     "title": "Synthetic reference",
+     "url": "https://reference.invalid/1"
+    }
+   ],
+   "round": 0
+  },
+  {
+   "case_id": "fixture-1",
+   "cost": 0,
+   "elapsed_ms": 200,
+   "error": "Synthetic upstream timeout",
+   "http_status": 504,
+   "id": "fixture-1-deepseek-content-r0",
+   "method": "deepseek-content",
+   "metrics": {
+    "anchor_hit_10": 0,
+    "anchor_hit_5": 0,
+    "content_chars": 0,
+    "content_coverage": null,
+    "domain_precision": null,
+    "duplicate_rate": null,
+    "ndcg_10": null,
+    "reciprocal_rank": 0,
+    "result_count": 0,
+    "snippet_chars": 0,
+    "summary_chars": 0
+   },
+   "results": [],
+   "round": 0
+  }
+ ],
+ "report": {
+  "pages": {
+   "dataset.html": {
+    "headings": [
+     "h1: 测试集与来源",
+     "h2: 查询从哪里来"
+    ],
+    "tables": [
+     [
+      "来源类型 | 独立查询数",
+      "自建补充 | 2"
+     ],
+     [
+      "ID | 评测集 | 语言 | 类别 | 来源类型 | 查询 | 参考页面／答案 | 来源",
+      "fixture-0 | 通用网页 | 中文 | 通用网页 | 自建补充 | Synthetic query 0 | 目标页面 · reference.invalid | 为覆盖该场景增补的查询。",
+      "fixture-1 | 通用网页 | 中文 | 通用网页 | 自建补充 | Synthetic query 1 | 目标页面 · reference.invalid | 为覆盖该场景增补的查询。"
+     ]
+    ]
+   },
+   "details/fixture-0-deepseek-content-r0.html": {
+    "headings": [
+     "h1: fixture-0 / Fixture B",
+     "h2: 网页发现参考",
+     "h2: 实际请求参数",
+     "h2: 原始错误",
+     "h2: 同一查询的结果对照",
+     "h2: 返回结果"
+    ],
+    "tables": [
+     [
+      "指标 | 数值",
+      "已知目标@5 | 1.00",
+      "目标排名倒数 | 1.00",
+      "指定域名占比 | —",
+      "重复文档占比 | 0.00",
+      "含正文的结果占比 | 0.00"
+     ],
+     [
+      "排名 | Fixture A | Fixture B",
+      "1 | Synthetic referenceFixture only | Synthetic referenceFixture only"
+     ]
+    ]
+   },
+   "details/fixture-0-lexmount-r0.html": {
+    "headings": [
+     "h1: fixture-0 / Fixture A",
+     "h2: 网页发现参考",
+     "h2: 实际请求参数",
+     "h2: 原始错误",
+     "h2: 同一查询的结果对照",
+     "h2: 返回结果"
+    ],
+    "tables": [
+     [
+      "指标 | 数值",
+      "已知目标@5 | 1.00",
+      "目标排名倒数 | 1.00",
+      "指定域名占比 | —",
+      "重复文档占比 | 0.00",
+      "含正文的结果占比 | 0.00"
+     ],
+     [
+      "排名 | Fixture A | Fixture B",
+      "1 | Synthetic referenceFixture only | Synthetic referenceFixture only"
+     ]
+    ]
+   },
+   "details/fixture-1-deepseek-content-r0.html": {
+    "headings": [
+     "h1: fixture-1 / Fixture B",
+     "h2: 网页发现参考",
+     "h2: 实际请求参数",
+     "h2: 原始错误",
+     "h2: 同一查询的结果对照",
+     "h2: 返回结果"
+    ],
+    "tables": [
+     [
+      "指标 | 数值",
+      "已知目标@5 | 0.00",
+      "目标排名倒数 | 0.00",
+      "指定域名占比 | —",
+      "重复文档占比 | —",
+      "含正文的结果占比 | —"
+     ],
+     [
+      "排名 | Fixture A | Fixture B",
+      "1 | Synthetic referenceFixture only | —"
+     ]
+    ]
+   },
+   "details/fixture-1-lexmount-r0.html": {
+    "headings": [
+     "h1: fixture-1 / Fixture A",
+     "h2: 网页发现参考",
+     "h2: 实际请求参数",
+     "h2: 原始错误",
+     "h2: 同一查询的结果对照",
+     "h2: 返回结果"
+    ],
+    "tables": [
+     [
+      "指标 | 数值",
+      "已知目标@5 | 1.00",
+      "目标排名倒数 | 1.00",
+      "指定域名占比 | —",
+      "重复文档占比 | 0.00",
+      "含正文的结果占比 | 0.00"
+     ],
+     [
+      "排名 | Fixture A | Fixture B",
+      "1 | Synthetic referenceFixture only | —"
+     ]
+    ]
+   },
+   "en/index.html": {
+    "headings": [
+     "h1: 英文报告未生成"
+    ]
+   },
+   "index.html": {
+    "headings": [
+     "h1: 搜索质量、速度与成本",
+     "h2: 分场景比较",
+     "h2: 文本交付与费用估算",
+     "h2: 比较范围",
+     "h2: 重复查询耗时与接口缓存标记",
+     "h2: 成功返回结果的请求耗时"
+    ],
+    "tables": [
+     [
+      "方法 | 非空／题数 | 平均 ms | P50 ms | P95 ms | 目标页进前5条 | 千次价格",
+      "Fixture A | ★ 2/2 | ★ 100.00 | ★ 100.00 | ★ 100.00 | ★ 100.0% (2题) | — CNY",
+      "Fixture B | 1/2 | 200.00 | 200.00 | 200.00 | 50.0% (2题) | ★ 5.00 CNY"
+     ],
+     [
+      "场景 | 方法 | Hit@5 | MRR | 指定域名占比 | 重复占比",
+      "通用网页 | Fixture A | 1.00 (n=2) | 1.00 (n=2) | — (n=0) | 0.00 (n=2)",
+      "通用网页 | Fixture B | 0.50 (n=2) | 0.50 (n=2) | — (n=0) | 0.00 (n=1)"
+     ],
+     [
+      "方法 | 每查询结果数 | 每查询片段字数 | 每查询摘要字数 | 每查询正文字数 | 含正文结果占比 | 全部调用估算费用 | 每道返回结果查询的估算费用",
+      "Fixture A | 1.00 | 12.00 | 0.00 | 0.00 | 0.00 | — CNY | — CNY",
+      "Fixture B | 0.50 | 6.00 | 0.00 | 0.00 | 0.00 | 0.005 CNY | 0.0050 CNY"
+     ],
+     [
+      "轮次 | 方法 | N | 平均耗时 ms | P50 ms | P95 ms | 接口缓存标记",
+      "1 | Fixture A | 2 | 100.00 | 100.00 | 100.00 | unknown: 2",
+      "1 | Fixture B | 2 | 200.00 | 200.00 | 200.00 | unknown: 2"
+     ],
+     [
+      "方法 | N | 平均耗时 ms | P50 ms | P95 ms",
+      "Fixture A | 2 | 100.00 | 100.00 | 100.00",
+      "Fixture B | 1 | 200.00 | 200.00 | 200.00"
+     ]
+    ]
+   },
+   "interpretation.html": {
+    "headings": [
+     "h1: 结果解读",
+     "h2: 基础接口的核心结果",
+     "h2: 首轮诊断主因"
+    ],
+    "tables": [
+     [
+      "接口 | 返回结果的题数 | 已知页@5 | P50 ms | P95 ms | 本批估算费用",
+      "Fixture A | ★ 2/2 | ★ 100.0% (n=2) | ★ 100.00 | ★ 100.00 | — CNY",
+      "Fixture B | 1/2 | 50.0% (n=2) | 200.00 | 200.00 | ★ 0.005 CNY"
+     ],
+     [
+      "方法 | 规则分类 | 查询数 | 本方法查询总数",
+      "Fixture A | 命中已知目标 | 2 | 2",
+      "Fixture B | 命中已知目标 | 1 | 2",
+      "Fixture B | 接口或传输失败 | 1 | 2"
+     ]
+    ]
+   },
+   "performance.html": {
+    "headings": [
+     "h1: 性能诊断",
+     "h2: 客户端与服务端耗时：2 题诊断合计",
+     "h2: 完整调用预算内的上游工作量",
+     "h2: 已有上游结果后，等待最长的一次"
+    ],
+    "tables": [
+     [
+      "方法 | 总耗时均值 ms | 服务端均值 ms | 其余耗时均值 ms | 首字节均值 ms | 正文传输均值 ms | 平均响应字节数",
+      "Fixture A | 100.00 (n=2) | 80.00 (n=2) | 20.00 (n=2) | — (n=0) | — (n=0) | — (n=0)",
+      "Fixture B | 200.00 (n=2) | 80.00 (n=1) | 120.00 (n=1) | — (n=0) | — (n=0) | — (n=0)"
+     ],
+     [
+      "方法 | 每调用平均已记录尝试数 | 上游尝试结果 | 接口缓存标记 | 接口报告的用量",
+      "Fixture A | 1.00 | results: 2 | unknown: 2 | 未公开",
+      "Fixture B | — | 未公开 | unknown: 2 | 未公开"
+     ],
+     [
+      "上游路线 | 启动 ms | 耗时 ms | 结果 | 解析条数 | 并行时间线",
+      "fixture | 0 | 50 | results | 1 | "
+     ]
+    ]
+   },
+   "research.html": {
+    "headings": [
+     "h1: 评测方法",
+     "h2: 请求参数与评分范围内的结果数量",
+     "h2: 采集并发设置"
+    ],
+    "tables": [
+     [
+      "接口 | 搜索任务数 | 请求上限（条 × 任务数） | 返回数量（条 × 任务数） | 每个任务平均返回条数",
+      "Fixture A | 2 | — × 2 | 1 × 2 | 1.00",
+      "Fixture B | 2 | — × 2 | 0 × 1, 1 × 1 | 0.50"
+     ],
+     [
+      "方法 | 实际并发上限 | 共享资源限制",
+      "Fixture A | 1 | —",
+      "Fixture B | 1 | —"
+     ]
+    ]
+   },
+   "results.html": {
+    "headings": [
+     "h1: 逐题对照"
+    ],
+    "tables": [
+     [
+      "ID | 查询 | 方法 | 状态 | ms | 证据",
+      "fixture-0 | Synthetic query 0 | Fixture A | 目标命中 | 100.00 | 诊断 详情",
+      "fixture-0 | Synthetic query 0 | Fixture B | 目标命中 | 200.00 | 诊断 详情",
+      "fixture-1 | Synthetic query 1 | Fixture A | 目标命中 | 100.00 | 诊断 详情",
+      "fixture-1 | Synthetic query 1 | Fixture B | 未命中／错误 | 200.00 | 诊断 详情"
+     ]
+    ]
+   }
+  },
+  "routes": [
+   "calls/fixture-0-deepseek-content-r0.json",
+   "calls/fixture-0-lexmount-r0.json",
+   "calls/fixture-1-deepseek-content-r0.json",
+   "calls/fixture-1-lexmount-r0.json",
+   "dataset.html",
+   "details/fixture-0-deepseek-content-r0.html",
+   "details/fixture-0-lexmount-r0.html",
+   "details/fixture-1-deepseek-content-r0.html",
+   "details/fixture-1-lexmount-r0.html",
+   "en/index.html",
+   "index.html",
+   "interpretation.html",
+   "manifest.json",
+   "performance.html",
+   "query-catalog-license.txt",
+   "report-languages.json",
+   "research.html",
+   "results.html",
+   "webstone-version.json"
+  ]
+ }
+}

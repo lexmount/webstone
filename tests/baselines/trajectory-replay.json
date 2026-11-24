@@ -1,0 +1,925 @@
+{
+ "metrics": {
+  "distribution_scope": "all_declared_tasks",
+  "methods": [
+   {
+    "action_latency": {
+     "mean": null,
+     "n": 0,
+     "p50": null,
+     "p95": null
+    },
+    "action_mean": null,
+    "cpu": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "cpu_mean": null,
+    "cpu_utilization": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "duration": {
+     "mean": 100.0,
+     "missing": 0,
+     "n": 1,
+     "p50": 100.0,
+     "p95": 100.0,
+     "population": 1
+    },
+    "duration_mean": 100.0,
+    "engine": "chromium",
+    "id": "chromium",
+    "label": "Chromium",
+    "memory": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "memory_mean": null,
+    "memory_peak": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_rx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_tx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "participant_id": "chromium",
+    "pass_rate": 1.0,
+    "passed": 1,
+    "physical_executions": 1,
+    "successful": {
+     "cpu": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "cpu_utilization": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "duration": {
+      "mean": 100.0,
+      "missing": 0,
+      "n": 1,
+      "p50": 100.0,
+      "p95": 100.0,
+      "population": 1
+     },
+     "memory": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "memory_peak": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "network_rx": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "network_tx": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     }
+    },
+    "total": 1,
+    "valid_reference_passed": 1,
+    "valid_reference_total": 1
+   },
+   {
+    "action_latency": {
+     "mean": null,
+     "n": 0,
+     "p50": null,
+     "p95": null
+    },
+    "action_mean": null,
+    "cpu": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "cpu_mean": null,
+    "cpu_utilization": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "duration": {
+     "mean": 100.0,
+     "missing": 0,
+     "n": 1,
+     "p50": 100.0,
+     "p95": 100.0,
+     "population": 1
+    },
+    "duration_mean": 100.0,
+    "engine": "moli",
+    "id": "moli-old",
+    "label": "Moli 1.1.3",
+    "memory": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "memory_mean": null,
+    "memory_peak": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_rx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_tx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "participant_id": "moli-old",
+    "pass_rate": 0.0,
+    "passed": 0,
+    "physical_executions": 1,
+    "successful": {
+     "cpu": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "cpu_utilization": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "duration": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "memory": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "memory_peak": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "network_rx": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     },
+     "network_tx": {
+      "mean": null,
+      "missing": 0,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 0
+     }
+    },
+    "total": 1,
+    "valid_reference_passed": 0,
+    "valid_reference_total": 1
+   },
+   {
+    "action_latency": {
+     "mean": null,
+     "n": 0,
+     "p50": null,
+     "p95": null
+    },
+    "action_mean": null,
+    "cpu": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "cpu_mean": null,
+    "cpu_utilization": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "duration": {
+     "mean": 100.0,
+     "missing": 0,
+     "n": 1,
+     "p50": 100.0,
+     "p95": 100.0,
+     "population": 1
+    },
+    "duration_mean": 100.0,
+    "engine": "moli",
+    "id": "moli-fixed",
+    "label": "Moli 1.1.7",
+    "memory": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "memory_mean": null,
+    "memory_peak": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_rx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "network_tx": {
+     "mean": null,
+     "missing": 1,
+     "n": 0,
+     "p50": null,
+     "p95": null,
+     "population": 1
+    },
+    "participant_id": "moli-fixed",
+    "pass_rate": 1.0,
+    "passed": 1,
+    "physical_executions": 1,
+    "successful": {
+     "cpu": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "cpu_utilization": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "duration": {
+      "mean": 100.0,
+      "missing": 0,
+      "n": 1,
+      "p50": 100.0,
+      "p95": 100.0,
+      "population": 1
+     },
+     "memory": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "memory_peak": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "network_rx": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     },
+     "network_tx": {
+      "mean": null,
+      "missing": 1,
+      "n": 0,
+      "p50": null,
+      "p95": null,
+      "population": 1
+     }
+    },
+    "total": 1,
+    "valid_reference_passed": 1,
+    "valid_reference_total": 1
+   }
+  ],
+  "passing_intersection": 0,
+  "passing_intersection_scope": "diagnostic_only",
+  "successful_scope": "per_method_success"
+ },
+ "report": {
+  "pages": {
+   "article.html": {
+    "headings": [
+     "h1: 结果解读",
+     "h2: 完整结果",
+     "h2: 如何判分",
+     "h2: 各方法的失败原因",
+     "h3: 合成动作失败",
+     "h2: 测量范围"
+    ],
+    "tables": [
+     [
+      "方法 | 官方通过 | 官方通过率 | 全部任务端到端耗时 | 单次动作耗时",
+      "Chromium | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "dataset.html": {
+    "headings": [
+     "h1: 评测集",
+     "h2: 任务与基准轨迹"
+    ],
+    "tables": [
+     [
+      "任务 | 站点 | 任务目标 | 类型 | 轨迹来源 | 标准动作 | 下钻",
+      "#29 | reddit | Find a post | 页面导航 | 自主执行成功 | 1 | 任务与轨迹实测结果"
+     ]
+    ]
+   },
+   "en/article.html": {
+    "headings": [
+     "h1: Result interpretation",
+     "h2: Complete results",
+     "h2: Scoring",
+     "h2: Failures by method",
+     "h3: Synthetic action failure",
+     "h2: Measurement scope"
+    ],
+    "tables": [
+     [
+      "Method | Official passes | Official pass rate | End-to-end time, all tasks | Per-action latency",
+      "Chromium | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "en/dataset.html": {
+    "headings": [
+     "h1: Dataset",
+     "h2: Tasks and reference paths"
+    ],
+    "tables": [
+     [
+      "Task | Site | Task goal | Type | Trajectory source | Fixed actions | Drill down",
+      "#29 | reddit | Find a post | NAVIGATE | Autonomous success | 1 | Task & trajectoryMeasured results"
+     ]
+    ]
+   },
+   "en/environment.html": {
+    "headings": [
+     "h1: Environment and method",
+     "h2: Method identity and repair sequence",
+     "h2: Execution flow"
+    ],
+    "tables": [
+     [
+      "Method | Version or revision | Builds | Retained result distribution",
+      "Chromium | — | — | —",
+      "Moli 1.1.3 | — | — | —",
+      "Moli 1.1.7 | — | — | —"
+     ]
+    ]
+   },
+   "en/evidence-viewer.html": {
+    "headings": [
+     "h1: Evidence viewer",
+     "h2: "
+    ]
+   },
+   "en/index.html": {
+    "headings": [
+     "h1: Browser Trajectory Replay",
+     "h2: Core metrics",
+     "h2: Resource data",
+     "h2: Dominant failures in 1 browser"
+    ],
+    "tables": [
+     [
+      "Method | Official passes | Official pass rate | End-to-end time, all tasks | Per-action latency",
+      "Chromium | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "en/interpretation.html": {
+    "headings": [
+     "h1: Result interpretation",
+     "h2: Complete results",
+     "h2: Scoring",
+     "h2: Failures by method",
+     "h3: Synthetic action failure",
+     "h2: Measurement scope"
+    ],
+    "tables": [
+     [
+      "Method | Official passes | Official pass rate | End-to-end time, all tasks | Per-action latency",
+      "Chromium | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "en/result/chromium-29.html": {
+    "headings": [
+     "h1: Chromium · Task #29",
+     "h2: All method results for this task",
+     "h2: This method's trajectory and execution",
+     "h3: Method input arguments",
+     "h3: Actual action arguments",
+     "h3: Tool response, logs and error",
+     "h3: Exact programmatic failure",
+     "h2: Evaluation, resources, and page evidence"
+    ]
+   },
+   "en/result/moli-fixed-29.html": {
+    "headings": [
+     "h1: Moli 1.1.7 · Task #29",
+     "h2: All method results for this task",
+     "h2: This method's trajectory and execution",
+     "h3: Method input arguments",
+     "h3: Actual action arguments",
+     "h3: Tool response, logs and error",
+     "h3: Exact programmatic failure",
+     "h2: Evaluation, resources, and page evidence"
+    ]
+   },
+   "en/result/moli-old-29.html": {
+    "headings": [
+     "h1: Moli 1.1.3 · Task #29",
+     "h2: All method results for this task",
+     "h2: Failure diagnosis and treatment",
+     "h3: Exact programmatic finding",
+     "h3: Reviewed cause and basis",
+     "h2: This method's trajectory and execution",
+     "h3: Method input arguments",
+     "h3: Actual action arguments",
+     "h3: Tool response, logs and error",
+     "h3: Exact programmatic failure",
+     "h2: Evaluation, resources, and page evidence"
+    ]
+   },
+   "en/results.html": {
+    "headings": [
+     "h1: Results analysis",
+     "h2: Failures by family and subtype",
+     "h2: Browser action latency",
+     "h2: Conditional distributions on each method’s successful tasks",
+     "h2: Same-task method comparison",
+     "h3: Programmatic finding and evaluator rule",
+     "h3: Reviewed cause and treatment"
+    ],
+    "tables": [
+     [
+      "Method | Failures / tasks | Other / unreviewed",
+      "Synthetic action failure",
+      "Chromium | 0 / 1 | 0",
+      "Moli 1.1.3 | 1 / 1 | 1",
+      "Moli 1.1.7 | 0 / 1 | 0"
+     ],
+     [
+      "Action | Chromium | Moli 1.1.3 | Moli 1.1.7"
+     ],
+     [
+      "Metric | Chromium · n=1/1 | Moli 1.1.3 · n=0/1 | Moli 1.1.7 · n=1/1",
+      "End-to-end time | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0 | Mean —P50 —P95 —n=0/0; missing 0 | Mean 0.1 sP50 0.1 sP95 0.1 sn=1/1; missing 0"
+     ],
+     [
+      "Task | Site | Official pass | Fail",
+      "#29 | reddit | Chromium · PassMoli 1.1.7 · Pass | Moli 1.1.3 · Fail"
+     ],
+     [
+      "Task | Method | Site | Verdict | Actions | Failure stage | Reviewed category | Detail",
+      "#29Diagnose | Chromium | reddit | Pass | 1/1 | — | — | Evidence page",
+      "#29Diagnose | Moli 1.1.3 | reddit | Fail | 0/1 | Browser action | Synthetic action failure | Evidence page",
+      "#29Diagnose | Moli 1.1.7 | reddit | Pass | 1/1 | — | — | Evidence page"
+     ]
+    ]
+   },
+   "en/review.html": {
+    "headings": [
+     "h1: Review history",
+     "h2: Current status",
+     "h2: Review rounds"
+    ],
+    "tables": [
+     [
+      "Round | Scope | Finding | Correction | Open",
+      "Trajectory qualification | 1 tasks: 1 autonomous successes and 0 repaired trajectories. | 0 candidate trajectories required repair before use as frozen inputs. | Recorded per-task acceptance yielded 1/1 passes on Chromium. Frozen trajectories contain no Agent or model decisions. | Method-specific frozen inputs and official evaluations are available on each result page.",
+      "Failure evidence review | 1 final failed outcomes. | 0 browser-session setup failures; 1 browser-action failures; 0 evidence-finalization failures; 0 evaluator-execution failures; 0 network-acceptance failures. | 1/1 reviews are bound to the current evidence hash. Program errors, action locators, reviewed causes and treatment states are separate; official scores did not change. | Failure causes and treatment status appear on each failed result page."
+     ]
+    ]
+   },
+   "en/task/29.html": {
+    "headings": [
+     "h1: Task contract and fixed trajectory",
+     "h2: All method outcomes on this task",
+     "h2: Dataset reference path",
+     "h2: Evaluation input"
+    ],
+    "tables": [
+     [
+      "Method | Verdict | Completed actions | Evidence",
+      "Chromium | Pass | 1/1 | Diagnosis and executed actions",
+      "Moli 1.1.3 | Fail | 0/1 | Diagnosis and executed actions",
+      "Moli 1.1.7 | Pass | 1/1 | Diagnosis and executed actions"
+     ],
+     [
+      "# | Action | Target | Arguments",
+      "1 | snapshot |  | Full arguments{ \"action\": \"snapshot\" }"
+     ]
+    ]
+   },
+   "environment.html": {
+    "headings": [
+     "h1: 环境与方法",
+     "h2: 方法身份与修复序列",
+     "h2: 执行流程"
+    ],
+    "tables": [
+     [
+      "方法 | 版本或修订 | 构建数 | 最终结果分布",
+      "Chromium | — | — | —",
+      "Moli 1.1.3 | — | — | —",
+      "Moli 1.1.7 | — | — | —"
+     ]
+    ]
+   },
+   "evidence-viewer.html": {
+    "headings": [
+     "h1: 证据查看器",
+     "h2: "
+    ]
+   },
+   "index.html": {
+    "headings": [
+     "h1: 浏览器轨迹重放评测",
+     "h2: 核心指标",
+     "h2: 资源数据",
+     "h2: 1 款浏览器的主导错误"
+    ],
+    "tables": [
+     [
+      "方法 | 官方通过 | 官方通过率 | 全部任务端到端耗时 | 单次动作耗时",
+      "Chromium | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "interpretation.html": {
+    "headings": [
+     "h1: 结果解读",
+     "h2: 完整结果",
+     "h2: 如何判分",
+     "h2: 各方法的失败原因",
+     "h3: 合成动作失败",
+     "h2: 测量范围"
+    ],
+    "tables": [
+     [
+      "方法 | 官方通过 | 官方通过率 | 全部任务端到端耗时 | 单次动作耗时",
+      "Chromium | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.3 | 0/1 | 0.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0",
+      "Moli 1.1.7 | 1/1 | 100.0% | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0"
+     ]
+    ]
+   },
+   "result/chromium-29.html": {
+    "headings": [
+     "h1: Chromium · 任务 #29",
+     "h2: 同题方法结果",
+     "h2: 本方法轨迹与实际执行",
+     "h3: 本方法输入参数",
+     "h3: 实际动作参数",
+     "h3: 工具返回、日志与报错",
+     "h3: 程序原始失败判定",
+     "h2: 验收、资源与页面证据"
+    ]
+   },
+   "result/moli-fixed-29.html": {
+    "headings": [
+     "h1: Moli 1.1.7 · 任务 #29",
+     "h2: 同题方法结果",
+     "h2: 本方法轨迹与实际执行",
+     "h3: 本方法输入参数",
+     "h3: 实际动作参数",
+     "h3: 工具返回、日志与报错",
+     "h3: 程序原始失败判定",
+     "h2: 验收、资源与页面证据"
+    ]
+   },
+   "result/moli-old-29.html": {
+    "headings": [
+     "h1: Moli 1.1.3 · 任务 #29",
+     "h2: 同题方法结果",
+     "h2: 失败定位与处理",
+     "h3: 程序原始判定",
+     "h3: 复核判断与依据",
+     "h2: 本方法轨迹与实际执行",
+     "h3: 本方法输入参数",
+     "h3: 实际动作参数",
+     "h3: 工具返回、日志与报错",
+     "h3: 程序原始失败判定",
+     "h2: 验收、资源与页面证据"
+    ]
+   },
+   "results.html": {
+    "headings": [
+     "h1: 结果分析",
+     "h2: 失败分布：大类与子类",
+     "h2: 浏览器动作耗时",
+     "h2: 各方法成功任务的条件分布",
+     "h2: 同题方法对比",
+     "h3: 程序判定与验收规则",
+     "h3: 复核原因与处理"
+    ],
+    "tables": [
+     [
+      "方法 | 失败 / 任务 | 其他／未复核",
+      "合成动作失败",
+      "Chromium | 0 / 1 | 0",
+      "Moli 1.1.3 | 1 / 1 | 1",
+      "Moli 1.1.7 | 0 / 1 | 0"
+     ],
+     [
+      "动作 | Chromium | Moli 1.1.3 | Moli 1.1.7"
+     ],
+     [
+      "指标 | Chromium · n=1/1 | Moli 1.1.3 · n=0/1 | Moli 1.1.7 · n=1/1",
+      "端到端耗时 | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0 | 均值 —P50 —P95 —n=0/0; 缺失 0 | 均值 0.1 秒P50 0.1 秒P95 0.1 秒n=1/1; 缺失 0"
+     ],
+     [
+      "任务 | 站点 | 官方通过 | 失败",
+      "#29 | reddit | Chromium · 通过Moli 1.1.7 · 通过 | Moli 1.1.3 · 失败"
+     ],
+     [
+      "任务 | 方法 | 站点 | 判定 | 动作 | 失败环节 | 复核分类 | 详情",
+      "#29诊断 | Chromium | reddit | 通过 | 1/1 | — | — | 证据页",
+      "#29诊断 | Moli 1.1.3 | reddit | 失败 | 0/1 | 浏览器动作 | 合成动作失败 | 证据页",
+      "#29诊断 | Moli 1.1.7 | reddit | 通过 | 1/1 | — | — | 证据页"
+     ]
+    ]
+   },
+   "review.html": {
+    "headings": [
+     "h1: 核验记录",
+     "h2: 当前状态",
+     "h2: 核验轮次"
+    ],
+    "tables": [
+     [
+      "轮次 | 范围 | 发现 | 纠正 | 未完成",
+      "轨迹资格核验 | 1 题；1 条来自自主执行，0 条经修复。 | 0 条候选轨迹需要修复后才能作为固定输入。 | 记录的逐题验收中，Chromium 通过 1/1 题；固定轨迹不包含 Agent 或模型决策。 | 逐方法冻结输入及官方验收证据可在结果页查看。",
+      "失败证据复核 | 1 条最终失败结果。 | 0 条浏览器会话初始化失败；1 条动作执行失败；0 条证据收尾失败；0 条评测器执行失败；0 条网络验收失败。 | 1/1 条绑定当前证据哈希；分别展示程序报错、动作位置、复核原因和处理状态，原始分数未改。 | 失败根因与处理状态见逐题结果详情。"
+     ]
+    ]
+   },
+   "task/29.html": {
+    "headings": [
+     "h1: 任务定义与标准轨迹",
+     "h2: 同题所有方法结果",
+     "h2: 评测集基准轨迹",
+     "h2: 验收输入"
+    ],
+    "tables": [
+     [
+      "方法 | 结果 | 完成动作 | 证据",
+      "Chromium | 通过 | 1/1 | 查看诊断与执行轨迹",
+      "Moli 1.1.3 | 失败 | 0/1 | 查看诊断与执行轨迹",
+      "Moli 1.1.7 | 通过 | 1/1 | 查看诊断与执行轨迹"
+     ],
+     [
+      "# | 动作 | 目标 | 参数",
+      "1 | snapshot |  | 查看完整参数{ \"action\": \"snapshot\" }"
+     ]
+    ]
+   }
+  },
+  "routes": [
+   "article.html",
+   "assets/app.js",
+   "assets/report.css",
+   "data/evidence/chromium-29.json",
+   "data/evidence/moli-fixed-29.json",
+   "data/evidence/moli-old-29.json",
+   "data/metrics.json",
+   "data/results.json",
+   "data/trajectory/29.json",
+   "data/trajectory/chromium-29.json",
+   "data/trajectory/moli-fixed-29.json",
+   "data/trajectory/moli-old-29.json",
+   "dataset.html",
+   "en/article.html",
+   "en/dataset.html",
+   "en/environment.html",
+   "en/evidence-viewer.html",
+   "en/index.html",
+   "en/interpretation.html",
+   "en/result/chromium-29.html",
+   "en/result/moli-fixed-29.html",
+   "en/result/moli-old-29.html",
+   "en/results.html",
+   "en/review.html",
+   "en/task/29.html",
+   "environment.html",
+   "evidence-viewer.html",
+   "index.html",
+   "interpretation.html",
+   "report-manifest.json",
+   "result/chromium-29.html",
+   "result/moli-fixed-29.html",
+   "result/moli-old-29.html",
+   "results.html",
+   "review.html",
+   "task/29.html",
+   "webstone-version.json"
+  ]
+ },
+ "results": [
+  {
+   "action_count": 1,
+   "browser": "Chromium",
+   "cause_code": "",
+   "cause_en": "",
+   "cause_zh": "",
+   "completed_actions": 1,
+   "duration_ms": 100,
+   "engine": "chromium",
+   "failure_stage": "pass",
+   "intent": "Find a post",
+   "key": "chromium-29",
+   "participant_id": "chromium",
+   "program_error": "",
+   "reason_en": "",
+   "reason_zh": "",
+   "semantic_status": "valid",
+   "sites": [
+    "reddit"
+   ],
+   "status": "pass",
+   "task_contract_sha256": "<sha256>",
+   "task_id": 29
+  },
+  {
+   "action_count": 1,
+   "browser": "Moli 1.1.3",
+   "cause_code": "fixture",
+   "cause_en": "Synthetic action failure",
+   "cause_zh": "合成动作失败",
+   "completed_actions": 0,
+   "duration_ms": 100,
+   "engine": "moli",
+   "failure_stage": "browser_tool_execution",
+   "intent": "Find a post",
+   "key": "moli-old-29",
+   "participant_id": "moli-old",
+   "program_error": "Fixture action failed",
+   "reason_en": "Synthetic action error",
+   "reason_zh": "合成测试中的动作错误",
+   "semantic_status": "valid",
+   "sites": [
+    "reddit"
+   ],
+   "status": "fail",
+   "task_contract_sha256": "<sha256>",
+   "task_id": 29
+  },
+  {
+   "action_count": 1,
+   "browser": "Moli 1.1.7",
+   "cause_code": "",
+   "cause_en": "",
+   "cause_zh": "",
+   "completed_actions": 1,
+   "duration_ms": 100,
+   "engine": "moli",
+   "failure_stage": "pass",
+   "intent": "Find a post",
+   "key": "moli-fixed-29",
+   "participant_id": "moli-fixed",
+   "program_error": "",
+   "reason_en": "",
+   "reason_zh": "",
+   "semantic_status": "valid",
+   "sites": [
+    "reddit"
+   ],
+   "status": "pass",
+   "task_contract_sha256": "<sha256>",
+   "task_id": 29
+  }
+ ]
+}

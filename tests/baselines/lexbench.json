@@ -1,0 +1,2244 @@
+{
+ "cases": {
+  "task-001.json": {
+   "description": "Reads http://127.0.0.1:4100/fixture",
+   "driver": {
+    "script": "driver.js"
+   },
+   "features": [
+    "layout"
+   ],
+   "grader": {
+    "script": "grader.js"
+   },
+   "id": "task-001",
+   "modes": {
+    "off": {
+     "attempts": [
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1010,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1010,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 402,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1017,
+       "failure": {
+        "class": "timeout",
+        "detail": "timed out at <local fixture>/page reading <local path>",
+        "original_detail": "timed out at <local fixture>/page reading <local path>"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1017,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1024,
+       "failure": {
+        "class": "timeout",
+        "detail": "layout: box missing",
+        "original_detail": "script-reported checks failed"
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1024,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      }
+     ],
+     "passes": 1
+    },
+    "on": {
+     "attempts": [
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1060,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1060,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 402,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1067,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1067,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 1 from <local fixture>/answer",
+       "duration_ms": 1074,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1074,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 301,
+        "fixture_rx_bytes": 2049,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 22020096,
+        "pss_peak_bytes": 32505856,
+        "pss_peak_delta_bytes": 22020096,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      }
+     ],
+     "passes": 3
+    }
+   },
+   "scene": {
+    "kind": "static"
+   },
+   "stratum": "alpha",
+   "subset": "subset-1",
+   "task_sha256": "<sha256>",
+   "title": "Synthetic task 1"
+  },
+  "task-002.json": {
+   "description": "Reads http://127.0.0.1:4100/fixture",
+   "driver": {
+    "script": "driver.js"
+   },
+   "features": [],
+   "grader": {
+    "script": "grader.js"
+   },
+   "id": "task-002",
+   "modes": {
+    "off": {
+     "attempts": [
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1013,
+       "failure": {
+        "class": "assertion",
+        "detail": "timed out at <local fixture>/page reading <local path>",
+        "original_detail": "timed out at <local fixture>/page reading <local path>"
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1013,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1020,
+       "failure": {
+        "class": "assertion",
+        "detail": "layout: box missing",
+        "original_detail": "script-reported checks failed"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1020,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1027,
+       "failure": {
+        "class": "assertion",
+        "detail": "layout: box missing",
+        "original_detail": "inline assertions failed"
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1027,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      }
+     ],
+     "passes": 0
+    },
+    "on": {
+     "attempts": [
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1063,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1063,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1070,
+       "failure": {
+        "class": "assertion",
+        "detail": "layout: box missing",
+        "original_detail": "script-reported checks failed"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1070,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 2 from <local fixture>/answer",
+       "duration_ms": 1077,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1077,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 302,
+        "fixture_rx_bytes": 2050,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 23068672,
+        "pss_peak_bytes": 33554432,
+        "pss_peak_delta_bytes": 23068672,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      }
+     ],
+     "passes": 2
+    }
+   },
+   "scene": {
+    "kind": "static"
+   },
+   "stratum": "beta",
+   "subset": "subset-2",
+   "task_sha256": "<sha256>",
+   "title": "Synthetic task 2"
+  },
+  "task-003.json": {
+   "description": "Reads http://127.0.0.1:4100/fixture",
+   "driver": {
+    "script": "driver.js"
+   },
+   "features": [
+    "layout"
+   ],
+   "grader": {
+    "script": "grader.js"
+   },
+   "id": "task-003",
+   "modes": {
+    "off": {
+     "attempts": [
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1016,
+       "failure": {
+        "class": "timeout",
+        "detail": "script-reported checks failed",
+        "original_detail": "script-reported checks failed"
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1016,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1023,
+       "failure": {
+        "class": "timeout",
+        "detail": "inline assertions failed",
+        "original_detail": "inline assertions failed"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1023,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1030,
+       "failure": {
+        "class": "timeout",
+        "detail": "answer did not match server-side expectation",
+        "original_detail": "answer did not match server-side expectation"
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1030,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 406,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      }
+     ],
+     "passes": 0
+    },
+    "on": {
+     "attempts": [
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1066,
+       "failure": {
+        "class": "timeout",
+        "detail": "script-reported checks failed",
+        "original_detail": "script-reported checks failed"
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1066,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 404,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1073,
+       "failure": {
+        "class": "timeout",
+        "detail": "inline assertions failed",
+        "original_detail": "inline assertions failed"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1073,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 3 from <local fixture>/answer",
+       "duration_ms": 1080,
+       "failure": {
+        "class": "timeout",
+        "detail": "answer did not match server-side expectation",
+        "original_detail": "answer did not match server-side expectation"
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1080,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 406,
+        "cpu_user_ms": 303,
+        "fixture_rx_bytes": 2051,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 24117248,
+        "pss_peak_bytes": 34603008,
+        "pss_peak_delta_bytes": 24117248,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      }
+     ],
+     "passes": 0
+    }
+   },
+   "scene": {
+    "kind": "static"
+   },
+   "stratum": "alpha",
+   "subset": "subset-0",
+   "task_sha256": "<sha256>",
+   "title": "Synthetic task 3"
+  },
+  "task-004.json": {
+   "description": "Reads http://127.0.0.1:4100/fixture",
+   "driver": {
+    "script": "driver.js"
+   },
+   "features": [],
+   "grader": {
+    "script": "grader.js"
+   },
+   "id": "task-004",
+   "modes": {
+    "off": {
+     "attempts": [
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1019,
+       "failure": {
+        "class": "assertion",
+        "detail": "inline assertions failed",
+        "original_detail": "inline assertions failed"
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1019,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1026,
+       "failure": {
+        "class": "assertion",
+        "detail": "answer did not match server-side expectation",
+        "original_detail": "answer did not match server-side expectation"
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1026,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 406,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      },
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1033,
+       "failure": {
+        "class": "assertion",
+        "detail": "timed out at <local fixture>/page reading <local path>",
+        "original_detail": "timed out at <local fixture>/page reading <local path>"
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1033,
+       "profile_status": "fail",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 407,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "fail"
+      }
+     ],
+     "passes": 0
+    },
+    "on": {
+     "attempts": [
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1069,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1069,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 405,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1076,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1076,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 406,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 4 from <local fixture>/answer",
+       "duration_ms": 1083,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1083,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 407,
+        "cpu_user_ms": 304,
+        "fixture_rx_bytes": 2052,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 25165824,
+        "pss_peak_bytes": 35651584,
+        "pss_peak_delta_bytes": 25165824,
+        "quality_flags": [],
+        "samples_seen": 4,
+        "unavailable": {}
+       },
+       "status": "pass"
+      }
+     ],
+     "passes": 3
+    }
+   },
+   "scene": {
+    "kind": "static"
+   },
+   "stratum": "beta",
+   "subset": "subset-1",
+   "task_sha256": "<sha256>",
+   "title": "Synthetic task 4"
+  },
+  "v4_cdp_emulation_setdefaultbackgroundcoloroverride.json": {
+   "description": "Reads http://127.0.0.1:4100/fixture",
+   "driver": {
+    "script": "driver.js"
+   },
+   "features": [],
+   "grader": {
+    "script": "grader.js"
+   },
+   "id": "v4_cdp_emulation_setdefaultbackgroundcoloroverride",
+   "modes": {
+    "off": {
+     "attempts": [
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1007,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1007,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 401,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1014,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1014,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 402,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1021,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1021,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      }
+     ],
+     "passes": 3
+    },
+    "on": {
+     "attempts": [
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1057,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 1,
+       "profile_duration_ms": 1057,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 101,
+        "cpu_total_ms": 401,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 513,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1064,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 2,
+       "profile_duration_ms": 1064,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 102,
+        "cpu_total_ms": 402,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 514,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      },
+      {
+       "answer": "Answer 0 from <local fixture>/answer",
+       "duration_ms": 1071,
+       "failure": {
+        "class": "",
+        "detail": "",
+        "original_detail": ""
+       },
+       "ordinal": 3,
+       "profile_duration_ms": 1071,
+       "profile_status": "pass",
+       "resource": {
+        "cpu_system_ms": 103,
+        "cpu_total_ms": 403,
+        "cpu_user_ms": 300,
+        "fixture_rx_bytes": 2048,
+        "fixture_tx_bytes": 515,
+        "measurement_backend": {
+         "memory_pss": "proc_smaps_rollup"
+        },
+        "pss_baseline_bytes": 10485760,
+        "pss_end_bytes": 20971520,
+        "pss_peak_bytes": 31457280,
+        "pss_peak_delta_bytes": 20971520,
+        "quality_flags": [
+         "short_call"
+        ],
+        "samples_seen": 4,
+        "unavailable": {
+         "gpu": "absent"
+        }
+       },
+       "status": "pass"
+      }
+     ],
+     "passes": 3
+    }
+   },
+   "scene": {
+    "kind": "static"
+   },
+   "stratum": "beta",
+   "subset": "subset-0",
+   "task_sha256": "<sha256>",
+   "title": "Synthetic task 0"
+  }
+ },
+ "model": {
+  "attempts_per_mode": 15,
+  "binary_sha256": "<sha256>",
+  "case_outcomes": {
+   "off": 1,
+   "on": 3,
+   "paired": {
+    "both_fail": 2,
+    "both_pass": 1,
+    "off_fail_on_pass": 2,
+    "off_pass_on_fail": 0
+   },
+   "repeats": 3,
+   "rule": "all_recorded_attempts_pass",
+   "total": 5
+  },
+  "cases": [
+   {
+    "id": "task-002",
+    "off_fail_classes": [
+     "assertion"
+    ],
+    "off_fail_details": [
+     "layout: box missing",
+     "timed out at <local fixture>/page reading <local path>"
+    ],
+    "off_passes": 0,
+    "on_fail_classes": [
+     "assertion"
+    ],
+    "on_fail_details": [
+     "layout: box missing"
+    ],
+    "on_passes": 2,
+    "stratum": "beta",
+    "subset": "subset-2",
+    "title": "Synthetic task 2"
+   },
+   {
+    "id": "task-004",
+    "off_fail_classes": [
+     "assertion"
+    ],
+    "off_fail_details": [
+     "answer did not match server-side expectation",
+     "inline assertions failed",
+     "timed out at <local fixture>/page reading <local path>"
+    ],
+    "off_passes": 0,
+    "on_fail_classes": [],
+    "on_fail_details": [],
+    "on_passes": 3,
+    "stratum": "beta",
+    "subset": "subset-1",
+    "title": "Synthetic task 4"
+   },
+   {
+    "id": "v4_cdp_emulation_setdefaultbackgroundcoloroverride",
+    "off_fail_classes": [],
+    "off_fail_details": [],
+    "off_passes": 3,
+    "on_fail_classes": [],
+    "on_fail_details": [],
+    "on_passes": 3,
+    "stratum": "beta",
+    "subset": "subset-0",
+    "title": "Synthetic task 0"
+   },
+   {
+    "id": "task-001",
+    "off_fail_classes": [
+     "timeout"
+    ],
+    "off_fail_details": [
+     "layout: box missing",
+     "timed out at <local fixture>/page reading <local path>"
+    ],
+    "off_passes": 1,
+    "on_fail_classes": [],
+    "on_fail_details": [],
+    "on_passes": 3,
+    "stratum": "alpha",
+    "subset": "subset-1",
+    "title": "Synthetic task 1"
+   },
+   {
+    "id": "task-003",
+    "off_fail_classes": [
+     "timeout"
+    ],
+    "off_fail_details": [
+     "answer did not match server-side expectation",
+     "inline assertions failed",
+     "script-reported checks failed"
+    ],
+    "off_passes": 0,
+    "on_fail_classes": [
+     "timeout"
+    ],
+    "on_fail_details": [
+     "answer did not match server-side expectation",
+     "inline assertions failed",
+     "script-reported checks failed"
+    ],
+    "on_passes": 0,
+    "stratum": "alpha",
+    "subset": "subset-0",
+    "title": "Synthetic task 3"
+   }
+  ],
+  "cold_start": {
+   "off": {
+    "launch_cpu_ms": {
+     "p50": 203
+    },
+    "launch_pss_bytes": {
+     "p50": 45088768
+    },
+    "n": 5,
+    "ready_ms": {
+     "p50": 930,
+     "p95": 950
+    }
+   },
+   "on": {
+    "launch_cpu_ms": {
+     "p50": 203
+    },
+    "launch_pss_bytes": {
+     "p50": 45088768
+    },
+    "n": 5,
+    "ready_ms": {
+     "p50": 931,
+     "p95": 951
+    }
+   }
+  },
+  "combined_comparison": {
+   "baseline": "114_off",
+   "configurations": [
+    {
+     "color": "#239b68",
+     "cpu_change_pct": 0.0,
+     "cpu_ms": 500.0,
+     "cpu_p50_ms": 499.0,
+     "cpu_p95_ms": 505.0,
+     "id": "114_off",
+     "label": "Moli 1.1.4 · 关闭 layout",
+     "label_en": "Moli 1.1.4 · layout off",
+     "memory_change_pct": 0.0,
+     "memory_kind": "PSS",
+     "memory_mib": 59.0,
+     "passed_cases": 0,
+     "platform": "Linux",
+     "pss_change_pct": 0.0,
+     "pss_mib": 59.0,
+     "short_label": "1.1.4 关闭",
+     "short_label_en": "1.1.4 off",
+     "success_change_pp": 0.0,
+     "success_rate_pct": 0.0,
+     "total_cases": 372
+    },
+    {
+     "color": "#d1841e",
+     "cpu_change_pct": -0.6000000000000005,
+     "cpu_ms": 497.0,
+     "cpu_p50_ms": 496.0,
+     "cpu_p95_ms": 502.0,
+     "id": "118_off",
+     "label": "Moli 1.1.8 · 关闭 layout",
+     "label_en": "Moli 1.1.8 · layout off",
+     "memory_change_pct": 1.6949152542372836,
+     "memory_kind": "PSS",
+     "memory_mib": 60.0,
+     "passed_cases": 1,
+     "platform": "Linux",
+     "pss_change_pct": 1.6949152542372836,
+     "pss_mib": 60.0,
+     "short_label": "1.1.8 关闭",
+     "short_label_en": "1.1.8 off",
+     "success_change_pp": 0.2688172043010753,
+     "success_rate_pct": 0.2688172043010753,
+     "total_cases": 372
+    },
+    {
+     "color": "#7652c7",
+     "cpu_change_pct": -1.200000000000001,
+     "cpu_ms": 494.0,
+     "cpu_p50_ms": 493.0,
+     "cpu_p95_ms": 499.0,
+     "id": "118_on",
+     "label": "Moli 1.1.8 · 开启 layout",
+     "label_en": "Moli 1.1.8 · layout on",
+     "memory_change_pct": 3.3898305084745672,
+     "memory_kind": "PSS",
+     "memory_mib": 61.0,
+     "passed_cases": 3,
+     "platform": "Linux",
+     "pss_change_pct": 3.3898305084745672,
+     "pss_mib": 61.0,
+     "short_label": "1.1.8 开启",
+     "short_label_en": "1.1.8 on",
+     "success_change_pp": 0.8064516129032258,
+     "success_rate_pct": 0.8064516129032258,
+     "total_cases": 372
+    }
+   ],
+   "resource_population": {
+    "attempts_per_case": 5,
+    "calls_per_task": 5,
+    "chart_calls": 1045,
+    "chart_tasks": 209,
+    "experiment_cases": 557,
+    "sample_interval_ms": 250,
+    "selection": "frozen_historical_common_pass_calls",
+    "total_tasks": 557
+   }
+  },
+  "common_pass": {
+   "baseline_count": 4,
+   "count": 4,
+   "cpu_total_ms": {
+    "off": 1608,
+    "on": 1608
+   },
+   "fixture_tx_total_bytes": {
+    "off": 2055,
+    "on": 2055
+   },
+   "pss_end_mean_bytes": {
+    "off": 21233664.0,
+    "on": 21233664.0
+   },
+   "scope": "Same task-attempt pairs that passed all four baseline and profiled rounds"
+  },
+  "environment": {
+   "docker": "synthetic",
+   "root": "/tmp/synthetic"
+  },
+  "fixed_candidates": {},
+  "fixed_case_outcomes": [
+   {
+    "id": "task-002",
+    "passes": {}
+   },
+   {
+    "id": "task-004",
+    "passes": {}
+   },
+   {
+    "id": "v4_cdp_emulation_setdefaultbackgroundcoloroverride",
+    "passes": {}
+   },
+   {
+    "id": "task-001",
+    "passes": {}
+   },
+   {
+    "id": "task-003",
+    "passes": {}
+   }
+  ],
+  "functional_contract_correction": {
+   "calls": 18,
+   "configuration_count": 3,
+   "evidence": {
+    "bytes": 1899,
+    "sha256": "<sha256>",
+    "url": "data/corrections/chromium-contract-retest.json"
+   },
+   "harness_commit": "ffffffffffffffffffffffffffffffffffffffff",
+   "success_rates_changed": false,
+   "task_count": 2
+  },
+  "functional_methods": [
+   {
+    "direct_cases": 1,
+    "extra_physical_calls": 0,
+    "final_passed_cases": 0,
+    "id": "114_off",
+    "inherited_cases": 371,
+    "initial_passed_cases": 0,
+    "label": "Moli 1.1.4 · 关闭 layout",
+    "label_en": "Moli 1.1.4 · layout off",
+    "moli_sha256": "<sha256>",
+    "physical_calls": 3,
+    "policy": "fixed_off",
+    "recovered_cases": 0,
+    "retried_cases": 0
+   },
+   {
+    "direct_cases": 372,
+    "extra_physical_calls": 0,
+    "final_passed_cases": 1,
+    "id": "118_off",
+    "inherited_cases": 0,
+    "initial_passed_cases": 1,
+    "label": "Moli 1.1.8 · 关闭 layout",
+    "label_en": "Moli 1.1.8 · layout off",
+    "moli_sha256": "<sha256>",
+    "physical_calls": 1116,
+    "policy": "fixed_off",
+    "recovered_cases": 0,
+    "retried_cases": 0
+   },
+   {
+    "direct_cases": 372,
+    "extra_physical_calls": 0,
+    "final_passed_cases": 3,
+    "id": "118_on",
+    "inherited_cases": 0,
+    "initial_passed_cases": 3,
+    "label": "Moli 1.1.8 · 开启 layout",
+    "label_en": "Moli 1.1.8 · layout on",
+    "moli_sha256": "<sha256>",
+    "physical_calls": 1116,
+    "policy": "fixed_on",
+    "recovered_cases": 0,
+    "retried_cases": 0
+   }
+  ],
+  "host_context": {
+   "concurrent_test_observed_at_start": true,
+   "launch_receipts": {
+    "off_baseline": {
+     "host_busy_at_start": false
+    },
+    "off_engine": {
+     "host_busy_at_start": false
+    },
+    "on_baseline": {
+     "host_busy_at_start": false
+    },
+    "on_engine": {
+     "host_busy_at_start": true
+    }
+   },
+   "scope": "Docker VM telemetry does not establish macOS host isolation.",
+   "shared_macos_host": true
+  },
+  "input_definition_variants": {},
+  "linux_comparison": null,
+  "linux_resource_profiles": null,
+  "macos_comparison": null,
+  "macos_resource": null,
+  "manifest_sha256": "<sha256>",
+  "metrics": {
+   "off": {
+    "baseline": {
+     "calls": 15,
+     "duration_ms_all": {
+      "mean": 1020,
+      "n": 15,
+      "p50": 1020,
+      "p95": 1033,
+      "sum": 15300
+     },
+     "duration_ms_pass": {
+      "mean": 1013,
+      "n": 4,
+      "p50": 1012.0,
+      "p95": 1021,
+      "sum": 4052
+     },
+     "passes": 4,
+     "status_counts": {
+      "fail": 11,
+      "pass": 4
+     }
+    },
+    "profile": {
+     "calls": 15,
+     "cpu_ms_all": {
+      "mean": 404.0,
+      "n": 15,
+      "p50": 404.0,
+      "p95": 407.0,
+      "sum": 6060.0
+     },
+     "cpu_ms_pass": {
+      "mean": 402.0,
+      "n": 4,
+      "p50": 402.0,
+      "p95": 403.0,
+      "sum": 1608.0
+     },
+     "duration_ms_all": {
+      "mean": 1020,
+      "n": 15,
+      "p50": 1020,
+      "p95": 1033,
+      "sum": 15300
+     },
+     "duration_ms_pass": {
+      "mean": 1013,
+      "n": 4,
+      "p50": 1012.0,
+      "p95": 1021,
+      "sum": 4052
+     },
+     "fixture_tx_bytes_all": {
+      "mean": 514,
+      "n": 15,
+      "p50": 514,
+      "p95": 515,
+      "sum": 7710
+     },
+     "fixture_tx_bytes_pass": {
+      "mean": 513.75,
+      "n": 4,
+      "p50": 513.5,
+      "p95": 515,
+      "sum": 2055
+     },
+     "passes": 4,
+     "pss_delta_mib_all": {
+      "mean": 22.0,
+      "n": 15,
+      "p50": 22.0,
+      "p95": 24.0,
+      "sum": 330.0
+     },
+     "pss_delta_mib_pass": {
+      "mean": 20.25,
+      "n": 4,
+      "p50": 20.0,
+      "p95": 21.0,
+      "sum": 81.0
+     },
+     "pss_peak_mib_all": {
+      "mean": 32.0,
+      "n": 15,
+      "p50": 32.0,
+      "p95": 34.0,
+      "sum": 480.0
+     },
+     "pss_peak_mib_pass": {
+      "mean": 30.25,
+      "n": 4,
+      "p50": 30.0,
+      "p95": 31.0,
+      "sum": 121.0
+     },
+     "status_counts": {
+      "fail": 11,
+      "pass": 4
+     }
+    }
+   },
+   "on": {
+    "baseline": {
+     "calls": 15,
+     "duration_ms_all": {
+      "mean": 1070,
+      "n": 15,
+      "p50": 1070,
+      "p95": 1083,
+      "sum": 16050
+     },
+     "duration_ms_pass": {
+      "mean": 1069.1818181818182,
+      "n": 11,
+      "p50": 1069,
+      "p95": 1083,
+      "sum": 11761
+     },
+     "passes": 11,
+     "status_counts": {
+      "fail": 4,
+      "pass": 11
+     }
+    },
+    "profile": {
+     "calls": 15,
+     "cpu_ms_all": {
+      "mean": 404.0,
+      "n": 15,
+      "p50": 404.0,
+      "p95": 407.0,
+      "sum": 6060.0
+     },
+     "cpu_ms_pass": {
+      "mean": 403.72727272727275,
+      "n": 11,
+      "p50": 403.0,
+      "p95": 407.0,
+      "sum": 4441.0
+     },
+     "duration_ms_all": {
+      "mean": 1070,
+      "n": 15,
+      "p50": 1070,
+      "p95": 1083,
+      "sum": 16050
+     },
+     "duration_ms_pass": {
+      "mean": 1069.1818181818182,
+      "n": 11,
+      "p50": 1069,
+      "p95": 1083,
+      "sum": 11761
+     },
+     "fixture_tx_bytes_all": {
+      "mean": 514,
+      "n": 15,
+      "p50": 514,
+      "p95": 515,
+      "sum": 7710
+     },
+     "fixture_tx_bytes_pass": {
+      "mean": 514,
+      "n": 11,
+      "p50": 514,
+      "p95": 515,
+      "sum": 5654
+     },
+     "passes": 11,
+     "pss_delta_mib_all": {
+      "mean": 22.0,
+      "n": 15,
+      "p50": 22.0,
+      "p95": 24.0,
+      "sum": 330.0
+     },
+     "pss_delta_mib_pass": {
+      "mean": 21.727272727272727,
+      "n": 11,
+      "p50": 21.0,
+      "p95": 24.0,
+      "sum": 239.0
+     },
+     "pss_peak_mib_all": {
+      "mean": 32.0,
+      "n": 15,
+      "p50": 32.0,
+      "p95": 34.0,
+      "sum": 480.0
+     },
+     "pss_peak_mib_pass": {
+      "mean": 31.727272727272727,
+      "n": 11,
+      "p50": 31.0,
+      "p95": 34.0,
+      "sum": 349.0
+     },
+     "status_counts": {
+      "fail": 4,
+      "pass": 11
+     }
+    }
+   }
+  },
+  "network_rx": {
+   "off": {
+    "p50_bytes": 2050,
+    "p95_bytes": 2052,
+    "total_bytes": 30750
+   },
+   "on": {
+    "p50_bytes": 2050,
+    "p95_bytes": 2052,
+    "total_bytes": 30750
+   }
+  },
+  "official_resource": null,
+  "paired": {
+   "baseline": {
+    "both_fail": 4,
+    "both_pass": 4,
+    "off_fail_on_pass": 7,
+    "off_pass_on_fail": 0
+   },
+   "engine": {
+    "both_fail": 4,
+    "both_pass": 4,
+    "off_fail_on_pass": 7,
+    "off_pass_on_fail": 0
+   }
+  },
+  "protocol": {
+   "browser_reuse": "none",
+   "fixtures_sha256": "<sha256>",
+   "historical_failed_cases": 372,
+   "historical_version": "0.1.1",
+   "jobs": 1,
+   "k_runs": 3,
+   "resource_scope": "observed_profiled_process_tree",
+   "runner_sha256": "<sha256>",
+   "score_eligible": false,
+   "seed": "frozen-seed",
+   "timing_calibration_scope": "paired profiler-off/on rounds; one worker per round",
+   "timing_primary": "unprofiled_driver_and_grade",
+   "try_layout": false
+  },
+  "quality": {
+   "off": {
+    "baseline_host": {
+     "polluted": false,
+     "round": "off_baseline"
+    },
+    "calibration": {
+     "acceptable": true,
+     "by_engine": {
+      "moli": {
+       "acceptable": true,
+       "collection_wall_pairs": 15,
+       "duration_pairs": 15,
+       "matched_attempts": 15,
+       "median_collection_wall_delta_pct": -96.00389863547758,
+       "median_duration_delta_pct": 0.0,
+       "p95_collection_wall_delta_pct": -95.85389930898322,
+       "p95_duration_delta_pct": 0.0,
+       "status_mismatch_rate": 0.0,
+       "status_mismatches": 0
+      }
+     },
+     "collection_wall_pairs": 15,
+     "complete_pairing": true,
+     "duration_pairs": 15,
+     "matched_attempts": 15,
+     "max_observer_effect_pct": 10.0,
+     "median_collection_wall_delta_pct": -96.00389863547758,
+     "median_duration_delta_pct": 0.0,
+     "p95_collection_wall_delta_pct": -95.85389930898322,
+     "p95_duration_delta_pct": 0.0,
+     "profiled_attempts": 15,
+     "provenance_checks": {
+      "balanced_order": true,
+      "browser_reuse": true,
+      "corpus": true,
+      "engine_pins": true,
+      "harness_pins": true,
+      "host_provenance": true,
+      "jobs": true,
+      "k_runs": true,
+      "profile_modes": true,
+      "runner_source": true,
+      "score_mode": true,
+      "seed": true,
+      "selected_engines": true
+     },
+     "provenance_mismatches": [],
+     "status_mismatch_rate": 0.0,
+     "status_mismatches": 0
+    },
+    "engine_host": {
+     "polluted": false,
+     "round": "off_engine"
+    },
+    "resource_missing": 0,
+    "resource_quality_flags": {
+     "short_call": 3
+    },
+    "resource_unavailable": {
+     "gpu": 3
+    },
+    "status_mismatch_count": 0,
+    "status_mismatch_keys": []
+   },
+   "on": {
+    "baseline_host": {
+     "polluted": false,
+     "round": "on_baseline"
+    },
+    "calibration": {
+     "acceptable": true,
+     "by_engine": {
+      "moli": {
+       "acceptable": true,
+       "collection_wall_pairs": 15,
+       "duration_pairs": 15,
+       "matched_attempts": 15,
+       "median_collection_wall_delta_pct": -96.18959107806691,
+       "median_duration_delta_pct": 0.0,
+       "p95_collection_wall_delta_pct": -96.04891815616182,
+       "p95_duration_delta_pct": 0.0,
+       "status_mismatch_rate": 0.0,
+       "status_mismatches": 0
+      }
+     },
+     "collection_wall_pairs": 15,
+     "complete_pairing": true,
+     "duration_pairs": 15,
+     "matched_attempts": 15,
+     "max_observer_effect_pct": 10.0,
+     "median_collection_wall_delta_pct": -96.18959107806691,
+     "median_duration_delta_pct": 0.0,
+     "p95_collection_wall_delta_pct": -96.04891815616182,
+     "p95_duration_delta_pct": 0.0,
+     "profiled_attempts": 15,
+     "provenance_checks": {
+      "balanced_order": true,
+      "browser_reuse": true,
+      "corpus": true,
+      "engine_pins": true,
+      "harness_pins": true,
+      "host_provenance": true,
+      "jobs": true,
+      "k_runs": true,
+      "profile_modes": true,
+      "runner_source": true,
+      "score_mode": true,
+      "seed": true,
+      "selected_engines": true
+     },
+     "provenance_mismatches": [],
+     "status_mismatch_rate": 0.0,
+     "status_mismatches": 0
+    },
+    "engine_host": {
+     "polluted": false,
+     "round": "on_engine"
+    },
+    "resource_missing": 0,
+    "resource_quality_flags": {
+     "short_call": 3
+    },
+    "resource_unavailable": {
+     "gpu": 3
+    },
+    "status_mismatch_count": 0,
+    "status_mismatch_keys": []
+   }
+  },
+  "resource_builds": {},
+  "resource_matrix": null,
+  "resource_metrics": null,
+  "resource_metrics_source": null,
+  "resource_window_corrections": [],
+  "review_coverage": {
+   "reviewed_calls": 0,
+   "total_calls": 60,
+   "unreviewed_program_passes": 30
+  },
+  "runs": {
+   "off_baseline": {
+    "manifest_sha256": "<sha256>",
+    "rows": 15,
+    "run_id": "round_off_baseline"
+   },
+   "off_engine": {
+    "manifest_sha256": "<sha256>",
+    "rows": 15,
+    "run_id": "round_off_engine"
+   },
+   "on_baseline": {
+    "manifest_sha256": "<sha256>",
+    "rows": 15,
+    "run_id": "round_on_baseline"
+   },
+   "on_engine": {
+    "manifest_sha256": "<sha256>",
+    "rows": 15,
+    "run_id": "round_on_engine"
+   }
+  },
+  "schema": "moli_layout_report/2",
+  "selection": {
+   "rule": "frozen historical failures"
+  },
+  "strata": [
+   "beta",
+   "alpha"
+  ],
+  "task_cost": [
+   {
+    "id": "task-002",
+    "off_cpu_ms": 1212,
+    "off_duration_ms": 3060,
+    "off_passes": 0,
+    "on_cpu_ms": 1212,
+    "on_duration_ms": 3210,
+    "on_passes": 2
+   },
+   {
+    "id": "task-004",
+    "off_cpu_ms": 1218,
+    "off_duration_ms": 3078,
+    "off_passes": 0,
+    "on_cpu_ms": 1218,
+    "on_duration_ms": 3228,
+    "on_passes": 3
+   },
+   {
+    "id": "v4_cdp_emulation_setdefaultbackgroundcoloroverride",
+    "off_cpu_ms": 1206,
+    "off_duration_ms": 3042,
+    "off_passes": 3,
+    "on_cpu_ms": 1206,
+    "on_duration_ms": 3192,
+    "on_passes": 3
+   },
+   {
+    "id": "task-001",
+    "off_cpu_ms": 1209,
+    "off_duration_ms": 3051,
+    "off_passes": 1,
+    "on_cpu_ms": 1209,
+    "on_duration_ms": 3201,
+    "on_passes": 3
+   },
+   {
+    "id": "task-003",
+    "off_cpu_ms": 1215,
+    "off_duration_ms": 3069,
+    "off_passes": 0,
+    "on_cpu_ms": 1215,
+    "on_duration_ms": 3219,
+    "on_passes": 0
+   }
+  ],
+  "task_count": 5,
+  "title": "Moli 配置对比",
+  "version_comparison": {
+   "baseline": "114_off",
+   "bindings": {
+    "functional_114_manifest_sha256": "<sha256>",
+    "functional_114_results_sha256": "<sha256>",
+    "resource_comparison_sha256": "<sha256>",
+    "resource_protocol_sha256": "<sha256>"
+   },
+   "configurations": [
+    {
+     "cpu_change_pct": 0.0,
+     "cpu_ms": 500.0,
+     "cpu_p50_ms": 499.0,
+     "cpu_p95_ms": 505.0,
+     "id": "114_off",
+     "label": "Moli 1.1.4 · 关闭 layout",
+     "label_en": "Moli 1.1.4 · layout off",
+     "passed_cases": 0,
+     "pss_change_pct": 0.0,
+     "pss_mib": 59.0,
+     "short_label": "1.1.4 关闭",
+     "short_label_en": "1.1.4 off",
+     "success_change_pp": 0.0,
+     "success_rate_pct": 0.0,
+     "total_cases": 372
+    },
+    {
+     "cpu_change_pct": -0.6000000000000005,
+     "cpu_ms": 497.0,
+     "cpu_p50_ms": 496.0,
+     "cpu_p95_ms": 502.0,
+     "id": "118_off",
+     "label": "Moli 1.1.8 · 关闭 layout",
+     "label_en": "Moli 1.1.8 · layout off",
+     "passed_cases": 1,
+     "pss_change_pct": 1.6949152542372836,
+     "pss_mib": 60.0,
+     "short_label": "1.1.8 关闭",
+     "short_label_en": "1.1.8 off",
+     "success_change_pp": 0.2688172043010753,
+     "success_rate_pct": 0.2688172043010753,
+     "total_cases": 372
+    },
+    {
+     "cpu_change_pct": -1.200000000000001,
+     "cpu_ms": 494.0,
+     "cpu_p50_ms": 493.0,
+     "cpu_p95_ms": 499.0,
+     "id": "118_on",
+     "label": "Moli 1.1.8 · 开启 layout",
+     "label_en": "Moli 1.1.8 · layout on",
+     "passed_cases": 3,
+     "pss_change_pct": 3.3898305084745672,
+     "pss_mib": 61.0,
+     "short_label": "1.1.8 开启",
+     "short_label_en": "1.1.8 on",
+     "success_change_pp": 0.8064516129032258,
+     "success_rate_pct": 0.8064516129032258,
+     "total_cases": 372
+    }
+   ],
+   "functional_population": {
+    "attempts_per_case": 3,
+    "cases": 372,
+    "rule": "all_three_attempts_pass",
+    "version_114_candidate": "v4_cdp_emulation_setdefaultbackgroundcoloroverride",
+    "version_114_candidate_cases": 1,
+    "version_114_inherited_failures": 371,
+    "version_114_method": "differential_candidate_check",
+    "version_118_direct_cases": 372
+   },
+   "published_71_mib": {
+    "status": "not_reproduced",
+    "value": 71
+   },
+   "resource_population": {
+    "attempts_per_case": 5,
+    "calls_per_task": 5,
+    "chart_calls": 1045,
+    "chart_tasks": 209,
+    "experiment_cases": 557,
+    "sample_interval_ms": 250,
+    "selection": "frozen_historical_common_pass_calls",
+    "total_tasks": 557
+   }
+  }
+ },
+ "report": {
+  "pages": {
+   "en.html": {
+    "headings": [
+     "h1: 英文报告未生成"
+    ]
+   },
+   "en/index.html": {
+    "headings": [
+     "h1: 英文报告未生成"
+    ]
+   },
+   "index.html": {
+    "headings": [
+     "h2: Evidence"
+    ]
+   }
+  },
+  "routes": [
+   "README.md",
+   "app.js",
+   "assets/comparison-all-success-resources-zh.svg",
+   "assets/comparison-version-success-resources-zh.svg",
+   "data/cases/task-001.json",
+   "data/cases/task-002.json",
+   "data/cases/task-003.json",
+   "data/cases/task-004.json",
+   "data/cases/v4_cdp_emulation_setdefaultbackgroundcoloroverride.json",
+   "data/combined-comparison.json",
+   "data/corrections/chromium-contract-retest.json",
+   "data/evidence/off_baseline/task-001/1/cdp.jsonl",
+   "data/evidence/off_baseline/task-001/1/grader.json",
+   "data/evidence/off_baseline/task-001/1/resource.jsonl",
+   "data/evidence/off_baseline/task-001/1/run.json",
+   "data/evidence/off_baseline/task-001/1/stderr.log",
+   "data/evidence/off_baseline/task-001/1/stdout.log",
+   "data/evidence/off_baseline/task-001/2/cdp.jsonl",
+   "data/evidence/off_baseline/task-001/2/grader.json",
+   "data/evidence/off_baseline/task-001/2/resource.jsonl",
+   "data/evidence/off_baseline/task-001/2/run.json",
+   "data/evidence/off_baseline/task-001/2/stderr.log",
+   "data/evidence/off_baseline/task-001/2/stdout.log",
+   "data/evidence/off_baseline/task-001/3/cdp.jsonl",
+   "data/evidence/off_baseline/task-001/3/grader.json",
+   "data/evidence/off_baseline/task-001/3/resource.jsonl",
+   "data/evidence/off_baseline/task-001/3/run.json",
+   "data/evidence/off_baseline/task-001/3/stderr.log",
+   "data/evidence/off_baseline/task-001/3/stdout.log",
+   "data/evidence/off_baseline/task-002/1/cdp.jsonl",
+   "data/evidence/off_baseline/task-002/1/grader.json",
+   "data/evidence/off_baseline/task-002/1/resource.jsonl",
+   "data/evidence/off_baseline/task-002/1/run.json",
+   "data/evidence/off_baseline/task-002/1/stderr.log",
+   "data/evidence/off_baseline/task-002/1/stdout.log",
+   "data/evidence/off_baseline/task-002/2/cdp.jsonl",
+   "data/evidence/off_baseline/task-002/2/grader.json",
+   "data/evidence/off_baseline/task-002/2/resource.jsonl",
+   "data/evidence/off_baseline/task-002/2/run.json",
+   "data/evidence/off_baseline/task-002/2/stderr.log",
+   "data/evidence/off_baseline/task-002/2/stdout.log",
+   "data/evidence/off_baseline/task-002/3/cdp.jsonl",
+   "data/evidence/off_baseline/task-002/3/grader.json",
+   "data/evidence/off_baseline/task-002/3/resource.jsonl",
+   "data/evidence/off_baseline/task-002/3/run.json",
+   "data/evidence/off_baseline/task-002/3/stderr.log",
+   "data/evidence/off_baseline/task-002/3/stdout.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/cdp.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/grader.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/resource.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/run.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stderr.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stdout.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/cdp.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/grader.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/resource.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/run.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stderr.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stdout.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/cdp.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/grader.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/resource.jsonl",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/run.json",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stderr.log",
+   "data/evidence/off_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stdout.log",
+   "data/evidence/off_engine/task-001/1/cdp.jsonl",
+   "data/evidence/off_engine/task-001/1/grader.json",
+   "data/evidence/off_engine/task-001/1/resource.jsonl",
+   "data/evidence/off_engine/task-001/1/run.json",
+   "data/evidence/off_engine/task-001/1/stderr.log",
+   "data/evidence/off_engine/task-001/1/stdout.log",
+   "data/evidence/off_engine/task-001/2/cdp.jsonl",
+   "data/evidence/off_engine/task-001/2/grader.json",
+   "data/evidence/off_engine/task-001/2/resource.jsonl",
+   "data/evidence/off_engine/task-001/2/run.json",
+   "data/evidence/off_engine/task-001/2/stderr.log",
+   "data/evidence/off_engine/task-001/2/stdout.log",
+   "data/evidence/off_engine/task-001/3/cdp.jsonl",
+   "data/evidence/off_engine/task-001/3/grader.json",
+   "data/evidence/off_engine/task-001/3/resource.jsonl",
+   "data/evidence/off_engine/task-001/3/run.json",
+   "data/evidence/off_engine/task-001/3/stderr.log",
+   "data/evidence/off_engine/task-001/3/stdout.log",
+   "data/evidence/off_engine/task-002/1/cdp.jsonl",
+   "data/evidence/off_engine/task-002/1/grader.json",
+   "data/evidence/off_engine/task-002/1/resource.jsonl",
+   "data/evidence/off_engine/task-002/1/run.json",
+   "data/evidence/off_engine/task-002/1/stderr.log",
+   "data/evidence/off_engine/task-002/1/stdout.log",
+   "data/evidence/off_engine/task-002/2/cdp.jsonl",
+   "data/evidence/off_engine/task-002/2/grader.json",
+   "data/evidence/off_engine/task-002/2/resource.jsonl",
+   "data/evidence/off_engine/task-002/2/run.json",
+   "data/evidence/off_engine/task-002/2/stderr.log",
+   "data/evidence/off_engine/task-002/2/stdout.log",
+   "data/evidence/off_engine/task-002/3/cdp.jsonl",
+   "data/evidence/off_engine/task-002/3/grader.json",
+   "data/evidence/off_engine/task-002/3/resource.jsonl",
+   "data/evidence/off_engine/task-002/3/run.json",
+   "data/evidence/off_engine/task-002/3/stderr.log",
+   "data/evidence/off_engine/task-002/3/stdout.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/cdp.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/grader.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/resource.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/run.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stderr.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stdout.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/cdp.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/grader.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/resource.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/run.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stderr.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stdout.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/cdp.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/grader.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/resource.jsonl",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/run.json",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stderr.log",
+   "data/evidence/off_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stdout.log",
+   "data/evidence/on_baseline/task-001/1/cdp.jsonl",
+   "data/evidence/on_baseline/task-001/1/grader.json",
+   "data/evidence/on_baseline/task-001/1/resource.jsonl",
+   "data/evidence/on_baseline/task-001/1/run.json",
+   "data/evidence/on_baseline/task-001/1/stderr.log",
+   "data/evidence/on_baseline/task-001/1/stdout.log",
+   "data/evidence/on_baseline/task-001/2/cdp.jsonl",
+   "data/evidence/on_baseline/task-001/2/grader.json",
+   "data/evidence/on_baseline/task-001/2/resource.jsonl",
+   "data/evidence/on_baseline/task-001/2/run.json",
+   "data/evidence/on_baseline/task-001/2/stderr.log",
+   "data/evidence/on_baseline/task-001/2/stdout.log",
+   "data/evidence/on_baseline/task-001/3/cdp.jsonl",
+   "data/evidence/on_baseline/task-001/3/grader.json",
+   "data/evidence/on_baseline/task-001/3/resource.jsonl",
+   "data/evidence/on_baseline/task-001/3/run.json",
+   "data/evidence/on_baseline/task-001/3/stderr.log",
+   "data/evidence/on_baseline/task-001/3/stdout.log",
+   "data/evidence/on_baseline/task-002/1/cdp.jsonl",
+   "data/evidence/on_baseline/task-002/1/grader.json",
+   "data/evidence/on_baseline/task-002/1/resource.jsonl",
+   "data/evidence/on_baseline/task-002/1/run.json",
+   "data/evidence/on_baseline/task-002/1/stderr.log",
+   "data/evidence/on_baseline/task-002/1/stdout.log",
+   "data/evidence/on_baseline/task-002/2/cdp.jsonl",
+   "data/evidence/on_baseline/task-002/2/grader.json",
+   "data/evidence/on_baseline/task-002/2/resource.jsonl",
+   "data/evidence/on_baseline/task-002/2/run.json",
+   "data/evidence/on_baseline/task-002/2/stderr.log",
+   "data/evidence/on_baseline/task-002/2/stdout.log",
+   "data/evidence/on_baseline/task-002/3/cdp.jsonl",
+   "data/evidence/on_baseline/task-002/3/grader.json",
+   "data/evidence/on_baseline/task-002/3/resource.jsonl",
+   "data/evidence/on_baseline/task-002/3/run.json",
+   "data/evidence/on_baseline/task-002/3/stderr.log",
+   "data/evidence/on_baseline/task-002/3/stdout.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/cdp.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/grader.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/resource.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/run.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stderr.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stdout.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/cdp.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/grader.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/resource.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/run.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stderr.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stdout.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/cdp.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/grader.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/resource.jsonl",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/run.json",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stderr.log",
+   "data/evidence/on_baseline/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stdout.log",
+   "data/evidence/on_engine/task-001/1/cdp.jsonl",
+   "data/evidence/on_engine/task-001/1/grader.json",
+   "data/evidence/on_engine/task-001/1/resource.jsonl",
+   "data/evidence/on_engine/task-001/1/run.json",
+   "data/evidence/on_engine/task-001/1/stderr.log",
+   "data/evidence/on_engine/task-001/1/stdout.log",
+   "data/evidence/on_engine/task-001/2/cdp.jsonl",
+   "data/evidence/on_engine/task-001/2/grader.json",
+   "data/evidence/on_engine/task-001/2/resource.jsonl",
+   "data/evidence/on_engine/task-001/2/run.json",
+   "data/evidence/on_engine/task-001/2/stderr.log",
+   "data/evidence/on_engine/task-001/2/stdout.log",
+   "data/evidence/on_engine/task-001/3/cdp.jsonl",
+   "data/evidence/on_engine/task-001/3/grader.json",
+   "data/evidence/on_engine/task-001/3/resource.jsonl",
+   "data/evidence/on_engine/task-001/3/run.json",
+   "data/evidence/on_engine/task-001/3/stderr.log",
+   "data/evidence/on_engine/task-001/3/stdout.log",
+   "data/evidence/on_engine/task-002/1/cdp.jsonl",
+   "data/evidence/on_engine/task-002/1/grader.json",
+   "data/evidence/on_engine/task-002/1/resource.jsonl",
+   "data/evidence/on_engine/task-002/1/run.json",
+   "data/evidence/on_engine/task-002/1/stderr.log",
+   "data/evidence/on_engine/task-002/1/stdout.log",
+   "data/evidence/on_engine/task-002/2/cdp.jsonl",
+   "data/evidence/on_engine/task-002/2/grader.json",
+   "data/evidence/on_engine/task-002/2/resource.jsonl",
+   "data/evidence/on_engine/task-002/2/run.json",
+   "data/evidence/on_engine/task-002/2/stderr.log",
+   "data/evidence/on_engine/task-002/2/stdout.log",
+   "data/evidence/on_engine/task-002/3/cdp.jsonl",
+   "data/evidence/on_engine/task-002/3/grader.json",
+   "data/evidence/on_engine/task-002/3/resource.jsonl",
+   "data/evidence/on_engine/task-002/3/run.json",
+   "data/evidence/on_engine/task-002/3/stderr.log",
+   "data/evidence/on_engine/task-002/3/stdout.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/cdp.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/grader.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/resource.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/run.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stderr.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/1/stdout.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/cdp.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/grader.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/resource.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/run.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stderr.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/2/stdout.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/cdp.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/grader.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/resource.jsonl",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/run.json",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stderr.log",
+   "data/evidence/on_engine/v4_cdp_emulation_setdefaultbackgroundcoloroverride/3/stdout.log",
+   "data/model.json",
+   "data/version-comparison.json",
+   "en.html",
+   "en/index.html",
+   "index.html",
+   "mermaid-LICENSE.txt",
+   "mermaid.min.js",
+   "report-languages.json",
+   "reproduction/cohort.json",
+   "reproduction/plot_version_summary.py",
+   "reproduction/protocol.json",
+   "reproduction/run.py",
+   "style.css"
+  ]
+ }
+}
