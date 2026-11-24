@@ -2,6 +2,7 @@
 
 import sys
 from contextlib import ExitStack
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -221,16 +222,16 @@ def test_native_redirect_retains_response_without_sending_credentials_to_target(
     try:
         url = f"http://127.0.0.1:{origin.server_port}/extract"
         monkeypatch.setitem(
-            pipeline.METHODS,
+            pipeline.METHODS._items,
             "cloudflare-json",
-            {
-                **pipeline.METHODS["cloudflare-json"],
-                "adapter": lambda *args, **kwargs: (
+            replace(
+                pipeline.METHODS.get("cloudflare-json"),
+                request=lambda *args, **kwargs: (
                     url,
                     {header: "private-credential"},
                     {"html": "page"},
                 ),
-            },
+            ),
         )
         result = pipeline.provider_call(
             "cloudflare-json", "page", "https://source.example", None, home=tmp_path

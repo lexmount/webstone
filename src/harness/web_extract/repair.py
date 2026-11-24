@@ -11,9 +11,9 @@ from harness.runtime_env import load_runtime_env
 from harness.web_extract.dataset import input_mode, task_bindings
 from harness.web_extract.pipeline import (
     ACCESS_POLICY,
+    METHODS,
     RECORD_INSTRUCTION_DELIVERY,
     RECORD_INSTRUCTIONS,
-    available_methods,
     collect_calls,
     digest,
     execution_identity,
@@ -138,11 +138,11 @@ def create_plan(home, content, output, options, fixture_base, selected=None):
             "fixture_suffix": inherited["fixture_suffix"],
             "minimum_call_interval_seconds": inherited.get(
                 "minimum_call_interval_seconds",
-                available_methods()[method]["minimum_call_interval_seconds"],
+                METHODS.get(method).minimum_call_interval_seconds,
             ),
             "post_call_cooldown_seconds": inherited.get(
                 "post_call_cooldown_seconds",
-                available_methods()[method]["post_call_cooldown_seconds"],
+                METHODS.get(method).post_call_cooldown_seconds,
             ),
         }
     plan = {

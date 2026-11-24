@@ -17,19 +17,41 @@ import sys
 import sysconfig
 import tempfile
 import time
-from functools import lru_cache
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import cache, lru_cache
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from harness.adapters import Registry
 from harness.benchmark_execution import validate_capacity
 from harness.record_io import optional_file_sha256
 
-ENGINES = {
-    "crawl4ai": "crawl4ai",
-    "scrapegraph": "scrapegraphai",
-    "stagehand": "stagehand",
-    "firecrawl": None,
-}
+
+def _no_change(identity):
+    return None
+
+
+@dataclass(frozen=True)
+class Engine:
+    """One native open-source extractor behind this boundary.
+
+    ``extract(value)`` returns ``(data, native)``; ``identity`` adds engine-specific
+    local runtime fields and ``attest`` verifies a remote backend into the
+    identity; ``failure(native)`` returns ``(http_status, machine errors)``;
+    ``unavailable()`` names a missing deployment setting, or returns ``None``.
+    """
+
+    version: Callable[[], str]
+    extract: Callable[[dict], tuple]
+    identity: Callable[[dict], None] = _no_change
+    attest: Callable[[dict], None] = _no_change
+    failure: Callable[[dict], tuple] = lambda native: (None, [])
+    unavailable: Callable[[], str | None] = lambda: None
+
+
+# Engines register below, after their extraction functions.
+ENGINES: Registry[Engine] = Registry("extraction engine")
 KEEPALIVE_SECONDS = 5
 IDENTITY_TIMEOUT_SECONDS = 5
 HOST_BOOT_ID_PATH = Path("/proc/sys/kernel/random/boot_id")
@@ -88,8 +110,9 @@ def validate_input(value):
         raise ValueError("Instruction must be a string")
     if value.get("engine") not in ENGINES:
         raise ValueError("Unknown extraction engine")
-    if value["engine"] == "firecrawl" and not os.environ.get("FIRECRAWL_BACKEND_URL"):
-        raise ValueError("Firecrawl backend is not configured")
+    unavailable = ENGINES.get(value["engine"]).unavailable()
+    if unavailable:
+        raise ValueError(unavailable)
     if value.get("expected_runtime") != runtime_identity(value["engine"]):
         raise ValueError("Runtime differs from the frozen extraction configuration")
     return value
@@ -168,7 +191,7 @@ def host_boot_sha256():
     return optional_file_sha256(HOST_BOOT_ID_PATH)
 
 
-@lru_cache(maxsize=len(ENGINES))
+@cache
 def local_runtime_identity(engine):
     base = urlsplit(os.environ["EXTRACTION_MODEL_BASE"])
     if (
@@ -182,9 +205,7 @@ def local_runtime_identity(engine):
         raise ValueError("Model base URL must not contain credentials, query or fragment")
     identity = {
         "engine": engine,
-        "version": importlib.metadata.version(ENGINES[engine])
-        if ENGINES[engine]
-        else os.environ["FIRECRAWL_IMAGE"],
+        "version": ENGINES.get(engine).version(),
         "model": os.environ["EXTRACTION_MODEL"],
         "model_base": os.environ["EXTRACTION_MODEL_BASE"],
         "model_context_tokens": int(os.environ.get("EXTRACTION_MODEL_CONTEXT_TOKENS", "128000")),
@@ -208,21 +229,7 @@ def local_runtime_identity(engine):
                                ("memory", Path("/sys/fs/cgroup/memory.max")))
         },
     }
-    if engine == "scrapegraph":
-        identity["native_input"] = "html"
-    if engine == "crawl4ai":
-        identity["llm_output_protocol"] = "xml_blocks"
-    if engine == "stagehand":
-        executable = Path(os.environ["CHROME_PATH"]).resolve()
-        with executable.open("rb") as stream:
-            if stream.read(2) == b"#!":
-                raise ValueError("CHROME_PATH must name the native browser, not a launcher script")
-        identity["browser_sha256"] = cached_browser_sha256(executable)
-        identity_stat = executable.stat()
-        identity["browser_version"] = browser_version(
-            str(executable),
-            (identity_stat.st_ino, identity_stat.st_size, identity_stat.st_mtime_ns)
-        )
+    ENGINES.get(engine).identity(identity)
     return identity
 
 
@@ -271,47 +278,7 @@ def fetch_backend_identity(url):
 
 def runtime_identity(engine):
     identity = dict(local_runtime_identity(engine))
-    if engine == "firecrawl":
-        endpoint = urlsplit(os.environ["FIRECRAWL_BACKEND_URL"])
-        attestation = urlsplit(os.environ["FIRECRAWL_IDENTITY_URL"])
-        if (
-            any(url.scheme not in ("http", "https") or not url.hostname
-                or url.username is not None or url.password is not None or url.query or url.fragment
-                for url in (endpoint, attestation))
-            or endpoint.scheme != attestation.scheme or endpoint.hostname != attestation.hostname
-            or endpoint.path not in ("", "/") or attestation.path != "/identity"
-        ):
-            raise ValueError("Firecrawl backend endpoint and identity differ")
-        backend = backend_identity(os.environ["FIRECRAWL_IDENTITY_URL"])
-        if not isinstance(backend, dict) or backend.get("schema") != "firecrawl-runtime/2":
-            raise ValueError("Incomplete Firecrawl backend attestation")
-        if any(
-            not isinstance(backend.get(key), str) or len(backend[key]) != 64
-            for key in (
-                "native_bundle_sha256",
-                "native_dependencies_sha256",
-                "node_sha256",
-                "wrapper_sha256",
-            )
-        ):
-            raise ValueError("Incomplete Firecrawl backend attestation")
-        controls = backend.get("controls", {})
-        if not isinstance(controls, dict):
-            raise ValueError("Incomplete Firecrawl backend controls")
-        port = endpoint.port or (443 if endpoint.scheme == "https" else 80)
-        if backend.get("kind") != "extractor" or str(controls.get("PORT") or "3002") != str(port):
-            raise ValueError("Firecrawl backend endpoint kind or port differs")
-        if controls.get("PLAYWRIGHT_MICROSERVICE_URL"):
-            browser = backend.get("browser")
-            if not isinstance(browser, dict) or browser.get("schema") != "firecrawl-runtime/2":
-                raise ValueError("Incomplete Firecrawl browser attestation")
-        if controls.get("MODEL_NAME") != identity["model"] or controls.get(
-            "OPENAI_BASE_URL", ""
-        ).rstrip("/") != identity["model_base"].rstrip("/"):
-            raise ValueError("Firecrawl backend model differs from the declared configuration")
-        identity["backend"] = backend
-        identity["backend_url"] = os.environ["FIRECRAWL_BACKEND_URL"]
-        identity["identity_url"] = os.environ["FIRECRAWL_IDENTITY_URL"]
+    ENGINES.get(engine).attest(identity)
     return identity
 
 
@@ -544,27 +511,118 @@ def firecrawl_extract(value):
     return native.get("data", {}).get("json"), native
 
 
+def stagehand_identity(identity):
+    executable = Path(os.environ["CHROME_PATH"]).resolve()
+    with executable.open("rb") as stream:
+        if stream.read(2) == b"#!":
+            raise ValueError("CHROME_PATH must name the native browser, not a launcher script")
+    identity["browser_sha256"] = cached_browser_sha256(executable)
+    identity_stat = executable.stat()
+    identity["browser_version"] = browser_version(
+        str(executable),
+        (identity_stat.st_ino, identity_stat.st_size, identity_stat.st_mtime_ns)
+    )
+
+
+def firecrawl_attestation(identity):
+    endpoint = urlsplit(os.environ["FIRECRAWL_BACKEND_URL"])
+    attestation = urlsplit(os.environ["FIRECRAWL_IDENTITY_URL"])
+    if (
+        any(url.scheme not in ("http", "https") or not url.hostname
+            or url.username is not None or url.password is not None or url.query or url.fragment
+            for url in (endpoint, attestation))
+        or endpoint.scheme != attestation.scheme or endpoint.hostname != attestation.hostname
+        or endpoint.path not in ("", "/") or attestation.path != "/identity"
+    ):
+        raise ValueError("Firecrawl backend endpoint and identity differ")
+    backend = backend_identity(os.environ["FIRECRAWL_IDENTITY_URL"])
+    if not isinstance(backend, dict) or backend.get("schema") != "firecrawl-runtime/2":
+        raise ValueError("Incomplete Firecrawl backend attestation")
+    if any(
+        not isinstance(backend.get(key), str) or len(backend[key]) != 64
+        for key in (
+            "native_bundle_sha256",
+            "native_dependencies_sha256",
+            "node_sha256",
+            "wrapper_sha256",
+        )
+    ):
+        raise ValueError("Incomplete Firecrawl backend attestation")
+    controls = backend.get("controls", {})
+    if not isinstance(controls, dict):
+        raise ValueError("Incomplete Firecrawl backend controls")
+    port = endpoint.port or (443 if endpoint.scheme == "https" else 80)
+    if backend.get("kind") != "extractor" or str(controls.get("PORT") or "3002") != str(port):
+        raise ValueError("Firecrawl backend endpoint kind or port differs")
+    if controls.get("PLAYWRIGHT_MICROSERVICE_URL"):
+        browser = backend.get("browser")
+        if not isinstance(browser, dict) or browser.get("schema") != "firecrawl-runtime/2":
+            raise ValueError("Incomplete Firecrawl browser attestation")
+    if controls.get("MODEL_NAME") != identity["model"] or controls.get(
+        "OPENAI_BASE_URL", ""
+    ).rstrip("/") != identity["model_base"].rstrip("/"):
+        raise ValueError("Firecrawl backend model differs from the declared configuration")
+    identity["backend"] = backend
+    identity["backend_url"] = os.environ["FIRECRAWL_BACKEND_URL"]
+    identity["identity_url"] = os.environ["FIRECRAWL_IDENTITY_URL"]
+
+
+def firecrawl_failure(native):
+    status, errors = native.get("http_status"), []
+    body = native.get("response", {})
+    if isinstance(body, dict):
+        errors.extend(body.get(key) for key in ("error", "errors", "message") if body.get(key))
+    return status, errors
+
+
+def crawl4ai_failure(native):
+    errors = []
+    if isinstance(native.get("error"), str):
+        errors.append(native["error"])
+    extracted = native.get("extracted_content")
+    if isinstance(extracted, list):
+        errors.extend(row.get("content") for row in extracted
+                      if isinstance(row, dict) and row.get("tags") == ["error"])
+    return None, errors
+
+
 def native_failure(engine, native):
     """Expose machine error channels only, never arbitrary extracted page text."""
     if not isinstance(native, dict):
         return None
-    status, errors = None, []
-    if engine == "firecrawl":
-        status = native.get("http_status")
-        body = native.get("response", {})
-        if isinstance(body, dict):
-            errors.extend(body.get(key) for key in ("error", "errors", "message") if body.get(key))
-    elif engine == "crawl4ai":
-        if isinstance(native.get("error"), str):
-            errors.append(native["error"])
-        extracted = native.get("extracted_content")
-        if isinstance(extracted, list):
-            errors.extend(row.get("content") for row in extracted
-                          if isinstance(row, dict) and row.get("tags") == ["error"])
+    status, errors = ENGINES.get(engine).failure(native)
     if not errors and status is None:
         return None
     return {"source": "native-extractor-error", "engine": engine,
             "http_status": status, "error": " ".join(str(v) for v in errors if v is not None)}
+
+
+# Extraction functions are looked up at call time, so a test or a deployment
+# patching the module attribute replaces the engine's behaviour.
+ENGINES.register("crawl4ai", Engine(
+    version=lambda: importlib.metadata.version("crawl4ai"),
+    extract=lambda value: asyncio.run(crawl(value)),
+    identity=lambda identity: identity.update(llm_output_protocol="xml_blocks"),
+    failure=lambda native: crawl4ai_failure(native),
+))
+ENGINES.register("scrapegraph", Engine(
+    version=lambda: importlib.metadata.version("scrapegraphai"),
+    extract=lambda value: graph(value),
+    identity=lambda identity: identity.update(native_input="html"),
+))
+ENGINES.register("stagehand", Engine(
+    version=lambda: importlib.metadata.version("stagehand"),
+    extract=lambda value: asyncio.run(stagehand_extract(value)),
+    identity=lambda identity: stagehand_identity(identity),
+))
+ENGINES.register("firecrawl", Engine(
+    version=lambda: os.environ["FIRECRAWL_IMAGE"],
+    extract=lambda value: firecrawl_extract(value),
+    attest=lambda identity: firecrawl_attestation(identity),
+    failure=lambda native: firecrawl_failure(native),
+    unavailable=lambda: None if os.environ.get("FIRECRAWL_BACKEND_URL")
+    else "Firecrawl backend is not configured",
+))
 
 
 def prepare_environment():
@@ -643,14 +701,7 @@ def worker(value):
     validate_input(value)
     started = time.monotonic()
     with contextlib.redirect_stdout(sys.stderr):
-        if value["engine"] == "firecrawl":
-            data, native = firecrawl_extract(value)
-        elif value["engine"] == "scrapegraph":
-            data, native = graph(value)
-        else:
-            data, native = asyncio.run(
-                crawl(value) if value["engine"] == "crawl4ai" else stagehand_extract(value)
-            )
+        data, native = ENGINES.get(value["engine"]).extract(value)
     # This process serves one extraction. Recheck files, packages and settings
     # rather than returning the identity cached during input validation.
     local_runtime_identity.cache_clear()
@@ -843,8 +894,8 @@ def create_app():
             "status": "ok",
             "engines": {
                 e: runtime_identity(e)
-                for e in ENGINES
-                if e != "firecrawl" or os.environ.get("FIRECRAWL_BACKEND_URL")
+                for e, engine in ENGINES.items()
+                if not engine.unavailable()
             },
         }
 

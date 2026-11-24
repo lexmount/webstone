@@ -9,8 +9,8 @@ from harness.benchmark_execution import ExecutionPolicy, assess_execution
 from harness.reporting.templates import metric_contract
 from harness.web_extract.dataset import benchmark_config, input_mode, task_bindings
 from harness.web_extract.pipeline import (
+    METHODS,
     RECORD_INSTRUCTIONS,
-    available_methods,
     data_home,
     digest,
     instruction_schema,
@@ -119,14 +119,13 @@ def create_plan(
     execution_assessments=None,
 ):
     require_external_output(output)
-    registry = available_methods()
-    if not methods or len(set(methods)) != len(methods) or any(m not in registry for m in methods):
+    if not methods or len(set(methods)) != len(methods) or any(m not in METHODS for m in methods):
         raise ValueError("Select distinct complete extraction interfaces")
     if benchmark_config(home)["adapter"] is None and any(
-        registry[method].get("requires_custom_schema") for method in methods
+        METHODS.get(method).requires_custom_schema for method in methods
     ):
         raise ValueError("Selected methods require a dataset-provided custom schema")
-    if any(registry[m].get("retired") for m in methods):
+    if any(METHODS.get(m).retired for m in methods):
         raise ValueError("Retired reference interfaces cannot enter a new cohort")
     native_options = native_options or {}
     if set(native_options) - set(methods):
@@ -138,7 +137,7 @@ def create_plan(
     if type(concurrency) is not int or not 1 <= concurrency <= 64:
         raise ValueError("Concurrency must be an integer between 1 and 64")
     for method in methods:
-        cooldown = registry[method]["post_call_cooldown_seconds"]
+        cooldown = METHODS.get(method).post_call_cooldown_seconds
         capacity = 1 if cooldown else concurrency
         resource = method
         reason = (
@@ -146,7 +145,7 @@ def create_plan(
             if cooldown
             else serial_reason
         )
-        if registry[method].get("deployment") == "self-hosted-open-source":
+        if METHODS.get(method).self_hosted:
             options = native_options[method]
             limit = options["runtime_identity"].get("service_worker_capacity", 1)
             if type(limit) is not int or not 1 <= limit <= 64:
@@ -180,9 +179,9 @@ def create_plan(
         "matrix_size": len(truth) * len(methods),
         "participants": {
             m: {
-                "minimum_call_interval_seconds": registry[m]["minimum_call_interval_seconds"],
-                "post_call_cooldown_seconds": registry[m]["post_call_cooldown_seconds"],
-                "input": registry[m]["input"],
+                "minimum_call_interval_seconds": METHODS.get(m).minimum_call_interval_seconds,
+                "post_call_cooldown_seconds": METHODS.get(m).post_call_cooldown_seconds,
+                "input": METHODS.get(m).input,
                 "execution_policy": execution[m],
             }
             for m in methods
@@ -203,7 +202,7 @@ def create_plan(
         },
     }
     if benchmark_config(home)["adapter"] is not None:
-        if any(not registry[method].get("custom_schema") for method in methods):
+        if any(not METHODS.get(method).custom_schema for method in methods):
             raise ValueError("This dataset requires a complete arbitrary-schema extraction API")
         plan["schema"] = "archived-extraction-full-cohort/1"
         plan.update(task_bindings(home))
@@ -213,7 +212,7 @@ def create_plan(
         not live
         and snapshots is None
         and any(
-            registry[m]["input"] == "url" or "input_route" in registry[m]["options"]
+            METHODS.get(m).input == "url" or "input_route" in METHODS.get(m).options
             for m in methods
         )
     ):
@@ -232,13 +231,13 @@ def create_plan(
             raise ValueError("Managed cohorts require a versioned dataset snapshot; run host first")
         for method, participant in plan["participants"].items():
             if (
-                registry[method]["input"] != "url"
-                and "input_route" not in registry[method]["options"]
+                METHODS.get(method).input != "url"
+                and "input_route" not in METHODS.get(method).options
             ):
                 continue
             participant["input"] = "url"
             participant["fixture_suffix"] = ""
-            if registry[method]["input"] != "url":
+            if METHODS.get(method).input != "url":
                 participant["native_options"] = {"input_route": "url"}
         plan["resource_decision"]["memory"] = (
             "Remote memory unavailable; local client memory does not measure the provider."
@@ -247,8 +246,8 @@ def create_plan(
         plan["input_mode"] = "live"
         for method, participant in plan["participants"].items():
             participant["input"] = "url"
-            if registry[method]["input"] != "url":
-                if "input_route" not in registry[method].get("options", []):
+            if METHODS.get(method).input != "url":
+                if "input_route" not in METHODS.get(method).options:
                     raise ValueError("A live cohort requires native URL extraction")
                 participant["native_options"] = {"input_route": "url"}
     adapter = benchmark_config(home)["adapter"]
@@ -256,7 +255,7 @@ def create_plan(
         participant = plan["participants"][method]
         participant["native_options"] = {**participant.get("native_options", {}), **options}
         effective_input = participant["native_options"].get(
-            "input_route", registry[method]["input"]
+            "input_route", METHODS.get(method).input
         )
         if participant["input"] != effective_input:
             raise ValueError("Native options conflict with the frozen participant input route")
@@ -326,7 +325,7 @@ def run(
         fixture_base = None
     if (
         not live
-        and available_methods()[method]["input"] == "url"
+        and METHODS.get(method).input == "url"
         and (not fixture_base or not fixture_base.startswith("https://"))
     ):
         raise ValueError("URL participant requires frozen HTTPS fixtures before collection")
@@ -336,7 +335,7 @@ def run(
             raise ValueError("Live participants must declare URL input")
         validate_live_route(method, participant.get("native_options"))
     effective_input = participant.get("native_options", {}).get(
-        "input_route", available_methods()[method]["input"]
+        "input_route", METHODS.get(method).input
     )
     if participant.get("input", effective_input) != effective_input:
         raise ValueError("Native options conflict with the frozen participant input route")

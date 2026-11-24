@@ -146,10 +146,10 @@ def test_complete_record_audit_handles_distinct_categories_without_changing_nati
 
 @pytest.fixture(autouse=True)
 def native_test_credentials(monkeypatch):
-    from harness.web_extract.pipeline import available_methods
+    from harness.web_extract.pipeline import METHODS
 
-    for method in available_methods().values():
-        for key in method["keys"]:
+    for _, method in METHODS.items():
+        for key in method.keys:
             monkeypatch.setenv(key, "synthetic-test-credential")
 
 

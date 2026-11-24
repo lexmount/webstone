@@ -33,9 +33,9 @@ from harness.web_extract.analysis import (
 from harness.web_extract.messages import message, messages_sha256, validate_catalog
 from harness.web_extract.pipeline import (
     FIELDS,
+    METHODS,
     PRODUCT_FIELDS,
     PROFILE,
-    available_methods,
     digest,
     execution_identity,
     load_run,
@@ -1723,8 +1723,8 @@ def usage_table(methods, rows, lang, labels=None):
     labels = labels or {}
     self_hosted = {
         method
-        for method, config in available_methods().items()
-        if config.get("deployment") == "self-hosted-open-source"
+        for method, config in METHODS.items()
+        if config.self_hosted
     }
     records = []
     for method in methods:

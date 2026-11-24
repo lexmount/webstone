@@ -83,7 +83,7 @@ def registered_names() -> frozenset[str]:
     from harness.web_search.adapters import ADAPTERS
 
     providers = json.loads((ROOT / "configs/providers.example.json").read_text(encoding="utf-8"))["providers"]
-    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS, *BROWSER_ADAPTERS}
+    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS.names(), *BROWSER_ADAPTERS}
     return frozenset(names - GENERIC_NAMES)
 
 

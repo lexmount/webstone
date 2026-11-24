@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import base64
 import copy
+import dataclasses
 import fcntl
 import gzip
 import io
@@ -17,13 +18,16 @@ import signal
 import tempfile
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import CancelledError
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
 
+from harness.adapters import Capabilities, Registry
 from harness.benchmark_execution import ExecutionPolicy, Job, run_jobs
 from harness.data_home import data_home as shared_data_home
 from harness.distribution import repository_root
@@ -137,7 +141,7 @@ def save_json(path: Path, data, *, exclusive=False):
 def requires_fixture(method, options=None):
     options = options or {}
     return (
-        available_methods()[method]["input"] == "url"
+        METHODS.get(method).input == "url"
         or options.get("use_fixture_context")
         or options.get("input_route") == "url"
     )
@@ -404,12 +408,6 @@ SCHEMA = {
 }
 
 
-def available_methods():
-    return METHODS
-
-
-
-
 def redact(value):
     if isinstance(value, dict):
         return {
@@ -425,7 +423,8 @@ def redact(value):
     if isinstance(value, list):
         return [redact(x) for x in value]
     if isinstance(value, str):
-        credential_keys = {key for method in available_methods().values() for key in method["keys"]}
+        credential_keys = {key for _, method in METHODS.items() for key in method.keys}
+        basic_auth_keys = {key for _, method in METHODS.items() for key in method.basic_auth_keys}
         for key, secret in os.environ.items():
             if secret and (
                 key in credential_keys
@@ -438,7 +437,7 @@ def redact(value):
                 )
             ):
                 representations = {secret, quote(secret, safe=""), quote_plus(secret, safe="")}
-                if key == "ZYTE_API_KEY":
+                if key in basic_auth_keys:
                     representations.add(base64.b64encode((secret + ":").encode()).decode())
                 for representation in representations:
                     if len(secret) < 8:
@@ -484,9 +483,10 @@ def total_deadline(function):
 
 def validate_native_options(method, native_options):
     native_options = native_options or {}
-    if set(native_options) - set(METHODS[method]["options"]):
+    spec = METHODS.get(method)
+    if set(native_options) - set(spec.options):
         raise ValueError("Unsupported native extraction option")
-    if METHODS[method].get("deployment") == "self-hosted-open-source":
+    if spec.self_hosted:
         identity = native_options.get("runtime_identity")
         if not native_options.get("endpoint") or not isinstance(identity, dict):
             raise ValueError("Self-hosted methods require an endpoint and frozen runtime identity")
@@ -526,6 +526,93 @@ def validate_native_options(method, native_options):
     return native_options
 
 
+
+
+@dataclass(frozen=True)
+class ExtractMethod:
+    """One native extraction route: its declared settings, request and projection.
+
+    ``request(method, html, source_url, fixture_url, *, timeout, home, native_options,
+    schema=None, prompt=None)`` returns ``(url, headers, body)`` for a JSON POST, or
+    a finished call record when the route owns its own transport. ``project``
+    maps the provider envelope to one extracted object, or ``None``; ``usage``
+    copies declared native metadata from a successful response envelope.
+    """
+
+    name: str
+    keys: tuple[str, ...]
+    input: str
+    request: Callable
+    project: Callable[[dict, bool], object]
+    options: tuple[str, ...] = ()
+    custom_schema: bool = False
+    requires_custom_schema: bool = False
+    schema_prompt: str | None = None
+    description_limit: int | None = None
+    minimum_call_interval_seconds: float = 0
+    post_call_cooldown_seconds: float = 0
+    deployment: str | None = None
+    engine: str | None = None
+    retired: bool = False
+    usage: Callable[[dict], dict] | None = None
+    request_settings: dict = dataclasses.field(default_factory=dict)
+    # Credentials sent as HTTP Basic user names also appear base64-encoded.
+    basic_auth_keys: tuple[str, ...] = ()
+
+    @property
+    def self_hosted(self):
+        return self.deployment == SELF_HOSTED
+
+    def capabilities(self):
+        flags = {
+            flag
+            for flag, enabled in (
+                ("custom_schema", self.custom_schema),
+                ("requires_custom_schema", self.requires_custom_schema),
+                ("self_hosted", self.self_hosted),
+                ("retired", self.retired),
+            )
+            if enabled
+        }
+        return Capabilities(
+            frozenset(flags),
+            {"input": self.input, "options": self.options, "engine": self.engine},
+        )
+
+    def implementation_identity(self):
+        return {
+            "method": self.name,
+            "input": self.input,
+            "deployment": self.deployment,
+            "engine": self.engine,
+        }
+
+    def validate(self):
+        return [key for key in self.keys if not os.getenv(key)]
+
+
+SELF_HOSTED = "self-hosted-open-source"
+METHODS: Registry[ExtractMethod] = Registry("Web Extract method")
+
+
+def register_method(name, **settings):
+    return METHODS.register(name, ExtractMethod(name=name, **settings))
+
+
+def _mapping(value):
+    return value if isinstance(value, dict) else {}
+
+
+def _require_fixture(fixture_url):
+    if not fixture_url:
+        return {
+            "state": "input_blocked",
+            "error": (
+                "Native endpoint requires a remotely reachable frozen HTML URL; "
+                "original live URLs are prohibited."
+            ),
+        }
+    return None
 
 
 def _cloudflare_request(
@@ -581,7 +668,7 @@ def _browserbase_request(
     return url, headers, body
 
 
-def _url_json_request(
+def _firecrawl_json_request(
     method,
     html,
     source_url,
@@ -593,39 +680,42 @@ def _url_json_request(
     schema=None,
     prompt=None,
 ):
-    if not fixture_url:
-        return {
-            "state": "input_blocked",
-            "error": (
-                "Native endpoint requires a remotely reachable frozen HTML URL; "
-                "original live URLs are prohibited."
-            ),
-        }
-    url = (
-        "https://api.firecrawl.dev/v2/scrape"
-        if method == "firecrawl-json"
-        else "https://webapi.oxylabs.io/v1/scrape"
-    )
-    headers = {
-        "Authorization": "Bearer "
-        + os.environ["FIRECRAWL_API_KEY" if method == "firecrawl-json" else "OXYLABS_API_KEY"]
+    blocked = _require_fixture(fixture_url)
+    if blocked:
+        return blocked
+    headers = {"Authorization": "Bearer " + os.environ["FIRECRAWL_API_KEY"]}
+    body = {
+        "url": fixture_url,
+        "formats": [{"type": "json", "schema": schema or SCHEMA}],
+        "onlyMainContent": False,
+        "maxAge": 0,
     }
-    body = (
-        {
-            "url": fixture_url,
-            "formats": [{"type": "json", "schema": schema or SCHEMA}],
-            "onlyMainContent": False,
-            "maxAge": 0,
-        }
-        if method == "firecrawl-json"
-        else {
-            "url": fixture_url,
-            "output": ["json"],
-            "json": {"schema": schema or SCHEMA},
-            "run_js": False,
-        }
-    )
-    return url, headers, body
+    return "https://api.firecrawl.dev/v2/scrape", headers, body
+
+
+def _oxylabs_request(
+    method,
+    html,
+    source_url,
+    fixture_url,
+    *,
+    timeout,
+    home,
+    native_options,
+    schema=None,
+    prompt=None,
+):
+    blocked = _require_fixture(fixture_url)
+    if blocked:
+        return blocked
+    headers = {"Authorization": "Bearer " + os.environ["OXYLABS_API_KEY"]}
+    body = {
+        "url": fixture_url,
+        "output": ["json"],
+        "json": {"schema": schema or SCHEMA},
+        "run_js": False,
+    }
+    return "https://webapi.oxylabs.io/v1/scrape", headers, body
 
 
 def _firecrawl_parse_request(
@@ -668,7 +758,23 @@ def _firecrawl_parse_request(
     )
 
 
-def _zyte_request(
+def _zyte_headers():
+    return {
+        "Authorization": "Basic "
+        + base64.b64encode((os.environ["ZYTE_API_KEY"] + ":").encode()).decode()
+    }
+
+
+def _zyte_url_route(body, options_key, fixture_url, native_options):
+    if native_options.get("input_route") == "url":
+        if not fixture_url:
+            raise ValueError("Zyte URL extraction requires a frozen fixture")
+        body["url"] = fixture_url
+        body[options_key] = {"extractFrom": "httpResponseBody"}
+    return body
+
+
+def _zyte_product_request(
     method,
     html,
     source_url,
@@ -680,35 +786,42 @@ def _zyte_request(
     schema=None,
     prompt=None,
 ):
-    url = "https://api.zyte.com/v1/extract"
-    headers = {
-        "Authorization": "Basic "
-        + base64.b64encode((os.environ["ZYTE_API_KEY"] + ":").encode()).decode()
-    }
+    headers = _zyte_headers()
     body = {
         "url": source_url,
         "product": True,
         "productOptions": {"extractFrom": "userHtml", "userHtml": html},
     }
-    if method == "zyte-custom":
-        if not isinstance(schema, dict) or schema.get("type") != "object":
-            raise ValueError("Zyte custom extraction requires an object schema")
-        body = {
-            "url": source_url,
-            "pageContent": True,
-            "pageContentOptions": {"extractFrom": "userHtml", "userHtml": html},
-            "customAttributes": schema["properties"],
-        }
-        options = {k: v for k, v in native_options.items() if k != "input_route"}
-        if options:
-            body["customAttributesOptions"] = options
-    if native_options.get("input_route") == "url":
-        if not fixture_url:
-            raise ValueError("Zyte URL extraction requires a frozen fixture")
-        body["url"] = fixture_url
-        key = "pageContentOptions" if method == "zyte-custom" else "productOptions"
-        body[key] = {"extractFrom": "httpResponseBody"}
-    return url, headers, body
+    body = _zyte_url_route(body, "productOptions", fixture_url, native_options)
+    return "https://api.zyte.com/v1/extract", headers, body
+
+
+def _zyte_custom_request(
+    method,
+    html,
+    source_url,
+    fixture_url,
+    *,
+    timeout,
+    home,
+    native_options,
+    schema=None,
+    prompt=None,
+):
+    headers = _zyte_headers()
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise ValueError("Zyte custom extraction requires an object schema")
+    body = {
+        "url": source_url,
+        "pageContent": True,
+        "pageContentOptions": {"extractFrom": "userHtml", "userHtml": html},
+        "customAttributes": schema["properties"],
+    }
+    options = {k: v for k, v in native_options.items() if k != "input_route"}
+    if options:
+        body["customAttributesOptions"] = options
+    body = _zyte_url_route(body, "pageContentOptions", fixture_url, native_options)
+    return "https://api.zyte.com/v1/extract", headers, body
 
 
 def _scrapegraph_request(
@@ -742,49 +855,57 @@ def _scrapegraph_request(
     return url, headers, body
 
 
-def _raw_html_request(method, html, source_url, fixture_url, *, timeout, home, native_options):
+def _diffbot_request(method, html, source_url, fixture_url, *, timeout, home, native_options):
+    params = {
+        "token": os.environ["DIFFBOT_API_TOKEN"],
+        "url": (fixture_url if native_options.get("use_fixture_context") else source_url),
+    }
+    if native_options.get("use_fixture_context") and not fixture_url:
+        raise ValueError("Frozen fixture context requires a URL")
+    if "discussion" in native_options:
+        params["discussion"] = str(native_options["discussion"]).lower()
+    if "norender" in native_options:
+        params["norender"] = str(native_options["norender"]).lower()
+    return _raw_html_call(
+        method, "https://api.diffbot.com/v3/product", params, html, source_url, fixture_url,
+        timeout=timeout, native_options=native_options,
+    )
+
+
+def _scrapfly_request(method, html, source_url, fixture_url, *, timeout, home, native_options):
+    params = {
+        "key": os.environ["SCRAPFLY_API_KEY"],
+        "url": source_url,
+        "extraction_model": "product",
+        "timeout": timeout,
+    }
+    return _raw_html_call(
+        method, "https://api.scrapfly.io/extraction", params, html, source_url, fixture_url,
+        timeout=timeout, native_options=native_options,
+        url_route=("https://api.scrapfly.io/scrape", {"render_js": "false"}),
+    )
+
+
+def _raw_html_call(method, endpoint, params, html, source_url, fixture_url, *, timeout,
+                   native_options, url_route=None):
+    """POST raw HTML, or GET a frozen fixture URL, through a per-method cookie-free session."""
     from urllib.parse import urlencode
 
     import requests
 
-    endpoint = (
-        "https://api.diffbot.com/v3/product"
-        if method == "diffbot-product"
-        else "https://api.scrapfly.io/extraction"
-    )
-    params = (
-        {
-            "token": os.environ["DIFFBOT_API_TOKEN"],
-            "url": (fixture_url if native_options.get("use_fixture_context") else source_url),
-        }
-        if method == "diffbot-product"
-        else {
-            "key": os.environ["SCRAPFLY_API_KEY"],
-            "url": source_url,
-            "extraction_model": "product",
-            "timeout": timeout,
-        }
-    )
-    if method == "diffbot-product":
-        if native_options.get("use_fixture_context") and not fixture_url:
-            raise ValueError("Frozen fixture context requires a URL")
-        if "discussion" in native_options:
-            params["discussion"] = str(native_options["discussion"]).lower()
-        if "norender" in native_options:
-            params["norender"] = str(native_options["norender"]).lower()
     url_input = native_options.get("input_route") == "url"
     if url_input:
         if not fixture_url:
             raise ValueError("Native URL extraction requires a frozen fixture")
         params["url"] = fixture_url
-        if method == "scrapfly-product":
-            endpoint = "https://api.scrapfly.io/scrape"
-            params["render_js"] = "false"
+        if url_route:
+            endpoint = url_route[0]
+            params.update(url_route[1])
     url = endpoint + "?" + urlencode(params)
     started = time.monotonic()
-    session = _RAW_SESSIONS.get(method)
+    session = _RAW_SESSIONS.get(method.name)
     if session is None:
-        session = _RAW_SESSIONS[method] = requests.Session()
+        session = _RAW_SESSIONS[method.name] = requests.Session()
     session.cookies.clear()
     transport = session.get if url_input else session.post
     with transport(
@@ -843,7 +964,7 @@ def _self_hosted_request(
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("Extraction endpoint must not contain credentials, query or fragment")
     identity = native_options.get("runtime_identity")
-    engine = METHODS[method]["engine"]
+    engine = method.engine
     if not isinstance(identity, dict) or identity.get("engine") != engine:
         raise ValueError("Self-hosted extraction requires a matching frozen runtime identity")
     return (
@@ -867,139 +988,212 @@ def _self_hosted_request(
     )
 
 
-METHODS = {
-    **{
-        name: {
-            "keys": ["EXTRACTION_API_KEY"],
-            "input": "url",
-            "custom_schema": True,
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": ["endpoint", "runtime_identity", "keepalive"],
-            "adapter": _self_hosted_request,
-            "deployment": "self-hosted-open-source",
-            "engine": engine,
-        }
-        for name, engine in {
-            "crawl4ai-json": "crawl4ai",
-            "scrapegraph-oss-json": "scrapegraph",
-            "stagehand-local-json": "stagehand",
-            "firecrawl-oss-json": "firecrawl",
-        }.items()
-    },
-    "firecrawl-parse-json": {
-        "keys": ["FIRECRAWL_API_KEY"],
-        "input": "html",
-        "minimum_call_interval_seconds": 0,
-        "post_call_cooldown_seconds": 0,
-        "options": [],
-        "custom_schema": True,
-        "requires_custom_schema": True,
-        "adapter": _firecrawl_parse_request,
-    },
-    "firecrawl-json": {
-        "custom_schema": True,
-        **{
-            "keys": ["FIRECRAWL_API_KEY"],
-            "input": "url",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": [],
-        },
-        "adapter": _url_json_request,
-    },
-    "cloudflare-json": {
-        "custom_schema": True,
-        **{
-            "keys": ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"],
-            "input": "html",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": [
-                "setJavaScriptEnabled",
-                "rejectResourceTypes",
-                "input_route",
-                "rejectRequestPattern",
-            ],
-        },
-        "adapter": _cloudflare_request,
-    },
-    "zyte-custom": {
-        "keys": ["ZYTE_API_KEY"],
-        "input": "html",
-        "minimum_call_interval_seconds": 0,
-        "post_call_cooldown_seconds": 0,
-        "options": ["maxInputTokens", "maxOutputTokens", "input_route"],
-        "custom_schema": True,
-        "requires_custom_schema": True,
-        "description_limit": 300,
-        "adapter": _zyte_request,
-    },
-    "zyte-product": {
-        **{
-            "keys": ["ZYTE_API_KEY"],
-            "input": "html",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": ["input_route"],
-        },
-        "adapter": _zyte_request,
-    },
-    "diffbot-product": {
-        **{
-            "keys": ["DIFFBOT_API_TOKEN"],
-            "input": "html",
-            "minimum_call_interval_seconds": 13,
-            "post_call_cooldown_seconds": 10,
-            "options": ["discussion", "use_fixture_context", "norender", "input_route"],
-        },
-        "adapter": _raw_html_request,
-    },
-    "scrapegraph-extract": {
-        "custom_schema": True,
-        "schema_prompt": "Extract the fields defined by the schema.",
-        **{
-            "keys": ["SGAI_API_KEY"],
-            "input": "html",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": ["input_route"],
-        },
-        "adapter": _scrapegraph_request,
-    },
-    "scrapfly-product": {
-        **{
-            "keys": ["SCRAPFLY_API_KEY"],
-            "input": "html",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": ["input_route"],
-        },
-        "adapter": _raw_html_request,
-    },
-    "oxylabs-json": {
-        "custom_schema": True,
-        **{
-            "keys": ["OXYLABS_API_KEY"],
-            "input": "url",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": [],
-        },
-        "adapter": _url_json_request,
-    },
-    "browserbase-json": {
-        "custom_schema": True,
-        **{
-            "keys": ["BROWSERBASE_API_KEY"],
-            "input": "url",
-            "minimum_call_interval_seconds": 0,
-            "post_call_cooldown_seconds": 0,
-            "options": [],
-        },
-        "adapter": _browserbase_request,
-    },
-}
+def _self_hosted_project(payload, preserve_native_types):
+    return payload.get("data") if payload.get("success") is True else None
+
+
+def _firecrawl_project(payload, preserve_native_types):
+    return _mapping(payload.get("data")).get("json")
+
+
+def _firecrawl_parse_usage(payload):
+    data = payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("metadata"), dict):
+        return {"parse_metadata": dict(data["metadata"])}
+    return {}
+
+
+def _browserbase_project(payload, preserve_native_types):
+    status = payload.get("statusCode")
+    if not isinstance(status, int) or not 200 <= status < 300:
+        return None
+    return payload.get("content")
+
+
+def _oxylabs_project(payload, preserve_native_types):
+    results = payload.get("results")
+    return (
+        _mapping(results[0]).get("json")
+        if isinstance(results, list) and len(results) == 1
+        else None
+    )
+
+
+def _scrapfly_project(payload, preserve_native_types):
+    p = payload.get("data") or _mapping(
+        _mapping(payload.get("result")).get("extracted_data")
+    ).get("data")
+    if not isinstance(p, dict):
+        return None
+    offers = p.get("offers")
+    offer = _mapping(offers[0]) if isinstance(offers, list) and offers else {}
+    price = offer.get("price")
+    if isinstance(price, dict):
+        price = price.get("amount")
+    stock = offer.get("availability")
+    if not preserve_native_types and stock is not None and not isinstance(stock, str):
+        stock = None
+    return {
+        "price": price,
+        "sku": _mapping(p.get("identifiers")).get("sku"),
+        "availability": {
+            "available": "InStock",
+            "unavailable": "OutOfStock",
+            "sold_out": "OutOfStock",
+        }.get(stock, stock)
+        if isinstance(stock, str)
+        else stock,
+    }
+
+
+def _zyte_custom_project(payload, preserve_native_types):
+    custom = _mapping(payload.get("customAttributes"))
+    if _mapping(custom.get("metadata")).get("error"):
+        return None
+    return custom.get("values")
+
+
+def _zyte_custom_usage(payload):
+    custom = payload.get("customAttributes")
+    if isinstance(custom, dict) and isinstance(custom.get("metadata"), dict):
+        return {"custom_attributes": dict(custom["metadata"])}
+    return {}
+
+
+def _zyte_product_project(payload, preserve_native_types):
+    p = payload.get("product")
+    return (
+        {"price": p.get("price"), "sku": p.get("sku"), "availability": p.get("availability")}
+        if isinstance(p, dict)
+        else None
+    )
+
+
+def _diffbot_project(payload, preserve_native_types):
+    objects = payload.get("objects")
+    p = _mapping(objects[0]) if isinstance(objects, list) and len(objects) == 1 else {}
+    offer = _mapping(p.get("offerPriceDetails")).get("amount", p.get("offerPrice"))
+    item = (
+        {"price": offer, "sku": p.get("sku"), "availability": p.get("availability")}
+        if p
+        else None
+    )
+    if item and isinstance(item["availability"], bool):
+        item["availability"] = "InStock" if item["availability"] else "OutOfStock"
+    return item
+
+
+for _name, _engine in {
+    "crawl4ai-json": "crawl4ai",
+    "scrapegraph-oss-json": "scrapegraph",
+    "stagehand-local-json": "stagehand",
+    "firecrawl-oss-json": "firecrawl",
+}.items():
+    register_method(
+        _name,
+        keys=("EXTRACTION_API_KEY",),
+        input="url",
+        custom_schema=True,
+        options=("endpoint", "runtime_identity", "keepalive"),
+        request=_self_hosted_request,
+        project=_self_hosted_project,
+        deployment=SELF_HOSTED,
+        engine=_engine,
+    )
+register_method(
+    "firecrawl-parse-json",
+    keys=("FIRECRAWL_API_KEY",),
+    input="html",
+    custom_schema=True,
+    requires_custom_schema=True,
+    request=_firecrawl_parse_request,
+    project=_firecrawl_project,
+    usage=_firecrawl_parse_usage,
+)
+register_method(
+    "firecrawl-json",
+    keys=("FIRECRAWL_API_KEY",),
+    input="url",
+    custom_schema=True,
+    request=_firecrawl_json_request,
+    project=_firecrawl_project,
+)
+register_method(
+    "cloudflare-json",
+    keys=("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"),
+    input="html",
+    custom_schema=True,
+    options=("setJavaScriptEnabled", "rejectResourceTypes", "input_route", "rejectRequestPattern"),
+    request=_cloudflare_request,
+    project=lambda payload, preserve_native_types: payload.get("result"),
+)
+register_method(
+    "zyte-custom",
+    keys=("ZYTE_API_KEY",),
+    input="html",
+    options=("maxInputTokens", "maxOutputTokens", "input_route"),
+    custom_schema=True,
+    requires_custom_schema=True,
+    description_limit=300,
+    request=_zyte_custom_request,
+    project=_zyte_custom_project,
+    usage=_zyte_custom_usage,
+    basic_auth_keys=("ZYTE_API_KEY",),
+)
+register_method(
+    "zyte-product",
+    keys=("ZYTE_API_KEY",),
+    input="html",
+    options=("input_route",),
+    request=_zyte_product_request,
+    project=_zyte_product_project,
+    basic_auth_keys=("ZYTE_API_KEY",),
+)
+register_method(
+    "diffbot-product",
+    keys=("DIFFBOT_API_TOKEN",),
+    input="html",
+    minimum_call_interval_seconds=13,
+    post_call_cooldown_seconds=10,
+    options=("discussion", "use_fixture_context", "norender", "input_route"),
+    request=_diffbot_request,
+    project=_diffbot_project,
+)
+register_method(
+    "scrapegraph-extract",
+    keys=("SGAI_API_KEY",),
+    input="html",
+    custom_schema=True,
+    schema_prompt="Extract the fields defined by the schema.",
+    options=("input_route",),
+    request=_scrapegraph_request,
+    project=lambda payload, preserve_native_types: payload.get("json"),
+)
+register_method(
+    "scrapfly-product",
+    keys=("SCRAPFLY_API_KEY",),
+    input="html",
+    options=("input_route",),
+    request=_scrapfly_request,
+    project=_scrapfly_project,
+)
+register_method(
+    "oxylabs-json",
+    keys=("OXYLABS_API_KEY",),
+    input="url",
+    custom_schema=True,
+    request=_oxylabs_request,
+    project=_oxylabs_project,
+)
+register_method(
+    "browserbase-json",
+    keys=("BROWSERBASE_API_KEY",),
+    input="url",
+    custom_schema=True,
+    request=_browserbase_request,
+    project=_browserbase_project,
+    request_settings={"follow_redirects": True},
+)
 
 
 RECORD_INSTRUCTION_DELIVERY = "schema-property-descriptions/1"
@@ -1020,9 +1214,9 @@ def record_instructions(home):
 
 
 def validate_live_route(method, native_options=None):
-    spec = available_methods()[method]
-    if spec["input"] != "url" and (
-        "input_route" not in spec.get("options", [])
+    spec = METHODS.get(method)
+    if spec.input != "url" and (
+        "input_route" not in spec.options
         or (native_options or {}).get("input_route") != "url"
     ):
         raise ValueError("Live cohorts require a native URL extraction route: " + method)
@@ -1049,7 +1243,7 @@ def instruction_schema(schema, prompt):
 
 
 def validate_instruction_schema(method, schema):
-    limit = METHODS[method].get("description_limit")
+    limit = METHODS.get(method).description_limit
     if (
         schema is not None
         and limit is not None
@@ -1075,13 +1269,14 @@ def provider_call(
 ):
     """One native route per provider; no hidden fallback or quality retry."""
     native_options = validate_native_options(method, native_options)
+    spec = METHODS.get(method)
     if schema is not None:
-        if not METHODS[method].get("custom_schema", False):
+        if not spec.custom_schema:
             raise ValueError("Selected native interface does not support arbitrary schemas")
     schema = instruction_schema(schema, prompt)
     validate_instruction_schema(method, schema)
-    prepared = METHODS[method]["adapter"](
-        method,
+    prepared = spec.request(
+        spec,
         html,
         source_url,
         fixture_url,
@@ -1091,7 +1286,7 @@ def provider_call(
         **(
             {
                 "schema": schema,
-                "prompt": METHODS[method].get("schema_prompt"),
+                "prompt": spec.schema_prompt,
             }
             if schema is not None
             else {}
@@ -1110,19 +1305,7 @@ def provider_call(
         **({"body": body} if isinstance(body, bytes) else {"json_body": body}),
     )
     payload = decoded_response(response.text())
-    native_usage = {}
-    if method == "firecrawl-parse-json" and isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, dict) and isinstance(data.get("metadata"), dict):
-            native_usage["parse_metadata"] = dict(data["metadata"])
-    if (
-        method == "zyte-custom"
-        and isinstance(payload, dict)
-        and isinstance(payload.get("customAttributes"), dict)
-    ):
-        metadata = payload["customAttributes"].get("metadata")
-        if isinstance(metadata, dict):
-            native_usage["custom_attributes"] = dict(metadata)
+    native_usage = spec.usage(payload) if spec.usage and isinstance(payload, dict) else {}
     return {
         "state": "response_received",
         "http_status": response.status,
@@ -1140,17 +1323,17 @@ def provider_call(
             "endpoint": url,
             "input": "url"
             if native_options.get("input_route") == "url"
-            else available_methods()[method]["input"],
+            else spec.input,
             "html_sha256": digest(html.encode()),
             "schema": schema or SCHEMA,
             "instructions": {"text": prompt, "location": "schema.properties.*.description"}
             if prompt
             else None,
-            "standalone_prompt": METHODS[method].get("schema_prompt") if schema else None,
+            "standalone_prompt": spec.schema_prompt if schema else None,
             "fixture_url": fixture_url,
             "source_url": source_url,
             "native_options": native_options,
-            **({"follow_redirects": True} if method == "browserbase-json" else {}),
+            **spec.request_settings,
         },
     }
 
@@ -1159,82 +1342,11 @@ def normalize(method: str, payload: dict, *, schema=None, preserve_native_types=
     """Map exposed fields only. Never infer answers from labels or source URLs."""
     if not isinstance(payload, dict) or payload.get("success") is False:
         return None
-    def mapping(value):
-        return value if isinstance(value, dict) else {}
-
-    if METHODS.get(method, {}).get("deployment") == "self-hosted-open-source":
-        if payload.get("success") is not True:
-            return None
-        item = payload.get("data")
-    elif method in ("firecrawl-json", "firecrawl-parse-json"):
-        item = mapping(payload.get("data")).get("json")
-    elif method == "browserbase-json":
-        status = payload.get("statusCode")
-        if not isinstance(status, int) or not 200 <= status < 300:
-            return None
-        item = payload.get("content")
-    elif method == "cloudflare-json":
-        item = payload.get("result")
-    elif method == "oxylabs-json":
-        results = payload.get("results")
-        item = (
-            mapping(results[0]).get("json")
-            if isinstance(results, list) and len(results) == 1
-            else None
-        )
-    elif method == "scrapegraph-extract":
-        item = payload.get("json")
-    elif method == "scrapfly-product":
-        p = payload.get("data") or mapping(
-            mapping(payload.get("result")).get("extracted_data")
-        ).get("data")
-        if isinstance(p, dict):
-            offers = p.get("offers")
-            offer = mapping(offers[0]) if isinstance(offers, list) and offers else {}
-            price = offer.get("price")
-            if isinstance(price, dict):
-                price = price.get("amount")
-            stock = offer.get("availability")
-            if not preserve_native_types and stock is not None and not isinstance(stock, str):
-                stock = None
-            item = {
-                "price": price,
-                "sku": mapping(p.get("identifiers")).get("sku"),
-                "availability": {
-                    "available": "InStock",
-                    "unavailable": "OutOfStock",
-                    "sold_out": "OutOfStock",
-                }.get(stock, stock)
-                if isinstance(stock, str)
-                else stock,
-            }
-        else:
-            item = None
-    elif method == "zyte-custom":
-        custom = mapping(payload.get("customAttributes"))
-        if mapping(custom.get("metadata")).get("error"):
-            return None
-        item = custom.get("values")
-    elif method == "zyte-product":
-        p = payload.get("product")
-        item = (
-            {"price": p.get("price"), "sku": p.get("sku"), "availability": p.get("availability")}
-            if isinstance(p, dict)
-            else None
-        )
-    elif method == "diffbot-product":
-        objects = payload.get("objects")
-        p = mapping(objects[0]) if isinstance(objects, list) and len(objects) == 1 else {}
-        offer = mapping(p.get("offerPriceDetails")).get("amount", p.get("offerPrice"))
-        item = (
-            {"price": offer, "sku": p.get("sku"), "availability": p.get("availability")}
-            if p
-            else None
-        )
-        if item and isinstance(item["availability"], bool):
-            item["availability"] = "InStock" if item["availability"] else "OutOfStock"
-    else:
-        item = None
+    item = (
+        METHODS.get(method).project(payload, preserve_native_types)
+        if method in METHODS
+        else None
+    )
     return normalize_extracted_fields(
         item, schema=schema, preserve_native_types=preserve_native_types
     )
@@ -1319,18 +1431,19 @@ def access_blocker(row):
         return "credentials_missing"
     status, native = row.get("http_status"), row.get("response", {})
     failure = native.get("native_failure") if isinstance(native, dict) else None
-    method = METHODS.get(row.get("method"), {})
-    if (status == 429 and method.get("deployment") == "self-hosted-open-source"
+    method = METHODS.get(row["method"]) if row.get("method") in METHODS else None
+    self_hosted = method is not None and method.self_hosted
+    if (status == 429 and self_hosted
             and isinstance(native, dict)
             and native.get("detail") == "Extraction worker capacity reached"):
         return "service_capacity"
     if (
-        method.get("deployment") == "self-hosted-open-source"
+        self_hosted
         and isinstance(native, dict)
         and native.get("success") is False
         and isinstance(failure, dict)
         and failure.get("source") == "native-extractor-error"
-        and failure.get("engine") == method.get("engine")
+        and failure.get("engine") == method.engine
     ):
         nested = access_blocker({
             "http_status": failure.get("http_status"),
@@ -1621,7 +1734,6 @@ def collect_calls(
     journal = run / "calls.journal.jsonl"
     if journal.is_symlink() or unsafe_parents(journal):
         raise ValueError("Symlink inputs are prohibited")
-    registry = available_methods()
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     dataset_manifest = read_json(home / "dataset/manifest.json")
     frozen_inputs = dataset_manifest["files"]
@@ -1757,7 +1869,7 @@ def collect_calls(
             "maximum_physical_calls", float("inf")
         ):
             raise PermissionError("Frozen physical call budget exhausted before dispatch")
-        missing = [key for key in registry[method]["keys"] if not os.getenv(key)]
+        missing = METHODS.get(method).validate()
         raw = (home / "dataset/html" / (case_id + ".html")).read_bytes()
         if digest(raw) != frozen_inputs["html/" + case_id + ".html"]["sha256"]:
             raise ValueError("Frozen extraction HTML changed before dispatch")
@@ -1793,7 +1905,7 @@ def collect_calls(
         if missing:
             return (None, row)
         html_input = (
-            "" if registry[method]["input"] == "url"
+            "" if METHODS.get(method).input == "url"
             or (native_options or {}).get("input_route") == "url"
             else captured_html(home, case_id, raw, qualifications=qualifications)
         )
@@ -1962,15 +2074,14 @@ def _probe_unlocked(
         raise ValueError("Minimum call interval must be between 0 and 3600 seconds")
     if not isinstance(post_call_cooldown, (int, float)) or not 0 <= post_call_cooldown <= 3600:
         raise ValueError("Post-call cooldown must be between 0 and 3600 seconds")
-    registry = available_methods()
-    if not methods or len(set(methods)) != len(methods) or any(m not in registry for m in methods):
+    if not methods or len(set(methods)) != len(methods) or any(m not in METHODS for m in methods):
         raise ValueError("Select supported methods explicitly")
     if benchmark_config(home)["adapter"] is not None and any(
-        not METHODS[method].get("custom_schema") for method in methods
+        not METHODS.get(method).custom_schema for method in methods
     ):
         raise ValueError("Record datasets require methods supporting a custom schema")
     if benchmark_config(home)["adapter"] is None and any(
-        METHODS[method].get("requires_custom_schema") for method in methods
+        METHODS.get(method).requires_custom_schema for method in methods
     ):
         raise ValueError("Selected methods require a dataset-provided custom schema")
     validate_dataset(home)

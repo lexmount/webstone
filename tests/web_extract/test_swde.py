@@ -2270,7 +2270,7 @@ def test_shared_instructions_reach_every_native_request_and_its_receipt(monkeypa
         "required": ["price"],
     }
     original = deepcopy(schema)
-    for key in pipeline.available_methods()[method]["keys"]:
+    for key in pipeline.METHODS.get(method).keys:
         monkeypatch.setenv(key, "synthetic")
     captured = []
 

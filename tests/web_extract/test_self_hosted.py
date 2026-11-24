@@ -175,10 +175,13 @@ def test_run_requires_a_frozen_model_and_implementation(options):
 
 @pytest.mark.parametrize("advertised", [True, False])
 def test_new_self_hosted_registry_entry_selects_routing_and_projection(monkeypatch, advertised):
+    from dataclasses import replace
+
     from harness.web_extract.pipeline import METHODS
 
     method = "synthetic-self-hosted"
-    monkeypatch.setitem(METHODS, method, {**METHODS["crawl4ai-json"], "engine": "synthetic"})
+    adapter = replace(METHODS.get("crawl4ai-json"), name=method, engine="synthetic")
+    monkeypatch.setitem(METHODS._items, method, adapter)
     monkeypatch.setenv("EXTRACTION_API_KEY", "synthetic-secret")
     schema = {"type": "object", "properties": {"name": {"type": "string"}}}
     options = {
