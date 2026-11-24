@@ -411,12 +411,12 @@ def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
 
 
 def test_ordinary_english_generation_localizes_all_final_call_timing_text(tmp_path):
-    from harness.web_fetch.report import generate
+    from harness.web_fetch.report import render_report
     from harness.web_fetch.report_model import report_model
     from harness.web_fetch.report_i18n import saved_matrix_text, TEXT
     _, source, record, _ = fixture(tmp_path)
     dataset = json.loads((source/'dataset.json').read_text(encoding='utf-8'))
-    generate(source, report_model(dataset, [record], [], include_english=True,
+    render_report(source, report_model(dataset, [record], [], include_english=True,
              authored_interpretation=False, frozen_scores=True))
     page = BeautifulSoup((source/'en/index.html').read_text(encoding='utf-8'), 'html.parser')
     overview = page.select_one('#overall-ranking').get_text(' ', strip=True)

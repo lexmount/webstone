@@ -1,5 +1,5 @@
 """A report instance may use participant IDs absent from historical cohorts."""
-from harness.web_fetch.report import generate_wcxb
+from harness.web_fetch.report import render_report
 from tests.wcxb_fixture import create_report_inputs
 
 
@@ -15,7 +15,7 @@ def test_wcxb_renderer_accepts_entirely_new_participant_ids(tmp_path):
     profile['paired_comparison'] = {'baseline': names['moli'], 'candidate': names['moli-pr643']}
     for name, replacement in names.items():
         (root / 'artifacts' / name).rename(root / 'artifacts' / replacement)
-    generate_wcxb(root, rows, summary, ground_truth, identities, profile, content, include_english=True)
+    render_report(root, rows, summary, ground_truth, identities, profile, content, include_english=True, variant='wcxb')
     for prefix in ('', 'en/'):
         home = (root / prefix / 'index.html').read_text(encoding='utf-8')
         assert all('providers/' + name + '.html' in home for name in names.values())

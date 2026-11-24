@@ -11,6 +11,7 @@ See docs/spec.md, "Extension points" and "One pipeline per track".
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -22,6 +23,7 @@ from lexbench_webfetch.scoring import score_attempt
 
 from harness.adapters import Capabilities, Registry, owner_stage
 from harness.distribution import repository_root
+from harness.reporting.templates import PageSetHook
 from harness.record_io import bytes_sha256
 from harness.web_fetch.config import DEFAULT_CALL_TIMEOUT_SECONDS
 
@@ -33,6 +35,15 @@ BENCHMARKS: Registry = Registry("Web Fetch benchmark")
 # Capability: inputs are frozen pages served to the method by ``inputs()``;
 # the run writes one shard per method and scoring runs as a separate stage.
 FROZEN_INPUTS = "frozen_inputs"
+
+
+def _page_set(module: str, function: str):
+    """A report page set implemented by ``module.function``, imported only when rendered."""
+
+    def render(*args, **kwargs):
+        return getattr(importlib.import_module(module), function)(*args, **kwargs)
+
+    return render
 
 
 @dataclass(frozen=True)
@@ -132,7 +143,7 @@ class FrozenPageBenchmark:
         return Capabilities(frozenset({FROZEN_INPUTS}))
 
     def views(self) -> list:
-        """The shared Web Fetch report sections cover frozen-page benchmarks."""
+        """Frozen-page benchmarks contribute their own report page sets."""
         return []
 
     def case(self, record: dict, url: str) -> EvalCase:
@@ -228,6 +239,13 @@ class WebMainBench(FrozenPageBenchmark):
             return {}
         return official_metrics(scored_input.scorer, scored_input.content, case["groundtruth_content"])
 
+    def views(self) -> list:
+        """The sample and complete-cohort report page sets."""
+        return [
+            PageSetHook("webmainbench-sample", _page_set("harness.web_fetch.webmainbench_report", "sample_pages")),
+            PageSetHook("webmainbench-full", _page_set("harness.web_fetch.webmainbench_report", "full_pages")),
+        ]
+
     def populations(self) -> list[dict]:
         from harness.web_fetch.webmainbench_dataset import CASE_COUNT
         from harness.web_fetch.webmainbench_scoring import CORE_METRICS
@@ -295,6 +313,10 @@ class WCXB(FrozenPageBenchmark):
             "with": ground_truth.get("with") or [],
             "without": ground_truth.get("without") or [],
         })
+
+    def views(self) -> list:
+        """The WCXB report page set."""
+        return [PageSetHook("wcxb", _page_set("harness.web_fetch.wcxb_report", "render_pages"))]
 
     def populations(self) -> list[dict]:
         return [{"name": "wcxb", "metrics": ["precision", "recall", "f1", "with_rate", "without_rate"]}]

@@ -15,7 +15,7 @@ from harness.report_languages import generated_languages
 from harness.reporting.release_check import checked_page, open_report, read_page
 from harness.web_fetch.template import check_template_pages, report_template
 from harness.reporting.visual import browser_executable, local_report_server, settle_theme
-from harness.web_fetch.report import generate
+from harness.web_fetch.report import render_report
 from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report_build import _install_report_tree, write_frozen_result_summary
 from harness.web_fetch.report_check import check_saved_result_summary
@@ -225,7 +225,7 @@ def build_snapshot_audit(source, output, *, profile):
         batches = json.loads((staging / 'execution.json').read_text(encoding='utf-8'))['batches']
         from harness.web_fetch.report_version import bind_release
         release_binding = bind_release(source, staging, dataset, records, profile=profile)
-        generate(staging, report_model(dataset, records, batches, authored_interpretation=True, frozen_scores=True))
+        render_report(staging, report_model(dataset, records, batches, authored_interpretation=True, frozen_scores=True))
         write_frozen_result_summary(staging, dataset, records)
         (staging / '.generated-report').write_text('webfetch\n', encoding='utf-8')
         manifest = {'schema_version':1, 'template':report_template('published-snapshot-audit'),

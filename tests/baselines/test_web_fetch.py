@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from harness.web_fetch import call_boundary, cli, runner
-from harness.web_fetch.report import generate_wcxb, generate_webmainbench
+from harness.web_fetch.report import render_report
 from tests.baselines.snapshot import (
     Normalizer,
     check_baseline,
@@ -74,7 +74,7 @@ def check_routes(name: str, report: Path, root: Path) -> None:
 
 def test_wcxb_report(tmp_path: Path) -> None:
     inputs = create_report_inputs(tmp_path, english_source=True)
-    generate_wcxb(*inputs, include_english=True)
+    render_report(*inputs, include_english=True, variant='wcxb')
     check_routes("wcxb", inputs[0], tmp_path)
 
 
@@ -83,9 +83,9 @@ def test_webmainbench_sample_report(tmp_path: Path) -> None:
     output.mkdir()
     dataset, records, summaries, manifests = sample_report_inputs(output)
     review = {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []}
-    generate_webmainbench(
+    render_report(
         output, dataset, records, summaries, manifests, review, include_english=True
-    )
+    , variant='webmainbench-sample')
     check_routes("webmainbench-sample", output, tmp_path)
 
 

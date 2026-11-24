@@ -8,7 +8,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from harness.report_languages import check_language_contract, localized_report_routes
-from harness.web_fetch.report import generate_wcxb
+from harness.web_fetch.report import render_report
 from tests.wcxb_fixture import create_report_inputs
 
 
@@ -22,7 +22,7 @@ def built(tmp_path_factory):
             directory = tmp_path_factory.mktemp(f'wcxb-{include_english}')
             inputs = create_report_inputs(directory, english_source=include_english)
             before = json.dumps(inputs[1:], sort_keys=True)
-            generate_wcxb(*inputs, include_english=include_english)
+            render_report(*inputs, include_english=include_english, variant='wcxb')
             assert json.dumps(inputs[1:], sort_keys=True) == before
             cache[include_english] = inputs
         return cache[include_english]
@@ -81,7 +81,7 @@ def test_wcxb_command_forwards_requested_language(tmp_path, monkeypatch, include
 def test_wcxb_does_not_fall_back_when_requested_authored_language_is_missing(tmp_path):
     inputs = create_report_inputs(tmp_path, english_source=False)
     with pytest.raises(ValueError, match='lacks requested languages'):
-        generate_wcxb(*inputs, include_english=True)
+        render_report(*inputs, include_english=True, variant='wcxb')
     assert not (inputs[0] / 'index.html').exists()
 
 
@@ -128,7 +128,7 @@ def test_wcxb_instance_counts_versions_and_interfaces_follow_selected_evidence(t
     identities['moli']['reported_version'] = 'moli 2.3.4'
     profile['candidate_source_commit'] = 'abcdef12' + '0' * 32
     profile['max_failure_retries'] = 3
-    generate_wcxb(root, rows, summary, truth, identities, profile, content, include_english=True)
+    render_report(root, rows, summary, truth, identities, profile, content, include_english=True, variant='wcxb')
     for prefix, count_text in [('', f'{len(providers)} 种配置'), ('en/', f'{len(providers)} configurations')]:
         home = BeautifulSoup((root / prefix / 'index.html').read_text(encoding='utf-8'), 'html.parser')
         assert count_text in home.select_one('h1').get_text()
@@ -175,7 +175,7 @@ def test_wcxb_uses_measured_versions_and_actual_configuration_count(tmp_path):
     del identities['obscura']
     identities['moli'].update(engine='moli', reported_version='7.8.9')
     identities['moli-pr643'].update(engine='moli', reported_version='7.8.10-dev.42')
-    generate_wcxb(*inputs, include_english=True)
+    render_report(*inputs, include_english=True, variant='wcxb')
     for prefix in ('', 'en/'):
         home = BeautifulSoup((root / prefix / 'index.html').read_text(encoding='utf-8'), 'html.parser')
         assert str(len(summary['providers'])) in home.h1.get_text()
@@ -294,7 +294,7 @@ def test_wcxb_leaders_highlights_and_interfaces_follow_participants(tmp_path, ti
         inputs[4][provider].update(engine='moli', reported_version=f'7.0.{index}')
         summary['providers'][provider]['quality_f1'] = 1.0 if tied else 0.8 + index * 0.1
         summary['providers'][provider]['mean_latency_ms'] = 11 if tied else 12 - index
-    generate_wcxb(*inputs, include_english=True)
+    render_report(*inputs, include_english=True, variant='wcxb')
     for prefix in ('', 'en/'):
         home = BeautifulSoup((root / prefix / 'index.html').read_text(encoding='utf-8'), 'html.parser')
         lead = home.select_one('main section p').get_text()
@@ -356,7 +356,7 @@ def test_wcxb_registered_aliases_use_shared_interfaces_and_bound_timing_roles(tm
     shutil.copytree(root / 'artifacts/moli', root / 'artifacts' / new)
     profile['providers'] = list(summary['providers'])
     before = json.dumps(inputs[1:], sort_keys=True)
-    generate_wcxb(*inputs, include_english=True)
+    render_report(*inputs, include_english=True, variant='wcxb')
     assert json.dumps(inputs[1:], sort_keys=True) == before
     pair = paired_latency_methods(profile, {'providers': [
         {'provider': p, 'identity': identity} for p, identity in identities.items()]})

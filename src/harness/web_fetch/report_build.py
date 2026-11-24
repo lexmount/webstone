@@ -60,17 +60,12 @@ from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report import (
     TRACKS,
     failure_category,
-    generate,
-    generate_cohort_diagnostic,
-    generate_public_benchmark_research,
-    generate_wcxb,
-    generate_webmainbench,
-    generate_webmainbench_full,
+    render_report,
     measured,
     succeeded,
-    webmainbench_full_machine_issue,
 )
 from harness.web_fetch.report_changes import webmainbench_history
+from harness.web_fetch.webmainbench_report import webmainbench_full_machine_issue
 from harness.web_fetch.report_diagnostic import (
     check_diagnostic_report,
     load_diagnostic,
@@ -183,7 +178,7 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
             target.write_bytes(raw)
         model_bytes = (source / "report.json").read_bytes()
         (staging / "report.json").write_bytes(model_bytes)
-        generate_cohort_diagnostic(staging, model)
+        render_report(staging, model, variant='diagnostic-cohorts')
         manifest = {"schema_version": 1, "template": template,
                     "evidence_state": "diagnostic", "certified": False,
                     "languages": ["zh"], "provider_calls_added": 0,
@@ -267,7 +262,7 @@ def build_public_benchmark_research(source: Path, output: Path, *, include_engli
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix='.research-report-build-', dir=output.parent))
     try:
-        generate_public_benchmark_research(staging, research, include_english=include_english)
+        render_report(staging, research, include_english=include_english, variant='public-benchmark-research')
         record_build_version(staging)
         if sample is not None:
             shutil.copy2(sample_path, staging / 'sample-manifest.json')
@@ -348,7 +343,7 @@ def _build_frozen_presentation(source, output, presentation_binding, *,
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
         if release_binding:
             manifest['benchmark_release'] = release_binding
-        generate(staging, report_model(dataset, records, batches, include_english=include_english,
+        render_report(staging, report_model(dataset, records, batches, include_english=include_english,
                  authored_interpretation=authored_interpretation,
                  show_local_status_banners=show_local_status_banners, frozen_scores=True))
         # Scores remain frozen, but cached inventory/summary files must describe
@@ -911,7 +906,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         original_scope = dataset.get('content_scope')
         dataset, records = _select_report_scope(staging, dataset, records, content_scope)
         release_binding = bind_release(source, staging, dataset, records, profile=profile_path)
-        generate(staging, report_model(dataset, records, manifests, include_english=include_english,
+        render_report(staging, report_model(dataset, records, manifests, include_english=include_english,
                  authored_interpretation=authored_interpretation if dataset.get('content_scope') == original_scope else False,
                  show_local_status_banners=show_local_status_banners))
         if language is not None:
@@ -1119,7 +1114,7 @@ def build_webmainbench_report(source: Path, output: Path, *, include_english: bo
         copy_bound_assets(content_source, staging, {
             content_binding['relative_path']: content_binding['sha256']})
         shutil.copy2(content_binding_path, staging / 'report-content-binding.json')
-        generate_webmainbench(staging, dataset, records, summaries, manifests, review, research, corrections, adoption, fixture_correction, teds_revision, anomaly_review, latency_diagnostic, include_english=include_english, report_content=report_content)
+        render_report(staging, dataset, records, summaries, manifests, review, research, corrections, adoption, fixture_correction, teds_revision, anomaly_review, latency_diagnostic, include_english=include_english, report_content=report_content, variant='webmainbench-sample')
         record_build_version(staging)
         if language is not None:
             select_report_language(staging, language)
@@ -1344,8 +1339,8 @@ def build_webmainbench_full_report(source: Path, output: Path, *, authority_root
                 if file_sha256(asset_source) != asset['sha256']:
                     raise ValueError('Report illustration changed: ' + asset['name'])
                 shutil.copy2(asset_source, staging / 'assets' / asset['name'])
-        generate_webmainbench_full(staging, dataset, records,
-                                   summaries, display_profile)
+        render_report(staging, dataset, records,
+                                   summaries, display_profile, variant='webmainbench-full')
         record_build_version(staging)
         from harness.web_fetch.webmainbench_report_check import (
             check as check_webmainbench_full,
@@ -1536,8 +1531,8 @@ def build_wcxb_report(source: Path, corpus: Path, sample_path: Path, profile: di
                 'page_type': record['meta']['page_type'],
                 'with': gt.get('with') or [], 'without': gt.get('without') or [],
             }
-        generate_wcxb(staging, rows, summary, ground_truth, identities, profile, report_content,
-                      include_english=include_english)
+        render_report(staging, rows, summary, ground_truth, identities, profile, report_content,
+                      include_english=include_english, variant='wcxb')
         evidence_root = staging / 'evidence'
         evidence_root.mkdir()
         evidence_hashes = {}
@@ -1815,7 +1810,7 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         staging = Path(scratch) / 'report'
         shutil.copytree(output, staging, copy_function=copy_evidence_file)
         batches = json.loads((output / 'execution.json').read_text(encoding='utf-8'))['batches']
-        generate(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
+        render_report(staging, report_model(dataset, records, batches, include_english=include_english, presentation_only=True,
                  frozen_scores=True, authored_interpretation=authored_interpretation,
                  detail_attempt_ids=detail_attempt_ids,
                  diagnostic_view_paths=diagnostic_view_paths,

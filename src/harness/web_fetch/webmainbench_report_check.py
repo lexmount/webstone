@@ -23,7 +23,8 @@ from harness.report_languages import (
 )
 from harness.reporting.assets import load_bound_content
 from harness.reporting.release_check import checked_page, language_editions, open_report, read_page
-from harness.web_fetch.report import ERROR_PAGE, EXTRA, JS, STYLE
+from harness.web_fetch.report import EXTRA, JS, STYLE
+from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE
 from harness.web_fetch.report_changes import webmainbench_history
 from harness.safety import reject_evidence_symlinks
 from harness.web_fetch.webmainbench_diagnostics import validate_teds_revision_if_present

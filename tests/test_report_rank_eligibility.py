@@ -101,7 +101,7 @@ def test_english_home_explains_unknown_and_missing_results(tmp_path, monkeypatch
         artifact = tmp_path/row['artifact_path']
         artifact.parent.mkdir(parents=True, exist_ok=True)
         artifact.write_text('output', encoding='utf-8')
-    report.generate(tmp_path, report_model({'cases': cases}, records, [], include_english=True))
+    report.render_report(tmp_path, report_model({'cases': cases}, records, [], include_english=True))
     home = (tmp_path/'en/index.html').read_text(encoding='utf-8')
     assert '1 task-family overview' in home
     assert '1 family rankings' in home
@@ -177,7 +177,7 @@ def test_declared_participant_without_calls_gets_an_english_route(tmp_path, monk
         artifact.write_text('output', encoding='utf-8')
     monkeypatch.setattr(report, 'saved_matrix_scope_section', lambda *args, **kwargs: '')
     participants = [{'id': records[0]['provider'], 'label': 'Measured'}, {'id': 'declared-only', 'label': 'Declared'}]
-    report.generate(tmp_path, report_model({'cases': cases}, records, [], participants=participants,
+    report.render_report(tmp_path, report_model({'cases': cases}, records, [], participants=participants,
                                            include_english=True))
     assert (tmp_path/'providers/declared-only.html').is_file()
     assert (tmp_path/'en/providers/declared-only.html').is_file()

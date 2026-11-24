@@ -3,7 +3,7 @@
 The base template fixes the page roles every report has and the ordered slots
 on each page. A track template (``TrackTemplate``) fills those roles with
 routes and declares its variants as data; benchmarks contribute extra views
-through ``SectionHook``. Pages mark their role and slots, so a release check can
+through ``SectionHook``, or a variant's whole page set through ``PageSetHook``. Pages mark their role and slots, so a release check can
 compare a built report with the template its manifest records.
 """
 
@@ -52,6 +52,19 @@ class SectionHook:
     def __post_init__(self):
         if self.slot not in PAGE_ROLES.get(self.role, ()):
             raise ValueError(f"Section hook {self.key} names an undeclared slot: {self.role}/{self.slot}")
+
+
+@dataclass(frozen=True)
+class PageSetHook:
+    """A benchmark view that writes the whole page set of one track variant.
+
+    ``key`` names the variant; ``render`` takes the track's render arguments.
+    A track's single render entry selects it, so the benchmark's pages follow
+    the same template, manifest record and release check as every other variant.
+    """
+
+    key: str
+    render: Callable[..., object]
 
 
 @dataclass(frozen=True)

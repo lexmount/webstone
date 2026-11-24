@@ -6,7 +6,8 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from harness.web_fetch.report import (
+from harness.web_fetch.report import render_report
+from harness.web_fetch.webmainbench_report import (
     _wmb_body_state,
     _wmb_guide,
     _wmb_html_preview,
@@ -16,7 +17,6 @@ from harness.web_fetch.report import (
     _wmb_row_attrs,
     _wmb_table_example,
     _wmb_table_population,
-    generate_webmainbench,
 )
 from harness.web_fetch.report_build import validate_webmainbench_correction
 
@@ -241,11 +241,11 @@ class WebMainBenchReportTests(unittest.TestCase):
                     "cause_en": "cause",
                 }],
             }
-            generate_webmainbench(
+            render_report(
                 output, dataset, records, summaries, manifests,
                 {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []},
                 anomaly_review=anomaly_review, include_english=True,
-            )
+             variant='webmainbench-sample')
             self.assertIn("Root-cause review of anomalous results", (output / "en/review/index.html").read_text(encoding="utf-8"))
             self.assertIn("异常结果根因复核", (output / "review/index.html").read_text(encoding="utf-8"))
 
@@ -253,21 +253,21 @@ class WebMainBenchReportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             output = Path(folder)
             dataset, records, summaries, manifests = sample_report_inputs(output)
-            generate_webmainbench(
+            render_report(
                 output,
                 dataset,
                 records,
                 summaries,
                 manifests,
                 {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []},
-            )
+             variant='webmainbench-sample')
             self.assertEqual(
                 (output / "report-languages.json").read_text(encoding="utf-8"),
                 '{"languages": ["zh"], "english_status": "not_generated"}\n',
             )
             self.assertIn("英文报告未生成", (output / "en/index.html").read_text(encoding="utf-8"))
             self.assertFalse((output / "en/analysis").exists())
-            generate_webmainbench(
+            render_report(
                 output,
                 dataset,
                 records,
@@ -275,7 +275,7 @@ class WebMainBenchReportTests(unittest.TestCase):
                 manifests,
                 {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []},
                 include_english=True,
-            )
+             variant='webmainbench-sample')
             chinese = {path.relative_to(output).as_posix() for path in output.rglob("*.html") if "en" not in path.relative_to(output).parts}
             english = {path.relative_to(output / "en").as_posix() for path in (output / "en").rglob("*.html")}
             self.assertEqual(chinese, english)
@@ -319,9 +319,9 @@ class WebMainBenchReportTests(unittest.TestCase):
                                                  'corrected': summary['official_aggregate']}
                                            for name, summary in summaries.items()}}
             immutable_records = copy.deepcopy(records)
-            generate_webmainbench(output, dataset, records, summaries, manifests,
+            render_report(output, dataset, records, summaries, manifests,
                                  {'status': 'passed'}, teds_revision=({}, revision_review),
-                                 include_english=True)
+                                 include_english=True, variant='webmainbench-sample')
             self.assertEqual(records, immutable_records)
             home = (output / 'index.html').read_text(encoding='utf-8')
             self.assertIn('id="wmb-core-results" data-col="2" data-dir="desc"', home)
@@ -350,9 +350,9 @@ class WebMainBenchReportTests(unittest.TestCase):
                 self.assertIn('original-results.jsonl', review_page)
             # A successful API response containing an error page is not target body text.
             (output / 'artifacts/chromium/case-one.md').write_text('ERR_ACCESS_DENIED', encoding='utf-8')
-            generate_webmainbench(output, dataset, records, summaries, manifests,
+            render_report(output, dataset, records, summaries, manifests,
                                  {'status': 'passed'}, teds_revision=({}, revision_review),
-                                 include_english=True)
+                                 include_english=True, variant='webmainbench-sample')
             self.assertEqual(records, immutable_records)
             for prefix, error_label in (('', '错误页，非目标正文'), ('en/', 'Error page, not target content')):
                 analysis = (output / prefix / 'analysis/index.html').read_text(encoding='utf-8')
@@ -378,7 +378,7 @@ class WebMainBenchReportTests(unittest.TestCase):
             changed = [{**row, "provider": "fixture-browser" if row["provider"] == "chromium" else row["provider"]} for row in records]
             changed_summaries = {("fixture-browser" if key == "chromium" else key): value for key, value in summaries.items()}
             changed_manifests = [{**row, "provider": "fixture-browser" if row["provider"] == "chromium" else row["provider"]} for row in manifests]
-            generate_webmainbench(other, selected, changed, changed_summaries, changed_manifests, include_english=True)
+            render_report(other, selected, changed, changed_summaries, changed_manifests, include_english=True, variant='webmainbench-sample')
             import json
             assert json.loads((other / "report-changes.json").read_text(encoding='utf-8'))["releases"] == []
             for prefix in ("", "en/"):

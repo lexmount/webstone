@@ -110,7 +110,7 @@ def test_report_suites_must_match_case_report_families():
 
 
 def test_sample_guide_check_reads_the_role_marked_main(tmp_path):
-    from harness.web_fetch.report import _wmb_write
+    from harness.web_fetch.webmainbench_report import _wmb_write
     from harness.web_fetch.webmainbench_report_check import bound_guide
     _wmb_write(tmp_path, "guide/index.html", "Guide", "<p>bound guide</p>")
     page = (tmp_path / "guide/index.html").read_text(encoding="utf-8")

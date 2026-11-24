@@ -140,12 +140,12 @@ def test_replay_real_assets_evidence_dialog_and_private_nested_navigation(tmp_pa
 
 
 def test_wcxb_generated_filter_and_diagnosis_keyboard_return(tmp_path, browser, display):
-    from harness.web_fetch.report import generate_wcxb
+    from harness.web_fetch.report import render_report
     from tests.wcxb_fixture import create_report_inputs
 
     inputs = create_report_inputs(tmp_path)
     root = inputs[0]
-    generate_wcxb(*inputs)
+    render_report(*inputs, variant='wcxb')
     with local_report_server(root) as origin:
         page = local_page(browser, origin, **display)
         try:

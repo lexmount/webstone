@@ -40,7 +40,7 @@ def test_concurrent_report_builds_keep_status_and_language_separate(tmp_path, mo
             row['provider_type'] = 'synthetic_other'
         (out/row['artifact_path']).parent.mkdir(parents=True)
         (out/row['artifact_path']).write_text('output', encoding='utf-8')
-        report.generate(out, report_model({'cases': [c]}, [row], [], include_english=fixture))
+        report.render_report(out, report_model({'cases': [c]}, [row], [], include_english=fixture))
         return (out/'index.html').read_text(encoding='utf-8')
 
     with ThreadPoolExecutor(max_workers=2) as pool:
