@@ -39,8 +39,8 @@ def test_bound_content_requires_exact_inputs(content_inputs):
                               authority_root=authority)['guide']['zh'] == 'Synthetic finding'
 
 
-@pytest.mark.parametrize('field', ['content', 'evidence', 'authority'])
-@pytest.mark.parametrize('change', ['bytes', 'missing', 'symlink'])
+@pytest.mark.parametrize('field,change', [
+    ('content', 'bytes'), ('content', 'symlink'), ('evidence', 'missing'), ('authority', 'bytes')])
 def test_stale_missing_or_linked_content_cannot_be_reused(content_inputs, field, change):
     source, evidence, authority, binding = content_inputs
     path = {'content': source / 'content.json', 'evidence': evidence / 'results.jsonl',
@@ -208,8 +208,9 @@ def test_offline_recovery_verifies_pinned_export_and_preserves_existing_content(
             assert not destination.exists()
 
 
-@pytest.mark.parametrize('container', ['zip', 'directory'])
-@pytest.mark.parametrize('tamper', ['none', 'source', 'content', 'multiple-main', 'existing'])
+@pytest.mark.parametrize('container,tamper', [
+    ('zip', 'none'), ('directory', 'none'), ('zip', 'source'), ('directory', 'content'),
+    ('zip', 'multiple-main'), ('directory', 'existing')])
 def test_plain_export_recovery_preserves_exact_main_and_rejects_tampering(
         tmp_path, container, tamper):
     page = '<html><main class="wrap"><p>Frozen interpretation</p></main></html>'
@@ -265,14 +266,11 @@ def test_plain_export_directory_rejects_linked_source(tmp_path):
         restore_bound_content(export, binding, tmp_path / 'content.json')
 
 
-@pytest.mark.parametrize('wrong', [False, True])
-def test_rendered_field_binding_must_agree_with_authored_content(content_inputs, wrong):
+def test_rendered_field_binding_must_agree_with_authored_content(content_inputs):
     source, evidence, authority, binding = content_inputs
-    expected = hashlib.sha256(b'Synthetic finding').hexdigest()
-    binding['rendered_sha256'] = {'guide': {'zh': '0' * 64 if wrong else expected}}
-    if wrong:
-        with pytest.raises(ValueError, match='rendered field differs'):
-            load_bound_content(source, binding, evidence_root=evidence, authority_root=authority)
-    else:
-        assert load_bound_content(source, binding, evidence_root=evidence,
-                                  authority_root=authority)['guide']['zh'] == 'Synthetic finding'
+    binding['rendered_sha256'] = {'guide': {'zh': hashlib.sha256(b'Synthetic finding').hexdigest()}}
+    assert load_bound_content(source, binding, evidence_root=evidence,
+                              authority_root=authority)['guide']['zh'] == 'Synthetic finding'
+    binding['rendered_sha256'] = {'guide': {'zh': '0' * 64}}
+    with pytest.raises(ValueError, match='rendered field differs'):
+        load_bound_content(source, binding, evidence_root=evidence, authority_root=authority)

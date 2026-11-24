@@ -1,6 +1,7 @@
 """Reports preserve an edition and reject mismatched tasks, scorers or labels."""
 
 import json
+import shutil
 
 import pytest
 from lexbench_webfetch.versions import freeze_release
@@ -44,43 +45,43 @@ def test_versioned_snapshot_uses_existing_build_check_and_package(tmp_path):
     }
 
 
-@pytest.mark.parametrize(
-    "defect", ["missing-file", "wrong-version", "removed-label", "wrong-scorer", "dropped-binding"]
-)
-def test_report_gate_rejects_release_drift(tmp_path, defect):
+def test_report_gate_rejects_release_drift(tmp_path):
     source, profile, _ = configured(tmp_path)
-    output = tmp_path / "report"
-    build_snapshot_audit(source, output, profile=profile)
-    if defect == "missing-file":
-        (output / "benchmark-release.json").unlink()
-    elif defect in {"wrong-version", "removed-label"}:
-        page = output / "index.html"
-        old = 'data-benchmark-release="1.0.0"'
-        page.write_text(
-            page.read_text(encoding="utf-8").replace(
-                old,
-                'data-benchmark-release="2.0.0"'
-                if defect == "wrong-version"
-                else 'data-removed="1.0.0"',
-            ),
-            encoding="utf-8"
-        )
-    elif defect == "wrong-scorer":
-        rows = output / "results.jsonl"
-        records = [json.loads(line) for line in rows.read_text(encoding="utf-8").splitlines()]
-        records[0]["metrics"]["scoring_source_sha256"] = "0" * 64
-        rows.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
-        manifest = output / "report-manifest.json"
-        data = json.loads(manifest.read_text(encoding="utf-8"))
-        data["results_sha256"] = file_sha256(rows)
-        manifest.write_text(json.dumps(data), encoding="utf-8")
-    else:
-        manifest = output / "report-manifest.json"
-        data = json.loads(manifest.read_text(encoding="utf-8"))
-        del data["benchmark_release"]
-        manifest.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(ValueError, match="[Bb]enchmark|scoring sources"):
-        check_snapshot_audit(output)
+    built = tmp_path / "built"
+    build_snapshot_audit(source, built, profile=profile)
+    for defect in ("missing-file", "wrong-version", "removed-label", "wrong-scorer", "dropped-binding"):
+        output = tmp_path / defect
+        shutil.copytree(built, output)
+        if defect == "missing-file":
+            (output / "benchmark-release.json").unlink()
+        elif defect in {"wrong-version", "removed-label"}:
+            page = output / "index.html"
+            old = 'data-benchmark-release="1.0.0"'
+            page.write_text(
+                page.read_text(encoding="utf-8").replace(
+                    old,
+                    'data-benchmark-release="2.0.0"'
+                    if defect == "wrong-version"
+                    else 'data-removed="1.0.0"',
+                ),
+                encoding="utf-8"
+            )
+        elif defect == "wrong-scorer":
+            rows = output / "results.jsonl"
+            records = [json.loads(line) for line in rows.read_text(encoding="utf-8").splitlines()]
+            records[0]["metrics"]["scoring_source_sha256"] = "0" * 64
+            rows.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
+            manifest = output / "report-manifest.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["results_sha256"] = file_sha256(rows)
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+        else:
+            manifest = output / "report-manifest.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            del data["benchmark_release"]
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(ValueError, match="[Bb]enchmark|scoring sources"):
+            check_snapshot_audit(output)
 
 
 def test_wrong_task_edition_is_rejected_before_rendering(tmp_path):

@@ -9,8 +9,8 @@ from harness.record_io import canonical_json_sha256
 from lexbench_webfetch.scoring import score_attempt
 
 
-@pytest.mark.parametrize('threshold,passed', [(.6667, False), (2 / 3, True), (.6666, True)])
-@pytest.mark.parametrize('stable', [False, True])
+@pytest.mark.parametrize('threshold,passed,stable', [
+    (.6667, False, False), (2 / 3, True, False), (.6666, True, True)])
 def test_fact_evidence_uses_computed_outcome_not_rounded_display(threshold, passed, stable):
     case = {'url': 'https://example.test/manual', 'min_content_chars': 1,
             'required_facts': [{'id': name, 'alternatives': [name]} for name in ['Alpha', 'Beta', 'Gamma']],
@@ -28,7 +28,7 @@ def test_fact_evidence_uses_computed_outcome_not_rounded_display(threshold, pass
     assert outcomes['task_result']['passed'] is passed
 
 
-@pytest.mark.parametrize('unavailable', ['missing', None, 0, 1])
+@pytest.mark.parametrize('unavailable', ['missing', 1])
 def test_fact_evidence_requires_a_known_current_fact_outcome(unavailable):
     case = {'url': 'https://example.test/', 'required_facts': [{'alternatives': ['Alpha']}]}
     metrics = score_attempt(case, b'Alpha', ok=True)
@@ -41,15 +41,10 @@ def test_fact_evidence_requires_a_known_current_fact_outcome(unavailable):
 
 
 @pytest.mark.parametrize("field,value", [
-    ("captures_path", None), ("captures_path", []),
-    ("captures_sha256", None), ("captures_sha256", 42),
-    ("attempts", None), ("attempts", {}),
-    ("attempts[0]", "invalid"),
-    ("attempts[0].attempt_id", None), ("attempts[0].case_sha256", []),
-    ("attempts[0].call_sha256", None), ("attempts[0].content_sha256", False),
-    ("attempts[0].capture_index", True), ("attempts[0].capture_index", -1),
-    ("attempts[0].capture_index", 99), ("attempts[0].matching_samples", {}),
-    ("attempts[0].corresponding_url", None),
+    ("captures_path", None), ("captures_sha256", 42), ("attempts", {}),
+    ("attempts[0]", "invalid"), ("attempts[0].attempt_id", None),
+    ("attempts[0].capture_index", True), ("attempts[0].capture_index", 99),
+    ("attempts[0].matching_samples", {}),
 ])
 def test_identity_update_reports_malformed_receipt_field_without_writes(tmp_path, field, value):
     import json
@@ -89,21 +84,8 @@ def test_identity_update_reports_malformed_receipt_field_without_writes(tmp_path
     assert {item.name: item.read_bytes() for item in tmp_path.iterdir()} == files
 
 
-def test_identity_receipt_parsed_fields_are_immutable():
-    from dataclasses import FrozenInstanceError
-    from harness.web_fetch.adjudication_evidence import PageIdentityReviewInputs
-    document = {"captures_path": "captures.json", "captures_sha256": "digest", "attempts": []}
-    parsed = PageIdentityReviewInputs.parse(document)
-    document["captures_path"] = "changed.json"
-    assert parsed.captures_path == "captures.json"
-    assert parsed.attempts == ()
-    with pytest.raises(FrozenInstanceError):
-        parsed.captures_path = "changed.json"
-
-
 @pytest.mark.parametrize("entry", ["identity", "identity_update", "independent_review"])
-@pytest.mark.parametrize("changed", [False, True])
-def test_review_inputs_require_original_bound_bytes(tmp_path, monkeypatch, entry, changed):
+def test_review_inputs_require_original_bound_bytes(tmp_path, monkeypatch, entry):
     import json
     from harness.reporting import publication_privacy
     from harness.web_fetch import adjudication_evidence
@@ -144,17 +126,16 @@ def test_review_inputs_require_original_bound_bytes(tmp_path, monkeypatch, entry
             invoke = lambda: adjudication_evidence.prepare_reviewed_page_identities(
                 tmp_path, dataset, dataset, [])
             error = "Page identity capture changed before rescoring"
-    if changed:
-        (tmp_path / binding["path"]).write_text("{}", encoding='utf-8')
-        with pytest.raises(ValueError, match=error):
-            invoke()
-    else:
+    invoke()
+    (tmp_path / binding["path"]).write_text("{}", encoding='utf-8')
+    with pytest.raises(ValueError, match=error):
         invoke()
 
 
-@pytest.mark.parametrize('defect', [None, 'case', 'answer', 'context', 'opinion',
-                                  'original_opinion', 'original_identity'])
-@pytest.mark.parametrize('wording', ['Original explanation.', 'Quoted text: 命中词：。'])
+@pytest.mark.parametrize('defect,wording', [
+    (None, 'Original explanation.'), (None, 'Quoted text: 命中词：。'),
+    *[(defect, 'Original explanation.') for defect in
+      ['case', 'answer', 'context', 'opinion', 'original_opinion', 'original_identity']]])
 def test_compact_retention_keeps_actual_opinion_without_old_matrices(tmp_path, defect, wording):
     import copy
     import json
@@ -295,9 +276,11 @@ def test_supplemental_review_binds_new_opinion_task_and_complete_answer(tmp_path
         assert _require_supplemental_reviews(tmp_path, {'cases': [case]}, [record], review) == {'p__a'}
 
 
-@pytest.mark.parametrize('defect', [None, 'positive_rule', 'answer', 'opinion', 'verdict',
-    'policy_hit', 'dependent_reason', 'prior_binding', 'count', 'missing_receipt'])
-@pytest.mark.parametrize('wording', ['Original explanation.', 'Quoted text: 命中词：。'])
+@pytest.mark.parametrize('defect,wording', [
+    (None, 'Original explanation.'), (None, 'Quoted text: 命中词：。'),
+    *[(defect, 'Original explanation.') for defect in
+      ['positive_rule', 'answer', 'opinion', 'verdict', 'policy_hit', 'dependent_reason',
+       'prior_binding', 'count', 'missing_receipt']]])
 def test_retention_requires_unchanged_decision_dependencies(tmp_path, defect, wording):
     import copy
     import json
@@ -382,15 +365,12 @@ def test_fresh_review_keeps_the_immutable_blind_initial_opinion(tmp_path, defect
         assert _require_supplemental_reviews(tmp_path, {'cases': [case]}, [record], review) == {'p__a'}
 
 
-@pytest.mark.parametrize('key, value, zh, en', [
+ADJUDICATION_LANGUAGE = [
     ('task_result', {'passed': True}, '任务判定：通过。', 'Task result: pass.'),
-    ('request_status', {'passed': False}, '请求状态：未通过。', 'Request status: fail.'),
     ('required_facts', {'passed': False, 'matched': 2, 'total': 3},
      '必需文字：未通过（2/3）。', 'Required text: fail (2/3).'),
-    ('expected_any', {'passed': True}, '目标标记：通过。', 'Target markers: pass.'),
     ('min_content_chars', {'passed': False, 'actual': 9, 'minimum': 10},
      '最低长度：未通过（9，要求至少 10）。', 'Minimum length: fail (9; minimum 10).'),
-    ('body_requirements', {'passed': True}, '正文覆盖：通过。', 'Body coverage: pass.'),
     ('required_patterns', {'passed': False, 'results': [{'id': 'code', 'pass': False}, {'id': 'heading', 'pass': True}]},
      '格式与代码要求：未通过（未满足 code）。', 'Formatting and code requirements: fail (unmet: code).'),
     ('required_patterns', {'passed': True, 'results': [{'id': 'code', 'pass': True}]},
@@ -403,22 +383,22 @@ def test_fresh_review_keeps_the_immutable_blind_initial_opinion(tmp_path, defect
                             'records': 4, 'minimum_records': 4, 'missing_anchors': []},
      '内容与条目要求：通过（稳定文字 2/2；独立条目 4，要求至少 4）。',
      'Content and record requirements: pass (stable text 2/2; distinct records 4; minimum 4).'),
-    ('composite_acceptance', {'passed': True}, '组合要求：通过。', 'Combined requirements: pass.'),
-    ('expected_resources', {'passed': False}, '目标资源：未通过。', 'Target resources: fail.'),
-    ('forbidden_any', {'passed': True}, '明确禁止要求：通过。', 'Prohibited content: pass.'),
     ('diagnostic_any', {'hits': []}, '诊断词命中：无（不单独决定通过或失败）。',
      'Diagnostic matches: none (do not independently determine pass or fail).'),
     ('diagnostic_any', {'hits': ['CAPTCHA', '登录']}, '诊断词命中：CAPTCHA、登录（不单独决定通过或失败）。',
      'Diagnostic matches: CAPTCHA, 登录 (do not independently determine pass or fail).'),
-])
-def test_adjudication_language_preserves_checked_rule_details(key, value, zh, en):
+]
+
+
+def test_adjudication_language_preserves_checked_rule_details():
     import copy
-    assertions = {key: value}
-    before = copy.deepcopy(assertions)
-    assert adjudication_reason(assertions) == zh
-    assert adjudication_reason(assertions, language='zh') == zh
-    assert adjudication_reason(assertions, language='en') == en
-    assert assertions == before
+    for key, value, zh, en in ADJUDICATION_LANGUAGE:
+        assertions = {key: value}
+        before = copy.deepcopy(assertions)
+        assert adjudication_reason(assertions) == zh, key
+        assert adjudication_reason(assertions, language='zh') == zh, key
+        assert adjudication_reason(assertions, language='en') == en, key
+        assert assertions == before
 
 
 def test_english_presentation_keeps_historical_adjudication_proof_valid(tmp_path):

@@ -7,8 +7,7 @@ from tests import conftest
 
 
 @pytest.mark.parametrize("platform,restricted", [("darwin", True), ("darwin", False), ("linux", True)])
-@pytest.mark.parametrize("method", ["launch", "launch_persistent_context"])
-def test_browser_launch_environment_boundary(monkeypatch, platform, restricted, method):
+def test_browser_launch_environment_boundary(monkeypatch, platform, restricted):
     calls = []
 
     def launch(*args, **kwargs):
@@ -24,9 +23,10 @@ def test_browser_launch_environment_boundary(monkeypatch, platform, restricted, 
     }[name])
     conftest.guard_browser_launches(monkeypatch)
     for api in (sync, asynchronous):
-        if platform == "darwin" and restricted:
-            with pytest.raises(RuntimeError, match="unrestricted process"):
-                getattr(api.BrowserType, method)(headless=True)
-        else:
-            assert getattr(api.BrowserType, method)(headless=True) == "browser-started"
-    assert len(calls) == (0 if platform == "darwin" and restricted else 2)
+        for method in ("launch", "launch_persistent_context"):
+            if platform == "darwin" and restricted:
+                with pytest.raises(RuntimeError, match="unrestricted process"):
+                    getattr(api.BrowserType, method)(headless=True)
+            else:
+                assert getattr(api.BrowserType, method)(headless=True) == "browser-started"
+    assert len(calls) == (0 if platform == "darwin" and restricted else 4)

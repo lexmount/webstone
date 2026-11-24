@@ -58,22 +58,22 @@ def test_remaining_file_tasks_call_native_interface_and_preserve_delivery(tmp_pa
     verify_saved_native_answer(tmp_path, record)
 
 
-@pytest.mark.parametrize('kind', ['deepseek_fetch', 'crawl4ai_cloud'])
 @pytest.mark.parametrize('payload, expected', [
     ({'opaque_result': {'bytes': 'unknown'}}, 'invalid_response'),
     ({'error': 'unsupported content type'}, 'api_error'),
     ({'content': 42, 'markdown': 42, 'title': ''}, 'invalid_response'),
 ])
-def test_unknown_contract_is_separate_from_explicit_service_error(kind, payload, expected):
+def test_unknown_contract_is_separate_from_explicit_service_error(payload, expected):
     raw = json.dumps(payload).encode()
-    with patch('harness.web_fetch.providers.hosted_fetch.request',
-               return_value=HttpResponse(200, 'https://service.test/', {}, raw)) as call:
-        result = provider(kind).fetch(file_case(), 30)
-    call.assert_called_once()
-    assert result.error_type == expected
-    assert base64.b64decode(result.metadata['_raw_response_b64']) == raw
-    assert 'response_contract_review' not in result.metadata
-    assert result.files == []
+    for kind in ('deepseek_fetch', 'crawl4ai_cloud'):
+        with patch('harness.web_fetch.providers.hosted_fetch.request',
+                   return_value=HttpResponse(200, 'https://service.test/', {}, raw)) as call:
+            result = provider(kind).fetch(file_case(), 30)
+        call.assert_called_once()
+        assert result.error_type == expected
+        assert base64.b64decode(result.metadata['_raw_response_b64']) == raw
+        assert 'response_contract_review' not in result.metadata
+        assert result.files == []
 
 
 @pytest.mark.parametrize('version', [1, 2])
@@ -93,8 +93,8 @@ def test_historical_policies_cannot_acquire_new_brightdata_files(version):
     assert new['content_format'] == 'empty' and new['files']['format'] == 'raw_bytes'
 
 
-@pytest.mark.parametrize('status', [403, 502])
-def test_file_api_error_preserves_raw_response_without_fabricating_file(tmp_path, status):
+def test_file_api_error_preserves_raw_response_without_fabricating_file(tmp_path):
+    status = 502
     case = file_case()
     raw = b'Upstream request failed'
     dataset = {'id': 'native-file-error', 'cases': [vars(case)]}

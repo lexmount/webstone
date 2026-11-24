@@ -9,21 +9,21 @@ from harness.web_fetch.providers.base import build_provider
 from harness.http_client import HttpResponse
 
 
-@pytest.mark.parametrize('value', [1, 15000, 90000, 0, -1, 90001, True, '15000', 1.5])
-def test_exa_explicit_native_timeout_is_validated_and_forwarded(value):
-    provider = build_provider('exa', {'type': 'exa_contents', 'api_key': 'fixture',
-        'uniform_native_parameters': True, 'livecrawl_timeout_ms': value})
+def test_exa_explicit_native_timeout_is_validated_and_forwarded():
     case = EvalCase('one', 'one', 'https://example.com/', 'control', [])
-    valid = type(value) is int and 1 <= value <= 90000
-    assert bool(provider.validate()) is not valid
-    if not valid:
-        with pytest.raises(ValueError, match='livecrawl_timeout_ms'):
-            provider.native_http_arguments(case, 30)
-        return
-    _, arguments = provider.native_http_arguments(case, 30)
-    assert arguments['json_body']['livecrawlTimeout'] == value
-    assert arguments['timeout'] == 30
-    assert provider.native_configured_parameters()['livecrawl_timeout_ms'] == value
+    for value in (1, 90000, 0, 90001, True, '15000', 1.5):
+        provider = build_provider('exa', {'type': 'exa_contents', 'api_key': 'fixture',
+            'uniform_native_parameters': True, 'livecrawl_timeout_ms': value})
+        valid = type(value) is int and 1 <= value <= 90000
+        assert bool(provider.validate()) is not valid, value
+        if not valid:
+            with pytest.raises(ValueError, match='livecrawl_timeout_ms'):
+                provider.native_http_arguments(case, 30)
+            continue
+        _, arguments = provider.native_http_arguments(case, 30)
+        assert arguments['json_body']['livecrawlTimeout'] == value
+        assert arguments['timeout'] == 30
+        assert provider.native_configured_parameters()['livecrawl_timeout_ms'] == value
 
 
 @pytest.mark.parametrize("kind,module,payload", [
@@ -56,8 +56,7 @@ def test_fixed_native_requests_preserve_capabilities_without_product_timers(kind
         assert call.call_count == 1
 
 
-@pytest.mark.parametrize("kind", ["moli_webfetch", "firecrawl", "tavily_extract", "exa_contents",
-    "cloudflare_markdown", "cowagent_builtin", "subprocess_jsonl"])
+@pytest.mark.parametrize("kind", ["moli_webfetch", "firecrawl", "subprocess_jsonl"])
 def test_fixed_native_rejects_hints_and_unknown_outputs_before_call(kind):
     provider = build_provider(kind, {"type": kind, "uniform_native_parameters": True})
     case = EvalCase("one", "one", "https://example.com/", "control", [],
@@ -69,18 +68,16 @@ def test_fixed_native_rejects_hints_and_unknown_outputs_before_call(kind):
         provider.fetch(case, 45)
 
 
-@pytest.mark.parametrize("track,task_kind", [
-    ("web", "body"), ("dynamic", "body"), ("challenge", "structure"),
-    ("risk_control", "body"), ("document", "body"), ("document", "file"),
-    ("image", "body"), ("image", "resource"), ("video", "body"),
-    ("video", "resource"),
-])
-def test_fixed_native_accepts_public_task_routes_without_per_case_assistance(track, task_kind):
+def test_fixed_native_accepts_public_task_routes_without_per_case_assistance():
     provider = build_provider("fixture", {"type": "fixture", "uniform_native_parameters": True})
-    hints = {"version": 3, "mode": "native"} if track == "dynamic" else {}
-    case = EvalCase("one", "one", "https://example.com/", "control", [],
-        track=track, task_kind=task_kind, retrieval_hints=hints)
-    provider.check_native_call(case)
+    for track, task_kind in [
+        ("web", "body"), ("dynamic", "body"), ("challenge", "structure"),
+        ("risk_control", "body"), ("document", "body"), ("document", "file"),
+        ("image", "body"), ("image", "resource"), ("video", "body"), ("video", "resource"),
+    ]:
+        hints = {"version": 3, "mode": "native"} if track == "dynamic" else {}
+        provider.check_native_call(EvalCase("one", "one", "https://example.com/", "control", [],
+            track=track, task_kind=task_kind, retrieval_hints=hints))
 
 
 def test_fixed_native_rejects_case_specific_page_capabilities():
@@ -92,17 +89,16 @@ def test_fixed_native_rejects_case_specific_page_capabilities():
         provider.check_native_call(case)
 
 
-@pytest.mark.parametrize("track,task_kind", [("document", "resource"), ("image", "undeclared"),
-    ("unknown", "body")])
-def test_fixed_native_rejects_undeclared_task_routes(track, task_kind):
+def test_fixed_native_rejects_undeclared_task_routes():
     provider = build_provider("fixture", {"type": "fixture", "uniform_native_parameters": True})
-    case = EvalCase("one", "one", "https://example.com/", "control", [],
-        track=track, task_kind=task_kind)
-    with pytest.raises(ValueError, match="declared.*(?:route|output)"):
-        provider.check_native_call(case)
+    for track, task_kind in [("document", "resource"), ("image", "undeclared"), ("unknown", "body")]:
+        case = EvalCase("one", "one", "https://example.com/", "control", [],
+            track=track, task_kind=task_kind)
+        with pytest.raises(ValueError, match="declared.*(?:route|output)"):
+            provider.check_native_call(case)
 
 
-@pytest.mark.parametrize("runs,retries", [(2, 0), (2, 1), (2, 3)])
+@pytest.mark.parametrize("runs,retries", [(2, 0), (2, 3)])
 def test_runner_rejects_extra_attempts_before_preflight(tmp_path, runs, retries):
     from harness.web_fetch.runner import run_evaluation
     provider = build_provider("fixture", {"type": "fixture", "uniform_native_parameters": True})

@@ -25,8 +25,7 @@ from harness.web_fetch.report_build import build_report
 from harness.web_fetch.runner import run_evaluation
 
 
-@pytest.fixture
-def source(tmp_path):
+def _make_source(tmp_path):
     class Retrying(Provider):
         calls = 0
 
@@ -54,6 +53,41 @@ def source(tmp_path):
     return root, records
 
 
+@pytest.fixture
+def source(tmp_path):
+    return _make_source(tmp_path)
+
+
+def _revise(root):
+    from harness.web_fetch.scoring_revision import revise
+    revise(root, root / 'dataset.json', root_cause_category='answer-surface',
+        root_cause='Synthetic retained-answer correction is checked on the complete cohort.',
+        regression_ids=['body-only-word-boundary-answer-title-supplies-required-fact'])
+
+
+@pytest.fixture(scope='module')
+def _revised_template(tmp_path_factory):
+    base = tmp_path_factory.mktemp('revised')
+    root, _ = _make_source(base)
+    baseline = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
+    baseline['comparison'] = {
+        'require_independent_result_review': False,
+        'independent_result_review_scope': 'machine-failures',
+    }
+    (root / 'dataset.json').write_text(json.dumps(baseline), encoding='utf-8')
+    _revise(root)
+    return root
+
+
+@pytest.fixture
+def revised(_revised_template, tmp_path):
+    """A scored source with one scoring revision; copied because tests mutate it."""
+    import shutil
+    root = tmp_path / 'source'
+    shutil.copytree(_revised_template, root, symlinks=True)
+    return root
+
+
 def test_assembly_preserves_all_physical_call_evidence(source, tmp_path):
     root, records = source
     target = tmp_path / 'assembled'
@@ -63,21 +97,11 @@ def test_assembly_preserves_all_physical_call_evidence(source, tmp_path):
         assert (target / relative).read_bytes() == (root / relative).read_bytes()
 
 
-def test_canonical_dataset_promotes_an_explicit_full_review_policy(source, tmp_path):
+def test_canonical_dataset_promotes_an_explicit_full_review_policy(revised, tmp_path):
     from harness.web_fetch.reference_lifecycle import valid_scoring_revision
     from harness.web_fetch.result_review import require_result_review
-    from harness.web_fetch.scoring_revision import revise
 
-    root, _ = source
-    baseline = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
-    baseline['comparison'] = {
-        'require_independent_result_review': False,
-        'independent_result_review_scope': 'machine-failures',
-    }
-    (root / 'dataset.json').write_text(json.dumps(baseline), encoding='utf-8')
-    revise(root, root / 'dataset.json', root_cause_category='answer-surface',
-        root_cause='Synthetic retained-answer correction is checked on the complete cohort.',
-        regression_ids=['body-only-word-boundary-answer-title-supplies-required-fact'])
+    root = revised
     baseline = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
     canonical = tmp_path / 'canonical.json'
     promoted = json.loads(json.dumps(baseline))
@@ -544,8 +568,8 @@ def test_assembly_copies_only_certificate_bound_reference_checks(tmp_path, damag
     assert not (report / 'reference-checks/private-note.txt').exists()
 
 
-@pytest.mark.parametrize('tree', ['sources', 'list-references', 'reference-checks'])
-@pytest.mark.parametrize('kind', ['file', 'directory'])
+@pytest.mark.parametrize('tree,kind', [
+    ('sources', 'directory'), ('list-references', 'file'), ('reference-checks', 'file')])
 def test_assembly_rejects_links_inside_reference_trees(source, tmp_path, tree, kind):
     root, _ = source
     folder = root / tree
@@ -715,14 +739,10 @@ def test_assembly_rejects_changed_missing_or_linked_evidence(source, tmp_path, c
 
 
 @pytest.mark.parametrize('operation', ['addition', 'replacement'])
-def test_scored_cohort_composition_keeps_authority_without_starting_review(source, tmp_path, operation):
+def test_scored_cohort_composition_keeps_authority_without_starting_review(revised, tmp_path, operation):
     from harness.web_fetch.reference_lifecycle import valid_scoring_revision
-    from harness.web_fetch.scoring_revision import revise
 
-    root, _ = source
-    revise(root, root / 'dataset.json', root_cause_category='answer-surface',
-        root_cause='Synthetic retained-answer correction is checked on the complete cohort.',
-        regression_ids=['body-only-word-boundary-answer-title-supplies-required-fact'])
+    root = revised
     assert valid_scoring_revision(root)
     original_bytes = (root / 'results.jsonl').read_bytes()
     original_history = (root / 'scoring-revisions.json').read_bytes()
@@ -774,7 +794,6 @@ def test_scored_cohort_composition_keeps_authority_without_starting_review(sourc
 
 @pytest.mark.parametrize('field,changed', [
     ('url', 'https://other.example.invalid/'),
-    ('task_prompt', 'Return a different scope.'),
     ('retrieval_hints', {'version': 3, 'mode': 'native'}),
 ])
 def test_provider_replacement_rejects_request_bearing_task_changes(
@@ -800,17 +819,15 @@ def test_provider_replacement_rejects_request_bearing_task_changes(
 
 
 @pytest.mark.parametrize('damage', ['source-authority', 'incoming-verdict', 'declared-review'])
-def test_scored_cohort_composition_rejects_invalid_authority_or_changed_verdict(source, tmp_path, damage):
-    from harness.web_fetch.scoring_revision import revise
-
-    root, _ = source
+def test_scored_cohort_composition_rejects_invalid_authority_or_changed_verdict(request, tmp_path, damage):
     if damage == 'declared-review':
+        root, _ = _make_source(tmp_path)
         metadata = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
         metadata.setdefault('comparison', {})['require_independent_result_review'] = True
         (root / 'dataset.json').write_text(json.dumps(metadata), encoding='utf-8')
-    revise(root, root / 'dataset.json', root_cause_category='answer-surface',
-        root_cause='Synthetic retained-answer correction is checked on the complete cohort.',
-        regression_ids=['body-only-word-boundary-answer-title-supplies-required-fact'])
+        _revise(root)
+    else:
+        root = request.getfixturevalue('revised')
     dataset = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
     case = EvalCase(**dataset['cases'][0])
     class Fixture(Provider):

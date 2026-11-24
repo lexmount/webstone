@@ -96,14 +96,15 @@ def track_stages():
             for stage in importlib.import_module(track.cli).STAGES.supported()]
 
 
-@pytest.mark.parametrize(("track", "stage"), track_stages())
-def test_every_declared_stage_runs_as_webstone_track_stage(track, stage, monkeypatch, capsys):
+def test_every_declared_stage_runs_as_webstone_track_stage(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["caller"])
-    with pytest.raises(SystemExit) as stopped:
-        main([track, stage, "--help"])
-    assert stopped.value.code == 0
-    assert " ".join(capsys.readouterr().out.split()).startswith(f"usage: webstone {track} {stage} ")
-    assert sys.argv == ["caller"]
+    for track, stage in track_stages():
+        with pytest.raises(SystemExit) as stopped:
+            main([track, stage, "--help"])
+        assert stopped.value.code == 0, (track, stage)
+        usage = " ".join(capsys.readouterr().out.split())
+        assert usage.startswith(f"usage: webstone {track} {stage} "), (track, stage)
+        assert sys.argv == ["caller"]
 
 
 def test_stage_reaches_its_registered_implementation(monkeypatch):

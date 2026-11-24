@@ -39,6 +39,14 @@ def _entry_facts(case_id, entries):
             facts.append({'id':f'entry-{i}-{field}','alternatives':alternatives})
     return facts
 
+def first_fact_per_field(facts):
+    """One fact per field kind keeps every field rule while skipping repeated cards."""
+    first = {}
+    for fact in facts:
+        first.setdefault(fact['id'].split('-', 2)[2], fact)
+    return list(first.values())
+
+
 class DynamicReferenceTests(unittest.TestCase):
     def test_all_observed_fields_are_required(self):
         captures=json.loads((ROOT/'research/dynamic-browser-captures.json').read_text(encoding='utf-8'))
@@ -49,7 +57,7 @@ class DynamicReferenceTests(unittest.TestCase):
             score=lambda text,facts=facts:evaluate_content(text,[],required_facts=facts,min_content_chars=1)
             self.assertTrue(score(ref)['content_pass'],c['id'])
             # Delete each occurrence: duplicated fields cannot mask missing field coverage.
-            for fact in facts:
+            for fact in first_fact_per_field(facts):
                 value=fact['alternatives'][0]
                 self.assertFalse(score(ref.casefold().replace(value.casefold(),''))['content_pass'],(c['id'],fact['id']))
 

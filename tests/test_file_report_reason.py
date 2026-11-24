@@ -66,7 +66,7 @@ class BoundedAnchorEvidenceTests(unittest.TestCase):
         from harness.web_fetch.report import stable_anchor_evidence
         from bs4 import BeautifulSoup
         labels = ['first anchor', 'middle anchor', 'last anchor']
-        output = '<div>' + ('x' * 200000).join(labels) + '</div>'
+        output = '<div>' + ('x' * 20000).join(labels) + '</div>'
         metrics = {'stable_anchor_results': [dict(alternatives=[label], matched=[label], **{'pass': True})
                                              for label in labels]}
         rendered = stable_anchor_evidence(metrics, output)

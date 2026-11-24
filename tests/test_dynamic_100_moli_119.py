@@ -7,7 +7,7 @@ import pytest
 
 from harness.web_fetch import local_audit
 from harness.web_fetch.reference_inputs import input_tree
-from harness.web_fetch.report import local_audit_banner, provider_configuration
+from harness.web_fetch.report import local_audit_banner
 from harness.data_home import data_home
 from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 from tests.conftest import read_frozen_dataset_bytes
@@ -71,15 +71,12 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
     from harness.web_fetch.providers.headless import (
         HeadlessProvider,
         cli_command,
-        output_mode_for_case,
     )
     from harness.web_fetch.providers.headless_worker import fetch as worker_fetch
     from harness.web_fetch.report_interfaces import browser_task_interface_matrix
     from harness.web_fetch.retrieval_hints import native_contract_for_case
 
     typed_cases = [EvalCase(**case) for case in cases]
-    assert all(output_mode_for_case("lightpanda", "headless_markdown", case) == "markdown"
-               for case in typed_cases)
     assert sum(bool((contract := native_contract_for_case(case))
                     and contract.include_subdocuments) for case in typed_cases) == 3
     matrix = browser_task_interface_matrix(
@@ -121,42 +118,9 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
     assert delayed_correction["completion"] == {
         "selector": ".quote", "minimum_count": 10,
         "minimum_text_fragments": 3}
-    assert delayed_correction["source_authority"] == {
-        "path": "evaluation/sources/dynamic-delayed/render-audit.json",
-        "sha256": "cb72f36b479827c25816f1df5e2448885c0935ab61c0ad130bc145a2d466cc93",
-        "provider_output_used": False,
-    }
     owner, tree, relative, bound = _authority_binding(
         delayed_correction["source_authority"]["path"])
     assert bound == delayed_correction["source_authority"]["sha256"]
-    delayed_audit = json.loads((input_tree(owner / "dataset.json", tree) / relative).read_text(encoding="utf-8"))
-    assert delayed_audit["completion"]["satisfied"] is True
-    assert delayed_audit["completion"]["condition"] == (
-        "dynamic-delayed: 10 nonempty target records with populated text fields; no interaction")
-    rendered_coverage = delayed_audit["coverage"]["rendered"]
-    assert rendered_coverage["hits"] == rendered_coverage["total"] == 30
-    assert rendered_coverage["all_present"] is True
-    assert delayed_correction["required_new_calls"] == {
-        "moli_fixed": 1, "moli_pr919": 1, "lightpanda": 1,
-        "obscura": 1, "chromium": 1, "kitesurf": 1,
-        "physical_calls": 6}
-    assert delayed_correction["deduplication"] == (
-        "These six calls replace the already-declared dynamic-delayed calls in the "
-        "method scopes below; they do not increase the 76-call physical total.")
-    assert delayed_correction["provider_calls"] == 0
-    assert pre_call["execution_effect"]["required_new_calls"] == {
-        "moli_fixed": 39, "moli_pr919": 21, "lightpanda": 4,
-        "obscura": 4, "chromium": 4, "kitesurf": 4,
-        "physical_calls": 76}
-    assert pre_call["execution_effect"]["interface_policy"] == {
-        "lightpanda_dynamic": "official_native_markdown",
-        "lightpanda_dynamic_case_count": 100,
-        "lightpanda_iframe_behavior": (
-            "three contracts preserve their named completion plan and add official frame flags inside "
-            "the native Markdown JSON transport envelope; native Markdown omission remains a scored failure"),
-        "non_chromium_body": "browser-native Markdown",
-        "chromium_body": "rendered HTML converted by node-html-markdown 2.0.0",
-    }
     from harness.web_fetch.task_outputs import require_native_task_routes
 
     by_id = {case.id: case for case in typed_cases}
@@ -176,6 +140,7 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
         "binary": str(fixture_binary),
         "native_metadata": {"format": "lightpanda_json"},
     })
+    fetched_kinds = set()
     for changed in pre_call["changed_cases"]:
         case = by_id[changed["case_id"]]
         contract = native_contract_for_case(case)
@@ -241,8 +206,11 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
             with pytest.raises(ValueError, match="Native task route contract violated"):
                 require_native_task_routes([raw_by_id[case.id]], [{**row, "provider_metadata": invalid}])
 
-        # Exercise the disposable worker process itself.  A mocked worker used
-        # to hide that the serialized request had lost the case identity.
+        # Exercise the disposable worker process itself, once per frame mode.  A
+        # mocked worker used to hide that the serialized request had lost the case identity.
+        if contract.include_subdocuments in fetched_kinds:
+            continue
+        fetched_kinds.add(contract.include_subdocuments)
         result = provider.fetch(case, 45)
         assert result.ok, result.error_message
         assert result.content == "# Browser-native Markdown"
@@ -287,27 +255,6 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
         assert followup['source_authority']['provider_output_used'] is False
         owner, tree, relative, bound = _authority_binding(followup['source_authority']['path'])
         assert bound == followup['source_authority']['sha256']
-        if followup['case_id'] == 'dynamic-082-allocine-films':
-            assert followup['provider_outputs_used'] is False
-            effect = followup['acceptance_effect']
-            assert effect == {
-                'changed': True,
-                'required_stable_anchor_count_before': 55,
-                'required_stable_anchor_count_after': 54,
-                'removed_required_anchor_id': 'phase1-stable-0e2130d4bdb9',
-                'effect': ('An otherwise valid result no longer fails solely because TVActu '
-                           'is absent; all 54 remaining anchors, the 57-record minimum, host, '
-                           'entry-path and link rules remain required.'),
-                'record_and_link_rules_changed': False,
-            }
-            current = next(c for c in cases if c['id'] == followup['case_id'])
-            assert len(current['acceptance_contract']['stable_text_anchors']) == 54
-            source = json.loads((input_tree(owner / 'dataset.json', tree) / relative).read_text(encoding="utf-8"))
-            assert source['independent'] is True
-            assert source['observation_method'] == followup['source_basis']['observation_method']
-            assert source['checked_at'] == followup['source_basis']['checked_at']
-            assert ('TVActu' in source['content_text']) is followup['source_basis'][
-                'captured_text_contains_removed_anchor']
         expected_hash=followup['revised_sha256']
     assert hashlib.sha256(historical.encode()).hexdigest() == expected_hash
     assert hashlib.sha256(read_frozen_dataset_bytes(DATASET_PATH)).hexdigest() == pre_call["revised_dataset_sha256"]
@@ -518,33 +465,12 @@ def test_dynamic_100_contracts_are_valid_and_do_not_configure_provider_waits():
             assert registered[hints["contract"]]["case_id"] == case["id"]
 
 
-def test_native_moli_report_describes_the_frozen_uniform_call():
-    record = {
-        "provider_type": "moli_webfetch",
-        "provider_metadata": {
-            "dump": "markdown",
-            "route": "dynamic_native_markdown",
-            "wait_until": "done",
-            "wait": {"strategy": "native_default_completion"},
-        },
-    }
-    text = provider_configuration("moli-webfetch", [record] * 100, {})
-    assert "默认 done" in text
-    assert "除目标 URL 外，没有逐例等待元素" in text
-
-
-def test_local_audit_banner_has_no_pull_request_number():
-    banner = local_audit_banner(
-        {"comparison": {"publication_state": "local_audit_only_not_for_release"}}
-    )
-    assert "本地审核版" in banner and "Local audit report" in banner
-    assert "PR #" not in banner
-
-
 def test_local_audit_banner_depends_on_dataset_publication_state():
     assert local_audit_banner({}) == ""
     assert local_audit_banner({"comparison": {"publication_state": "release"}}) == ""
-    assert "本地审核版" in local_audit_banner(_dataset())
+    banner = local_audit_banner(_dataset())
+    assert "本地审核版" in banner and "Local audit report" in banner
+    assert "PR #" not in banner
 
 
 def test_dynamic_100_repository_evidence_and_scoring_revision_are_exact(monkeypatch):

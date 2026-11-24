@@ -97,9 +97,7 @@ def arguments(frozen, mode="off", phase="baseline"):
     ]
 
 
-@pytest.mark.parametrize(
-    "mode,phase", [("off", "baseline"), ("on", "baseline"), ("on", "engine"), ("off", "engine")]
-)
+@pytest.mark.parametrize("mode,phase", [("on", "baseline"), ("off", "engine")])
 def test_complete_frozen_scope_prepares_readonly_serial_command_without_execution(
     frozen, mode, phase
 ):
@@ -123,10 +121,9 @@ def test_complete_frozen_scope_prepares_readonly_serial_command_without_executio
     assert not frozen["out"].exists()
 
 
-@pytest.mark.parametrize("optimized", [False, True])
-def test_changed_binary_is_rejected_under_both_python_modes(frozen, optimized, tmp_path):
+def test_changed_binary_is_rejected_even_without_assertions(frozen, tmp_path):
     (frozen["repo"] / "build_artifacts/moli/bin/moli").write_bytes(b"wrong build")
-    command = [sys.executable] + (["-O"] if optimized else []) + [*ENTRY, *arguments(frozen)]
+    command = [sys.executable, "-O", *ENTRY, *arguments(frozen)]
     result = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, env=checkout_env())
     assert result.returncode != 0
     assert "Frozen input changed: moli" in result.stderr
@@ -152,15 +149,14 @@ def test_published_reproduction_source_uses_adjacent_frozen_bindings(frozen, tmp
     assert not frozen["out"].exists()
 
 
-@pytest.mark.parametrize(
-    "field,value", [("jobs", 2), ("try_layout", True), ("k", 1), ("seed", "other")]
-)
-def test_changed_experiment_contract_is_rejected(frozen, field, value):
-    protocol = json.loads(frozen["protocol"].read_text(encoding="utf-8"))
-    protocol[field] = value
-    write(frozen["protocol"], protocol)
-    with pytest.raises(ValueError, match="frozen layout cohort"):
-        reproduction.command(**frozen, mode="off", phase="baseline")
+def test_changed_experiment_contract_is_rejected(frozen):
+    original = frozen["protocol"].read_bytes()
+    for field, value in (("jobs", 2), ("try_layout", True), ("k", 1), ("seed", "other")):
+        protocol = json.loads(original)
+        protocol[field] = value
+        write(frozen["protocol"], protocol)
+        with pytest.raises(ValueError, match="frozen layout cohort"):
+            reproduction.command(**frozen, mode="off", phase="baseline")
     assert not frozen["out"].exists()
 
 

@@ -1067,7 +1067,8 @@ class CurrentBrowserArticleTests(unittest.TestCase):
 
             # Exercise the published CLI and release gate with a compact profile,
             # without duplicating complete task/reference content into Git.
-            import subprocess, sys
+            import runpy, sys
+            from harness.web_fetch.report_check import main as check_main, revision_main
             from harness.web_fetch.storage import frozen_input_bindings
             manifest=json.loads((source/'manifest.json').read_text(encoding='utf-8'))
             (source/'execution.json').write_text(json.dumps({'batches':[manifest]}), encoding='utf-8')
@@ -1089,18 +1090,18 @@ class CurrentBrowserArticleTests(unittest.TestCase):
                 profile['frozen_inputs']=frozen_input_bindings(source)
                 profile_path.write_text(json.dumps(profile), encoding='utf-8')
                 cli_report=root/'cli-report'
-                build=subprocess.run([sys.executable,'scripts/build_report.py','--profile',str(profile_path),
-                                      '--evidence',str(source),'--output',str(cli_report),'--language','zh'],
-                                     cwd=repository,capture_output=True,text=True)
-                self.assertEqual(build.returncode,0,build.stderr)
+                # The published build CLI runs in-process; its argument contract is unchanged.
+                with patch.object(sys,'argv',['build_report.py','--profile',str(profile_path),
+                                              '--evidence',str(source),'--output',str(cli_report),'--language','zh']):
+                    try:
+                        runpy.run_path(str(repository/'scripts/build_report.py'),run_name='__main__')
+                    except SystemExit as exit_:
+                        self.assertIn(exit_.code,(0,None))
                 self.assertIn('新一轮浏览器结果',(cli_report/'index.html').read_text(encoding='utf-8'))
                 self.assertIn('data-english-not-generated',(cli_report/'en/index.html').read_text(encoding='utf-8'))
-                gate=subprocess.run([sys.executable,'scripts/check_report.py',str(cli_report),
-                                     '--profile',str(profile_path)],cwd=repository,capture_output=True,text=True)
-                self.assertEqual(gate.returncode,0,gate.stderr+gate.stdout)
-                revision_gate=subprocess.run([sys.executable,'-m','harness.web_fetch','report-revision-check',str(cli_report)],
-                                             cwd=repository,capture_output=True,text=True)
-                self.assertEqual(revision_gate.returncode,0,revision_gate.stderr+revision_gate.stdout)
+                check_args=[str(cli_report),'--profile',str(profile_path)]
+                check_main(check_args,authority_root=repository)
+                revision_main([str(cli_report)],authority_root=repository)
                 self.assertIn(measured['comparison']['reproduction_profile'],(cli_report/'reproduce/index.html').read_text(encoding='utf-8'))
                 manifest_path=cli_report/'report-manifest.json';original_manifest=manifest_path.read_bytes()
                 for mutation in ('renderer','dataset_sha256'):
@@ -1108,9 +1109,8 @@ class CurrentBrowserArticleTests(unittest.TestCase):
                     if mutation=='renderer':manifest['template']['renderer']='copied_renderer.py'
                     else:manifest['dataset_sha256']='0'*64
                     manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
-                    rejected=subprocess.run([sys.executable,'scripts/check_report.py',str(cli_report),
-                                             '--profile',str(profile_path)],cwd=repository,capture_output=True,text=True)
-                    self.assertNotEqual(rejected.returncode,0)
+                    with self.assertRaises((ValueError,SystemExit)):
+                        check_main(check_args,authority_root=repository)
                 manifest_path.write_bytes(original_manifest)
             content_path.write_text('{}', encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'differs from binding'):

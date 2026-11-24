@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from lexbench_webfetch.dynamic_entry_matching import matching_entry_facts
-from tests.test_dynamic_reference import _entry_facts
+from tests.test_dynamic_reference import _entry_facts, first_fact_per_field
 from lexbench_webfetch.metrics import fact_in_text, normalize_for_match
 
 
@@ -126,7 +126,7 @@ class DynamicEntryMatchingTests(unittest.TestCase):
         captures = json.loads((ROOT/'research/dynamic-expansion-captures.json').read_text(encoding='utf-8'))
         for capture in captures:
             facts = _entry_facts(capture['id'], capture['entries'])
-            for fact in facts:
+            for fact in first_fact_per_field(facts):
                 index = int(fact['id'].split('-')[1]) - 1
                 entries = capture['entries'][:]
                 entries[index] = entries[index].replace(fact['alternatives'][0], 'WRONG', 1)

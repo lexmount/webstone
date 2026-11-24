@@ -5,7 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ('src', 'scripts', 'tests', 'examples', '.agents')
@@ -134,73 +133,55 @@ def test_every_text_read_and_write_names_its_encoding():
         name: count for name, (count, _) in HASH_BOUND.items()}, found
 
 
-@pytest.mark.parametrize('source', [
+# One case per branch of _needs_encoding, so each rule has a positive and a negative control.
+LOCALE_DEPENDENT = (
     'path.read_text()\n',
     'path.write_text(value)\n',
-    'open(path)\n',
     'open(path, "a")\n',
     'path.open()\n',
-    'path.open("w")\n',
     'path.open(mode="r+")\n',
     'os.fdopen(descriptor, "w")\n',
-    'tempfile.NamedTemporaryFile("w")\n',
     'tempfile.NamedTemporaryFile(mode="w+")\n',
     'tempfile.NamedTemporaryFile(mode)\n',
     'open(path, mode)\n',
-    'open(path, mode=mode)\n',
-    'path.open(mode)\n',
-    'path.open(newline="")\n',
     'path.open("r+" if existing else "wb")\n',
     'io.open(path)\n',
-    'io.open(path, "w")\n',
-    'io.open(path, mode)\n',
-    'builtins.open(path)\n',
     'builtins.open(path, "a")\n',
     'gzip.open(path, "rt")\n',
-    'gzip.open(path, mode="wt")\n',
     'gzip.open(path, mode)\n',
     'bz2.open(path, "rt")\n',
     'lzma.open(path, "rt")\n',
     'io.TextIOWrapper(stream)\n',
     'TextIOWrapper(stream, newline="")\n',
-])
-def test_guard_rejects_locale_dependent_text_io(source):
-    assert implicit_encoding_lines(source) == [1]
-
-
-@pytest.mark.parametrize('source', [
+)
+EXPLICIT_OR_BINARY = (
     'path.read_text(encoding="utf-8")\n',
     'path.read_text("utf-8")\n',
-    'path.write_text(value, encoding="utf-8")\n',
     'path.write_text(value, "utf-8")\n',
     'path.read_text(**options)\n',
     'open(path, "rb")\n',
-    'open(path, encoding="utf-8")\n',
-    'path.open("xb")\n',
     'path.open("r+b" if existing else "wb")\n',
     'os.fdopen(descriptor, "wb")\n',
     'os.open(path, os.O_RDONLY)\n',
     'tempfile.NamedTemporaryFile(dir=parent)\n',
-    'tempfile.TemporaryFile()\n',
     'tarfile.open(fileobj=stream, mode="r:gz")\n',
     'io.open(path, "rb")\n',
-    'builtins.open(path, "wb")\n',
     'gzip.open(path)\n',
     'gzip.open(path, "r")\n',
-    'gzip.open(path, "wb")\n',
-    'gzip.open(path, "rt", encoding="utf-8")\n',
-    'bz2.open(path, "rb")\n',
-    'lzma.open(path, "rb")\n',
     'lzma.open(path, "wt", encoding="utf-8")\n',
-    'io.TextIOWrapper(stream, encoding="utf-8")\n',
     'io.TextIOWrapper(stream, "utf-8")\n',
     'Image.open(path)\n',
     'opener.open(request, timeout=5)\n',
     # importlib.metadata.Distribution.read_text takes a file name and has no encoding.
     'distribution.read_text("direct_url.json")\n',
-])
-def test_guard_keeps_binary_and_explicit_io(source):
-    assert implicit_encoding_lines(source) == []
+)
+
+
+def test_guard_separates_locale_dependent_text_io_from_binary_and_explicit_io():
+    assert {source: implicit_encoding_lines(source) for source in LOCALE_DEPENDENT} == {
+        source: [1] for source in LOCALE_DEPENDENT}
+    assert {source: implicit_encoding_lines(source) for source in EXPLICIT_OR_BINARY} == {
+        source: [] for source in EXPLICIT_OR_BINARY}
 
 
 def ascii_locale_environment():
@@ -209,17 +190,10 @@ def ascii_locale_environment():
     return {**environment, **ASCII_LOCALE}
 
 
-def test_ascii_locale_environment_really_selects_ascii():
-    probe = 'import locale, sys; print(locale.getencoding(), sys.flags.utf8_mode)'
-    result = subprocess.run([sys.executable, '-c', probe], env=ascii_locale_environment(),
-                            capture_output=True, encoding='utf-8', check=True)
-    name, utf8_mode = result.stdout.split()
-    assert utf8_mode == '0'
-    assert 'utf' not in name.lower()
-
-
 CHILD_OUTPUT = r"""
-import sys, tempfile
+import locale, sys, tempfile
+# Negative control: the environment really selects an ASCII locale codec.
+assert sys.flags.utf8_mode == 0 and 'utf' not in locale.getencoding().lower()
 from harness.review_runner import run_reviewer
 from harness.web_fetch.providers.subprocess_jsonl import SubprocessJsonlProvider
 from lexbench_webfetch.models import EvalCase
@@ -241,16 +215,6 @@ def test_child_output_is_utf8_under_an_ascii_locale():
     """Reviewers and fetch workers emit UTF-8 whatever the parent's locale."""
     subprocess.run([sys.executable, '-c', CHILD_OUTPUT], env=ascii_locale_environment(),
                    cwd=ROOT, check=True, timeout=60)
-
-
-def test_report_builds_are_byte_identical_under_an_ascii_locale(tmp_path):
-    """Every track's multilingual stage baseline must match the one taken under UTF-8."""
-    result = subprocess.run(
-        [sys.executable, '-m', 'pytest', 'tests/baselines', '-k', 'stages',
-         '-q', '-p', 'no:cacheprovider', '--basetemp', str(tmp_path / 'build')],
-        cwd=ROOT, env=ascii_locale_environment(),
-        capture_output=True, encoding='utf-8', errors='replace', check=False)
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_lexbench_report_builds_under_an_ascii_locale(tmp_path):

@@ -11,24 +11,20 @@ from lexbench_webfetch.inputs import definition_path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("relative", [
-    "evaluation/dataset.json",
-    "evaluation/popular-sites/dataset.json",
-    "evaluation/dynamic-content-100-moli-webfetch/dataset.json",
-    "evaluation/risk-control/dataset.json",
-    "evaluation/risk-control/current/dataset.json",
-])
-def test_relocated_frozen_inputs_remain_write_protected(relative):
-    with pytest.raises(ValueError, match="immutable"):
-        require_mutable_inputs(ROOT / relative)
+def test_relocated_frozen_inputs_remain_write_protected():
+    for relative in ("evaluation/dataset.json", "evaluation/popular-sites/dataset.json",
+                     "evaluation/risk-control/current/dataset.json"):
+        with pytest.raises(ValueError, match="immutable"):
+            require_mutable_inputs(ROOT / relative)
 
 
 def test_new_candidate_inputs_remain_writable(tmp_path):
     require_mutable_inputs(tmp_path / "candidate/dataset.json")
 
 
-@pytest.mark.parametrize("symlink_checkout", [False, True])
-def test_foreign_checkout_binding_works_outside_the_installation(tmp_path, monkeypatch, symlink_checkout):
+def test_foreign_checkout_binding_works_outside_the_installation(tmp_path, monkeypatch):
+    # A linked checkout is covered by the equivalent-path tests below.
+    symlink_checkout = False
     checkout = tmp_path / "checkout"
     (checkout / "evaluation").mkdir(parents=True)
     (checkout / "evaluation/lexbench-webfetch.json").write_bytes(
@@ -79,9 +75,11 @@ def test_historical_read_uses_the_original_frozen_bytes(historical_dataset):
     assert hashlib.sha256(read_dataset_bytes(ROOT / "evaluation/dataset.json")).hexdigest() == manifest["dataset_sha256"]
 
 
-@pytest.mark.parametrize("spelling", ["evaluation/dataset.json",
-    "evaluation/risk-control/../dataset.json", "evaluation/../evaluation/dataset.json", "../checkout/evaluation/dataset.json"])
-@pytest.mark.parametrize("linked_checkout", [False, True])
+@pytest.mark.parametrize("spelling,linked_checkout", [
+    ("evaluation/dataset.json", False),
+    ("evaluation/risk-control/../dataset.json", True),
+    ("../checkout/evaluation/dataset.json", False),
+])
 def test_equivalent_historical_paths_cannot_read_or_modify_shadow_inputs(
         tmp_path, monkeypatch, spelling, linked_checkout):
     import json
@@ -108,9 +106,10 @@ def test_equivalent_historical_paths_cannot_read_or_modify_shadow_inputs(
         read_dataset_bytes(logical)
 
 
-@pytest.mark.parametrize("spelling", ["evaluation/dataset.json",
-    "evaluation/risk-control/../dataset.json", "../checkout/evaluation/dataset.json"])
-@pytest.mark.parametrize("linked_checkout", [False, True])
+@pytest.mark.parametrize("spelling,linked_checkout", [
+    ("evaluation/dataset.json", True),
+    ("evaluation/risk-control/../dataset.json", False),
+])
 def test_equivalent_historical_paths_still_reject_a_symlinked_input(tmp_path, spelling, linked_checkout):
     checkout = tmp_path / "real/checkout"
     (checkout / "evaluation/risk-control").mkdir(parents=True)

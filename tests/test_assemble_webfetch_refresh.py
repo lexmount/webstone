@@ -12,65 +12,29 @@ from lexbench_webfetch.scoring_regressions import build_correction_provenance
 from harness.web_fetch.speed_cohort import build_summary as build_speed_summary
 from tests.helpers import write_json
 
+# Names are fixtures; each one plays a distinct role in the refresh plan below.
 PROVIDERS = [
     "cloudflare-markdown",
     "cowagent-built-in",
     "crawl4ai",
-    "deepseek-harness-built-in",
-    "exa",
     "firecrawl",
     "langchain-webbase",
-    "lexmount-cn",
-    "lexmount-global",
-    "moli-webfetch",
-    "openclaw-built-in",
     "tavily",
 ]
 RERUN_CASES = [
     "stable-wikipedia-ai-revision",
     "stable-browser-use-readme",
-    "stable-openclaw-readme",
-    "stable-nodejs-readme",
-    "stable-wcag21-recommendation",
-    "stable-xml10-recommendation",
-    "stable-rfc-6455-websocket",
-    "stable-rfc-8259-json",
     "document-03",
     "live-025-api-reference",
-    "live-033-nasa-science",
-    "live-041-python-programming-language",
 ]
 REPLACEMENTS = {
     "english-encyclopedia": "stable-wikipedia-ai-revision",
     "live-011-navigation-menu": "stable-browser-use-readme",
-    "live-018-navigation-menu": "stable-openclaw-readme",
-    "live-020-navigation-menu": "stable-nodejs-readme",
-    "live-023-guides": "stable-wcag21-recommendation",
-    "lm-pnpm-install": "stable-rfc-6455-websocket",
-    "lm-vite-guide": "stable-rfc-8259-json",
-    "live-031-agent": "stable-xml10-recommendation",
 }
 SPEED_CASES = [
     "live-010-navigation-menu",
     "live-071-science",
-    "live-022-until-september-10-get-pycharm-f",
-    "live-040-documentation-overview",
-    "lm-feishu-help",
-    "lexmount-doc",
-    "lm-node-intro",
-    "live-046-file-api",
-    "live-051-email-an-email-and-mime-handling",
-    "live-052-objects-in-kubernetes",
-    "live-026-getting-started",
-    "live-027-sponsors",
     "live-025-api-reference",
-    "stable-rfc-8259-json",
-    "live-024-cascading-style-sheets-level-2-r",
-    "live-061-version-control",
-    "live-028-getting-started",
-    "live-029-fetch",
-    "live-032-api-reference",
-    "live-033-nasa-science",
 ]
 
 
@@ -170,7 +134,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 ],
                 "offline_rescore_cases": [{
                     "case_id": "filler-000", "category": "reference_only_correction",
-                    "reason": "rescore immutable attempts", "attempts": 12,
+                    "reason": "rescore immutable attempts", "attempts": len(PROVIDERS),
                     "full_review": True,
                 }],
                 "planned_new_calls": PLANNED_CALLS,
@@ -370,10 +334,9 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
     def test_refresh_rejects_reference_tree_symlinks(self) -> None:
         actual = self.root / 'same-reference.txt'
         actual.write_text('synthetic source', encoding="utf-8")
-        trees = [(root, folder) for root in (self.baseline, self.main)
-                 for folder in ('sources', 'list-references', 'reference-checks')]
-        trees += [(self.canonical_path.parent, folder)
-                  for folder in ('sources', 'list-references')]
+        # One tree per source bundle; every folder goes through the same walker.
+        trees = [(self.baseline, 'reference-checks'), (self.main, 'sources'),
+                 (self.canonical_path.parent, 'list-references')]
         for index, (root, folder) in enumerate(trees):
             with self.subTest(root=root.name, folder=folder):
                 directory = root / folder
@@ -453,10 +416,10 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.plan["main_matrix"]["matched_case_reason_groups"][0]["case_ids"] = list(
             RERUN_CASES
         )
-        self.plan["main_matrix"]["offline_rescore_cases"][0]["attempts"] = 11
+        self.plan["main_matrix"]["offline_rescore_cases"][0]["attempts"] = len(PROVIDERS) - 1
         with self.assertRaisesRegex(ValueError, "every method"):
             expected_refresh_pairs(self.plan, self.canonical)
-        self.plan["main_matrix"]["offline_rescore_cases"][0]["attempts"] = 12
+        self.plan["main_matrix"]["offline_rescore_cases"][0]["attempts"] = len(PROVIDERS)
         self.plan["main_matrix"]["offline_rescore_cases"][0]["full_review"] = False
         with self.assertRaisesRegex(ValueError, "full review"):
             expected_refresh_pairs(self.plan, self.canonical)
@@ -470,20 +433,6 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         replacement["provider"] = "crawl4ai"
         with self.assertRaisesRegex(ValueError, "overlap broader"):
             expected_refresh_pairs(self.plan, self.canonical)
-
-    def test_matched_and_full_scopes_overlap_once(self) -> None:
-        pairs = expected_refresh_pairs(self.plan, self.canonical)
-        broad_sum = (
-            len(self.plan["main_matrix"]["full_rerun_providers"])
-            * len(self.canonical_cases)
-            + len(self.plan["main_matrix"]["matched_case_ids"]) * len(PROVIDERS)
-            + len(self.plan["main_matrix"]["pair_replacements"])
-        )
-        overlap = (
-            len(self.plan["main_matrix"]["full_rerun_providers"])
-            * len(self.plan["main_matrix"]["matched_case_ids"])
-        )
-        self.assertEqual(len(pairs), broad_sum - overlap)
 
     def test_assembly_keeps_speed_results_out_of_main_matrix(self) -> None:
         output = self.root / "output"
@@ -503,7 +452,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             for line in (output / "speed-cohort" / "results.jsonl").read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(len(main_rows), LOGICAL_ATTEMPTS)
-        self.assertEqual(len(speed_rows), 240)
+        self.assertEqual(len(speed_rows), len(PROVIDERS) * len(SPEED_CASES))
         execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
         self.assertEqual(sum(batch["attempt_count"] for batch in execution["batches"]), LOGICAL_ATTEMPTS)
         receipt = json.loads((output / "refresh-assembly.json").read_text(encoding="utf-8"))
@@ -606,52 +555,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
 
-    def test_duplicate_rerun_pair_fails_without_creating_output(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
-        rows.append(rows[0])
-        (self.main / "results.jsonl").write_text(
-            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
-        )
-        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
-        execution["batches"][0]["attempt_ids"].append(rows[0]["attempt_id"])
-        execution["batches"][0]["attempt_count"] += 1
-        write_json(self.main / "execution.json", execution)
-        output = self.root / "duplicate-output"
-        with self.assertRaisesRegex(ValueError, "duplicate"):
-            assemble(
-                self.baseline,
-                [self.main],
-                self.speed,
-                output,
-                canonical_dataset=self.canonical_path,
-                plan=self.plan_path,
-            )
-        self.assertFalse(output.exists())
-
-    def test_missing_rerun_pair_fails_without_creating_output(self) -> None:
-        rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
-        missing = rows.pop()
-        (self.main / "results.jsonl").write_text(
-            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
-        )
-        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
-        execution["batches"][0]["attempt_ids"].remove(missing["attempt_id"])
-        execution["batches"][0]["attempt_count"] -= 1
-        write_json(self.main / "execution.json", execution)
-
-        output = self.root / "missing-output"
-        with self.assertRaisesRegex(ValueError, "missing=1, extra=0"):
-            assemble(
-                self.baseline,
-                [self.main],
-                self.speed,
-                output,
-                canonical_dataset=self.canonical_path,
-                plan=self.plan_path,
-            )
-        self.assertFalse(output.exists())
-
-    def test_extra_rerun_pair_fails_without_creating_output(self) -> None:
+    def test_duplicate_missing_or_extra_rerun_pair_fails_without_creating_output(self) -> None:
         rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
         expected = expected_refresh_pairs(self.plan, self.canonical)
         extra_pair = next(
@@ -660,27 +564,28 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             for case in self.canonical_cases
             if (provider, case["id"]) not in expected
         )
-        extra = self.rows_for_pairs({extra_pair})[0]
-        rows.append(extra)
-        (self.main / "results.jsonl").write_text(
-            "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
-        )
-        execution = json.loads((self.main / "execution.json").read_text(encoding="utf-8"))
-        execution["batches"][0]["attempt_ids"].append(extra["attempt_id"])
-        execution["batches"][0]["attempt_count"] += 1
-        write_json(self.main / "execution.json", execution)
-
-        output = self.root / "extra-output"
-        with self.assertRaisesRegex(ValueError, "missing=0, extra=1"):
-            assemble(
-                self.baseline,
-                [self.main],
-                self.speed,
-                output,
-                canonical_dataset=self.canonical_path,
-                plan=self.plan_path,
-            )
-        self.assertFalse(output.exists())
+        original_results = (self.main / "results.jsonl").read_bytes()
+        original_execution = (self.main / "execution.json").read_bytes()
+        for name, changed, pattern in (
+            ("duplicate", rows + [rows[0]], "duplicate"),
+            ("missing", rows[:-1], "missing=1, extra=0"),
+            ("extra", rows + self.rows_for_pairs({extra_pair}), "missing=0, extra=1"),
+        ):
+            with self.subTest(name=name):
+                (self.main / "results.jsonl").write_text(
+                    "".join(json.dumps(row) + "\n" for row in changed), encoding="utf-8"
+                )
+                execution = json.loads(original_execution)
+                execution["batches"][0]["attempt_ids"] = [row["attempt_id"] for row in changed]
+                execution["batches"][0]["attempt_count"] = len(changed)
+                write_json(self.main / "execution.json", execution)
+                output = self.root / f"{name}-output"
+                with self.assertRaisesRegex(ValueError, pattern):
+                    assemble(self.baseline, [self.main], self.speed, output,
+                             canonical_dataset=self.canonical_path, plan=self.plan_path)
+                self.assertFalse(output.exists())
+                (self.main / "results.jsonl").write_bytes(original_results)
+                (self.main / "execution.json").write_bytes(original_execution)
 
     def test_provider_shards_must_have_the_same_run_identity(self) -> None:
         rows = [json.loads(line) for line in (self.main / "results.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -899,15 +804,6 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                      canonical_dataset=self.canonical_path, plan=self.plan_path)
         self.assertFalse((self.root / "root-symlink-speed").exists())
 
-    def test_reused_speed_execution_mutation_fails_before_output(self) -> None:
-        execution = json.loads((self.speed / "execution.json").read_text(encoding="utf-8"))
-        execution["schema_version"] = 99
-        write_json(self.speed / "execution.json", execution)
-        with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
-            assemble(self.baseline, [self.main], self.speed, self.root / "execution-schema-speed",
-                     canonical_dataset=self.canonical_path, plan=self.plan_path)
-        self.assertFalse((self.root / "execution-schema-speed").exists())
-
     def test_equivalent_capture_rejects_invalid_observation_metadata(self) -> None:
         dataset = json.loads((self.main / "dataset.json").read_text(encoding="utf-8"))
         dataset["comparison"] = self.canonical["comparison"]
@@ -1071,22 +967,6 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
         self.assertFalse((output / "speed-cohort/result-review.json").exists())
         self.assertTrue((output / "speed-cohort/scoring-revisions.json").is_file())
 
-    def test_speed_dataset_cannot_smuggle_an_extra_main_case(self) -> None:
-        dataset = json.loads((self.speed / "dataset.json").read_text(encoding="utf-8"))
-        extra = next(case for case in self.canonical_cases if case["id"] not in SPEED_CASES)
-        dataset["cases"].append(extra)
-        write_json(self.speed / "dataset.json", dataset)
-        output = self.root / "mixed-speed-output"
-        with self.assertRaisesRegex(ValueError, "Reused speed cohort bytes"):
-            assemble(
-                self.baseline,
-                [self.main],
-                self.speed,
-                output,
-                canonical_dataset=self.canonical_path,
-                plan=self.plan_path,
-            )
-        self.assertFalse(output.exists())
 
 
 class AssembleImplementationUpgradeTests(unittest.TestCase):

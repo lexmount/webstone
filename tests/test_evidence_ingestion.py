@@ -10,7 +10,7 @@ from unittest.mock import patch
 from harness.web_fetch.evidence import add_provider_run
 
 
-class EvidenceIngestionTests(unittest.TestCase):
+class IngestionFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -66,6 +66,43 @@ class EvidenceIngestionTests(unittest.TestCase):
             },
         )
 
+    def assert_captured_records_used(self, incoming, provider, *, track=None):
+        path = (incoming/'results.jsonl').resolve()
+        captured = path.read_bytes().replace(b'\n', b'\r\n')
+        path.write_bytes(captured)
+        original = (self.canonical/'results.jsonl').read_bytes()
+        copy2, read_bytes = shutil.copy2, Path.read_bytes
+        reads = []
+        changed = False
+
+        def record_read(file):
+            if file == path:
+                reads.append(file)
+            return read_bytes(file)
+
+        def mutate_after_copy(src, dst, *args, **kwargs):
+            nonlocal changed
+            result = copy2(src, dst, *args, **kwargs)
+            if not changed:
+                rows = [json.loads(line) for line in captured.splitlines()]
+                rows[0]['provider'] = 'unvalidated-provider'
+                rows[0]['metrics']['content_pass'] = 'unvalidated-score'
+                path.write_bytes(b'\n'.join(json.dumps(row).encode() for row in rows)+b'\n')
+                changed = True
+            return result
+
+        with patch.object(Path, 'read_bytes', record_read), \
+                patch('harness.web_fetch.evidence.shutil.copy2', mutate_after_copy):
+            self.assertEqual(add_provider_run(self.canonical, incoming, provider, track=track), 2)
+        self.assertTrue(changed)
+        self.assertEqual(reads, [path])
+        self.assertEqual((self.canonical/'results.jsonl').read_bytes(), original+captured)
+        for relative, raw in self.before.items():
+            if relative.parts[0] == 'artifacts':
+                self.assertEqual((self.canonical/relative).read_bytes(), raw)
+
+
+class EvidenceIngestionTests(IngestionFixture):
     def test_complete_run_added_old_bytes_preserved(self):
         self.assertEqual(
             add_provider_run(self.canonical, self.incoming, "new", {"sha256": "verified"}), 2
@@ -114,41 +151,6 @@ class EvidenceIngestionTests(unittest.TestCase):
             add_provider_run(self.canonical, self.incoming, "new")
         self.assert_unchanged()
 
-    def assert_captured_records_used(self, incoming, provider, *, track=None):
-        path = (incoming/'results.jsonl').resolve()
-        captured = path.read_bytes().replace(b'\n', b'\r\n')
-        path.write_bytes(captured)
-        original = (self.canonical/'results.jsonl').read_bytes()
-        copy2, read_bytes = shutil.copy2, Path.read_bytes
-        reads = []
-        changed = False
-
-        def record_read(file):
-            if file == path:
-                reads.append(file)
-            return read_bytes(file)
-
-        def mutate_after_copy(src, dst, *args, **kwargs):
-            nonlocal changed
-            result = copy2(src, dst, *args, **kwargs)
-            if not changed:
-                rows = [json.loads(line) for line in captured.splitlines()]
-                rows[0]['provider'] = 'unvalidated-provider'
-                rows[0]['metrics']['content_pass'] = 'unvalidated-score'
-                path.write_bytes(b'\n'.join(json.dumps(row).encode() for row in rows)+b'\n')
-                changed = True
-            return result
-
-        with patch.object(Path, 'read_bytes', record_read), \
-                patch('harness.web_fetch.evidence.shutil.copy2', mutate_after_copy):
-            self.assertEqual(add_provider_run(self.canonical, incoming, provider, track=track), 2)
-        self.assertTrue(changed)
-        self.assertEqual(reads, [path])
-        self.assertEqual((self.canonical/'results.jsonl').read_bytes(), original+captured)
-        for relative, raw in self.before.items():
-            if relative.parts[0] == 'artifacts':
-                self.assertEqual((self.canonical/relative).read_bytes(), raw)
-
     def test_incoming_results_mutation_uses_validated_bytes(self):
         self.assert_captured_records_used(self.incoming, 'new')
 
@@ -176,7 +178,7 @@ class EvidenceIngestionTests(unittest.TestCase):
         self.assert_unchanged()
 
 
-class TrackSupplementTests(EvidenceIngestionTests):
+class TrackSupplementTests(IngestionFixture):
     def prepare_track(self):
         # Existing provider is measured on web only; dynamic reference already
         # belongs to the canonical dataset, but has no attempts for this method.

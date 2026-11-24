@@ -31,25 +31,25 @@ class Responses(FixtureProvider):
 
 @pytest.fixture
 def run_task(tmp_path):
-    def run(provider, **options):
+    def run(provider, timeout=2, **options):
         case = EvalCase('one', 'One', 'https://example.com', 'static', ['Expected'], source_benchmark={'input_media_kind': 'html_page'})
         rows, _ = run_evaluation(
             output_dir=tmp_path, dataset_meta={'id': 'retry', 'cases': [asdict(case)]}, dataset_path=tmp_path/'dataset.json',
             cases=[case],
             providers=[provider], provider_config_path=tmp_path/'providers.json',
-            runs=1, timeout=2, delay=0, **options,
+            runs=1, timeout=timeout, delay=0, **options,
         )
         assert len(rows) == len((tmp_path/'results.jsonl').read_text(encoding='utf-8').splitlines()) == 1
         return rows[0]
     return run
 
 
-@pytest.mark.parametrize('failure', [
-    {'error_type': 'browser_error'}, {'error_type': 'dns'}, {'error_type': 'timeout'},
-    {'error_type': 'tls_certificate'}, {'status_code': 403, 'error_type': 'http_error'},
-    {'ok': True, 'content': 'incomplete answer'}, {'ok': True, 'content': ''},
+@pytest.mark.parametrize('failure,native', [
+    ({'error_type': 'browser_error'}, False),
+    ({'status_code': 403, 'error_type': 'http_error'}, True),
+    ({'ok': True, 'content': 'incomplete answer'}, False),
+    ({'ok': True, 'content': ''}, True),
 ])
-@pytest.mark.parametrize('native', [False, True])
 def test_default_retry_treats_all_task_failures_equally(tmp_path, run_task, failure, native):
     first = ProviderResult(**{'ok': False, 'content': '', **failure})
     provider = Responses([first, ProviderResult(True, 'Expected')], native=native)
@@ -86,14 +86,9 @@ def test_success_stops_retries_before_exhausting_budget(run_task):
 def test_cli_defaults_to_one_retry_and_rejects_larger_bounds():
     parser = build_parser()
     assert parser.parse_args(['run']).max_failure_retries == 1
-    with pytest.raises(SystemExit):
-        parser.parse_args(['run', '--max-failure-retries', '4'])
-
-
-@pytest.mark.parametrize('value', ['-1', '1.5'])
-def test_cli_rejects_invalid_retry_limits(value):
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(['run', '--max-failure-retries', value])
+    for value in ('4', '-1', '1.5'):
+        with pytest.raises(SystemExit):
+            parser.parse_args(['run', '--max-failure-retries', value])
 
 
 def test_hosted_credit_budget_accounts_for_all_configured_retries():
@@ -133,7 +128,7 @@ def test_late_first_call_is_discarded_then_retried_without_overlap(run_task):
 
     provider = SlowFirst([])
     provider.finished = threading.Event()
-    row = run_task(provider)
+    row = run_task(provider, timeout=.3)
     assert provider.calls == 2
     assert not row['ok'] and row['error_type'] == 'second_failure'
     attempts = row['provider_metadata']['retry']['attempts']
@@ -164,7 +159,7 @@ def test_cleanup_events_and_native_logs_are_retained_before_retry(run_task, tmp_
     provider = CleanupLogging([])
     provider.config['log_level'] = 'debug'
     provider.finished = None
-    row = run_task(provider)
+    row = run_task(provider, timeout=.3)
     first, second = row['provider_metadata']['retry']['attempts']
     assert first['error_type'] == 'timeout' and not first['task_pass']
     assert second['task_pass'] and row['elapsed_ms'] == second['elapsed_ms']

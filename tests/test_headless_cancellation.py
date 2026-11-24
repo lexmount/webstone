@@ -80,7 +80,19 @@ else:
                 self.assertLess(records[0]['provider_metadata']['exit_code'], 0)
                 self.assertEqual((root / 'run' / records[0]['artifact_path']).read_text(encoding='utf-8'), '')
                 self.assertEqual((root / 'run' / records[1]['artifact_path']).read_text(encoding='utf-8'), 'on-time answer')
-                time.sleep(2.1)
+                child = int(Path(str(pid_file) + '.child').read_text(encoding='utf-8'))
+                deadline = time.monotonic() + 1.5
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(child, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(.02)
+                else:
+                    # An unreaped zombie has stopped work; only a live child fails.
+                    state = subprocess.run(['ps', '-o', 'stat=', '-p', str(child)],
+                                           capture_output=True, text=True).stdout.strip()
+                    self.assertTrue(state.startswith('Z'), 'timed-out browser child continued physical work')
                 self.assertFalse(marker.exists(), 'timed-out browser child continued physical work')
             finally:
                 self.cleanup(pid_file)

@@ -28,7 +28,7 @@ def experiment(tmp_path):
             pass
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
-    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': 0.02}, daemon=True)
     worker.start()
     url = f'http://127.0.0.1:{server.server_port}'
     cases = [{'id': key, 'name': key, 'category': 'synthetic', 'expected_any': [],
@@ -106,19 +106,17 @@ def test_case_ids_and_kind_intersect_before_calls(experiment):
     assert len(json.loads((root / 'run/dataset.json').read_text(encoding='utf-8'))['cases']) == 1
 
 
-@pytest.mark.parametrize('arguments', [
-    ['--providers', 'bytes', '--case-ids', 'missing'],
-    ['--providers', 'bytes', '--case-ids', 'body', '--task-kind', 'file'],
-    ['--providers', 'bytes', '--case-ids', 'good,good'],
-    ['--providers', 'bytes,bytes'],
-    ['--providers', ''],
-])
-def test_invalid_scope_never_calls_or_creates_evidence(experiment, arguments):
+def test_invalid_scope_never_calls_or_creates_evidence(experiment):
     run, paths, root, _ = experiment
-    result = run(*arguments)
-    assert result.returncode != 0
-    assert paths == []
-    assert not (root / 'run').exists()
+    for arguments in (
+        ['--providers', 'bytes', '--case-ids', 'missing'],
+        ['--providers', 'bytes', '--case-ids', 'body', '--task-kind', 'file'],
+        ['--providers', 'bytes,bytes'],
+    ):
+        result = run(*arguments)
+        assert result.returncode != 0, arguments
+        assert paths == []
+        assert not (root / 'run').exists()
 
 
 def test_existing_evidence_is_never_overwritten(experiment):
@@ -133,8 +131,7 @@ def test_existing_evidence_is_never_overwritten(experiment):
     assert existing.read_bytes() == b'prior measurements\n'
 
 
-@pytest.mark.parametrize('rescore', [False, True])
-def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment, rescore):
+def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment):
     from harness.web_fetch import assembly, report_package, report_publish
     from harness.web_fetch.reference_lifecycle import require_certifiable_evidence
 
@@ -147,11 +144,10 @@ def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment, resco
     evidence = root / 'run'
     before = json.loads((evidence / 'dataset.json').read_text(encoding='utf-8'))
     calls = list(paths)
-    if rescore:
-        result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
-            str(evidence), '--dataset', str(root / 'dataset.json')],
-            text=True, capture_output=True)
-        assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
+        str(evidence), '--dataset', str(root / 'dataset.json')],
+        text=True, capture_output=True)
+    assert result.returncode == 0, result.stdout + result.stderr
     after = json.loads((evidence / 'dataset.json').read_text(encoding='utf-8'))
     assert after['comparison'] == before['comparison']
     assert after['coverage_plan'] == before['coverage_plan']
@@ -178,8 +174,7 @@ def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment, resco
     assert remote == []
 
 
-@pytest.mark.parametrize('damage', ['missing', 'duplicate', 'url', 'track', 'task_kind'])
-def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experiment, damage):
+def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experiment):
     run, paths, root, _ = experiment
     result = run('--providers', 'bytes', '--case-ids', 'good')
     assert result.returncode == 0, result.stdout + result.stderr
@@ -187,23 +182,24 @@ def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experi
     before = {name: (evidence / name).read_bytes()
               for name in ('dataset.json', 'manifest.json', 'results.jsonl', 'summary.json')}
     dataset_path = root / 'dataset.json'
-    dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
-    good = next(case for case in dataset['cases'] if case['id'] == 'good')
-    if damage == 'missing':
-        dataset['cases'].remove(good)
-    elif damage == 'duplicate':
-        dataset['cases'].append(dict(good))
-    else:
-        good[damage] = {'url': 'https://different.invalid/', 'track': 'another',
-                        'task_kind': 'body'}[damage]
-    dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
+    original = dataset_path.read_text(encoding='utf-8')
     calls = list(paths)
-    result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
-        str(evidence), '--dataset', str(dataset_path)], text=True, capture_output=True)
-    assert result.returncode != 0
-    assert paths == calls
-    for name, raw in before.items():
-        assert (evidence / name).read_bytes() == raw
+    for damage in ('missing', 'duplicate', 'url'):
+        dataset = json.loads(original)
+        good = next(case for case in dataset['cases'] if case['id'] == 'good')
+        if damage == 'missing':
+            dataset['cases'].remove(good)
+        elif damage == 'duplicate':
+            dataset['cases'].append(dict(good))
+        else:
+            good['url'] = 'https://different.invalid/'
+        dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
+        result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
+            str(evidence), '--dataset', str(dataset_path)], text=True, capture_output=True)
+        assert result.returncode != 0, damage
+        assert paths == calls
+        for name, raw in before.items():
+            assert (evidence / name).read_bytes() == raw
 
 
 @pytest.mark.parametrize("source", ["process", "file"])

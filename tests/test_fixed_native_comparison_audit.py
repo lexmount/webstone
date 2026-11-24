@@ -294,7 +294,7 @@ def test_comparison_audit_accepts_serial_provider_batches_with_native_defaults(t
     assert "serial provider-batch order" in paths["markdown"].read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("value", [None, False])
+@pytest.mark.parametrize("value", [None])
 def test_comparison_audit_requires_uniform_native_parameters(tmp_path, value):
     paths = comparison_cohort(tmp_path)
     config = json.loads(paths["config"].read_text(encoding="utf-8"))

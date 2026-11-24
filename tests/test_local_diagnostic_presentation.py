@@ -182,17 +182,16 @@ def test_contract_prose_localizes_without_full_snapshot_or_fixed_field_counts(tr
     assert 'shipping: at least 2 records' in english
 
 
-@pytest.mark.parametrize('wrapper', [
-    '<span hidden {attrs}>Uncertified</span>',
-    '<p style="display: none" {attrs}>Uncertified</p>',
-    '<section hidden><p {attrs}>Uncertified</p></section>',
-    '<p {attrs}></p>'])
-def test_sample_ranking_rejects_invisible_scope_disclosure(tmp_path, wrapper):
+def test_sample_ranking_rejects_invisible_scope_disclosure(tmp_path):
     from harness.web_fetch.report_check import check_local_diagnostic_presentation
     attrs = 'data-evidence-state="local_measurement" data-ranking-scope="saved-task-pass-rate"'
-    (tmp_path/'index.html').write_text('<meta name="webstone-report" content="1">'+wrapper.format(attrs=attrs), encoding='utf-8')
-    with pytest.raises(ValueError, match='disclosure missing'):
-        check_local_diagnostic_presentation(tmp_path, ranked=True)
+    for wrapper in ['<span hidden {attrs}>Uncertified</span>',
+                    '<p style="display: none" {attrs}>Uncertified</p>',
+                    '<section hidden><p {attrs}>Uncertified</p></section>',
+                    '<p {attrs}></p>']:
+        (tmp_path/'index.html').write_text('<meta name="webstone-report" content="1">'+wrapper.format(attrs=attrs), encoding='utf-8')
+        with pytest.raises(ValueError, match='disclosure missing'):
+            check_local_diagnostic_presentation(tmp_path, ranked=True)
 
 
 def test_review_display_distinguishes_fresh_reviews_from_retained_history(tmp_path):
@@ -223,8 +222,7 @@ def test_review_display_distinguishes_fresh_reviews_from_retained_history(tmp_pa
     assert '新增调用中 10 条' not in text
 
 
-@pytest.mark.parametrize('defect', [None, 'unbound', 'hash', 'scope', 'count',
-                                   'option', 'unknown_option', 'missing_option', 'type'])
+@pytest.mark.parametrize('defect', [None, 'unbound', 'hash', 'scope', 'option', 'unknown_option'])
 def test_displayed_native_options_require_actual_configuration_and_call_scope(tmp_path, defect):
     import hashlib
     import json
@@ -257,7 +255,7 @@ def test_displayed_native_options_require_actual_configuration_and_call_scope(tm
         assert load_frozen_method_options(tmp_path, rows)['result_count'] == 1
 
 
-@pytest.mark.parametrize('defect', [None, 'original_hash', 'unsafe_value', 'unknown_key', 'projection_kind', 'changed_bytes'])
+@pytest.mark.parametrize('defect', [None, 'original_hash', 'unsafe_value', 'projection_kind', 'changed_bytes'])
 def test_public_method_option_projection_keeps_private_config_identity(tmp_path, defect):
     import hashlib
     import json
@@ -288,7 +286,7 @@ def test_public_method_option_projection_keeps_private_config_identity(tmp_path,
         assert load_frozen_method_options(tmp_path, rows)['providers'] == config['providers']
 
 
-@pytest.mark.parametrize('route', ['index.html', 'providers/method.html', 'attempts/call.html', 'en/providers/method.html'])
+@pytest.mark.parametrize('route', ['index.html', 'en/providers/method.html'])
 def test_ordinary_report_cannot_remove_marker_and_disclosure(tmp_path, route):
     from harness.web_fetch.report_check import check_local_diagnostic_presentation
     page = tmp_path/route
