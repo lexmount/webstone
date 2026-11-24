@@ -11,6 +11,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from types import ModuleType
 
+from harness.adapters import Registry
 from lexbench_websearch import simpleqa
 from lexbench_websearch.answers import (
     SCENARIO_PROMPT,
@@ -22,8 +23,6 @@ from lexbench_websearch.answers import (
     scenario_grade,
 )
 from lexbench_websearch.scoring import evaluate, factual_evidence
-
-from harness.adapters import Registry
 
 
 @dataclass(frozen=True)

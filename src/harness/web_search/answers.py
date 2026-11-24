@@ -6,9 +6,9 @@ from copy import deepcopy
 
 from harness.benchmark_execution import ExecutionPolicy, Job, exclusive_policy, run_jobs
 from harness.record_io import canonical_json_sha256
-from harness.web_search.relevance import run_judge_request, validate_physical_receipts
 from harness.web_search.benchmarks import BENCHMARKS, benchmark_of, grader_source
 from harness.web_search.benchmarks import ordered as search_benchmarks
+from harness.web_search.relevance import run_judge_request, validate_physical_receipts
 from lexbench_websearch.answers import (
     CITATION_CORRECTION,
     CITATION_PROMPT,
