@@ -87,12 +87,12 @@ def test_all_git_dependencies_resolve_to_locked_source_commits():
             assert locked.fragment == requested, name
 
 
-def test_installed_benchmarks_match_their_frozen_catalogs(validated_catalog):
-    from importlib import import_module
+def test_installed_benchmarks_match_their_frozen_catalogs():
+    from lexbench_websearch.versions import catalog_release
 
     source_project()
-    for module in ["lexbench_webfetch", "lexbench_websearch"]:
-        import_module(module + ".versions").catalog_release(require_current_scorer=False)
+    # tests/benchmarks/webfetch/test_release_versions.py verifies the Web Fetch catalog.
+    catalog_release(require_current_scorer=False)
 
 
 def test_runtime_version_reads_installation_metadata():

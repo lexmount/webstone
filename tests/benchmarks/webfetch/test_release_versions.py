@@ -21,13 +21,22 @@ def matching_catalog(tmp_path, validated_catalog):
     return path
 
 
-def test_catalog_retains_registered_task_suites_without_counting_annotations(matching_catalog):
-    from lexbench_webfetch.benchmark import registry
+def test_catalog_retains_registered_task_suites_without_counting_annotations(
+        matching_catalog, validated_catalog):
+    from lexbench_webfetch.benchmark import definitions, read, registry
     release = catalog_release(matching_catalog)
     assert release["tag"] == "bench-v" + release["version"]
     entries = [row for row in registry()["suites"] if row.get("kind") != "annotation_cohort"]
     assert [row["suite"] for row in release["suites"]] == [row["id"] for row in entries]
     assert release["case_count"] == sum(row["case_count"] for row in entries)
+    # Every shipped suite, annotation cohorts included, validates against its frozen files.
+    assert len(entries) == 5
+    assert sum(validated_catalog[row["id"]]["case_count"] for row in entries) == 550
+    assert validated_catalog["content-scopes-530"]["case_count"] == 530
+    cohort = read(definitions() / "evaluation/content-scopes-530/tasks.json")
+    population = read(definitions() / "populations/primary-content-20261103.json")
+    assert {case["id"] for case in cohort["cases"]} == {
+        f"{case['suite']}--{case['id']}" for case in population["cases"]}
 
 
 @pytest.mark.parametrize("change", ["omitted_suite", "count", "reference", "scorer", "tag"])
