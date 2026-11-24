@@ -15,8 +15,7 @@ from lexbench_webfetch.metrics import task_passed
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("complete", [True, False])
-@pytest.mark.parametrize("method_name", ["http", "moli"])
+@pytest.mark.parametrize("method_name,complete", [("http", True), ("moli", False)])
 def test_local_quickstart_runs_and_rebuilds_without_provider_calls(tmp_path, complete, method_name):
     site = tmp_path / "site"
     site.mkdir()

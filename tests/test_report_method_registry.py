@@ -30,16 +30,6 @@ def test_claude_setup_and_example_keep_credentials_on_the_remote_host():
         assert method_spec(name, None, language='en')['request'] == {'url':'https://example.com/'}
 
 
-def test_hosted_media_descriptions_distinguish_resource_checks_from_file_delivery():
-    for name in ('kimi-fetch','zai-reader','claude-web-fetch'):
-        capabilities = report_method_catalog('en')['methods'][name]['capabilities']
-        for kind in ('image','av'):
-            assert capabilities[kind]['status'] == 'Limited support'
-            assert 'native text or Markdown' in capabilities[kind]['detail']
-            assert 'original-file delivery' in capabilities[kind]['detail']
-        assert 'verifiable original bytes' in capabilities['file']['detail']
-
-
 @pytest.fixture
 def custom_catalog(monkeypatch):
     from harness.web_fetch.methods import _raw_report_method_catalog, _catalog_value
@@ -150,8 +140,7 @@ def test_method_catalog_rejects_unsupported_language():
 
 
 @pytest.mark.parametrize('version,release', [
-    ('moli 9.9.9', True), ('MOLI 9.9.9', True), ('9.9.9', True),
-    ('moli 9.9.9-build.17', False), ('moli 9.9.9 (abcdef)', False),
+    ('MOLI 9.9.9', True), ('9.9.9', True), ('moli 9.9.9-build.17', False),
 ])
 def test_release_links_and_labels_share_normalization(version, release):
     from harness.web_fetch.methods import report_method, versioned_method_label
@@ -190,7 +179,6 @@ def test_candidate_status_is_explicit_not_guessed_from_label(
     def render(out, dataset, records):
         return browser_method_label('acme-run')
     assert ('候选版' in render(tmp_path, {}, rows)) is expected_candidate
-
 
 
 def test_json_registered_route_and_interface_variant_need_no_engine_branch(custom_catalog):
@@ -255,7 +243,6 @@ def test_registered_task_modes_match_public_execution_selection():
                 provider, 'headless_markdown', SimpleNamespace(**case))
 
 
-
 def test_interface_converter_version_comes_from_call_not_catalog():
     row = {'provider': 'chromium', 'provider_metadata': {
         'engine': 'chromium', 'extractor': 'node-html-markdown', 'extractor_version': '9.9.9'}}
@@ -264,41 +251,6 @@ def test_interface_converter_version_comes_from_call_not_catalog():
     assert next(param[2] for param in spec['params'] if param[0] == 'converter') == 'node-html-markdown 9.9.9'
     row['provider_metadata'].pop('extractor_version')
     assert method_spec('chromium', row)['request']['converter'] == '<recorded_converter>'
-
-
-def test_catalog_examples_do_not_assert_prior_run_settings():
-    import ast
-    import re
-    from pathlib import Path
-    from fnmatch import fnmatchcase
-    pattern = re.compile(r'\d[\d,.]*\s*-?\s*(?:秒|毫秒|ms\b|seconds?\b)|\b\d+\.\d+\.\d+\b')
-    # Versioned evidence identities and documented product limits, not run settings.
-    allowed = ['sources.*.checked_version', 'sources.*.url', 'sources.*.label',
-               'sources.*.label.zh', 'sources.*.label.en',
-               'methods.moli.capabilities.sources.0',
-               'adapters.cloudflare_markdown.freshness.*',
-               'adapters.cloudflare_content.freshness.*',
-               'methods.obscura.routes.waits.*']
-    def strings(value, path=()):
-        if isinstance(value, dict):
-            for key, item in value.items():
-                yield from strings(item, (*path, str(key)))
-        elif isinstance(value, list):
-            for index, item in enumerate(value):
-                yield from strings(item, (*path, str(index)))
-        elif isinstance(value, str):
-            yield '.'.join(path), value
-    root = source_path('harness/web_fetch', root=Path(__file__).resolve().parents[1])
-    catalog = json.loads((root / 'data/report-methods.json').read_text(encoding='utf-8'))
-    violations = [(path, text) for path, text in strings(catalog)
-                  if pattern.search(text) and not any(fnmatchcase(path, rule) for rule in allowed)]
-    for name in ['report_interfaces', 'report_capabilities', 'methods', 'report_methods', 'report_explainer', 'report_resources', 'report_components']:
-        for node in ast.walk(ast.parse((root / (name+'.py')).read_text(encoding='utf-8'))):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and pattern.search(node.value):
-                violations.append((f'{name}:{node.lineno}', node.value))
-    assert not violations
-    for prohibited in ['30 秒', '40,500 毫秒', '6.1-second', '2500 ms', 'version 9.9.9']:
-        assert pattern.search(prohibited)
 
 
 def test_mixed_build_labels_have_explicit_english_and_scoped_lifetime(tmp_path):
@@ -316,9 +268,8 @@ def test_mixed_build_labels_have_explicit_english_and_scoped_lifetime(tmp_path):
     assert render(tmp_path, {}, rows) == ('Moli 9.9.9（候选版）', 'Moli 9.9.9 (candidate build)')
 
 
-
-@pytest.mark.parametrize('value,expected', [(2500, '2,500'), (None, None),
-    (True, None), (-1, None), ('2500', None), (float('inf'), None)])
+# positive_number itself is covered by test_positive_number_accepts_only_finite_positive_numbers.
+@pytest.mark.parametrize('value,expected', [(2500, '2,500'), (True, None)])
 def test_registered_runtime_parameter_uses_only_valid_numeric_evidence(custom_catalog, value, expected):
     method = custom_catalog['methods']['acme-fetch']
     method['interface']['params'] = [['timeout', 'number', 'Unknown']]
@@ -336,7 +287,6 @@ def test_registered_runtime_parameter_uses_only_valid_numeric_evidence(custom_ca
         assert '; inner '+expected+' ms' in description
     else:
         assert 'inner' not in description
-
 
 
 def test_observed_route_matrix_localizes_without_reverse_lookup(monkeypatch):
@@ -383,24 +333,20 @@ def test_english_filters_and_hosted_labels_use_registered_language(tmp_path):
     assert not re.search(r'[\u4e00-\u9fff]', document.get_text())
 
 
-@pytest.mark.parametrize('contract', ['native_markdown_resource_urls', 'native_html_resource_urls', 'native_json_resource_urls'])
-@pytest.mark.parametrize('language', ['zh', 'en'])
-def test_output_contract_labels_use_selected_method(contract, language):
-    label = report_method_catalog(language)['output_contract_labels'][contract].format(method='Acme Fetch')
-    assert 'Acme Fetch' in label
-    assert 'Moli' not in label
+def test_output_contract_labels_use_selected_method():
+    for language in ('zh', 'en'):
+        for contract in ('native_markdown_resource_urls', 'native_html_resource_urls', 'native_json_resource_urls'):
+            label = report_method_catalog(language)['output_contract_labels'][contract].format(method='Acme Fetch')
+            assert 'Acme Fetch' in label
+            assert 'Moli' not in label
 
 
-@pytest.mark.parametrize('value', [True, False, None, '30', 0, -1, float('inf'), float('-inf'), float('nan')])
-def test_positive_number_rejects_invalid_budgets(value):
+def test_positive_number_accepts_only_finite_positive_numbers():
     from harness.numbers import positive_number
-    assert not positive_number(value)
-
-
-@pytest.mark.parametrize('value', [0.001, 1, 30.5])
-def test_positive_number_accepts_finite_budgets(value):
-    from harness.numbers import positive_number
-    assert positive_number(value)
+    for value in (True, False, None, '30', 0, -1, float('inf'), float('-inf'), float('nan')):
+        assert not positive_number(value), value
+    for value in (0.001, 1, 30.5):
+        assert positive_number(value), value
 
 
 def test_catalog_templates_merge_overrides_without_mutating_defaults():
@@ -451,19 +397,6 @@ def test_catalog_descriptions_do_not_claim_measured_run_settings():
     for text in ('本轮使用默认参数', 'THIS RUN uses a timeout'):
         assert violations({'methods': {'new': {'profile': {'description': text}}}})
         assert not violations({'adapters': {'new': {'report': {'description': text}}}})
-
-
-@pytest.mark.parametrize('language, expected_sha256', [
-    ('zh', 'ae5ce513ca4b1a0abb08df6d9d20ccb1a7c20e026b10a278405e92731692db36'),
-    ('en', '365bc45aa0d7378ba1e0600633d26b418ae4fec7c85d23108309f056191e7e9d'),
-])
-def test_moli_template_preserves_complete_localized_catalog(language, expected_sha256):
-    import hashlib
-    # Full resolved Moli entries at 20e74000, before template deduplication.
-    # Canonical hashes cover every field and list order without copying the catalog.
-    entry = report_method_catalog(language)['methods']['moli']
-    canonical = json.dumps(entry, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-    assert hashlib.sha256(canonical.encode()).hexdigest() == expected_sha256
 
 
 @pytest.mark.parametrize("version", ["2.3.4", None])

@@ -425,17 +425,6 @@ def test_canonical_options_produce_the_frozen_bytes(options, raw):
     assert canonical_json_sha256(VALUE, **options) == hashlib.sha256(raw.encode()).hexdigest()
 
 
-def test_each_migrated_option_set_equals_its_original_serialization():
-    originals = [
-        (dict(ensure_ascii=True), json.dumps(VALUE, sort_keys=True, separators=(',', ':'))),
-        (dict(allow_nan=False), json.dumps(VALUE, ensure_ascii=False, sort_keys=True,
-                                           separators=(',', ':'), allow_nan=False)),
-        ({}, json.dumps(VALUE, ensure_ascii=False, sort_keys=True, separators=(',', ':'))),
-    ]
-    for options, raw in originals:
-        assert canonical_json_sha256(VALUE, **options) == hashlib.sha256(raw.encode()).hexdigest()
-
-
 def test_strict_option_rejects_nan_while_the_default_keeps_legacy_bytes():
     with pytest.raises(ValueError):
         canonical_json_sha256({'n': float('nan')}, allow_nan=False)

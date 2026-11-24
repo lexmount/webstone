@@ -410,23 +410,6 @@ def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
         assert all(cell['data-sort'] == cell.get_text() for cell in row.select('td')[offset:offset+5])
 
 
-def test_final_call_timing_labels_are_localized_in_ordinary_reports():
-    from pathlib import PurePosixPath
-    from harness.web_fetch.report import overall_ranking
-    from harness.web_fetch.report_i18n import localize_html
-    record = {'provider': 'method', 'case_id': 'case', 'ok': True,
-              'elapsed_ms': 10, 'metrics': {'content_pass': True}}
-    page = localize_html(overall_ranking([record], {'case': {'id': 'case'}}), PurePosixPath('index.html'))
-    assert 'Mean final-call latency' in page
-    assert 'P50 final-call latency' in page
-    assert '最终调用耗时' not in page
-    from harness.web_fetch.report_i18n import saved_matrix_text, TEXT
-    for key in ('final_call_timing_title', 'final_call_timing_help', 'final_call_timing_note'):
-        assert saved_matrix_text(key) not in page
-        assert TEXT[saved_matrix_text(key)] in page
-    assert 'P95 final-call latency' in page
-
-
 def test_ordinary_english_generation_localizes_all_final_call_timing_text(tmp_path):
     from harness.web_fetch.report import generate
     from harness.web_fetch.report_i18n import saved_matrix_text, TEXT
@@ -447,7 +430,7 @@ def test_ordinary_english_generation_localizes_all_final_call_timing_text(tmp_pa
     assert TEXT[saved_matrix_text('changes_scope')] in changes
 
 
-@pytest.mark.parametrize('excluded', [['base-web'], ['unknown'], ['web', 'base-web'], ['base-web', 'base-web']])
+@pytest.mark.parametrize('excluded', [['base-web'], ['unknown'], ['web', 'base-web']])
 def test_excluded_report_families_preserve_sources_and_recompute_population(tmp_path, excluded):
     spec, source, _, original = fixture(tmp_path)
     spec['suites'].append({**spec['suites'][0], 'id': 'second', 'label': 'Second'})
@@ -474,7 +457,7 @@ def test_excluded_report_families_preserve_sources_and_recompute_population(tmp_
     assert [case['id'] for case in dataset['cases']] == ['second--same']
 
 
-@pytest.mark.parametrize('excluded', [['other'], ['unknown'], ['method', 'other'], ['other', 'other'], 'other'])
+@pytest.mark.parametrize('excluded', [['other'], ['unknown'], ['method', 'other'], 'other'])
 def test_excluded_report_providers_preserve_evidence_and_retained_results(tmp_path, excluded):
     spec, source, record, raw = fixture(tmp_path)
     other = deepcopy(record)

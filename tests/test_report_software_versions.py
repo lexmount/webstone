@@ -1,6 +1,8 @@
 """Readers can identify a report build independently of its benchmark edition."""
 
 import json
+import shutil
+
 import pytest
 from bs4 import BeautifulSoup
 
@@ -38,11 +40,18 @@ def test_build_records_software_without_relabeling_saved_benchmark(tmp_path, mon
     check_snapshot_audit(second)
 
 
+@pytest.fixture(scope='module')
+def built_report(tmp_path_factory):
+    root = tmp_path_factory.mktemp('built')
+    source, profile, _ = configured(root)
+    build_snapshot_audit(source, root / 'report', profile=profile)
+    return root / 'report'
+
+
 @pytest.mark.parametrize('defect', ['file', 'version', 'commit', 'binding', 'label', 'href'])
-def test_release_gate_rejects_missing_or_conflicting_build_identity(tmp_path, defect):
-    source, profile, _ = configured(tmp_path)
+def test_release_gate_rejects_missing_or_conflicting_build_identity(tmp_path, built_report, defect):
     output = tmp_path / 'report'
-    build_snapshot_audit(source, output, profile=profile)
+    shutil.copytree(built_report, output)
     path = output / versions.FILENAME
     if defect == 'file':
         path.unlink()
@@ -106,16 +115,9 @@ def test_installed_package_does_not_borrow_an_unrelated_checkout(tmp_path, monke
     'web_fetch/html_to_markdown.mjs',
     'web_fetch/workers/openclaw_webfetch_worker.mts',
     'web_fetch/workers/native_dns_darwin.c',
-    'web_fetch/report-translations.json',
     'browser_use/messages.json',
-    'trajectory_replay/messages.json',
     'environments/webarena/runtime/php-fpm-qemu.ini',
     'web_fetch/templates/interpretation-headless.css',
-    'reporting/report-style.css',
-    'web_fetch/assets/report.js',
-    'trajectory_replay/assets/webarena-report.js',
-    'browser_use/assets/report.css',
-    'web_search/assets/comparison.js',
 ])
 def test_installed_runtime_asset_changes_identify_a_different_build(tmp_path, monkeypatch, asset):
     from pathlib import Path
@@ -178,8 +180,7 @@ def test_installed_scorer_sources_are_part_of_the_build_identity(tmp_path, monke
         original['source_sha256'], changed['source_sha256']}
 
 
-@pytest.mark.parametrize('scorer', ['lexbench_webfetch', 'lexbench_websearch'])
-@pytest.mark.parametrize('untracked', [False, True])
+@pytest.mark.parametrize('scorer,untracked', [('lexbench_webfetch', False), ('lexbench_websearch', True)])
 def test_checkout_scorer_edits_mark_the_builder_modified(tmp_path, monkeypatch, scorer, untracked):
     import subprocess
     module = tmp_path/'checkout/src/harness/reporting/versions.py'

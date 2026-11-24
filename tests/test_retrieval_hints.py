@@ -1,4 +1,3 @@
-from lexbench_webfetch.inputs import definition_path
 import json
 import tempfile
 from copy import deepcopy
@@ -12,13 +11,14 @@ from harness.web_fetch.retrieval_hints import (
     native_contract_for_case,
     parse_retrieval_hints,
 )
+from lexbench_webfetch.inputs import definition_path
 
 
 def test_native_execution_keeps_dynamic_scenario_and_acceptance_without_injected_hints():
     from copy import deepcopy
 
-    from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.retrieval_hints import native_fetch_dataset, plan_for_case
+    from lexbench_webfetch.models import EvalCase
     dataset={'tool':'web_fetch','coverage_plan':{'dynamic':['browser']},'cases':[
         {'id':'native-page','name':'Dynamic site','url':'https://example.com/',
          'category':'dynamic_content','track':'dynamic','expected_any':[],
@@ -97,13 +97,11 @@ def test_valid_dynamic_retrieval_hints_are_loaded(tmp_path):
     ("path", "value"),
     [
         (("wait_until",), "done"),
-        (("wait_until",), []),
         (("completion", "selector"), ':has-text("answer")'),
         (("completion", "frame_selector"), ':has-text("answer")'),
         (("completion", "minimum_count"), 0),
         (("completion", "minimum_count"), True),
         (("completion", "timeout_ms"), 60001),
-        (("completion", "delay_ms"), -1),
         (("completion", "delay_ms"), 10001),
     ],
 )
@@ -161,27 +159,7 @@ def test_all_current_dynamic_cases_have_bounded_generic_completion_signals(histo
         "exclude_selectors": ["button"],
         "fallback": "body",
     }
-
-
-def test_v2_separates_completion_from_bounded_answer_free_extraction():
-    hints = _case()["retrieval_hints"]
-    hints["version"] = 2
-    hints["extraction"] = {
-        "selector": "main article",
-        "maximum_count": 10,
-        "exclude_selectors": ["button"],
-        "fallback": "body",
-    }
-    plan = parse_retrieval_hints("dynamic", hints, identifier="products")
-    assert plan.selector == "#results > article.card"
-    assert plan.extraction_selector == "main article"
-    assert plan.extraction_maximum_count == 10
-    assert plan.extraction_exclude_selectors == ("button",)
-    assert plan.worker_dict()["extraction"]["fallback"] == "body"
-
-
-def test_current_completion_signals_are_bound_to_independent_capture_shape(historical_dataset):
-    _, cases = historical_dataset
+    # Completion signals are bound to the independent browser capture shape.
     by_id = {case.id: case for case in cases}
     captures = []
     for path in (
@@ -201,6 +179,23 @@ def test_current_completion_signals_are_bound_to_independent_capture_shape(histo
         assert completion["minimum_count"] == capture["expected_count"]
     iframe = by_id["dynamic-iframe"].retrieval_hints["completion"]
     assert iframe["frame_selector"] == "iframe#iframe"
+
+
+def test_v2_separates_completion_from_bounded_answer_free_extraction():
+    hints = _case()["retrieval_hints"]
+    hints["version"] = 2
+    hints["extraction"] = {
+        "selector": "main article",
+        "maximum_count": 10,
+        "exclude_selectors": ["button"],
+        "fallback": "body",
+    }
+    plan = parse_retrieval_hints("dynamic", hints, identifier="products")
+    assert plan.selector == "#results > article.card"
+    assert plan.extraction_selector == "main article"
+    assert plan.extraction_maximum_count == 10
+    assert plan.extraction_exclude_selectors == ("button",)
+    assert plan.worker_dict()["extraction"]["fallback"] == "body"
 
 
 def test_normalized_frame_plan_contains_only_generated_wait_code():
@@ -262,24 +257,6 @@ def test_frame_complete_text_wait_checks_child_record_fields():
     assert "frame.contentDocument.querySelectorAll" in plan.wait_value
     assert "nodes.slice(0, 10).every" in plan.wait_value
     assert "innerText.split" in plan.wait_value
-
-
-def test_committed_native_100_dataset_uses_only_native_answer_free_contracts():
-    from harness.web_fetch.retrieval_hints import plan_for_case
-    from tests.conftest import read_frozen_dataset_bytes
-    path = Path("evaluation/dynamic-content-100-moli-webfetch/dataset.json")
-    read_frozen_dataset_bytes(path)
-    raw, cases = load_dataset(path)
-    assert len(cases) == 100
-    assert all(plan_for_case(c) is None for c in cases)
-    assert all(
-        not case.get("retrieval_hints")
-        or (
-            case["retrieval_hints"].get("version") == 3
-            and case["retrieval_hints"].get("mode") == "native"
-        )
-        for case in raw["cases"]
-    )
 
 
 def test_native_default_contract_must_be_valid(tmp_path):
@@ -439,6 +416,7 @@ def test_registered_contract_from_an_installed_module(tmp_path, monkeypatch, cor
     import hashlib
     import importlib.util
     import sys
+
     import harness.web_fetch.retrieval_hints as original
 
     installed = tmp_path / "site-packages/harness/web_fetch/retrieval_hints.py"

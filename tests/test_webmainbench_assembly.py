@@ -1,17 +1,35 @@
 """Assemble independently certified cohorts without fixed provider counts or copied work trees."""
 
 import copy
+import functools
 import hashlib
 import json
 
 import pytest
 
 from harness.record_io import file_sha256
+from harness.web_fetch import webmainbench_assembly as assembly_module
 from harness.web_fetch.webmainbench_assembly import assemble
 from harness.web_fetch.webmainbench_certification import verify_shard
+from harness.web_fetch.webmainbench_dataset import load_source
 from harness.web_fetch.webmainbench_evidence import read_jsonl, read_method_binding
 from harness.web_fetch.webmainbench_scoring import CORE_METRICS, aggregate, verify_score
 from tests.helpers import write_json
+
+# A five-case synthetic population exercises every assembly rule; the 545 count is
+# a dataset constant checked by the dataset loader tests, not by assembly.
+CASES = 5
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _synthetic_population():
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            assembly_module,
+            "load_source",
+            functools.partial(load_source, expected_count=CASES),
+        )
+        yield
 
 
 def write_rows(path, rows):
@@ -140,7 +158,7 @@ def build_evidence(directory):
                 "url": f"https://example.invalid/{i}",
                 "meta": {},
             }
-            for i in range(545)
+            for i in range(CASES)
         ],
     )
     scorer = directory / "scorer"
@@ -148,7 +166,7 @@ def build_evidence(directory):
     (scorer / "metric.py").write_text("# synthetic pinned scorer source\n", encoding="utf-8")
     profile = {
         "dataset_id": "synthetic-full",
-        "case_count": 545,
+        "case_count": CASES,
         "source_dataset_sha256": file_sha256(source),
         "case_ids_sha256": hashlib.sha256(b"synthetic cases").hexdigest(),
         "providers": ["engine-a", "engine-b"],
@@ -229,7 +247,6 @@ def two_variant_package(shared_evidence):
     return assemble_shared(shared_evidence, 2)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("count", [0, 2])
 def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
     shared_evidence, request, count
@@ -242,7 +259,7 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
         read_jsonl(output / "results.jsonl"),
         read_jsonl(output / "physical-attempts.jsonl"),
     )
-    assert len(rows) == 545 * (2 + count)
+    assert len(rows) == CASES * (2 + count)
     assert len(calls) == len(rows) + count
     assert {row["provider"] for row in rows} == {"engine-a", "engine-b", *cohorts}
     for row in rows:
@@ -275,18 +292,14 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
             ).read_text(encoding="utf-8") == provider + "-ca"
 
 
-@pytest.mark.parametrize(
-    "damage",
-    [
-        "missing_cohort",
-        "changed_output",
-        "wrong_profile",
-        "missing_call",
-        "wrong_source",
-        "wrong_scorer",
-    ],
-)
-def test_invalid_evidence_cannot_leave_a_publishable_partial_package(evidence, damage):
+def test_invalid_evidence_cannot_leave_a_publishable_partial_package(tmp_path):
+    for damage in ("missing_cohort", "changed_output", "wrong_profile", "missing_call",
+                   "wrong_source", "wrong_scorer"):
+        (tmp_path / damage).mkdir()
+        damage_evidence(build_evidence(tmp_path / damage), damage)
+
+
+def damage_evidence(evidence, damage):
     directory, baseline, source, scorer, profile = evidence
     registry, cohorts = variants(evidence, 1)
     candidate = cohorts["variant-0"]
@@ -377,7 +390,6 @@ def test_input_changed_after_materialization_cannot_commit_package(
     assert not list(directory.glob(".webmainbench-assemble-*"))
 
 
-@pytest.mark.slow
 def test_new_certified_variant_replaces_only_its_method_and_preserves_previous_package(
     shared_evidence, two_variant_package
 ):

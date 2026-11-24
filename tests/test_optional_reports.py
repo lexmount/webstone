@@ -3,9 +3,12 @@ from harness.distribution import source_path
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,12 +66,31 @@ def saved_records(run):
     return rows
 
 
-def test_no_report_saves_complete_scored_data_without_rendering(tmp_path):
-    result = run_fixture(tmp_path, no_report=True, reject_builder=True, fail_on_failure=True)
+@pytest.fixture(scope='module')
+def saved_run(tmp_path_factory):
+    """One `run --no-report` with a rejecting renderer and an unsupported language.
+
+    Proves the no-report path never renders or validates the report language, and
+    gives later tests saved data to rescore or render without another collection.
+    """
+    root = tmp_path_factory.mktemp('saved-run')
+    result = run_fixture(root, no_report=True, reject_builder=True, fail_on_failure=True,
+                         language='unsupported-report-language')
+    return root, result
+
+
+@pytest.fixture
+def run(saved_run, tmp_path):
+    shutil.copytree(saved_run[0] / 'run', tmp_path / 'run')
+    return tmp_path / 'run'
+
+
+def test_no_report_saves_complete_scored_data_without_rendering(saved_run):
+    root, result = saved_run
     assert result.returncode == 2, result.stdout + result.stderr
-    saved_records(tmp_path / 'run')
-    assert not (tmp_path / 'run/report').exists()
-    assert str(tmp_path / 'run/results.jsonl') in result.stdout
+    saved_records(root / 'run')
+    assert not (root / 'run/report').exists()
+    assert str(root / 'run/results.jsonl') in result.stdout
     assert 'Report:' not in result.stdout
     assert 'not built' in result.stdout
 
@@ -83,10 +105,7 @@ def test_default_run_keeps_local_report_convenience_without_publication(tmp_path
     assert 'Report:' in result.stdout
 
 
-def test_saved_data_can_build_a_local_report_later(tmp_path):
-    result = run_fixture(tmp_path, no_report=True, reject_builder=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    run = tmp_path / 'run'
+def test_saved_data_can_build_a_local_report_later(run, tmp_path):
     before = (run / 'results.jsonl').read_bytes()
     result = invoke(tmp_path, 'report', run)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -94,10 +113,7 @@ def test_saved_data_can_build_a_local_report_later(tmp_path):
     assert (run / 'results.jsonl').read_bytes() == before
 
 
-def test_rescore_no_report_preserves_existing_html_and_reports_staleness(tmp_path):
-    result = run_fixture(tmp_path, no_report=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    run = tmp_path / 'run'
+def test_rescore_no_report_preserves_existing_html_and_reports_staleness(run, tmp_path):
     report = run / 'report'
     report.mkdir()
     (report / 'index.html').write_text('Previous report', encoding='utf-8')
@@ -113,12 +129,6 @@ def test_rescore_no_report_preserves_existing_html_and_reports_staleness(tmp_pat
     assert str(run / 'results.jsonl') in result.stdout
 
 
-def test_no_report_does_not_validate_unrequested_report_language(tmp_path):
-    result = run_fixture(tmp_path, no_report=True, reject_builder=True, language='unsupported-report-language')
-    assert result.returncode == 0, result.stdout + result.stderr
-    saved_records(tmp_path / 'run')
-
-
 def test_default_renderer_errors_are_not_swallowed_after_saving_results(tmp_path):
     result = run_fixture(tmp_path, reject_builder=True)
     assert result.returncode != 0
@@ -127,10 +137,7 @@ def test_default_renderer_errors_are_not_swallowed_after_saving_results(tmp_path
     assert 'Report:' not in result.stdout
 
 
-def test_default_rescore_rebuilds_local_report_without_publication(tmp_path):
-    result = run_fixture(tmp_path, no_report=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    run = tmp_path / 'run'
+def test_default_rescore_rebuilds_local_report_without_publication(run, tmp_path):
     result = invoke(tmp_path, 'score', run, '--dataset', DATASET)
     assert result.returncode == 0, result.stdout + result.stderr
     rows = saved_records(run)
@@ -139,10 +146,7 @@ def test_default_rescore_rebuilds_local_report_without_publication(tmp_path):
     assert 'report:' in result.stdout
 
 
-def test_no_report_rescore_still_rejects_tampered_evidence(tmp_path):
-    result = run_fixture(tmp_path, no_report=True)
-    assert result.returncode == 0, result.stdout + result.stderr
-    run = tmp_path / 'run'
+def test_no_report_rescore_still_rejects_tampered_evidence(run, tmp_path):
     rows = saved_records(run)
     before = (run / 'results.jsonl').read_bytes()
     (run / rows[0]['artifact_path']).write_text('Changed after collection', encoding='utf-8')

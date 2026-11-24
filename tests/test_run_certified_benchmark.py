@@ -620,27 +620,26 @@ def test_invalid_selected_reference_route_stops_before_any_capture(tmp_path):
     assert not (tmp_path / "work").exists()
 
 
-@pytest.mark.parametrize(
-    "command",
-    [
-        ["run_certified_benchmark.py"],
-        ["run_certified_benchmark.py", "risk-control"],
-        ["run_certified_benchmark.py", "webmainbench-correction"],
-        ["run_certified_benchmark.py", "--benchmark", "webmainbench"],
-        ["run_certified_benchmark.py", "--benchmark", "wcxb"],
-        ["run_certified_benchmark.py", "wcxb-latency"],
-    ],
-)
-def test_certification_commands_have_help_without_evidence_or_provider_calls(command, tmp_path):
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
-    result = subprocess.run(
-        [sys.executable, str(scripts / command[0]), *command[1:], "--help"],
-        cwd=tmp_path,
-        text=True,
-        capture_output=True,
-    )
+def test_certification_script_has_help_without_evidence_or_provider_calls(tmp_path):
+    script = Path(__file__).resolve().parents[1] / "scripts" / "run_certified_benchmark.py"
+    result = subprocess.run([sys.executable, str(script), "--help"], cwd=tmp_path, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert "usage:" in result.stdout
+    assert list(tmp_path.iterdir()) == []
+
+
+# The script entry is a thin import of this function; each subcommand's help runs in-process.
+@pytest.mark.parametrize("arguments", [
+    ["risk-control"], ["webmainbench-correction"], ["--benchmark", "webmainbench"],
+    ["--benchmark", "wcxb"], ["wcxb-latency"],
+])
+def test_certification_subcommands_have_help_without_evidence_or_provider_calls(arguments, tmp_path, monkeypatch, capsys):
+    from harness.cli import certified_main
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_:
+        certified_main([*arguments, "--help"])
+    assert exit_.value.code == 0
+    assert "usage:" in capsys.readouterr().out
     assert list(tmp_path.iterdir()) == []
 
 

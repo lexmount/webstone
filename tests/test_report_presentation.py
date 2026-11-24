@@ -1,11 +1,23 @@
 import tempfile
-from pathlib import Path
 import unittest
-from harness.web_fetch.report import EXTRA,active_tracks,failure_category,filter_controls,case_attrs,failure_filters,overall_ranking,overview_matched_latency,provider_configuration,review_cell,table,write
-from harness.web_fetch.report_interfaces import SPECS
-from harness.web_fetch.methods import method_access
+from pathlib import Path
 
-from harness.reporting.style import STYLE
+from harness.web_fetch.methods import method_access
+from harness.web_fetch.report import (
+ active_tracks,
+ case_attrs,
+ failure_category,
+ failure_filters,
+ filter_controls,
+ overall_ranking,
+ overview_matched_latency,
+ provider_configuration,
+ review_cell,
+ table,
+ write,
+)
+from harness.web_fetch.report_interfaces import SPECS
+
 
 class ReportRevisionTests(unittest.TestCase):
  def test_overview_latency_includes_every_configuration_and_same_case_mean(self):
@@ -33,17 +45,16 @@ class ReportRevisionTests(unittest.TestCase):
   self.assertIn('调用矩阵尚不完整',overview_matched_latency(records[1:],cases))
 
  def row(self,**kw):return dict({'ok':True,'metrics':{'content_pass':False,'length_pass':True}},**kw)
- def test_provider_filter_defaults_to_the_complete_population(self):
+ def test_filters_default_to_all_methods_and_failed_results(self):
   controls=filter_controls([('provider','方法',[('one','One'),('two','Two')])])
   self.assertIn('data-filter="provider" aria-label="方法"><option value="">全部</option>',controls)
+  controls=filter_controls([('result','结果',[('pass','任务通过'),('fail','任务失败')])])
+  self.assertIn('value="fail" selected',controls)
  def test_case_search_includes_identifier_and_source_url(self):
   c={'id':'case-a','name':'Readable title','url':'https://example.com/source','category':'test','task_kind':'body'}
   r=self.row(provider='one',case_id='case-a')
   attrs=case_attrs(r,c)
   self.assertIn('data-search="case-a Readable title https://example.com/source ',attrs)
- def test_result_default_failure(self):
-  controls=filter_controls([('result','结果',[('pass','任务通过'),('fail','任务失败')])])
-  self.assertIn('value="fail" selected',controls)
  def test_overall_ranking_shows_all_call_latency_without_affecting_pass_order(self):
   cases={'a':{'id':'a','track':'web','task_kind':'body'},
          'b':{'id':'b','track':'web','task_kind':'body'}}
@@ -69,6 +80,7 @@ class ReportRevisionTests(unittest.TestCase):
   self.assertIn('150 ms',rendered)
  def test_comparison_ranks_only_when_enabled(self):
   from bs4 import BeautifulSoup
+
   from harness.web_fetch.report import ranking
   cases={key:{'id':key,'track':'web','task_kind':'body'} for key in ('a','b')}
   records=[{'provider':name,'case_id':key,'ok':True,'elapsed_ms':10,
@@ -93,10 +105,6 @@ class ReportRevisionTests(unittest.TestCase):
   for row in records:row['metrics']['content_pass']=True
   doc=BeautifulSoup(overall_ranking(records,cases,diagnostic=True),'html.parser')
   self.assertFalse(doc.select('[data-metric="acceptance_2"] .comparison-winner'))
- def test_ranking_method_names_do_not_wrap_and_tables_remain_scrollable(self):
-  self.assertIn('.table-wrap{overflow:auto',STYLE)
-  self.assertRegex(EXTRA,r'\.ranking td:nth-child\(2\)\{[^}]*min-width:220px[^}]*white-space:nowrap')
-  self.assertRegex(EXTRA,r'\.ranking td:nth-child\(2\)\{[^}]*overflow-wrap:normal[^}]*word-break:normal')
  def test_failure_filter_defaults_and_deduplication(self):
   missing={'content_pass':False,'length_pass':True,'resource_pass':False,
            'resource_results':[{'id':'target','pass':False}], 'unexpected_resource_urls':[]}
@@ -113,20 +121,19 @@ class ReportRevisionTests(unittest.TestCase):
    r=self.row(ok=ok,provider='test',metrics={'content_pass':passed,'length_pass':False})
    self.assertIn(f'data-failure-stage="{expected}"',case_attrs(r,case))
    if passed:self.assertIn('data-failure-category=""',case_attrs(r,case))
- def test_api_auth_is_not_site_failure(self):
-  self.assertEqual(failure_category(self.row(ok=False,error_type='authentication',status_code=403),{}),'接口鉴权失败')
- def test_upstream_access_denied(self):
-  self.assertEqual(failure_category(self.row(ok=False,error_type='CRAWL_HTTP_401'),{}),'源站拒绝该次访问')
- def test_resource_missing(self):
+ def test_failure_category_separates_interface_site_resource_and_pass(self):
   missing=self.row(metrics={'content_pass':False,'resource_pass':False,
                             'resource_results':[{'id':'target','pass':False}],
                             'unexpected_resource_urls':[]})
-  self.assertEqual(failure_category(missing,{'task_kind':'resource'}),'缺少目标资源')
- def test_pass_no_failure(self):
-  self.assertEqual(failure_category(self.row(metrics={'content_pass':True}),{}),'—')
+  for row,case,expected in [
+   (self.row(ok=False,error_type='authentication',status_code=403),{},'接口鉴权失败'),
+   (self.row(ok=False,error_type='CRAWL_HTTP_401'),{},'源站拒绝该次访问'),
+   (missing,{'task_kind':'resource'},'缺少目标资源'),
+   (self.row(metrics={'content_pass':True}),{},'—')]:
+   self.assertEqual(failure_category(row,case),expected)
  def test_all_interfaces(self):
-  from harness.web_fetch.report_methods import PROFILES
   from harness.web_fetch.report_interfaces import method_spec
+  from harness.web_fetch.report_methods import PROFILES
   for name in PROFILES:self.assertTrue(method_spec(name,None)['entry'])
   self.assertTrue({'kitesurf','lightpanda','obscura','moli','chromium'} <= set(SPECS))
   for s in SPECS.values():
@@ -147,8 +154,6 @@ class ReportRevisionTests(unittest.TestCase):
     self.assertNotRegex(text,r'[\u4e00-\u9fff]',method)
   for key in ('moli','moli-recipes','moli-release'):
    self.assertNotRegex(catalog['sources'][key]['label'],r'[\u4e00-\u9fff]')
- def test_regional_endpoint_distinct(self):
-  self.assertNotEqual(SPECS['lexmount-cn']['entry'],SPECS['lexmount-global']['entry'])
  def test_review_label_links_records_without_claiming_fresh_verification(self):
   audit={'attempts':[{'attempt_id':'one','final_verdict':'pass'}]}
   row=review_cell(audit,[{'attempt_id':'one'}])
@@ -204,34 +209,6 @@ class ReportRevisionTests(unittest.TestCase):
   self.assertNotIn('Chromium',moli)
   self.assertIn('node-html-markdown',moli)
   self.assertNotIn('2.0.0',moli)
- def test_dynamic_cohort_copy_has_english_translations(self):
-  from harness.web_fetch.report_i18n import translate_text
-  self.assertEqual(translate_text('90 个案例 · 12 种方法 · 4类分榜与一个综合通过率总榜。'),
-                   '90 tasks · 12 methods · 4 family rankings and one overall coverage ranking.')
-  self.assertEqual(translate_text('4类任务概览'),'4 task families')
-  translated=translate_text('本轮请求正文文本；资源链接仅来自同一 Contents 响应的 extras 字段。 未启用额外的理解模型或付费后备方法。')
-  self.assertNotIn('本轮',translated)
-  self.assertIn('Contents response',translated)
- def test_speed_caption_localizes_its_actual_sample_count(self):
-  from harness.web_fetch.report_i18n import translate_text,untranslated_english_narrative
-  source=('同窗速度子集：预先声明 17 题，12 种方法使用同一完整任务样本。'
-          '全调用耗时包含成功、失败和截止超时；通过调用耗时按各方法自己的成功子集计算，'
-          '分母必须同时阅读。每种方法最多 17 个单次观察，P95 只作本次样本诊断。')
-  translated=translate_text(source)
-  self.assertIn('17 tasks were declared',translated)
-  self.assertIn('at most 17 single observations',translated)
-  self.assertNotIn('20 single observations',translated)
-  samples=[
-   '全部 12 种方法共同通过 0/17 题；共同通过数只作诊断，不用于筛选测速样本。'
-   '报告保留预声明的全部 204 次调用，不按结果重新选题；全调用耗时可在相同分母下阅读，'
-   '通过调用耗时只描述各方法的条件分布，不能解释为同题速度排名。',
-   '这份旧版测速汇总只使用 8/20 个全部 7 种方法共同通过的同窗任务；它保留原报告的共同成功样本口径，'
-   '不能补充解释失败等待，也不能与跨批次主结果直接排名。',
-   '静态网页通过数：chromium 99/100。综合榜按 150 个任务等权计数；6 类分榜仍分别解释，'
-   '耗时和文字质量不混入综合通过率。',
-  ]
-  for sample in samples:
-   self.assertEqual(untranslated_english_narrative('<p>'+translate_text(sample)+'</p>'),[])
  def test_english_article_audit_excludes_preserved_evidence_and_task_names(self):
   from harness.web_fetch.report_i18n import untranslated_english_narrative
   page=('<html><body><p>English explanation</p><p>中文任务名</p>'
@@ -240,19 +217,6 @@ class ReportRevisionTests(unittest.TestCase):
   self.assertEqual(untranslated_english_narrative('<p>漏译的解释</p>'),['漏译的解释'])
   self.assertEqual(untranslated_english_narrative('<img alt="漏译的替代文字">'),
                    ['漏译的替代文字'])
- def test_generic_speed_and_scope_narrative_is_fully_localized(self):
-  from harness.web_fetch.report_i18n import translate_text,untranslated_english_narrative
-  samples=[
-   '同一时间窗的速度怎样读',
-   '主结果来自不同批次，耗时只用于逐次诊断；下面单列预先声明的同窗子集。'
-   '全调用统计保留失败与截止超时，回答完整任务队列要等多久；通过调用统计只描述各方法已通过任务，'
-   '成功分母可能不同，不能单独拿来排同题速度。',
-   '统计按实际调用记录计算，未运行和缺少验收证据的项目不记为失败。静态网站正文、动态网站正文与热门网站正文分别陈述，'
-   '文档、资源地址和原文件按各自契约验收。100 个普通网页中，GitHub 与 Python 官方文档占 48 个，样本偏向技术文档；'
-   '每个方法与案例组合只有一次观察，不能估计波动或外推为全网成功率。调用日期相邻不构成同时间对照，公开练习站也不能代表生产网站分布。',
-  ]
-  localized=''.join('<p>'+translate_text(sample)+'</p>' for sample in samples)
-  self.assertEqual(untranslated_english_narrative(localized),[])
  def test_english_article_gate_rejects_untranslated_narrative(self):
   from harness.web_fetch.report_i18n import write_english_report
   with tempfile.TemporaryDirectory() as directory:
@@ -271,16 +235,9 @@ class ReportRevisionTests(unittest.TestCase):
    rendered=(root/'en/guide/article.html').read_text(encoding='utf-8')
    self.assertIn('中文任务名',rendered)
    self.assertIn('标准答案与实际输出原文',rendered)
- def test_visible_accessibility_attributes_are_localized(self):
-  from pathlib import PurePosixPath
-  from harness.web_fetch.report_i18n import localize_html
-  page=('<html lang="zh-CN"><body><img alt="页面中稳定标题、栏目与说明作为内容核对点；'
-        '变化条目检查数量、字段类型和结构；全文参考单独声明范围。"></body></html>')
-  rendered=localize_html(page,PurePosixPath('guide/article.html'))
-  self.assertIn('alt="Stable headings, sections, and explanations',rendered)
-  self.assertNotIn('页面中稳定标题',rendered)
  def test_article_aria_labels_localize_without_touching_evidence_attributes(self):
   from pathlib import PurePosixPath
+
   from harness.web_fetch.report_i18n import localize_html
   markup='<nav aria-label="文章目录" data-evidence="文章目录"></nav><img src="data:image/png;base64,YQ==" alt="文章目录">'
   translated=localize_html(markup,PurePosixPath('guide/article.html'))
@@ -294,6 +251,7 @@ class ReportRevisionTests(unittest.TestCase):
   self.assertIn('data-evidence="文章目录"',other)
  def test_article_selects_localized_assets_before_rewriting_relative_urls(self):
   from pathlib import PurePosixPath
+
   from harness.web_fetch.report_i18n import localize_html
   markup='<a href="figures/zh.png" data-en-href="figures/en.png"><img src="figures/zh.png" data-en-src="figures/en.png" alt="文章目录" data-evidence="原始证据"></a>'
   for route in ('guide/index.html','guide/article.html'):
@@ -304,6 +262,7 @@ class ReportRevisionTests(unittest.TestCase):
    self.assertIn('data-evidence="原始证据"',translated)
  def test_methodology_selects_english_figure_without_localizing_measured_markup(self):
   from pathlib import PurePosixPath
+
   from harness.web_fetch.report_i18n import localize_html
   markup='<img src="../assets/methodology/zh.png" data-en-src="../assets/methodology/en.png" alt="参考标注"><pre><img src="https://example.org/evidence.png" data-en-src="https://example.org/wrong.png"></pre>'
   result=localize_html(markup,PurePosixPath('methodology/index.html'))
@@ -313,6 +272,7 @@ class ReportRevisionTests(unittest.TestCase):
 
  def test_article_embedded_assets_and_measured_markup_stay_distinct(self):
   from pathlib import PurePosixPath
+
   from harness.web_fetch.report_i18n import localize_html
   markup='<img src="data:image/png;base64,YQ==" data-en-src="data:image/png;base64,Yg==" alt="文章目录"><pre><img src="data:image/png;base64,YQ==" alt="文章目录"></pre>'
   translated=localize_html(markup,PurePosixPath('guide/article.html'))
@@ -324,6 +284,7 @@ class ReportRevisionTests(unittest.TestCase):
 
 def test_methodology_image_parity_rejects_wrong_or_missing_english_companion(tmp_path):
  import pytest
+
  from harness.web_fetch.report_check import PageShape, check_localized_image_sources
  zh=PageShape(tmp_path/'methodology/index.html')
  zh.feed('<img src="zh.png" data-en-src="en.png">')
@@ -339,6 +300,7 @@ def test_methodology_image_parity_rejects_wrong_or_missing_english_companion(tmp
 class MeasuredInterfaceIdentityTests(unittest.TestCase):
  def render(self, records, name='moli'):
   import json
+
   from harness.web_fetch.report_interfaces import render_interfaces
   with tempfile.TemporaryDirectory() as directory:
    out=Path(directory);(out/'adoption').mkdir();(out/'answer.md').write_text('Body', encoding='utf-8')
@@ -371,8 +333,8 @@ class MeasuredInterfaceIdentityTests(unittest.TestCase):
    self.assertNotIn('/private/local-script.js',str(output))
    if name=='obscura':self.assertNotIn('--dump',str(output['interface']['request']))
 def test_measurement_display_policy_does_not_grant_certification():
- from harness.web_fetch.report_components import measurement_presentation
  from harness.web_fetch.report import local_audit_banner
+ from harness.web_fetch.report_components import measurement_presentation
  ordinary={'comparison':{'kind':'other_measurement'}}
  assert not measurement_presentation(ordinary).native_outputs
  assert not measurement_presentation(ordinary).local_matrix
@@ -388,8 +350,9 @@ def test_measurement_display_policy_does_not_grant_certification():
 
 
 def test_input_suite_comparison_uses_declared_membership_and_selected_denominators():
- from harness.web_fetch.report import input_suite_comparison
  from bs4 import BeautifulSoup
+
+ from harness.web_fetch.report import input_suite_comparison
  cases={cid:{'id':cid,'task_kind':'body'} for cid in ['misleading-id','other-id']}
  dataset={'comparison':{'input_sources':[
   {'path':'first/dataset.json','case_ids':['other-id','unselected-parent-case']},

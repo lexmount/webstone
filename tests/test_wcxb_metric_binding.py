@@ -60,44 +60,37 @@ def metric_source() -> bytes:
     return scoring.METRIC_MODULE.read_bytes()
 
 
-def test_changed_word_metric_rejects_legacy_profile(cohort, monkeypatch):
-    def changed_word_metric(predicted, reference):
-        return 0., 0., 0.
-    monkeypatch.setattr(scoring, 'word_f1', changed_word_metric)
+@pytest.mark.parametrize('name', ['word_f1', 'snippet_check'])
+def test_changed_metric_function_rejects_legacy_profile(cohort, monkeypatch, name):
+    monkeypatch.setattr(scoring, name, lambda *args: 0.)
     assert_rejected(cohort)
 
 
-def test_changed_snippet_metric_rejects_legacy_profile(cohort, monkeypatch):
-    def changed_snippet_metric(text, snippets):
-        return 0.
-    monkeypatch.setattr(scoring, 'snippet_check', changed_snippet_metric)
-    assert_rejected(cohort)
-
-
-@pytest.mark.parametrize('old,new', [
-    (b'\\w+', b'\\S+'),
-    (b'.lower())\n    reference_words', b')\n    reference_words'),
-    (b'else 1.0', b'else 0.0'),
-    (b'def word_f1', b'def helper():\n    return 0\n\n\ndef word_f1'),
-])
-def test_changed_module_code_rejects_legacy_profile(cohort, monkeypatch, tmp_path, old, new):
+def test_changed_module_code_rejects_legacy_profile(cohort, monkeypatch, tmp_path):
     source = metric_source()
-    assert old in source
-    use_metric_module(monkeypatch, tmp_path, source.replace(old, new))
+    for old, new in (
+        (b'.lower())\n    reference_words', b')\n    reference_words'),
+        (b'else 1.0', b'else 0.0'),
+        (b'def word_f1', b'def helper():\n    return 0\n\n\ndef word_f1'),
+    ):
+        assert old in source
+        assert scoring.metric_module_digest(source.replace(old, new)) != approved_digest()
+    # One end-to-end control: scoring refuses a cohort under changed code.
+    use_metric_module(monkeypatch, tmp_path, source.replace(b'\\w+', b'\\S+'))
     assert_rejected(cohort)
 
 
-@pytest.mark.parametrize('statement', [
-    b'from harness import safety\n',
-    b'import harness.safety\n',
-    b'def helper():\n    import harness.safety\n',
-    b'def helper():\n    from harness import safety\n',
-    b'from . import safety\n',
-])
-def test_unbound_helper_import_rejects_module_before_hashing(statement):
-    tampered = metric_source().replace(b'import re\n', b'import re\n' + statement)
-    with pytest.raises(ValueError, match='metric implementation'):
-        scoring.metric_module_digest(tampered)
+def test_unbound_helper_import_rejects_module_before_hashing():
+    for statement in (
+        b'from harness import safety\n',
+        b'import harness.safety\n',
+        b'def helper():\n    import harness.safety\n',
+        b'def helper():\n    from harness import safety\n',
+        b'from . import safety\n',
+    ):
+        tampered = metric_source().replace(b'import re\n', b'import re\n' + statement)
+        with pytest.raises(ValueError, match='metric implementation'):
+            scoring.metric_module_digest(tampered)
 
 
 def test_formatting_docstrings_and_comments_keep_the_binding(cohort, monkeypatch, tmp_path):
@@ -121,7 +114,7 @@ def test_ruff_format_keeps_the_binding():
     assert scoring.metric_module_digest(formatted) == approved_digest()
 
 
-@pytest.mark.parametrize('answer,reference,expected', [
+WORD_CASES = [
     ('Alpha, BETA!', 'alpha beta', (1.0, 1.0, 1.0)),
     ('alpha alpha beta', 'alpha beta beta beta', (0.6666666666666666, 0.5, 0.5714285714285715)),
     ('a 1 1', 'A 1', (0.6666666666666666, 1.0, 0.8)),
@@ -138,12 +131,15 @@ def test_ruff_format_keeps_the_binding():
     ('no shared words', 'entirely different tokens', (0.0, 0.0, 0.0)),
     ('İstanbul café', 'i̇stanbul CAFÉ', (1.0, 1.0, 1.0)),
     ('line one\nline\ttwo', 'LINE ONE LINE TWO', (1.0, 1.0, 1.0)),
-])
-def test_word_metric_matches_upstream_evaluator_output(answer, reference, expected):
-    assert word_f1(answer, reference) == expected
+]
 
 
-@pytest.mark.parametrize('text,snippets,expected', [
+def test_word_metric_matches_upstream_evaluator_output():
+    for answer, reference, expected in WORD_CASES:
+        assert word_f1(answer, reference) == expected, (answer, reference)
+
+
+SNIPPET_CASES = [
     ('Cartography', ['art'], 1.0),
     ('Alpha Beta', ['ALPHA', 'beta', 'absent'], 0.6666666666666666),
     ('Straße', ['STRASSE'], 0.0),
@@ -152,9 +148,12 @@ def test_word_metric_matches_upstream_evaluator_output(answer, reference, expect
     ('Repeat repeat', ['repeat', 'repeat'], 1.0),
     ('Nav: Home | About', ['nav: home', 'home  |', 'about'], 0.6666666666666666),
     ('text', [''], 1.0),
-])
-def test_snippet_metric_matches_upstream_evaluator_output(text, snippets, expected):
-    assert snippet_check(text, snippets) == expected
+]
+
+
+def test_snippet_metric_matches_upstream_evaluator_output():
+    for text, snippets, expected in SNIPPET_CASES:
+        assert snippet_check(text, snippets) == expected, (text, snippets)
 
 
 def test_superseded_digest_is_the_retired_source_of_the_bound_code():
@@ -195,10 +194,11 @@ def test_frozen_cohort_rescoring_keeps_profile_and_certificate_bytes(cohort):
     assert (cohort['profile_path'].read_bytes(), certificate.read_bytes()) == before
 
 
-@pytest.mark.parametrize('document', ['certificate', 'summary', 'receipt'])
-def test_unknown_digest_in_frozen_evidence_is_rejected(document):
-    with pytest.raises(ValueError, match='metric implementation binding mismatch'):
-        scoring.metric_implementation_binding(frozen_profile(), **{document: {'metric_implementation_sha256': '0' * 64}})
+def test_unknown_digest_in_frozen_evidence_is_rejected():
+    for document in ('certificate', 'summary', 'receipt'):
+        with pytest.raises(ValueError, match='metric implementation binding mismatch'):
+            scoring.metric_implementation_binding(
+                frozen_profile(), **{document: {'metric_implementation_sha256': '0' * 64}})
 
 
 def test_superseded_digest_stops_verifying_once_the_code_changes(monkeypatch, tmp_path):

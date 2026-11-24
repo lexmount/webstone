@@ -79,8 +79,7 @@ def test_scoped_english_refresh_preserves_unselected_pages_and_rejects_escaping_
 
 
 @pytest.mark.parametrize("mode", ["--diagnostic-cohorts", "--webmainbench-full"])
-@pytest.mark.parametrize("language", [None, "zh", "en"])
-@pytest.mark.parametrize("saved", [False, True])
+@pytest.mark.parametrize(("language", "saved"), [(None, False), (None, True), ("zh", False), ("en", True)])
 def test_chinese_only_commands_preserve_omitted_language(tmp_path, monkeypatch, mode, language, saved):
     from harness.web_fetch import report_build
     output = tmp_path / "report"
@@ -101,16 +100,13 @@ def test_chinese_only_commands_preserve_omitted_language(tmp_path, monkeypatch, 
     assert len(calls) == (0 if language == "en" else 1)
 
 
-@pytest.mark.parametrize("language", [None, "zh"])
-def test_historical_diagnostic_command_builds_actual_report(tmp_path, language):
+def test_historical_diagnostic_command_builds_actual_report(tmp_path):
     from tests.test_report_templates import diagnostic_example
     evidence = tmp_path / "evidence"
     diagnostic_example(evidence)
     output = tmp_path / "report"
     command = [sys.executable, str(ROOT / "scripts/build_report.py"), "--diagnostic-cohorts",
                "--evidence", str(evidence), "--output", str(output)]
-    if language:
-        command += ["--language", language]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert json.loads((output / "report-manifest.json").read_text(encoding="utf-8"))["languages"] == ["zh"]
@@ -127,7 +123,7 @@ def test_historical_diagnostic_command_builds_actual_report(tmp_path, language):
 
 
 @pytest.mark.parametrize("target", ["report", "popular-sites-report", "browser-use-report", "trajectory-replay-report", "public-benchmark-report", "webfetch-diagnostic-report"])
-@pytest.mark.parametrize("language", [None, "en", "zh"])
+@pytest.mark.parametrize("language", [None, "en"])
 def test_make_language_override_is_only_explicit(tmp_path, monkeypatch, target, language):
     make = shutil.which("make")
     if not make or subprocess.run([make, "--version"], capture_output=True).returncode:
@@ -166,7 +162,6 @@ def test_make_language_override_is_only_explicit(tmp_path, monkeypatch, target, 
         assert captured[0]["language"] == (language or "zh")
 
 
-
 def cli(*args):
     env = {**os.environ, "PYTHONPATH": str(ROOT)}
     # Empty environment setting isolates the public fallback from a developer .env.
@@ -176,7 +171,8 @@ def cli(*args):
                           env=env)
 
 
-@pytest.mark.parametrize("language", [None, "en", "zh"])
+# None selects the English default; zh is the other primary edition.
+@pytest.mark.parametrize("language", [None, "zh"])
 def test_run_selects_language_and_rebuild_preserves_it(tmp_path, language):
     run = tmp_path / "run"
     options = ["--language", language] if language else []

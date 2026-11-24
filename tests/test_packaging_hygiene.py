@@ -232,15 +232,20 @@ def test_make_ci_runs_each_ci_job():
     assert "scripts/check_package.py" in ci and "shellcheck" in ci
 
 
-@pytest.mark.parametrize("target", ["report", "report-check", "wcxb-release-check", "trajectory-replay-publish",
-                                    "public-webarena-report", "webmainbench-assemble",
-                                    "webfetch-diagnostic-report"])
-def test_required_profile_is_rejected_before_any_tool_runs(target, tmp_path):
-    (tmp_path / "bin").mkdir()
-    fake = tmp_path / "bin/uv"
+@pytest.fixture(scope="module")
+def fake_uv(tmp_path_factory):
+    # Created once: macOS assesses each new executable on its first launch (~1.5 s).
+    fake = tmp_path_factory.mktemp("bin") / "uv"
     fake.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     fake.chmod(0o700)
-    result = make(target, f"UV={fake}", "EVIDENCE=/synthetic", "OUTPUT=/synthetic", "RUN_ROOT=/synthetic",
+    return fake
+
+
+# Every profile-bound target uses the shared require_profile macro (enumerated by
+# test_documented_make_commands_name_the_required_profile); one target per variable.
+@pytest.mark.parametrize("target", ["report", "webfetch-diagnostic-report", "webmainbench-assemble"])
+def test_required_profile_is_rejected_before_any_tool_runs(target, fake_uv):
+    result = make(target, f"UV={fake_uv}", "EVIDENCE=/synthetic", "OUTPUT=/synthetic", "RUN_ROOT=/synthetic",
                   "SOURCE=/synthetic", "REVIEW=/synthetic", cwd=ROOT)
     assert result.returncode == 2 and "PROFILE=/absolute/path/to/profile.json is required" in result.stderr
 

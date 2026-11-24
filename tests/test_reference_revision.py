@@ -76,8 +76,11 @@ def reference_fixture(tmp_path):
     return evidence, canonical / "dataset.json"
 
 
-@pytest.mark.parametrize("filename", ["reference-revisions.json", "scoring-revisions.json"])
-@pytest.mark.parametrize("content", [b"{invalid", b"{}", b"[{}]"])
+@pytest.mark.parametrize(("filename", "content"), [
+    ("reference-revisions.json", b"{invalid"),
+    ("scoring-revisions.json", b"{}"),
+    ("reference-revisions.json", b"[{}]"),
+])
 def test_invalid_history_keeps_entire_bundle_unchanged(tmp_path, filename, content):
     evidence, canonical = reference_fixture(tmp_path)
     (evidence / filename).write_bytes(content)

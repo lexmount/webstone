@@ -16,21 +16,31 @@ def apply_fixture(fixture):
     return correction.apply(*fixture[:7], profile=fixture[7])
 
 
-RETAINED_PROVIDERS = ("kitesurf", "moli", "chromium")
+# The production 200-case sample size stays fixed, so most controls use only the
+# replaced method. Where untouched methods matter, the first method is an unregistered
+# name the profile declares, covering additional methods and cross-method identity.
+TWO_PROVIDERS = ("new-engine", "chromium")
 
 
-@pytest.fixture
-def retained(tmp_path, monkeypatch):
-    # Three methods cover the replaced one, untouched ones and cross-method identity;
-    # the production 200-case sample size stays fixed.
-    fixture = correction_fixture(tmp_path / "fixture", providers=RETAINED_PROVIDERS)
+def make_fixture(tmp_path, monkeypatch, providers):
+    fixture = correction_fixture(tmp_path / "fixture", providers=providers)
     monkeypatch.setattr(correction, "DATASET_SHA256", file_sha256(fixture[5]))
     return fixture
 
 
-def test_revision_materializes_every_retry_and_excludes_unbound_files(retained):
-    receipt = apply_fixture(retained)
-    source, bindings, output, case, providers, *_ = retained
+@pytest.fixture
+def retained(tmp_path, monkeypatch):
+    return make_fixture(tmp_path, monkeypatch, ("chromium",))
+
+
+@pytest.fixture
+def two_methods(tmp_path, monkeypatch):
+    return make_fixture(tmp_path, monkeypatch, TWO_PROVIDERS)
+
+
+def test_revision_materializes_every_retry_and_excludes_unbound_files(two_methods):
+    receipt = apply_fixture(two_methods)
+    source, bindings, output, case, providers, *_ = two_methods
     provider = providers[0]
     shard = output / provider
     assert receipt["effects"][provider]["new_physical_calls"] == 2
@@ -40,17 +50,10 @@ def test_revision_materializes_every_retry_and_excludes_unbound_files(retained):
     assert not list(output.rglob("unbound.txt"))
     assert (source / provider / "private-worker.txt").is_file()
     assert correction.read_jsonl(shard / "scored-results.jsonl")[1:] == correction.read_jsonl(source / provider / "scored-results.jsonl")[1:]
-    for name in RETAINED_PROVIDERS[:-1]:
+    for name in TWO_PROVIDERS[:-1]:
         for filename in ("scored-results.jsonl", "results.jsonl", "physical-attempts.jsonl",
                          "score-summary.json", "execution.json", "dataset.json"):
             assert (output / name / filename).read_bytes() == (source / name / filename).read_bytes()
-
-
-def test_profile_can_declare_an_additional_method(tmp_path, monkeypatch):
-    fixture = correction_fixture(tmp_path / "six", providers=("moli", "chromium", "new-engine"))
-    monkeypatch.setattr(correction, "DATASET_SHA256", file_sha256(fixture[5]))
-    apply_fixture(fixture)
-    assert {p.name for p in fixture[2].iterdir() if p.is_dir()} == {"moli", "chromium", "new-engine"}
 
 
 @pytest.mark.parametrize("damage", ["metrics", "physical", "retry", "missing-method", "duplicate-case", "identity", "raw-result"])
@@ -68,11 +71,11 @@ def test_invalid_revision_leaves_no_partial_output(retained, damage):
         calls[0]["physical_attempt"] = 2
         write_rows(replacement / "physical-attempts.jsonl", calls)
     elif damage == "missing-method":
-        (source / "moli").rename(source / "unknown-method")
+        (source / "chromium").rename(source / "unknown-method")
     elif damage == "duplicate-case":
-        old = correction.read_jsonl(source / "moli/scored-results.jsonl")
+        old = correction.read_jsonl(source / "chromium/scored-results.jsonl")
         old[-1] = copy.deepcopy(old[0])
-        write_rows(source / "moli/scored-results.jsonl", old)
+        write_rows(source / "chromium/scored-results.jsonl", old)
     elif damage == "identity":
         execution = json.loads((replacement / "execution.json").read_text(encoding="utf-8"))
         execution["implementation_identity"]["converter"] = "changed"
@@ -123,7 +126,7 @@ def test_mid_revision_input_change_leaves_no_output(retained, monkeypatch, chang
         original(*args, **kwargs)
         if not done:
             done = True
-            path = (retained[0] / "moli/private-worker.txt" if changed == "source"
+            path = (retained[0] / "chromium/private-worker.txt" if changed == "source"
                     else next(iter(retained[1].values())) / "private-worker.txt" if changed == "replacement"
                     else retained[7])
             path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
@@ -158,8 +161,9 @@ def test_output_cannot_be_inside_replacement_evidence(retained):
     assert not fixture[2].exists()
 
 
-def test_command_accepts_repeated_bindings_and_infers_exact_scope(retained, tmp_path, monkeypatch, capsys):
-    second = correction_fixture(tmp_path / "second", providers=("moli",))
+def test_command_accepts_repeated_bindings_and_infers_exact_scope(two_methods, tmp_path, monkeypatch, capsys):
+    retained = two_methods
+    second = correction_fixture(tmp_path / "second", providers=("new-engine",))
     source, bindings, output, case, _, dataset, manifest, profile = retained
     bindings = {**bindings, **second[1]}
     argv = ["apply", "--source-root", str(source), "--output", str(output),
@@ -169,9 +173,9 @@ def test_command_accepts_repeated_bindings_and_infers_exact_scope(retained, tmp_
         argv += ["--correction", f"{provider}={root}"]
     monkeypatch.setattr(sys, "argv", argv)
     correction.main()
-    assert set(json.loads(capsys.readouterr().out)["providers"]) == {"chromium", "moli"}
+    assert set(json.loads(capsys.readouterr().out)["providers"]) == {"chromium", "new-engine"}
     receipt = json.loads((output / "fixture-correction.json").read_text(encoding="utf-8"))
-    assert set(receipt["effects"]) == {"chromium", "moli"}
+    assert set(receipt["effects"]) == {"chromium", "new-engine"}
 
 
 def test_existing_output_is_never_modified(retained):
@@ -184,13 +188,14 @@ def test_existing_output_is_never_modified(retained):
     assert (output / "marker").read_text(encoding="utf-8") == "preserve"
 
 
-def test_attempt_identity_cannot_collide_across_methods(retained):
+def test_attempt_identity_cannot_collide_across_methods(two_methods):
+    retained = two_methods
     source = retained[0]
-    first = correction.read_jsonl(source / "kitesurf/scored-results.jsonl")
-    second = correction.read_jsonl(source / "moli/scored-results.jsonl")
-    second[0]["attempt_id"] = first[0]["attempt_id"]
-    write_rows(source / "moli/scored-results.jsonl", second)
-    write_rows(source / "moli/results.jsonl", [{k: v for k, v in row.items() if k != "metrics"} for row in second])
+    first = correction.read_jsonl(source / "chromium/scored-results.jsonl")
+    second = correction.read_jsonl(source / "new-engine/scored-results.jsonl")
+    second[1]["attempt_id"] = first[1]["attempt_id"]
+    write_rows(source / "new-engine/scored-results.jsonl", second)
+    write_rows(source / "new-engine/results.jsonl", [{k: v for k, v in row.items() if k != "metrics"} for row in second])
     with pytest.raises(ValueError, match="identity is not unique"):
         apply_fixture(retained)
     assert not retained[2].exists()

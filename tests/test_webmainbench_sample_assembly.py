@@ -41,9 +41,14 @@ def test_declared_sample_preserves_all_bound_results_calls_and_source(tmp_path, 
     assert review['bindings']['results_jsonl_sha256'] == file_sha256(output / 'results.jsonl')
 
 
-@pytest.mark.parametrize('damage', ['review-bindings', 'review-provider', 'review-check', 'profile', 'source',
-                                    'logical', 'physical', 'artifact', 'symlink', 'dangling-output'])
-def test_invalid_inputs_leave_no_partial_assembly(tmp_path, damage):
+def test_invalid_inputs_leave_no_partial_assembly(tmp_path):
+    for damage in ('review-bindings', 'review-provider', 'review-check', 'profile', 'source',
+                   'logical', 'physical', 'artifact', 'symlink', 'dangling-output'):
+        (tmp_path / damage).mkdir()
+        damage_sample(tmp_path / damage, damage)
+
+
+def damage_sample(tmp_path, damage):
     fixture = sample_fixture(tmp_path)
     shard = fixture['root'] / 'engine-a'
     if damage.startswith('review-'):

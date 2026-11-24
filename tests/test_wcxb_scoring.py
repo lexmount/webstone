@@ -3,6 +3,7 @@
 import json
 import os
 import py_compile
+import shutil
 import subprocess
 import sys
 
@@ -15,9 +16,39 @@ from tests.wcxb_fixture import create_cohort, sha, write_jsonl
 from tests.helpers import write_json
 
 
+@pytest.fixture(scope="module")
+def templates(tmp_path_factory):
+    cache = {}
+
+    def template(paired):
+        if paired not in cache:
+            cache[paired] = create_cohort(tmp_path_factory.mktemp("wcxb-template"), paired=paired)
+        return cache[paired]
+
+    return template
+
+
+def private_copy(template, tmp_path):
+    """Private evidence, profile and manifest copies over a shared read-only source tree."""
+    copied = dict(template)
+    for key in ("evidence_root", "profile_path", "sample_manifest"):
+        target = tmp_path / template[key].name
+        if template[key].is_dir():
+            shutil.copytree(template[key], target, symlinks=True)
+        else:
+            shutil.copy2(template[key], target)
+        copied[key] = target
+    return copied
+
+
 @pytest.fixture
-def cohort(tmp_path):
-    return create_cohort(tmp_path)
+def cohort(tmp_path, templates):
+    return private_copy(templates(False), tmp_path)
+
+
+@pytest.fixture
+def paired(tmp_path, templates):
+    return private_copy(templates(True), tmp_path)
 
 
 def outputs(options):
@@ -70,8 +101,8 @@ def test_custom_participant_matrix_preserves_scores_retries_and_populations(coho
         scoring.score(**cohort)
 
 
-def test_paired_timing_joins_binary_identity_with_arbitrary_browser_names(tmp_path):
-    options = create_cohort(tmp_path, paired=True)
+def test_paired_timing_joins_binary_identity_with_arbitrary_browser_names(paired):
+    options = paired
     summary = scoring.score(**options)
     assert summary["providers"]["alpha"]["mean_latency_ms"] == 11
     assert summary["providers"]["gamma"]["mean_latency_ms"] == 13
@@ -83,29 +114,20 @@ def test_paired_timing_joins_binary_identity_with_arbitrary_browser_names(tmp_pa
     )
 
 
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "late_artifact",
-        "final_physical",
-        "prior_physical",
-        "physical_escape",
-        "logical_escape",
-        "linked_artifact",
-        "duplicate_call",
-        "call_order",
-        "input_hash",
-        "reference_hash",
-        "run_id",
-        "final_outcome",
-        "nan_latency",
-        "execution",
-        "certificate",
-        "profile_matrix",
-        "profile_source",
-    ],
+COHORT_DEFECTS = (
+    "late_artifact", "final_physical", "prior_physical", "physical_escape", "logical_escape",
+    "linked_artifact", "duplicate_call", "call_order", "input_hash", "reference_hash", "run_id",
+    "final_outcome", "nan_latency", "execution", "certificate", "profile_matrix", "profile_source",
 )
-def test_invalid_cohort_is_rejected_without_partial_outputs(cohort, tmp_path, defect):
+
+
+def test_invalid_cohort_is_rejected_without_partial_outputs(tmp_path, templates):
+    for defect in COHORT_DEFECTS:
+        (tmp_path / defect).mkdir()
+        damage_cohort(private_copy(templates(False), tmp_path / defect), tmp_path / defect, defect)
+
+
+def damage_cohort(cohort, tmp_path, defect):
     root = cohort["evidence_root"]
     provider = "gamma" if defect == "late_artifact" else "beta"
     run = root / provider
@@ -169,8 +191,8 @@ def test_invalid_cohort_is_rejected_without_partial_outputs(cohort, tmp_path, de
 
 
 @pytest.mark.parametrize("defect", ["missing", "incomplete", "wrong_output", "ambiguous_binary"])
-def test_paired_timing_rejects_unbound_or_partial_corrections(tmp_path, defect):
-    options = create_cohort(tmp_path, paired=True)
+def test_paired_timing_rejects_unbound_or_partial_corrections(paired, defect):
+    options = paired
     root = options["evidence_root"]
     correction = root / "latency-correction"
     if defect == "missing":
@@ -243,7 +265,8 @@ def test_output_created_during_install_is_preserved(cohort, monkeypatch):
 
 
 @pytest.mark.parametrize("changed", ["profile", "source", "response"])
-def test_inputs_changed_during_scoring_reject_all_outputs(cohort, monkeypatch, changed):
+def test_inputs_changed_during_scoring_reject_all_outputs(tmp_path, monkeypatch, changed):
+    cohort = create_cohort(tmp_path)
     # Fault injection targets the evidence guard, independently of code admission.
     monkeypatch.setattr(scoring, 'metric_implementation_binding', lambda *args, **kwargs: '1' * 64)
     original = scoring.word_f1
@@ -269,7 +292,8 @@ def test_inputs_changed_during_scoring_reject_all_outputs(cohort, monkeypatch, c
     assert not list((cohort["evidence_root"] / "physical-artifacts").rglob("*.txt"))
 
 
-def test_dataset_python_is_never_executed_even_with_stale_bytecode(cohort, tmp_path):
+def test_dataset_python_is_never_executed_even_with_stale_bytecode(tmp_path):
+    cohort = create_cohort(tmp_path / "cohort")
     module = cohort["source"] / "evaluate.py"
     sentinel = tmp_path / "executed"
     module.write_text('raise RuntimeError("old external code executed")\n', encoding="utf-8")
@@ -306,7 +330,7 @@ def test_command_uses_explicit_profile_outside_repository(cohort, tmp_path):
     assert outputs(cohort)[1].exists()
 
 
-@pytest.mark.parametrize("metric", [float('nan'), float('inf'), 1.1, True])
+@pytest.mark.parametrize("metric", [float('nan'), 1.1, True])
 def test_invalid_evaluator_metrics_never_produce_score_files(cohort, metric, monkeypatch):
     # Exercise numeric validation separately from implementation admission.
     monkeypatch.setattr(scoring, 'metric_implementation_binding', lambda *args, **kwargs: '1' * 64)

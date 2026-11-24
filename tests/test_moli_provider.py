@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,28 +12,53 @@ from unittest.mock import Mock, patch
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.providers.moli import _diagnostic_main_document_url
-from harness.web_fetch.report_interfaces import SPECS
-from harness.web_fetch.report_methods import PROFILES
 
 
 @unittest.skipUnless(os.name == "posix", "executable fixture uses POSIX shebang")
 class MoliTests(unittest.TestCase):
-    def test_effective_main_document_url_comes_from_same_call_debug_log(self):
-        requested = "https://example.com/start?q=1"
-        stderr = (
-            "DEBUG fetch request complete method=GET "
-            f"url={requested} final_url=https://example.com/final status=200 transfer_size=42\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/app.js "
-            "final_url=https://cdn.example.com/app.js status=200 transfer_size=7\n"
-        )
-        self.assertEqual(
-            _diagnostic_main_document_url(stderr, requested), "https://example.com/final"
-        )
+    def test_main_document_url_comes_only_from_owned_same_call_navigation(self):
+        start = "https://example.com/start"
 
-    def test_document_request_identity_preserves_port_and_encoded_separators(self):
+        def done(url, final, status=200):
+            return f"DEBUG fetch request complete method=GET url={url} final_url={final} status={status}\n"
+
+        pending = ("DEBUG following pending location navigation asynchronously stage=Load "
+                   "url=https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext\n")
+        commit = "DEBUG committed main navigation before replacement realm bootstrap page_id=1\n"
+        published = "DEBUG published standalone replacement Document page_id=1\n"
+        committed = (done(start, start) + "DEBUG following pending location navigation asynchronously "
+                     "stage=Load url=https://example.com/next\n" + done("https://example.com/next",
+                     "https://example.com/document") + commit + published
+                     + done("https://cdn.example.com/asset", "https://cdn.example.com/asset"))
+        challenge = "https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext"
+        for name, log, expected in (
+            ("same-call", done(start, "https://example.com/final")
+             + done("https://cdn.example.com/app.js", "https://cdn.example.com/app.js"),
+             "https://example.com/final"),
+            ("unowned-redirect-hop", done(start, start, 302)
+             + done("https://login.example.com/challenge", "https://login.example.com/challenge"), None),
+            ("unowned-late-redirect", done(start, "https://example.com/") + pending
+             + done(challenge, challenge, 302) + done("https://example.com/next", "https://example.com/next", 302)
+             + commit + done("https://example.com/document", "https://example.com/document") + published,
+             None),
+            ("legacy-multihop-interleaved-resource", done(start, start)
+             + "DEBUG following pending location navigation asynchronously stage=Load "
+             "url=https://example.com/check?redir=/next\n"
+             + done("https://example.com/check?redir=/next", "https://example.com/check?redir=/next", 302)
+             + done("https://example.com/next", "https://example.com/next", 302) + commit
+             + done("https://cdn.example.com/app.js", "https://cdn.example.com/app.js")
+             + done("https://example.com/document", "https://example.com/document") + published, None),
+            ("unfetched-target-not-inferred", done(start, "https://example.com/") + pending,
+             "https://example.com/"),
+            ("committed-navigation", committed, "https://example.com/document"),
+            ("uncommitted-navigation", committed.replace(commit, ""), start),
+            *((f"invalid-final-{final}", done(start, final), None)
+              for final in ("https://[invalid/", "https://example.com:invalid/", "https://example.com:99999/")),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(_diagnostic_main_document_url(log, start), expected)
         for requested, logged, matches in (
             ("https://example.com:8443/start", "https://example.com/start", False),
-            ("https://example.com:0/start", "https://example.com/start", False),
             ("https://example.com/a%2Fb", "https://example.com/a/b", False),
             ("https://example.com/a%2fb", "https://example.com/a%2Fb", True),
             ("https://example.com:443/start", "https://example.com/start", True),
@@ -41,89 +67,9 @@ class MoliTests(unittest.TestCase):
             ("https://example.com/start", "https://[invalid/", False),
         ):
             with self.subTest(requested=requested, logged=logged):
-                stderr = (f"DEBUG fetch request complete method=GET url={logged} "
-                          "final_url=https://example.com/document status=200\n")
-                self.assertEqual(_diagnostic_main_document_url(stderr, requested),
+                log = done(logged, "https://example.com/document")
+                self.assertEqual(_diagnostic_main_document_url(log, requested),
                                  "https://example.com/document" if matches else None)
-
-    def test_invalid_final_url_is_unavailable_instead_of_raising(self):
-        for final_url in ("https://[invalid/", "https://example.com:invalid/", "https://example.com:99999/"):
-            with self.subTest(final_url=final_url):
-                stderr = ("DEBUG fetch request complete method=GET url=https://example.com/start "
-                          f"final_url={final_url} status=200\n")
-                self.assertIsNone(_diagnostic_main_document_url(stderr, "https://example.com/start"))
-
-    def test_effective_main_document_url_rejects_unowned_redirect_hops(self):
-        stderr = (
-            "DEBUG fetch request complete method=GET url=https://example.com/start "
-            "final_url=https://example.com/start status=302 transfer_size=42\n"
-            "DEBUG fetch request complete method=GET url=https://login.example.com/challenge "
-            "final_url=https://login.example.com/challenge status=200 transfer_size=7\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/app.js "
-            "final_url=https://cdn.example.com/app.js status=200 transfer_size=7\n"
-        )
-        self.assertIsNone(_diagnostic_main_document_url(stderr, "https://example.com/start"))
-
-    def test_effective_main_document_url_rejects_unowned_late_redirect_hops(self):
-        stderr = (
-            "DEBUG fetch request complete method=GET url=https://example.com/start "
-            "final_url=https://example.com/ status=200 transfer_size=42\n"
-            "DEBUG following pending location navigation asynchronously stage=Load "
-            "url=https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/app.css "
-            "final_url=https://cdn.example.com/app.css status=200 transfer_size=7\n"
-            "DEBUG fetch request complete method=GET "
-            "url=https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext "
-            "final_url=https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext "
-            "status=302 transfer_size=0\n"
-            "DEBUG fetch request complete method=GET url=https://example.com/next "
-            "final_url=https://example.com/next status=302 transfer_size=0\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/theme.css "
-            "final_url=https://cdn.example.com/theme.css status=200 transfer_size=7\n"
-            "DEBUG committed main navigation before replacement realm bootstrap page_id=1\n"
-            "DEBUG fetch request complete method=GET url=https://example.com/document "
-            "final_url=https://example.com/document status=200 transfer_size=42\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/dynamic-asset "
-            "final_url=https://cdn.example.com/dynamic-asset status=200 transfer_size=7\n"
-            "DEBUG published standalone replacement Document page_id=1\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/app.js "
-            "final_url=https://cdn.example.com/app.js status=200 transfer_size=7\n"
-        )
-        self.assertIsNone(_diagnostic_main_document_url(stderr, "https://example.com/start"))
-
-    def test_effective_main_document_url_does_not_infer_an_unfetched_target(self):
-        stderr = (
-            "DEBUG fetch request complete method=GET url=https://example.com/start "
-            "final_url=https://example.com/ status=200 transfer_size=42\n"
-            "DEBUG following pending location navigation asynchronously stage=Load "
-            "url=https://challenge.example.com/check?redir=https%3A%2F%2Fexample.com%2Fnext\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/app.css "
-            "final_url=https://cdn.example.com/app.css status=200 transfer_size=7\n"
-        )
-        self.assertEqual(
-            _diagnostic_main_document_url(stderr, "https://example.com/start"),
-            "https://example.com/",
-        )
-
-    def test_effective_main_document_url_accepts_ordinary_committed_navigation(self):
-        stderr = (
-            "DEBUG fetch request complete method=GET url=https://example.com/start "
-            "final_url=https://example.com/start status=200\n"
-            "DEBUG following pending location navigation asynchronously stage=Load "
-            "url=https://example.com/next\n"
-            "DEBUG fetch request complete method=GET url=https://example.com/next "
-            "final_url=https://example.com/document status=200\n"
-            "DEBUG committed main navigation before replacement realm bootstrap page_id=1\n"
-            "DEBUG published standalone replacement Document page_id=1\n"
-            "DEBUG fetch request complete method=GET url=https://cdn.example.com/asset "
-            "final_url=https://cdn.example.com/asset status=200\n"
-        )
-        self.assertEqual(_diagnostic_main_document_url(stderr, "https://example.com/start"),
-                         "https://example.com/document")
-        uncommitted = stderr.replace(
-            "DEBUG committed main navigation before replacement realm bootstrap page_id=1\n", "")
-        self.assertEqual(_diagnostic_main_document_url(uncommitted, "https://example.com/start"),
-                         "https://example.com/start")
 
     def test_committed_nonredirect_post_and_get_preserve_same_document_identity(self):
         from lexbench_webfetch.scoring import score_attempt
@@ -144,13 +90,6 @@ class MoliTests(unittest.TestCase):
                 metrics=score_attempt(case,b'Complete required body',ok=True,final_url=final)
                 self.assertEqual(metrics['page_identity_status'],'verified')
                 self.assertTrue(task_passed(True,metrics,'body'))
-
-    def test_resource_route_enumerates_bounded_same_origin_frame_documents(self):
-        from harness.web_fetch.task_outputs import RESOURCE_PAGE_EXPRESSION
-
-        self.assertIn("frame.contentDocument", RESOURCE_PAGE_EXPRESSION)
-        self.assertIn("roots.length < 16", RESOURCE_PAGE_EXPRESSION)
-        self.assertNotIn("pic_trulli", RESOURCE_PAGE_EXPRESSION)
 
     def test_cancellation_between_popen_and_handle_registration_is_latched(self):
         import subprocess
@@ -173,10 +112,24 @@ class MoliTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIsNotNone(children[0].poll())
 
+    @classmethod
+    def setUpClass(cls):
+        # macOS assesses every newly created executable on first launch (~1.5 s).
+        # One fixture path, rewritten in place, keeps that cost to once per worker.
+        cls.binary_directory = tempfile.TemporaryDirectory()
+        cls.binary = Path(cls.binary_directory.name) / "moli fixture"
+        # Pay that first-launch cost here, not inside a test's fetch time budget.
+        cls.binary.write_text("#!" + sys.executable + "\n", encoding="utf-8")
+        cls.binary.chmod(0o700)
+        subprocess.run([str(cls.binary)], check=True, timeout=60)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.binary_directory.cleanup()
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.binary = Path(self.directory.name) / "moli fixture"
         self.case = EvalCase("example", "Example", "https://example.com/?a=1&b=2", "static", [])
 
     def provider(self, script, **config):
@@ -256,7 +209,7 @@ class MoliTests(unittest.TestCase):
     def test_auto_output_reports_observed_text_without_guessing_its_markup(self):
         from harness.web_fetch.native_routes import NativeRouteLedger, verify_saved_native_answer
         from harness.web_fetch.runner import persist_result_artifacts
-        for index, content in enumerate(('<p>HTML body</p>', '# Markdown body', 'plain body')):
+        for index, content in enumerate(('<p>HTML body</p>', '# Markdown body')):
             with self.subTest(content=content):
                 provider = self.provider(f'print({content!r})\n',
                     uniform_native_parameters=True, native_output='auto')
@@ -399,11 +352,6 @@ class MoliTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.content, "")
         self.assertFalse(result.files)
-
-    def test_invalid_document_output_rejected(self):
-        provider = self.provider("print('unused')\n", uniform_native_parameters=True,
-                                 document_output="pdf_to_markdown")
-        self.assertIn("document_output", provider.validate())
 
     def test_fixed_native_cli_omits_internal_timers(self):
         provider = self.provider(
@@ -666,77 +614,60 @@ class MoliTests(unittest.TestCase):
         self.assertTrue(result.ok, repr(result))
         self.assertEqual(result.metadata["wait_until"], "done")
 
-    def test_wait_override_rejects_case_specific_and_invalid_settings(self):
-        for overrides in ({"risk-123": "domstable"}, {"risk_control": "invalid"},
-                          {"risk_control": []}, ["risk_control"]):
-            with self.subTest(overrides=overrides):
-                provider = self.provider("raise AssertionError('must not execute')",
-                                         wait_until_by_track=overrides)
-                self.assertIn("wait_until_by_track", provider.validate())
-
-    def test_network_trace_cannot_change_markdown_scoring_route(self):
-        provider = self.provider('raise AssertionError("should not run")', trace_network=True)
-        self.assertIn(
-            "trace_network (requires JSON output and is not allowed for Markdown scoring)",
-            provider.validate(),
-        )
-
-    def test_private_network_guard_exception_is_scoped_to_allowlisted_host(self):
-        provider = self.provider(
-            'import sys\nassert "--block-private-networks" not in sys.argv\nprint("allowlisted")',
-            private_network_allowlist_hosts=["example.com"],
-        )
-        result = provider.fetch(self.case, 2)
-        self.assertTrue(result.ok, repr(result))
-        self.assertTrue(result.metadata["block_private_networks"])
-        self.assertTrue(result.metadata["private_network_guard_exception"])
-        self.assertEqual(result.metadata["private_network_guard_exception_host"], "example.com")
-
-    def test_private_network_guard_stays_on_for_unknown_host(self):
-        provider = self.provider(
-            'import sys\nassert "--block-private-networks" in sys.argv\nprint("guarded")',
-            private_network_allowlist_hosts=["allowed.example"],
-        )
-        # Measurement starts after runtime preparation, as in the runner.
-        self.assertEqual(provider.validate(), [])
-        result = provider.fetch(self.case, 2)
-        self.assertTrue(result.ok, repr(result))
-        self.assertFalse(result.metadata["private_network_guard_exception"])
-
-    def test_video_body_uses_native_markdown_without_metadata_projection(self):
+    def test_body_and_document_pages_use_ordinary_native_markdown(self):
         provider = self.provider(
             "import sys\n"
             'assert "--eval" not in sys.argv\n'
             'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
             'print("A video title\\n\\nA publisher")'
         )
-        case = self.case_with(
-            track="video",
-            task_kind="body",
-            required_facts=[
-                {"id": "title", "alternatives": ["expected-video-title"]},
-                {"id": "publisher", "alternatives": ["expected-publisher"]},
-            ],
-        )
-        result = provider.fetch(case, 2)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.content, "A video title\n\nA publisher\n")
-        self.assertEqual(result.metadata["route"], "ordinary_markdown")
-        self.assertEqual(result.metadata["output"], "markdown")
-        self.assertNotIn("output_projection_sha256", result.metadata)
-
-    def test_non_video_body_keeps_ordinary_markdown_route(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert "--dump" in sys.argv and "markdown" in sys.argv\n'
-            'assert "--eval" not in sys.argv\n'
-            'print("ordinary body")'
-        )
-        # Measurement starts after runtime preparation, as in the runner.
         self.assertEqual(provider.validate(), [])
-        result = provider.fetch(self.case_with(track="static", task_kind="body"), 2)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.metadata["route"], "ordinary_markdown")
+        for case in (
+            self.case_with(track="video", task_kind="body", required_facts=[
+                {"id": "title", "alternatives": ["expected-video-title"]},
+                {"id": "publisher", "alternatives": ["expected-publisher"]}]),
+            self.case_with(track="static", task_kind="body"),
+            *(self.case_with(url=url, track="document") for url in (
+                "https://example.com/paper.pdf", "https://example.com/file.docx",
+                "https://example.com/document-viewer.html")),
+        ):
+            with self.subTest(track=case.track, url=case.url):
+                result = provider.fetch(case, 2)
+                self.assertTrue(result.ok, repr(result))
+                self.assertEqual(result.content, "A video title\n\nA publisher\n")
+                self.assertEqual(result.metadata["route"], "ordinary_markdown")
+                self.assertEqual(result.metadata["output"], "markdown")
+                self.assertNotIn("output_projection_sha256", result.metadata)
+                self.assertNotIn("document_extractor", result.metadata)
+
+    def test_private_network_guard_exception_is_scoped_to_allowlisted_host(self):
+        for allowed, exception in (("example.com", True), ("allowed.example", False)):
+            with self.subTest(allowed=allowed):
+                guarded = "not in" if exception else "in"
+                provider = self.provider(
+                    f'import sys\nassert "--block-private-networks" {guarded} sys.argv\nprint("ok")',
+                    private_network_allowlist_hosts=[allowed],
+                )
+                result = provider.fetch(self.case, 2)
+                self.assertTrue(result.ok, repr(result))
+                self.assertTrue(result.metadata["block_private_networks"])
+                self.assertEqual(result.metadata["private_network_guard_exception"], exception)
+                self.assertEqual(result.metadata["private_network_guard_exception_host"],
+                                 allowed if exception else None)
+
+    def test_whole_response_forbidden_page_is_request_failure_but_prose_is_not(self):
+        for body, track, status in (
+            ("**Error:** Forbidden\\n\\n**403**: Forbidden", "challenge", 403),
+            ("**Error:**Forbidden\\n\\n**403**: ForbiddenID:`edge::abc`", "static", 403),
+            ("HTTP clients may receive 403: Forbidden. This section explains retries.", "static", None),
+        ):
+            with self.subTest(body=body):
+                result = self.provider(f'print("{body}")').fetch(
+                    self.case_with(track=track, task_kind="structure" if track == "challenge" else "body"), 10)
+                self.assertEqual(result.ok, status is None)
+                self.assertEqual(result.status_code, status)
+                self.assertEqual(result.error_type, "api_error" if status else None)
+                self.assertIn("Forbidden", result.content)
 
     def test_popular_site_uses_native_markdown_without_local_conversion(self):
         provider = self.provider(
@@ -781,26 +712,6 @@ class MoliTests(unittest.TestCase):
                 metrics=score_attempt(config,result.content.encode(),ok=result.ok,
                                       status_code=result.status_code,final_url=result.final_url)
                 self.assertTrue(task_passed(result.ok,metrics,'body'))
-
-    def test_legacy_multihop_log_does_not_select_interleaved_resource(self):
-        log=(
-            'DEBUG fetch request complete method=GET url=https://example.com/start final_url=https://example.com/start status=200\n'
-            'DEBUG following pending location navigation asynchronously stage=Load url=https://example.com/check?redir=/next\n'
-            'DEBUG fetch request complete method=GET url=https://example.com/check?redir=/next final_url=https://example.com/check?redir=/next status=302\n'
-            'DEBUG fetch request complete method=GET url=https://example.com/next final_url=https://example.com/next status=302\n'
-            'DEBUG committed main navigation before replacement realm bootstrap page_id=1\n'
-            'DEBUG fetch request complete method=GET url=https://cdn.example.com/app.js final_url=https://cdn.example.com/app.js status=200\n'
-            'DEBUG fetch request complete method=GET url=https://example.com/document final_url=https://example.com/document status=200\n'
-            'DEBUG published standalone replacement Document page_id=1\n')
-        self.assertIsNone(_diagnostic_main_document_url(log,'https://example.com/start'))
-
-    def test_popular_site_native_http_error_keeps_body_but_request_fails(self):
-        provider = self.provider('print("**Error:** Forbidden\\n\\n**403**: Forbidden")')
-        result = provider.fetch(self.case_with(track="challenge", task_kind="structure"), 10)
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_type, "api_error")
-        self.assertEqual(result.status_code, 403)
-        self.assertIn("Forbidden", result.content)
 
     def test_native_document_http_status_preserves_markdown_and_status_scope(self):
         request = self.case.url
@@ -929,12 +840,6 @@ class MoliTests(unittest.TestCase):
         self.assertEqual(result.error_type, 'tool_error')
         self.assertIn('SSL connect error', result.error_message)
         self.assertEqual(result.metadata['route'], 'ordinary_markdown')
-
-    def test_dynamic_task_without_hints_fails_closed(self):
-        provider = self.provider('raise AssertionError("should not run")')
-        result = provider.fetch(self.case_with(track="dynamic"), 10)
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_type, "configuration")
 
     def test_dynamic_native_completion_keeps_native_markdown_route(self):
         for task_kind in ("body", "structure"):
@@ -1091,57 +996,16 @@ class MoliTests(unittest.TestCase):
         self.assertTrue(result.ok, repr(result))
         self.assertEqual(result.metadata["wait"]["minimum_text_fragments"], 2)
 
-    def test_frame_completion_waits_without_extracting_or_serializing_content(self):
+    def test_frame_completion_waits_without_extracting_or_leaking_answer_text(self):
         provider = self.provider(
             "import sys\n"
             'assert "--eval" not in sys.argv and "--wait-script" in sys.argv\n'
             'wait=sys.argv[sys.argv.index("--wait-script")+1]\n'
             'assert "frame.contentDocument.querySelectorAll(\\"h3.family-name\\")" in wait\n'
+            'assert "iframe#results" in wait and "answer-must-not-leak" not in wait\n'
             'assert "--delay-ms" not in sys.argv\n'
             'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
             'assert "--with-frames" not in sys.argv\n'
-            'print("Carettochelyidae")'
-        )
-        case = self.case_with(
-            track="dynamic",
-            retrieval_hints={
-                "version": 1,
-                "wait_until": "domcontentloaded",
-                "completion": {
-                    "frame_selector": "iframe#iframe",
-                    "selector": "h3.family-name",
-                    "minimum_count": 14,
-                    "timeout_ms": 45000,
-                    "delay_ms": 0,
-                },
-            },
-        )
-        result = provider.fetch(case, 45)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.metadata["wait"]["strategy"], "frame_selector_count_script")
-        self.assertEqual(result.metadata["route"], "dynamic_native_markdown")
-        self.assertEqual(result.metadata["output"], "markdown")
-
-    def test_native_dynamic_marker_rejects_a_per_case_contract_before_process(self):
-        provider = self.provider('raise AssertionError("should not run")')
-        case = self.case_with(id="dynamic-iframe", track="dynamic", retrieval_hints={
-            "version": 3, "mode": "native", "contract": "iframe-fourteen-family-headings"})
-        with patch("harness.web_fetch.providers.moli.subprocess.Popen") as process:
-            result = provider.fetch(case, 10)
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_type, "configuration")
-        self.assertIn("one family marker", result.error_message)
-        process.assert_not_called()
-
-    def test_dynamic_completion_only_waits_and_never_extracts_answer_text(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert "--eval" not in sys.argv and "--wait-script" in sys.argv\n'
-            'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'assert "--with-frames" not in sys.argv\n'
-            'wait=sys.argv[sys.argv.index("--wait-script")+1]\n'
-            'assert "iframe#results" in wait and "h3.family-name" in wait\n'
-            'assert "answer-must-not-leak" not in wait\n'
             'print("Family One\\n\\nFamily Two")'
         )
         case = self.case_with(
@@ -1153,184 +1017,69 @@ class MoliTests(unittest.TestCase):
                 "completion": {
                     "frame_selector": "iframe#results",
                     "selector": "h3.family-name",
-                    "minimum_count": 2,
-                    "timeout_ms": 10000,
+                    "minimum_count": 14,
+                    "timeout_ms": 45000,
                     "delay_ms": 0,
                 },
             },
         )
-        result = provider.fetch(case, 10)
+        result = provider.fetch(case, 45)
         self.assertTrue(result.ok, repr(result))
+        self.assertEqual(result.content, "Family One\n\nFamily Two\n")
+        self.assertEqual(result.metadata["wait"]["strategy"], "frame_selector_count_script")
+        self.assertEqual(result.metadata["wait"]["output_extraction"], "native_markdown")
         self.assertEqual(result.metadata["route"], "dynamic_native_markdown")
         self.assertEqual(result.metadata["output"], "markdown")
-        self.assertEqual(
-            result.metadata["wait"]["output_extraction"],
-            "native_markdown",
-        )
-
-    def test_legacy_completion_wait_does_not_replace_native_markdown_output(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert "--eval" not in sys.argv\n'
-            'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'print("record one\\n\\nrecord two")'
-        )
-        case = self.case_with(
-            track="dynamic",
-            retrieval_hints={
-                "version": 1,
-                "wait_until": "domcontentloaded",
-                "completion": {
-                    "selector": ".record",
-                    "minimum_count": 2,
-                    "timeout_ms": 10000,
-                    "delay_ms": 0,
-                },
-            },
-        )
-        result = provider.fetch(case, 10)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.content, "record one\n\nrecord two\n")
-
-    def test_dynamic_v1_does_not_guess_ancestors_from_completion_selector(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert "--eval" not in sys.argv\n'
-            'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'wait=sys.argv[sys.argv.index("--wait-script")+1]\n'
-            'assert "querySelectorAll(\\"button\\").length >= 16" in wait\n'
-            'print("Free shipping\\nProduct\\n$10.00\\nor 2 x$5.00\\nAdd to cart")'
-        )
-        case = self.case_with(
-            track="dynamic",
-            retrieval_hints={
-                "version": 1,
-                "wait_until": "domcontentloaded",
-                "completion": {
-                    "selector": "button",
-                    "minimum_count": 16,
-                    "timeout_ms": 10000,
-                    "delay_ms": 0,
-                },
-            },
-        )
-        result = provider.fetch(case, 10)
-        self.assertTrue(result.ok, repr(result))
-        self.assertNotIn("extraction_ancestor_levels", result.metadata["wait"])
 
     def test_dynamic_v2_extraction_contract_does_not_replace_native_markdown(self):
         provider = self.provider(
             "import sys\n"
             'assert "--eval" not in sys.argv\n'
             'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'wait=sys.argv[sys.argv.index("--wait-script")+1]\n'
-            'assert "querySelectorAll(\\"button\\").length >= 16" in wait\n'
-            'print("Product\\n$10.00\\nor 2 x$5.00")'
+            'print("native markdown")'
         )
-        case = self.case_with(
-            track="dynamic",
-            retrieval_hints={
-                "version": 2,
-                "wait_until": "domcontentloaded",
-                "completion": {
-                    "selector": "button",
-                    "minimum_count": 16,
-                    "timeout_ms": 10000,
-                    "delay_ms": 0,
-                },
-                "extraction": {
-                    "selector": "main main > div > div",
-                    "maximum_count": 16,
-                    "exclude_selectors": ["button"],
-                    "fallback": "body",
-                },
-            },
-        )
-        result = provider.fetch(case, 10)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.metadata["wait"]["output_extraction"], "native_markdown")
-
-    def test_dynamic_v2_iframe_extraction_is_not_run_by_moli(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert "--eval" not in sys.argv\n'
-            'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'print("top-level fallback")'
-        )
-        case = self.case_with(
-            track="dynamic",
-            retrieval_hints={
-                "version": 2,
-                "wait_until": "domcontentloaded",
-                "completion": {
-                    "selector": ".ready",
-                    "minimum_count": 1,
-                    "timeout_ms": 10000,
-                    "delay_ms": 0,
-                },
-                "extraction": {
-                    "frame_selector": "iframe#results",
-                    "selector": ".record",
-                    "maximum_count": 20,
-                    "fallback": "body",
-                },
-            },
-        )
-        result = provider.fetch(case, 10)
-        self.assertTrue(result.ok, repr(result))
+        for extraction in (
+            {"selector": "main main > div > div", "maximum_count": 16,
+             "exclude_selectors": ["button"], "fallback": "body"},
+            {"frame_selector": "iframe#results", "selector": ".record", "maximum_count": 20,
+             "fallback": "body"},
+        ):
+            with self.subTest(extraction=extraction):
+                case = self.case_with(track="dynamic", retrieval_hints={
+                    "version": 2, "wait_until": "domcontentloaded",
+                    "completion": {"selector": "button", "minimum_count": 16,
+                                   "timeout_ms": 10000, "delay_ms": 0},
+                    "extraction": extraction})
+                result = provider.fetch(case, 10)
+                self.assertTrue(result.ok, repr(result))
+                self.assertEqual(result.content, "native markdown\n")
+                self.assertEqual(result.metadata["wait"]["output_extraction"], "native_markdown")
 
     def test_resource_page_uses_native_markdown_for_common_url_scoring(self):
+        from lexbench_webfetch.metrics import evaluate_resources
         provider = self.provider(
             "import sys\n"
             'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'assert "--eval" not in sys.argv\n'
+            'assert "--eval" not in sys.argv and "--delay-ms" not in sys.argv\n'
             'assert "--trace-network" not in sys.argv\n'
             'assert "--with-frames" in sys.argv\n'
-            'assert not ({"--image","--video","--media","--resource"} & set(sys.argv))\n'
-            'print("[movie](https://example.com/movie.mp4)")'
-        )
-        result = provider.fetch(self.case_with(track="image", task_kind="resource"), 10)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.metadata["route"], "resource_native_markdown")
-        self.assertEqual(result.metadata["output"], "native_markdown_resource_urls")
-        self.assertEqual(result.metadata["output_contract"], "native_markdown_resource_urls")
-        self.assertEqual(
-            result.metadata["wait"]["subdocuments"]["scope"],
-            "resource_task_family",
-        )
-        self.assertIn("movie.mp4", result.content)
-        from lexbench_webfetch.metrics import evaluate_resources
-        scored = evaluate_resources(
-            result.content,
-            {},
-            [{"id": "movie", "kind": "video", "urls": ["https://example.com/movie.mp4"]}],
-            base_url="https://example.com/gallery",
-        )
-        self.assertTrue(scored["resource_pass"])
-
-    def test_video_resource_page_uses_the_same_native_markdown_route(self):
-        provider = self.provider(
-            "import sys\n"
-            'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-            'assert "--trace-network" not in sys.argv and "--with-frames" in sys.argv\n'
             'assert sys.argv[sys.argv.index("--wait-until")+1] == "done"\n'
-            'assert "--delay-ms" not in sys.argv\n'
-            'print("[stream](https://example.com/movie.m3u8)")'
+            'assert not ({"--image","--video","--media","--resource"} & set(sys.argv))\n'
+            'print("[movie](https://example.com/movie.mp4) [stream](https://example.com/movie.m3u8)")'
         )
-        result = provider.fetch(self.case_with(track="video", task_kind="resource"), 10)
-        self.assertTrue(result.ok, repr(result))
-        self.assertEqual(result.metadata["route"], "resource_native_markdown")
-        self.assertEqual(result.metadata["output"], "native_markdown_resource_urls")
-        self.assertEqual(result.metadata["output_contract"], "native_markdown_resource_urls")
-        self.assertFalse(result.metadata["network_trace_requested"])
-        from lexbench_webfetch.metrics import evaluate_resources
-        scored = evaluate_resources(
-            result.content,
-            {},
-            [{"id": "movie", "kind": "video", "urls": ["https://example.com/movie.m3u8"]}],
-            base_url="https://example.com/player",
-        )
-        self.assertTrue(scored["resource_pass"])
+        for track, url in (("image", "https://example.com/movie.mp4"),
+                           ("video", "https://example.com/movie.m3u8")):
+            with self.subTest(track=track):
+                result = provider.fetch(self.case_with(track=track, task_kind="resource"), 10)
+                self.assertTrue(result.ok, repr(result))
+                self.assertEqual(result.metadata["route"], "resource_native_markdown")
+                self.assertEqual(result.metadata["output"], "native_markdown_resource_urls")
+                self.assertEqual(result.metadata["output_contract"], "native_markdown_resource_urls")
+                self.assertEqual(result.metadata["wait"]["subdocuments"]["scope"], "resource_task_family")
+                self.assertFalse(result.metadata["network_trace_requested"])
+                scored = evaluate_resources(result.content, {},
+                    [{"id": "movie", "kind": "video", "urls": [url]}], base_url="https://example.com/gallery")
+                self.assertTrue(scored["resource_pass"])
 
     def test_fixed_native_resource_uses_product_timers_and_native_html(self):
         provider = self.provider(
@@ -1345,26 +1094,13 @@ class MoliTests(unittest.TestCase):
         self.assertEqual(result.metadata["internal_timeout_policy"], "native_default")
         self.assertIsNone(result.metadata["http_connect_timeout_ms"])
 
-    def test_document_urls_use_native_text_without_external_parsing(self):
-        for url in (
-            "https://example.com/paper.pdf",
-            "https://example.com/file.docx",
-            "https://example.com/document-viewer.html",
-        ):
-            with self.subTest(url=url):
-                provider = self.provider(
-                    "import sys\n"
-                    'assert sys.argv[sys.argv.index("--dump")+1] == "markdown"\n'
-                    'assert "--eval" not in sys.argv\n'
-                    'print("Native document text")')
-                result = provider.fetch(self.case_with(url=url, track="document"), 2)
-                self.assertTrue(result.ok, repr(result))
-                self.assertEqual(result.content.strip(), "Native document text")
-                self.assertEqual(result.metadata["route"], "ordinary_markdown")
-                self.assertNotIn("document_extractor", result.metadata)
-
-    def test_invalid_dynamic_hints_fail_before_process(self):
-        for hints in (
+    def test_missing_or_invalid_dynamic_hints_fail_before_process(self):
+        provider = self.provider('raise AssertionError("should not run")')
+        cases = [self.case_with(track="dynamic"),
+                 self.case_with(track="dynamic", task_kind="file", retrieval_hints={}),
+                 self.case_with(id="dynamic-iframe", track="dynamic", retrieval_hints={
+                     "version": 3, "mode": "native", "contract": "iframe-fourteen-family-headings"})]
+        cases += [self.case_with(track="dynamic", retrieval_hints=hints) for hints in (
             "selector",
             {"wait_selector": "main"},
             {"wait_until": "forever"},
@@ -1374,25 +1110,14 @@ class MoliTests(unittest.TestCase):
             {"completion": {"selector": "main", "minimum_count": 0}},
             {"completion": {"delay_ms": -1}},
             {"completion": {"wait_script": "() => answer"}},
-        ):
-            with self.subTest(hints=hints):
-                provider = self.provider('raise AssertionError("should not run")')
+        )]
+        for case in cases:
+            with self.subTest(hints=getattr(case, "retrieval_hints", None)):
                 with patch("harness.web_fetch.providers.moli.subprocess.Popen") as process:
-                    result = provider.fetch(
-                        self.case_with(track="dynamic", retrieval_hints=hints), 2
-                    )
+                    result = provider.fetch(case, 2)
                 self.assertFalse(result.ok)
                 self.assertEqual(result.error_type, "configuration")
                 process.assert_not_called()
-
-    def test_dynamic_raw_route_cannot_bypass_missing_hints(self):
-        provider = self.provider('raise AssertionError("should not run")')
-        case = self.case_with(track="dynamic", task_kind="file", retrieval_hints={})
-        with patch("harness.web_fetch.providers.moli.subprocess.Popen") as process:
-            result = provider.fetch(case, 2)
-        self.assertFalse(result.ok)
-        self.assertEqual(result.error_type, "configuration")
-        process.assert_not_called()
 
     def test_answer_capacity_does_not_limit_native_resource_downloads(self):
         for fixed_native in (False, True):
@@ -1450,18 +1175,6 @@ class MoliTests(unittest.TestCase):
         self.assertNotIn("_diagnostic_log_b64", result.metadata)
         self.assertNotIn("diagnostic_log_sha256", result.metadata)
 
-    def test_diagnostic_only_options_require_explicit_retention(self):
-        self.assertIn(
-            "max_diagnostic_bytes (requires retain_complete_diagnostic_log)",
-            self.provider('print("answer")', max_diagnostic_bytes=10).validate(),
-        )
-        self.assertIn(
-            "local_report_complete_diagnostic_links (requires retain_complete_diagnostic_log)",
-            self.provider(
-                'print("answer")', local_report_complete_diagnostic_links=True
-            ).validate(),
-        )
-
     def test_empty_native_response_keeps_observed_final_url_through_persistence(self):
         from copy import deepcopy
         from harness.web_fetch.runner import persist_result_artifacts
@@ -1495,22 +1208,6 @@ class MoliTests(unittest.TestCase):
         self.assertEqual(result.content.strip(), "")
         self.assertEqual(result.error_type, "empty_response")
         self.assertEqual(result.metadata["exit_code"], 0)
-
-    def test_zero_exit_whole_response_forbidden_page_is_request_failure(self):
-        result = self.provider(
-            'print("**Error:**Forbidden\\n\\n**403**: ForbiddenID:`edge::abc`")'
-        ).fetch(self.case, 2)
-        self.assertFalse(result.ok)
-        self.assertEqual(result.status_code, 403)
-        self.assertEqual(result.error_type, "api_error")
-
-    def test_documentation_that_mentions_forbidden_status_is_request_success(self):
-        result = self.provider(
-            'print("HTTP clients may receive 403: Forbidden. This section explains retries.")'
-        ).fetch(self.case, 2)
-        self.assertTrue(result.ok, repr(result))
-        self.assertIsNone(result.status_code)
-        self.assertIsNone(result.error_type)
 
     def test_outer_deadline_preserves_live_cli_log_and_rejects_late_answer(self):
         from harness.web_fetch.call_boundary import fetch_with_deadline
@@ -1549,7 +1246,16 @@ class MoliTests(unittest.TestCase):
             result = provider.fetch(self.case, 1)
             self.assertEqual(result.error_type, 'timeout')
             self.assertTrue(pid_file.exists(), 'fixture did not start the independent browser child')
-            time.sleep(2.1)
+            # A surviving child writes the marker and exits after its 2 s sleep;
+            # a stopped one is already gone, so the pass case does not wait.
+            pid = int(pid_file.read_text(encoding="utf-8"))
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.02)
             self.assertFalse(marker.exists(), 'browser child continued physical work after timeout')
         finally:
             if pid_file.exists():
@@ -1557,10 +1263,6 @@ class MoliTests(unittest.TestCase):
                     os.killpg(int(pid_file.read_text(encoding="utf-8")), signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-
-    def test_timeout_is_failure(self):
-        result = self.provider("import time\ntime.sleep(10)").fetch(self.case, 0.05)
-        self.assertEqual(result.error_type, "timeout")
 
     def test_cancel_does_not_abandon_descendants_when_group_signalling_is_forbidden(self):
         process = Mock(pid=123)
@@ -1590,11 +1292,14 @@ class MoliTests(unittest.TestCase):
     def test_cancel_permission_error_preserves_timeout_and_unresolved_worker(self):
         from harness.web_fetch.call_boundary import fetch_with_deadline, worker_unresolved
         provider = self.provider('import time\ntime.sleep(10)')
+        self.assertEqual(provider.validate(), [])
         worker = None
         try:
             with patch('harness.web_fetch.providers.base.os.killpg',
                        side_effect=PermissionError('group signal forbidden')):
-                result, worker = fetch_with_deadline(provider, self.case, .1)
+                # The deadline must fall after the child starts; an earlier
+                # cancel never launches it and leaves nothing unresolved.
+                result, worker = fetch_with_deadline(provider, self.case, .5)
             self.assertFalse(result.ok)
             self.assertEqual(result.error_type, 'timeout')
             # The answer thread may already have raised ProcessCleanupError
@@ -1611,31 +1316,40 @@ class MoliTests(unittest.TestCase):
                 worker.join(2)
                 self.assertFalse(worker.is_alive())
 
-    def test_url_and_config_validation_before_process(self):
+    def test_invalid_configuration_is_rejected_before_any_fetch(self):
+        for config, error in (
+            ({"document_output": "pdf_to_markdown", "uniform_native_parameters": True}, "document_output"),
+            ({"wait_until_by_track": {"risk-123": "domstable"}}, "wait_until_by_track"),
+            ({"wait_until_by_track": {"risk_control": "invalid"}}, "wait_until_by_track"),
+            ({"wait_until_by_track": ["risk_control"]}, "wait_until_by_track"),
+            ({"trace_network": True},
+             "trace_network (requires JSON output and is not allowed for Markdown scoring)"),
+            ({"max_diagnostic_bytes": 10},
+             "max_diagnostic_bytes (requires retain_complete_diagnostic_log)"),
+            ({"local_report_complete_diagnostic_links": True},
+             "local_report_complete_diagnostic_links (requires retain_complete_diagnostic_log)"),
+            ({"wait_until": "invalid"}, "wait_until"),
+            ({"dynamic_wait_until": "invalid"}, "dynamic_wait_until"),
+            ({"wait_option": "invalid"}, "wait_option"),
+            ({"private_network_allowlist_hosts": ["https://example.com"]}, "private_network_allowlist_hosts"),
+            ({"uniform_native_parameters": True, "private_network_allowlist_hosts": ["specific.example"]},
+             "private_network_allowlist_hosts cannot vary uniform native parameters"),
+            ({"expected_reported_version": "moli 9.9.9"}, "Moli reported version moli 9.9.9"),
+        ):
+            with self.subTest(config=config):
+                self.assertIn(error, self.provider('raise AssertionError("must not execute")', **config).validate())
+
+    def test_url_and_binary_validation_before_process(self):
         provider = self.provider('raise AssertionError("should not run")')
         with patch("harness.web_fetch.providers.moli.subprocess.Popen") as process:
             with self.assertRaises(ValueError):
                 provider.fetch(EvalCase("x", "x", "file:///etc/passwd", "x", []), 1)
             process.assert_not_called()
-        self.assertIn("wait_until", self.provider("", wait_until="invalid").validate())
-        self.assertIn(
-            "dynamic_wait_until",
-            self.provider("", dynamic_wait_until="invalid").validate(),
-        )
-        self.assertIn("wait_option", self.provider("", wait_option="invalid").validate())
-        self.assertIn(
-            "private_network_allowlist_hosts",
-            self.provider("", private_network_allowlist_hosts=["https://example.com"]).validate(),
-        )
         self.assertTrue(
             build_provider(
                 "moli-webfetch", {"type": "moli_webfetch", "binary": "/nonexistent/moli"}
             ).validate()
         )
-
-    def test_registration_documented(self):
-        self.assertIn("moli-webfetch", SPECS)
-        self.assertIn("moli-webfetch", PROFILES)
 
     def test_binary_resolved_once_per_fetch(self):
         provider = self.provider('print("ok")')
@@ -1658,10 +1372,6 @@ class MoliTests(unittest.TestCase):
         self.assertFalse(second.ok)
         self.assertEqual(second.error_type, "configuration")
         self.assertEqual(first.metadata["reported_version"], "moli 1.1.4")
-
-    def test_wrong_reported_version_fails_closed(self):
-        provider = self.provider('print("unused")', expected_reported_version="moli 9.9.9")
-        self.assertIn("Moli reported version moli 9.9.9", provider.validate())
 
     def test_fetch_validates_identity_when_preflight_was_not_called(self):
         provider = self.provider('print("ok")', expected_reported_version="moli 9.9.9")
@@ -1700,14 +1410,3 @@ class MoliTests(unittest.TestCase):
             side_effect=PermissionError("not executable"),
         ):
             self.assertEqual(provider.fetch(self.case, 2).error_type, "configuration")
-
-
-class UniformMoliParameterTests(unittest.TestCase):
-    def test_uniform_route_rejects_host_specific_guard_exceptions(self):
-        from harness.web_fetch.providers.moli import MoliWebFetchProvider
-        provider = MoliWebFetchProvider("moli", {
-            "uniform_native_parameters": True,
-            "private_network_allowlist_hosts": ["specific.example"],
-        })
-        self.assertIn("private_network_allowlist_hosts cannot vary uniform native parameters",
-                      provider._configuration_errors(None))

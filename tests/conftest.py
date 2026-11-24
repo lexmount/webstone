@@ -164,25 +164,3 @@ def pytest_sessionstart(session):
                 main(["--manifest", str(manifest), "--check"])
         except (FileNotFoundError, ValueError) as error:
             raise pytest.UsageError(str(error)) from error
-
-
-@pytest.fixture
-def validated_catalog(monkeypatch):
-    """Serve registered Web Fetch suites' validations from one shared result per process.
-
-    Tests that mutate a release record or the registry then check only their change
-    instead of re-reading every frozen task file; unregistered suites validate in full.
-    """
-    from copy import deepcopy
-
-    from lexbench_webfetch import benchmark
-    from tests.helpers import shipped_suite_validations
-
-    validated = shipped_suite_validations()
-    validate = benchmark.validate
-    monkeypatch.setattr(
-        benchmark, "validate",
-        lambda identifier: deepcopy(validated[identifier]) if identifier in validated
-        else validate(identifier),
-    )
-    return validated

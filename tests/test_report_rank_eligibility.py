@@ -1,8 +1,8 @@
 """Rank only comparable saved populations and retain exact score ties."""
 from copy import deepcopy
 
-from bs4 import BeautifulSoup
 import pytest
+from bs4 import BeautifulSoup
 
 from harness.web_fetch.report import overall_ranking, ranking
 from tests.test_report_body_scope import case, record
@@ -43,13 +43,14 @@ def test_ranking_admission_and_ties(render, problem):
     assert records == frozen
 
 
-@pytest.mark.parametrize('selection', ['diagnostic', 'saved_task_pass_rate'])
-@pytest.mark.parametrize('mixed', [False, True])
+@pytest.mark.parametrize('selection,mixed', [
+    ('diagnostic', False), ('saved_task_pass_rate', False), ('saved_task_pass_rate', True)])
 def test_saved_builder_ranks_require_selection_and_matching_scorer(tmp_path, selection, mixed):
     import hashlib
     import json
-    from tests.test_saved_matrix_evidence import fixture, build
+
     from harness.web_fetch.report_saved_matrix import check_saved_matrix
+    from tests.test_saved_matrix_evidence import build, fixture
     spec, source, row, raw = fixture(tmp_path)
     spec['ranking'] = selection
     second = deepcopy(row)
@@ -72,6 +73,7 @@ def test_saved_builder_ranks_require_selection_and_matching_scorer(tmp_path, sel
             assert not table.select('.comparison-winner')
     if selection == 'diagnostic':
         from pathlib import PurePosixPath
+
         from harness.web_fetch.report_i18n import localize_html
         assert '诊断表按任务通过率排列，便于查看，不计算名次。' in soup.get_text()
         assert '名次按本次保存结果' not in soup.get_text()

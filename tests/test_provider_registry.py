@@ -16,19 +16,14 @@ from harness.web_fetch.providers.headless import ENGINES, HeadlessProvider
 CONFIGS = Path(__file__).resolve().parents[1] / 'configs'
 
 
-@pytest.mark.parametrize(('provider_type', 'entry'), list(PROVIDERS.items()))
-def test_every_registered_type_names_a_provider_class(provider_type, entry):
-    module, class_name = entry
-    cls = provider_class(provider_type)
-    assert cls is getattr(import_module(f'harness.web_fetch.providers.{module}'), class_name)
-    assert issubclass(cls, Provider), provider_type
-
-
-@pytest.mark.parametrize('provider_type', PROVIDERS.names())
-def test_every_registered_type_is_a_method_adapter(provider_type):
-    provider = build_provider('run', {'type': provider_type})
-    assert isinstance(provider, MethodAdapter)
-    assert isinstance(provider.capabilities(), Capabilities)
+def test_every_registered_type_builds_its_named_method_adapter():
+    for provider_type, (module, class_name) in PROVIDERS.items():
+        cls = provider_class(provider_type)
+        assert cls is getattr(import_module(f'harness.web_fetch.providers.{module}'), class_name)
+        assert issubclass(cls, Provider), provider_type
+        provider = build_provider('run', {'type': provider_type})
+        assert isinstance(provider, MethodAdapter), provider_type
+        assert isinstance(provider.capabilities(), Capabilities), provider_type
 
 
 def test_a_new_provider_needs_only_one_registry_entry():

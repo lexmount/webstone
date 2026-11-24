@@ -10,27 +10,23 @@ import pytest
 from harness.record_io import canonical_json_sha256, load_jsonl, parse_jsonl, read_completed_records, same_json_record
 
 
-@pytest.mark.parametrize('value,raw', [
-    ({'z': 'English', 'a': '中文'}, '{"a":"中文","z":"English"}'),
-    ({'nested': [{'b': False, 'a': None}, [1, True, 'é']]},
-     '{"nested":[{"a":null,"b":false},[1,true,"é"]]}'),
-    ({'n': float('nan')}, '{"n":NaN}'),
-    ({'n': float('inf')}, '{"n":Infinity}'),
-    ({'n': float('-inf')}, '{"n":-Infinity}'),
-])
-def test_canonical_hash_preserves_frozen_utf8_json_bytes(value, raw):
-    assert canonical_json_sha256(value) == hashlib.sha256(raw.encode('utf-8')).hexdigest()
-
-
-@pytest.mark.parametrize('left,right', [
-    ({'ok': True}, {'ok': 1}),
-    ({'n': 1}, {'n': 1.0}),
-    ({'text': '中文'}, {'text': '\\u4e2d\\u6587'}),
-    ({'n': float('nan')}, {'n': 'NaN'}),
-    ([1, 2], [2, 1]),
-])
-def test_canonical_hash_does_not_collapse_distinct_json_bytes(left, right):
-    assert canonical_json_sha256(left) != canonical_json_sha256(right)
+def test_canonical_hash_preserves_frozen_utf8_json_bytes_and_distinctions():
+    for value, raw in [
+        ({'z': 'English', 'a': '中文'}, '{"a":"中文","z":"English"}'),
+        ({'nested': [{'b': False, 'a': None}, [1, True, 'é']]},
+         '{"nested":[{"a":null,"b":false},[1,true,"é"]]}'),
+        ({'n': float('nan')}, '{"n":NaN}'),
+        ({'n': float('-inf')}, '{"n":-Infinity}'),
+    ]:
+        assert canonical_json_sha256(value) == hashlib.sha256(raw.encode('utf-8')).hexdigest(), raw
+    for left, right in [
+        ({'ok': True}, {'ok': 1}),
+        ({'n': 1}, {'n': 1.0}),
+        ({'text': '中文'}, {'text': '\\u4e2d\\u6587'}),
+        ({'n': float('nan')}, {'n': 'NaN'}),
+        ([1, 2], [2, 1]),
+    ]:
+        assert canonical_json_sha256(left) != canonical_json_sha256(right), (left, right)
 
 
 def test_canonical_hash_sorts_keys_without_changing_unicode_representation():
@@ -39,31 +35,28 @@ def test_canonical_hash_sorts_keys_without_changing_unicode_representation():
     assert canonical_json_sha256({'a': '中文'}) != hashlib.sha256(raw).hexdigest()
 
 
-@pytest.mark.parametrize('left,right,expected', [
-    ({'ok': False, 'content': '中文'}, {'content': '中文', 'ok': False}, True),
-    ({'ok': False}, {'ok': 0}, False),
-    ({'score': 1}, {'score': True}, False),
-    ({'elapsed': 1}, {'elapsed': 1.0}, False),
-    ([{'ok': True}, {'ok': False}], [{'ok': False}, {'ok': True}], False),
-    ({'content': 'a\u2028b'}, {'content': 'a\u2028b'}, True),
-])
-def test_json_record_agreement_preserves_scalar_types_and_order(left, right, expected):
-    assert same_json_record(left, right) is expected
+def test_json_record_agreement_preserves_scalar_types_and_order():
+    for left, right, expected in [
+        ({'ok': False, 'content': '中文'}, {'content': '中文', 'ok': False}, True),
+        ({'ok': False}, {'ok': 0}, False),
+        ({'score': 1}, {'score': True}, False),
+        ({'elapsed': 1}, {'elapsed': 1.0}, False),
+        ([{'ok': True}, {'ok': False}], [{'ok': False}, {'ok': True}], False),
+        ({'content': 'a\u2028b'}, {'content': 'a\u2028b'}, True),
+    ]:
+        assert same_json_record(left, right) is expected, (left, right)
+    for value in (float('nan'), float('inf'), float('-inf')):
+        with pytest.raises(ValueError):
+            same_json_record({'score': value}, {'score': value})
 
 
-@pytest.mark.parametrize('value', [float('nan'), float('inf'), float('-inf')])
-def test_nonfinite_json_records_cannot_establish_agreement(value):
-    with pytest.raises(ValueError):
-        same_json_record({'score': value}, {'score': value})
-
-
-@pytest.mark.parametrize('separator', ['\u0085', '\u2028', '\u2029'])
-@pytest.mark.parametrize('ending', [b'\n', b'\r\n', b''])
-def test_completed_reader_keeps_unicode_separators_inside_json_strings(tmp_path, separator, ending):
-    rows = [{'case_id': 'one', 'output': 'left' + separator + 'right'}, {'case_id': 'two'}]
+def test_completed_reader_keeps_unicode_separators_inside_json_strings(tmp_path):
     path = tmp_path / 'results.jsonl'
-    path.write_bytes(b'\n'.join(json.dumps(row, ensure_ascii=False).encode() for row in rows) + ending)
-    assert read_completed_records(path) == rows
+    for separator in ('\u0085', '\u2028', '\u2029'):
+        rows = [{'case_id': 'one', 'output': 'left' + separator + 'right'}, {'case_id': 'two'}]
+        for ending in (b'\n', b'\r\n', b''):
+            path.write_bytes(b'\n'.join(json.dumps(row, ensure_ascii=False).encode() for row in rows) + ending)
+            assert read_completed_records(path) == rows
 
 
 def test_completed_reader_ignores_a_partial_utf8_tail(tmp_path):
@@ -80,13 +73,13 @@ def test_completed_reader_rejects_invalid_or_terminated_partial_utf8(tmp_path, r
         read_completed_records(path)
 
 
-@pytest.mark.parametrize('separator', ['\u0085', '\u2028', '\u2029'])
-def test_finalized_readers_preserve_unicode_and_reject_partial_records(tmp_path, separator):
-    rows = [{'id': 'one', 'text': 'left' + separator + 'right'}, {'id': 'two'}]
-    raw = '\r\n'.join(json.dumps(row, ensure_ascii=False) for row in rows).encode()
+def test_finalized_readers_preserve_unicode_and_reject_partial_records(tmp_path):
     path = tmp_path / 'records.jsonl'
-    path.write_bytes(raw)
-    assert load_jsonl(path) == parse_jsonl(raw) == parse_jsonl(raw.decode()) == rows
+    for separator in ('\u0085', '\u2028', '\u2029'):
+        rows = [{'id': 'one', 'text': 'left' + separator + 'right'}, {'id': 'two'}]
+        raw = '\r\n'.join(json.dumps(row, ensure_ascii=False) for row in rows).encode()
+        path.write_bytes(raw)
+        assert load_jsonl(path) == parse_jsonl(raw) == parse_jsonl(raw.decode()) == rows
     for partial in (b'{"unfinished":', b'{"text":"\xe4\xb8'):
         path.write_bytes(raw + b'\n' + partial)
         with pytest.raises((json.JSONDecodeError, UnicodeDecodeError)):

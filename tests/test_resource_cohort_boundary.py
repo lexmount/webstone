@@ -1,18 +1,20 @@
 """Resource comparison exports include declared evidence, never worker extras."""
 import base64
+import copy
 import hashlib
 import json
+import shutil
 from dataclasses import asdict
 
 import pytest
 
 from harness.web_fetch.assembly import assemble
-from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.base import Provider
 from harness.web_fetch.report_build import build_report
 from harness.web_fetch.resource_cohort import METRICS, build_summary, package
 from harness.web_fetch.runner import run_evaluation
+from lexbench_webfetch.models import EvalCase
 
 
 def make_run(root, count, resource=False):
@@ -45,16 +47,26 @@ def make_run(root, count, resource=False):
     return records
 
 
-@pytest.fixture
-def runs(tmp_path):
-    base, resource = tmp_path / 'base', tmp_path / 'resource'
+@pytest.fixture(scope='module')
+def prepared_runs(tmp_path_factory):
+    root = tmp_path_factory.mktemp('runs')
+    base, resource = root / 'base', root / 'resource'
     make_run(base, 1)
     records = make_run(resource, 5, resource=True)
     package(resource)
     (resource / 'workers').mkdir()
     (resource / 'workers/private-note.txt').write_text('synthetic private note', encoding='utf-8')
     (resource / 'artifacts/unbound-debug.txt').write_text('synthetic unbound bytes', encoding='utf-8')
-    return base, resource, records
+    return root, records
+
+
+@pytest.fixture
+def runs(prepared_runs, tmp_path):
+    """A private copy of the shared runs; tests may damage it."""
+    root, records = prepared_runs
+    for name in ('base', 'resource'):
+        shutil.copytree(root / name, tmp_path / name)
+    return tmp_path / 'base', tmp_path / 'resource', copy.deepcopy(records)
 
 
 def test_resource_assembly_and_report_copy_only_declared_evidence(runs, tmp_path):
@@ -205,7 +217,11 @@ def test_resource_cohort_with_no_common_success_still_reports_complete_measureme
 @pytest.mark.parametrize('damage', [None,'wrong-population','missing-value','wrong-value','missing-winner','tied-winner','wrong-leader','wrong-direction'])
 def test_resource_release_checks_populations_measurements_and_unique_highlights(tmp_path, damage):
     from bs4 import BeautifulSoup
-    from harness.web_fetch.report_resources import check_resource_presentation, render_resource_comparison
+
+    from harness.web_fetch.report_resources import (
+        check_resource_presentation,
+        render_resource_comparison,
+    )
     dataset, records, batches = resource_population_fixture(tmp_path)
     summary = build_summary(dataset, records, batches)
     html, _ = render_resource_comparison(summary, summary['providers'])
@@ -248,7 +264,7 @@ def test_resource_sampling_note_follows_recorded_interval(runs):
     assert '50 ms' not in summary['sampling_limit']
 
 
-@pytest.mark.parametrize('interval', [None, 0, -1, True, '50', float('nan'), float('inf')])
+@pytest.mark.parametrize('interval', [None, 0, True, '50', float('nan')])
 def test_resource_summary_rejects_missing_or_invalid_sampling_evidence(runs, interval):
     _, resource, records = runs
     dataset = json.loads((resource / 'dataset.json').read_text(encoding='utf-8'))

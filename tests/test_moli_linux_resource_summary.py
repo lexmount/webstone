@@ -91,7 +91,12 @@ class LinuxResourceSummaryTests(unittest.TestCase):
             lambda s: s["configurations"]["fixed_on"]["build"].update(profile="debug"),
             lambda s: s["receipt"]["results"].pop("fixed_on:baseline"),
         ):
-            changed = copy.deepcopy(self.summary)
+            # The fixed population is large; copy only what a mutation can touch.
+            changed = dict(self.summary)
+            changed["configurations"] = copy.deepcopy(self.summary["configurations"])
+            changed["receipt"] = copy.deepcopy(self.summary["receipt"])
+            changed["measurements"] = {name: list(rows) for name, rows in self.summary["measurements"].items()}
+            changed["measurements"]["fixed_on"][0] = copy.deepcopy(changed["measurements"]["fixed_on"][0])
             mutation(changed)
             with self.assertRaises(ValueError):
                 validate_summary(changed, self.builds)

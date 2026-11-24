@@ -61,18 +61,18 @@ class SubprocessProviderTest(unittest.TestCase):
             self.assertEqual(set(identity["files_sha256"]), {"repo/source.ts"})
             self.assertNotIn(str(repo), json.dumps(identity))
 
-            provider.config["expected_repo_revision"] = "0" * 40
-            self.assertIn("repo revision " + "0" * 40, provider.validate())
-            provider.config["expected_repo_revision"] = head
-            provider.config["expected_node_version"] = "v0.0.0"
-            self.assertIn("Node v0.0.0", provider.validate())
-            provider.config["expected_node_version"] = "v24.15.0"
-            provider.config["expected_package_manager_version"] = "0.0.0"
-            self.assertIn("package manager 0.0.0", provider.validate())
-            self.assertFalse(hasattr(provider, "_implementation_identity"))
-            provider.config["expected_package_manager_version"] = "12.1.0"
+            # One validation reports every independent mismatch.
+            provider.config.update(
+                expected_repo_revision="0" * 40,
+                expected_node_version="v0.0.0",
+                expected_package_manager_version="0.0.0",
+            )
             source.write_text("dirty\n", encoding='utf-8')
-            self.assertIn("clean tracked checkout", provider.validate())
+            errors = provider.validate()
+            for message in ("repo revision " + "0" * 40, "Node v0.0.0",
+                            "package manager 0.0.0", "clean tracked checkout"):
+                self.assertIn(message, errors)
+            self.assertFalse(hasattr(provider, "_implementation_identity"))
 
     def test_missing_command_executable_fails_preflight(self):
         provider = SubprocessJsonlProvider(
@@ -330,22 +330,22 @@ if __name__ == "__main__":
 import pytest
 
 
-@pytest.mark.parametrize('field', ['images', 'links', 'videos', 'media', 'extras'])
 @pytest.mark.parametrize('declare_content', [False, True])
-def test_undeclared_score_fields_cannot_enter_persistence(tmp_path, field, declare_content):
+def test_undeclared_score_fields_cannot_enter_persistence(tmp_path, declare_content):
     import hashlib
     from harness.web_fetch.models import ProviderResult
     from harness.web_fetch.runner import persist_result_artifacts
     raw = b'{"content":"answer","metadata":{"images":["https://example.test/native.png"]}}'
-    metadata = {field: ['https://example.test/forged.png'],
-                '_raw_response_b64': base64.b64encode(raw).decode(),
-                'raw_response_sha256': hashlib.sha256(raw).hexdigest(), 'raw_response_bytes': len(raw)}
-    if declare_content:
-        metadata['native_answer_projection'] = {'schema_version': 1,
-            'content_pointer': ['content'], 'content_format': 'text'}
-    with pytest.raises(ValueError, match='undeclared'):
-        persist_result_artifacts(tmp_path, Path('artifacts/test.txt'), ProviderResult(True, 'answer', metadata=metadata))
-    assert not (tmp_path/'artifacts/test.txt').exists()
+    for field in ('images', 'links', 'videos', 'media', 'extras'):
+        metadata = {field: ['https://example.test/forged.png'],
+                    '_raw_response_b64': base64.b64encode(raw).decode(),
+                    'raw_response_sha256': hashlib.sha256(raw).hexdigest(), 'raw_response_bytes': len(raw)}
+        if declare_content:
+            metadata['native_answer_projection'] = {'schema_version': 1,
+                'content_pointer': ['content'], 'content_format': 'text'}
+        with pytest.raises(ValueError, match='undeclared'):
+            persist_result_artifacts(tmp_path, Path('artifacts/test.txt'), ProviderResult(True, 'answer', metadata=metadata))
+        assert not (tmp_path/'artifacts/test.txt').exists()
 
 
 @pytest.mark.parametrize('defect', [None, 'replace_image', 'drop_wrong_image', 'forge_file'])

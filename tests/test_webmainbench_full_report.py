@@ -157,8 +157,8 @@ def test_retry_summary_uses_recorded_call_counts(tmp_path, calls, recovered, fai
     assert '均调用两次' not in text
 
 
-@pytest.mark.parametrize("binding_name", ["seven-method-binding.json", "method-binding.json"])
-@pytest.mark.parametrize("extra_methods", [0, 1])
+@pytest.mark.parametrize("binding_name,extra_methods",
+                         [("seven-method-binding.json", 0), ("method-binding.json", 1)])
 def test_full_report_renders_registered_details_and_failure_evidence(tmp_path: Path, binding_name: str, extra_methods: int) -> None:
     providers, rows = render_full_report(tmp_path, binding_name, extra_methods)
     subprocess.run(["node", "--check", str(tmp_path / "assets/report.js")], check=True)

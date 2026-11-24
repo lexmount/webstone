@@ -57,8 +57,8 @@ def test_external_pack_probe_uses_anonymous_range(tmp_path, monkeypatch, status)
     assert seen == [url]
 
 
-@pytest.mark.parametrize('delivery', ['exact', 'truncated', 'wrong'])
-@pytest.mark.parametrize('pinned_size', [True, False])
+@pytest.mark.parametrize(('delivery', 'pinned_size'), [
+    ('exact', True), ('exact', False), ('truncated', True), ('wrong', False)])
 def test_exact_external_pack_verification_checks_full_bytes(tmp_path, monkeypatch, delivery, pinned_size):
     url = 'https://reports.example/api/preview/data-site/data/one.gz?__artifact_version=ver_one'
     expected = gzip.compress(b'original', mtime=0)

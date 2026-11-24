@@ -60,20 +60,14 @@ def test_current_state_evidence_can_be_reverified_and_old_run_cannot(setup):
         verify_attempt(attempt, setup.contract)
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("process_status", "fail"),
-        ("evaluator_status", "fail"),
-        ("contract_correction_id", "legacy"),
-        ("state_contract_sha256", "old"),
-    ],
-)
-def test_reverification_rejects_inconsistent_attempts(setup, field, value):
-    attempt = materialize_attempt(setup)
-    attempt[field] = value
-    with pytest.raises(ValueError):
-        verify_attempt(attempt, setup.contract)
+def test_reverification_rejects_inconsistent_attempts(setup):
+    for field, value in (("process_status", "fail"), ("evaluator_status", "fail"),
+                         ("contract_correction_id", "legacy"), ("state_contract_sha256", "old")):
+        attempt = materialize_attempt(setup)
+        attempt[field] = value
+        with pytest.raises(ValueError):
+            verify_attempt(attempt, setup.contract)
+            pytest.fail(field)
 
 
 def test_missing_or_rehashed_modified_evaluation_cannot_promote(setup):
@@ -325,41 +319,41 @@ def test_observed_form_passes_without_synthetic_request_and_leaves_inputs_immuta
     assert original.score == 0
 
 
-@pytest.mark.parametrize(
-    "path,value",
-    [
-        (("state", "form_id"), "wrong-form"),
-        (("state", "form_count"), 2),
-        (("state", "connected"), False),
-        (("state", "visible"), False),
-        (("state", "fields", "comment", "associated"), False),
-        (("state", "fields", "comment", "visible"), False),
-        (("state", "fields", "comment", "count"), 2),
-        (("state", "fields", "comment", "complete"), False),
-        (("state", "fields", "comment", "value"), None),
-        (("state", "fields", "comment", "value"), "I need a refund. Order: 000000180..."),
-        (("capture_status",), "error"),
-        (("run_id",), "previous-run"),
-        (("attempt_id",), "previous-attempt"),
-    ],
-)
-def test_unrelated_incomplete_or_cross_run_observations_fail(setup, path, value):
-    observation = copy.deepcopy(setup.observation)
-    node = observation
-    for key in path[:-1]:
-        node = node[key]
-    node[path[-1]] = value
-    result = score(setup, observation)
-    assert result["score"] == (None if path == ("capture_status",) else 0)
+OBSERVATION_DEFECTS = [
+    (("state", "form_id"), "wrong-form"),
+    (("state", "form_count"), 2),
+    (("state", "connected"), False),
+    (("state", "visible"), False),
+    (("state", "fields", "comment", "associated"), False),
+    (("state", "fields", "comment", "visible"), False),
+    (("state", "fields", "comment", "count"), 2),
+    (("state", "fields", "comment", "complete"), False),
+    (("state", "fields", "comment", "value"), None),
+    (("state", "fields", "comment", "value"), "I need a refund. Order: 000000180..."),
+    (("capture_status",), "error"),
+    (("run_id",), "previous-run"),
+    (("attempt_id",), "previous-attempt"),
+]
 
 
-@pytest.mark.parametrize("suffix", ["/other/contact", "/contact-evil", "/contact/index/post"])
-def test_url_substrings_do_not_prove_target_page(setup, suffix):
+def test_unrelated_incomplete_or_cross_run_observations_fail(setup):
+    for path, value in OBSERVATION_DEFECTS:
+        observation = copy.deepcopy(setup.observation)
+        node = observation
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+        result = score(setup, observation)
+        assert result["score"] == (None if path == ("capture_status",) else 0), (path, value)
+
+
+def test_url_substrings_do_not_prove_target_page(setup):
     from urllib.parse import urlsplit
 
     u = urlsplit(setup.observation["state"]["page_url"])
-    setup.observation["state"]["page_url"] = f"{u.scheme}://{u.netloc}{suffix}"
-    assert score(setup)["score"] == 0
+    for suffix in ("/other/contact", "/contact-evil", "/contact/index/post"):
+        setup.observation["state"]["page_url"] = f"{u.scheme}://{u.netloc}{suffix}"
+        assert score(setup)["score"] == 0, suffix
 
 
 def test_correct_path_on_wrong_origin_fails(setup):
@@ -367,29 +361,17 @@ def test_correct_path_on_wrong_origin_fails(setup):
     assert score(setup)["score"] == 0
 
 
-@pytest.mark.parametrize(
-    "comment,accepted",
-    [
-        (
-            "I need a refund. Order: #180. Amount: 12.99 dollars. "
-            "Reason: It broke after three days of use",
-            True,
-        ),
-        (
-            "I need a refund. Order: 181. Amount: $12.99. "
-            "Reason: It broke after three days of use.",
-            False,
-        ),
-        (
-            "I need a refund. Order: 180. Amount: $12.98. "
-            "Reason: It broke after three days of use.",
-            False,
-        ),
-    ],
-)
-def test_official_regex_semantics_not_exact_string_replacement(setup, comment, accepted):
-    setup.observation["state"]["fields"]["comment"]["value"] = comment
-    assert (score(setup)["score"] == 1) is accepted
+def test_official_regex_semantics_not_exact_string_replacement(setup):
+    for comment, accepted in (
+        ("I need a refund. Order: #180. Amount: 12.99 dollars. "
+         "Reason: It broke after three days of use", True),
+        ("I need a refund. Order: 181. Amount: $12.99. "
+         "Reason: It broke after three days of use.", False),
+        ("I need a refund. Order: 180. Amount: $12.98. "
+         "Reason: It broke after three days of use.", False),
+    ):
+        setup.observation["state"]["fields"]["comment"]["value"] = comment
+        assert (score(setup)["score"] == 1) is accepted, comment
 
 
 @pytest.mark.parametrize("status", [200, 400])

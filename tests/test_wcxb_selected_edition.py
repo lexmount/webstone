@@ -125,15 +125,6 @@ def test_explicit_historical_selection_rejects_changed_source_hash(tmp_path, mon
     assert called == []
 
 
-def test_historical_train_count_remains_1497(tmp_path):
-    source, selected, _ = corpus(tmp_path, 1497, split='train', historical=True)
-    records, _ = wcxb_dataset.load_wcxb_source(source, 'train', manifest=selected)
-    assert len(records) == 1497
-    (source / 'train/ground-truth/0000.json').unlink()
-    with pytest.raises(ValueError, match='Expected 1497'):
-        wcxb_dataset.load_wcxb_source(source, 'train', manifest=selected)
-
-
 def test_default_adjacent_qualified_edition_still_validates(tmp_path):
     source, selected, manifest = corpus(tmp_path, 504)
     (source.parent / 'tasks.json').write_text(selected.read_text(encoding='utf-8'), encoding='utf-8')

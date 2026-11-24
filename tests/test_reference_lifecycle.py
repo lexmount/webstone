@@ -836,18 +836,18 @@ if __name__ == "__main__":
     unittest.main()
 
 
-@pytest.mark.parametrize('track', ['web', 'dynamic', 'challenge', 'risk_control', 'document', 'image', 'video'])
-@pytest.mark.parametrize('kind', ['body', 'structure', 'resource', 'file'])
-def test_explicit_live_reference_is_selected_for_every_mixed_contract(track, kind):
+def test_explicit_live_reference_is_selected_for_every_mixed_contract():
     from harness.web_fetch.reference_lifecycle import requires_fresh_reference
-    case = {'id': 'live', 'url': 'https://example.test/', 'track': track, 'task_kind': kind,
-            'ground_truth_main_content': 'Substantive independently observed article',
-            'acceptance_contract': {'version': 1, 'schema': 'body_text', 'minimum_records': 0,
-                                    'stable_text_anchors': [{'id': 'title', 'alternatives': ['Article']}]},
-            'source_verification': {'reference_mode': 'live_exact'}}
-    assert requires_fresh_reference(case)
-    case['source_verification'] = {}
-    assert not requires_fresh_reference(case)
+    for track in ('web', 'dynamic', 'challenge', 'risk_control', 'document', 'image', 'video'):
+        for kind in ('body', 'structure', 'resource', 'file'):
+            case = {'id': 'live', 'url': 'https://example.test/', 'track': track, 'task_kind': kind,
+                    'ground_truth_main_content': 'Substantive independently observed article',
+                    'acceptance_contract': {'version': 1, 'schema': 'body_text', 'minimum_records': 0,
+                        'stable_text_anchors': [{'id': 'title', 'alternatives': ['Article']}]},
+                    'source_verification': {'reference_mode': 'live_exact'}}
+            assert requires_fresh_reference(case), (track, kind)
+            case['source_verification'] = {}
+            assert not requires_fresh_reference(case), (track, kind)
 
 
 def test_unknown_reference_mode_is_not_hidden_by_a_stable_contract():
@@ -915,8 +915,7 @@ def test_original_scope_certificate_survives_unchanged_inputs_but_rejects_rule_c
 
 
 @pytest.mark.parametrize('fixture_name', ['legacy-live-reference.json', 'legacy-contract-reference.json'])
-@pytest.mark.parametrize('field', ['acceptance_contract', 'body_requirements', 'composite_acceptance'])
-def test_equivalent_legacy_capture_rejects_conflicting_embedded_rules(fixture_name, field):
+def test_equivalent_legacy_capture_rejects_conflicting_embedded_rules(fixture_name):
     fixture = json.loads((Path(__file__).parent / 'fixtures' / fixture_name).read_text(encoding="utf-8"))
     original = EvalCase(**json.loads(fixture['files']['dataset.json'])['cases'][0])
     manifest = json.loads(fixture['files']['manifest.json'])
@@ -926,12 +925,13 @@ def test_equivalent_legacy_capture_rejects_conflicting_embedded_rules(fixture_na
     assert binding == before
 
     changed_rule = {'required_fields': ['a different requirement']}
-    changed = replace(original, **{field: changed_rule})
-    conflicting = deepcopy(binding)
-    conflicting['scope_identity']['evaluation_contract'][field] = changed_rule
-    for check in (check_case_reference_binding, check_case_equivalent_reference_binding):
-        with pytest.raises(ReferenceLifecycleError):
-            check(changed, conflicting, original_case=original)
+    for field in ('acceptance_contract', 'body_requirements', 'composite_acceptance'):
+        changed = replace(original, **{field: changed_rule})
+        conflicting = deepcopy(binding)
+        conflicting['scope_identity']['evaluation_contract'][field] = changed_rule
+        for check in (check_case_reference_binding, check_case_equivalent_reference_binding):
+            with pytest.raises(ReferenceLifecycleError):
+                check(changed, conflicting, original_case=original)
 
 
 @pytest.mark.parametrize('version', [0, 3])

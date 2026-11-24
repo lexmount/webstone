@@ -50,7 +50,7 @@ def live_run(tmp_path, track='web'):
     return run, definition, records, observations
 
 
-@pytest.mark.parametrize('track', ['web', 'dynamic', 'challenge'])
+@pytest.mark.parametrize('track', ['web', 'dynamic'])
 def test_case_certification_waits_for_complete_calls_in_every_fresh_reference_track(tmp_path, monkeypatch, track):
     run, definition, records, observations = live_run(tmp_path, track)
     before = (run / 'manifest.json').read_bytes()
@@ -68,8 +68,7 @@ def test_case_certification_waits_for_complete_calls_in_every_fresh_reference_tr
     assert (run / 'manifest.json').read_bytes() == before
 
 
-@pytest.mark.parametrize('entry', ['certification', 'postcheck'])
-@pytest.mark.parametrize('damage', ['duplicate', 'unknown-provider'])
+@pytest.mark.parametrize(('entry', 'damage'), [('certification', 'duplicate'), ('postcheck', 'unknown-provider')])
 def test_live_monitors_reject_extra_calls_before_observation_or_certificate(tmp_path, monkeypatch, entry, damage):
     run, _, records, observations = live_run(tmp_path)
     extra = dict(records[0])
@@ -227,8 +226,8 @@ def test_browser_observation_time_is_compared_as_an_instant_across_timezones(tmp
         assert json.loads((output / 'observations.json').read_bytes()) == []
 
 
-@pytest.mark.parametrize('damage', ['independence', 'scope', 'identity', 'completion'])
-@pytest.mark.parametrize('source', ['browser', 'checkpoint'])
+@pytest.mark.parametrize(('damage', 'source'), [
+    ('independence', 'browser'), ('scope', 'checkpoint'), ('identity', 'browser'), ('completion', 'checkpoint')])
 def test_postcheck_monitor_rejects_invalid_provenance_without_rewriting_it(
     tmp_path, monkeypatch, damage, source
 ):

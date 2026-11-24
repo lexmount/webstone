@@ -2,6 +2,8 @@
 import base64
 import hashlib
 import json
+import shutil
+from copy import deepcopy
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 
@@ -62,9 +64,32 @@ def reviewed_corrected_matrix(tmp_path, *, fresh=True):
     return source, rows
 
 
+@pytest.fixture(scope='module')
+def matrix_templates(tmp_path_factory):
+    """Build each reviewed matrix once per worker; tests receive private copies."""
+    built = {}
+
+    def template(fresh):
+        if fresh not in built:
+            built[fresh] = reviewed_corrected_matrix(tmp_path_factory.mktemp('matrix'), fresh=fresh)
+        return built[fresh]
+
+    return template
+
+
+@pytest.fixture
+def corrected_matrix(matrix_templates, tmp_path):
+    def copy(fresh=True):
+        source, rows = matrix_templates(fresh)
+        shutil.copytree(source, tmp_path / 'source', symlinks=True)
+        return tmp_path / 'source', deepcopy(rows)
+
+    return copy
+
+
 @pytest.mark.parametrize('excluded', [[], ['new']])
-def test_assembly_preserves_corrected_timing_chronology_and_review_scope(tmp_path, excluded):
-    source, rows = reviewed_corrected_matrix(tmp_path)
+def test_assembly_preserves_corrected_timing_chronology_and_review_scope(tmp_path, corrected_matrix, excluded):
+    source, rows = corrected_matrix()
     before = {path.relative_to(source): path.read_bytes()
               for path in source.rglob('*') if path.is_file()}
     (source / 'worker-notes.txt').write_text('private synthetic note', encoding='utf-8')
@@ -92,8 +117,8 @@ def test_assembly_preserves_corrected_timing_chronology_and_review_scope(tmp_pat
 
 @pytest.mark.parametrize('damage', ['wrong-original', 'missing-receipt', 'missing-entry', 'non-object',
                                   'negative', 'infinite', 'boolean'])
-def test_assembly_rejects_tampered_timing_receipt_without_output(tmp_path, damage):
-    source, _ = reviewed_corrected_matrix(tmp_path)
+def test_assembly_rejects_tampered_timing_receipt_without_output(tmp_path, corrected_matrix, damage):
+    source, _ = corrected_matrix()
     receipt = json.loads((source / 'latency-corrections.json').read_text(encoding='utf-8'))
     if damage == 'wrong-original':
         receipt['changes'][0]['before_ms'] += 1
@@ -119,8 +144,8 @@ def test_assembly_rejects_tampered_timing_receipt_without_output(tmp_path, damag
     assert not list(tmp_path.glob('.output-*'))
 
 
-def test_review_projection_rejects_changed_attempt_even_with_same_identity(tmp_path):
-    source, rows = reviewed_corrected_matrix(tmp_path)
+def test_review_projection_rejects_changed_attempt_even_with_same_identity(tmp_path, corrected_matrix):
+    source, rows = corrected_matrix()
     output = tmp_path / 'output'
     output.mkdir()
     (output / 'dataset.json').write_bytes((source / 'dataset.json').read_bytes())
@@ -132,8 +157,8 @@ def test_review_projection_rejects_changed_attempt_even_with_same_identity(tmp_p
 
 
 @pytest.mark.parametrize('excluded', [[], ['new']])
-def test_speed_copy_preserves_timing_corrections_for_retained_calls(tmp_path, excluded):
-    source, rows = reviewed_corrected_matrix(tmp_path, fresh=False)
+def test_speed_copy_preserves_timing_corrections_for_retained_calls(tmp_path, corrected_matrix, excluded):
+    source, rows = corrected_matrix(fresh=False)
     definition = json.loads((source / 'dataset.json').read_text(encoding='utf-8'))
     execution = json.loads((source / 'execution.json').read_text(encoding='utf-8'))
     batches = execution['batches']

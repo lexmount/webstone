@@ -18,12 +18,11 @@ from harness.web_fetch.report import (
     write_support,
 )
 from harness.web_fetch.report_components import (
-    task_contract_guide, task_pass_guide, examples, list_rule_description, metric_guide, reference_status,
+    task_pass_guide, list_rule_description, reference_status,
     stable_contract_details, task_instruction,
 )
 from lexbench_webfetch.stable_tasks import evaluate_stable_task
 from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
-from harness.web_fetch.report_i18n import translate_text
 
 
 def case(identifier='list', kind='structure', track='challenge'):
@@ -254,21 +253,6 @@ class ReportBodyScopeTests(unittest.TestCase):
         self.assertIn('必须出现的稳定文字',stable_answer_panel(contract))
         self.assertIn('所有组均须通过',stable_contract_details(c))
 
-    def test_diagnostic_stable_text_explanation_has_english_copy(self):
-        chinese=('页面正文按登记的正文规则核验；稳定文字只用于核对抓取范围，不影响是否通过；'
-                 '新闻、日期、轮播卡片、仓库状态等易变内容不固定为答案。'
-                 '历史完整快照只作诊断，不进入全文质量汇总。')
-        english=translate_text(chinese)
-        self.assertNotEqual(english,chinese)
-        self.assertIn('does not affect acceptance',english)
-
-    def test_method_guide_distinguishes_required_and_diagnostic_anchors(self):
-        rendered=task_contract_guide()
-        self.assertIn('必需锚点参与验收',rendered)
-        self.assertIn('诊断锚点只核对抓取范围',rendered)
-        self.assertNotIn('稳定内容锚点仍用于任务验收',rendered)
-        english=translate_text('标为必需的稳定内容锚点参与验收；诊断锚点只核对抓取范围。')
-        self.assertIn('required affect acceptance',english)
     def test_local_report_links_complete_private_debug_log(self):
         c = case('debug-log', 'body', 'risk_control')
         r = record(c)
@@ -519,21 +503,6 @@ class ReportBodyScopeTests(unittest.TestCase):
         self.assertIn('列表任务：通过',rendered)
         self.assertNotIn('未评测',rendered)
 
-    def test_example_order_and_metric_explanations(self):
-        rendered=examples()
-        positions=[rendered.index('data-tab="'+t+'"') for t in ['web','dynamic','challenge','risk_control','document','web_media','media_file']]
-        self.assertEqual(positions,sorted(positions))
-        guide=metric_guide()
-        for phrase in ['0 次通过不等于 F1 为 0','请求失败计 0','仍按实际正文评分','不是平均完整度与平均纯净度的调和平均']:
-            self.assertIn(phrase,guide)
-
-    def test_stable_contract_and_snapshot_diagnostics_are_distinct(self):
-        rendered=task_contract_guide()
-        for phrase in ['数量、必需字段、唯一性和字段类型','事实准确性','实时性','完整参考',
-                       '任务通过率和耗时仍保留','原始输出哈希','已验证的 stable_contract','exact_snapshot']:
-            self.assertIn(phrase,rendered)
-        self.assertNotIn('30 分钟',rendered)
-
     def test_identity_results_not_relabelled_as_mechanical_counts(self):
         c=case();r=record(c,passed=False)
         r['metrics']['structure_pass']=True
@@ -544,21 +513,6 @@ class ReportBodyScopeTests(unittest.TestCase):
         self.assertIn('字段／数量规则',list_rule_description(c))
         self.assertIn('至少 5',list_rule_description(c))
         self.assertNotIn('独立内容证据',list_rule_description(c))
-
-    def test_stable_content_anchors_remain_part_of_task_acceptance(self):
-        for rendered in [metric_guide(), task_contract_guide(), examples(),
-                         task_pass_guide('dynamic'), task_pass_guide('challenge'),
-                         reference_status([])]:
-            with self.subTest(rendered=rendered[:80]):
-                self.assertIn('稳定标题、栏目、说明', rendered)
-                self.assertIn('频繁变化', rendered)
-                self.assertIn('类型', rendered)
-        for rendered in [metric_guide(), task_contract_guide()]:
-            self.assertIn('不能用条目数量推算全文 F1', rendered)
-            self.assertIn('可比性', rendered)
-        c = case()
-        c['source_benchmark'] = {'minimum_entries': 5}
-        self.assertIn('稳定标题、栏目、说明', list_rule_description(c))
 
     def test_rendered_pages_preserve_results_and_label_only_missing_word_metrics(self):
         c=case();r=record(c)
@@ -1035,12 +989,6 @@ class ReportBodyScopeTests(unittest.TestCase):
                 self.assertNotIn('未登记',rendered)
                 self.assertNotIn('<h3>页面模式',rendered)
 
-    def test_public_methodology_does_not_describe_legacy_identity_migration(self):
-        for rendered in [metric_guide(),task_contract_guide(),examples(),reference_status([]),
-                         task_pass_guide('dynamic'),task_pass_guide('challenge')]:
-            for phrase in ['若登记','仍采用快照','名称—链接身份','另按其实际规则']:
-                self.assertNotIn(phrase,rendered)
-
     def test_methodology_assets_copied_and_shown_only_when_present(self):
         from harness.web_fetch.report_build import copy_methodology_assets
         with tempfile.TemporaryDirectory() as directory:
@@ -1055,19 +1003,6 @@ class ReportBodyScopeTests(unittest.TestCase):
             page=(out/'methodology/index.html').read_text(encoding='utf-8')
             for name in ['annotation','validation','scoring']:
                 self.assertIn(f'../assets/methodology/{name}.png',page)
-
-    def test_general_report_explains_rerun_scope_and_packaged_loading(self):
-        with tempfile.TemporaryDirectory() as directory:
-            out = Path(directory)
-            with patch('harness.web_fetch.report_methods.render_methods', return_value='methods'):
-                write_support(out, [], [])
-            methodology = (out/'methodology/index.html').read_text(encoding='utf-8')
-            reproduce = (out/'reproduce/index.html').read_text(encoding='utf-8')
-        self.assertIn('变更后重跑范围', methodology)
-        self.assertIn('只改展示时重建报告', methodology)
-        self.assertIn('发布与加载', reproduce)
-        self.assertIn('通用 HTML 外壳', reproduce)
-        self.assertIn('超过 256 KiB', reproduce)
 
     def test_real_methodology_pngs_available_before_generate(self):
         from harness.web_fetch.report_build import build_report

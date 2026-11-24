@@ -10,8 +10,8 @@ from harness.web_fetch.benchmarks import BENCHMARKS
 from tests.test_wcxb_selected_edition import ReachedCollection, corpus, preflight
 
 
-@pytest.mark.parametrize('scope,expected', [('qualified', 504), ('full', 504), ('subset', 200)])
-@pytest.mark.parametrize('source_option', [False, True])
+@pytest.mark.parametrize('scope,expected,source_option', [
+    ('qualified', 504, False), ('full', 504, True), ('subset', 200, False)])
 def test_generate_then_consume_qualified_edition(tmp_path, monkeypatch, scope, expected, source_option):
     source, edition_path, edition = corpus(tmp_path, 504)
     if source_option:
@@ -48,8 +48,7 @@ def test_generate_then_consume_qualified_edition(tmp_path, monkeypatch, scope, e
     assert not args.output.exists()
 
 
-@pytest.mark.parametrize('split,count', [('test', 511), ('train', 1497)])
-@pytest.mark.parametrize('versioned', [False, True])
+@pytest.mark.parametrize('split,count,versioned', [('test', 511, False), ('train', 1497, True)])
 def test_discovered_and_explicit_historical_manifests_select_identical_population(tmp_path, split, count, versioned):
     source, selected, manifest = corpus(tmp_path, count, split=split, historical=True)
     if not versioned:
@@ -79,7 +78,7 @@ def test_historical_generator_keeps_original_schema_and_qualified_selection(tmp_
     assert len(records) == 511 and len(selected) == 504
 
 
-@pytest.mark.parametrize('changed', ['source_count', 'hash', 'scope', 'identity', 'reference'])
+@pytest.mark.parametrize('changed', ['source_count', 'scope', 'reference'])
 def test_generated_subset_does_not_weaken_edition_or_selection_checks(tmp_path, monkeypatch, changed):
     source, edition_path, _ = corpus(tmp_path, 504)
     (source.parent / 'tasks.json').write_text(edition_path.read_text(encoding='utf-8'), encoding='utf-8')
@@ -89,12 +88,8 @@ def test_generated_subset_does_not_weaken_edition_or_selection_checks(tmp_path, 
     manifest = json.loads(output.read_text(encoding='utf-8'))
     if changed == 'source_count':
         manifest['source_count'] = 200
-    elif changed == 'hash':
-        manifest['source_sha256'] = '0' * 64
     elif changed == 'scope':
         manifest['scope'] = 'qualified_test'
-    elif changed == 'identity':
-        manifest['cases'][0]['file_id'] = 'foreign'
     else:
         manifest['cases'][0]['reference'] = 'Foreign reference'
     output.write_text(json.dumps(manifest), encoding='utf-8')

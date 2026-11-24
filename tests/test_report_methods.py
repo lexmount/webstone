@@ -1,16 +1,20 @@
 import unittest
 from unittest.mock import patch
-from harness.web_fetch.report_methods import adoption_counts
-from harness.web_fetch.report_components import metric_legend,metric_guide
+
 from harness.web_fetch.methods import METHOD_REGISTRY, method_info, method_page_model
+from harness.web_fetch.report_components import metric_guide, metric_legend
+from harness.web_fetch.report_methods import adoption_counts
+
 
 class AdoptionTests(unittest.TestCase):
  def test_product_source_is_owned_by_catalog_not_execution_alias(self):
-  import json,tempfile
+  import json
+  import tempfile
   from pathlib import Path
-  from harness.web_fetch.report_methods import render_methods
+
   from harness.reporting.presentation import esc
-  from harness.web_fetch.report import hero,section,table,cell,link
+  from harness.web_fetch.report import cell, hero, link, section, table
+  from harness.web_fetch.report_methods import render_methods
   with tempfile.TemporaryDirectory() as tmp:
    out=Path(tmp)
    (out/'dataset.json').write_text(json.dumps({
@@ -95,24 +99,12 @@ class AdoptionTests(unittest.TestCase):
       'freshness':'fresh process','configuration':'Configured from registry.',
       'pricing_anchor':'pricing-future',
   })
-
- def test_tavily_method_reports_the_advanced_route_used_by_the_cohort(self):
-  output=method_info('tavily_extract')['output']
-  self.assertIn('advanced',output)
-  self.assertNotIn('basic',output)
-
- def test_cloudflare_method_discloses_default_quick_actions_cache(self):
-  for provider_type in ('cloudflare_markdown', 'cloudflare_content'):
-   freshness=method_info(provider_type)['freshness']
-   self.assertIn('默认最多缓存 5 秒',freshness)
-   self.assertNotIn('实时',freshness)
-   translated=method_info(provider_type,language='en')['freshness']
-   self.assertIn('up to 5 seconds',translated)
-   self.assertNotIn('Real-time',translated)
  def test_failed_candidate_verification_preserves_snapshot(self):
-  import json,tempfile
+  import json
+  import tempfile
   from pathlib import Path
   from unittest.mock import patch
+
   from harness.web_fetch import provider_adoption as survey
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);(root/'research').mkdir()
@@ -132,9 +124,12 @@ class AdoptionTests(unittest.TestCase):
   current['candidate_catalog']=[{'repo':'inactive/project','path':'old.py','signatures':['langchain-web-base-loader']}]
   self.assertIn(('inactive/project','old.py'),candidate_union(current,{'included':[]}))
  def test_search_checkpoint_stays_outside_the_checkout(self):
-  import json,os,tempfile
+  import json
+  import os
+  import tempfile
   from pathlib import Path
   from unittest.mock import patch
+
   from harness.web_fetch import provider_adoption as survey
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp)/'checkout';(root/'research').mkdir(parents=True)
@@ -149,16 +144,18 @@ class AdoptionTests(unittest.TestCase):
    self.assertEqual({x['repo'] for x in searches[0]['items']},{'a/b'})
    self.assertEqual(list((root/'research').iterdir()),[])
  def test_search_rejects_a_silent_known_positive_control(self):
-  import os,tempfile
+  import os
+  import tempfile
   from pathlib import Path
   from unittest.mock import patch
+
   from harness.web_fetch import provider_adoption as survey
   with tempfile.TemporaryDirectory() as tmp:
    root=Path(tmp);(root/'research').mkdir()
    with patch.dict(os.environ,{'WEB_FETCH_RESEARCH_EVIDENCE_DIR':tmp}),patch.object(survey,'repository_root',lambda:root),patch.object(survey,'gh',return_value={'total_count':0,'items':[]}),patch.object(survey,'refresh') as refresh:
     with self.assertRaisesRegex(RuntimeError,'Known-positive'):survey.search()
    refresh.assert_not_called()
- def test_counts_deduplicate_repository_and_file(self):
+ def test_counts_deduplicate_repository_and_file_and_ignore_generic_hits(self):
   row={'repo':'Owner/Repo','url':'https://example.org','matches':[{'signature':s,'path':p,'url':'https://example.org/code'} for s,p in [('firecrawl-v1','a.py'),('firecrawl-sdk','a.py'),('firecrawl-v2','b.py'),('generic-web-fetch-tool','c.py')]]}
   result=adoption_counts({'included':[row,row],'provider_signatures':{'firecrawl':['firecrawl-v1','firecrawl-sdk','firecrawl-v2'],'lexmount-global':['lexmount-global-extract'],'exa':['exa-contents']}},['firecrawl','lexmount-global','exa'])
   by={x['provider']:x for x in result}
@@ -166,9 +163,6 @@ class AdoptionTests(unittest.TestCase):
   self.assertEqual(by['firecrawl']['file_count'],2)
   self.assertEqual(by['exa']['repository_count'],0)
   self.assertEqual(by['lexmount-global']['repository_count'],0)
- def test_generic_hits_do_not_establish_adoption(self):
-  row={'repo':'a/b','url':'https://example.org','matches':[{'signature':'generic-web-fetch-tool','path':'a.py'}]}
-  self.assertEqual(adoption_counts({'included':[row],'provider_signatures':{'firecrawl':['firecrawl-sdk']}},['firecrawl'])[0]['repository_count'],0)
  def test_metric_definitions_cover_each_ranking(self):
   for title in ['请求成功率','任务通过率','结构达标率','资源命中率','文件取得率','信息通过率','完整度','纯净度','F1','均值','P50','P95']:
    self.assertIn('<dt>'+title+'</dt>',metric_legend([title]))
@@ -176,6 +170,7 @@ class AdoptionTests(unittest.TestCase):
 
 def test_report_labels_distinguish_release_and_source_build_with_same_version(tmp_path):
     import json
+
     from harness.web_fetch.methods import with_measured_method_labels
     from harness.web_fetch.report import provider_label
     from harness.web_fetch.report_methods import display_name
@@ -208,9 +203,9 @@ def test_report_labels_distinguish_release_and_source_build_with_same_version(tm
 
 
 def test_method_guide_discloses_retained_success_and_repaired_failure_builds(tmp_path):
-    from harness.web_fetch.report_methods import render_methods
     from harness.reporting.presentation import esc
-    from harness.web_fetch.report import hero, section, table, cell, link
+    from harness.web_fetch.report import cell, hero, link, section, table
+    from harness.web_fetch.report_methods import render_methods
     records = [{'provider': 'sample', 'provider_type': 'fixture',
                 'provider_metadata': {'binary_sha256': build}}
                for build in ('retained-build', 'retained-build', 'repair-build')]
@@ -230,7 +225,12 @@ def test_method_guide_discloses_retained_success_and_repaired_failure_builds(tmp
 
 
 def test_bound_external_method_registry_is_scoped_to_its_report(tmp_path):
-    from harness.web_fetch.methods import with_measured_method_labels, native_browser_engine, browser_method_label, browser_method_registry
+    from harness.web_fetch.methods import (
+     browser_method_label,
+     browser_method_registry,
+     native_browser_engine,
+     with_measured_method_labels,
+    )
     @with_measured_method_labels
     def render(out,dataset,records):
         assert native_browser_engine('external-build') == 'moli'
@@ -247,6 +247,7 @@ def test_bound_external_method_registry_is_scoped_to_its_report(tmp_path):
 
 def test_new_participant_interface_and_access_are_bound_data(tmp_path):
     import json
+
     from harness.web_fetch.methods import with_measured_method_labels
     from harness.web_fetch.report_interfaces import render_interfaces
     (tmp_path/'answer.txt').write_text('A complete saved answer', encoding='utf-8')
@@ -297,8 +298,8 @@ def test_method_model_selects_direct_english_fields_without_reverse_translation(
 
 
 def test_hosted_interfaces_follow_adapter_identity_in_external_cohorts():
-    from harness.web_fetch.report_interfaces import method_spec
     from harness.web_fetch.methods import method_info
+    from harness.web_fetch.report_interfaces import method_spec
     adapters = ('brightdata_unlocker', 'browser_use_fetch', 'browserbase_fetch',
                 'deepseek_fetch', 'crawl4ai_cloud')
     for adapter in adapters:

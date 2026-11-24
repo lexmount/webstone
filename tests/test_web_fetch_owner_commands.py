@@ -97,36 +97,31 @@ def test_every_owner_command_is_covered_and_listed_by_top_level_help(tmp_path):
         assert name in listed
 
 
-@pytest.mark.parametrize("command", OWNER_OPTIONS)
-def test_command_help_comes_from_its_owner_under_the_public_name(command, tmp_path, monkeypatch, capsys):
+def test_command_help_comes_from_its_owner_under_the_public_name(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "argv", ["caller"])
-    with pytest.raises(SystemExit) as stopped:
-        main([command, "--help"])
-    assert stopped.value.code == 0
-    printed = capsys.readouterr().out
-    assert " ".join(printed.split()).startswith(f"usage: {PROG} {command} ")
-    assert OWNER_OPTIONS[command] in printed
-    assert sys.argv == ["caller"]
+    for command, option in OWNER_OPTIONS.items():
+        with pytest.raises(SystemExit) as stopped:
+            main([command, "--help"])
+        assert stopped.value.code == 0, command
+        printed = capsys.readouterr().out
+        assert " ".join(printed.split()).startswith(f"usage: {PROG} {command} "), command
+        assert option in printed, command
+        assert sys.argv == ["caller"]
     assert list(tmp_path.iterdir()) == []
 
 
-def test_owner_rejects_an_unknown_option_the_router_passed_through(tmp_path):
-    result = run_module("webmainbench-full-check", str(tmp_path), "--not-an-option", cwd=tmp_path)
-    assert result.returncode == 2
-    assert "--not-an-option" in result.stderr
-
-
-def test_router_leaves_direct_commands_strict(tmp_path):
-    result = run_module("validate", "--not-an-option", cwd=tmp_path)
-    assert result.returncode == 2
-    assert "--not-an-option" in result.stderr
-
-
-def test_unknown_command_fails_without_running_an_owner(tmp_path):
-    result = run_module("webmainbench-unknown", cwd=tmp_path)
-    assert result.returncode == 2
-    assert "invalid choice" in result.stderr
+def test_router_and_owners_reject_unknown_commands_and_options(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    for arguments, message in (
+        (["webmainbench-full-check", str(tmp_path), "--not-an-option"], "--not-an-option"),
+        (["validate", "--not-an-option"], "--not-an-option"),
+        (["webmainbench-unknown"], "invalid choice"),
+    ):
+        with pytest.raises(SystemExit) as stopped:
+            main(arguments)
+        assert stopped.value.code == 2, arguments
+        assert message in capsys.readouterr().err, arguments
 
 
 def test_nested_certify_stage_reaches_the_wcxb_certifier(tmp_path, monkeypatch, capsys):
@@ -180,30 +175,21 @@ def frozen_certifier_scripts():
                                           path.read_text(encoding="utf-8"))})
 
 
-def test_frozen_certifiers_name_the_scripts_this_track_keeps():
-    assert frozen_certifier_scripts() == ["scripts/diagnose_webmainbench_moli_tail.py",
-                                          "scripts/run_webmainbench_benchmark.py"]
-
-
-@pytest.mark.parametrize(("script", "option"), [
-    ("scripts/diagnose_webmainbench_moli_tail.py", "--older-version"),
-    ("scripts/run_webmainbench_benchmark.py", "--case-ids-file"),
-])
-def test_script_named_by_a_frozen_certifier_still_runs(script, option, tmp_path):
-    path = os.pathsep.join(filter(None, [str(ROOT / "src"), os.environ.get("PYTHONPATH")]))
-    result = subprocess.run([sys.executable, str(ROOT / script), "--help"], cwd=tmp_path,
-                            env={**os.environ, "PYTHONPATH": path}, text=True, capture_output=True)
-    assert result.returncode == 0, result.stderr
-    assert option in result.stdout
-
-
-@pytest.mark.parametrize("script", ["run_benchmark.py", "build_report.py", "check_report.py",
-                                    "check_report_links.py"])
-def test_frozen_certifiers_keep_their_shared_scripts(script):
+def test_scripts_named_by_frozen_certifiers_still_exist_and_run(tmp_path):
     certifiers = list((ROOT / "src/harness/web_fetch/data/latency-certifiers").glob("*.py.txt"))
     assert certifiers
-    assert all(f"scripts/{script}" in path.read_text(encoding="utf-8") for path in certifiers)
-    assert (ROOT / "scripts" / script).is_file()
+    for script in ("run_benchmark.py", "build_report.py", "check_report.py", "check_report_links.py"):
+        assert all(f"scripts/{script}" in path.read_text(encoding="utf-8") for path in certifiers)
+        assert (ROOT / "scripts" / script).is_file()
+    options = {"scripts/diagnose_webmainbench_moli_tail.py": "--older-version",
+               "scripts/run_webmainbench_benchmark.py": "--case-ids-file"}
+    assert frozen_certifier_scripts() == sorted(options)
+    path = os.pathsep.join(filter(None, [str(ROOT / "src"), os.environ.get("PYTHONPATH")]))
+    for script, option in options.items():
+        result = subprocess.run([sys.executable, str(ROOT / script), "--help"], cwd=tmp_path,
+                                env={**os.environ, "PYTHONPATH": path}, text=True, capture_output=True)
+        assert result.returncode == 0, result.stderr
+        assert option in result.stdout
 
 
 def test_reference_finalization_exit_status_reports_an_unverified_result(monkeypatch, capsys):
@@ -247,20 +233,16 @@ def test_template_registry_names_the_public_package_command():
         "uv run --frozen python -m harness.web_fetch wcxb-publish --package-only ")
 
 
-@pytest.mark.parametrize(("command", "extra"), [
-    ("wcxb-visual", "headless-eval"),
-    ("webmainbench-score", "webmainbench-eval"),
-    ("webmainbench-review", "webmainbench-eval"),
-    ("webmainbench-scoring-correction", "webmainbench-eval"),
-    ("webmainbench-case-rescore", "webmainbench-eval"),
-    ("webmainbench-teds-correction", "webmainbench-eval"),
-    ("webmainbench-full-score", "webmainbench-eval"),
-])
-def test_documented_uv_commands_name_the_extra_their_stage_imports(command, extra):
+def test_documented_uv_commands_name_the_extra_their_stage_imports():
     root = repository_root()
-    invocation = re.compile(
-        r"(?:\buv|\$\(UV\)) run\b(?:(?!\brun\b)[^`\n]|\\\n)*?-m harness\.web_fetch " + re.escape(command) + r"(?![\w-])")
-    found = [match.group(0) for path in DOCUMENTED_COMMAND_FILES
-             for match in invocation.finditer((root / path).read_text(encoding="utf-8"))]
-    assert found, f"no uv invocation of {command} is documented"
-    assert all(f"--extra {extra} " in text for text in found), found
+    texts = [(root / path).read_text(encoding="utf-8") for path in DOCUMENTED_COMMAND_FILES]
+    for command, extra in (("wcxb-visual", "headless-eval"),
+                           *((name, "webmainbench-eval") for name in (
+                               "webmainbench-score", "webmainbench-review", "webmainbench-scoring-correction",
+                               "webmainbench-case-rescore", "webmainbench-teds-correction",
+                               "webmainbench-full-score"))):
+        invocation = re.compile(
+            r"(?:\buv|\$\(UV\)) run\b(?:(?!\brun\b)[^`\n]|\\\n)*?-m harness\.web_fetch " + re.escape(command) + r"(?![\w-])")
+        found = [match.group(0) for text in texts for match in invocation.finditer(text)]
+        assert found, f"no uv invocation of {command} is documented"
+        assert all(f"--extra {extra} " in text for text in found), found

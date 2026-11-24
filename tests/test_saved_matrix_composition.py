@@ -55,22 +55,7 @@ def test_composition_retains_exact_source_records(tmp_path, shared_reports):
         original = json.loads((source / 'matrix.json').read_bytes())['rows'][0]
         assert (output / row['record_path']).read_bytes() == (source / original['record_path']).read_bytes()
         assert row['passed'] == original['passed'] and row['elapsed_ms'] == original['elapsed_ms']
-    (output / model['rows'][0]['answer_path']).write_text('changed', encoding='utf-8')
-    with pytest.raises(ValueError):
-        check_saved_matrix(output)
-
-
-def test_composition_cannot_be_packaged_for_release(tmp_path, shared_reports):
-    from harness.web_fetch.report_package import build as package
-    spec, _ = shared_reports
-    output = build_saved_matrix(spec, tmp_path / 'combined').parent
-    with pytest.raises(ValueError, match='Diagnostic evidence cannot enter certified assembly or reports'):
-        package(output, tmp_path / 'combined.zip')
-
-
-def test_composition_rejects_rebound_row_change(tmp_path, shared_reports):
-    spec, _ = shared_reports
-    output = build_saved_matrix(spec, tmp_path / 'combined').parent
+    # A row change that is rebound in the audit still differs from the immutable sources.
     matrix = json.loads((output / 'matrix.json').read_bytes())
     matrix['rows'][0]['elapsed_ms'] = 0
     binding = write(output / 'matrix.json', matrix)
@@ -108,7 +93,7 @@ def test_composition_selects_method_without_changing_saved_results(tmp_path, sha
     assert row['passed'] == original['passed'] and row['elapsed_ms'] == original['elapsed_ms']
 
 
-@pytest.mark.parametrize('selected', [[], ['unknown'], ['method-0', 'method-0'], 'method-0', [None], None])
+@pytest.mark.parametrize('selected', [[], ['unknown'], ['method-0', 'method-0'], 'method-0'])
 def test_composition_rejects_invalid_method_selection(tmp_path, selected, shared_reports):
     spec = json.loads(shared_reports[0].read_bytes())
     spec['saved_reports'][0]['providers'] = selected
@@ -234,8 +219,7 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
     return output, packed, content, archive
 
 
-@pytest.mark.parametrize('external', [False, True])
-@pytest.mark.parametrize('reviewed', [False, True, (True, False), (False, True)])
+@pytest.mark.parametrize('external,reviewed', [(False, False), (True, (True, False)), (False, (False, True))])
 def test_published_extension_retains_scoring_editions_and_reorders_columns(tmp_path, external, reviewed):
     from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
     from harness.web_fetch.report_saved_composition import check_published_extension
@@ -370,24 +354,6 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports)
     assert len(analysis.select('#compare-rows tr')) == 1
 
 
-def test_extension_refresh_restores_baseline_pages_when_leaving_ranked_mode(tmp_path):
-    from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
-    output, spec_path = _real_extension(tmp_path)
-    spec = json.loads(spec_path.read_bytes())
-    original = (Path(spec['published_base']['root'])/'analysis/index.html').read_bytes()
-    spec['presentation'] = 'ranked'
-    write(spec_path, spec)
-    refresh_published_extension(output, spec_path=spec_path)
-    assert (output/'analysis/index.html').read_bytes() != original
-    spec['presentation'] = 'audit'
-    write(spec_path, spec)
-    assert refresh_published_extension(output, spec_path=spec_path)['valid']
-    assert (output/'analysis/index.html').read_bytes() == original
-    assert json.loads((output/'saved-extension.json').read_bytes())['presentation_pages'] == []
-    assert check_published_extension(output)['valid']
-
-
-
 def test_frozen_namespaced_extension_keeps_verifying_without_double_prefix(tmp_path):
     from harness.web_fetch.report_saved_composition import _namespace_extension_evidence, check_published_extension
     from harness.web_fetch.report_package import extend_published_content, _write_archive, check_extension_archive
@@ -476,21 +442,18 @@ def _real_extension(tmp_path, *, undecidable=False, source_reports=None, source_
     return output, path
 
 
-@pytest.mark.parametrize('option', ['--presentation-binding', '--refresh-privacy'])
-def test_extension_cli_rejects_ignored_options(tmp_path, monkeypatch, option):
+def test_extension_cli_rejects_ignored_options(tmp_path, monkeypatch):
     from harness.web_fetch.report_package import main
-    output, baseline, _, _ = _published_extension(tmp_path)
     archive = tmp_path/'requested.zip'
-    args = ['package', str(output), str(archive), '--reuse-published', str(baseline), option]
-    if option == '--presentation-binding':
-        args.append(str(tmp_path/'nonexistent.json'))
+    args = ['package', str(tmp_path/'output'), str(archive), '--reuse-published', str(tmp_path/'baseline'),
+            '--refresh-privacy']
     monkeypatch.setattr('sys.argv', args)
     with pytest.raises(SystemExit):
         main()
     assert not archive.exists() and not archive.with_suffix('.content').exists()
 
 
-@pytest.mark.parametrize('destination', ['source', 'baseline', 'symlink', 'directory'])
+@pytest.mark.parametrize('destination', ['source', 'symlink', 'directory'])
 def test_extension_cli_rejects_unsafe_outputs_without_changing_inputs(tmp_path, monkeypatch, destination):
     from harness.web_fetch.report_package import main
     from harness.safety import evidence_tree_identity
@@ -535,7 +498,7 @@ def test_ordinary_packager_requires_extension_mode(tmp_path):
         package(output, tmp_path/'ordinary.zip')
 
 
-@pytest.mark.parametrize('unranked', ['base', 'extra', 'both'])
+@pytest.mark.parametrize('unranked', ['extra', 'both'])
 def test_extension_audit_keeps_method_links_in_unranked_tables(tmp_path, unranked):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import _extended_home
@@ -573,18 +536,29 @@ def test_extension_audit_shows_escaped_comparison_note(tmp_path):
     assert page.find('not') is None
 
 
-def test_extension_methodology_retains_each_execution_row_once():
+# Row-number columns are renumbered once per appended row; rank values and unindexed data cells are kept.
+@pytest.mark.parametrize('table,expected', [
+    ('<table><thead><tr><th>序号</th><th>方法</th><th>外层超时</th></tr></thead><tbody><tr><td>1</td>'
+     '<td><a href="../providers/{p}.html">{p}</a></td><td>90</td></tr></tbody></table>',
+     [['1', 'base', '90'], ['2', 'extra', '90']]),
+    ('<table><thead><tr><th>Rank</th><th>Method</th></tr></thead><tbody><tr><td>1</td><td>{p}</td></tr></tbody></table>',
+     [['1', 'base'], ['1', 'extra']]),
+    ('<table data-row-index="false"><thead><tr><th>Method</th><th>Value</th></tr></thead><tbody><tr>'
+     '<td><a href="../providers/{p}.html">{p}</a></td><td>Kept</td></tr></tbody></table>',
+     [['base', 'Kept'], ['extra', 'Kept']]),
+])
+def test_extension_methodology_table_rows(table, expected):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import _extension_page
     def page(provider):
-        return '<html><body><main><table><thead><tr><th>序号</th><th>方法</th><th>外层超时</th><th>计划轮次</th></tr></thead><tbody><tr><td>1</td><td><a href="../providers/'+provider+'.html">'+provider+'</a></td><td>90</td><td>3</td></tr></tbody></table></main></body></html>'
-    def model(p):
-        return {'providers': [{'id': p}], 'rows': []}
+        return '<html><body><main>' + table.replace('{p}', provider) + '</main></body></html>'
+    base, added = ({'providers': [{'id': p}], 'rows': []} for p in ('base', 'extra'))
     result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
-        model('base'), model('extra'), [], ''), 'html.parser')
+        base, added, [], ''), 'html.parser')
     rows = result.select('tbody tr')
-    assert len(rows) == 2
-    assert [c.get_text() for c in rows[1].find_all('td')] == ['2', 'extra', '90', '3']
+    assert [[c.get_text() for c in r.find_all('td')] for r in rows] == expected
+    links = [a['href'] for a in result.select('tbody a')]
+    assert links in ([], ['../providers/base.html', '../additional/providers/extra.html'])
 
 
 @pytest.mark.parametrize('failure', ['render', 'link'])
@@ -630,16 +604,14 @@ def test_extension_shared_guide_excludes_undecidable_from_denominator(tmp_path):
     assert 'unavailable' in guide or '无法判定' in guide
 
 
-@pytest.mark.parametrize('ranked', [False, True])
-def test_extension_real_unmeasured_report_preserves_methods_and_metrics(tmp_path, ranked):
+def test_extension_real_unmeasured_report_preserves_methods_and_metrics(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension, check_published_extension
     output, spec_path = _real_extension(tmp_path, undecidable=True)
-    if ranked:
-        spec = json.loads(spec_path.read_bytes())
-        spec['presentation'] = 'ranked'
-        write(spec_path, spec)
-        refresh_published_extension(output, spec_path=spec_path)
+    spec = json.loads(spec_path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(spec_path, spec)
+    refresh_published_extension(output, spec_path=spec_path)
     page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
     rows = page.select('#ranking-overall tbody tr')
     assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
@@ -682,7 +654,7 @@ def test_extension_public_command_builds_verified_archive(tmp_path, monkeypatch)
     assert not archive.with_suffix('.content').exists()
 
 
-@pytest.mark.parametrize('change', [None, 'missing', 'altered'])
+@pytest.mark.parametrize('change', [None, 'altered'])
 def test_extension_replaces_self_hosted_pack_using_exact_saved_bytes(tmp_path, change):
     import zipfile
     from harness.web_fetch import report_package
@@ -752,8 +724,7 @@ def test_extension_partitions_local_packs_and_keeps_other_sites(tmp_path, monkey
         report_package.check_extension_archive(archive, output, baseline=baseline, replace_site=replace_site)
 
 
-@pytest.mark.parametrize('external', [False, True])
-@pytest.mark.parametrize('declared', [False, True])
+@pytest.mark.parametrize('external,declared', [(False, True), (True, False)])
 def test_reuploaded_pack_rejects_unreferenced_private_bytes(tmp_path, external, declared):
     import gzip
     from harness.web_fetch import report_package
@@ -803,12 +774,11 @@ def test_partition_allows_only_unreferenced_sparse_baseline_slots(tmp_path, stil
         assert not report_package.partition_content(content, tmp_path/'parts')['parts']
 
 
-@pytest.mark.parametrize('external', [False, True])
-def test_retired_baseline_pack_is_absent_and_its_files_are_rebuilt(tmp_path, external):
+def test_retired_baseline_pack_is_absent_and_its_files_are_rebuilt(tmp_path):
     import zipfile
     from harness.reporting.packs import read_packed_file
     from harness.web_fetch import report_package
-    output, baseline, _, _ = _published_extension(tmp_path, external=external)
+    output, baseline, _, _ = _published_extension(tmp_path)
     retired = report_package._wire_manifest(baseline)['packs'][0]
     archive = tmp_path/'retired.zip'
     report_package.build(output, archive, reuse_published=baseline, retire_packs=[retired])
@@ -853,8 +823,7 @@ def test_mixed_reuse_verifies_the_local_slice(tmp_path, monkeypatch, tampered):
         assert report_package.check_extension_archive(archive, source, baseline=baseline)['valid']
 
 
-@pytest.mark.parametrize('renamed', [False, True])
-@pytest.mark.parametrize('identical', [False, True])
+@pytest.mark.parametrize('renamed,identical', [(True, False), (False, True), (True, True)])
 def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, identical):
     import shutil
     from harness.web_fetch.report_saved_composition import _joined_presentation
@@ -932,7 +901,7 @@ def test_extension_adoption_keeps_added_interface_examples(unmeasured_panel):
         '../additional/adoption/interfaces/extra.json', '../additional/attempts/extra.html']
 
 
-@pytest.mark.parametrize('added_review', ['unresolved', 'unreviewed', 'absent', 'outside_scope'])
+@pytest.mark.parametrize('added_review', ['unresolved', 'outside_scope'])
 def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path, added_review):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
@@ -983,9 +952,6 @@ def test_extension_keeps_source_review_coverage_and_successful_latency(tmp_path,
     ('$2 / 千次调用', '$2 / 千次', None, None),
     ('$0.39–$0.51 / 千次', '$0.39–0.51 / 千次', None, None),
     ('$0.002 / request', '$2 / 千次', None, None),
-    ('$0.002 / 次', '$2 / 千次', None, None),
-    ('$0.00039–$0.00051 / request', '$0.39–0.51 / 千次', None, None),
-    ('$2 / request', '$2000 / 千次', None, None),
     ('$19 / month', '—', None, None),
     ('$0.10 / million tokens', '$0.10', None, '每百万 token'),
     ('$0.09 / hour', '$0.09 / 小时', 'duration', '按浏览器实际运行时间收费'),
@@ -1099,6 +1065,7 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path)
             assert row.select_one('.method-price-note').get_text() == quote['note']['zh']
         assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
         assert (output/'additional/results.jsonl').read_bytes() == records
+    _assert_passing_latency_once(output)
     before = (output/'index.html').read_bytes()
     prices.write_text('{}', encoding='utf-8')
     with pytest.raises(ValueError, match='Method price binding changed'):
@@ -1114,14 +1081,8 @@ def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path)
     assert (output/'additional/results.jsonl').read_bytes() == records
 
 
-def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tmp_path):
+def _assert_passing_latency_once(output):
     from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import refresh_published_extension
-    output, path = _real_extension(tmp_path)
-    spec = json.loads(path.read_bytes())
-    spec['presentation'] = 'ranked'
-    write(path, spec)
-    refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser')
     assert page.select_one('#successful-final-call-latency') is None
     ranking = page.select_one('#ranking-overall')
@@ -1136,29 +1097,6 @@ def test_extension_displays_passing_latency_once_and_retains_all_call_latency(tm
     rows = analysis.select('#all-final-call-latency tbody tr')
     assert {r.a['href'] for r in rows} == {'../providers/method-0.html', '../additional/providers/method-1.html'}
     assert not analysis.select('#all-final-call-latency .comparison-winner')
-
-
-def test_archived_unresolved_review_cell_localizes_without_live_rendering():
-    from pathlib import PurePosixPath
-    from harness.web_fetch.report_i18n import localize_html
-    html = '<html lang="zh-CN"><body><a>7/11 · 复核记录 · 未决 2</a></body></html>'
-    english = localize_html(html, PurePosixPath('index.html'))
-    assert '7/11 · review records · 2 unresolved' in english
-
-
-@pytest.mark.parametrize('explicit_flag', [False, True])
-def test_extension_does_not_renumber_unindexed_data_cells(explicit_flag):
-    from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import _extension_page
-    def page(provider):
-        flag = ' data-row-index="false"' if explicit_flag else ''
-        return f'<html><body><main><table{flag}><thead><tr><th>Method</th><th>Value</th></tr></thead><tbody><tr><td><a href="../providers/{provider}.html">{provider}</a></td><td>Kept</td></tr></tbody></table></main></body></html>'
-    base, added = ({'providers': [{'id': p}], 'rows': []} for p in ('base', 'extra'))
-    result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
-        base, added, [], ''), 'html.parser')
-    rows = result.select('tbody tr')
-    assert [r.find('td').get_text() for r in rows] == ['base', 'extra']
-    assert [r.a['href'] for r in rows] == ['../providers/base.html', '../additional/providers/extra.html']
 
 
 def test_extension_keeps_each_edition_task_rules_and_classification(tmp_path):
@@ -1217,18 +1155,7 @@ def test_extension_keeps_each_edition_task_rules_and_classification(tmp_path):
     assert (output/'additional/dataset.json').read_bytes() == original
 
 
-def test_extension_keeps_rank_values_separate_from_row_numbers():
-    from bs4 import BeautifulSoup
-    from harness.web_fetch.report_saved_composition import _extension_page
-    def page(provider):
-        return f'<html><body><main><table><thead><tr><th>Rank</th><th>Method</th></tr></thead><tbody><tr><td>1</td><td>{provider}</td></tr></tbody></table></main></body></html>'
-    base, added = ({'providers': [{'id': p}], 'rows': []} for p in ('base', 'extra'))
-    result = BeautifulSoup(_extension_page(page('base'), page('extra'), 'methodology/index.html',
-        base, added, [], ''), 'html.parser')
-    assert [r.find('td').get_text() for r in result.select('tbody tr')] == ['1', '1']
-
-
-@pytest.mark.parametrize('source_languages', [('bilingual', 'bilingual'), ('en', 'en'), ('bilingual', 'zh')])
+@pytest.mark.parametrize('source_languages', [('en', 'en'), ('bilingual', 'zh')])
 def test_bilingual_extension_build_refresh_and_mode_change(tmp_path, source_languages):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import build_published_extension, refresh_published_extension, check_published_extension

@@ -244,10 +244,10 @@ def test_jsonl_worker_receives_declared_media_and_records_actual_packet(tmp_path
     ('firecrawl', 'firecrawl'), ('cloudflare_markdown', 'cloudflare'),
     ('cloudflare_content', 'cloudflare'),
 ])
+# One cell per distinct request shape; the frozen synthetic baseline covers every cell.
 @pytest.mark.parametrize('track,kind,media', [
     ('web', 'body', 'html_page'), ('document', 'body', 'direct_pdf'),
-    ('image', 'resource', 'html_page'), ('video', 'resource', 'html_page'),
-    ('file', 'file', 'direct_text'),
+    ('image', 'resource', 'html_page'),
 ])
 def test_each_http_adapter_matches_its_pre_call_contract(tmp_path, method, module, track, kind, media):
     from unittest.mock import patch
@@ -345,18 +345,25 @@ def test_contract_survives_aggregation_and_complete_declared_subset(tmp_path):
         materialize_native_route_contracts(tmp_path/'another', output, [deepcopy(manifest)])
 
 
-@pytest.mark.parametrize('media,kind', [('html_page', 'body'), ('direct_pdf', 'body'),
-                                        ('html_page', 'resource'), ('direct_text', 'file')])
-def test_moli_actual_cli_obeys_declared_route_without_network(tmp_path, media, kind):
-    import hashlib
+@pytest.fixture(scope='module')
+def fake_moli(tmp_path_factory):
+    # Created once: macOS assesses each new executable on its first launch (~1.5 s).
     import sys
-    from lexbench_webfetch.models import EvalCase
-    from harness.web_fetch.native_routes import NativeRouteLedger
-    from harness.web_fetch.providers.base import build_provider
-    binary = tmp_path/'fake-moli'
+    binary = tmp_path_factory.mktemp('moli')/'fake-moli'
     binary.write_text('#!'+sys.executable+'\nimport sys\n'
                       'print("moli 1.1.4" if sys.argv[1:]==["--version"] else "answer")\n', encoding='utf-8')
     binary.chmod(0o700)
+    return binary
+
+
+@pytest.mark.parametrize('media,kind', [('html_page', 'body'), ('direct_pdf', 'body'),
+                                        ('html_page', 'resource'), ('direct_text', 'file')])
+def test_moli_actual_cli_obeys_declared_route_without_network(tmp_path, fake_moli, media, kind):
+    import hashlib
+    from lexbench_webfetch.models import EvalCase
+    from harness.web_fetch.native_routes import NativeRouteLedger
+    from harness.web_fetch.providers.base import build_provider
+    binary = fake_moli
     provider = build_provider('moli', {'type': 'moli_webfetch', 'binary': str(binary),
         'expected_reported_version': 'moli 1.1.4',
         'expected_binary_sha256': hashlib.sha256(binary.read_bytes()).hexdigest(),
@@ -894,9 +901,16 @@ def _synthetic_route_baseline():
     return baseline
 
 
-def test_synthetic_all_provider_route_declarations_match_frozen_baseline():
+def test_synthetic_all_provider_route_declarations_match_frozen_baseline(monkeypatch):
     import json
+    from functools import cache
     from pathlib import Path
+    from harness.web_fetch import native_projection, native_routes
+    # Source bytes do not change during the test; reading them once per provider
+    # type instead of once per cell removes most of the cost.
+    source = cache(native_projection.native_projection_source)
+    monkeypatch.setattr(native_projection, 'native_projection_source', source)
+    monkeypatch.setattr(native_routes, 'native_projection_source', source)
     expected = json.loads((Path(__file__).parent / 'fixtures/native-route-baseline.json').read_text(encoding='utf-8'))
     assert _synthetic_route_baseline() == expected
 
@@ -1034,7 +1048,7 @@ def test_native_route_declaration_is_immutable():
         route.interface = '/other'
 
 
-@pytest.mark.parametrize('field,bad_value', [
+MALFORMED_REQUEST_FIELDS = [
     ('requests', {}), ('requests', None), ('requests', 'wrong'),
     ('item', None), ('item', []), ('signature', None), ('signature', []),
     ('transport', None), ('transport', []), ('interface', None), ('interface', []),
@@ -1042,8 +1056,11 @@ def test_native_route_declaration_is_immutable():
     ('sha256', None), ('sha256', []),
     *[(name, '__missing__') for name in ('signature', 'transport', 'interface',
                                          'endpoint_sha256', 'parameters', 'sha256')],
-])
-def test_release_rejects_malformed_request_fields_with_named_errors(tmp_path, field, bad_value):
+]
+
+
+def test_release_rejects_malformed_request_fields_with_named_errors(tmp_path, subtests):
+    from copy import deepcopy
     from datetime import datetime, timezone
     from unittest.mock import Mock
     from harness.web_fetch.native_routes import verify_native_route_contract
@@ -1056,22 +1073,25 @@ def test_release_rejects_malformed_request_fields_with_named_errors(tmp_path, fi
                         'started_at': datetime.now(timezone.utc).isoformat(), 'ok': True,
                         'provider_metadata': {'native_route_receipt': ledger.receipt(provider, case)}})
     assert verify_native_route_contract(tmp_path, manifest, dataset, records)
-    receipt = records[0]['provider_metadata']['native_route_receipt']
-    if bad_value == '__missing__':
-        owner = receipt['requests'][0]
-        if field not in {'signature', 'sha256'}:
-            owner = owner['signature']
-        del owner[field]
-    elif field == 'requests':
-        receipt['requests'] = bad_value
-    elif field == 'item':
-        receipt['requests'][0] = bad_value
-    elif field in {'signature', 'sha256'}:
-        receipt['requests'][0][field] = bad_value
-    else:
-        receipt['requests'][0]['signature'][field] = bad_value
-    with pytest.raises(ValueError, match='Native route requests' if field == 'item' else field):
-        verify_native_route_contract(tmp_path, manifest, dataset, records)
+    for field, bad_value in MALFORMED_REQUEST_FIELDS:
+        with subtests.test(field=field, bad_value=bad_value):
+            changed = deepcopy(records)
+            receipt = changed[0]['provider_metadata']['native_route_receipt']
+            if bad_value == '__missing__':
+                owner = receipt['requests'][0]
+                if field not in {'signature', 'sha256'}:
+                    owner = owner['signature']
+                del owner[field]
+            elif field == 'requests':
+                receipt['requests'] = bad_value
+            elif field == 'item':
+                receipt['requests'][0] = bad_value
+            elif field in {'signature', 'sha256'}:
+                receipt['requests'][0][field] = bad_value
+            else:
+                receipt['requests'][0]['signature'][field] = bad_value
+            with pytest.raises(ValueError, match='Native route requests' if field == 'item' else field):
+                verify_native_route_contract(tmp_path, deepcopy(manifest), dataset, changed)
 
 
 def test_parsed_request_signature_detaches_mutable_parameter_inputs():

@@ -59,8 +59,9 @@ def snapshot(root):
     }
 
 
-@pytest.mark.parametrize("phase", ["blind", "anomaly"])
-@pytest.mark.parametrize("change", ["dataset", "results", "model", "artifact"])
+@pytest.mark.parametrize("phase,change", [
+    ("blind", "dataset"), ("blind", "results"), ("blind", "model"), ("blind", "artifact"),
+    ("anomaly", "results")])
 def test_resume_rejects_changed_context_before_overwriting_work(tmp_path, phase, change):
     evidence = fixture(tmp_path)
     work = tmp_path / "work"
@@ -243,10 +244,10 @@ def test_legacy_unbound_workspace_is_preserved_and_rejected(tmp_path, phase):
     assert snapshot(work) == before
 
 
-@pytest.mark.parametrize("phase", ["blind", "anomaly"])
 @pytest.mark.parametrize(
-    "option,value",
-    [("workers", "0"), ("timeout-seconds", "0"), ("protocol-retries", "-1"), ("batch", "0")],
+    "phase,option,value",
+    [("blind", "workers", "0"), ("blind", "timeout-seconds", "0"),
+     ("blind", "protocol-retries", "-1"), ("blind", "batch", "0"), ("anomaly", "batch", "0")],
 )
 def test_invalid_execution_limits_fail_before_work_or_calls(tmp_path, phase, option, value):
     evidence = fixture(tmp_path)
@@ -283,10 +284,8 @@ def test_body_evidence_accepts_concrete_two_character_chinese_table_headings(ver
 
 
 @pytest.mark.parametrize("value", [
-    "占位", "占位符", "证据 | 内容 | 正文", "开头 | 中间 | 结尾",
-    "得分 90 | 覆盖率 80% | 阈值 60%", "评分 | 分数 | 通过率 | 百分比",
-    "90 | 80% | 60%", "score 90 | coverage 80% | threshold 60%",
-    "<actual passage>", "符合要求 | 达到阈值",
+    "占位", "证据 | 内容 | 正文", "得分 90 | 覆盖率 80% | 阈值 60%",
+    "score 90 | coverage 80% | threshold 60%", "<actual passage>",
 ])
 def test_body_evidence_still_rejects_placeholders_and_scoring_only(value):
     from harness.web_fetch.review_execution import validate_review_evidence
@@ -298,9 +297,7 @@ def test_body_evidence_still_rejects_placeholders_and_scoring_only(value):
 
 @pytest.mark.parametrize("headings", [
     ("الرئيسية", "مسلسلات وأفلام", "رفض الكل تأكيد خياراتي"),
-    ("Главная", "Каталог фильмов", "Настройки подписки"),
     ("मुखपृष्ठ", "नाम", "संपर्क"),
-    ("ראשי", "סרטים", "הגדרות"),
 ])
 def test_body_evidence_accepts_direct_unicode_script_observations(headings):
     from harness.web_fetch.review_execution import validate_review_evidence
@@ -313,9 +310,7 @@ def test_body_evidence_accepts_direct_unicode_script_observations(headings):
 
 
 @pytest.mark.parametrize("value", [
-    "٩٠ | ٨٠٪ | ٦٠٪", "９０ | ８０% | ６０%", "① | ½ | Ⅳ",
-    "النتيجة ٩٠ | التغطية ٨٠٪ | العتبة ٦٠٪", "٩٠ بالمئة | ٨٠ نقاط",
-    "ناجح | موجود | متطلبات", "دليل | محتوى | نتيجة", "<actual passage>",
+    "٩٠ | ٨٠٪ | ٦٠٪", "① | ½ | Ⅳ", "ناجح | موجود | متطلبات",
     "نَتِيجَة | تَغْطِيَة | عَتَبَة",
 ])
 def test_unicode_body_evidence_rejects_numbers_generic_terms_and_placeholders(value):

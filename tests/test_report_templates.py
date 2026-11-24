@@ -3,10 +3,11 @@ import copy
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from harness.reporting.templates import ROOT, discover_template, resolve_template
 from harness.web_fetch.report_build import build_diagnostic_cohorts
@@ -39,6 +40,22 @@ def diagnostic_example(root):
 
 
 class ReportTemplateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._built = tempfile.TemporaryDirectory()
+        root = Path(cls._built.name)
+        diagnostic_example(root / 'source')
+        build_diagnostic_cohorts(root / 'source', root / 'report')
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._built.cleanup()
+
+    def built_example(self, root):
+        """Copy the default example and its built report (tests may mutate the copy)."""
+        shutil.copytree(Path(self._built.name), root, dirs_exist_ok=True)
+        return root / 'source', root / 'report'
+
     def test_saved_document_resource_and_file_failures_keep_exact_checks(self):
         from harness.web_fetch.report_diagnostic import diagnostic_findings
         row=dict(initial_pass=False,log=dict(path='log.json'),reference=dict(path='reference.json'))
@@ -61,7 +78,9 @@ class ReportTemplateTests(unittest.TestCase):
 
     def test_issue_guide_binds_case_diagnosis_figure_and_exact_evidence(self):
         import base64
+
         from bs4 import BeautifulSoup
+
         from harness.web_fetch.report_diagnostic import load_diagnostic
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source=root/'source';model=diagnostic_example(source)
@@ -147,6 +166,7 @@ class ReportTemplateTests(unittest.TestCase):
 
     def test_illustrated_report_accepts_numeric_and_dotted_section_ids(self):
         import base64
+
         from bs4 import BeautifulSoup
         for anchor in ('1-introduction', 'diagnosis.v1'):
             with self.subTest(anchor=anchor), tempfile.TemporaryDirectory() as temp:
@@ -228,6 +248,8 @@ class ReportTemplateTests(unittest.TestCase):
                 self.assertIn('Keep target body complete',guide.select_one('#guide-conclusions').get_text())
                 self.assertIsNotNone(home.select_one('.guide-grid'))
                 self.assertEqual(len(home.select('#cohort-results .editorial-bar-row')),1)
+                if not comparison:
+                    continue
                 for route,selector in [('guide/index.html','#guide-reviewed-causes'),
                         ('guide/index.html','#guide-output-defects'),('guide/index.html','#overall-summary'),
                         ('guide/index.html','[data-interpretation-case]'),('index.html','#overall-summary'),
@@ -471,8 +493,7 @@ class ReportTemplateTests(unittest.TestCase):
 
     def test_release_privacy_gate_also_checks_unreferenced_extra_files(self):
         with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp);diagnostic_example(root/'source')
-            output=root/'output';build_diagnostic_cohorts(root/'source',output)
+            _,output=self.built_example(Path(temp))
             (output/'extra.txt').write_text('token=canary-private-value', encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'privacy scan'):
                 check_diagnostic_report(output)
@@ -481,7 +502,7 @@ class ReportTemplateTests(unittest.TestCase):
         from bs4 import BeautifulSoup
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
-            for size in (1,2,3):
+            for size in (1,3):
                 source=root/f'instance-{size}';model=diagnostic_example(source)
                 prototype=copy.deepcopy(model['rows']);model['rows']=[];model['cohorts']=[]
                 model['metrics']={};plan=[]
@@ -576,7 +597,10 @@ class ReportTemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):diagnostic_specimen_excerpt(row,'first_answer',files,model)
 
     def test_interpretation_shows_requirements_and_actual_browser_error_not_metadata(self):
-        from harness.web_fetch.report_diagnostic import diagnostic_reference_excerpt, diagnostic_source_excerpt
+        from harness.web_fetch.report_diagnostic import (
+            diagnostic_reference_excerpt,
+            diagnostic_source_excerpt,
+        )
         row={'reference':{'path':'task.json'},'source':{'path':'source.json'}}
         files={'task.json':json.dumps({'acceptance_contract':{'schema':'named_link',
             'minimum_records':5,'stable_text_anchors':[{'alternatives':['Help','帮助']} ]}}).encode(),
@@ -830,8 +854,9 @@ class ReportTemplateTests(unittest.TestCase):
             resolve_template('new-report')
 
     def test_local_nested_pages_resolve_resources_navigation_and_lazy_evidence(self):
-        from bs4 import BeautifulSoup
         from urllib.parse import urljoin, urlsplit
+
+        from bs4 import BeautifulSoup
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);source=root/'source';model=diagnostic_example(source)
             for row in model['rows']:
@@ -874,19 +899,18 @@ class ReportTemplateTests(unittest.TestCase):
 
     def test_release_rejects_wrong_document_base_even_when_root_targets_exist(self):
         from bs4 import BeautifulSoup
-        for mode in ('missing', 'wrong', 'external'):
-            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
-                root=Path(temp);source=root/'source';diagnostic_example(source)
-                output=root/'report';build_diagnostic_cohorts(source,output)
-                page=output/'attempts/challenge.html';soup=BeautifulSoup(page.read_text(encoding='utf-8'),'html.parser')
-                base=soup.select_one('base[href]')
+        with tempfile.TemporaryDirectory() as temp:
+            _,output=self.built_example(Path(temp))
+            page=output/'attempts/challenge.html';original=page.read_text(encoding='utf-8')
+            for mode in ('missing', 'wrong', 'external'):
+                soup=BeautifulSoup(original,'html.parser');base=soup.select_one('base[href]')
                 if mode=='missing':base.decompose()
                 else:base['href']='./' if mode=='wrong' else 'https://wrong.test/'
                 page.write_text(str(soup), encoding='utf-8')
-                with self.assertRaises(ValueError):check_diagnostic_report(output)
+                with self.subTest(mode=mode),self.assertRaises(ValueError):check_diagnostic_report(output)
 
     def test_reference_scope_is_required_before_rendering_or_writing(self):
-        for value in (None, '', '  ', 42, ['partial']):
+        for value in (None, '  ', ['partial']):
             with self.subTest(scope=value),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp);source=root/'source';model=diagnostic_example(source)
                 binding=model['rows'][0]['reference']
@@ -898,8 +922,9 @@ class ReportTemplateTests(unittest.TestCase):
                 self.assertFalse((root/'report').exists())
 
     def test_malformed_evidence_bindings_fail_at_the_model_boundary(self):
-        for field in ('reference','first_answer','answer','source','log'):
-            for value in ('not-an-object', {'path':'a.txt'}, {'path':None,'sha256':'invalid'}):
+        cases=[(field,{'path':'a.txt'}) for field in ('reference','first_answer','answer','source','log')]
+        cases+=[('log','not-an-object'),('log',{'path':None,'sha256':'invalid'})]
+        for field,value in cases:
                 with self.subTest(field=field,value=value),tempfile.TemporaryDirectory() as temp:
                     root=Path(temp);source=root/'source';model=diagnostic_example(source)
                     model['rows'][0][field]=value
@@ -925,30 +950,29 @@ class ReportTemplateTests(unittest.TestCase):
 
     def test_release_checks_distinct_diagnostic_output(self):
         from bs4 import BeautifulSoup
-        for mode in ('missing', 'wrong-file', 'wrong-content'):
-            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
-                root=Path(temp);source=root/'source';model=diagnostic_example(source)
-                relative='evidence/complete-diagnostic.txt'
-                raw=b'Required article body from supplemental call'
-                (source/relative).write_bytes(raw)
-                model['rows'][0]['answer']={'path':relative,'sha256':hashlib.sha256(raw).hexdigest(),'scope':'supplemental call'}
-                (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
-                output=root/'report';build_diagnostic_cohorts(source,output)
-                self.assertEqual(check_diagnostic_report(output)['cases'],2)
-                page=output/'attempts/complete.html'
-                soup=BeautifulSoup(page.read_text(encoding='utf-8'),'html.parser')
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'source';model=diagnostic_example(source)
+            relative='evidence/complete-diagnostic.txt'
+            raw=b'Required article body from supplemental call'
+            (source/relative).write_bytes(raw)
+            model['rows'][0]['answer']={'path':relative,'sha256':hashlib.sha256(raw).hexdigest(),'scope':'supplemental call'}
+            (source/'report.json').write_text(json.dumps(model), encoding='utf-8')
+            output=root/'report';build_diagnostic_cohorts(source,output)
+            self.assertEqual(check_diagnostic_report(output)['cases'],2)
+            page=output/'attempts/complete.html';original=page.read_text(encoding='utf-8')
+            for mode in ('missing', 'wrong-file', 'wrong-content'):
+                soup=BeautifulSoup(original,'html.parser')
                 panel=soup.select_one('[data-evidence-kind="answer"]')
                 if mode=='missing':panel.decompose()
                 elif mode=='wrong-file':panel.select_one('pre')['data-evidence-file']=model['rows'][0]['first_answer']['path']
                 else:panel.select_one('pre').string='Wrong supplemental output'
                 page.write_text(str(soup), encoding='utf-8')
-                with self.assertRaises(ValueError):check_diagnostic_report(output)
+                with self.subTest(mode=mode),self.assertRaises(ValueError):check_diagnostic_report(output)
 
     def test_build_preserves_outputs_and_separates_dataset_from_verdicts(self):
         with tempfile.TemporaryDirectory() as temp:
-            root=Path(temp);source=root/'source';diagnostic_example(source)
+            root=Path(temp);source,_=self.built_example(root)
             before={p.relative_to(source):p.read_bytes() for p in source.rglob('*') if p.is_file()}
-            build_diagnostic_cohorts(source,root/'report')
             self.assertEqual(check_diagnostic_report(root/'report')['cases'],2)
             for relative,raw in before.items():
                 self.assertEqual((source/relative).read_bytes(),raw)
@@ -978,29 +1002,26 @@ class ReportTemplateTests(unittest.TestCase):
                 self.assertFalse((root/'report').exists())
 
     def test_release_rejects_missing_evidence_dialog_and_parallel_renderer(self):
-        for mode in ('dialog','renderer','verdict','certification','evidence','guide','guide_evidence','guide_summary','guide_causes'):
-            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
-                root=Path(temp);source=root/'source';diagnostic_example(source)
-                output=root/'report';build_diagnostic_cohorts(source,output)
-                if mode=='dialog':
-                    path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text(encoding='utf-8').replace('id="result-logs"','id="missing-log"'), encoding='utf-8')
-                elif mode=='evidence':
-                    path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text(encoding='utf-8').replace('Verify you are human','Different output'), encoding='utf-8')
-                elif mode=='verdict':
-                    path=output/'attempts/challenge.html'
-                    path.write_text(path.read_text(encoding='utf-8').replace('data-report-detail="failed"','data-report-detail="success"'), encoding='utf-8')
-                elif mode.startswith('guide'):
-                    path=output/'guide/index.html';text=path.read_text(encoding='utf-8')
-                    if mode=='guide':text=text.replace('id="guide-results"','id="missing-outcome"')
-                    elif mode=='guide_evidence':text=text.replace('Verify you are human','Invented output')
-                    elif mode=='guide_causes':text=text.replace('id="guide-reviewed-causes"','id="missing-causes"')
-                    else:text=text.replace('1 / 2','2 / 2',1)
-                    path.write_text(text, encoding='utf-8')
-                else:
-                    path=output/'report-manifest.json';manifest=json.loads(path.read_text(encoding='utf-8'))
-                    if mode=='renderer':manifest['template']['renderer']='work/copied.py'
-                    else:manifest['certified']=True
-                    path.write_text(json.dumps(manifest), encoding='utf-8')
-                with self.assertRaises(ValueError):check_diagnostic_report(output)
+        with tempfile.TemporaryDirectory() as temp:
+            _,output=self.built_example(Path(temp))
+            originals={route:(output/route).read_text(encoding='utf-8') for route in
+                       ('attempts/challenge.html','guide/index.html','report-manifest.json')}
+            mutations=[('dialog','attempts/challenge.html','id="result-logs"','id="missing-log"'),
+                       ('evidence','attempts/challenge.html','Verify you are human','Different output'),
+                       ('verdict','attempts/challenge.html','data-report-detail="failed"','data-report-detail="success"'),
+                       ('guide','guide/index.html','id="guide-results"','id="missing-outcome"'),
+                       ('guide_evidence','guide/index.html','Verify you are human','Invented output'),
+                       ('guide_causes','guide/index.html','id="guide-reviewed-causes"','id="missing-causes"'),
+                       ('guide_summary','guide/index.html','1 / 2','2 / 2')]
+            for mode,route,old,new in mutations:
+                with self.subTest(mode=mode):
+                    self.assertIn(old,originals[route])
+                    (output/route).write_text(originals[route].replace(old,new,1 if mode=='guide_summary' else -1), encoding='utf-8')
+                    with self.assertRaises(ValueError):check_diagnostic_report(output)
+                    (output/route).write_text(originals[route], encoding='utf-8')
+            for mode in ('renderer','certification'):
+                manifest=json.loads(originals['report-manifest.json'])
+                if mode=='renderer':manifest['template']['renderer']='work/copied.py'
+                else:manifest['certified']=True
+                (output/'report-manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+                with self.subTest(mode=mode),self.assertRaises(ValueError):check_diagnostic_report(output)

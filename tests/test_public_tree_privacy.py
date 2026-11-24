@@ -48,7 +48,8 @@ _SITE = "artifact-" + "site"
 _HUB = "artifact-" + "hub"
 _HOME = re.compile(r"(?:(?<=file://)|(?<![\w./%-]))/(?:Users|home)/([A-Za-z0-9_][A-Za-z0-9_.-]*)")
 _IPV4 = re.compile(r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\d|\.\d)")
-_HOSTNAME = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,}")
+# The lookbehind anchors matches at label boundaries; without it the scan retries inside every word.
+_HOSTNAME = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+){2,}")
 _SHARE_LINK = re.compile(
     r"https?://(?:artifact-(?:site|hub)[^/\s\"'\\]*|[^/\s\"'\\]*lexmount[^/\s\"'\\]*)"
     r"/(?:v|s)/[A-Za-z0-9_-]+"

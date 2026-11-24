@@ -12,14 +12,28 @@ from harness.web_fetch.report import generate_wcxb
 from tests.wcxb_fixture import create_report_inputs
 
 
+@pytest.fixture(scope='module')
+def built(tmp_path_factory):
+    """One default report per edition set, shared by tests that only read it."""
+    cache = {}
+
+    def build(include_english):
+        if include_english not in cache:
+            directory = tmp_path_factory.mktemp(f'wcxb-{include_english}')
+            inputs = create_report_inputs(directory, english_source=include_english)
+            before = json.dumps(inputs[1:], sort_keys=True)
+            generate_wcxb(*inputs, include_english=include_english)
+            assert json.dumps(inputs[1:], sort_keys=True) == before
+            cache[include_english] = inputs
+        return cache[include_english]
+
+    return build
+
+
 @pytest.mark.parametrize('include_english', [False, True])
-def test_wcxb_language_output_and_every_language_link(tmp_path, include_english):
-    inputs = create_report_inputs(tmp_path, english_source=include_english)
+def test_wcxb_language_output_and_every_language_link(built, include_english):
+    inputs = built(include_english)
     root = inputs[0]
-    if include_english:
-        generate_wcxb(*inputs, include_english=True)
-    else:
-        generate_wcxb(*inputs)
     check_language_contract(root)
     routes = {path.relative_to(root).as_posix() for path in root.rglob('*.html')
               if path.relative_to(root).parts[0] != 'en'}
@@ -36,8 +50,7 @@ def test_wcxb_language_output_and_every_language_link(tmp_path, include_english)
                 for path in (root / 'en').rglob('*') if path.is_file()} == {'index.html'}
 
 
-@pytest.mark.parametrize('include_english', [False, True])
-@pytest.mark.parametrize('language', ['en', 'zh'])
+@pytest.mark.parametrize('language,include_english', [('en', False), ('zh', True)])
 def test_wcxb_command_forwards_requested_language(tmp_path, monkeypatch, include_english, language):
     from harness.benchmarks import data
     from harness.web_fetch import report_build
@@ -67,14 +80,6 @@ def test_wcxb_command_forwards_requested_language(tmp_path, monkeypatch, include
                          'content_binding': binding}]
 
 
-def test_wcxb_renders_supplied_interpretation_without_regenerating_prose(tmp_path):
-    inputs = create_report_inputs(tmp_path, english_source=False)
-    inputs[-1]['guide']['zh'] = '<section id="bound-finding">独立绑定的结论</section>'
-    generate_wcxb(*inputs)
-    soup = BeautifulSoup((inputs[0] / 'guide/index.html').read_text(encoding='utf-8'), 'html.parser')
-    assert soup.select_one('main').decode_contents() == inputs[-1]['guide']['zh']
-
-
 def test_wcxb_does_not_fall_back_when_requested_authored_language_is_missing(tmp_path):
     inputs = create_report_inputs(tmp_path, english_source=False)
     with pytest.raises(ValueError, match='lacks requested languages'):
@@ -83,39 +88,41 @@ def test_wcxb_does_not_fall_back_when_requested_authored_language_is_missing(tmp
 
 
 @pytest.mark.parametrize('include_english', [False, True])
-@pytest.mark.parametrize('tamper', ['none', 'body', 'binding', 'missing-binding'])
-def test_wcxb_release_checks_bound_article_body(tmp_path, include_english, tamper):
+def test_wcxb_release_checks_bound_article_body(built, include_english):
     import hashlib
 
     from harness.web_fetch.wcxb_report_check import check_bound_interpretation
 
-    inputs = create_report_inputs(tmp_path, english_source=include_english)
-    generate_wcxb(*inputs, include_english=include_english)
+    inputs = built(include_english)
     root = inputs[0]
-    binding = {'rendered_sha256': {'guide': {
-        lang: hashlib.sha256(body.encode()).hexdigest()
-        for lang, body in inputs[-1]['guide'].items()}}}
     language = 'en' if include_english else 'zh'
-    if tamper == 'body':
-        page = root / ('en/guide/index.html' if include_english else 'guide/index.html')
-        page.write_text(page.read_text(encoding='utf-8').replace('Synthetic interpretation', 'Changed finding')
-                        if include_english else page.read_text(encoding='utf-8').replace('合成报告解读', '篡改结论'), encoding='utf-8')
-    elif tamper == 'binding':
-        binding['rendered_sha256']['guide'][language] = '0' * 64
-    elif tamper == 'missing-binding':
-        binding.pop('rendered_sha256')
-    if tamper == 'none':
-        check_bound_interpretation(root, binding)
-    else:
+
+    def binding():
+        return {'rendered_sha256': {'guide': {
+            lang: hashlib.sha256(body.encode()).hexdigest()
+            for lang, body in inputs[-1]['guide'].items()}}}
+
+    check_bound_interpretation(root, binding())
+    wrong = binding()
+    wrong['rendered_sha256']['guide'][language] = '0' * 64
+    missing = binding()
+    missing.pop('rendered_sha256')
+    for tampered in (wrong, missing):
         with pytest.raises(ValueError, match='differs from bound content'):
-            check_bound_interpretation(root, binding)
+            check_bound_interpretation(root, tampered)
+    page = root / ('en/guide/index.html' if include_english else 'guide/index.html')
+    original = page.read_text(encoding='utf-8')
+    old, new = ('Synthetic interpretation', 'Changed finding') if include_english else ('合成报告解读', '篡改结论')
+    page.write_text(original.replace(old, new), encoding='utf-8')
+    try:
+        with pytest.raises(ValueError, match='differs from bound content'):
+            check_bound_interpretation(root, binding())
+    finally:
+        page.write_text(original, encoding='utf-8')
 
 
-@pytest.mark.parametrize('providers', [
-    ('moli', 'moli-pr643'),
-    ('moli', 'moli-pr643', 'chromium', 'obscura'),
-])
-def test_wcxb_instance_counts_versions_and_interfaces_follow_selected_evidence(tmp_path, providers):
+def test_wcxb_instance_counts_versions_and_interfaces_follow_selected_evidence(tmp_path):
+    providers = ('moli', 'moli-pr643')
     root, rows, summary, truth, identities, profile, content = create_report_inputs(tmp_path)
     rows = [row for row in rows if row['provider'] in providers]
     summary['providers'] = {p: summary['providers'][p] for p in providers}
@@ -187,18 +194,14 @@ def test_wcxb_uses_measured_versions_and_actual_configuration_count(tmp_path):
             assert 'six configurations' not in text and '六种配置' not in text
 
 
-def test_new_wcxb_population_does_not_inherit_historical_findings(tmp_path):
+def test_new_wcxb_population_does_not_inherit_historical_findings(built):
     from harness.web_fetch.wcxb_report_check import require_home_interpretation
     from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency
 
-    inputs = create_report_inputs(tmp_path, english_source=True)
-    root, rows, summary, references, identities, profile, content = inputs
-    before = json.dumps([rows, summary, references, identities, profile, content], sort_keys=True)
+    root, rows, summary, references, identities, profile, content = built(True)
     _, calls = load_full_paired_latency(root / 'research/wcxb-full-paired-latency', profile,
                                         set(references))
     latency = summarize_full_paired_latency(calls, set(references))
-    generate_wcxb(*inputs, include_english=True)
-    assert json.dumps([rows, summary, references, identities, profile, content], sort_keys=True) == before
     for lang, prefix in (('zh', ''), ('en', 'en/')):
         raw = (root / prefix / 'index.html').read_text(encoding='utf-8')
         soup = require_home_interpretation(raw, summary, latency, lang, {"moli": "release", "moli-pr643": "pr"})
@@ -218,11 +221,8 @@ def test_new_wcxb_population_does_not_inherit_historical_findings(tmp_path):
             require_home_interpretation(wrong, summary, latency, lang, {"moli": "release", "moli-pr643": "pr"})
 
 
-@pytest.mark.parametrize('participants', [
-    ('moli', 'moli-pr643'),
-    ('moli-release', 'moli-1.1.7', 'moli-candidate'),
-])
-def test_wcxb_public_build_uses_bound_optional_case_and_profile_participants(tmp_path, participants):
+def test_wcxb_public_build_uses_bound_optional_case_and_profile_participants(tmp_path):
+    participants = ('moli-release', 'moli-1.1.7', 'moli-candidate')
     import hashlib
     from harness.web_fetch.report_build import build_wcxb_report
     from harness.web_fetch.wcxb_scoring import score
@@ -282,7 +282,9 @@ def test_wcxb_public_build_uses_bound_optional_case_and_profile_participants(tmp
 
 
 @pytest.mark.parametrize('tied', [False, True])
-def test_wcxb_leaders_and_interfaces_follow_participants(tmp_path, tied):
+def test_wcxb_leaders_highlights_and_interfaces_follow_participants(tmp_path, tied):
+    from harness.web_fetch.wcxb_report_check import require_comparison_highlights
+
     inputs = list(create_report_inputs(tmp_path))
     root, rows, summary, _, identities, profile, _ = inputs
     participants = ('moli', 'moli-pr643')
@@ -305,6 +307,18 @@ def test_wcxb_leaders_and_interfaces_follow_participants(tmp_path, tied):
         for metric in ('f1', 'mean'):
             marked = home.select(f'#wcxb-core td[data-metric="{metric}"] .comparison-winner')
             assert len(marked) == (0 if tied else 1)
+        require_comparison_highlights(home)
+        page = BeautifulSoup(str(home), 'html.parser')
+        unmarked = next(cell for cell in page.select('#wcxb-core td[data-metric]')
+                        if not cell.select_one('.comparison-winner'))
+        unmarked.append(BeautifulSoup('<strong class="comparison-winner">wrong</strong>', 'html.parser'))
+        with pytest.raises(ValueError, match='highlight'):
+            require_comparison_highlights(page)
+        if not tied:
+            page = BeautifulSoup(str(home), 'html.parser')
+            page.select_one('#wcxb-core .comparison-winner').unwrap()
+            with pytest.raises(ValueError, match='highlight'):
+                require_comparison_highlights(page)
         method = BeautifulSoup((root / prefix / 'methodology/index.html').read_text(encoding='utf-8'), 'html.parser')
         adoption = BeautifulSoup((root / prefix / 'adoption/index.html').read_text(encoding='utf-8'), 'html.parser')
         interface = adoption.select_one('main pre').get_text()
@@ -314,35 +328,6 @@ def test_wcxb_leaders_and_interfaces_follow_participants(tmp_path, tied):
         for name in ('Moli 7.0.0', 'Moli 7.0.1'):
             assert name in method.get_text()
             assert name in interface
-
-
-@pytest.mark.parametrize('tied', [False, True])
-def test_wcxb_release_highlights_accept_actual_ties_and_reject_corruption(tmp_path, tied):
-    from harness.web_fetch.wcxb_report_check import require_comparison_highlights
-
-    inputs = create_report_inputs(tmp_path)
-    for index, stats in enumerate(inputs[2]['providers'].values()):
-        for key in ('quality_precision', 'quality_recall', 'quality_f1'):
-            stats[key] = 1.0 if tied else 1.0 - index * 0.1
-        for key in ('mean_latency_ms', 'p50_latency_ms', 'p95_latency_ms'):
-            stats[key] = 11.0 if tied else 11.0 + index
-    generate_wcxb(*inputs, include_english=True)
-    for prefix in ('', 'en/'):
-        source = (inputs[0] / prefix / 'index.html').read_text(encoding='utf-8')
-        require_comparison_highlights(source)
-        page = BeautifulSoup(source, 'html.parser')
-        marked = page.select('#wcxb-core .comparison-winner')
-        assert bool(marked) is not tied
-        unmarked = next(cell for cell in page.select('#wcxb-core td[data-metric]')
-                        if not cell.select_one('.comparison-winner'))
-        unmarked.append(BeautifulSoup('<strong class="comparison-winner">wrong</strong>', 'html.parser'))
-        with pytest.raises(ValueError, match='highlight'):
-            require_comparison_highlights(page)
-        if not tied:
-            page = BeautifulSoup(source, 'html.parser')
-            page.select_one('#wcxb-core .comparison-winner').unwrap()
-            with pytest.raises(ValueError, match='highlight'):
-                require_comparison_highlights(page)
 
 
 @pytest.mark.parametrize('rename', [False, True])

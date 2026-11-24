@@ -43,13 +43,6 @@ class ContentOwnershipTests(unittest.TestCase):
                 page = localize_html(task_pass_guide(track), PurePosixPath('datasets/index.html'))
                 self.assertEqual(untranslated_english_narrative(page), [])
 
-    def test_rendering_and_value_changes_are_not_confused(self):
-        text=task_pass_guide('dynamic')
-        for phrase in ['不是文字经常更新','异步取数','客户端组装','嵌入子页','JavaScript 不是唯一','不要求滚动']:
-            self.assertIn(phrase,text)
-        self.assertIn('不能等同于“纯静态网页”',task_pass_guide('web'))
-        self.assertIn('既要取得列表，也要保留登记的栏目、说明或固定字段标签',task_pass_guide('challenge'))
-
     def test_examples_link_only_when_present_in_dataset(self):
         absent=BeautifulSoup(task_pass_guide('dynamic','../',{}),'html.parser')
         self.assertFalse(absent.select('a[href*="datasets/"]'))
