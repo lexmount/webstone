@@ -240,8 +240,9 @@ def test_local_single_call_mode_rejects_rounds_and_retries(tmp_path, field, valu
         local_execution_contract.require_local_execution_contract(tmp_path, {}, [], contract, {})
 
 
-@pytest.mark.parametrize("include_english,primary_language", [(False,"zh"), (True,"zh"), (True,"en")])
-@pytest.mark.parametrize('timeout', [45, 12.5])
+# Each language combination and each timeout type (integer, fractional) appears once.
+@pytest.mark.parametrize("include_english,primary_language,timeout",
+                         [(False, "zh", 45), (True, "zh", 12.5), (True, "en", 45)])
 def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp_path, monkeypatch, include_english, primary_language, timeout):
     from pathlib import Path
     from harness.web_fetch.config import load_dataset

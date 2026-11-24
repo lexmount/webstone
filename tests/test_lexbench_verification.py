@@ -292,20 +292,6 @@ def test_corrupted_report_is_rejected_through_real_validator(report, change, err
         validate(model, site)
 
 
-def test_complete_report_runs_all_evidence_negative_controls(report):
-    from harness.lexbench.verification import verify_evidence
-
-    site, _ = report
-    summary = verify_evidence(site)
-    assert summary == {
-        "verified_cases": 372,
-        "verified_calls": 4482,
-        "verified_evidence_files": 2,
-        "negative_controls": 19,
-        "result": "pass",
-    }
-
-
 def test_release_binding_uses_selected_profile_registry():
     profile = {
         "resource_builds": {"engine-z": {"sha256": "a" * 64}},
@@ -438,17 +424,6 @@ def test_invalid_case_identifier_is_rejected_before_reading_cases(report, monkey
         validate(model, site)
 
 
-def test_three_configuration_report_passes_evidence_and_render_release_checks(report):
-    from harness.lexbench.verification import verify
-
-    site, _ = report
-    summary = verify(site)
-    assert summary["verified_cases"] == 372
-    assert summary["verified_calls"] == 4482
-    assert summary["negative_controls"] == 19
-    assert summary["result"] == "pass"
-
-
 def chinese_only_report(report):
     from harness.report_languages import write_language_contract
 
@@ -462,15 +437,6 @@ def chinese_only_report(report):
         encoding="utf-8"
     )
     return site, model
-
-
-def test_chinese_only_report_passes_release_checks_without_english_charts(report):
-    from harness.lexbench.verification import verify
-
-    site, _ = chinese_only_report(report)
-    summary = verify(site)
-    assert summary["result"] == "pass"
-    assert not list((site / "assets").glob("*-en.svg"))
 
 
 @pytest.mark.parametrize("stale", ["en/guide.html", "assets/comparison-all-success-resources-en.svg"])
@@ -504,7 +470,14 @@ def test_requested_editions_are_generated_and_verified_end_to_end(report, includ
         html = (site / entry).read_text(encoding="utf-8")
         assert ('lang="en"' in html) is include_english
         assert ("data-english-not-generated" in html) is not include_english
-    assert verify(site)["result"] == "pass"
+    # Evidence checks with every negative control, then the rendered release contract.
+    assert verify(site) == {
+        "verified_cases": 372,
+        "verified_calls": 4482,
+        "verified_evidence_files": 2,
+        "negative_controls": 19,
+        "result": "pass",
+    }
 
 
 def test_build_command_requires_explicit_option_for_english():

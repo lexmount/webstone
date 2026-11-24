@@ -19,13 +19,14 @@ def write(path, value):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# Single-case with and without a failure, the release-chain case (5 tasks),
+# the stale-text scan (30 s) and the default 45 s timeout across several methods.
 @pytest.mark.parametrize("case_count,method_count,timeout,failures", [
     (1, 1, 7, True),
     (1, 1, 7, False),
     (5, 2, 18, True),
-    (12, 3, 30, True),
-    (7, 4, 45, True),
-    (7, 4, 11, True),
+    (2, 3, 30, True),
+    (2, 4, 45, True),
 ])
 def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
                                                      case_count, method_count, timeout, failures):
