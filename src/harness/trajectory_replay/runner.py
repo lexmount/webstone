@@ -20,6 +20,7 @@ from harness.environments.browser import (
     rotated_engine_order,
 )
 from harness.resource_accounting import DockerStatsResources, ResourceSampler
+from harness.safety import unlinked_path
 from harness.trajectory_replay.core.diagnostics import diagnose_summary
 from harness.trajectory_replay.core.docker_runner import (
     EngineRuntime,
@@ -48,7 +49,6 @@ from harness.trajectory_replay.metrics import summarize_attempts
 from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
 from harness.trajectory_replay.report import write_latest_report
 from harness.trajectory_replay.suite import load_suite
-from harness.web_fetch.safety import unlinked_path
 
 ENGINE_IMAGES = configured_browser_images()
 

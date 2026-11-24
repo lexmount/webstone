@@ -593,7 +593,7 @@ def host(
     import requests
     from huggingface_hub import HfApi, hf_hub_download
 
-    from harness.web_fetch.config import repository_env
+    from harness.runtime_env import repository_env
 
     require_external_output(output)
     reserved = False
@@ -974,7 +974,7 @@ def managed_cloudflare(binding, origin):
     deployment = identity["deployment_id"]
     import requests
 
-    from harness.web_fetch.config import repository_env
+    from harness.runtime_env import repository_env
 
     credentials = repository_env()
     account = credentials.get("CLOUDFLARE_ACCOUNT_ID")

@@ -28,7 +28,7 @@ from harness.web_fetch.publication_privacy import (
     publication_risk,
 )
 from harness.web_fetch.report_package import DATA_ATTACHMENT_HTML, home_catalog, validate_release
-from harness.web_fetch.safety import evidence_tree_identity
+from harness.safety import evidence_tree_identity
 from harness.web_fetch.webmainbench_diagnostics import (
     require_valid_teds_for_release,
     validate_teds_revision_if_present,

@@ -19,7 +19,7 @@ def no_publication(*args, **kwargs):
     raise AssertionError('Local evaluation/report commands must not publish or load publication credentials')
 
 urllib.request.urlopen = no_publication
-from harness.web_fetch import artifact_auth
+from harness import artifact_auth
 artifact_auth.load_token = no_publication
 from harness.web_fetch import cli
 if os.environ.get('TEST_REJECT_REPORT_BUILDER'):

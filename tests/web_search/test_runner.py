@@ -13,7 +13,7 @@ import pytest
 
 @pytest.mark.parametrize('selection', [['web-search'], ['--track', 'web-search']])
 def test_documented_certified_entry_dispatches_web_search_with_certification(monkeypatch, selection):
-    from harness.reporting.certified_cli import main
+    from harness.cli import certified_main as main
 
     calls = []
     monkeypatch.setattr('harness.web_search.runner.main', lambda args, **kwargs: calls.append((args, kwargs)))
@@ -1342,7 +1342,7 @@ def test_ai_answer_survives_invalid_webpage_slots_without_retry(tmp_path, pages)
 
 @pytest.mark.parametrize('selector', [['--track', 'webfetch'], ['--track=webfetch'], ['--track=web-search']])
 def test_positional_track_rejects_a_second_selector_before_dispatch(selector, monkeypatch):
-    from harness.reporting.certified_cli import main
+    from harness.cli import certified_main as main
 
     def unexpected(*args, **kwargs):
         pytest.fail('A duplicated track must not start any collection')

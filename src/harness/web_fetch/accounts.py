@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.env_file import parse_env_file, read_env_statements
-from harness.web_fetch import config
+from harness import runtime_env
 from harness.web_fetch.methods import report_method_catalog
 
 
@@ -116,7 +116,7 @@ def main_import_credentials(argv: list[str] | None = None) -> None:
         description="Import declared hosted credentials into a .env file."
     )
     parser.add_argument("--source", type=Path, default=Path.home() / ".env")
-    parser.add_argument("--target", type=Path, default=config.ROOT / ".env",
+    parser.add_argument("--target", type=Path, default=runtime_env.ROOT / ".env",
                         help="defaults to the repository .env that evaluation runs load")
     parser.add_argument('--key', action='append', choices=sorted({
         name for item in account_checklist() for name in item['env_vars']}),

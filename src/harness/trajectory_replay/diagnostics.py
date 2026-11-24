@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from harness.record_io import file_sha256, json_bytes, read_json, same_json_record
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.webarena_corrections import (
     apply_correction,
     evaluate_corrected_contract,
     load_corrections,
 )
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 
 def _diagnostic_digest(path: Path) -> str:

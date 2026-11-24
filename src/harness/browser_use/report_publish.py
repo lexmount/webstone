@@ -18,7 +18,7 @@ from harness.reporting.publication import (
 from harness.reporting.publication import multipart_archive as build_multipart_archive
 from harness.reporting.publish import BoundTrack, publish_bound_release
 from harness.reporting.visual import tree_sha256 as _tree_sha256
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 ARCHIVE = Path("publish/browser-use-sites.zip")
 ATTESTATION = Path("publish/browser-use-sites.attestation.json")

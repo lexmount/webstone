@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from harness import runtime_env
 from harness.environments.webarena.rainbond import (
     LEASE_SCHEMA,
     RECEIPT_SCHEMA,
@@ -21,7 +22,6 @@ from harness.environments.webarena.rainbond import (
     scale_pool,
 )
 from harness.trajectory_replay.public_webarena.config import load_runtime_env
-from harness.web_fetch import config as web_fetch_config
 
 PINNED = {
     site: f"example/{site}@sha256:{index:064x}"
@@ -597,7 +597,7 @@ def test_pool_config_rejects_unknown_reset_strategy(tmp_path):
 def test_api_token_comes_only_from_the_repository_env(tmp_path, monkeypatch):
     config_path = _pool_config(tmp_path)
     monkeypatch.setenv("TEST_RAINBOND_TOKEN", "shell-token")
-    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
 
     with pytest.raises(ValueError, match=r"TEST_RAINBOND_TOKEN in the repository \.env"):
         RainbondSlicePool(config_path)
@@ -617,7 +617,7 @@ def test_api_token_ignores_an_explicit_env_file(tmp_path, monkeypatch):
     config_path = _pool_config(tmp_path)
     monkeypatch.setenv("TEST_RAINBOND_TOKEN", "")
     monkeypatch.delenv("TEST_RAINBOND_TOKEN")
-    monkeypatch.setattr(web_fetch_config, "ROOT", tmp_path)
+    monkeypatch.setattr(runtime_env, "ROOT", tmp_path)
     named = tmp_path / "operator.env"
     named.write_text("TEST_RAINBOND_TOKEN=named-file-token\n", encoding="utf-8")
     load_runtime_env(named)

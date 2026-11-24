@@ -20,7 +20,7 @@ from harness.reporting.publication import (
 from harness.reporting.publication_target import publication_base, require_publication_version
 from harness.reporting.publish import StagedUpdate, publish_staged_update
 from harness.web_fetch import wcxb_report_check
-from harness.web_fetch.safety import evidence_tree_identity, reject_evidence_symlinks
+from harness.safety import evidence_tree_identity, reject_evidence_symlinks
 from harness.data_home import data_home
 
 INVENTORY = 'public-files.json'

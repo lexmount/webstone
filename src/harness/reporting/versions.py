@@ -7,13 +7,13 @@ import re
 import subprocess
 from functools import cache
 from html import escape, unescape
+from importlib.metadata import version
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 
 from harness.distribution import repository_root
-from harness.web_fetch import __version__
 
 FILENAME = "webstone-version.json"
 _RUNTIME_SUFFIXES = {".py", ".js", ".cjs", ".mjs", ".mts", ".c", ".json",
@@ -57,7 +57,7 @@ def software_identity():
                     or "__pycache__" in relative.parts):
                 continue
             digest.update(relative.as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
-    return {"version": __version__, "revision": revision,
+    return {"version": version("webstone"), "revision": revision,
             "source_sha256": digest.hexdigest(), "modified": modified}
 
 

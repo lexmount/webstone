@@ -16,7 +16,7 @@ from harness.web_fetch import artifacts as evidence_artifacts
 from harness.web_fetch.anomaly_review import detect_anomalies, require_anomaly_review
 from harness.web_fetch.reference_inputs import require_mutable_inputs
 from harness.web_fetch.reference_lifecycle import valid_reference_revision, valid_scoring_revision
-from harness.web_fetch.safety import (
+from harness.safety import (
     commit_staged_evidence,
     evidence_tree_identity,
     stage_evidence_revision,

@@ -8,7 +8,7 @@ import pytest
 
 from harness.web_fetch.reference_lifecycle import valid_reference_revision, valid_scoring_revision
 from harness.web_fetch.result_review import rebind_metadata_review, require_result_review
-from harness.web_fetch.safety import evidence_tree_identity
+from harness.safety import evidence_tree_identity
 
 
 def digest(raw):

@@ -1,6 +1,6 @@
 """Matched-query collection with frozen inputs and bounded provider execution."""
 
-from harness.distribution import source_path
+from harness.distribution import repository_root, source_path
 
 import argparse
 import json
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from harness.benchmark_execution import ExecutionPolicy, ExecutionStop, Job, run_jobs
 from harness.record_io import bytes_sha256, read_completed_records
-from harness.web_fetch.config import ROOT, load_runtime_env
+from harness.runtime_env import load_runtime_env
 from harness.web_search.adapters import adapter_for
 from harness.web_search.core import (
     execution_resources,
@@ -32,6 +32,8 @@ from harness.web_search.core import (
 from harness.web_search.profiles import load_profile_bytes
 from lexbench_websearch import inputs as benchmark_inputs
 from lexbench_websearch.scoring import evaluate
+
+ROOT = repository_root()
 
 
 def call_budgets(profile):
@@ -358,7 +360,7 @@ def collection_implementation():
     names = (
         "harness/web_search/runner.py", "harness/web_search/core.py", "harness/benchmark_execution.py",
         "harness/web_search/adapters.py", "harness/web_search/profiles.py",
-        "harness/web_fetch/config.py", "harness/env_file.py", "harness/record_io.py", "uv.lock", "pyproject.toml",
+        "harness/runtime_env.py", "harness/env_file.py", "harness/record_io.py", "uv.lock", "pyproject.toml",
         "harness/benchmarks/data.py", "harness/distribution.py",
     )
     sources = {name: implementation_source(name) for name in names}
@@ -1007,6 +1009,11 @@ def main(argv=None, *, certified=False):
         print(run(args.profile, args.output, args.diagnostic, args.resume, args.execution_revision, certified=certified, cohort=args.cohort))
     except (ValueError, FileExistsError) as exc:
         parser.exit(2, str(exc) + "\n")
+
+
+def certified_main(argv=None):
+    """Collect a certified cohort; the shared certified runner selects this entry."""
+    return main(argv, certified=True)
 
 
 if __name__ == "__main__":

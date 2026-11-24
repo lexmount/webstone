@@ -11,7 +11,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from harness.web_fetch.config import load_runtime_env, load_provider_config
+from harness.web_fetch.config import load_provider_config
+from harness.runtime_env import load_runtime_env
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
 

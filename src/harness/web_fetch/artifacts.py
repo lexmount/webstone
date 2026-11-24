@@ -22,7 +22,7 @@ from harness.web_fetch.reference_lifecycle import (
     latency_correction_original_elapsed,
     preserve_legacy_reference_dataset,
 )
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 PRIVATE_ARTIFACT_ROOT = "private_artifacts"
 PUBLIC_CALL_LOG_ROOT = "call-logs"

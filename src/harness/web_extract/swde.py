@@ -26,13 +26,13 @@ def generic_methods():
 
 def prepare(home: Path, source: Path):
     """Compile the predeclared site-balanced scope from an immutable source archive."""
+    from harness.safety import reject_evidence_symlinks
     from harness.web_extract.pipeline import (
         digest,
         read_json,
         require_external_output,
         validate_dataset,
     )
-    from harness.web_fetch.safety import reject_evidence_symlinks
 
     require_external_output(home)
     require_external_output(home / "dataset")

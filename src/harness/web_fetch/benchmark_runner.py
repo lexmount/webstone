@@ -15,9 +15,9 @@ from harness.web_fetch.config import (
     add_failure_retry_argument,
     load_dataset,
     load_provider_config,
-    load_runtime_env,
     resolve_provider_selection,
 )
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.network_preflight import preflight_guarded_providers
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.reference_inputs import input_tree

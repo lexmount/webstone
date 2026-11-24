@@ -18,7 +18,7 @@ from harness.environments.webarena.topology import (
     SITE_CONTAINER_PORTS,
     TOPOLOGY,
 )
-from harness.web_fetch.safety import unlinked_path, write_new_file
+from harness.safety import unlinked_path, write_new_file
 
 SITES = ("shopping_admin", "shopping", "reddit", "gitlab", "map", "wikipedia")
 SITE_TOKENS = {site: "__" + site.upper() + "__" for site in SITES}

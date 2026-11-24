@@ -38,7 +38,7 @@ from harness.reporting.assets import bound_json_asset
 from harness.reporting.presentation import visible_text as _visible_text
 from harness.reporting.privacy import BROWSER_USE_CHECK_SOURCE
 from harness.reporting.release_check import check_report_identity, open_report
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from lexbench_webfetch.paths import contained_path
 
 # Report checks read the Chinese edition and compare it with what the renderer wrote.

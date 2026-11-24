@@ -53,7 +53,7 @@ from harness.reporting.publication_target import (
     require_publication_site,
     require_publication_version,
 )
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 STAGED_UPLOAD_THRESHOLD = 23 * 1024 * 1024
 

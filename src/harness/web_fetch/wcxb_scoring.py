@@ -21,7 +21,7 @@ from harness.record_io import file_sha256, json_bytes, parse_jsonl
 from harness.reporting.privacy import WCXB_ERROR
 from harness.reporting.publication import atomic_create
 from harness.web_fetch import wcxb_metrics
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 from harness.web_fetch.wcxb_dataset import validate_manifest
 from harness.web_fetch.wcxb_latency import load_full_paired_latency
 from harness.web_fetch.wcxb_metrics import snippet_check, word_f1

@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from harness.data_home import data_home
+from harness.distribution import repository_root
 from harness.record_io import bytes_sha256
 from harness.reporting.publication import PublicationClient
 from harness.reporting.publish import ReceiptRelease, publish_receipt_release
-from harness.web_fetch.config import ROOT
 from harness.web_search import delivery as report_delivery
 from harness.web_search import profiles
 from harness.web_search import report as search_report
@@ -25,6 +25,8 @@ from harness.web_search.profiles import (
     publication_metadata,
 )
 from lexbench_webfetch.paths import contained_path
+
+ROOT = repository_root()
 
 
 def prepare(report, visual, content, sources, work, *, profile):

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from harness.benchmark_execution import ExecutionPolicy, exclusive_policy
 from harness.reporting.publication import atomic_create
+from harness.runtime_env import load_runtime_env
 from harness.web_extract.dataset import input_mode, task_bindings
 from harness.web_extract.pipeline import (
     ACCESS_POLICY,
@@ -28,7 +29,6 @@ from harness.web_extract.pipeline import (
     validate_native_options,
     verify_retry_history,
 )
-from harness.web_fetch.config import load_runtime_env
 
 
 def require_archived(home):

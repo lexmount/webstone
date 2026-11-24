@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from harness.web_fetch.artifact_auth import load_token, save_token, token_path
+from harness.artifact_auth import load_token, save_token, token_path
 
 
 class ArtifactAuthTests(unittest.TestCase):
@@ -15,8 +15,8 @@ class ArtifactAuthTests(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / 'scripts/authorize_artifact_site.py'
         with patch.dict(os.environ, {'ARTIFACT_SITE_TOKEN': 'ahp_process_fixture'}, clear=True), \
                 patch('sys.argv', [str(script), '--persist-existing', '--base-url', 'https://app.example']), \
-                patch('harness.web_fetch.config.load_runtime_env', side_effect=AssertionError('must not read .env')), \
-                patch('harness.web_fetch.artifact_auth.save_token', return_value=None) as save, \
+                patch('harness.runtime_env.load_runtime_env', side_effect=AssertionError('must not read .env')), \
+                patch('harness.artifact_auth.save_token', return_value=None) as save, \
                 patch('sys.stdout', new_callable=io.StringIO) as output:
             runpy.run_path(str(script), run_name='__main__')
             save.assert_called_once_with('ahp_process_fixture', base_url='https://app.example', replace_existing=False)
@@ -130,7 +130,7 @@ if __name__ == '__main__':
 
 
 def test_device_authorization_rejects_invalid_service_before_network():
-    from harness.web_fetch.artifact_auth import authorize_main
+    from harness.artifact_auth import authorize_main
 
     for base, timeout in [('file:///tmp/auth', '10'),
                           ('https://user:password@reports.example', '10'),
@@ -148,12 +148,12 @@ def test_device_authorization_rejects_invalid_service_before_network():
 def test_device_authorization_saves_approved_token_for_declared_host():
     import json
 
-    from harness.web_fetch.artifact_auth import authorize_main
+    from harness.artifact_auth import authorize_main
 
     response = io.BytesIO(json.dumps({'status': 'approved', 'token': 'ahp_fixture',
                                       'user': {'email': 'fixture@example.invalid'}}).encode())
     with patch('urllib.request.urlopen', return_value=response) as request, \
-            patch('harness.web_fetch.artifact_auth.save_token') as save, \
+            patch('harness.artifact_auth.save_token') as save, \
             patch('sys.stdout', new_callable=io.StringIO) as output:
         authorize_main(['--device-code', 'fixture', '--base-url', 'https://reports.example'])
         assert request.call_args.args[0].full_url == 'https://reports.example/api/device/poll'
@@ -163,7 +163,7 @@ def test_device_authorization_saves_approved_token_for_declared_host():
 
 
 def test_authorization_requires_an_explicit_host():
-    from harness.web_fetch.artifact_auth import authorize_main
+    from harness.artifact_auth import authorize_main
 
     with patch.dict(os.environ, {}, clear=True), patch('sys.stderr', new_callable=io.StringIO), \
             patch('urllib.request.urlopen', side_effect=AssertionError('must not make request')):

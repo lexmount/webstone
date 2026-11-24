@@ -10,7 +10,7 @@ from pathlib import Path
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256, load_jsonl, read_json, write_json
-from harness.web_fetch.safety import evidence_tree_identity, stage_evidence_revision
+from harness.safety import evidence_tree_identity, stage_evidence_revision
 from harness.web_fetch.webmainbench_evidence import (
     copy_alias_artifacts,
     copy_bound,

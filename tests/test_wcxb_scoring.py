@@ -10,7 +10,7 @@ import pytest
 
 from harness.record_io import load_jsonl
 from harness.web_fetch import wcxb_scoring as scoring
-from harness.web_fetch.safety import evidence_tree_identity
+from harness.safety import evidence_tree_identity
 from tests.wcxb_fixture import create_cohort, sha, write_jsonl
 from tests.helpers import write_json
 

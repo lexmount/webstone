@@ -452,7 +452,7 @@ def test_managed_resource_reuse_requires_confirmed_immutable_cloudflare_identity
     from types import SimpleNamespace
 
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "test-cf"},
     )
     calls = []
@@ -521,7 +521,7 @@ def test_cloudflare_discovers_and_reuses_existing_dataset_service(home, tmp_path
         },
     }
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "credential"},
     )
     monkeypatch.setattr(snapshots, "verify", lambda *a, **k: {"pages": [], "verified_pages": 1})
@@ -545,7 +545,7 @@ def test_external_host_requires_no_cloudflare_credentials(home, tmp_path, monkey
         snapshots, "check_manifest", lambda *a: (_ for _ in ()).throw(ValueError("No manifest"))
     )
     monkeypatch.setattr(snapshots, "verify", lambda *a, **k: {"pages": [], "verified_pages": 1})
-    with patch("harness.web_fetch.config.repository_env") as credentials:
+    with patch("harness.runtime_env.repository_env") as credentials:
         result = snapshots.host(
             home,
             tmp_path / "host.json",
@@ -649,7 +649,7 @@ def test_changed_cloudflare_snapshot_requires_approval_and_never_writes(
         "result": {"canonical_deployment": {"id": "old", "url": "https://old.dataset.pages.dev"}},
     }
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "credential"},
     )
     monkeypatch.setattr(
@@ -701,7 +701,7 @@ def test_hf_bound_immutable_deployment_uses_fast_identity_check(home, tmp_path, 
     metadata.write_text(json.dumps(item), encoding="utf-8")
     monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda *a, **k: str(metadata))
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "credential"},
     )
     with (
@@ -756,7 +756,7 @@ def test_approved_unchanged_proposal_deploys_and_checks_new_pages(
         "result": {"canonical_deployment": {"id": "new", "url": "https://new.dataset.pages.dev"}},
     }
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {
             "CLOUDFLARE_ACCOUNT_ID": "account",
             "CLOUDFLARE_API_TOKEN": "credential",
@@ -894,7 +894,7 @@ def test_selected_hf_edition_finds_matching_historical_deployment(home, tmp_path
     hf.dataset_info.return_value.sha = "a" * 40
     monkeypatch.setattr("huggingface_hub.HfApi", lambda: hf)
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "credential"},
     )
 
@@ -1260,7 +1260,7 @@ def test_managed_manifest_network_error_does_not_propose_redeployment(home, tmp_
     metadata.write_text(json.dumps(item), encoding="utf-8")
     monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda *a, **k: str(metadata))
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "credential"},
     )
     monkeypatch.setattr(
@@ -1294,7 +1294,7 @@ def test_existing_deployment_missing_manifest_requires_approval_not_a_network_by
     snapshots.save_json(metadata, item)
     monkeypatch.setattr("huggingface_hub.hf_hub_download", lambda *a, **k: str(metadata))
     monkeypatch.setattr(
-        "harness.web_fetch.config.repository_env",
+        "harness.runtime_env.repository_env",
         lambda: {"CLOUDFLARE_ACCOUNT_ID": "account", "CLOUDFLARE_API_TOKEN": "synthetic"},
     )
     monkeypatch.setattr(snapshots, "check_manifest", CHECK_MANIFEST)

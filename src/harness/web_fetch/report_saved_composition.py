@@ -934,7 +934,7 @@ def refresh_published_extension(output, *, spec_path=None):
     """Validate a complete replacement before installing it; restore on failure."""
     import os
     import tempfile
-    from harness.web_fetch.safety import evidence_tree_identity, unlinked_path
+    from harness.safety import evidence_tree_identity, unlinked_path
     output = unlinked_path(output)
     before = evidence_tree_identity(output)
     with tempfile.TemporaryDirectory(prefix='.' + output.name + '-refresh-', dir=output.parent) as work:

@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from harness.environments.webarena.topology import RECORDED_PORT_SITES
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.core.suite import (
     CURATED_ACTIONS,
     CURATED_SAVED_OUTPUT_ACTIONS,
@@ -27,7 +28,6 @@ from harness.trajectory_replay.core.suite import (
     validate_step_action,
 )
 from harness.trajectory_replay.public_webarena.targets import validate_target
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 SCHEMA = "lex_browser_use_tasks/4"
 SUPPORTED_SCHEMAS = frozenset({CURATED_SCHEMA, SCHEMA})

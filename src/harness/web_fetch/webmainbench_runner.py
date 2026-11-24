@@ -30,11 +30,8 @@ from lexbench_webfetch.models import EvalCase
 
 from harness.platform_capabilities import sandbox_exec_command
 from harness.record_io import bytes_sha256, parse_jsonl, write_json
-from harness.web_fetch.config import (
-    add_failure_retry_argument,
-    load_provider_config,
-    load_runtime_env,
-)
+from harness.web_fetch.config import add_failure_retry_argument, load_provider_config
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.providers.cloudflare import CloudflareMarkdownProvider

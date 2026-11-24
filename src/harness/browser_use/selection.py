@@ -12,7 +12,7 @@ from typing import Any
 
 from harness.distribution import repository_root
 from harness.record_io import file_sha256
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path
 
 PILOT_SCHEMA = "lex_webarena_verified_pilot/1"

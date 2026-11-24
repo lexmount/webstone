@@ -32,9 +32,9 @@ from harness.environments.webarena.topology import (
     require_recorded_gateway,
 )
 from harness.record_io import canonical_json_sha256, file_sha256, read_json
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.retrieval_acceptance import digest as retrieval_digest
 from harness.trajectory_replay.retrieval_acceptance import validate_contract
-from harness.web_fetch.safety import unlinked_path, write_new_file
 from lexbench_webfetch.paths import contained_path
 
 COHORT_RESET_SCOPE = "once_before_method_cohort"

@@ -19,7 +19,7 @@ from lexbench_webfetch.paths import contained_path
 from harness.record_io import parse_jsonl
 from harness.web_fetch import webmainbench_runner
 from harness.web_fetch.providers import build_provider
-from harness.web_fetch.safety import evidence_tree_identity, reject_evidence_symlinks
+from harness.safety import evidence_tree_identity, reject_evidence_symlinks
 from harness.web_fetch.wcxb_dataset import validate_manifest
 
 

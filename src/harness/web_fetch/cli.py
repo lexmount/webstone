@@ -4,7 +4,7 @@ import argparse
 import importlib
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,31 +22,18 @@ from harness.web_fetch.config import (
     add_failure_retry_argument,
     load_dataset,
     load_provider_config,
-    load_runtime_env,
     resolve_provider_selection,
     select_diagnostic_scope,
 )
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.report_build import build_report
 from harness.web_fetch.runner import rescore_evaluation, run_evaluation
 from harness.data_home import data_home
 
 EXAMPLES = Path(__file__).parent / "data"
-# Stages whose owner parses its own arguments, including --help.
+# Web Fetch stages whose owner parses its own arguments, including --help.
 OWNER_COMMANDS = {
-    "tracks": ("harness.agent_workflows", "tracks_main",
-               "Discover tracks, installed capabilities and exact dataset selections as JSON"),
-    "skills": ("harness.agent_workflows", "skills_main",
-               "List or install the bundled Webstone agent skill"),
-    "datasets": ("harness.agent_workflows", "datasets_main",
-                 "List, fetch, propose or select dataset revisions through existing owners"),
-    "web-search": ("harness.web_search.cli", "main", "Run Web Search stages"),
-    "web-extract": ("harness.web_extract.cli", "main", "Run Web Extract stages"),
-    "trajectory-replay": ("harness.trajectory_replay.cli", "main",
-                          "Run Browser Trajectory Replay stages"),
-    "browser-use": ("harness.browser_use.cli", "main", "Run experimental Browser Use stages"),
-    "results": ("harness.results.cli", "main",
-                "Submit public benchmark results for review in webstone-site"),
     "headless-run": ("harness.web_fetch.headless_runner", "main",
                      "Run a browser Markdown cohort with shared evidence checks"),
     "headless-observations": ("harness.web_fetch.browser_observations", "main",
@@ -308,7 +295,8 @@ def diagnostic_check_main() -> None:
     print(json.dumps(result))
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(root_commands: Mapping[str, str] | None = None) -> argparse.ArgumentParser:
+    """Parse Web Fetch stages; ``harness.cli`` passes its own commands so help lists them."""
     parser = argparse.ArgumentParser(
         prog="webstone",
         description="Web Fetch evaluations for Webstone. Run retrieval tasks and build reports from saved evidence.",
@@ -371,7 +359,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     accounts.add_argument("--env-file", type=Path)
     accounts.set_defaults(handler=command_accounts)
-    for name, (_, _, summary) in OWNER_COMMANDS.items():
+    summaries = {**(root_commands or {}),
+                 **{name: summary for name, (_, _, summary) in OWNER_COMMANDS.items()}}
+    for name, summary in summaries.items():
         sub.add_parser(name, help=summary, add_help=False)
     return parser
 
@@ -389,9 +379,10 @@ def run_owner_command(prog: str, name: str, arguments: Sequence[str]) -> None:
         sys.argv = invoked
 
 
-def main(argv: Sequence[str] | None = None) -> None:
+def main(argv: Sequence[str] | None = None, *,
+         root_commands: Mapping[str, str] | None = None) -> None:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    parser = build_parser()
+    parser = build_parser(root_commands)
     if arguments[:1] and arguments[0] in OWNER_COMMANDS:
         run_owner_command(parser.prog, arguments[0], arguments[1:])
         return

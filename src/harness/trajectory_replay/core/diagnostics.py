@@ -11,8 +11,8 @@ import urllib.request
 from collections import Counter
 from typing import Any
 
+from harness.runtime_env import repository_env
 from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
-from harness.web_fetch.config import repository_env
 
 
 def classify_failure(error: str, trace: list[dict[str, Any]]) -> dict[str, Any]:

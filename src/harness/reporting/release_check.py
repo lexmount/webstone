@@ -9,7 +9,7 @@ from harness.report_languages import generated_languages
 from harness.reporting.presentation import check_presentation
 from harness.reporting.templates import check_template_identity
 from harness.reporting.versions import check_build_version
-from harness.web_fetch.safety import reject_evidence_symlinks
+from harness.safety import reject_evidence_symlinks
 
 
 def open_report(root) -> Path:

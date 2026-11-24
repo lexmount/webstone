@@ -9,7 +9,7 @@ from harness.browser_use.runner import _load_repo_env
 from harness.env_file import parse_env_file
 from harness.trajectory_replay import catalog_runner
 from harness.trajectory_replay.public_webarena import config as webarena_config
-from harness.web_fetch import config as web_fetch_config
+from harness import runtime_env
 from harness.web_fetch.accounts import HOSTED_KEYS, import_credentials
 from harness.web_fetch.wcxb_report_check import binary_from_env
 
@@ -155,7 +155,7 @@ def test_every_loader_reads_the_same_values(tmp_path, monkeypatch):
         **SHARED_VALUES,
         **{key: os.environ[key] for key in ("COWAGENT_REPO",) if os.environ.get(key)},
     }
-    for load in (web_fetch_config.load_env_file, webarena_config.load_runtime_env):
+    for load in (runtime_env.load_env_file, webarena_config.load_runtime_env):
         for key in SHARED_VALUES:
             monkeypatch.delenv(key, raising=False)
         load(path)
@@ -272,11 +272,11 @@ def test_caller_policies_stay_outside_the_parser(tmp_path, monkeypatch):
     webarena_config.load_runtime_env(path)
     assert os.environ["WEBARENA_REDDIT_USERNAME"] == "exported"
     assert os.environ["EXA_API_KEY"] == "exported"
-    web_fetch_config.load_env_file(path, override_credentials=True)
+    runtime_env.load_env_file(path, override_credentials=True)
     assert os.environ["WEBARENA_REDDIT_USERNAME"] == "exported"
     assert os.environ["EXA_API_KEY"] == "from-file"
     with pytest.raises(ValueError, match="repository .env"):
-        web_fetch_config.load_env_file(path, credentials_allowed=False)
+        runtime_env.load_env_file(path, credentials_allowed=False)
     symlink = tmp_path / "link.env"
     symlink.symlink_to(path)
     with pytest.raises(ValueError, match="regular file"):
@@ -393,7 +393,7 @@ def test_every_env_file_reader_rejects_a_non_regular_file(tmp_path, monkeypatch,
         for read in (
             parse_env_file,
             lambda value: local_setting("DEMO_SETTING", value),
-            web_fetch_config.load_env_file,
+            runtime_env.load_env_file,
             catalog_runner._load_env_values,
         ):
             with pytest.raises(ValueError, match="regular file"):
@@ -416,4 +416,4 @@ def test_a_missing_env_file_keeps_its_error_and_a_link_to_a_file_still_parses(tm
 def test_the_null_device_reads_as_an_empty_env_file(monkeypatch) -> None:
     assert parse_env_file(os.devnull) == {}
     monkeypatch.setattr(os, "environ", dict(os.environ))
-    web_fetch_config.load_runtime_env(Path(os.devnull))
+    runtime_env.load_runtime_env(Path(os.devnull))

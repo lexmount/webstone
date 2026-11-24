@@ -20,8 +20,8 @@ from harness.web_fetch.config import (
     derive_comparison,
     load_dataset,
     load_provider_settings,
-    load_runtime_env,
 )
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.providers.headless import HEADLESS_CONVERSION
 from harness.web_fetch.providers.runtime_identity import (
@@ -31,7 +31,7 @@ from harness.web_fetch.providers.runtime_identity import (
 from harness.web_fetch.reference_inputs import input_tree, read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import require_verified_reference_checks
 from harness.web_fetch.runner import load_list_reference, run_evaluation
-from harness.web_fetch.safety import unlinked_path, validate_report_ids
+from harness.safety import unlinked_path, validate_report_ids
 from harness.web_fetch.storage import require_current_report_profile
 
 ROOT = repository_root()

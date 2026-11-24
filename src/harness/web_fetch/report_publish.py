@@ -17,7 +17,7 @@ from harness.reporting.publish import ReceiptRelease, publish_receipt_release
 from harness.web_fetch.publication_check import check
 from harness.web_fetch.publication_verify import verify_external_packs
 from harness.web_fetch.report_package import part_archives, validate_release
-from harness.web_fetch.safety import unlinked_path
+from harness.safety import unlinked_path
 
 CLIENT = PublicationClient("WebFetch-Report-Publisher/1.0", put_timeout=90)
 RENAME_CLIENT = PublicationClient(None, timeout=30)

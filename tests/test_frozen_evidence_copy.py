@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from harness.web_fetch.safety import copy_evidence_file
+from harness.safety import copy_evidence_file
 
 
 def test_frozen_copy_has_independent_identity_and_writes(tmp_path):
@@ -18,7 +18,7 @@ def test_frozen_copy_has_independent_identity_and_writes(tmp_path):
 def test_unsupported_clone_falls_back_to_an_independent_copy(tmp_path):
     source, target = tmp_path/'source.txt', tmp_path/'target.txt'
     source.write_bytes(b'saved bytes')
-    with patch('harness.web_fetch.safety.sys.platform', 'darwin'), \
+    with patch('harness.safety.sys.platform', 'darwin'), \
          patch('ctypes.CDLL', side_effect=OSError('clone unavailable')):
         copy_evidence_file(source, target)
     assert target.read_bytes() == b'saved bytes'

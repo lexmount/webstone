@@ -26,7 +26,7 @@ from harness.environments.webarena.topology import (
     site_credential_names,
 )
 from harness.record_io import canonical_json_sha256
-from harness.web_fetch.config import repository_env
+from harness.runtime_env import repository_env
 
 SCHEMA = "lex_webarena_rainbond_pool/1"
 RECEIPT_SCHEMA = "lex_webarena_rainbond_slice/1"

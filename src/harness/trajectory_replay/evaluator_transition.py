@@ -10,6 +10,7 @@ from typing import Any
 from webarena_verified.core.utils.checksum import compute_evaluator_checksum
 
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json
+from harness.safety import unlinked_path, write_new_file
 from harness.trajectory_replay.catalog_contracts import validate_passing_evaluation
 from harness.trajectory_replay.webarena_corrections import (
     apply_correction,
@@ -21,7 +22,6 @@ from harness.trajectory_replay.webarena_runtime_source import (
     WEBARENA_VERIFIED_REVISION,
     verify_webarena_runtime_source,
 )
-from harness.web_fetch.safety import unlinked_path, write_new_file
 
 TRANSITION_SCHEMA = "lex_webarena_evaluator_transition/1"
 RECEIPT_SCHEMA = "lex_webarena_evaluator_transition_receipt/3"

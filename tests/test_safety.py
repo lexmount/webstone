@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 from unittest.mock import patch
 
-from harness.web_fetch.safety import evidence_tree_identity
+from harness.safety import evidence_tree_identity
 
 
 def test_evidence_tree_identity_streams_files(tmp_path):

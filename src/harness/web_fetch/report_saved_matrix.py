@@ -879,7 +879,7 @@ def _parameter_execution(root, record, case, contract, sources, baseline=None, s
         native_route_cell, _request_parameters, verify_native_route_contract,
     )
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.config import expand_env
+    from harness.runtime_env import expand_env
     metadata = record.get('provider_metadata', {})
     if not metadata.get('native_route_receipt', {}).get('contract_sha256'):
         raise ValueError('Parameter rerun lacks its execution contract')

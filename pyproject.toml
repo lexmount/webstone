@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-webstone = "harness.web_fetch.cli:main"
+webstone = "harness.cli:main"
 lexbench-webfetch = "lexbench_webfetch.cli:main"
 lexbench-websearch = "lexbench_websearch.cli:main"
 
