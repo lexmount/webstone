@@ -12,11 +12,8 @@ import json
 import re
 import statistics
 from collections import Counter, defaultdict
-from contextvars import ContextVar
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from functools import wraps
-from contextlib import contextmanager
-from collections.abc import Mapping
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -50,7 +47,14 @@ from harness.report_languages import (
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import esc
 from harness.web_fetch.adjudication_evidence import adjudication_reason
-from harness.web_fetch.report_model import ReportModel
+from harness.web_fetch.report_model import (
+ ReportModel,
+ RenderContext,
+ render_context,
+ rendering,
+ reset_render_context,
+ set_render_context,
+)
 from harness.web_fetch.template import role_attribute
 from harness.web_fetch.failure_diagnosis import diagnose
 from harness.web_fetch.methods import (
@@ -124,7 +128,7 @@ from harness.safety import safe_href, validate_report_ids
 
 
 def browser_method_label(name, *, language="zh"):
- label = _RENDER_CONTEXT.get().labels.get(name)
+ label = render_context().labels.get(name)
  return label if label is not None else _catalog_browser_method_label(name, language=language)
 
 def provider_label(name):
@@ -143,8 +147,8 @@ def case_track_label(case):
 REPORT_TRACKS = {key: TRACKS[key] for key in ('web', 'dynamic', 'challenge', 'risk_control', 'document', 'image', 'video')}
 
 def active_tracks(cases):
- if _RENDER_CONTEXT.get().suites:
-  return [(s.id,s.label) for s in _RENDER_CONTEXT.get().suites if set(s.case_ids) & set(cases)]
+ if render_context().suites:
+  return [(s.id,s.label) for s in render_context().suites if set(s.case_ids) & set(cases)]
  rows=[]
  for key,label in REPORT_FAMILIES.items():
   selected=[c for c in cases.values() if report_family(c)==key]
@@ -322,7 +326,7 @@ def run_log_section(out,record,output):
   path=contained_path(out,binding['path'])
   if not path.is_file():continue
   raw=path.read_bytes();observed=hashlib.sha256(raw).hexdigest()
-  if _RENDER_CONTEXT.get().score_audit:
+  if render_context().score_audit:
    from harness.web_fetch.published_snapshot import read_snapshot_public_file
    read_snapshot_public_file(out,binding)
   else:
@@ -431,7 +435,7 @@ def model_text(value,english=None):
 def rate(a,b):return pct(a/b) if b else '—'
 def section(title,body,id=''):return '<section class="section"'+(f' id="{id}"' if id else '')+f'><div class="wrap"><h2>{title}</h2>{body}</div></section>'
 def hero(title,desc):
- banner=_RENDER_CONTEXT.get().banner
+ banner=render_context().banner
  label=t('synthetic_example', 'Synthetic example') if t('synthetic_example_not_a_formal_benchmark', 'Synthetic example · not a formal benchmark') in banner else t('diagnostic_run', 'Diagnostic run') if t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') in banner else t('measured_report', 'Measured report')
  return f'<section class="hero"><div class="wrap"><div class="eyebrow">Web Fetch · {label}</div><h1>{title}</h1><p class="lead">{desc}</p></div></section>'
 def comparative_rows(rows, directions):
@@ -455,7 +459,7 @@ def comparative_rows(rows, directions):
    if column[row_number] is None:opening=re.sub(r' data-sort="[^"]+"','',opening)
    opening+=' data-metric="'+metric+'" data-metric-direction="'+direction+'"'
    content=body[:-5]
-   if (unique or _RENDER_CONTEXT.get().descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
+   if (unique or render_context().descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
     content='<strong class="comparison-winner good">'+content+'</strong>'
    values=values[:cells[index].start()]+opening+'>'+content+'</td>'+values[cells[index].end():]
   result.append((attrs,values))
@@ -468,32 +472,6 @@ def table(headers,rows,id='',sortable=False,cls='',metrics=None,index_header=t('
  sort_attrs=(f' data-col="{default_sort[0]}" data-dir="{default_sort[1]}"' if default_sort else '')
  if not include_index:sort_attrs+=' data-row-index="false"'
  return metric_legend(headers if metrics is None else metrics)+f'<div class="table-wrap"><table class="{cls}"'+(f' id="{id}"' if id else '')+sort_attrs+f'><thead><tr>{head}</tr></thead><tbody'+(' id="rows"' if id=='filtered-table' else '')+f'>{body}</tbody></table></div>'
-@dataclass(frozen=True)
-class RenderContext:
- """Render state derived from one ``ReportModel``; only ``rendering`` installs it."""
- labels: Mapping[str, str] = field(default_factory=dict)
- suites: tuple = ()
- banner: str = ''
- english_generated: bool = False
- score_audit: dict | None = None
- coverage_plan: dict | None = None
- scope_presentation: dict | None = None
- descriptive_ranks: bool = False
- result_views: dict | None = None
-
-
-_RENDER_CONTEXT=ContextVar('webfetch_render_context',default=RenderContext())
-
-
-@contextmanager
-def rendering(model=None,*,descriptive_ranks=False,result_views=None):
- """Render with the participants and suites of ``model``; shared views may opt into descriptive ranks."""
- token=_RENDER_CONTEXT.set(RenderContext(labels=model.labels if model else {},suites=model.suites if model else (),
-                                         descriptive_ranks=descriptive_ranks,result_views=result_views))
- try:yield
- finally:_RENDER_CONTEXT.reset(token)
-
-
 def _scoped_render(function):
  @wraps(function)
  def render(*args,**kwargs):
@@ -506,7 +484,7 @@ def write(out,path,title,body,*,root_links=False,show_language=True):
  if root_links:base=''
  nav=[('datasets/index.html',t('dataset', 'Dataset')),('methodology/index.html',t('methodology', 'Methodology')),('analysis/index.html',t('analysis', 'Analysis')),('review/index.html',t('review_record', 'Review record')),('guide/index.html',t('interpretation', 'Interpretation')),('adoption/index.html',t('methods', 'Methods')),('reproduce/index.html',t('reproduction', 'Reproduction')),('changes/index.html',t('changelog', 'Changelog')),('accounts/index.html',t('access_setup', 'Access & setup'))]
  brand=link(base+'index.html','Web Fetch')
- context=_RENDER_CONTEXT.get()
+ context=render_context()
  if context.score_audit and path.startswith('attempts/'):
   identifier=Path(path).stem
   reviewed=next((item for item in context.score_audit['changes'] if item['attempt_id']==identifier),None)
@@ -545,7 +523,7 @@ _RESEARCH_ROUTES=[
 @_scoped_render
 def _diagnostic_pages(out, model):
  """Render live cohort diagnostics through the maintained WebFetch components."""
- token=_RENDER_CONTEXT.set(RenderContext(banner=('<div class="wrap callout"><strong>' + esc(model.get('diagnostic_label') or t('live_page_diagnostic', 'Live page diagnostic')) + f"</strong><p>{esc(model['scope_note'])}</p></div>"),scope_presentation={'scope':model['content_scope'],'retry_scopes':[]} if model.get('content_scope') in {'main','full'} else None))
+ token=set_render_context(RenderContext(methods=render_context().methods,banner=('<div class="wrap callout"><strong>' + esc(model.get('diagnostic_label') or t('live_page_diagnostic', 'Live page diagnostic')) + f"</strong><p>{esc(model['scope_note'])}</p></div>"),scope_presentation={'scope':model['content_scope'],'retry_scopes':[]} if model.get('content_scope') in {'main','full'} else None))
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA+asset_text('cohort-diagnostic.css'),encoding='utf-8')
  (out/'assets/report.js').write_text(JS+asset_text('cohort-diagnostic.js'),encoding='utf-8')
@@ -701,7 +679,7 @@ def _diagnostic_pages(out, model):
   for name,title in [('methodology',t('methodology', 'Methodology')),('review',t('review_record', 'Review record')),('reproduce',t('reproduction', 'Reproduction')),('changes',t('changelog', 'Changelog')),('adoption',t('methods', 'Methods')),('accounts',t('access_setup', 'Access & setup'))]:
    page(name+'/index.html',title,hero(title,esc(model.get('page_intros',{}).get(name,'')))+blocks(name))
   page('en/index.html','English edition','<div class="wrap"><h1>English edition not generated</h1><p>'+link('index.html','返回中文报告')+'</p></div>')
- finally:_RENDER_CONTEXT.reset(token)
+ finally:reset_render_context(token)
 
 
 def _research_links(urls):
@@ -851,7 +829,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
  return out/'index.html'
 
 def result_view(record):
- views=_RENDER_CONTEXT.get().result_views
+ views=render_context().result_views
  return views.get((record['provider'],record['case_id']),{}) if views else {}
 
 def result_case(record,fallback):
@@ -1489,16 +1467,16 @@ def stable_checks(m):
 
 def family_participants(records,cases):
  """Use the declared family population, retaining saved-matrix participants."""
- plan=_RENDER_CONTEXT.get().coverage_plan or {}
+ plan=render_context().coverage_plan or {}
  names={r['provider'] for r in records if r['case_id'] in cases}
  for c in cases.values():names.update(plan.get(c.get('track','web'),[]))
- if _RENDER_CONTEXT.get().suites:names.update(_RENDER_CONTEXT.get().labels)
+ if render_context().suites:names.update(render_context().labels)
  return names
 
 
 def ranking_readiness(records,cases,*,participants=None):
  """Require a complete shared task population and one recorded scorer."""
- groups={name:[] for name in (participants if participants is not None else family_participants(records,cases)|set(_RENDER_CONTEXT.get().labels))}
+ groups={name:[] for name in (participants if participants is not None else family_participants(records,cases)|set(render_context().labels))}
  for r in records:
   if r['case_id'] in cases:groups[r['provider']].append(r)
  populations=[Counter(r['case_id'] for r in rs) for rs in groups.values()]
@@ -1510,8 +1488,8 @@ def ranking_readiness(records,cases,*,participants=None):
  same_scorer=bool(identities) and all(isinstance(value,str) and re.fullmatch(r'[0-9a-f]{64}',value) for value in identities) and len(set(identities))==1
  notes=[]
  if not complete:notes.append(model_text(*pair('report_results_do_not_cover_the_same_complete_task_1be98a', 'Results do not cover the same complete task population; scores are shown without ranks.')))
- if not same_scorer and not _RENDER_CONTEXT.get().descriptive_ranks:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
- return complete and (same_scorer or _RENDER_CONTEXT.get().descriptive_ranks), ''.join('<p class="callout">'+n+'</p>' for n in notes)
+ if not same_scorer and not render_context().descriptive_ranks:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
+ return complete and (same_scorer or render_context().descriptive_ranks), ''.join('<p class="callout">'+n+'</p>' for n in notes)
 
 
 def shared_ranks(scores):
@@ -1520,7 +1498,7 @@ def shared_ranks(scores):
 
 
 def ranking(records,cases,track,base='',id=None,compact=False,audit=None,*,diagnostic=False):
- if _RENDER_CONTEXT.get().suites:return saved_suite_ranking(records,cases,track,base=base,id=id,diagnostic=diagnostic)
+ if render_context().suites:return saved_suite_ranking(records,cases,track,base=base,id=id,diagnostic=diagnostic)
  records,cases=comparison_population(records,cases)
  title_scope=track=='challenge' and any('title_quality' in r for r in records if report_family(cases[r['case_id']])==track)
  selected={k:c for k,c in cases.items() if report_family(c)==track}
@@ -1648,7 +1626,7 @@ def result_ledger_section(out, records, prefix=''):
  return section(t('scoring_revision_ledger', 'Scoring revision ledger'),('<p>' + t('additions_removals_and_final_passes_are_derived', 'Additions, removals and final passes are derived from individual result states. Excluded results retain their original calls and stay outside comparison denominators.') + f"</p>{table([t('stage', 'Stage'), t('passes_before', 'Passes before'), t('passes_added', 'Passes added'), t('passes_removed', 'Passes removed'), t('passes_after', 'Passes after'), t('excluded_from_comparison', 'Excluded from comparison')], rows, metrics=[])}{link(prefix + 'local-evidence/result-ledger.json', t('download_per_result_revision_ledger', 'Download per-result revision ledger'))}"),'result-ledger')
 
 def overview_matched_latency(records,cases):
- names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
+ names=sorted(set(render_context().labels) | {r['provider'] for r in records})
  keys={(r['provider'],r['case_id']) for r in records}
  if not names or len(keys)!=len(records) or any((name,cid) not in keys for name in names for cid in cases):
   return ('<p>' + t('the_call_matrix_is_incomplete_so_latency', 'The call matrix is incomplete, so latency on tasks passed by every method is not yet summarized.') + '</p>')
@@ -1789,8 +1767,8 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
  groups=defaultdict(list)
  for r in records:groups[r['provider']].append(r)
- if _RENDER_CONTEXT.get().suites:
-  for provider in _RENDER_CONTEXT.get().labels:groups.setdefault(provider,[])
+ if render_context().suites:
+  for provider in render_context().labels:groups.setdefault(provider,[])
  rows=[]
  for name,rs in groups.items():
   n=sum(measured(r,cases[r['case_id']]) for r in rs)
@@ -1799,7 +1777,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   request_success=sum(bool(r['ok']) for r in called)
   values=cell(link(f'providers/{name}.html',provider_label(name),browser_method_label(name,language='en')))+cell(rate(request_success,len(called)),request_success/len(called) if called else -1)
   if combined:values+=cell(rate(passed,n)+(f'<br><small>{passed}/{n}</small>' if has_unknown else ''),passed/n if n else -1)
-  if _RENDER_CONTEXT.get().suites and len(called) < len(cases):
+  if render_context().suites and len(called) < len(cases):
    values=values.replace('</a>', '</a><br><small>'+saved_matrix_text('incomplete')+'</small>',1)
   if has_unknown:values+=cell(str(len(rs)-n))
   for track,_ in active_tracks(cases):
@@ -1815,7 +1793,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases)
  timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
- heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if _RENDER_CONTEXT.get().suites else label for _,label in tracks]+timing_heads
+ heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if render_context().suites else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  if case_count==150 and track_count==6:
@@ -1850,7 +1828,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  if diagnostic:
   intro+='<p>'+model_text(*pair('report_diagnostic_results_show_scores_without_ranks_d759cd', 'Diagnostic results show scores without ranks.'))+'</p>'
   help=help.replace((t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')),(t('report_diagnostic_metric_definitions_9fb150', 'Diagnostic metric definitions')))
-  if _RENDER_CONTEXT.get().score_audit:
+  if render_context().score_audit:
    help=help.replace((t('report_diagnostic_metric_definitions_9fb150', 'Diagnostic metric definitions')),(t('report_metric_definitions_eeb1ae', 'Metric definitions')))
  if not combined:
   intro='<p class="decision-lead">'+model_text(*pair('report_compare_each_frozen_task_group_separately_without_a_f6add0', 'Compare each frozen task group separately, without a combined pass-rate ranking. Cross-group cases retain their original identities; record counts are not unique-site counts.'))+'</p>'
@@ -1861,7 +1839,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""
- names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
+ names=sorted(set(render_context().labels) | {r['provider'] for r in records})
  bycase=defaultdict(list)
  for record in records:bycase[record['case_id']].append(record)
  tracks=active_tracks(cases) if tracks is None else tracks
@@ -2063,7 +2041,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  elif dataset.get('comparison', {}).get('publication_state') == 'diagnostic_not_for_release':
   reliability_banner += ('<div class="wrap callout" role="status"><strong>' + t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') + '</strong><p>' + t('these_calls_check_the_selected_tasks_and', 'These calls check the selected tasks and methods without the cohort certification required for a formal benchmark.') + '</p></div>')
  from harness.web_fetch.report_version import content_scope_presentation
- _RENDER_CONTEXT.set(replace(_RENDER_CONTEXT.get(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests)))
+ set_render_context(replace(render_context(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests)))
  validate_report_ids(dataset,records)
  for path in ['assets/style.css','assets/report.js','references']:
   contained_path(out,path)
@@ -2071,7 +2049,7 @@ def _render_model(out,dataset,records,manifests,*,model):
   contained_path(out,'references/'+c['id']+'.txt')
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA, encoding='utf-8');(out/'assets/report.js').write_text(JS, encoding='utf-8')
- cases={c['id']:c for c in dataset['cases']};names=sorted(set(_RENDER_CONTEXT.get().labels) | {r['provider'] for r in records})
+ cases={c['id']:c for c in dataset['cases']};names=sorted(set(render_context().labels) | {r['provider'] for r in records})
  tracks=active_tracks(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  audit=json.loads((out/'result-review.json').read_text(encoding='utf-8')) if (out/'result-review.json').is_file() else None
  audited_attempts=review_index(audit)
@@ -2118,7 +2096,7 @@ def _render_model(out,dataset,records,manifests,*,model):
   selected=[c for c in cases.values() if report_family(c)==track]
   method_count=len({r['provider'] for r in records if report_family(cases[r['case_id']])==track})
   coverage=model_text(*pair('report_value_cases_value_measured_methods_885407', '{value0} cases · {value1} measured methods', value0=len(selected), value1=method_count))
-  panels.append((track,label,f'<div class="track-heading"><h3>{esc(label) if _RENDER_CONTEXT.get().suites else label}</h3><span>{coverage}</span></div>'+ranking(records,cases,track,compact=True,audit=audit,diagnostic=diagnostic)+(f"<p>{link('datasets/index.html#track-' + track, t('report_tasks_and_references_2fa3ec', 'Tasks and references →'))}</p>")))
+  panels.append((track,label,f'<div class="track-heading"><h3>{esc(label) if render_context().suites else label}</h3><span>{coverage}</span></div>'+ranking(records,cases,track,compact=True,audit=audit,diagnostic=diagnostic)+(f"<p>{link('datasets/index.html#track-' + track, t('report_tasks_and_references_2fa3ec', 'Tasks and references →'))}</p>")))
  overall_title=model_text(*pair('report_task_pass_rate_ranking_for_this_sample_5d9edf', 'Task pass-rate ranking for this sample')) if local_pass_rate_ranking(dataset) else ((t('report_task_results_b4e30d', 'Task results')) if diagnostic else (t('report_overall_coverage_ranking_47274b', 'Overall coverage ranking')))
  combined=dataset.get('comparison',{}).get('presentation',{}).get('combined_ranking',True)
  if not combined:overall_title=(t('report_task_results_b4e30d', 'Task results'))
@@ -3020,7 +2998,7 @@ def write_support(out,records,manifests,*,authored_interpretation=True):
   frozen_binding=(out/'presentation-binding.json').is_file()
   build_binding=' --presentation-binding /absolute/path/to/report-evidence/presentation-binding.json' if frozen_binding else ''
   check_binding=' --presentation-binding /absolute/path/to/report/presentation-binding.json' if frozen_binding else ''
-  reproduce=('<p>' + t('these_commands_build_the_local_report_from', 'These commands build the local report from saved evidence without additional product calls:') + f"</p><pre>uv run --frozen python scripts/build_report.py --variant local-audit --language {('zh --include-english' if _RENDER_CONTEXT.get().english_generated else 'zh')} --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report{build_binding}\nuv run --frozen python scripts/check_report.py /absolute/path/to/report{check_binding}</pre><p>" + t('use_the_evidence_directory_corresponding_to_these', 'Use the evidence directory corresponding to these results. Call-time versions, configuration, and scorer hashes are in') + f" {link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))} " + t('and', 'and') + f" {link('../execution.json', t('execution_batches', 'Execution batches'))}" + t('the_build_commands_read_saved_scores_after', '. The build commands read saved scores. After changing scoring rules, rescore the declared scope before rebuilding; rebuilding pages alone does not update scores.') + '</p>')
+  reproduce=('<p>' + t('these_commands_build_the_local_report_from', 'These commands build the local report from saved evidence without additional product calls:') + f"</p><pre>uv run --frozen python scripts/build_report.py --variant local-audit --language {('zh --include-english' if render_context().english_generated else 'zh')} --evidence /absolute/path/to/report-evidence --output /absolute/path/to/report{build_binding}\nuv run --frozen python scripts/check_report.py /absolute/path/to/report{check_binding}</pre><p>" + t('use_the_evidence_directory_corresponding_to_these', 'Use the evidence directory corresponding to these results. Call-time versions, configuration, and scorer hashes are in') + f" {link('../local-run-contract.json', t('pre_call_frozen_protocol', 'Pre-call frozen protocol'))} " + t('and', 'and') + f" {link('../execution.json', t('execution_batches', 'Execution batches'))}" + t('the_build_commands_read_saved_scores_after', '. The build commands read saved scores. After changing scoring rules, rescore the declared scope before rebuilding; rebuilding pages alone does not update scores.') + '</p>')
  if local_matrix and frozen_binding:
   public_profile=json.loads((out/'presentation-binding.json').read_text(encoding='utf-8'))
   if public_profile.get('publication_projection'):
@@ -3111,7 +3089,7 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  records,cases=comparison_population(records,cases)
  selected={k:c for k,c in cases.items() if report_family(c)==suite}
  rows=[]
- for provider in sorted({r['provider'] for r in records} | set(_RENDER_CONTEXT.get().labels)):
+ for provider in sorted({r['provider'] for r in records} | set(render_context().labels)):
   rs=[r for r in records if r['provider']==provider and r['case_id'] in selected]
   judged=[r for r in rs if measured(r,selected[r['case_id']])]
   passed=sum(succeeded(r,selected[r['case_id']]) for r in judged)
@@ -3128,7 +3106,7 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  eligible,rank_note=ranking_readiness(records,selected,participants=family_participants(records,selected))
  ranked=not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
- scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(_RENDER_CONTEXT.get().labels)],reverse=True)
+ scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(render_context().labels)],reverse=True)
  return rank_note+'<p>'+saved_matrix_text('suite_denominator_note')+'</p>'+table(saved_matrix_text('suite_result_headers'),rows,id or 'ranking-'+suite,sortable=True,metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(6+int(ranked),'desc'))
 
 
