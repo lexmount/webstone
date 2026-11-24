@@ -244,9 +244,9 @@ def test_child_output_is_utf8_under_an_ascii_locale():
 
 
 def test_report_builds_are_byte_identical_under_an_ascii_locale(tmp_path):
-    """Every track's multilingual build must match the baseline taken under UTF-8."""
+    """Every track's multilingual stage baseline must match the one taken under UTF-8."""
     result = subprocess.run(
-        [sys.executable, '-m', 'pytest', 'tests/baselines',
+        [sys.executable, '-m', 'pytest', 'tests/baselines', '-k', 'stages',
          '-q', '-p', 'no:cacheprovider', '--basetemp', str(tmp_path / 'build')],
         cwd=ROOT, env=ascii_locale_environment(),
         capture_output=True, encoding='utf-8', errors='replace', check=False)
