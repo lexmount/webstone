@@ -1004,3 +1004,30 @@ def test_bound_track_refuses_to_leave_a_withdrawn_report_public(
         owner.main(create=False)
     assert wire == []
     assert owner.PROFILE.read_bytes() == before
+
+
+@pytest.mark.parametrize("field, value, message", [
+    ("title", "Another title", "title differs from the release title"),
+    ("share_url", BASE + "/s/another", "share link differs from the saved publication"),
+])
+def test_receipt_release_rejects_a_requested_title_or_share_link_it_would_ignore(
+        tmp_path, field, value, message):
+    from harness.reporting.publication_target import PublicationTarget
+    from harness.reporting.publish import ReceiptRelease, publish
+
+    profile = tmp_path / "profile.json"
+    profile.write_text(json.dumps({"artifact_hub_base_url": BASE, "artifact_hub_site": "site",
+                                   "artifact_hub_expected_version": "ver_old"}), encoding="utf-8")
+    (tmp_path / "receipt.json").write_text(json.dumps(
+        {"slug": "site", "share_url": BASE + "/s/site"}), encoding="utf-8")
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("no request before the target is validated")
+
+    release = ReceiptRelease(
+        profile, tmp_path / "release.zip", tmp_path / "report", tmp_path / "receipt.json",
+        tmp_path / "journal.json", namespace="test", upload_name="test", client=None,
+        package_check=refuse, title="Release title",
+        target=PublicationTarget(base_url=BASE, **{field: value}))
+    with pytest.raises(ValueError, match=message):
+        publish(release, "update", transport=refuse)
