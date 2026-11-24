@@ -328,7 +328,7 @@ content requirement establishes the source scope.
 Current qualified inputs come from [LexBench-WCXB on Hugging Face](https://huggingface.co/datasets/Lexmount/LexBench-WCXB), selected by the [data lock](../benchmarks/data-lock.json). Webstone owns the runner and scorer. Existing experiment profiles keep their original source manifests and input hashes.
 
 `wcxb_scoring.py` owns certified frozen-HTML scoring. The maintained command is
-`uv run --frozen python -m harness.web_fetch wcxb-score`; the required `--profile` argument selects an
+`uv run --frozen python -m harness.web_fetch score --benchmark wcxb`; the required `--profile` argument selects an
 external experiment profile. The profile's ordered
 participants must match the cohort certificate exactly. Adding or renaming a
 participant in a separately certified cohort requires data changes rather than

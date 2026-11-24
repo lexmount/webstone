@@ -35,7 +35,7 @@ For a new run, use the [corrected HF edition](https://huggingface.co/datasets/Le
 
 The `webmainbench-run` Make target keeps this historical selection by default: pass `SOURCE=/absolute/path/to/matching-parent.jsonl` to reproduce it. For a new run, set `WEBMAINBENCH_SAMPLE` to a manifest frozen against the selected corrected corpus. The runner checks that parent binding before loading credentials or calling a provider.
 
-`webmainbench-score` scores the corrected edition by default: `EVIDENCE` is the only required variable, `SOURCE` and `SCORER` are optional overrides, and `DATASET_SHA256` and `REVISION` are forwarded as `--expected-dataset-sha256` and `--revision` when set.
+The `webmainbench-score` Make target (`webstone webfetch score --benchmark webmainbench`) scores the corrected edition by default: `EVIDENCE` is the only required variable, `SOURCE` and `SCORER` are optional overrides, and `DATASET_SHA256` and `REVISION` are forwarded as `--expected-dataset-sha256` and `--revision` when set.
 
 Follow the selected edition's source terms and the repository's [third-party content boundary](../../../THIRD_PARTY.md); a dataset license does not grant rights to every captured third-party page.
 
@@ -96,7 +96,7 @@ The supported complete-cohort commands are:
 
 - `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch run --certified --benchmark webmainbench`: freeze and recheck source,
   scorer, binary and complete physical-call evidence around provider calls.
-- `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch webmainbench-full-score`: score every declared method
+- `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch score --benchmark webmainbench --certified`: score every declared method
   and bind the score files to the cohort certificate.
 - `uv run --frozen --extra headless-eval --extra webmainbench-eval python -m harness.web_fetch webmainbench-full-assemble`: verify and package the complete
   baseline and all registry-declared variant cohorts.
@@ -111,7 +111,7 @@ python -m harness.web_fetch run --certified --benchmark webmainbench \
   --source /absolute/path/WebMainBench_545.jsonl --scorer /absolute/path/pinned-scorer \
   --profile /absolute/path/frozen-profile.json --config /absolute/path/providers.json \
   --env-file /absolute/path/checkout/.env --output-root /absolute/path/new-cohort
-python -m harness.web_fetch webmainbench-full-score \
+python -m harness.web_fetch score --benchmark webmainbench --certified \
   --source /absolute/path/WebMainBench_545.jsonl --scorer /absolute/path/pinned-scorer \
   --profile /absolute/path/frozen-profile.json --cohort /absolute/path/new-cohort
 ```

@@ -58,11 +58,9 @@ OWNER_OPTIONS = {
     "import-env": "--target",
     "wcxb-select": "--qualified-test",
     "wcxb-latency": "--candidate",
-    "wcxb-score": "--evidence-root",
     "wcxb-visual": "--browser-binary",
     "wcxb-publish": "--package-only",
     "webmainbench-select": "--seed",
-    "webmainbench-score": "--scorer-repo",
     "webmainbench-review": "--single-shard",
     "webmainbench-assemble": "--review",
     "webmainbench-check": "--profile",
@@ -74,7 +72,6 @@ OWNER_OPTIONS = {
     "webmainbench-teds-review": "--corrected",
     "webmainbench-latency-correction": "--cohort",
     "webmainbench-content-review": "--work",
-    "webmainbench-full-score": "--cohort",
     "webmainbench-full-assemble": "--variants",
     "webmainbench-full-check": "--authority-root",
 }
@@ -109,6 +106,22 @@ def test_command_help_comes_from_its_owner_under_the_public_name(tmp_path, monke
         assert option in printed, command
         assert sys.argv == ["caller"]
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(("selection", "option"), [
+    (["--benchmark", "webmainbench"], "--scorer-repo"),
+    (["--benchmark", "webmainbench", "--certified"], "--cohort"),
+    (["--benchmark", "wcxb"], "--evidence-root"),
+    ([], "--dataset"),
+])
+def test_score_stage_reaches_the_selected_benchmark_scorer(selection, option, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as stopped:
+        main(["score", *selection, "--help"])
+    assert stopped.value.code == 0
+    printed = " ".join(capsys.readouterr().out.split())
+    assert printed.startswith(f"usage: {PROG} score {' '.join(selection)}".rstrip())
+    assert option in printed
 
 
 def test_router_and_owners_reject_unknown_commands_and_options(tmp_path, monkeypatch, capsys):
@@ -238,9 +251,9 @@ def test_documented_uv_commands_name_the_extra_their_stage_imports():
     texts = [(root / path).read_text(encoding="utf-8") for path in DOCUMENTED_COMMAND_FILES]
     for command, extra in (("wcxb-visual", "headless-eval"),
                            *((name, "webmainbench-eval") for name in (
-                               "webmainbench-score", "webmainbench-review", "webmainbench-scoring-correction",
-                               "webmainbench-case-rescore", "webmainbench-teds-correction",
-                               "webmainbench-full-score"))):
+                               "score --benchmark webmainbench", "webmainbench-review",
+                               "webmainbench-scoring-correction", "webmainbench-case-rescore",
+                               "webmainbench-teds-correction", "score --benchmark webmainbench --certified"))):
         invocation = re.compile(
             r"(?:\buv|\$\(UV\)) run\b(?:(?!\brun\b)[^`\n]|\\\n)*?-m harness\.web_fetch " + re.escape(command) + r"(?![\w-])")
         found = [match.group(0) for text in texts for match in invocation.finditer(text)]

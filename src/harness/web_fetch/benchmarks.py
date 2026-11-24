@@ -20,7 +20,7 @@ from typing import Any
 from lexbench_webfetch.models import EvalCase
 from lexbench_webfetch.scoring import score_attempt
 
-from harness.adapters import Capabilities, Registry
+from harness.adapters import Capabilities, Registry, owner_stage
 from harness.distribution import repository_root
 from harness.record_io import bytes_sha256
 from harness.web_fetch.config import DEFAULT_CALL_TIMEOUT_SECONDS
@@ -160,6 +160,10 @@ class FrozenPageBenchmark:
         """Run and certify the profile's complete method matrix."""
         raise NotImplementedError
 
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        """Score saved outputs: one run, or a certified cohort when ``certified``."""
+        raise NotImplementedError
+
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         raise NotImplementedError
 
@@ -180,6 +184,13 @@ class WebMainBench(FrozenPageBenchmark):
         from harness.web_fetch.webmainbench_certification import main
 
         main(argv)
+
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        if certified:
+            owner_stage("harness.web_fetch.webmainbench_certification", "main_score", "",
+                        takes_argv=True)(argv)
+        else:
+            owner_stage("harness.web_fetch.webmainbench_scoring", "main", "")(argv)
 
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         from harness.benchmarks.data import binding, dependencies
@@ -241,6 +252,10 @@ class WCXB(FrozenPageBenchmark):
         from harness.web_fetch.wcxb_certification import main
 
         main(argv)
+
+    def score_stage(self, argv: list[str], *, certified: bool) -> None:
+        """WCXB scores only certified cohorts; ``--certified`` changes nothing."""
+        owner_stage("harness.web_fetch.wcxb_scoring", "main", "")(argv)
 
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         from harness.web_fetch.wcxb_dataset import load_wcxb_source, validate_manifest

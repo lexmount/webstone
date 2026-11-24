@@ -84,16 +84,12 @@ OWNER_COMMANDS = {
                     "Freeze a WCXB sample manifest"),
     "wcxb-latency": ("harness.web_fetch.wcxb_latency", "main",
                      "Collect or certify (certify) paired WCXB timing"),
-    "wcxb-score": ("harness.web_fetch.wcxb_scoring", "main",
-                   "Score a certified WCXB cohort against its profile"),
     "wcxb-visual": ("harness.web_fetch.wcxb_report_check", "visual_main",
                     "Check WCXB report interactions, themes and viewports"),
     "wcxb-publish": ("harness.web_fetch.wcxb_publication", "main",
                      "Package or publish a checked WCXB report"),
     "webmainbench-select": ("harness.web_fetch.public_benchmark_sample", "main",
                             "Freeze the WebMainBench-545 sample manifest"),
-    "webmainbench-score": ("harness.web_fetch.webmainbench_scoring", "main",
-                           "Score one WebMainBench shard with the pinned scorer"),
     "webmainbench-review": ("harness.web_fetch.webmainbench_diagnostics", "sample_review_main",
                             "Audit a declared sample without the official scorer"),
     "webmainbench-assemble": ("harness.web_fetch.webmainbench_assembly", "sample_main",
@@ -117,8 +113,6 @@ OWNER_COMMANDS = {
                                         "Apply a certified latency correction"),
     "webmainbench-content-review": ("harness.web_fetch.review_execution", "content_review_main",
                                     "Prepare or resume a source-grounded content review"),
-    "webmainbench-full-score": ("harness.web_fetch.webmainbench_certification", "main_score",
-                                "Score a certified complete cohort"),
     "webmainbench-full-assemble": ("harness.web_fetch.webmainbench_assembly", "main",
                                    "Verify and package the baseline and variant cohorts"),
     "webmainbench-full-check": ("harness.web_fetch.webmainbench_report_check", "main",
@@ -277,6 +271,9 @@ def command_report(args: argparse.Namespace) -> int:
 
 
 def command_rescore(args: argparse.Namespace) -> int:
+    if args.certified:
+        raise SystemExit(f"The {args.benchmark} benchmark scores each run as it is recorded; "
+                         "score has no separate certified mode")
     language = None if args.no_report else resolve_report_language(args.run_dir / "report", args.language)
     saved = json.loads((args.run_dir / 'dataset.json').read_text(encoding='utf-8'))
     manifest_path = args.run_dir/'manifest.json'
@@ -445,7 +442,12 @@ def build_parser(root_commands: Mapping[str, str] | None = None,
     add_language_argument(report)
     report.set_defaults(handler=command_report)
 
-    score = sub.add_parser("score", help="Recompute metrics/report from persisted artifacts and task rules")
+    score = sub.add_parser(
+        "score", help="Score saved outputs; a frozen-input benchmark's scorer parses the remaining options")
+    score.add_argument("--benchmark", choices=BENCHMARKS.names(), default=LiveSuite.name,
+                       help="Benchmark whose scorer reads the saved outputs (default: %(default)s)")
+    score.add_argument("--certified", action="store_true",
+                       help="Score a certified cohort with the benchmark's certifying scorer")
     score.add_argument("run_dir", type=Path)
     score.add_argument("--dataset", type=Path, required=True)
     score.add_argument("--content-scope", choices=("main", "full"))
@@ -500,6 +502,21 @@ def main(argv: Sequence[str] | None = None, *,
 
         certify([value for value in arguments[1:] if value != "--certified"])
         return
+    if arguments[:1] == ["score"]:
+        selector = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        selector.add_argument("--benchmark", choices=BENCHMARKS.names(), default=LiveSuite.name)
+        selector.add_argument("--certified", action="store_true")
+        selected, rest = selector.parse_known_args(arguments[1:])
+        benchmark = BENCHMARKS.get(selected.benchmark)
+        if benchmark.capabilities().has(FROZEN_INPUTS):
+            invoked = sys.argv
+            mode = " --certified" if selected.certified else ""
+            sys.argv = [f"{parser.prog} score --benchmark {selected.benchmark}{mode}", *invoked[1:]]
+            try:
+                benchmark.score_stage(rest, certified=selected.certified)
+            finally:
+                sys.argv = invoked
+            return
     if arguments[:1] and (arguments[0] in OWNER_COMMANDS or arguments[0] in STAGE_OWNERS):
         run_stage(STAGES, arguments[0], arguments[1:], parser.prog)
         return
