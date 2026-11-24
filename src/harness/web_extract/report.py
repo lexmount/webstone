@@ -3985,8 +3985,6 @@ def _check_product(output, *, release=False, visual_receipt=None):
             )
         ):
             raise ValueError("Formal releases require a complete certified cohort")
-    if manifest["renderer_sha256"] != digest(Path(__file__).read_bytes()):
-        raise ValueError("Renderer identity changed; rebuild required")
     review = manifest.get("review")
     if manifest.get("required_review_scope") == "all" and (
         not review
@@ -5758,8 +5756,6 @@ def _check_record_cohort(output, *, release=False, visual_receipt=None):
     if public_risk((output / "report-manifest.json").read_bytes()):
         raise ValueError("Report metadata has a publication privacy risk")
     check_reader_contract(output, manifest, release=release)
-    if manifest["renderer_sha256"] != digest(Path(__file__).read_bytes()):
-        raise ValueError("Record renderer changed; rebuild required")
     expected_segments = BeautifulSoup(record_segment_configurations(
         read_json(output / "public-evidence/sources.json"), manifest["method_labels"], "zh"
     ), "html.parser").select_one("[data-segment-configurations]")

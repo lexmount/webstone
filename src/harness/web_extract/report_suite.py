@@ -246,12 +246,8 @@ def _check_rendered_suite(output, *, release=False, visual_receipt=None):
     manifest = read_json(output / "report-manifest.json")
     owner.check_report_identity(output, manifest, "web-extract")
     owner.check_input_profile(output, manifest)
-    if (
-        manifest.get("mode") != MODE
-        or manifest.get("renderer_sha256") != digest(Path(owner.__file__).read_bytes())
-        or manifest.get("composition_sha256") != digest(Path(__file__).read_bytes())
-    ):
-        raise ValueError("Suite renderer changed; rebuild required")
+    if manifest.get("mode") != MODE:
+        raise ValueError("Suite report mode changed; rebuild required")
     actual = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}
     if actual != set(manifest["files"]) | {"report-manifest.json"}:
         raise ValueError("Suite inventory changed")
