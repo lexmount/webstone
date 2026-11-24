@@ -38,7 +38,11 @@ SCORED_RESULT = scored_result_schema("webextract.scored_result", 1, nullable=("e
 
 
 def _calls(run: Path) -> list[dict[str, Any]]:
-    """Call rows named by the run manifest, or by the call journal of a checkpointed run."""
+    """Call rows named by the run manifest, or by the call journal of a checkpointed run.
+
+    The journal holds every physical attempt; the latest one per method and case is the
+    effective call, as the manifest of a finalized run records it.
+    """
     manifest = run / "manifest.json"
     if manifest.is_file():
         entries = read_json(manifest)["calls"]
@@ -46,7 +50,7 @@ def _calls(run: Path) -> list[dict[str, Any]]:
         journal = run / "calls.journal.jsonl"
         entries = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()
                    if line.strip()]
-    rows = []
+    rows = {}
     for entry in entries:
         relative = Path(entry["path"])
         path = run / relative
@@ -54,8 +58,9 @@ def _calls(run: Path) -> list[dict[str, Any]]:
             raise ValueError("Unsafe call evidence path")
         if digest(path.read_bytes()) != entry["sha256"]:
             raise ValueError(f"Call evidence changed: {relative}")
-        rows.append({**read_json(path), "_evidence": relative.as_posix()})
-    return rows
+        row = read_json(path)
+        rows[(row["method"], row["case_id"])] = {**row, "_evidence": relative.as_posix()}
+    return list(rows.values())
 
 
 def _scored(row: dict[str, Any]) -> dict[str, Any]:
@@ -69,7 +74,7 @@ def _scored(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[str, Any]:
-    run = Path(run_dir)
+    run = Path(run_dir).resolve()
     home = run.parents[1]
     contract = read_json(run / "contract.json")
     if contract.get("kind") == "input_compatibility_only":

@@ -73,8 +73,17 @@ def test_web_fetch_run_exports_through_the_stage_command(tmp_path: Path, monkeyp
     assert (result["taskCount"], fixture["passed"], fixture["scores"]["passRate"]) == (2, 1, 50.0)
     assert result["categoryTotals"]["static"] == 2
 
+    results = run / "results.jsonl"
+    complete = results.read_text(encoding="utf-8")
+    other = complete.splitlines()[0].replace('"provider": "fixture"', '"provider": "second"')
+    results.write_text(complete + other + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="incomplete: second"):
+        export(run)
+    results.write_text(complete, encoding="utf-8")
+
     receipt = tmp_path / "receipt.json"
-    receipt.write_text(json.dumps({"share_url": RECEIPT["url"], "versionId": "v2"}))
+    receipt.write_text(json.dumps({"share_url": RECEIPT["url"], "versionId": "v2"}),
+                       encoding="utf-8")
     output = tmp_path / "submission.json"
     main(["webfetch", "export", str(run), "--receipt", str(receipt), "--output", str(output)])
     report = json.loads(output.read_text(encoding="utf-8"))
@@ -96,7 +105,7 @@ def test_web_search_run_exports_each_benchmark(tmp_path: Path) -> None:
     assert scenario["providers"][0]["scores"]["ndcg5"] is None
 
 
-def test_web_extract_run_exports(tmp_path: Path) -> None:
+def test_web_extract_run_exports(tmp_path: Path, monkeypatch) -> None:
     from harness.web_extract.example import create
     from harness.web_extract.export import export
 
@@ -106,6 +115,15 @@ def test_web_extract_run_exports(tmp_path: Path) -> None:
     assert (scores["executedPages"], scores["pagesWithFields"], scores["timedPages"]) == (3, 2, 3)
     partial = export(home / "runs/firecrawl-json", RECEIPT)["benchmarks"][0]
     assert partial["providers"][0]["scores"]["pageMacroF1"] is None
+
+    # A retried call leaves both attempts in the journal; the latest one is the result.
+    run = home / "runs/scrapegraph-extract"
+    journal = run / "calls.journal.jsonl"
+    first = journal.read_text(encoding="utf-8").splitlines()[0]
+    journal.write_text(first + "\n" + journal.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.chdir(run.parent)
+    retried = export(Path(run.name), RECEIPT)["benchmarks"][0]
+    assert retried["providers"] == result["providers"]
 
 
 def test_browser_use_run_exports(tmp_path: Path, monkeypatch) -> None:
@@ -133,9 +151,9 @@ def test_trajectory_replay_results_export(tmp_path: Path, monkeypatch) -> None:
 def test_receipts_name_the_public_report(tmp_path: Path) -> None:
     receipt = tmp_path / "receipt.json"
     receipt.write_text(json.dumps({"host": "https://reports.example.com/", "slug": "abc",
-                                   "expected_version": "v3"}))
+                                   "expected_version": "v3"}), encoding="utf-8")
     assert read_receipt(receipt) == {"url": "https://reports.example.com/s/abc", "version": "v3"}
-    receipt.write_text(json.dumps({"slug": "abc"}))
+    receipt.write_text(json.dumps({"slug": "abc"}), encoding="utf-8")
     with pytest.raises(ValueError, match="public HTTPS"):
         read_receipt(receipt)
 
@@ -146,3 +164,13 @@ def test_nullable_role_accepts_only_null_beyond_its_type() -> None:
     assert schema.validate(record) == record
     with pytest.raises(RecordSchemaError, match="passed"):
         schema.validate({**record, "passed": None})
+
+
+def test_methods_that_share_a_submission_id_are_rejected() -> None:
+    from harness.results.export import provider, submission
+
+    methods = [provider(name, {}, mode="m", description="d") for name in ("a-b", "A_B")]
+    assert [item["id"] for item in methods] == ["a-b", "a-b"]
+    with pytest.raises(ValueError, match="a-b, A_B"):
+        submission(benchmark="b", definition="d", task_count=1, providers=methods,
+                   receipt=None, track="T", scope="Synthetic scope.")

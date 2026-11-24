@@ -30,6 +30,10 @@ def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[s
     if max(calls.values()) > 1:
         raise ValueError("Export needs one scored result per method and case; this run repeats cases")
     case_ids = {record["case_id"] for record in records}
+    partial = sorted({method for method, _ in calls
+                      if {case for name, case in calls if name == method} != case_ids})
+    if partial:
+        raise ValueError("Every method must cover the same cases; incomplete: " + ", ".join(partial))
     family = {case_id: CATEGORIES[report_family(cases[case_id])] for case_id in case_ids}
     totals = {category: sum(value == category for value in family.values())
               for category in CATEGORIES.values()}

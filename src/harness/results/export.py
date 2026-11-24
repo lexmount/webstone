@@ -57,7 +57,9 @@ def percent(part: int | float | None, total: int | float | None) -> float | None
 
 
 def method_id(name: str) -> str:
-    """A submission method ID: the run's method name in lowercase hyphen form."""
+    """A submission method ID: a valid run method name as is, else its lowercase hyphen form."""
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]*", str(name)):
+        return str(name)
     slug = re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
     if not slug:
         raise ValueError(f"Method name has no submission ID form: {name!r}")
@@ -98,6 +100,13 @@ def submission(*, benchmark: str, definition: str, task_count: int, providers: l
                receipt: dict[str, Any] | None, track: str, scope: str,
                notes: Sequence[str] = (), **result: Any) -> dict[str, Any]:
     """The submission ``ResultsClient.check`` validates, from measured values only."""
+    ids: dict[str, list[str]] = {}
+    for item in providers:
+        ids.setdefault(item["id"], []).append(item["name"])
+    collisions = [names for names in ids.values() if len(names) > 1]
+    if collisions:
+        raise ValueError("Methods share one submission ID; rename them in the run: "
+                         + "; ".join(", ".join(names) for names in collisions))
     url = receipt["url"] if receipt else None
     published = receipt is not None
     notes = [*notes] if published else [
