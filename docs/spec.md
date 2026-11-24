@@ -391,6 +391,8 @@ until a check exists, review is the enforcement.
 - **Conformance example.** Each track runs a synthetic method and a synthetic
   benchmark, registered only through adapters, through every stage it supports.
   This proves that an instance can be added without editing shared code.
+  The examples are `tests/conformance/test_<track>.py`; a gap that still needs a
+  shared-code change is a strict expected failure there that names the coupling.
 
 ## Migration
 
