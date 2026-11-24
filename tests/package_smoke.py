@@ -146,7 +146,7 @@ def verify_report_assets(package_root: Path) -> None:
     from harness.trajectory_replay.public_webarena import report as public_report
     from harness.trajectory_replay.report_compaction import _script
     from harness.web_fetch.report import EXTRA, JS
-    from harness.web_fetch.report_style import STYLE
+    from harness.reporting.style import STYLE
     from harness.web_search.comparison import SCRIPT, STYLE as COMPARISON_STYLE
     from harness.web_search.delivery import BRIDGE, LOADER
 

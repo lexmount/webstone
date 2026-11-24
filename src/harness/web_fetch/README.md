@@ -1446,7 +1446,7 @@ plain-text outputs need explicit textual exclusions where roles otherwise disapp
 The following are Python maintenance APIs, invoked explicitly from a Python
 script with `uv run --frozen python <script.py>`; they do not have dedicated CLI
 commands. Import them from `harness.web_fetch.local_revision` or
-`harness.web_fetch.publication_privacy` as named below. Their arguments are
+`harness.reporting.publication_privacy` as named below. Their arguments are
 caller-supplied evidence paths, bindings and correction configuration, not values
 inferred from the latest report. Use them only for an authorized correction or
 history reduction.

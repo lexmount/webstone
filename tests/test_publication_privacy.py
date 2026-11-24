@@ -17,7 +17,7 @@ from bs4 import BeautifulSoup
 
 from harness.web_fetch.publication_check import check as check_bundle
 from harness.web_fetch.publication_check import scored_output_hash
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
     project_file,
     project_redundant_result_streams,
     publication_risk,
@@ -36,7 +36,7 @@ def test_publication_rejects_execution_addresses_without_filtering_source_prose(
 
 
 def test_nested_response_urls_in_json_keys_are_redacted_in_real_log_views():
-    from harness.web_fetch.publication_privacy import project_evidence_view
+    from harness.reporting.publication_privacy import project_evidence_view
     url = 'https://example.test/player?token=synthetic-secret&format=video'
     nested = {url:{'status':'denied','code':403}}
     raw = (json.dumps({'source':'caller','body':json.dumps(nested)})+'\n').encode()
@@ -58,7 +58,7 @@ def test_redaction_rejects_colliding_json_keys_instead_of_dropping_a_response():
 
 
 def test_multiline_debug_views_redact_decoded_nested_responses():
-    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    from harness.reporting.publication_privacy import project_evidence_view, publication_file_risk
     rows = [{'event':'request_started'}, {'body': json.dumps({'token':'synthetic-secret',
         'data':{'status':403,'reason':'retained failure'}})}, {'event':'request_finished'}]
     raw = b''.join(json.dumps(row).encode()+b'\n' for row in rows)
@@ -73,7 +73,7 @@ def test_multiline_debug_views_redact_decoded_nested_responses():
 
 
 def test_result_diagnostic_views_reject_changes_outside_quoted_output():
-    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    from harness.reporting.publication_privacy import project_result_diagnostics
     raw = json.dumps({'metrics':{'content_pass':True,'authorization':'Bearer synthetic-secret'}}).encode()
     with pytest.raises(ValueError,match='non-diagnostic authority'):
         project_result_diagnostics('record.json',raw)
@@ -82,7 +82,7 @@ def test_result_diagnostic_views_reject_changes_outside_quoted_output():
 
 
 def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
-    from harness.web_fetch.publication_privacy import project_evidence_view, publication_file_risk
+    from harness.reporting.publication_privacy import project_evidence_view, publication_file_risk
     event = json.dumps({'event':'native_response','body':json.dumps({'token':'synthetic-secret',
         'message':'first\u2028second'},ensure_ascii=False)},ensure_ascii=False)
     raw = (event+'\n--- native file log ---\nActual native failure at /Users/fixture/worker.py\n').encode()
@@ -97,7 +97,7 @@ def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
 
 @pytest.mark.parametrize('scheme', ['https', 'http', 'wss', 'ws'])
 def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme):
-    from harness.web_fetch.publication_privacy import project_evidence_view
+    from harness.reporting.publication_privacy import project_evidence_view
 
     native = {'cdpUrl': scheme + '://connect.example/?signingKey=synthetic-session-secret&region=us',
               'nested': {'signingKey': 'synthetic-session-secret'},
@@ -113,7 +113,7 @@ def test_native_session_signing_keys_are_redacted_without_changing_fields(scheme
 
 @pytest.mark.parametrize('interrupted', [False, True])
 def test_proposed_evidence_reads_are_scoped_and_hash_checked(tmp_path, interrupted):
-    from harness.web_fetch.publication_privacy import read_evidence_binding, staged_evidence_reads
+    from harness.reporting.publication_privacy import read_evidence_binding, staged_evidence_reads
     source = tmp_path / 'source'
     other = tmp_path / 'other'
     source.mkdir()
@@ -145,7 +145,7 @@ def test_proposed_evidence_reads_are_scoped_and_hash_checked(tmp_path, interrupt
 
 @pytest.mark.parametrize('allow_public_view', [False, True])
 def test_evidence_reader_requires_original_bytes_when_requested(tmp_path, monkeypatch, allow_public_view):
-    from harness.web_fetch import publication_privacy as privacy
+    from harness.reporting import publication_privacy as privacy
     path = tmp_path / 'answer.txt'
     path.write_bytes(b'original')
     binding = {'path': path.name, 'sha256': hashlib.sha256(b'original').hexdigest()}
@@ -723,7 +723,7 @@ if __name__ == '__main__':
 def test_host_metadata_projection_rebinds_dependencies_without_changing_measurements():
     import hashlib
     import json
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     config = json.dumps({'binary': '/Users/fixture/tool/bin', 'version': '1.2.3', 'environment': {'hostname': 'private-machine'}}).encode()
     config_hash = hashlib.sha256(config).hexdigest()
     result = json.dumps({'ok': True, 'duration': 1.25, 'content_sha256': 'a'*64,
@@ -748,7 +748,7 @@ def test_host_metadata_projection_rebinds_dependencies_without_changing_measurem
 
 
 def test_public_diagnostic_contexts_redact_queries_and_preserve_scores():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     row = {'ok': True, 'elapsed_ms': 12.5, 'metrics': {'content_pass': True,
         'content_sha256': 'a' * 64, 'composite_group_results': [{'records': [
             {'context': '[Forum](https://example.test/thread?access_token=private-token-canary)'}]}]}}
@@ -769,7 +769,7 @@ def test_public_diagnostic_contexts_redact_queries_and_preserve_scores():
 
 def test_host_metadata_projection_requires_an_explicit_non_root_prefix():
     import pytest
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     for prefixes in ([], ['/'], ['relative/path']):
         with pytest.raises(ValueError):
             project_host_metadata_files({}, prefixes)
@@ -779,7 +779,7 @@ def test_public_metadata_receipt_checks_bytes_and_excludes_scored_payloads(tmp_p
     import hashlib
     import json
     import pytest
-    from harness.web_fetch.publication_privacy import project_host_metadata_files, require_host_metadata_projection
+    from harness.reporting.publication_privacy import project_host_metadata_files, require_host_metadata_projection
     original={'config.json': b'{"binary":"/Users/fixture/tool"}'}
     public,receipt=project_host_metadata_files(original,['/Users/fixture'])
     (tmp_path/'config.json').write_bytes(public['config.json'])
@@ -797,7 +797,7 @@ def test_public_metadata_receipt_checks_bytes_and_excludes_scored_payloads(tmp_p
 
 
 def test_host_projection_does_not_match_another_user_with_the_same_prefix():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     files={'config.json': b'{"binary":"/Users/fixture-other/tool"}'}
     public,receipt=project_host_metadata_files(files,['/Users/fixture'])
     assert public==files and receipt['files']==[]
@@ -806,7 +806,7 @@ def test_host_projection_does_not_match_another_user_with_the_same_prefix():
 def test_named_host_in_auxiliary_log_is_projected_with_bound_public_hash(tmp_path):
     import hashlib
     import json
-    from harness.web_fetch.publication_privacy import project_host_metadata_files, require_host_metadata_projection
+    from harness.reporting.publication_privacy import project_host_metadata_files, require_host_metadata_projection
     name='logs/case.debug.txt'
     raw=b'{"hostname":"fixture.local","message":"response completed"}'
     inputs={name:raw,'answer.txt':b'unchanged scored text'}
@@ -821,19 +821,19 @@ def test_named_host_in_auxiliary_log_is_projected_with_bound_public_hash(tmp_pat
 
 def test_host_projection_refuses_to_rewrite_score_bearing_or_response_payloads():
     import pytest
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     for name in ('artifacts/answer.json','logs/case.response.txt','answer.txt'):
         raw=b'{"host":"fixture.local"}'
         with pytest.raises(ValueError,match='must not alter scored'):
             project_host_metadata_files({name:raw},['/Users/fixture'],host_names=['fixture.local'])
 def test_long_unterminated_escaped_string_preserves_content_without_rescanning_suffixes():
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     text = '"' + ('\\"fragment' * 20000)
     assert redact_url_queries(text) == (text, 0)
 
 
 def test_long_escaped_url_still_redacts_sensitive_query_value():
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     text = 'ordinary log ' * 500 + r'"https:\/\/example.com\/image?apiKey=private-value&width=300"'
     public, count = redact_url_queries(text)
     assert count == 1
@@ -843,7 +843,7 @@ def test_long_escaped_url_still_redacts_sensitive_query_value():
 
 def test_large_and_small_string_tokenization_have_identical_public_redaction_semantics():
     import random
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     rng = random.Random(51)
     prefix = ' ' * 4097
     fragments = [
@@ -861,7 +861,7 @@ def test_large_and_small_string_tokenization_have_identical_public_redaction_sem
 @pytest.mark.parametrize("delimiter", ["&quot;", "&apos;", "&gt;", "&#34;", "&Tab;"])
 def test_encoded_url_boundary_does_not_expand_unrelated_large_html(delimiter):
     import tracemalloc
-    from harness.web_fetch.publication_privacy import _redact_plain_url_queries
+    from harness.reporting.publication_privacy import _redact_plain_url_queries
     suffix = "x" * 100000
     source = "https://example.test/?token=private-value" + delimiter + suffix
     tracemalloc.start()
@@ -879,7 +879,7 @@ def test_encoded_url_boundary_does_not_expand_unrelated_large_html(delimiter):
 @pytest.mark.parametrize("boundary", [5000, 65535, 65536, 131071])
 def test_sparse_json_scanner_matches_string_grammar_across_windows(boundary):
     import random
-    from harness.web_fetch.publication_privacy import _JSON_STRING, _json_string_spans
+    from harness.reporting.publication_privacy import _JSON_STRING, _json_string_spans
     random_source = random.Random(90210)
     for _ in range(20):
         tail = ''.join(random_source.choice('abc"\\\n\r\t') for _ in range(150))
@@ -891,7 +891,7 @@ def test_sparse_json_scanner_matches_string_grammar_across_windows(boundary):
 def test_nested_url_delimiters_keep_exact_projection_with_bounded_memory(depth):
     import html
     import tracemalloc
-    from harness.web_fetch.publication_privacy import _url_entity_surface,project_file
+    from harness.reporting.publication_privacy import _url_entity_surface,project_file
     delimiter = '&quot;'
     for _ in range(depth):
         delimiter = html.escape(delimiter,quote=False)
@@ -908,7 +908,7 @@ def test_nested_url_delimiters_keep_exact_projection_with_bounded_memory(depth):
 
 
 def test_incomplete_nested_entity_does_not_hide_late_url_credentials():
-    from harness.web_fetch.publication_privacy import project_file
+    from harness.reporting.publication_privacy import project_file
     raw = b'https://api.invalid/?first=1&amp;look=&quotx'+b'z'*10000+b'&token=example'
     assert project_file('view.html',raw)[0] == raw.replace(b'token=example',b'token=[REDACTED]')
 
@@ -922,12 +922,12 @@ def test_incomplete_nested_entity_does_not_hide_late_url_credentials():
     b'{"authorization":"[REDACTED]"}\n{"text":"\\u4e2d\\u6587"}\n',
 ])
 def test_jsonl_risk_keeps_record_boundaries_and_falls_back_for_malformed_data(data):
-    from harness.web_fetch.publication_privacy import publication_file_risk,publication_risk
+    from harness.reporting.publication_privacy import publication_file_risk,publication_risk
     assert bool(publication_file_risk('records.jsonl',data)) == bool(publication_risk(data))
 
 
 def test_short_plain_text_cache_preserves_sensitive_context_and_excludes_large_values():
-    from harness.web_fetch.publication_privacy import (
+    from harness.reporting.publication_privacy import (
         _cached_plain_publication_risk, _plain_publication_risk, publication_risk,
     )
     _cached_plain_publication_risk.cache_clear()
@@ -943,7 +943,7 @@ def test_short_plain_text_cache_preserves_sensitive_context_and_excludes_large_v
 
 def test_large_plain_risk_cache_reuses_hashes_without_retaining_payload(monkeypatch):
     import json
-    from harness.web_fetch import publication_privacy as privacy
+    from harness.reporting import publication_privacy as privacy
     privacy._large_plain_risks.clear()
     original = privacy._scan_plain_publication_risk
     calls = []
@@ -964,7 +964,7 @@ def test_large_plain_risk_cache_reuses_hashes_without_retaining_payload(monkeypa
 @pytest.mark.parametrize('name',['response.txt','response.json','response.log'])
 def test_json_wrapped_text_is_projected_by_content_not_filename(name):
     import json
-    from harness.web_fetch.publication_privacy import project_file,publication_risk
+    from harness.reporting.publication_privacy import project_file,publication_risk
     original = json.dumps({'success':True,'result':'API example: {"clientSecret": "string"}'}).encode()
     public,receipt = project_file(name,original)
     assert receipt and receipt['original_sha256'] != receipt['published_sha256']
@@ -976,7 +976,7 @@ def test_json_wrapped_text_is_projected_by_content_not_filename(name):
 
 def test_nested_sensitive_objects_and_documented_auth_placeholders_agree_at_export():
     import json
-    from harness.web_fetch.publication_privacy import project_file,publication_risk
+    from harness.reporting.publication_privacy import project_file,publication_risk
     raw = b'{"credentials":{"user":"example-user","password":"example-pass"}}'
     public,receipt = project_file('native.txt',raw)
     assert receipt and json.loads(public)['credentials'] == {'user':'[REDACTED]','password':'[REDACTED]'}
@@ -987,7 +987,7 @@ def test_nested_sensitive_objects_and_documented_auth_placeholders_agree_at_expo
 
 
 def test_review_layer_excerpts_project_public_examples_and_rebind_wrappers():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files, publication_risk
+    from harness.reporting.publication_privacy import project_host_metadata_files, publication_risk
     example = '{"clientSecret":"private-example-canary","count":5}'
     nested = {'frozen_reference_files': [{'probes': [{'text': example}]}]}
     original = {'attempts': [{'agent_evidence': example, 'effective_agent_evidence': example,
@@ -1014,7 +1014,7 @@ def test_review_layer_excerpts_project_public_examples_and_rebind_wrappers():
 
 
 def test_review_projection_does_not_hide_risks_in_unrelated_metadata():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files, publication_risk
+    from harness.reporting.publication_privacy import project_host_metadata_files, publication_risk
     raw = json.dumps({'unrelated': '{"clientSecret":"private-example-canary"}'}).encode()
     files = {'local-evidence/review/supplement.json': raw}
     public, _ = project_host_metadata_files(files, ['/Users/fixture'], public_excerpt_views=True)

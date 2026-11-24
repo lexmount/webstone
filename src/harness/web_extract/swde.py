@@ -50,7 +50,7 @@ def prepare(home: Path, source: Path):
     if scorer.exists():
         scorer_bytes = scorer.read_bytes()
     else:
-        from harness.web_fetch.providers.http_client import request
+        from harness.http_client import request
 
         response = request(card["source"]["scorer_download_url"], timeout=60, max_bytes=5_000_000)
         if response.status != 200:

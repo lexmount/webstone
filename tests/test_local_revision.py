@@ -631,7 +631,7 @@ def test_context_projection_only_accepts_captured_http_errors(status):
 @pytest.mark.parametrize('defect', [None, 'wrong_public_pair', 'missing_public_pair'])
 def test_native_public_projection_uses_bound_answer_view_while_private_bytes_restored(tmp_path, defect):
     from harness.web_fetch.local_revision import _require_native_answer_correction
-    from harness.web_fetch.publication_privacy import project_evidence_view
+    from harness.reporting.publication_privacy import project_evidence_view
     original, receipt, _, _, _ = _native_answer_revision_fixture(tmp_path)
     corrected = json.loads((tmp_path/'results.jsonl').read_text(encoding='utf-8'))
     proof = receipt['native_answer_corrections'][0]

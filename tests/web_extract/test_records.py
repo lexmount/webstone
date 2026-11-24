@@ -125,7 +125,7 @@ def test_unobservable_live_body_retains_access_evidence_and_bounded_fallback(
     home = tmp_path / "home"
     records.prepare(home, source)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(
             status=200, url=url,
             body=(b'<title>Just a moment...</title><form id="challenge-form"></form>'
@@ -264,7 +264,7 @@ def test_live_url_calls_never_substitute_a_hosted_copy_or_send_reference_answers
     monkeypatch.setattr(pipeline, "load_runtime_env", lambda: None)
     monkeypatch.setenv("BROWSERBASE_API_KEY", "test-bb")
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=200, body=b"<h1>Ada</h1>", url=url),
     )
 
@@ -332,7 +332,7 @@ def test_list_query_preserves_all_requested_records_without_single_record_instru
     monkeypatch.setattr(pipeline, "load_runtime_env", lambda: None)
     monkeypatch.setenv("BROWSERBASE_API_KEY", "test-bb")
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kwargs: SimpleNamespace(status=200, body=raw, url=url),
     )
     requests = []
@@ -367,7 +367,7 @@ def test_live_source_drift_stops_certification_without_replacing_saved_calls(tmp
             status=200, url=url, body=b"<h1>Removed</h1>" if state["called"] else b"<h1>Ada</h1>"
         )
 
-    monkeypatch.setattr("harness.web_fetch.providers.http_client.request", source)
+    monkeypatch.setattr("harness.http_client.request", source)
 
     def call(url, **kwargs):
         state["called"] = True
@@ -392,7 +392,7 @@ def test_empty_or_unavailable_live_source_cannot_qualify(tmp_path, monkeypatch, 
     home = prepared(tmp_path)
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kwargs: SimpleNamespace(status=status, body=b"", url=url),
     )
     with pytest.raises(ValueError, match="Live (source unavailable|reference no longer supported)"):
@@ -415,7 +415,7 @@ def test_transient_source_failure_can_recover_without_retrying_provider_calls(
         ]
     )
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request", lambda *a, **k: next(responses)
+        "harness.http_client.request", lambda *a, **k: next(responses)
     )
     receipt = records.qualify_live(home, ["one"])
     assert receipt[0]["source_attempts"] == [{"http_status": 503}, {"http_status": 200}]
@@ -427,7 +427,7 @@ def test_source_access_failure_does_not_decide_task_validity(tmp_path, monkeypat
     original = (home / "dataset/dataset/ground-truth.json").read_bytes()
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kwargs: SimpleNamespace(status=status, body=b"", url=url),
     )
     with pytest.raises(records.LiveSourceAccessError) as caught:
@@ -467,7 +467,7 @@ def test_predeclared_recent_independent_observation_preserves_blocked_valid_task
     records.prepare(home, source)
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=status, body=body, url=url),
     )
     if accepted:
@@ -509,7 +509,7 @@ def test_recent_capture_uses_its_redirect_and_document_base_during_a_block(tmp_p
     records.prepare(home, source)
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=429, body=b"", url=url),
     )
     assert (
@@ -541,7 +541,7 @@ def test_interrupted_finalization_resumes_a_blocked_source_without_repeating_cal
             raise OSError("Temporary network failure")
         return SimpleNamespace(status=status, body=b"", url=url)
 
-    monkeypatch.setattr("harness.web_fetch.providers.http_client.request", blocked)
+    monkeypatch.setattr("harness.http_client.request", blocked)
     calls = []
 
     def native(url, **kwargs):
@@ -638,7 +638,7 @@ def test_url_collection_does_not_decode_unused_captured_html(tmp_path, monkeypat
     monkeypatch.setattr(pipeline, "load_runtime_env", lambda: None)
     monkeypatch.setenv("BROWSERBASE_API_KEY", "test-bb")
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=200, body=raw, url=url),
     )
     sent = []
@@ -764,7 +764,7 @@ def test_report_combines_disjoint_certified_scopes_without_repeating_calls(
         definitions.append(data)
         sources.append(home)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=200, body=raw_by_url[url], url=url),
     )
 
@@ -1344,7 +1344,7 @@ def test_live_reference_check_honors_the_http_charset(tmp_path, monkeypatch):
     home = tmp_path / "home"
     records.prepare(home, source)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(
             status=200, body=raw, url=url, headers={"content-type": "text/html; charset=utf-8"}
         ),
@@ -1499,7 +1499,7 @@ def test_header_only_charset_is_preserved_for_live_and_captured_sources(
     records.prepare(home, source)
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(
             status=status,
             body=raw if status == 200 else b"",
@@ -1606,7 +1606,7 @@ def test_http_200_access_gate_is_distinct_from_genuine_reference_drift(
         else b"<title>Profile</title><h1>Grace</h1><p>CAPTCHA explained</p>"
     )
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=200, body=body, url=url, headers={}),
     )
     if challenge and policy:
@@ -2053,7 +2053,7 @@ def test_empty_reference_cannot_qualify_an_access_gate_as_captured_fallback(
     home = tmp_path / "home"
     records.prepare(home, source)
     monkeypatch.setattr(
-        "harness.web_fetch.providers.http_client.request",
+        "harness.http_client.request",
         lambda url, **kw: SimpleNamespace(status=200, body=gate, url=url, headers={}),
     )
     with pytest.raises(records.LiveSourceAccessError, match="unavailable"):

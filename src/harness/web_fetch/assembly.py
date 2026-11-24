@@ -27,7 +27,7 @@ from harness.web_fetch.artifacts import (
     materialize_reference_checks,
     materialize_task_references,
 )
-from harness.web_fetch.publication_privacy import project_execution_manifest
+from harness.reporting.publication_privacy import project_execution_manifest
 from harness.web_fetch.reference_inputs import input_tree, read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import (
     latency_correction_original_elapsed,

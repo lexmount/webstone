@@ -29,7 +29,7 @@ from harness.web_fetch.local_audit import (
 )
 from harness.web_fetch.local_execution_contract import local_measurement_cases
 from harness.web_fetch.methods import native_browser_engine
-from harness.web_fetch.publication_privacy import public_render_views, read_evidence_binding
+from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
 from harness.web_fetch.reference_lifecycle import validate_resource_source_evidence
 from harness.web_fetch.reliability import require_reliable
 from harness.web_fetch.report import local_pass_rate_ranking

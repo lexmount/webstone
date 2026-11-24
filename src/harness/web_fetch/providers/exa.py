@@ -9,7 +9,7 @@ from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.native_projection import native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import request
+from harness.http_client import request
 
 # Exa's per-URL failure envelope contains free-form JSON.  Publish only the
 # stable diagnostic enum values observed in the API contract; the complete

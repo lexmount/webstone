@@ -1,4 +1,4 @@
-"""Shared visual styling for the current report and standalone editorial export."""
+"""Web Fetch report assets and ranking-table styling; shared styling lives in harness.reporting.style."""
 from pathlib import Path
 
 
@@ -30,5 +30,3 @@ RANKING_STICKY = """
   }
 }
 """
-
-STYLE = asset_text("report-style.css")

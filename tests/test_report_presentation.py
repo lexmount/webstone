@@ -5,7 +5,7 @@ from harness.web_fetch.report import EXTRA,active_tracks,failure_category,filter
 from harness.web_fetch.report_interfaces import SPECS
 from harness.web_fetch.methods import method_access
 
-from harness.web_fetch.report_style import STYLE
+from harness.reporting.style import STYLE
 
 class ReportRevisionTests(unittest.TestCase):
  def test_overview_latency_includes_every_configuration_and_same_case_mean(self):

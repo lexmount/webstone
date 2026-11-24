@@ -681,7 +681,7 @@ def test_review_freezes_complete_outputs_and_rejects_missing_field_or_method(tmp
 
 def test_cloudflare_url_repair_keeps_frozen_html_identity_and_declared_schema():
     from harness.web_extract.pipeline import SCHEMA, provider_call
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
 
     options = {
         "input_route": "url",

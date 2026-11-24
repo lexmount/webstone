@@ -6,7 +6,7 @@ import pytest
 
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers.base import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 
 
 @pytest.mark.parametrize('provider_type', ['cloudflare_markdown', 'cloudflare_content'])

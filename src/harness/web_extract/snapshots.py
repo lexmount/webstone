@@ -194,7 +194,7 @@ def snapshot_request(url, *, headers, timeout, max_bytes):
 
     import requests
 
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
 
     if not hasattr(_SNAPSHOT_HTTP, "session"):
         _SNAPSHOT_HTTP.session = requests.Session()

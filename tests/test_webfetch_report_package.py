@@ -415,7 +415,7 @@ def test_cached_privacy_refresh_keeps_source_identity(tmp_path):
 def test_cached_results_refresh_decoded_public_representation_from_source(tmp_path):
     import gzip
     from harness.reporting.packs import write_compact_packs, read_packed_manifest, reconstruct_packed_file
-    from harness.web_fetch.publication_privacy import project_file, publication_file_risk
+    from harness.reporting.publication_privacy import project_file, publication_file_risk
     source,cached,output = (tmp_path/name for name in ('source','cached','output'))
     source.mkdir()
     original = (json.dumps({'ok':True,'metrics':{'task_pass':True},
@@ -452,7 +452,7 @@ def test_cached_results_refresh_decoded_public_representation_from_source(tmp_pa
 
 @pytest.mark.parametrize('damage',[None,'missing_binding','changed_alias'])
 def test_public_package_checks_original_and_retained_view_hashes(tmp_path,damage,capsys):
-    from harness.web_fetch.publication_privacy import project_evidence_view
+    from harness.reporting.publication_privacy import project_evidence_view
     from harness.web_fetch.publication_check import check
     source,archive=report_tree(tmp_path,sampled=True)
     rows=[json.loads(line) for line in (source/'results.jsonl').read_text(encoding="utf-8").splitlines()]

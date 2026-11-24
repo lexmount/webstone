@@ -6,7 +6,7 @@ import pytest
 from tests.conftest import read_frozen_dataset_bytes
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers.base import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 
 
 @pytest.mark.parametrize('value', [1, 15000, 90000, 0, -1, 90001, True, '15000', 1.5])

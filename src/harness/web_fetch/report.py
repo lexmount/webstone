@@ -69,7 +69,7 @@ from harness.web_fetch.methods import (
 )
 from harness.web_fetch.models import REPORT_FAMILIES, execution_id, report_family as task_report_family
 from harness.web_fetch.providers.headless import engine_definition
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
  project_evidence_view,
  public_render_views,
  read_evidence_binding,
@@ -122,7 +122,8 @@ from harness.web_fetch.report_methods import PROFILES, adoption_counts, render_m
 from harness.web_fetch.report_quality import render_quality_observations
 from harness.web_fetch.report_reading import render_archived_reading
 from harness.web_fetch.report_resources import render_resource_comparison
-from harness.web_fetch.report_style import STYLE, asset_text
+from harness.reporting.style import STYLE
+from harness.web_fetch.report_style import asset_text
 from harness.web_fetch.result_ledger import validate_ledger
 from harness.safety import safe_href, validate_report_ids
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency

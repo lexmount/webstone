@@ -35,7 +35,7 @@ from harness.web_fetch.native_projection import (
 )
 from harness.web_fetch.native_routes import verify_native_execution_manifests
 from harness.web_fetch.providers.moli import replay_native_http_error_context
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
     EvidenceBinding,
     bound_public_view,
     original_evidence_size,

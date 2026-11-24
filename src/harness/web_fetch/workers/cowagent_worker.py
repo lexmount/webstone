@@ -10,7 +10,7 @@ from pathlib import Path
 # Direct execution starts in the upstream checkout, without an installed harness.
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from harness.web_fetch.diagnostics import diagnostic_context, redact
+from harness.call_diagnostics import diagnostic_context, redact
 from harness.web_fetch.network_dns import public_dns_context, validate_dns_mode
 
 

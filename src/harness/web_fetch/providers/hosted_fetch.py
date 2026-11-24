@@ -12,7 +12,7 @@ from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.native_projection import native_answer_projection, project_native_files
 from harness.web_fetch.network_dns import validate_dns_mode
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import inner_timeout_budget, request
+from harness.http_client import inner_timeout_budget, request
 
 
 ENDPOINTS = {

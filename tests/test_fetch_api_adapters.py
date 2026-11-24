@@ -11,7 +11,7 @@ import pytest
 
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.native_projection import require_native_answer_projection
 from harness.web_fetch.native_routes import NativeRouteLedger
 
@@ -181,7 +181,8 @@ def test_remote_readiness_uses_the_call_deadline():
 def test_ssh_startup_consumes_budget_without_a_fixed_second_deduction(tmp_path):
     from harness.web_fetch.providers import claude_fetch
     from unittest.mock import Mock
-    from harness.web_fetch.diagnostics import CallDiagnostics, diagnostic_context
+    from harness.call_diagnostics import diagnostic_context
+    from harness.web_fetch.diagnostics import CallDiagnostics
     provider = build_provider('claude', remote_config())
     worker = Path(claude_fetch.__file__).parents[1]/'workers/claude_fetch_worker.py'
     ready = {'kind': 'claude_fetch_ready', 'ssh_server': '192.0.2.83',
@@ -224,7 +225,7 @@ def test_remote_deadline_deducts_actual_post_readiness_elapsed_time(monkeypatch,
          patch.object(worker.time, 'monotonic', side_effect=[10.0, 12.0]), \
          patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer') as timer, \
          patch('harness.env_file.parse_env_file',return_value={'ANTHROPIC_API_KEY':'unit-test-key'}), \
-         patch('harness.web_fetch.providers.http_client.request', return_value=response) as request:
+         patch('harness.http_client.request', return_value=response) as request:
         worker.main()
     assert timer.call_args.args[1] == 25.0
     assert request.call_args.kwargs['allow_redirects'] is False
@@ -259,7 +260,7 @@ def test_remote_transport_failure_retains_phase_without_credentials_or_retry(mon
     import ssl
     import urllib.error
     from harness.web_fetch.workers import claude_fetch_worker as worker
-    from harness.web_fetch.diagnostics import emit
+    from harness.call_diagnostics import emit
     monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
     envelope = {'expected_ssh_server_ip': '192.0.2.83', 'timeout': 30,
         'remote_env_file': '/remote/.env', 'body': {}, 'max_bytes': 1000,
@@ -272,7 +273,7 @@ def test_remote_transport_failure_retains_phase_without_credentials_or_retry(mon
     with patch.object(worker.json, 'load', return_value=envelope), \
          patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer'), \
          patch('harness.env_file.parse_env_file', return_value={'ANTHROPIC_API_KEY': 'unit-test-key'}), \
-         patch('harness.web_fetch.providers.http_client.request', side_effect=fail) as request:
+         patch('harness.http_client.request', side_effect=fail) as request:
         worker.main()
     request.assert_called_once()
     output = capsys.readouterr().out
@@ -289,7 +290,7 @@ def test_remote_transport_failure_retains_phase_without_credentials_or_retry(mon
 def test_remote_request_error_boundary_does_not_expose_credentials(monkeypatch, capsys, failure):
     import http.client
     from harness.web_fetch.workers import claude_fetch_worker as worker
-    from harness.web_fetch.diagnostics import emit
+    from harness.call_diagnostics import emit
     monkeypatch.setenv('SSH_CONNECTION', '192.0.2.1 12345 192.0.2.83 22')
     key = 'private-test-key\n' if failure == 'invalid_key' else 'private-test-key'
     envelope = {'expected_ssh_server_ip': '192.0.2.83', 'timeout': 30,
@@ -304,7 +305,7 @@ def test_remote_request_error_boundary_does_not_expose_credentials(monkeypatch, 
     with patch.object(worker.json, 'load', return_value=envelope), \
          patch.object(worker.signal, 'signal'), patch.object(worker.signal, 'setitimer'), \
          patch('harness.env_file.parse_env_file', return_value={'ANTHROPIC_API_KEY': key}), \
-         patch('harness.web_fetch.providers.http_client.request', side_effect=fail) as request:
+         patch('harness.http_client.request', side_effect=fail) as request:
         if failure == 'protocol':
             worker.main()
         else:

@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.native_projection import native_answer_projection, native_projection_policy_version
 from harness.web_fetch.runner import run_evaluation
 from harness.web_fetch.artifacts import verify_record_artifacts

@@ -317,7 +317,7 @@ def qualify_live(home, case_ids, *, timeout=30):
     from urllib.parse import urlsplit
 
     from harness.web_extract.pipeline import digest, read_json
-    from harness.web_fetch.providers.http_client import request
+    from harness.http_client import request
 
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     policy = read_json(home / "dataset/manifest.json").get("live_reference_policy")

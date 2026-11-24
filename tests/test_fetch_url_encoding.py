@@ -4,7 +4,7 @@ from unittest.mock import patch
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.native_routes import encode_http_target_url, normalized_http_parameters
 from harness.web_fetch.providers import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 
 
 class TargetUrlEncodingTest(unittest.TestCase):

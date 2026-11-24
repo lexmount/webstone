@@ -12,11 +12,11 @@ from typing import Any
 
 from lexbench_webfetch.models import EvalCase
 
-from harness.web_fetch.diagnostics import emit
+from harness.call_diagnostics import emit
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.network_dns import public_dns_context, validate_dns_mode
 from harness.web_fetch.native_routes import encode_http_target_url, normalized_http_parameters
-from harness.web_fetch.providers.http_client import HttpResponse, inner_timeout_budget
+from harness.http_client import HttpResponse, inner_timeout_budget
 from harness.web_fetch.retrieval_hints import NATIVE_RETRIEVAL_HINTS
 
 

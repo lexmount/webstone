@@ -20,7 +20,7 @@ from harness.web_fetch.report import (
     generate_webmainbench,
 )
 from harness.web_fetch.report_build import validate_webmainbench_correction
-from harness.web_fetch.report_style import STYLE
+from harness.reporting.style import STYLE
 
 PROVIDERS = ("kitesurf", "lightpanda", "obscura", "moli", "chromium")
 METRICS = ("text_edit", "code_edit", "table_edit", "table_TEDS", "formula_edit")

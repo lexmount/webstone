@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from harness.web_fetch.publication_privacy import project_execution_manifest
+from harness.reporting.publication_privacy import project_execution_manifest
 
 
 @pytest.mark.parametrize('source, expected, omitted', [

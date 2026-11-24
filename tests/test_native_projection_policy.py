@@ -11,7 +11,7 @@ import pytest
 from harness.web_fetch.native_projection import native_projection_policy
 from harness.web_fetch.native_routes import NativeRouteLedger, verify_saved_native_answer
 from harness.web_fetch.providers.base import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.runner import persist_result_artifacts
 from lexbench_webfetch.models import EvalCase
 

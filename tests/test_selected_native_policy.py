@@ -78,7 +78,7 @@ def test_hosted_native_retry_persists_every_physical_answer(tmp_path, name, answ
         assert kwargs['timeout'] <= 30
         return Mock(status=503 if text == 'HTTP_ERROR' else 200, headers={}, read=Mock(return_value=raw),
                     geturl=Mock(return_value=request.full_url))
-    with patch('harness.web_fetch.providers.http_client.urllib.request.build_opener') as opener:
+    with patch('harness.http_client.urllib.request.build_opener') as opener:
         opener.return_value.open.side_effect = respond
         rows, _ = run_evaluation(output_dir=tmp_path, dataset_meta={'id':'offline', 'cases':[asdict(c)]},
             dataset_path=tmp_path/'dataset.json', cases=[c], providers=[p],
@@ -111,7 +111,7 @@ def test_native_preparation_does_not_consume_response_budget():
 @pytest.mark.parametrize('name', SELECTED[6:])
 def test_malformed_api_response_is_retained_as_failure(tmp_path, name):
     p, c = provider(name), case()
-    with patch('harness.web_fetch.providers.http_client.urllib.request.build_opener') as opener:
+    with patch('harness.http_client.urllib.request.build_opener') as opener:
         opener.return_value.open.return_value = Mock(status=200, headers={},
             read=Mock(return_value=b'not valid JSON'), geturl=Mock(return_value='https://service.test/'))
         rows, _ = run_evaluation(output_dir=tmp_path, dataset_meta={'id':'offline', 'cases':[asdict(c)]},
@@ -228,7 +228,7 @@ def test_selected_origin_status_policy_controls_acceptance_and_retry(tmp_path, n
                     geturl=Mock(return_value=request.full_url))
     with patch('harness.web_fetch.network_preflight.socket.getaddrinfo',
                return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]), \
-            patch('harness.web_fetch.providers.http_client.urllib.request.build_opener') as opener:
+            patch('harness.http_client.urllib.request.build_opener') as opener:
         opener.return_value.open.side_effect = respond
         rows, _ = run_evaluation(output_dir=tmp_path / 'run',
             dataset_meta={'id': 'origin-control', 'cases': [asdict(c)]},

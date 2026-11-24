@@ -20,7 +20,7 @@ from lexbench_webfetch.metrics import summarize, task_measured, task_passed
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.cloudflare import CloudflareMarkdownProvider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, load_list_reference, score_attempt
 
 

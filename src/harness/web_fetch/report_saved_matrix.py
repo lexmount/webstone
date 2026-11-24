@@ -83,7 +83,7 @@ def _write(path, value):
 
 def _require_public_json(receipt, *, label="Missing receipt"):
     """Reject private values and absolute path fields in distributable JSON."""
-    from harness.web_fetch.publication_privacy import publication_risk
+    from harness.reporting.publication_privacy import publication_risk
     risk = publication_risk(json_bytes(receipt))
 
     def local_path(value):
@@ -1735,7 +1735,7 @@ def _native_retry_scoring_record(source, record, call, case):
 
 def _record_public_views(source, record, case):
     """Use the shared post-score projection, retaining every original identity."""
-    from harness.web_fetch.publication_privacy import project_evidence_view
+    from harness.reporting.publication_privacy import project_evidence_view
     from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
     answers = {record['artifact_path']}
     answers.update(attempt['artifact_path'] for attempt in
@@ -1798,7 +1798,7 @@ def _record_public_views(source, record, case):
 def _display_record_bytes(settings, name, raw):
     if not settings.get('public_evidence_views'):
         return raw
-    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    from harness.reporting.publication_privacy import project_result_diagnostics
     return project_result_diagnostics(name, raw)[0]
 
 
@@ -1856,7 +1856,7 @@ def _materialize_record_public_views(source, destination, record, case, original
                    'provider_calls_added': 0, 'files': files})
     _write(destination / 'presentation-binding.json',
            {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
-    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    from harness.reporting.publication_privacy import project_result_diagnostics
     public_record, receipt = project_result_diagnostics(record_name, original_record)
     if receipt:
         target = destination/record_name
@@ -1878,7 +1878,7 @@ def _public_view_sources(inputs, keys):
 
 def _validate_record_public_views(source, destination, record, case, original_record, record_name):
     """Reproduce every public byte from the verified original source."""
-    from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
+    from harness.reporting.publication_privacy import require_public_evidence_view_inventory
     profile = _json(destination/'presentation-binding.json')
     binding = profile['publication_evidence_views']
     index = require_public_evidence_view_inventory(destination, binding, [record])
@@ -1894,7 +1894,7 @@ def _validate_record_public_views(source, destination, record, case, original_re
                          'view_receipt': {'path': name, 'sha256': _sha(destination/name)}})
     if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
         raise ValueError('Public evidence view inventory differs from original sources')
-    from harness.web_fetch.publication_privacy import project_result_diagnostics
+    from harness.reporting.publication_privacy import project_result_diagnostics
     public_record, receipt = project_result_diagnostics(record_name, original_record)
     path = destination/'result-diagnostics-view.json'
     if ((destination/record_name).read_bytes() != public_record
@@ -2508,7 +2508,7 @@ def _validate_selection_proofs(output, row, inputs, candidates, decisions, adopt
 
 
 def _validate_record_artifacts(path):
-    from harness.web_fetch.publication_privacy import read_evidence_binding
+    from harness.reporting.publication_privacy import read_evidence_binding
     for artifact, expected in artifact_bindings(_json(path)):
         try:
             read_evidence_binding(path.parent, {'path': artifact, 'sha256': expected})
@@ -2676,7 +2676,7 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             raise ValueError('Portable saved-matrix file changed')
     # Scan the complete distributable tree, not just selected receipt types.
     # The builder verifies staging here before installing the output directory.
-    from harness.web_fetch.publication_privacy import publication_file_risk
+    from harness.reporting.publication_privacy import publication_file_risk
     for relative in sorted(actual_files):
         raw = contained_path(output, relative, reject_symlinks=True).read_bytes()
         if publication_file_risk(relative, raw):
@@ -2957,7 +2957,7 @@ def _saved_renderer_projection(output, model):
             return value
         record = project(raw)
         if model.get('public_evidence_views'):
-            from harness.web_fetch.publication_privacy import public_render_views, read_evidence_binding
+            from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose
             local_root = contained_path(output, prefix, reject_symlinks=True)
             views = public_render_views(local_root, [raw])[raw['attempt_id']]

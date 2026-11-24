@@ -12,7 +12,7 @@ from harness.web_fetch.diagnostics import CallDiagnostics
 from harness.web_fetch.methods import method_info
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.providers.hosted_fetch import ENDPOINTS
 from harness.web_fetch.runner import run_evaluation
 from lexbench_webfetch.metrics import task_passed
@@ -431,7 +431,7 @@ class HostedFetchTest(unittest.TestCase):
                 self.assertFalse(result.metadata['retrieval_hints_applied'])
         lookup.assert_not_called()
 
-    @patch('harness.web_fetch.providers.http_client.urllib.request.build_opener')
+    @patch('harness.http_client.urllib.request.build_opener')
     def test_runner_scores_and_saves_hosted_methods(self, call):
         def respond(request, **kwargs):
             kind = next(kind for kind in TYPES if ENDPOINTS[kind] == request.full_url)
@@ -488,7 +488,7 @@ class HostedFetchTest(unittest.TestCase):
             self.assertNotIn('secret-bb',path.read_text(encoding='utf-8'))
             self.assertNotIn('secret-bu',path.read_text(encoding='utf-8'))
 
-    @patch('harness.web_fetch.providers.http_client.urllib.request.build_opener')
+    @patch('harness.http_client.urllib.request.build_opener')
     def test_runner_retains_http_errors_and_exception_trace(self, opener):
         responses = [Mock(status=200, headers={}, read=Mock(return_value=b'{"title":"Title","content":"Body"}'),
                           geturl=Mock(return_value='https://service.example/')),
@@ -523,7 +523,7 @@ class HostedFetchTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Collection-only evidence'):
                 build_report(root, root/'report')
 
-    @patch('harness.web_fetch.providers.http_client.urllib.request.build_opener')
+    @patch('harness.http_client.urllib.request.build_opener')
     def test_runner_timeout_has_actual_deadline_event_and_no_retry(self, opener):
         release=threading.Event()
         def blocked(*args,**kwargs):

@@ -28,7 +28,7 @@ pytestmark = pytest.mark.usefixtures("stubbed_serial_collection")
 class PipelineScenarios(unittest.TestCase):
     def test_browserbase_native_json_extracts_fields_without_external_model(self):
         from harness.web_extract.pipeline import SCHEMA, provider_call
-        from harness.web_fetch.providers.http_client import HttpResponse
+        from harness.http_client import HttpResponse
 
         payload = {
             "statusCode": 200,

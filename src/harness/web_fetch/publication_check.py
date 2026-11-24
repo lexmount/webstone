@@ -20,7 +20,7 @@ from harness.reporting.packs import (
     reconstruct_packed_file,
 )
 from harness.reporting.publication import archive_inventory
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
     bound_public_view,
     project_file,
     project_redundant_result_streams,

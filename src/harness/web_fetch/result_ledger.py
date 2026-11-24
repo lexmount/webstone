@@ -6,7 +6,7 @@ from collections import Counter
 from lexbench_webfetch.metrics import task_measured, task_passed
 
 from harness.record_io import load_jsonl
-from harness.web_fetch.publication_privacy import read_evidence_binding
+from harness.reporting.publication_privacy import read_evidence_binding
 
 VERDICTS = {'pass', 'fail', 'excluded', 'unavailable'}
 

@@ -16,8 +16,8 @@ import urllib.request
 
 
 RUNTIME_SOURCES = ('harness/env_file.py', 'harness/distribution.py',
-                   'harness/web_fetch/providers/http_client.py',
-                   'harness/web_fetch/diagnostics.py')
+                   'harness/http_client.py',
+                   'harness/call_diagnostics.py')
 
 
 class TransportTrace:
@@ -80,8 +80,8 @@ def main(startup_budget=30.0):
     signal.setitimer(signal.ITIMER_REAL, budget)
     sys.path.insert(0, str(runtime_root))
     from harness.env_file import parse_env_file
-    from harness.web_fetch.diagnostics import diagnostic_context
-    from harness.web_fetch.providers.http_client import request
+    from harness.call_diagnostics import diagnostic_context
+    from harness.http_client import request
     env = parse_env_file(envelope['remote_env_file'])
     key = env.get('ANTHROPIC_API_KEY')
     if not key or env.get('ANTHROPIC_BASE_URL', 'https://api.anthropic.com').rstrip('/') != 'https://api.anthropic.com':

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from harness.web_fetch.publication_privacy import project_evidence_view
+from harness.reporting.publication_privacy import project_evidence_view
 from harness.web_fetch.native_projection import project_native_answer
 
 
@@ -84,7 +84,7 @@ def test_redaction_cannot_merge_distinct_native_metadata_fields():
 
 
 def test_saved_public_view_verifier_rejects_changed_bytes_or_false_identity(tmp_path):
-    from harness.web_fetch.publication_privacy import require_public_evidence_view
+    from harness.reporting.publication_privacy import require_public_evidence_view
     name = 'public-evidence/answer.txt'
     public, receipt = project_evidence_view(name, b'Answer /Users/example/private/a.txt', role='scored_answer')
     path = tmp_path/name
@@ -105,7 +105,7 @@ def test_saved_public_view_verifier_rejects_changed_bytes_or_false_identity(tmp_
 
 
 def test_public_view_verifier_rejects_symlink_even_with_matching_bytes(tmp_path):
-    from harness.web_fetch.publication_privacy import require_public_evidence_view
+    from harness.reporting.publication_privacy import require_public_evidence_view
     public, receipt = project_evidence_view('public-evidence/a.txt', b'answer', role='scored_answer')
     (tmp_path/'public-evidence').mkdir()
     (tmp_path/'original.txt').write_bytes(public)
@@ -142,7 +142,7 @@ def _declared_view_snapshot(tmp_path):
 
 
 def test_bound_view_requires_explicit_profile_and_preserves_original_identity(tmp_path):
-    from harness.web_fetch.publication_privacy import read_evidence_binding, original_evidence_size
+    from harness.reporting.publication_privacy import read_evidence_binding, original_evidence_size
     binding, original, public, _, _ = _declared_view_snapshot(tmp_path)
     assert read_evidence_binding(tmp_path, binding).read_bytes() == public
     assert original_evidence_size(tmp_path, binding) == len(original)
@@ -154,7 +154,7 @@ def test_bound_view_requires_explicit_profile_and_preserves_original_identity(tm
 
 @pytest.mark.parametrize('defect', ['inventory_hash', 'wrong_original', 'metadata_alias', 'duplicate'])
 def test_bound_view_rejects_changed_inventory_and_unrelated_authority(tmp_path, defect):
-    from harness.web_fetch.publication_privacy import read_evidence_binding
+    from harness.reporting.publication_privacy import read_evidence_binding
     binding, _, _, index, profile = _declared_view_snapshot(tmp_path)
     if defect == 'inventory_hash':
         (tmp_path/'public-views.json').write_text('{}', encoding='utf-8')
@@ -173,7 +173,7 @@ def test_bound_view_rejects_changed_inventory_and_unrelated_authority(tmp_path, 
 
 
 def test_public_excerpt_keeps_original_coordinates_without_claiming_reconstruction(tmp_path):
-    from harness.web_fetch.publication_privacy import evidence_excerpt_matches
+    from harness.reporting.publication_privacy import evidence_excerpt_matches
     binding, original, public, _, _ = _declared_view_snapshot(tmp_path)
     excerpt = 'Stable ending'
     start = original.decode().index(excerpt)
@@ -211,7 +211,7 @@ def test_text_projection_keeps_native_json_looking_body_format():
 
 
 def test_release_inventory_requires_complete_current_evidence(tmp_path):
-    from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
+    from harness.reporting.publication_privacy import require_public_evidence_view_inventory
     original, _, _, index, profile = _declared_view_snapshot(tmp_path)
     records = [{'artifact_path': original['path'], 'metrics': {'content_sha256': original['sha256']}}]
     assert require_public_evidence_view_inventory(tmp_path, profile['publication_evidence_views'], records)
@@ -222,7 +222,7 @@ def test_release_inventory_requires_complete_current_evidence(tmp_path):
 
 
 def test_empty_native_token_is_not_a_secret_but_nonempty_value_is_masked():
-    from harness.web_fetch.publication_privacy import publication_risk
+    from harness.reporting.publication_privacy import publication_risk
     empty = b'{"metadata":{"csrf-token":""},"content":"Stable body"}'
     assert publication_risk(empty) is None
     assert project_evidence_view('public-evidence/response.json', empty, role='native_response')[0] == empty
@@ -234,7 +234,7 @@ def test_empty_native_token_is_not_a_secret_but_nonempty_value_is_masked():
 
 
 def test_serialized_header_name_has_no_value_but_real_header_is_sensitive():
-    from harness.web_fetch.publication_privacy import publication_risk
+    from harness.reporting.publication_privacy import publication_risk
     raw = json.dumps({'header_names': ['Authorization:', 'Proxy-Authorization:'], 'count': 3}).encode()
     assert publication_risk(raw) is None
     assert project_evidence_view('public-evidence/response.json', raw, role='native_response')[0] == raw
@@ -245,7 +245,7 @@ def test_serialized_header_name_has_no_value_but_real_header_is_sensitive():
 
 
 def test_json_escaped_sensitive_values_are_still_detected():
-    from harness.web_fetch.publication_privacy import publication_risk
+    from harness.reporting.publication_privacy import publication_risk
     assert publication_risk(br'{"content":"failed at \u002fUsers\u002fexample\u002fprivate\u002fa"}') == 'machine-local user path'
     assert publication_risk(br'{"\u0061pi_key":"private-value"}') == 'sensitive field value'
 
@@ -276,7 +276,7 @@ def test_public_call_log_view_support_does_not_weaken_acquisition_checks(tmp_pat
 
 
 def test_report_display_annotations_do_not_replace_original_score_hash(tmp_path):
-    from harness.web_fetch.publication_privacy import public_render_views
+    from harness.reporting.publication_privacy import public_render_views
     binding, _, _, _, _ = _declared_view_snapshot(tmp_path)
     row = {'attempt_id': 'p__case', 'artifact_path': binding['path'],
            'metrics': {'content_sha256': binding['sha256']}}
@@ -290,7 +290,7 @@ def test_report_display_annotations_do_not_replace_original_score_hash(tmp_path)
 @pytest.mark.parametrize('url', ['https://example.test/item?auth_key=opaque-private',
                                  'https://example.test/wiki/Function_(math)?token=opaque-private'])
 def test_query_redaction_preserves_markdown_link_boundary(url):
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     original = '[Stable title]('+url+')'
     public, count = redact_url_queries(original)
     assert count == 1 and 'opaque-private' not in public
@@ -302,7 +302,7 @@ def test_query_redaction_preserves_markdown_link_boundary(url):
 
 
 def test_redacting_one_url_cannot_remove_adjacent_markdown_records():
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     from lexbench_webfetch.reference_quality import markdown_links
     original = ('[Photo](https://cdn.test/image?auth_key=private-value)'
                 '[Item](https://example.test/pins/123)'
@@ -315,13 +315,13 @@ def test_redacting_one_url_cannot_remove_adjacent_markdown_records():
 
 
 def test_unwrapped_url_token_with_parenthesis_is_fully_redacted():
-    from harness.web_fetch.publication_privacy import redact_url_queries
+    from harness.reporting.publication_privacy import redact_url_queries
     public, count = redact_url_queries('https://example.test/api?token=private)continued')
     assert count == 1 and 'continued' not in public and 'private' not in public
 
 
 def test_public_review_excerpts_use_view_policy_without_changing_task_rules():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     excerpt = 'Example /home/example/private/file.txt and stable body'
     files = {'review.json': json.dumps({'attempts': [{'adjudication_evidence': {
         'samples': [{'start': 0, 'end': len(excerpt), 'text': excerpt}]}}]}).encode(),
@@ -335,7 +335,7 @@ def test_public_review_excerpts_use_view_policy_without_changing_task_rules():
 
 
 def test_query_timestamp_is_not_a_semicolonless_html_times_entity():
-    from harness.web_fetch.publication_privacy import publication_risk
+    from harness.reporting.publication_privacy import publication_risk
     original = '[Image](https://example.test/photo?token=opaque-private&timestamp=123456)'
     assert publication_risk(original.encode()) == 'sensitive URL query value'
     public, _ = project_evidence_view('public-evidence/answer.txt', original.encode(),
@@ -347,7 +347,7 @@ def test_query_timestamp_is_not_a_semicolonless_html_times_entity():
 
 @pytest.mark.parametrize('defect', ['different_display', 'original_leak', 'private_tree'])
 def test_release_rejects_wrong_display_or_private_originals(tmp_path, defect):
-    from harness.web_fetch.publication_privacy import require_public_evidence_view_inventory
+    from harness.reporting.publication_privacy import require_public_evidence_view_inventory
     binding, original, _, _, profile = _declared_view_snapshot(tmp_path)
     rows = [{'artifact_path': binding['path'], 'metrics': {'content_sha256': binding['sha256']}}]
     if defect == 'different_display': (tmp_path/binding['path']).write_bytes(b'wrong answer')
@@ -366,7 +366,7 @@ def test_release_rejects_wrong_display_or_private_originals(tmp_path, defect):
      'https://example.test/api?apiKey&#x3D;[REDACTED]&quot;&gt;safe'),
 ])
 def test_encoded_query_delimiters_are_redacted_without_rewriting_html(source, expected):
-    from harness.web_fetch.publication_privacy import redact_url_queries, publication_risk
+    from harness.reporting.publication_privacy import redact_url_queries, publication_risk
     public, count = redact_url_queries(source)
     assert public == expected and count == 1
     assert publication_risk(public.encode()) is None
@@ -375,7 +375,7 @@ def test_encoded_query_delimiters_are_redacted_without_rewriting_html(source, ex
 
 def test_metadata_projection_supports_disk_backed_inputs_and_outputs(tmp_path):
     from collections.abc import MutableMapping
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     class Files(MutableMapping):
         def __init__(self, root): self.root, self.names = root, set()
         def __getitem__(self, key): return (self.root/key).read_bytes()
@@ -399,7 +399,7 @@ def test_metadata_projection_supports_disk_backed_inputs_and_outputs(tmp_path):
 
 
 def test_metadata_path_redaction_preserves_following_json_escaped_body():
-    from harness.web_fetch.publication_privacy import project_host_metadata_files
+    from harness.reporting.publication_privacy import project_host_metadata_files
     packet = json.dumps({'content': 'Saved to /Users/example/private/a.txt\nStill visible'})
     original = json.dumps({'stdout': packet}).encode()
     public, _ = project_host_metadata_files({'metadata.json': original}, ['/Users/example'])
@@ -423,7 +423,7 @@ def test_bilingual_download_link_displays_text_instead_of_escaped_markup():
 
 def test_privacy_check_reuses_only_identical_bytes():
     from unittest.mock import patch
-    from harness.web_fetch import publication_privacy as owner
+    from harness.reporting import publication_privacy as owner
     owner._publication_risks.clear()
     safe = b'Unique unchanged evidence cache fixture'
     unsafe = safe+b'\nAuthorization: Custom private-credential'
@@ -439,7 +439,7 @@ def test_privacy_check_reuses_only_identical_bytes():
 def test_large_public_view_cache_still_reads_new_bytes_and_rejects_new_secret(tmp_path):
     from unittest.mock import patch
 
-    from harness.web_fetch import publication_privacy as owner
+    from harness.reporting import publication_privacy as owner
     raw = b'large public evidence cache fixture\n'*65000
     assert len(raw) > 2_000_000
     public, receipt = owner.project_evidence_view(
@@ -473,7 +473,7 @@ def test_risk_cache_coalesces_concurrent_scans_and_keeps_only_bounded_digest_key
     from concurrent.futures import ThreadPoolExecutor
     from threading import Event
 
-    from harness.web_fetch import publication_privacy as owner
+    from harness.reporting import publication_privacy as owner
     calls = []
     entered, release = Event(), Event()
     def scan(data):

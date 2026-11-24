@@ -20,7 +20,7 @@ from harness.web_fetch.artifacts import (
 from harness.web_fetch.native_projection import native_field_value
 from harness.web_fetch.network_dns import validate_dns_mode
 from harness.web_fetch.network_preflight import GUARDED_NATIVE_TYPES, require_usable_public_dns
-from harness.web_fetch.publication_privacy import read_evidence_binding
+from harness.reporting.publication_privacy import read_evidence_binding
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 
 ROOT = repository_root()

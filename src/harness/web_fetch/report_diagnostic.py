@@ -22,7 +22,7 @@ from harness.web_fetch.artifacts import (
     verify_record_private_artifacts,
     verify_record_public_call_logs,
 )
-from harness.web_fetch.publication_privacy import project_file, publication_risk
+from harness.reporting.publication_privacy import project_file, publication_risk
 from harness.web_fetch.reference_lifecycle import require_verified_reference_checks
 from harness.web_fetch.report_i18n import t
 

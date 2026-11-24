@@ -51,7 +51,7 @@ from harness.web_extract.pipeline import (
     verify_retry_history,
 )
 from harness.web_extract.report_ui import JS
-from harness.web_fetch.publication_privacy import project_evidence_view, publication_risk
+from harness.reporting.publication_privacy import project_evidence_view, publication_risk
 
 VERSION = "web-extract-research/1"
 STAGES = {

@@ -5,7 +5,7 @@ import hashlib
 
 import pytest
 
-from harness.web_fetch import publication_privacy as privacy
+from harness.reporting import publication_privacy as privacy
 
 
 @pytest.mark.parametrize('value,field', [

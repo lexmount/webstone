@@ -16,17 +16,18 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from threading import Lock
 from urllib.parse import unquote_plus, urlsplit
 
-from lexbench_webfetch.paths import contained_path
-
 from harness.record_io import file_sha256
 from harness.reporting.privacy import WEB_FETCH_RETAINED_DIAGNOSTIC, WEB_FETCH_USER_SEGMENT
+from lexbench_webfetch.paths import contained_path
 
 
 def require_public_method_options(configuration):
  """Reject private values even when their option name is displayable."""
  def contains_url_credentials(value):
-  if isinstance(value,dict):return any(contains_url_credentials(v) for v in value.values())
-  if isinstance(value,list):return any(contains_url_credentials(v) for v in value)
+  if isinstance(value,dict):
+   return any(contains_url_credentials(v) for v in value.values())
+  if isinstance(value,list):
+   return any(contains_url_credentials(v) for v in value)
   if isinstance(value,str):
    try:
     url=urlsplit(value)
@@ -57,7 +58,7 @@ class EvidenceBinding:
         return cls(path=path, sha256=digest)
 
 
-_STAGED_EVIDENCE = ContextVar('webfetch_staged_evidence', default=None)
+_STAGED_EVIDENCE = ContextVar('staged_evidence', default=None)
 
 
 @contextmanager
@@ -888,9 +889,9 @@ def project_evidence_view(name, data, *, role, host_prefixes=(), host_names=(), 
     else:
         try:
             native = json.loads(text)
-        except ValueError:
+        except ValueError as error:
             if content_format == 'json':
-                raise ValueError('Declared JSON public evidence is not JSON')
+                raise ValueError('Declared JSON public evidence is not JSON') from error
             projected = text_view(text).encode('utf-8')
             encoding = 'utf-8-text'
         else:

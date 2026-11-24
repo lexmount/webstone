@@ -11,7 +11,7 @@ import pytest
 from harness.web_extract.certification import run as certified_run
 from harness.web_extract.example import create
 from harness.web_extract.pipeline import access_blocker, load_run, probe, save_json
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 
 pytestmark = pytest.mark.usefixtures("stubbed_serial_collection")
 
@@ -612,7 +612,7 @@ def test_continuously_streaming_response_has_a_total_deadline(transport):
     from urllib3.exceptions import ReadTimeoutError
 
     from harness.web_extract.pipeline import total_deadline
-    from harness.web_fetch.providers.http_client import request
+    from harness.http_client import request
 
     connected = Event()
 
