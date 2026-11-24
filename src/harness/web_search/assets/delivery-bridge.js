@@ -29,7 +29,11 @@ function routeLink(value){
 }
 function rewriteLinks(root){
  root.querySelectorAll('[href],[data-detail]').forEach(e=>{
-  for(const a of ['href','data-detail'])if(e.hasAttribute(a))e.setAttribute(a,routeLink(e.getAttribute(a)));
+  for(const a of ['href','data-detail'])if(e.hasAttribute(a)){
+   const counterpart=deliveryIndex?.counterpart_url;
+   const languageSwitch=a==='href'&&e.closest('nav')&&['English','__CHINESE_LABEL__'].includes(e.textContent.trim());
+   e.setAttribute(a,counterpart&&languageSwitch?counterpart:routeLink(e.getAttribute(a)));
+  }
  });
 }
 rewriteLinks(document);
