@@ -116,6 +116,13 @@ def test_web_extract_run_exports(tmp_path: Path, monkeypatch) -> None:
     partial = export(home / "runs/firecrawl-json", RECEIPT)["benchmarks"][0]
     assert partial["providers"][0]["scores"]["pageMacroF1"] is None
 
+    manifest = home / "dataset/manifest.json"
+    original = manifest.read_text(encoding="utf-8")
+    manifest.write_text(original.replace("synthetic-record-v1", "other"), encoding="utf-8")
+    with pytest.raises(ValueError):
+        export(home / "runs/scrapegraph-extract")
+    manifest.write_text(original, encoding="utf-8")
+
     # A retried call leaves both attempts in the journal; the latest one is the result.
     run = home / "runs/scrapegraph-extract"
     journal = run / "calls.journal.jsonl"

@@ -17,7 +17,7 @@ from harness.results.export import (
 )
 from harness.web_extract.analysis import field_results
 from harness.web_extract.dataset import benchmark_config
-from harness.web_extract.pipeline import digest, read_json, score_rows
+from harness.web_extract.pipeline import digest, read_json, score_rows, validate_dataset
 from harness.web_extract.report import completion_bundle
 
 # Dataset benchmark -> (submission benchmark, its quality metrics: metric -> score path).
@@ -79,6 +79,12 @@ def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[s
     contract = read_json(run / "contract.json")
     if contract.get("kind") == "input_compatibility_only":
         raise ValueError("An input compatibility run has no scored population to export")
+    # Score against the dataset the calls were made on, as score_run and the report do.
+    local = home / "profile.json"
+    validate_dataset(home, local if local.is_file() and read_json(local).get("local_example")
+                     else None)
+    if contract["dataset_manifest_sha256"] != digest((home / "dataset/manifest.json").read_bytes()):
+        raise ValueError("The prepared dataset differs from the one the run contract binds")
     name = benchmark_config(home)["benchmark"].name
     if name not in SUBMISSIONS:
         raise ValueError(f"Benchmark {name} has no submission definition")
