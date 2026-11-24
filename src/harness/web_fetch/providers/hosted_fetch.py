@@ -316,6 +316,18 @@ class BrowserUseFetchProvider(HostedFetchProvider):
     def begin_call(self):
         self._session_id = str(uuid.uuid4())
 
+    def normalize_native_http_body(self, body, case):
+        if not super().normalize_native_http_body(body, case):
+            return False
+        # Native fetch-use requires a fresh opaque UUID per physical invocation.
+        # Normalize only this session token, never task or extraction parameters.
+        if 'session_id' in body:
+            token = body['session_id']
+            if not isinstance(token, str) or str(uuid.UUID(token)) != token:
+                raise ValueError('Native fetch session must be a canonical UUID')
+            body['session_id'] = '<ephemeral-session-id>'
+        return True
+
     def native_route(self, case):
         route = super().native_route(case)
         if case.task_kind == 'file':

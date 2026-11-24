@@ -16,6 +16,8 @@ from harness.data_home import data_home
 class CowAgentBuiltinProvider(SubprocessJsonlProvider):
     """Invoke CowAgent's repository-local WebFetch implementation unchanged."""
 
+    capability_flags = SubprocessJsonlProvider.capability_flags | {'local_network'}
+
     def __init__(self, name, config):
         worker = Path(__file__).parents[1] / 'workers/cowagent_worker.py'
         workspace = Path(str(config.get(

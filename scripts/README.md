@@ -2,8 +2,10 @@
 
 Every file here is a thin command-line entry point; `AGENTS.md` owns that rule.
 Run Python entry points with `uv run --frozen python scripts/<name>.py` or the
-matching `make` target. Track stages run as
-`uv run --frozen python -m harness.<track> <command>`.
+matching `make` target. Track stages run as `webstone <track> <stage>`
+(`uv run --frozen python -m harness.<track> <command>` is the same owner), and
+`make <stage> TRACK=<track> ARGS="..."` wraps the fixed stage verbs; see the
+[command surface](../docs/spec.md#command-surface).
 
 A script stays in this directory only when the Makefile, CI, a maintained guide,
 `configs/report-templates.json`, or a current profile, certificate or receipt
@@ -76,15 +78,17 @@ Report commands run through `uv run --frozen python -m harness.web_search <comma
 
 Report commands run through `uv run --frozen python -m harness.browser_use <command>`:
 `report`, `check`, `visual`, `review`, `package` and `publish`. `make browser-use-*` runs
-`report`, `review`, `visual` and `check`; [`docs/benchmarks.md`](../docs/benchmarks.md) shows
-`report`, `check` and `package`. `publish` has neither: run it directly after `package`.
+`report`, `review`, `visual` and `check`; `make package` and `make publish` with
+`TRACK=browser-use` run the other two. [`docs/benchmarks.md`](../docs/benchmarks.md) shows
+`report`, `check` and `package`.
 
 ## Browser Trajectory Replay
 
 The curated track runs through `uv run --frozen python -m harness.trajectory_replay <command>`;
-`--help` lists every command. `make trajectory-replay-*` runs `report`, `check`, `visual`,
-`package` and `publish`, and `make webarena-catalog-*` runs `catalog-report` and
-`catalog-release-check`. `examples/trajectory_replay/run.sh` runs `evaluate`;
+`--help` lists every command. `make trajectory-replay-report` and
+`make trajectory-replay-release-check` run `report`, `check` and `visual`; `make package` and
+`make publish` with `TRACK=trajectory-replay` run the other two, and `make webarena-catalog-*`
+runs `catalog-report` and `catalog-release-check`. `examples/trajectory_replay/run.sh` runs `evaluate`;
 [`docs/benchmarks.md`](../docs/benchmarks.md),
 [`docs/trajectory-replay-protocol.md`](../docs/trajectory-replay-protocol.md) and
 [`evaluation/trajectory-replay/webarena-verified/README.md`](../evaluation/trajectory-replay/webarena-verified/README.md)
@@ -129,7 +133,7 @@ function and its exclusive tests together.
 | `prepare_result_review_subset.py`, `merge_internal_review_shards.py`, `rebind_result_review_metadata.py` | sole entries to the shared independent-review contract in `result_review.py`; only `tests/package_smoke.py` runs them |
 | `harness.web_fetch wcxb-select` | regenerates `evaluation/public-wcxb-test-qualified.json`; only tests name the command |
 | `harness.web_fetch webmainbench-check`, `harness.web_fetch webmainbench-full-check` | standalone release gates for the WebMainBench sample and complete reports; `report_build.py` imports the full-report check, not the command |
-| `rename_artifact_site.py` | Artifact Site display-title maintenance |
+| `rename_artifact_site.py` | Yours display-title maintenance |
 | `use_prepared_webarena_cohort_reset.py` | passed as `run_remote_three_method_cohort.py --cohort-reset-hook`; receipts outside Git bind its hash, not its name |
 | `harness.trajectory_replay seeds`, `expert-seeds`, `replay`, `promote` | seed, replay and promotion stages of the repository-curated dataset; `evaluation/trajectory-replay/webarena-verified/README.md` describes the stages without naming the commands |
 | `harness.trajectory_replay merge-results` | overlays formal correction shards onto the current replay matrix |

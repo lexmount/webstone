@@ -10,16 +10,12 @@ import re
 import subprocess
 import tarfile
 from dataclasses import dataclass, replace
-from fnmatch import fnmatchcase
 from pathlib import Path
 
 from harness.benchmarks.data import canonical_source_name
 from harness.record_io import bytes_sha256
 
 CARDS = Path(__file__).with_name("cards")
-HEADLESS_REPOSITORY = "https://github.com/lexmount/Lexbench-Headless-Browser"
-HEADLESS_INPUTS = ("tasks", "fixtures", "config", "manifest.json", "harness_pins.json",
-                   "LICENSE", "THIRD_PARTY_NOTICES.md")
 DATASET_VERSION = r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
 
 
@@ -185,72 +181,6 @@ def _hub_definitions(checkout: Path, revision: str, identity: dict) -> dict[str,
     return files
 
 
-def _headless_definitions(checkout: Path, revision: str) -> dict[str, bytes]:
-    originals = _git_blobs(checkout, revision, HEADLESS_INPUTS)
-    files, source_files = {}, {}
-    for name, content in originals.items():
-        if set(Path(name).parts) & {"runs", "reports", "generated", "private_artifacts"}:
-            raise ValueError("Unexpected headless input: " + name)
-        files["definitions/" + name] = content
-        source_files[name] = {"sha256": bytes_sha256(content), "size": len(content)}
-        if name in {"LICENSE", "THIRD_PARTY_NOTICES.md"}:
-            files[name] = content
-    required = ("manifest.json", "harness_pins.json", "LICENSE", "THIRD_PARTY_NOTICES.md",
-                "config/browser_driver_bindings.json")
-    if any("definitions/" + name not in files for name in required):
-        raise ValueError("Incomplete upstream headless data contract")
-    manifest = json.loads(files["definitions/manifest.json"])
-    bindings = json.loads(files["definitions/config/browser_driver_bindings.json"])
-    datasets, used = {}, set()
-    for layer in manifest["layers"]:
-        for subset in layer["subsets"]:
-            identity, pattern = subset["subset_id"], subset["task_glob"]
-            if (not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", identity)
-                    or identity in datasets or identity == "scenario-specs"
-                    or not pattern.startswith("tasks/") or ".." in Path(pattern).parts
-                    or "**" in pattern):
-                raise ValueError("Unsafe or duplicate headless subset")
-            names = sorted(name for name in files if name.startswith("definitions/tasks/")
-                           and len(Path(name).parts[1:]) == len(Path(pattern).parts)
-                           and all(fnmatchcase(value, glob) for value, glob in
-                                   zip(Path(name).parts[1:], Path(pattern).parts, strict=True)))
-            if not names or used.intersection(names):
-                raise ValueError("Missing or overlapping headless task population: " + identity)
-            used.update(names)
-            cases = [json.loads(files[name]) for name in names]
-            path = "viewer/" + identity + ".json"
-            payload = encoded({"cases": cases})
-            files["definitions/" + path] = payload
-            datasets[identity] = {"path": path, "sha256": bytes_sha256(payload), "count": len(cases),
-                                  "id_field": "task_id", "driver": subset["driver"],
-                                  "layer": layer["layer_id"], "protocol": subset,
-                                  "source_paths": {case["task_id"]: name.removeprefix("definitions/")
-                                                   for case, name in zip(cases, names, strict=True)}}
-    scenarios = sorted(name for name in files if name.startswith("definitions/tasks/scenarios/")
-                       and name.endswith(".json"))
-    cases = [json.loads(files[name]) for name in scenarios]
-    if not cases:
-        raise ValueError("Missing headless scenario specifications")
-    path, payload = "viewer/scenario-specs.json", encoded({"cases": cases})
-    files["definitions/" + path] = payload
-    datasets["scenario-specs"] = {"path": path, "sha256": bytes_sha256(payload), "count": len(cases),
-                                 "id_field": "scenario_id", "population": "scenario-specifications",
-                                 "source_paths": {case["scenario_id"]: name.removeprefix("definitions/")
-                                                  for case, name in zip(cases, scenarios, strict=True)}}
-    task_files = {name for name in files if name.startswith("definitions/tasks/") and name.endswith(".json")}
-    if task_files != used | set(scenarios):
-        raise ValueError("Unregistered headless task definitions")
-    source = {"repository": HEADLESS_REPOSITORY, "revision": revision,
-              "bench_id": manifest["bench_id"], "bench_version": manifest["bench_version"],
-              "task_count": len(used), "scenario_count": len(scenarios), "subset_count": len(datasets) - 1,
-              "fixture_count": sum(name.startswith("definitions/fixtures/") for name in files),
-              "config_count": sum(name.startswith("definitions/config/") for name in files),
-              "driver_count": len(bindings["driver_ids"]), "driver_ids": bindings["driver_ids"],
-              "file_count": len(originals)}
-    files["definitions/registry.json"] = encoded({"datasets": datasets, "source": source, "source_files": source_files})
-    return files
-
-
 @dataclass(frozen=True)
 class DatasetRelease:
     """A public definition snapshot; working-tree files never enter a release."""
@@ -282,10 +212,13 @@ class DatasetRelease:
             raise ValueError("A release requires a Git commit, not a tree or blob")
         hub = subprocess.run(["git", "cat-file", "-e", revision + ":definitions"],
                              cwd=checkout, capture_output=True).returncode == 0
-        if track == "headless-browser" and not hub:
-            files = _headless_definitions(checkout, revision)
+        upstream = registered[track].get("upstream_source")
+        if upstream and not hub:
+            # The track declares how a checkout of its upstream source becomes definitions.
+            files = _declared_callable(upstream, "upstream source")(checkout, revision)
             files.update(_git_blobs(checkout, revision, ('VERSIONING.md',)))
-            return cls(track, revision, files, HEADLESS_REPOSITORY)
+            source = json.loads(files["definitions/registry.json"])["source"]
+            return cls(track, revision, files, source["repository"])
         if hub:
             committed = subprocess.run(
                 ["git", "show", revision + ":manifest.json"],
@@ -313,7 +246,7 @@ class DatasetRelease:
             files = {}
             for original_name, content in _git_blobs(checkout, revision, (prefix, *notices)).items():
                 name = "definitions/" + original_name[len(prefix):] if original_name.startswith(prefix) else original_name
-                allowed = (track == "headless-browser" or Path(name).suffix in {".json", ".jsonl", ".txt", ".md"}
+                allowed = (Path(name).suffix in {".json", ".jsonl", ".txt", ".md"}
                            or Path(name).name in {"LICENSE", "NOTICE"}
                            or any(name.endswith(suffix) for suffix in registered[track].get("definition_suffixes", [])))
                 if name.startswith("definitions/") and not allowed:
@@ -489,12 +422,12 @@ class DatasetRelease:
         if metadata.get("definitions_check"):
             # The owning track validates its published definitions before release.
             _declared_callable(metadata["definitions_check"], "definitions check")(self.track, files)
-        if self.track == "headless-browser":
+        if metadata.get("upstream_source"):
             registry = json.loads(files["definitions/registry.json"])
             for name, binding in registry["source_files"].items():
                 content = files["definitions/" + name]
                 if bytes_sha256(content) != binding["sha256"] or len(content) != binding["size"]:
-                    raise ValueError("Original headless input does not match inventory: " + name)
+                    raise ValueError("Original upstream input does not match inventory: " + name)
         configurations = []
         summary = []
         languages = set()
@@ -589,7 +522,7 @@ class DatasetRelease:
             manifest['edition'] = dict(self.edition or {})
             if version is not None:
                 manifest['edition'].update(version=version, tag='v' + version)
-        if self.track == "headless-browser":
+        if metadata.get("upstream_source"):
             manifest["upstream"] = json.loads(self.files["definitions/registry.json"])["source"]
         files["manifest.json"] = encoded(manifest)
         output.mkdir(parents=True, exist_ok=True)
@@ -680,7 +613,7 @@ class DatasetRelease:
                 else:
                     body = body.rstrip() + '\n\n' + version_section
         body = body.replace("{{total_records}}", f"{sum(row['count'] for row in populations):,}")
-        if self.track == "headless-browser":
+        if metadata.get("upstream_source"):
             for key, value in manifest["upstream"].items():
                 if isinstance(value, (str, int)):
                     replacement = f"{value:,}" if isinstance(value, int) else value

@@ -529,6 +529,10 @@ def output_mode_for_case(engine, provider_type, case):
 
 
 class HeadlessProvider(Provider):
+    @classmethod
+    def launches_local_browser(cls, config):
+        return not engine_definition(config.get("engine")).hosted
+
     def __init__(self, name, config):
         super().__init__(name, config)
         self._process_lock = threading.Lock()

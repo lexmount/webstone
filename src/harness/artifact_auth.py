@@ -1,4 +1,4 @@
-"""Artifact Site's user-scoped publishing credential, separate from eval secrets."""
+"""The user-scoped Yours publishing credential, separate from eval secrets."""
 
 import argparse
 import json
@@ -21,14 +21,14 @@ def token_path(base_url):
     if (parsed.scheme not in {'http', 'https'} or not parsed.hostname
             or parsed.username is not None or parsed.password is not None
             or host in {'.', '..'} or any(c.isspace() or c in '/\\' for c in host)):
-        raise ValueError('Artifact Site base URL requires an HTTP(S) host without credentials')
+        raise ValueError('Yours base URL requires an HTTP(S) host without credentials')
     # Include an explicit port, matching the server manual's host key.
     return root / 'tokens' / host
 
 
 def validate_token(token):
     if not token.startswith('ahp_') or any(c.isspace() for c in token):
-        raise ValueError('Invalid Artifact Site token format')
+        raise ValueError('Invalid Yours token format')
     return token
 
 

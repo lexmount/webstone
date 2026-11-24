@@ -11,7 +11,7 @@
       "范围 | 本轮做法 | 外部付费账号",
       "四个自托管站点 | 官方 Docker 镜像与内置测试账号；每题前重置 | 不需要",
       "模型 API | GPT-5.6 Sol, reasoning=未记录 | 需要相应 API 权限",
-      "Artifact Site | 只发布脱敏静态报告 | 发布者需已有站点权限"
+      "Yours | 只发布脱敏静态报告 | 发布者需已有站点权限"
      ]
     ]
    },
@@ -146,7 +146,7 @@
       "Scope | Configuration in this run | Paid external account",
       "Four self-hosted sites | Official Docker images and built-in test accounts; reset before each task | Not required",
       "Model API | GPT-5.6 Sol, reasoning=Not recorded | Corresponding API access required",
-      "Artifact Site | Publishes only the sanitized static report | Publisher must already have site access"
+      "Yours | Publishes only the sanitized static report | Publisher must already have site access"
      ]
     ]
    },
@@ -810,7 +810,7 @@
   },
   "routes": [
    ".generated-report ca28b9c931018355bd27",
-   "accounts/index.html 0862765c444bbfde5e4c",
+   "accounts/index.html d3d9287c1202b63d6541",
    "adoption/index.html 7a047e0264ba3906b925",
    "analysis/index.html d1d32fe2bea0bd1f1d89",
    "artifacts/gpt-5.6-sol-chromium-44/executions/1/execution-evidence.json 5a6f516fd3ba28c88129",
@@ -921,7 +921,7 @@
    "datasets/784.html d480257a3202130e88ca",
    "datasets/94.html 7e6102fe6203cc8d9f7d",
    "datasets/index.html 447eed55ec505a4e1b92",
-   "en/accounts/index.html 170eeec838c287d9289c",
+   "en/accounts/index.html dbc182244856e90da50f",
    "en/adoption/index.html beb1c166b282c0f23c9d",
    "en/analysis/index.html 23e61927f8323a095c82",
    "en/changes/index.html e177708ebd660a88bb9e",

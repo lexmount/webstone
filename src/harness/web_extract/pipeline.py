@@ -525,6 +525,12 @@ class ExtractMethod:
     request_settings: dict = dataclasses.field(default_factory=dict)
     # Credentials sent as HTTP Basic user names also appear base64-encoded.
     basic_auth_keys: tuple[str, ...] = ()
+    # Projection regression controls run before a reprojection: population kind
+    # ("product" for the fixed product schema, "record" for adapter records) ->
+    # ``control(method_name)``, which raises when this method's projection regressed.
+    projection_controls: dict[str, Callable[[str], None]] = dataclasses.field(
+        default_factory=dict
+    )
 
     @property
     def self_hosted(self):
@@ -1080,6 +1086,15 @@ register_method(
     request=_firecrawl_json_request,
     project=_firecrawl_project,
 )
+def _record_projection_control(method):
+    for fields in (
+        {"author": ["Ada"], "price": ["12.50"]},
+        {"author": "invalid scalar", "price": True},
+    ):
+        if normalize(method, {"result": fields}, schema={"type": "object"}) != fields:
+            raise ValueError("Record projection discarded or coerced native fields")
+
+
 register_method(
     "cloudflare-json",
     keys=("CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"),
@@ -1088,6 +1103,7 @@ register_method(
     options=("setJavaScriptEnabled", "rejectResourceTypes", "input_route", "rejectRequestPattern"),
     request=_cloudflare_request,
     project=lambda payload, preserve_native_types: payload.get("result"),
+    projection_controls={"record": _record_projection_control},
 )
 register_method(
     "zyte-custom",
@@ -1131,6 +1147,19 @@ register_method(
     request=_scrapegraph_request,
     project=lambda payload, preserve_native_types: payload.get("json"),
 )
+def _stock_projection_control(method):
+    for native, expected in (
+        ("available", "InStock"),
+        ("sold_out", "OutOfStock"),
+        ("preorder", "preorder"),
+    ):
+        actual = normalize(method, {"data": {"offers": [{"availability": native}]}})
+        if actual.get("availability") != expected:
+            raise ValueError("Native stock projection regression failed")
+        if native == "preorder" and any(f in actual for f in ("InStock", "OutOfStock")):
+            raise ValueError("Unknown availability was promoted to known stock")
+
+
 register_method(
     "scrapfly-product",
     keys=("SCRAPFLY_API_KEY",),
@@ -1138,6 +1167,7 @@ register_method(
     options=("input_route",),
     request=_scrapfly_request,
     project=_scrapfly_project,
+    projection_controls={"product": _stock_projection_control},
 )
 register_method(
     "oxylabs-json",
@@ -2412,33 +2442,18 @@ PROJECTION_REGRESSIONS = (
 )
 
 
-def check_projection_controls():
-    for native, expected in (
-        ("available", "InStock"),
-        ("sold_out", "OutOfStock"),
-        ("preorder", "preorder"),
-    ):
-        actual = normalize("scrapfly-product", {"data": {"offers": [{"availability": native}]}})
-        if actual.get("availability") != expected:
-            raise ValueError("Native stock projection regression failed")
-        if native == "preorder" and any(f in actual for f in ("InStock", "OutOfStock")):
-            raise ValueError("Unknown availability was promoted to known stock")
+def check_projection_controls(kind):
+    """Run every registered method's projection controls for one population kind."""
+    for name, method in METHODS.items():
+        control = method.projection_controls.get(kind)
+        if control is not None:
+            control(name)
 
 
 RECORD_PROJECTION_REGRESSIONS = (
     "record-arrays-survive-native-reprojection",
     "invalid-record-values-remain-visible-to-the-scorer",
 )
-
-
-def check_record_projection_controls():
-    for fields in (
-        {"author": ["Ada"], "price": ["12.50"]},
-        {"author": "invalid scalar", "price": True},
-    ):
-        if normalize("cloudflare-json", {"result": fields}, schema={"type": "object"}) != fields:
-            raise ValueError("Record projection discarded or coerced native fields")
-    return list(RECORD_PROJECTION_REGRESSIONS)
 
 
 def score_run(
@@ -2462,7 +2477,7 @@ def score_run(
         raise ValueError("A projection or reference correction requires a separate output file")
     adapter = benchmark_config(home)["adapter"]
     if reproject:
-        check_record_projection_controls() if adapter else check_projection_controls()
+        check_projection_controls("record" if adapter else "product")
     contract, rows = load_run(run)
     validate_dataset(home)
     if contract["dataset_manifest_sha256"] != digest((home / "dataset/manifest.json").read_bytes()):

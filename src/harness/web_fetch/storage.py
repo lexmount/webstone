@@ -270,7 +270,7 @@ def require_current_report_profile(evidence: Path, profile_path: Path) -> None:
     if route_contract is not None:
         if route_contract != 4:
             raise ValueError("Unsupported native task route contract")
-        from harness.web_fetch.task_outputs import require_native_task_routes
+        from harness.web_fetch.providers.native_task_routes import require_native_task_routes
         require_native_task_routes(cases, records)
     resource_profile = profile.get("resource_profile") or {}
     if resource_profile.get("required"):

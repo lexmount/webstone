@@ -16,7 +16,11 @@ from harness.adapters import Capabilities, Registry
 from harness.call_diagnostics import emit
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.network_dns import public_dns_context, validate_dns_mode
-from harness.web_fetch.native_routes import encode_http_target_url, normalized_http_parameters
+from harness.web_fetch.native_routes import (
+    encode_http_target_url,
+    normalized_http_parameters,
+    url_input_slot,
+)
 from harness.http_client import HttpResponse, inner_timeout_budget
 from harness.web_fetch.retrieval_hints import NATIVE_RETRIEVAL_HINTS
 
@@ -125,7 +129,27 @@ class Provider(ABC):
     #   raw_http_evidence               byte answers are the retained HTTP response, not stdout
     #   legacy_markdown_output_label    older evidence named the route "markdown";
     #                                   replay its frozen request interface instead
+    #   local_network                   calls use this host's network, so a comparison
+    #                                   needs one declared public DNS environment
+    #   fixed_native_build_comparison   two pinned builds may form a fixed-native
+    #                                   comparison cohort
+    #   http_402_is_account_capacity    HTTP 402 means the account ran out of capacity,
+    #                                   including evidence saved before that error type
+    #   ignores_minimum_text_fragments  the call never sends completion text fragments
     capability_flags: frozenset[str] = frozenset()
+
+    def normalize_native_http_body(self, body: dict[str, Any], case) -> bool:
+        """Replace this method's task input and per-call tokens with placeholders.
+
+        Returns False when the request does not carry the frozen task URL where
+        the method declares it. The default reads a ``url`` or ``urls`` field.
+        """
+        return url_input_slot(body, case)
+
+    @classmethod
+    def launches_local_browser(cls, config: dict[str, Any]) -> bool:
+        """Whether this configuration starts a browser on this host."""
+        return False
 
     # Per-call diagnostics sink assigned by the runner; None when not debugging.
     call_diagnostics = None
@@ -235,7 +259,7 @@ class Provider(ABC):
         with public_dns_context(mode, kwargs.get('timeout', 30)) as traces:
             if ledger is not None:
                 self.capture_native_request(case, transport='http', endpoint=endpoint, native_route_ledger=ledger,
-                                            parameters=normalized_http_parameters(case, kwargs))
+                                            parameters=normalized_http_parameters(self, case, kwargs))
             try:
                 response = callback(endpoint, **kwargs)
             finally:
@@ -337,6 +361,24 @@ def provider_capabilities(provider_type) -> Capabilities:
     if not isinstance(provider_type, str) or provider_type not in PROVIDERS:
         return Capabilities()
     return provider_class(provider_type).capabilities()
+
+
+# Retired local adapters whose saved evidence still declares a guarded local network.
+RETIRED_LOCAL_NETWORK_TYPES = frozenset(
+    {"openclaw_builtin", "deepseek_harness_builtin", "langchain_webbase", "crawl4ai"})
+
+
+def native_local_network(provider_type) -> bool:
+    """Whether a provider type's native calls use this host's network."""
+    return (provider_type in RETIRED_LOCAL_NETWORK_TYPES
+            or provider_capabilities(provider_type).has("local_network"))
+
+
+def guards_local_network(provider_type, config: dict[str, Any]) -> bool:
+    """Whether a configured method needs the declared public DNS preflight."""
+    if native_local_network(provider_type):
+        return True
+    return provider_type in PROVIDERS and provider_class(provider_type).launches_local_browser(config)
 
 
 def build_provider(name: str, config: dict[str, Any]) -> Provider:

@@ -824,7 +824,7 @@ def test_shared_http_builder_controls_freeze_and_fetch(tmp_path, method, module)
     assert transport.call_count == 1
     endpoint, arguments = transport.call_args
     assert arguments['max_bytes'] == 54321
-    assert normalized_http_parameters(case, arguments) == next(iter(ledger.cells.values()))['request_parameters']
+    assert normalized_http_parameters(provider, case, arguments) == next(iter(ledger.cells.values()))['request_parameters']
     assert not ledger.errors
 
 
@@ -894,7 +894,7 @@ def _synthetic_route_baseline():
             row = {'key': key, 'cell': cell}
             if cell['transport'] == 'http':
                 endpoint, arguments = provider.native_http_arguments(case, 45)
-                row.update(endpoint=endpoint, parameters=normalized_http_parameters(case, arguments))
+                row.update(endpoint=endpoint, parameters=normalized_http_parameters(provider, case, arguments))
             rows.append(row)
         baseline[method + (':configured' if configured else ':defaults')] = {
             'cells': len(rows), 'sha256': canonical_json_sha256(rows)}
@@ -936,12 +936,12 @@ def test_nondefault_timeout_is_used_for_freeze_observation_and_receipt(tmp_path)
     ledger.write(tmp_path, dataset_sha256='dataset', runtime_source_sha256='runtime')
     endpoint, options = arguments(case, 30)
     ledger.observe(provider, case, transport='http', endpoint=endpoint,
-                   parameters=normalized_http_parameters(case, options))
+                   parameters=normalized_http_parameters(provider, case, options))
     assert ledger.receipt(provider, case)['transport_state'] == 'started'
     assert seen and set(seen) == {30}
     with pytest.raises(ValueError, match='endpoint differs'):
         ledger.observe(provider, case, transport='http', endpoint=endpoint+'changed',
-                       parameters=normalized_http_parameters(case, options))
+                       parameters=normalized_http_parameters(provider, case, options))
 
 
 def test_provider_declares_safe_configuration_without_central_route_changes():

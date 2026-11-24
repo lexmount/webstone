@@ -163,7 +163,8 @@ def _family_wait_until(config, track):
 
 class MoliWebFetchProvider(Provider):
     capability_flags = frozenset({
-        'raw_answer_bytes', 'raw_stdout_evidence', 'legacy_markdown_output_label'})
+        'raw_answer_bytes', 'raw_stdout_evidence', 'legacy_markdown_output_label',
+        'local_network', 'fixed_native_build_comparison'})
 
     native_configuration_fields = (*Provider.native_configuration_fields, 'native_output', 'document_output')
 

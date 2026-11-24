@@ -39,6 +39,7 @@ from harness.web_fetch.assembly import (
     _prune_shadowed_batch_attempts,
 )
 from harness.web_fetch.native_routes import native_cases_by_id
+from harness.web_fetch.providers.base import provider_capabilities
 from harness.web_fetch.reference_inputs import input_tree, read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import (
     reference_revision_cases,
@@ -74,7 +75,8 @@ def _reject_account_capacity_results(rows: list[dict], *, label: str) -> None:
         row
         for row in rows
         if row.get("error_type") == "account_capacity"
-        or (row.get("provider") == "firecrawl" and row.get("status_code") == 402)
+        or (row.get("status_code") == 402
+            and provider_capabilities(row.get("provider_type")).has("http_402_is_account_capacity"))
     ]
     if not blocked:
         return

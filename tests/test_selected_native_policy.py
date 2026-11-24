@@ -54,7 +54,7 @@ def test_request_is_independent_of_grading_requirements(name):
     endpoint, args = p.native_http_arguments(first, 30)
     other_endpoint, other = p.native_http_arguments(second, 30)
     assert endpoint == other_endpoint
-    assert normalized_http_parameters(first, args) == normalized_http_parameters(second, other)
+    assert normalized_http_parameters(p, first, args) == normalized_http_parameters(p, second, other)
     assert args['timeout'] == 30
     if name == 'exa':
         assert args['json_body']['extras']['richLinks'] == 100

@@ -50,6 +50,16 @@ webstone skills install --directory "$HOME/.codex/skills"
 
 If your installed package lacks the `skills` command, see the [source installation instructions](docs/agent-workflows.md#install-software-and-skill).
 
+### Commands
+
+Every track offers the same stage verbs; `--help` at each level lists what a track supports and its own preparation commands:
+
+```text
+webstone <track> run | score | report | check | package | publish | export
+```
+
+Tracks are `webfetch`, `web-search`, `web-extract`, `trajectory-replay` and `browser-use` (`webstone tracks` prints them as JSON). Web Fetch is the default track, so its stages also run at the top level (`webstone run` is `webstone webfetch run`). `score` recomputes scores from saved evidence and replaces the former `rescore` command; `webstone webfetch compose` writes a saved-matrix specification from several run directories. `make <stage> TRACK=<track> ARGS="..."` runs the same verbs. The [repository specification](docs/spec.md#command-surface) defines the stages and their artifacts.
+
 ## Evaluation tracks
 
 Choose a workflow for its task contract, setup and runnable example.
@@ -162,15 +172,15 @@ Webstone aims for stable, reproducible results and a controlled, trustworthy eva
 
 3. **Make results easy to review and verify**
 
-    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Artifact Site only when publication is requested and authorized.
+    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Yours only when publication is requested and authorized.
 
 See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scoring and verification requirements.
 
 ## Reports
 
-Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
+Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Yours account or publishing authorization.
 
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
+The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `score --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
@@ -181,7 +191,7 @@ English is the default; add `--language zh` when running or rebuilding for Chine
 
 ### Optional sharing
 
-When sharing is requested and publication is authorized, open Artifact Site ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)), install the skill offered there, and follow it to publish the local report and choose who can access it. Uploading is a separate action; creating a local report does not publish it.
+When sharing is requested and publication is authorized, open Yours ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)), install the skill offered there, and follow it to publish the local report and choose who can access it. Uploading is a separate action; creating a local report does not publish it.
 
 Scoring code ships with Webstone; dataset commits and file hashes are selected in [the data lock](src/harness/benchmarks/data-lock.json). Each report records its Webstone build and selected benchmark edition. See [versioning](docs/benchmarks.md#benchmark-editions) for comparison rules, [reference inputs](docs/reference-inputs.md) for historical data, and the [report guide](docs/report-hosting.md) for local builds and formal releases.
 
@@ -192,7 +202,7 @@ Scoring code ships with Webstone; dataset commits and file hashes are selected i
 flowchart LR
     A["Saved results<br/>and evidence"]:::evidence -->|Optional build / rebuild| B["Local HTML report"]:::run
     B --> C["Drill down to each result<br/>Responses · actions · logs"]:::evidence
-    B -. Requested and authorized .-> D["Share through<br/>Artifact Site"]:::evidence
+    B -. Requested and authorized .-> D["Share through<br/>Yours"]:::evidence
     A -. On request .-> V["LLM verifier"]:::score
     V -. Review findings .-> B
     classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
@@ -280,7 +290,7 @@ make setup-test
 make ci
 ```
 
-[Architecture](docs/architecture.md) · [Security](SECURITY.md) · [Third-party content](THIRD_PARTY.md) · [Apache 2.0](LICENSE)
+[Specification](docs/spec.md) · [Architecture](docs/architecture.md) · [Security](SECURITY.md) · [Third-party content](THIRD_PARTY.md) · [Apache 2.0](LICENSE)
 
 ## Cite Webstone
 

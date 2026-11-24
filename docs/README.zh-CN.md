@@ -50,6 +50,16 @@ webstone skills install --directory "$HOME/.codex/skills"
 
 当前包没有 `skills` 命令时，见[源码安装说明](agent-workflows.md#install-software-and-skill)。
 
+### 命令
+
+所有 Track 使用同一组阶段命令；在各级加 `--help` 可查看该 Track 支持的阶段和它自己的准备命令：
+
+```text
+webstone <track> run | score | report | check | package | publish | export
+```
+
+Track 包括 `webfetch`、`web-search`、`web-extract`、`trajectory-replay` 和 `browser-use`（`webstone tracks` 以 JSON 列出）。Web Fetch 是默认 Track，它的阶段也可以直接在顶层运行（`webstone run` 等同于 `webstone webfetch run`）。对已保存证据重新评分用 `score`，它取代了原来的 `rescore` 命令；`webstone webfetch compose` 根据多个运行目录写出已保存矩阵的说明文件。`make <stage> TRACK=<track> ARGS="..."` 运行同样的命令。阶段及其产物的定义见[仓库规范](spec.md#command-surface)。
+
 ## 评测流程
 
 按任务选择评测流程，各指南提供任务约定、环境配置和可运行示例。
@@ -162,15 +172,15 @@ flowchart LR
 
 3. **方便审查，可校验**
 
-    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。只有明确要求发布并授权后，才上传到 Artifact Site。
+    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。只有明确要求发布并授权后，才上传到 Yours。
 
 评分与复核的详细要求见[评测设计](benchmarks.md#evaluation-design)。
 
 ## 报告
 
-结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
+结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Yours 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
+`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`score --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
@@ -181,7 +191,7 @@ webstone report ./fixture-run
 
 ### 按需分享
 
-明确要求分享并授权发布后，打开 Artifact Site（[全球站 .com](https://yours.lexmount.com/artifact-site) · [中国站 .cn](https://yours.lexmount.cn/artifact-site)），安装网站提供的 skill，按引导发布本地报告并设置访问权限。上传是独立操作，生成本地报告不会自动发布。
+明确要求分享并授权发布后，打开 Yours（[全球站 .com](https://yours.lexmount.com/artifact-site) · [中国站 .cn](https://yours.lexmount.cn/artifact-site)），安装网站提供的 skill，按引导发布本地报告并设置访问权限。上传是独立操作，生成本地报告不会自动发布。
 
 评分代码随 Webstone 安装；数据集提交和文件哈希由[数据锁文件](../src/harness/benchmarks/data-lock.json)指定。报告记录 Webstone 构建版本和选定的评测版本。结果比较规则见[版本说明](benchmarks.md#benchmark-editions)，历史数据见[参考输入](reference-inputs.md)，本地构建与正式发布要求见[报告指南](report-hosting.md)。
 
@@ -192,7 +202,7 @@ webstone report ./fixture-run
 flowchart LR
     A["保存的结果<br/>与原始证据"]:::evidence -->|按需构建或重建| B["本地 HTML 报告"]:::run
     B --> C["下钻到每一个结果<br/>查看响应、动作和日志"]:::evidence
-    B -. 明确请求并授权 .-> D["通过 Artifact Site<br/>分享报告"]:::evidence
+    B -. 明确请求并授权 .-> D["通过 Yours<br/>分享报告"]:::evidence
     A -. 仅按需触发 .-> V["LLM verifier"]:::score
     V -. 复核发现 .-> B
     classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a
@@ -280,7 +290,7 @@ make setup-test
 make ci
 ```
 
-[代码结构](architecture.md) · [安全](../SECURITY.md) · [第三方内容](../THIRD_PARTY.md) · [Apache 2.0](../LICENSE)
+[仓库规范](spec.md) · [代码结构](architecture.md) · [安全](../SECURITY.md) · [第三方内容](../THIRD_PARTY.md) · [Apache 2.0](../LICENSE)
 
 
 ## 引用 Webstone

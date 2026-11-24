@@ -45,20 +45,21 @@ require_profile = @test -n "$($(or $(1),PROFILE))" || (echo '$(or $(1),PROFILE)=
   package-check \
   report \
   report-check \
+  run \
+  score \
+  check \
+  package \
+  publish \
+  export \
   popular-sites-report \
   popular-sites-report-check \
   wcxb-release-check \
   browser-use-report \
   browser-use-review \
-  browser-use-visual-check \
   browser-use-report-check \
   browser-use-release-check \
   trajectory-replay-report \
-  trajectory-replay-report-check \
-  trajectory-replay-visual-check \
   trajectory-replay-release-check \
-  trajectory-replay-package \
-  trajectory-replay-publish \
   webarena-catalog-report \
   webarena-catalog-release-check \
   public-webarena-report \
@@ -165,6 +166,31 @@ browser-check: runtime-check ## Run the CI rendered reference and report checks
 package-check: runtime-check ## Verify sdist and wheel installation
 	$(PY) scripts/check_package.py --uv "$(UV)"
 
+# Track stage verbs: `make <stage> TRACK=<track> ARGS="..."` runs `webstone <track> <stage>`.
+# `make report` keeps building the profile-bound Web Fetch report.
+define track_stage
+	@test -n "$(TRACK)" || (echo 'TRACK=<webfetch|web-search|web-extract|trajectory-replay|browser-use> is required' >&2; exit 2)
+	$(PY) -m harness.cli "$(TRACK)" $@ $(ARGS)
+endef
+
+run: runtime-check ## Run a track's collection stage: TRACK, ARGS
+	$(track_stage)
+
+score: runtime-check ## Score a track's saved evidence: TRACK, ARGS
+	$(track_stage)
+
+check: runtime-check ## Check a track's built report: TRACK, ARGS
+	$(track_stage)
+
+package: runtime-check ## Package a track's checked report: TRACK, ARGS
+	$(track_stage)
+
+publish: runtime-check ## Publish a track's packaged report: TRACK, ARGS
+	$(track_stage)
+
+export: runtime-check ## Export a track's results: TRACK, ARGS
+	$(track_stage)
+
 report: runtime-check ## Build the Web Fetch report: PROFILE, EVIDENCE
 	$(call require_profile)
 	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE=/absolute/path is required' >&2; exit 2)
@@ -201,37 +227,21 @@ browser-use-review: runtime-check ## Review Browser Use results: EVIDENCE
 	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE=/absolute/path is required' >&2; exit 2)
 	$(PY) -m harness.browser_use review --evidence "$(EVIDENCE)"
 
-browser-use-visual-check: runtime-check ## Run the Browser Use visual gate
-	$(PY) -m harness.browser_use visual "$(or $(OUTPUT),reports/browser-use)" $(if $(VISUAL_RECEIPT),--receipt "$(VISUAL_RECEIPT)",)
-
 browser-use-report-check: runtime-check ## Check the Browser Use report: EVIDENCE
 	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE="/absolute/path [/absolute/path...]" is required' >&2; exit 2)
 	$(PY) -m harness.browser_use check "$(or $(OUTPUT),reports/browser-use)" $(if $(PROFILE),--profile "$(PROFILE)",) $(foreach path,$(EVIDENCE),--evidence "$(path)") --require-complete
 	$(PY) scripts/check_report_links.py "$(or $(OUTPUT),reports/browser-use)"
 
 browser-use-release-check: browser-use-report-check ## Run the Browser Use release gate: EVIDENCE
-	$(MAKE) browser-use-visual-check
+	$(PY) -m harness.browser_use visual "$(or $(OUTPUT),reports/browser-use)" $(if $(VISUAL_RECEIPT),--receipt "$(VISUAL_RECEIPT)",)
 
 trajectory-replay-report: runtime-check ## Build the Trajectory Replay report: EVIDENCE
 	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE=/absolute/path is required' >&2; exit 2)
 	$(PY) -m harness.trajectory_replay report --results "$(EVIDENCE)" --output "$(or $(OUTPUT),reports/trajectory-replay)" $(if $(PROFILE),--profile "$(PROFILE)",) $(if $(REVIEW),--review "$(REVIEW)",) $(if $(REPORT_LANGUAGE),--language "$(REPORT_LANGUAGE)",) $(if $(filter 1,$(ENGLISH)),--include-english,)
 
-trajectory-replay-report-check: runtime-check ## Check the Trajectory Replay report
+trajectory-replay-release-check: runtime-check ## Run the Trajectory Replay release gate
 	$(PY) -m harness.trajectory_replay check "$(or $(OUTPUT),reports/trajectory-replay)" $(if $(PROFILE),--profile "$(PROFILE)",)
-
-trajectory-replay-visual-check: runtime-check ## Run the Trajectory Replay visual gate
 	$(PY) -m harness.trajectory_replay visual "$(or $(OUTPUT),reports/trajectory-replay)" $(if $(VISUAL_RECEIPT),--receipt "$(VISUAL_RECEIPT)",)
-
-trajectory-replay-release-check: trajectory-replay-report-check ## Run the Trajectory Replay release gate
-	$(MAKE) trajectory-replay-visual-check
-
-trajectory-replay-package: runtime-check ## Package the Trajectory Replay report: EVIDENCE
-	@test -n "$(EVIDENCE)" || (echo 'EVIDENCE=/absolute/path/effective-results.json is required' >&2; exit 2)
-	$(PY) -m harness.trajectory_replay package --evidence "$(EVIDENCE)" --report "$(or $(OUTPUT),reports/trajectory-replay)" $(if $(PROFILE),--profile "$(PROFILE)",) $(if $(REVIEW),--review "$(REVIEW)",) $(if $(ARCHIVE),--output "$(ARCHIVE)",) $(if $(ATTESTATION),--attestation "$(ATTESTATION)",) $(if $(VISUAL_RECEIPT),--visual-receipt "$(VISUAL_RECEIPT)",)
-
-trajectory-replay-publish: runtime-check ## Publish the Trajectory Replay report: PROFILE
-	$(call require_profile)
-	$(PY) -m harness.trajectory_replay publish --profile "$(PROFILE)"
 
 webarena-catalog-report: runtime-check ## Build the WebArena catalog report
 	@test -n "$(EVIDENCE_ROOT)" -a -n "$(LEDGER)" -a -n "$(SCOPE)" -a -n "$(CATALOG)" -a -n "$(SUITE)" -a -n "$(SITE_MAP)" -a -n "$(OUTPUT)" -a -n "$(ARCHIVE)" || (echo 'EVIDENCE_ROOT, LEDGER, SCOPE, CATALOG, SUITE, SITE_MAP, OUTPUT and ARCHIVE are required' >&2; exit 2)

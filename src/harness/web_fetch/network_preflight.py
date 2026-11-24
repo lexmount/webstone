@@ -6,9 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 from harness.web_fetch import network_dns
-from harness.web_fetch.providers.headless import engine_definition
-
-GUARDED_NATIVE_TYPES = {"openclaw_builtin", "deepseek_harness_builtin", "cowagent_builtin", "langchain_webbase", "moli_webfetch", "crawl4ai"}
+from harness.web_fetch.providers.base import guards_local_network
 
 _FAKE_IP_RANGE = ipaddress.ip_network("198.18.0.0/15")
 
@@ -71,14 +69,8 @@ def require_usable_public_dns(audit, *, allow_partial_resolution_failures=False)
 
 def preflight_guarded_providers(providers, cases):
     """Require one declared DNS environment for every local comparison method."""
-    native = {"openclaw_builtin", "deepseek_harness_builtin", "cowagent_builtin", "langchain_webbase", "moli_webfetch", "crawl4ai"}
-    selected = [
-        provider for provider in providers
-        if provider.type in native or (
-            provider.type in {"headless_markdown", "headless_html"}
-            and not engine_definition(provider.config.get("engine")).hosted
-        )
-    ]
+    selected = [provider for provider in providers
+                if guards_local_network(provider.type, provider.config)]
     isolated = [provider for provider in selected
                 if provider.config.get("network_policy") == "loopback_only"
                 and provider.config.get("allow_private_network") is True]

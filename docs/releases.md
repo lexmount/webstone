@@ -36,7 +36,7 @@ To retain a pre-migration state, use an existing release tag or record the full 
 | --- | --- | --- |
 | Webstone software, e.g. `v0.3.0` | This repository | Execution, adapters, evidence handling or reporting software is released |
 | Web Fetch benchmark edition | The Webstone version: its data lock selects the dataset commit and its code holds the scoring rules | The pinned dataset or a scoring rule changes |
-| Published report build | Artifact Site or selected report host | A new report build is published |
+| Published report build | Yours or selected report host | A new report build is published |
 
 Pinning a dataset with added or removed cases is a breaking benchmark change even when the software interface stays compatible. The [benchmark contract](benchmarks.md#benchmark-editions) defines `direct`, `rescore` and `separate` comparisons. Pin upstream code commits and external input hashes alongside readable versions. Rebuilding presentation preserves saved calls and the selected benchmark edition.
 

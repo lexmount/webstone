@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from harness.record_io import canonical_json_sha256
 
-from harness.web_fetch.task_outputs import require_native_task_routes
+from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 from harness.web_fetch.report_interfaces import SPECS, browser_task_interface_matrix, method_access, method_spec
 
 
