@@ -975,7 +975,9 @@ def _markdown_named_items(content, contract, scope, excluded_spans=frozenset()):
         card_fields = serialized_link_card_fields(link)
         if card_fields and re.match(r"^[\s*+\-]*\d|^[\s*+\-]*(?:January|February|March|April|May|June|July|August|September|October|November|December)\b", prefix):
             prefix = ""
-        date_prefix = re.sub(r"[ \t]*#{1,6}[ \t]*$", "", prefix)
+        # Start at the whitespace run's boundary instead of rescanning every
+        # suffix of a long code mask when no closing heading marker exists.
+        date_prefix = re.sub(r"(?<![ \t])[ \t]*#{1,6}[ \t]*$", "", prefix)
         if len(line_links) == 1 and _DATE_OR_TIME.fullmatch(date_prefix):
             prefix = ""
         # A closed emphasized line can declare an unlinked bracketed category

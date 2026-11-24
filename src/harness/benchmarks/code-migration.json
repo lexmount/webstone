@@ -56,7 +56,7 @@
         },
         "dynamic_lists.py": {
           "before_sha256": "c2d9bedf1c82818f88f4e5db3c52caa5a064ba1d6fddb3814d38fdea5601957c",
-          "after_sha256": "47e751e2ef64498df3c90af36e1b6ef43ee90db8f1413295706256151072e4a5"
+          "after_sha256": "cd42204feac875059e7f91af7ca57e3c749ed5eea3514d51ceee87c2615886de"
         },
         "file_acceptance.py": {
           "before_sha256": "4f886206705c015baa3744d669cc851778aa595819394c5b149fd4803a9f40d1",
@@ -4387,6 +4387,19 @@
             "tests/test_scoring_regressions.py",
             "tests/benchmarks/webfetch/test_stable_tasks.py"
           ]
+        },
+        {
+          "modules": [
+            "dynamic_lists.py"
+          ],
+          "regression_ids": [
+            "named-link-code-mask-valid-sibling",
+            "named-link-code-mask-invalid-prefix"
+          ],
+          "tests": [
+            "tests/benchmarks/webfetch/test_named_link_code_mask_performance.py"
+          ],
+          "root_cause": "Closing heading cleanup rescanned every suffix of whitespace created by literal-code masking. Start at the whitespace-run boundary; preserve heading matches and record ownership."
         }
       ],
       "extensions": [
