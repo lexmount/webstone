@@ -44,7 +44,7 @@ from harness.web_fetch.report_version import check_release
 from harness.web_fetch.result_ledger import validate_ledger
 from harness.web_fetch.storage import require_canonical_inputs, require_current_report_profile
 from harness.web_fetch.wcxb_report_check import check as check_wcxb
-from harness.web_fetch.webmainbench_report_check import check_sample_report
+from harness.web_fetch.report_variants import VARIANTS, variant_for_kind
 
 
 def require_public_evidence_page(content, relative, views):
@@ -488,13 +488,10 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
             raise ValueError('Report cases differ from frozen source dataset')
     check_language_contract(root)
     has_english = "en" in generated_languages(root)
-    if d.get("comparison", {}).get("kind") == "webmainbench_frozen_html_to_markdown":
-
-        check_sample_report(root, d, rs, authority_root=repository, profile_path=profile_path)
-        return (
-            "PASS: WebMainBench preselected-200 matrix, sample, scores, retries, "
-            "declared-language routes and reference assets verified"
-        )
+    selected = variant_for_kind(d.get("comparison", {}).get("kind"))
+    if selected.check is not None:
+        return selected.check(root, dataset=d, records=rs, authority_root=repository,
+                              profile_path=profile_path)
     public_payload_views = False
     current_snapshot_authority = False
     names = {r["provider"] for r in rs}
@@ -800,7 +797,18 @@ def main(argv=None, *, authority_root: Path | None = None):
     parser.add_argument("--authority-root", type=Path, default=authority_root or Path.cwd())
     parser.add_argument("--presentation-binding", type=Path)
     parser.add_argument("--visual-receipt",type=Path,help="Full snapshot-audit browser checks; save receipt outside the report")
+    parser.add_argument("--variant", choices=sorted(name for name, item in VARIANTS.items() if item.check),
+                        help="check a report of this registered variant with its own rule")
+    parser.add_argument("--source-spec", type=Path,
+                        help="saved-matrix variant: verify original sources beside this specification")
     args = parser.parse_args(argv)
+    if args.source_spec and not args.variant:
+        parser.error("--source-spec requires --variant")
+    if args.variant:
+        print(VARIANTS[args.variant].check(args.root, source_spec=args.source_spec,
+                                           authority_root=args.authority_root,
+                                           profile_path=args.profile))
+        return
     if args.visual_receipt:
         from harness.web_fetch.published_snapshot import check_snapshot_visual
         print(check_snapshot_visual(args.root,args.visual_receipt))
@@ -818,12 +826,9 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
         return "PASS: WCXB release scope and report acceptance checks verified"
     dataset = read_json(out / "dataset.json")
 
-    if dataset.get("comparison", {}).get("kind") == "webmainbench_frozen_html_to_markdown":
-
-        check_sample_report(out, authority_root=repository, profile_path=profile_path)
-        return (
-            "PASS: WebMainBench preselected-200 release scope and report acceptance checks verified"
-        )
+    selected = variant_for_kind(dataset.get("comparison", {}).get("kind"))
+    if selected.check is not None:
+        return selected.check(out, authority_root=repository, profile_path=profile_path)
     binding = dataset.get('comparison', {}).get('report_interpretation')
     if binding:
         check_current_browser_article(out, {case['id']:case for case in dataset['cases']},

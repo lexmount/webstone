@@ -10,18 +10,23 @@ SCRIPT = ROOT / "scripts" / "build_report.py"
 
 
 @pytest.mark.parametrize("arguments,message", [
-    (["--local-audit"], "requires both --evidence and --output"),
-    (["--local-audit", "--evidence", "/tmp/evidence", "--output", "/tmp/report",
-      "--profile", "evaluation/current-report.json"], "cannot be combined with a release profile"),
-    *[(["--saved-matrix", "/tmp/spec.json", "--output", "/tmp/report", *options],
-       "cannot be combined with other build modes")
-      for options in (["--local-audit"], ["--wcxb-source", "/tmp/source"])],
-    *[(["--check-saved-matrix", "/tmp/report", *options], "cannot be combined with build options")
-      for options in (["--output", "/tmp/another"], ["--presentation-binding", "/tmp/binding.json"],
-                      ["--include-english"], ["--wcxb-sample", "/tmp/sample"])],
+    (["--variant", "local-audit"], "requires: --evidence, --output"),
+    (["--variant", "local-audit", "--evidence", "/tmp/evidence", "--output", "/tmp/report",
+      "--profile", "{profile}"], "The profile selects report variant certified, not local-audit"),
+    *[(["--variant", "saved-matrix", "--input", "/tmp/spec.json", "--output", "/tmp/report", *options],
+       "does not accept")
+      for options in (["--evidence", "/tmp/evidence"], ["--wcxb-source", "/tmp/source"],
+                      ["--presentation-binding", "/tmp/binding.json"], ["--include-english"])],
+    (["--variant", "saved-matrix", "--input", "/tmp/spec.json", "--output", "/tmp/report",
+      "--language", "en"], "Chinese output only"),
+    (["--output", "/tmp/report"], "Select an external report instance with --profile"),
+    (["--variant", "unregistered"], "invalid choice"),
 ])
-def test_build_report_rejects_conflicting_modes_before_work(monkeypatch, capsys, arguments, message):
+def test_build_report_rejects_conflicting_modes_before_work(tmp_path, monkeypatch, capsys, arguments, message):
     monkeypatch.chdir(ROOT)
+    profile = tmp_path / "profile.json"
+    profile.write_text("{}", encoding="utf-8")
+    arguments = [str(profile) if item == "{profile}" else item for item in arguments]
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), *arguments])
     with pytest.raises(SystemExit) as exited:
         runpy.run_path(str(SCRIPT), run_name="__main__")

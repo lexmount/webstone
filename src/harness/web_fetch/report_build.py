@@ -535,9 +535,11 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         dataset_probe.get('comparison', {}).get('kind') == 'web_fetch_diagnostic')
     if not local_audit and not diagnostic_preview:
         require_certifiable_evidence(dataset_probe)
-    if dataset_probe.get('comparison', {}).get('kind') == 'webmainbench_frozen_html_to_markdown':
-        return build_webmainbench_report(source, output, include_english=include_english,
-                                         language=language, profile_path=profile_path)
+    from harness.web_fetch.report_variants import variant_for_kind
+    selected = variant_for_kind(dataset_probe.get('comparison', {}).get('kind'))
+    if selected.render_evidence is not None:
+        return selected.render_evidence(source, output, include_english=include_english,
+                                        language=language, profile_path=profile_path)
     if not local_audit:
         require_selection_history(source)
     dataset = json.loads(contained_path(source,'dataset.json').read_text(encoding='utf-8'))

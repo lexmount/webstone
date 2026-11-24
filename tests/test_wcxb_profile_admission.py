@@ -191,9 +191,7 @@ def test_all_entrypoints_honor_profile_selection_with_default_source(tmp_path, m
         monkeypatch.setattr(report_build, 'build_wcxb_report', lambda evidence, corpus, sample, *args, **kwargs:
                             captured.update(source=corpus, manifest=sample) or tmp_path / 'index.html')
         script = Path(__file__).resolve().parents[1] / 'scripts/build_report.py'
-        monkeypatch.setattr(sys, 'argv', [str(script), '--profile', str(profile_path), '--wcxb',
+        monkeypatch.setattr(sys, 'argv', [str(script), '--profile', str(profile_path), '--variant', 'wcxb',
                                         '--evidence', str(tmp_path / 'evidence'), '--output', str(tmp_path / 'out')])
-        with pytest.raises(SystemExit) as result:
-            runpy.run_path(str(script), run_name='__main__')
-        assert result.value.code == 0
+        runpy.run_path(str(script), run_name='__main__')
     assert captured == {'source': source, 'manifest': selected}

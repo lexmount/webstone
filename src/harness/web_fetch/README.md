@@ -126,7 +126,7 @@ Run every publishable Web Fetch provider cohort through `scripts/run_certified_b
 
 For reruns of unchanged compiled stable-contract datasets, invoke `scripts/run_certified_benchmark.py` normally. Freeze existing task definitions and acceptance rules; do not require historical qualification raw files or repeat admission review, and a missing old archive does not turn the run into a diagnostic result. Source qualification belongs to adding tasks or changing references/acceptance rules, through the matching build and revision flow; an explicit reference-answer revision still goes through the separate reference-revision entry. Preserve historical receipts without applying their evidence-file requirements to a new execution protocol. Live exact-reference cases retain pre/post reference checks. Reserve `--diagnostic` for explicitly diagnostic runs, whose outputs cannot be upgraded to certified evidence. `--retrieval-mode native` selects ordinary WebFetch completion while preserving scenario categories and every acceptance requirement; it rejects selector-guided retrieval hints instead of dropping them. Independent whole-page auditing, when requested, uses the existing browser capturer with `--observation-scope visible_page --checkpoint-dir ...`; checkpoint identities include capture inputs and observer code so observations from another protocol cannot be reused silently.
 
-Keep one Web Fetch report implementation: `src/harness/web_fetch/report_build.py` constructs a report and `src/harness/web_fetch/report.py` renders it. `scripts/build_report.py` has no default build; select a report instance with `--profile` or name another of its modes. A profile build reads `--evidence`, falling back to persistent measured evidence (`~/.webstone/evidence/current/` by default, or `WEB_FETCH_EVIDENCE_DIR`), and writes to `--output` or the profile's `report_output`. A profile whose `comparison_kind` is `wcxb_frozen_html_to_markdown` selects the independently bound WCXB build, which requires `--evidence` and writes `reports/wcxb/` by default; `--wcxb` only checks that the profile is a WCXB one. Do not create versioned report implementations, compatibility renderers or redirect builds.
+Keep one Web Fetch report implementation: each registered variant in `src/harness/web_fetch/report_variants.py` adapts its saved inputs, `src/harness/web_fetch/report_build.py` constructs a report and `src/harness/web_fetch/report.py` renders a validated `ReportModel` (`report_model.py`). `scripts/build_report.py` has no default build; the profile selects the variant (its `variant`, else its `comparison_kind`), or name one with `--variant` (`scripts/build_report.py --help` lists them). Variant inputs that are not a profile or evidence directory go through `--input`. A profile build reads `--evidence`, falling back to persistent measured evidence (`~/.webstone/evidence/current/` by default, or `WEB_FETCH_EVIDENCE_DIR`), and writes to `--output` or the profile's `report_output`. A profile whose `comparison_kind` is `wcxb_frozen_html_to_markdown` selects the independently bound WCXB variant, which requires `--evidence` and writes `reports/wcxb/` by default. Do not create versioned report implementations, compatibility renderers or redirect builds.
 
 ### Cohort-derived report content
 
@@ -159,7 +159,7 @@ Diagnostic failure analysis derives unmet requirements and expected/actual value
 
 Fresh diagnostic cohorts can supply a `webfetch_diagnostic_inputs/1` JSON file to the same build entry. It names complete saved run directories, independent whole-page browser observations and per-case reviews bound to dataset/results/observation hashes. The owner validates call and output identities and adapts these inputs to the existing model; no separate renderer is needed. Public copies may redact sensitive fields using the shared publication projector, with original/published hashes and an explicit local scope note; never alter the scored originals or present a redacted view as byte-identical. Review all requested passes as well as failures, retain access restrictions as observed limitations, and use actual requirements and source errors in interpretation specimens rather than storage metadata.
 
-For a diagnostic release, freeze the complete intended population in the track profile's `cohort_plan` (group IDs, case counts and SHA-256 of sorted case IDs joined by newlines with a trailing newline), independently of the report's selected inputs. Bind a uniform implementation when required. Pass that profile with `--profile` to both `scripts/build_report.py --diagnostic-cohorts` and `uv run --frozen python -m harness.web_fetch diagnostic-check` before publishing. A self-consistent subtotal is not evidence that the requested matrix is complete; reject missing groups, substituted cases and mixed implementations. Template examples without a deployment profile remain local examples, not a substitute for this release gate.
+For a diagnostic release, freeze the complete intended population in the track profile's `cohort_plan` (group IDs, case counts and SHA-256 of sorted case IDs joined by newlines with a trailing newline), independently of the report's selected inputs. Bind a uniform implementation when required. Pass that profile with `--profile` to both `scripts/build_report.py --variant diagnostic-cohorts` and `uv run --frozen python -m harness.web_fetch diagnostic-check` before publishing. A self-consistent subtotal is not evidence that the requested matrix is complete; reject missing groups, substituted cases and mixed implementations. Template examples without a deployment profile remain local examples, not a substitute for this release gate.
 
 A diagnostic instance profile can bind `diagnostic_input.path` relative to the data home and `diagnostic_input.sha256`. The ordinary build entry selects the diagnostic adapter from that profile, without a separate runner or mode flag. Keep cohort paths, prose, specimens and reviewed findings in the external manifest; refresh those inputs and compact profile bindings without editing the renderer or skill. Modify shared code only for a demonstrated defect or new measurement capability, and exercise multiple independent instances through the same public build/check entry.
 
@@ -1352,7 +1352,7 @@ For an existing frozen local report, pass its external binding explicitly:
 ```sh
 uv run --frozen python scripts/check_report.py /absolute/path/to/saved-report \
   --presentation-binding /absolute/path/to/saved-report/presentation-binding.json
-uv run --frozen python scripts/build_report.py --local-audit \
+uv run --frozen python scripts/build_report.py --variant local-audit \
   --evidence /absolute/path/to/saved-report --output /absolute/path/to/new-report \
   --presentation-binding /absolute/path/to/saved-report/presentation-binding.json \
   --language zh --include-english
@@ -1360,7 +1360,7 @@ uv run --frozen python scripts/build_report.py --local-audit \
 
 The build copies the validated binding into the new report. Check the new output
 with its matching `--presentation-binding` too. For a fresh local measurement,
-use `--local-audit` with its external evidence and an explicit output directory;
+use `--variant local-audit` with its external evidence and an explicit output directory;
 do not borrow a previous report's binding. Any scoring change must first follow
 the declared correction protocol; rendering alone does not update scores.
 Publication remains a separate explicit action with that report's own target.
@@ -1600,7 +1600,7 @@ it does not upload attachments.
 
 ## Saved multi-suite reports
 
-Use `scripts/build_report.py --saved-matrix /absolute/input-spec.json --output /absolute/new-report --language zh` to display saved results across suites.
+Use `scripts/build_report.py --variant saved-matrix --input /absolute/input-spec.json --output /absolute/new-report --language zh` to display saved results across suites.
 
 To compare methods that were run separately on the same frozen dataset, derive the
 specification instead of writing it:
@@ -1609,7 +1609,7 @@ specification instead of writing it:
 webstone run --providers method-a --output RUNS/a   # or one run with several providers
 webstone run --providers method-b --output RUNS/b
 webstone compose RUNS/a RUNS/b --output RUNS/comparison.json [--title TITLE]
-uv run --frozen python scripts/build_report.py --saved-matrix RUNS/comparison.json --output NEW_REPORT
+uv run --frozen python scripts/build_report.py --variant saved-matrix --input RUNS/comparison.json --output NEW_REPORT
 ```
 
 `compose` reads each run's `manifest.json`, `dataset.json` and `results.jsonl`,
@@ -1662,7 +1662,7 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 - Parameter comparisons require matching scoring provenance, the authorized provider configuration, actual native request receipts, and complete failure-retry sequences. Different scorers require a separate explicit offline revision before comparison. Replacement scopes and split retries must have valid pre-call chronology. The portable checker rejects unlisted files and symlinks, including additions beneath evidence directories.
 - For displayed-category comparisons, set `parameter_reruns.selection` to `replace_family_if_pass_count_improves`. Candidate completeness and pass counts use the same `report_families` partition as the report, including families spanning execution tracks. Verified native settings must be uniform within each eligible group; ineligible groups cannot win by score. Each family is selected independently and ties retain an eligible baseline. Historical `replace_track_if_pass_count_improves` contracts retain their original track-wide population; changing that frozen selection requires an explicitly bound selection amendment.
 - Adoption also compares verified native request settings, DNS, timeout and retry allowance within each displayed family, including retained retry calls. Numeric values such as `30` and `30.0` are equivalent. Method- or case-specific `configuration_exceptions` are rejected: an authority cannot relabel different settings as equivalent. Historical differences remain in the evidence but cannot qualify a mixed group for uniform comparison. Individual cases cannot be selected by their score.
-- Check portable report files with `scripts/build_report.py --check-saved-matrix /absolute/new-report`. Audit reports support this portable check. Final selected results must share one valid saved scorer identity after any validated offline revision; mixed or missing identities remain diagnostic. Final reports require `--source-spec /absolute/input-spec.json` and original native evidence; only the source-validating builder can authorize final rendering, never caller-authored configuration summaries. Source paths are resolved beside that external specification; the report audit contains only names and hashes.
+- Check portable report files with `scripts/check_report.py /absolute/new-report --variant saved-matrix`. Audit reports support this portable check. Final selected results must share one valid saved scorer identity after any validated offline revision; mixed or missing identities remain diagnostic. Final reports require `--source-spec /absolute/input-spec.json` and original native evidence; only the source-validating builder can authorize final rendering, never caller-authored configuration summaries. Source paths are resolved beside that external specification; the report audit contains only names and hashes.
 - Keep complete suite definitions when selecting methods and bind a receipt for every skipped cell. Retain physical retries for each selected logical result. Current-only selection does not establish why earlier results were replaced; corrections still require disclosure of scope and score, denominator and latency effects. Instance specifications, captures and HTML remain outside Git.
 
 ## Report method metadata
@@ -1687,8 +1687,8 @@ language must show the same comparison population and valid evidence links;
 evidence uses its frozen English edition when available, otherwise its original
 language.
 
-Use `scripts/build_report.py --saved-matrix SPEC --output NEW_REPORT` and
-`--check-saved-matrix NEW_REPORT --source-spec SPEC`. Package with
+Use `scripts/build_report.py --variant saved-matrix --input SPEC --output NEW_REPORT` and
+`scripts/check_report.py NEW_REPORT --variant saved-matrix --source-spec SPEC`. Package with
 `uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE
 --reuse-published PINNED_PACKAGE_DIRECTORY`. The package retains immutable remote
 pack locations and checks every appended file. For an in-place update, pass

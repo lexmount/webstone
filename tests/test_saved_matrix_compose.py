@@ -38,7 +38,7 @@ def test_separate_runs_compose_into_one_comparison_report(tmp_path):
     assert [p["id"] for p in written["providers"]] == ["alpha", "beta"]
     assert all(not Path(s["results"]["path"]).is_absolute() for s in written["sources"])
     report = tmp_path / "report"
-    subprocess.run([sys.executable, str(ROOT / "scripts/build_report.py"), "--saved-matrix", str(spec),
+    subprocess.run([sys.executable, str(ROOT / "scripts/build_report.py"), "--variant", "saved-matrix", "--input", str(spec),
                     "--output", str(report)], cwd=ROOT, check=True, capture_output=True)
     matrix = json.loads((report / "matrix.json").read_text(encoding="utf-8"))
     assert [p["id"] for p in matrix["providers"]] == ["alpha", "beta"]

@@ -124,8 +124,8 @@ def _certified_evidence(source: Path) -> bool:
     if content_binding:
         current_browser_article_model(source, {case['id']:case for case in dataset['cases']},
                                       records, content_binding)
-    sampled = dataset.get("comparison", {}).get("kind") == "webmainbench_frozen_html_to_markdown"
-    if not sampled:
+    from harness.web_fetch.report_variants import variant_for_kind
+    if variant_for_kind(dataset.get("comparison", {}).get("kind")).reliability_record:
         reliability = json.loads((source / "reliability.json").read_text(encoding="utf-8"))
         if reliability.get("complete") is not True:
             raise ValueError("Refusing to package an incomplete or unjudged benchmark report")
