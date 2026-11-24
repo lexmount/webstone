@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from harness.adapters import Registry
 from harness.record_schema import validate_records
 from harness.results.export import (
     distribution,
@@ -21,16 +22,17 @@ from harness.web_extract.dataset import benchmark_config
 from harness.web_extract.pipeline import digest, read_json, score_rows, validate_dataset
 from harness.web_extract.report import completion_bundle
 
-# Dataset benchmark -> (submission benchmark, its quality metrics: metric -> score path).
-SUBMISSIONS = {
-    "swde": ("lexbench-swde", {"pageMacroF1": ("page_hit_macro", "f1"),
-                               "valueMicroF1": ("value_micro", "f1"),
-                               "fieldSetExact": ("exact_field_sets", "rate")}),
-    "zyte": ("lexbench-zyte-product-extraction", {"priceF1": ("price", "f1"),
-                                                  "skuF1": ("sku", "f1"),
-                                                  "stockF1": ("availability", "f1"),
-                                                  "outOfStockF1": ("OutOfStock", "f1")}),
-}
+# Registered benchmark -> (submission benchmark, its quality metrics: metric -> score path).
+# A benchmark without a registration has no submission definition and is not exported.
+SUBMISSIONS: Registry[tuple[str, dict[str, tuple[str, str]]]] = Registry(
+    "Web Extract result submission")
+SUBMISSIONS.register("swde", ("lexbench-swde", {"pageMacroF1": ("page_hit_macro", "f1"),
+                                                "valueMicroF1": ("value_micro", "f1"),
+                                                "fieldSetExact": ("exact_field_sets", "rate")}))
+SUBMISSIONS.register("zyte", ("lexbench-zyte-product-extraction",
+                              {"priceF1": ("price", "f1"), "skuF1": ("sku", "f1"),
+                               "stockF1": ("availability", "f1"),
+                               "outOfStockF1": ("OutOfStock", "f1")}))
 PERCENT_METRICS = {"fieldSetExact"}
 # The call as the exporter reads it; ``passed`` is a delivered structured output and
 # an untimed call keeps a null elapsed time.
@@ -86,11 +88,13 @@ def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[s
                      else None)
     if contract["dataset_manifest_sha256"] != digest((home / "dataset/manifest.json").read_bytes()):
         raise ValueError("The prepared dataset differs from the one the run contract binds")
-    name = benchmark_config(home)["benchmark"].name
+    config = benchmark_config(home)
+    name = config["benchmark"].name
     if name not in SUBMISSIONS:
         raise ValueError(f"Benchmark {name} has no submission definition")
-    site_id, quality = SUBMISSIONS[name]
-    records = name != "zyte"
+    site_id, quality = SUBMISSIONS.get(name)
+    # A benchmark with a task adapter scores per-case records; the fixed-field one scores objects.
+    records = config["adapter"] is not None
     all_truth = read_json(home / "dataset/dataset/ground-truth.json")
     truth = {case_id: all_truth[case_id] for case_id in contract["case_ids"]}
     scored = validate_records([_scored(row) for row in _calls(run)], SCORED_RESULT,
