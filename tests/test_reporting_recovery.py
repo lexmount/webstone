@@ -1,4 +1,4 @@
-"""A simulated Artifact Site proves both tracks resume one committed release."""
+"""A simulated Yours service proves both tracks resume one committed release."""
 
 import json
 import urllib.request
@@ -72,7 +72,7 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
             interrupted = True
             raise OSError("simulated " + phase + " failure")
 
-    original_write = owner.atomic_write
+    from harness.reporting.publication import atomic_write as original_write
 
     def write(path, data):
         if path == files["ATTESTATION"]:
@@ -81,7 +81,7 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
             interrupt_once("receipt-write")
         original_write(path, data)
 
-    monkeypatch.setattr(owner, "atomic_write", write)
+    monkeypatch.setattr("harness.reporting.publish.atomic_write", write)
     monkeypatch.setattr("harness.reporting.publication.atomic_write", write)
 
     def observed_preview():
@@ -94,7 +94,7 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
 
     def request(*args, **kwargs):
         nonlocal version
-        values = args[1:] if track == "replay" else args
+        values = args[1:]
         path, *rest = values
         data = rest[0] if rest else kwargs.get("data")
         if path == "/api/sites" or "/versions?" in path:
@@ -125,8 +125,6 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
         raw = json.dumps(result).encode()
         return (200, raw, {}) if track == "replay" else (200, raw)
 
-    monkeypatch.setattr(owner, "request", request)
-
     class Response:
         status = 200
         headers = {}
@@ -149,11 +147,11 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
     monkeypatch.setattr(urllib.request, "build_opener", lambda *handlers: SimpleNamespace(open=urllib.request.urlopen))
     before = (files["PROFILE"].read_bytes(), files["ATTESTATION"].read_bytes())
     with pytest.raises((OSError, ValueError), match="simulated|remote version changed"):
-        owner.main(create=failure != "version-response")
+        owner.main(create=failure != "version-response", transport=request)
     if failure not in ("binding", "receipt-write"):
         assert (files["PROFILE"].read_bytes(), files["ATTESTATION"].read_bytes()) == before
     # Resume without requesting another site, including when the first response was lost.
-    owner.main(create=failure in ("binding", "receipt-write"))
+    owner.main(create=failure in ("binding", "receipt-write"), transport=request)
     assert len(uploads) == 1
     bound = json.loads(files["PROFILE"].read_bytes())["publication"]
     assert bound["site_slug"] == "site-1"
@@ -166,8 +164,8 @@ def test_retry_recovers_same_site_and_version(tmp_path, monkeypatch, track, fail
 def test_browser_multipart_is_identical_for_retries(tmp_path):
     archive = tmp_path / "package.zip"
     archive.write_bytes(b"fixed validated package")
-    first = autonomous.multipart_archive(archive=archive, title="Registry title")
-    assert first == autonomous.multipart_archive(archive=archive, title="Registry title")
+    first = autonomous.track().multipart("Registry title", archive)
+    assert first == autonomous.track().multipart("Registry title", archive)
 
 
 @pytest.mark.parametrize("same_release", [False, True])
@@ -237,6 +235,5 @@ def test_create_cannot_replace_an_existing_binding(tmp_path, monkeypatch, track)
     def unexpected(*args, **kwargs):
         raise AssertionError("a bound create must fail before remote calls")
 
-    monkeypatch.setattr(owner, "request", unexpected)
     with pytest.raises(ValueError, match="already bound"):
-        owner.main(create=True)
+        owner.main(create=True, transport=unexpected)

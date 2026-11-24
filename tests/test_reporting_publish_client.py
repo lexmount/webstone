@@ -146,9 +146,9 @@ def test_response_headers_are_returned_to_the_adapter(monkeypatch, wire):
 # Boundaries come from the implementations these adapters replaced: a retried in-flight
 # operation must keep replaying the same bytes.
 @pytest.mark.parametrize(('build', 'boundary', 'filename'), [
-    (lambda archive: browser_use.multipart_archive(archive=archive, title='标题'),
+    (lambda archive: browser_use.track().multipart('标题', archive),
      '----browseruseabf65d3350ce72216025275027825d1d', 'browser-use.zip'),
-    (lambda archive: replay.multipart_archive('标题', archive=archive),
+    (lambda archive: replay.track().multipart('标题', archive),
      '----trajectoryreplayabf65d3350ce72216025275027825d1d', 'browser-trajectory-replay.zip'),
     (lambda archive: publish.release_multipart(archive, '标题', 'digest', 'webfetch'),
      '----webfetch54b5c315cbb7bcef4c210295f009cf95', 'webfetch.zip'),
@@ -207,9 +207,9 @@ def test_tree_digests_keep_each_tracks_frozen_serialization(tmp_path):
 # The adapters below run their real publish path; only urlopen is faked.
 def test_browser_use_request_uses_the_authenticated_status_decoding_client(wire):
     agent = [BEARER, ('User-agent', 'Browser-Use-Report-Publisher/1.0')]
-    browser_use.request('/api/sites', b'{}', 'application/json', base_url=BASE,
-                        extra_headers={'Idempotency-Key': 'key'})
-    browser_use.request('/api/sites/one', b'{}', 'application/json', method='PATCH', base_url=BASE)
+    browser_use.CLIENT.request(BASE, '/api/sites', b'{}', 'application/json',
+                               extra_headers={'Idempotency-Key': 'key'})
+    browser_use.CLIENT.request(BASE, '/api/sites/one', b'{}', 'application/json', method='PATCH')
     assert sent(wire) == [
         ('POST', '/api/sites', [*agent, JSON_BODY, ('Idempotency-key', 'key')], 240),
         ('PATCH', '/api/sites/one', [*agent, JSON_BODY], 240),
@@ -219,10 +219,13 @@ def test_browser_use_request_uses_the_authenticated_status_decoding_client(wire)
 
 def test_replay_request_forwards_identity_key_and_public_access(wire):
     agent = ('User-agent', 'Trajectory-Replay-Artifact-Site-Publisher/1.0')
-    replay.request(BASE, '/api/sites', b'{}', 'application/json', extra_headers={'Idempotency-Key': 'key'})
-    replay.request(BASE, '/api/uploads/one/files/a', b'x', 'application/octet-stream', method='PUT')
-    replay.request(BASE, '/v/share', authenticated=False)
-    replay.request(BASE, '/api/preview/site', authenticated=False, extra_headers={'X-Artifact-Share': 'share'})
+    replay.CLIENT.request(BASE, '/api/sites', b'{}', 'application/json',
+                          extra_headers={'Idempotency-Key': 'key'})
+    replay.CLIENT.request(BASE, '/api/uploads/one/files/a', b'x', 'application/octet-stream',
+                          method='PUT')
+    replay.CLIENT.request(BASE, '/v/share', authenticated=False)
+    replay.CLIENT.request(BASE, '/api/preview/site', authenticated=False,
+                          extra_headers={'X-Artifact-Share': 'share'})
     assert sent(wire) == [
         ('POST', '/api/sites', [agent, BEARER, JSON_BODY, ('Idempotency-key', 'key')], 240),
         ('PUT', '/api/uploads/one/files/a', [agent, BEARER, FILE_BODY], 1_200),
@@ -289,7 +292,7 @@ def test_browser_use_publish_keeps_authenticated_and_public_share_requests_apart
     browser_use.main(create=True)
     agent = ('User-agent', 'Browser-Use-Report-Publisher/1.0')
     private = [BEARER, agent]
-    upload_type = browser_use.multipart_archive(archive=archive, title='Title')[1]
+    upload_type = browser_use.track().multipart('Title', archive)[1]
     assert sent(wire) == [
         ('POST', '/api/sites', [*private, ('Content-type', upload_type), ('Idempotency-key', mock.ANY)], 240),
         ('POST', '/api/sites/site-1/shares', [*private, JSON_BODY], 240),
@@ -308,7 +311,7 @@ def test_replay_publish_keeps_authenticated_and_public_share_requests_apart(tmp_
     replay.main(create=True)
     agent = ('User-agent', 'Trajectory-Replay-Artifact-Site-Publisher/1.0')
     private = [agent, BEARER]
-    upload_type = replay.multipart_archive('Title', archive=archive)[1]
+    upload_type = replay.track().multipart('Title', archive)[1]
     assert sent(wire) == [
         ('POST', '/api/sites', [*private, ('Content-type', upload_type), ('Idempotency-key', mock.ANY)], 240),
         ('POST', '/api/sites/site-1/shares', [*private, JSON_BODY], 240),
@@ -370,14 +373,14 @@ def test_bound_create_keeps_tokens_out_of_the_receipt_in_every_state(tmp_path, m
             states.append(owner.RECEIPT.read_bytes())
         return site(request)
 
-    bind = owner.bind_publication_files
+    bind = publish.bind_publication_files
 
     def observed_bind(*args, **kwargs):
         states.append(owner.RECEIPT.read_bytes())
         return bind(*args, **kwargs)
 
     wire.respond = respond
-    monkeypatch.setattr(owner, 'bind_publication_files', observed_bind)
+    monkeypatch.setattr(publish, 'bind_publication_files', observed_bind)
     owner.main(create=True)
     states.append(owner.RECEIPT.read_bytes())
     pending, binding, final = map(json.loads, states)

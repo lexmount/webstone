@@ -18,8 +18,12 @@ from harness.environments.webarena.topology import configured_site_secrets, know
 from harness.record_io import file_sha256, read_json
 from harness.reporting.privacy import PRIVATE_IPV4, PUBLIC_WEBARENA
 from harness.reporting.publication import PublicationClient, archive_inventory
-from harness.reporting.publication_target import publication_document, require_publication_version
-from harness.reporting.publish import ReceiptRelease, publish_receipt_release
+from harness.reporting.publication_target import (
+    PublicationTarget,
+    publication_document,
+    require_publication_version,
+)
+from harness.reporting.publish import ReceiptRelease, publish
 from harness.safety import unlinked_path
 from harness.trajectory_replay.public_webarena.config import (
     map_strings,
@@ -459,12 +463,11 @@ def publish_current(
         client=CLIENT,
         package_check=package_check,
         title=str(_read_json(profile).get("title") or "WebArena 轨迹重放"),
-        mode="reuse" if resume and not journal.exists() else "update",
-        base_url=base_url,
-        expected_version=expected_version,
+        target=PublicationTarget(base_url=base_url, expected_version=expected_version),
         inputs=(attestation,),
     )
-    result = publish_receipt_release(config, transport=transport)
+    mode = "reuse" if resume and not journal.exists() else "update"
+    result = publish(config, mode, transport=transport)
     return {"slug": result["slug"], "version": result["versionId"], "url": result["url"]}
 
 

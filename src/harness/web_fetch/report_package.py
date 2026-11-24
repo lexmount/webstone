@@ -492,7 +492,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
     (destination / "loader.js").write_bytes(
         (Path(__file__).parent / "assets/report-loader.js").read_bytes()
     )
-    # Artifact Site serves each committed version under an immutable signed base URL.
+    # Yours serves each committed version under an immutable signed base URL.
     # Its signed preview route resolves exact file names but rejects cache-busting
     # query strings on subresources, so the shell must reference the three physical
     # assets without ``?v=...``. The versioned base already provides cache isolation.
@@ -540,7 +540,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
             }
         )
     )
-    # Artifact Site publishes large bundles through staged per-file uploads.
+    # Yours publishes large bundles through staged per-file uploads.
     # Its documented total limit is 300 MB, not the former local 50 MB budget.
     if total > 300*1024*1024:
         compact = destination.parent/'compact'

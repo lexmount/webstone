@@ -9,7 +9,8 @@ import pytest
 
 from harness.record_io import json_bytes
 from harness.reporting.publication import PublicationClient
-from harness.reporting.publish import StagedUpdate, publish_staged_update
+from harness.reporting.publication_target import PublicationTarget
+from harness.reporting.publish import StagedUpdate, publish
 
 
 def release(tmp_path, names=None):
@@ -22,10 +23,8 @@ def release(tmp_path, names=None):
         label="Example",
         prefix="example",
         client=PublicationClient("Example"),
-        base="https://reports.example",
-        slug="existing",
-        expected_version="ver_before",
-        share_path="/s/existing",
+        target=PublicationTarget(base_url="https://reports.example", site="existing",
+                                 expected_version="ver_before"),
         title="Frozen report",
         archive=archive,
         archive_sha256=hashlib.sha256(archive.read_bytes()).hexdigest(),
@@ -81,7 +80,7 @@ class Service:
 def test_small_many_file_report_uses_one_bound_zip_request(tmp_path):
     update, bound = release(tmp_path)
     service = Service(update)
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert len(service.uploads) == 1
     assert not any(path.startswith("/api/uploads") for path, _ in service.calls)
     assert bound == ["ver_after"]
@@ -103,7 +102,7 @@ def test_export_rate_limit_retries_verification_without_republishing(tmp_path, m
         return service(path, *args, **kwargs)
 
     monkeypatch.setattr("harness.reporting.publish.time.sleep", delays.append)
-    assert publish_staged_update(update, transport=limited) == "ver_after"
+    assert publish(update, transport=limited) == "ver_after"
     assert len(attempts) == 3 and delays == [30, 30]
     assert len(service.uploads) == 1 and bound == ["ver_after"]
 
@@ -121,10 +120,10 @@ def test_persistent_export_limit_preserves_committed_version_for_read_only_resum
 
     monkeypatch.setattr("harness.reporting.publish.time.sleep", delays.append)
     with pytest.raises(HTTPError):
-        publish_staged_update(update, transport=limited)
+        publish(update, transport=limited)
     assert len(attempts) == 4 and delays == [30, 30, 30]
     assert len(service.uploads) == 1 and not bound
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert len(service.uploads) == 1 and bound == ["ver_after"]
 
 
@@ -142,7 +141,7 @@ def test_non_idempotent_write_rate_limit_is_not_retried_by_read_policy(tmp_path,
     monkeypatch.setattr("harness.reporting.publish.time.sleep",
                         lambda _: pytest.fail("Retried a publication write"))
     with pytest.raises(HTTPError):
-        publish_staged_update(update, transport=limited)
+        publish(update, transport=limited)
     assert len(attempts) == 1 and not bound
 
 
@@ -153,7 +152,7 @@ def test_verified_host_limit_can_avoid_unnecessary_per_file_uploads(tmp_path, mo
     update, bound = release(tmp_path)
     update = replace(update, inline_limit_bytes=update.archive.stat().st_size)
     service = Service(update)
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert len(service.uploads) == 1
     assert bound == ["ver_after"]
 
@@ -166,7 +165,7 @@ def test_invalid_host_limit_fails_before_remote_work(tmp_path, limit):
     update = replace(update, inline_limit_bytes=limit)
     service = Service(update)
     with pytest.raises(ValueError, match="positive byte count"):
-        publish_staged_update(update, transport=service)
+        publish(update, transport=service)
     assert not service.calls and not bound
 
 
@@ -174,9 +173,9 @@ def test_lost_inline_reply_recovers_same_operation_without_another_write(tmp_pat
     update, bound = release(tmp_path)
     service = Service(update, lose_reply=True)
     with pytest.raises(URLError):
-        publish_staged_update(update, transport=service)
+        publish(update, transport=service)
     assert not bound
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert len(service.uploads) == 1
     assert bound == ["ver_after"]
 
@@ -186,10 +185,10 @@ def test_inline_update_keeps_export_verification_and_resume(tmp_path):
     service = Service(update)
     service.bad_export = True
     with pytest.raises(zipfile.BadZipFile):
-        publish_staged_update(update, transport=service)
+        publish(update, transport=service)
     assert not bound
     service.bad_export = False
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert len(service.uploads) == 1
 
 
@@ -198,7 +197,7 @@ def test_invalid_archive_is_rejected_before_any_external_write(tmp_path, names):
     update, bound = release(tmp_path, names)
     service = Service(update)
     with pytest.raises(ValueError):
-        publish_staged_update(update, transport=service)
+        publish(update, transport=service)
     assert not service.calls
     assert not bound
 
@@ -230,6 +229,6 @@ def test_large_and_already_staged_updates_keep_file_resume(tmp_path, monkeypatch
         return json.dumps({"slug": slug, "versionId": service.version}).encode()
 
     monkeypatch.setattr(owner, "upload_large_archive", staged)
-    assert publish_staged_update(update, transport=service) == "ver_after"
+    assert publish(update, transport=service) == "ver_after"
     assert not service.uploads
     assert bound == ["ver_after"]

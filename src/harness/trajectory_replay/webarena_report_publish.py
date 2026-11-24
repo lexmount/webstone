@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or atomically update the current replay report on Artifact Site."""
+"""Create or atomically update the current replay report on Yours."""
 
 from __future__ import annotations
 
@@ -8,15 +8,8 @@ import json
 from pathlib import Path
 
 from harness.record_io import file_sha256
-from harness.reporting.publication import (
-    PublicationClient,
-    PublicationSnapshot,
-    atomic_write,
-    bind_publication_files,
-    recover_binding,
-)
-from harness.reporting.publication import multipart_archive as build_multipart_archive
-from harness.reporting.publish import BoundTrack, publish_bound_release
+from harness.reporting.publication import PublicationClient
+from harness.reporting.publish import BoundTrack, publish
 from harness.reporting.visual import tree_sha256 as _tree_sha256
 from harness.trajectory_replay.report_inputs import bound_dataset_path
 
@@ -40,44 +33,12 @@ CLIENT = PublicationClient(
 )
 
 
-def recover_publication_binding() -> None:
-    recover_binding(
-        PROFILE,
-        ATTESTATION,
-        BINDING_JOURNAL,
-        schema="lex_webarena_replay_publication_binding/2",
-        legacy_schema="lex_webarena_replay_publication_binding/1",
-        writer=atomic_write,
-    )
-
-
 def tree_sha256(root: Path) -> str:
     return _tree_sha256(root, framed_paths=False)
 
 
-def request(
-    base: str,
-    path: str,
-    data: bytes | None = None,
-    content_type: str | None = None,
-    *,
-    method: str | None = None,
-    authenticated: bool = True,
-    extra_headers: dict[str, str] | None = None,
-) -> tuple[int, bytes, dict[str, str]]:
-    return CLIENT.request(
-        base,
-        path,
-        data,
-        content_type,
-        method=method,
-        authenticated=authenticated,
-        extra_headers=extra_headers,
-    )
-
-
 def validate_package() -> dict:
-    recover_publication_binding()
+    track().recover_binding()
     if not ARCHIVE.is_file() or not ATTESTATION.is_file():
         raise ValueError("missing validated replay package or attestation")
     attestation = json.loads(ATTESTATION.read_text(encoding="utf-8"))
@@ -130,47 +91,9 @@ def validate_package() -> dict:
     return attestation
 
 
-def multipart_archive(title: str, *, archive: Path | None = None) -> tuple[bytes, str]:
-    archive = archive if archive is not None else ARCHIVE
-    return build_multipart_archive(
-        archive,
-        title,
-        boundary_prefix="----trajectoryreplay",
-        filename="browser-trajectory-replay.zip",
-    )
-
-
 def preview_has_report_marker(body: bytes) -> bool:
     text = body.decode("utf-8", errors="replace")
     return any(marker in text for marker in PUBLIC_REPORT_MARKERS)
-
-
-def bind_publication(
-    profile: dict,
-    *,
-    slug: str,
-    share_url: str,
-    version: str,
-    release: PublicationSnapshot | None = None,
-) -> None:
-    if not version.startswith("ver_"):
-        raise ValueError("publication response omitted a valid version id")
-    if json.loads(PROFILE.read_bytes()) != profile:
-        raise ValueError("publication profile changed before binding")
-    bind_publication_files(
-        PROFILE,
-        ATTESTATION,
-        BINDING_JOURNAL,
-        publication={
-            "site_slug": slug,
-            "share_url": share_url,
-            "expected_version": version,
-            "state": "verified",
-        },
-        schema="lex_webarena_replay_publication_binding/2",
-        expected=release.sources if release is not None else None,
-        writer=atomic_write,
-    )
 
 
 def check_preview(status: int, body: bytes) -> None:
@@ -178,34 +101,36 @@ def check_preview(status: int, body: bytes) -> None:
         raise RuntimeError("deployed preview is unavailable or missing report marker")
 
 
-def main(*, create: bool) -> None:
+def track() -> BoundTrack:
+    return BoundTrack(
+        label="replay",
+        default_title="Browser Trajectory Replay",
+        archive=ARCHIVE,
+        attestation=ATTESTATION,
+        profile=PROFILE,
+        receipt=RECEIPT,
+        operation_journal=OPERATION_JOURNAL,
+        binding_journal=BINDING_JOURNAL,
+        inputs=(ATTESTATION, PROFILE, REVIEW),
+        operation_prefix="trajectory-replay-",
+        operation_schema="lex_webarena_replay_artifact_operation/1",
+        binding_schema="lex_webarena_replay_publication_binding/2",
+        legacy_binding_schema="lex_webarena_replay_publication_binding/1",
+        binding_state="verified",
+        version_field="version",
+        client=CLIENT,
+        upload_boundary="----trajectoryreplay",
+        upload_filename="browser-trajectory-replay.zip",
+        validate_package=validate_package,
+        check_preview=check_preview,
+        staged_key_prefix="trajectory-staged-",
+    )
+
+
+def main(*, create: bool, transport=None) -> None:
     if PROFILE is None:
         raise ValueError("Select an external report instance with --profile")
-    publish_bound_release(
-        BoundTrack(
-            label="replay",
-            default_title="Browser Trajectory Replay",
-            archive=ARCHIVE,
-            profile=PROFILE,
-            receipt=RECEIPT,
-            operation_journal=OPERATION_JOURNAL,
-            inputs=(ATTESTATION, PROFILE, REVIEW),
-            operation_prefix="trajectory-replay-",
-            operation_schema="lex_webarena_replay_artifact_operation/1",
-            version_field="version",
-            request=request,
-            public_request=lambda base, path, **kwargs: request(
-                base, path, authenticated=False, **kwargs
-            ),
-            multipart=lambda title, archive: multipart_archive(title, archive=archive),
-            validate_package=validate_package,
-            check_preview=check_preview,
-            recover_binding=recover_publication_binding,
-            bind=bind_publication,
-            staged_key_prefix="trajectory-staged-",
-        ),
-        create=create,
-    )
+    publish(track(), "create" if create else "update", transport=transport)
 
 
 def cli() -> None:

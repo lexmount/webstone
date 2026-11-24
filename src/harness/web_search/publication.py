@@ -1,4 +1,4 @@
-"""Freeze and verify the next release before updating its existing Artifact Site."""
+"""Freeze and verify the next release before updating its existing Yours site."""
 
 import argparse
 import json
@@ -11,7 +11,9 @@ from harness.data_home import data_home
 from harness.distribution import repository_root
 from harness.record_io import bytes_sha256
 from harness.reporting.publication import PublicationClient, package_archive
-from harness.reporting.publish import ReceiptRelease, publish_receipt_release
+from harness.reporting.publication_target import PublicationTarget, read_target
+from harness.reporting.publish import ReceiptRelease
+from harness.reporting.publish import publish as publish_release
 from harness.web_search import delivery as report_delivery
 from harness.web_search import profiles
 from harness.web_search import report as search_report
@@ -163,13 +165,13 @@ def publish(report, work, *, transport=None):
     if completed.get("archive_sha256") == plan["archive_sha256"] and completed.get("publication_pending") is False and completed.get("versionId") != target["versionId"]:
         result = completed
     else:
-        result = publish_receipt_release(
+        result = publish_release(
             ReceiptRelease(authority, work / "report.zip", work / "delivery", receipt_file,
                            work / "operation-pending.json", namespace="search", upload_name=UPLOAD_NAME, client=CLIENT,
                            package_check=package_check, title=plan.get("title", "Search API evaluation"),
-                           mode="update", visibility=target["visibility"],
+                           target=PublicationTarget(visibility=read_target(target).visibility),
                            inputs=(work / "publication-plan.json", work / "inputs")),
-            transport=transport,
+            "update", transport=transport,
         )
     updated = dict(target, previous_version=target["versionId"], versionId=result["versionId"], published_at=datetime.now(UTC).isoformat(), code_commit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT).decode().strip())
     # Keep the exact planned files immutable after activation, then bind their new paths.

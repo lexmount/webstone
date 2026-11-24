@@ -1,8 +1,65 @@
-"""Exact release-target validation against the bound publication profile."""
+"""The publication target every track uses, and its validation against the bound profile."""
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
+
+VISIBILITIES = (None, "private", "unlisted", "public")
+
+
+@dataclass(frozen=True)
+class PublicationTarget:
+    """Where a release goes on Yours and how it is shared.
+
+    ``visibility`` ``None`` keeps the site's current access; ``share_url`` is the
+    public link a track already holds, if any.
+    """
+
+    base_url: str | None = None
+    site: str | None = None
+    expected_version: str | None = None
+    visibility: str | None = None
+    share_url: str | None = None
+    title: str | None = None
+
+    def __post_init__(self):
+        if self.visibility not in VISIBILITIES:
+            raise ValueError("Unknown publication visibility")
+
+
+def read_target(document: dict) -> PublicationTarget:
+    """Read any stored target format into the one target schema.
+
+    Stored formats are hash-bound by certificates and receipts, so each keeps its
+    own keys: flat ``artifact_hub_*`` profiles, a nested ``publication`` object,
+    and flat ``host``/``slug`` or ``base_url``/``slug`` target files.
+    """
+    if not isinstance(document, dict):
+        raise ValueError("Publication target must be a JSON object")
+    nested = document.get("publication")
+    if "artifact_hub_base_url" not in document and isinstance(nested, dict):
+        return PublicationTarget(
+            base_url=nested.get("base_url"), site=nested.get("site_slug") or None,
+            expected_version=nested.get("expected_version") or nested.get("version_id") or None,
+            visibility=nested.get("visibility"), share_url=nested.get("share_url") or None,
+            title=nested.get("title"),
+        )
+    if "artifact_hub_base_url" in document:
+        return PublicationTarget(
+            base_url=document.get("artifact_hub_base_url"),
+            site=document.get("artifact_hub_site") or None,
+            expected_version=document.get("artifact_hub_expected_version") or None,
+            share_url=document.get("artifact_hub_share_url") or None,
+            title=document.get("title"),
+        )
+    return PublicationTarget(
+        base_url=document.get("host") or document.get("base_url"),
+        site=document.get("slug") or None,
+        expected_version=document.get("expected_version") or document.get("versionId") or None,
+        visibility=document.get("visibility"), share_url=document.get("url") or None,
+        title=document.get("title"),
+    )
 
 
 def publication_document(document: dict) -> dict:

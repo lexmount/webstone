@@ -10,7 +10,9 @@ from harness.reporting.publication import (
     archive_inventory,
     atomic_write,
 )
-from harness.reporting.publish import StagedUpdate, publish_staged_update
+from harness.reporting.publication_target import PublicationTarget
+from harness.reporting.publish import StagedUpdate
+from harness.reporting.publish import publish as publish_release
 from harness.web_extract.pipeline import (
     digest,
     read_json,
@@ -176,17 +178,15 @@ def publish(source, target, work, visual_receipt, *, transport=None, home=None):
         updated.pop("approved_profile_successor", None)
         atomic_write(target, json_bytes(updated))
 
-    version = publish_staged_update(
+    version = publish_release(
         StagedUpdate(
             allow_inline=True,
             inline_limit_bytes=bound.get("inline_limit_bytes"),
             label="Web Extract",
             prefix="web-extract",
             client=PublicationClient("Webstone-Web-Extract/1.0"),
-            base=bound["host"],
-            slug=bound["slug"],
-            expected_version=bound["expected_version"],
-            share_path="/s/" + bound["slug"],
+            target=PublicationTarget(base_url=bound["host"], site=bound["slug"],
+                                     expected_version=bound["expected_version"]),
             title=bound["title"],
             archive=archive,
             archive_sha256=proof["archive_sha256"],
@@ -200,7 +200,7 @@ def publish(source, target, work, visual_receipt, *, transport=None, home=None):
             guard=unchanged_target,
             bind=bind,
         ),
-        transport=transport,
+        "update", transport=transport,
     )
     return {
         "slug": bound["slug"],
