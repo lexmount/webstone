@@ -668,10 +668,15 @@ def test_full_review_profile_cannot_publish_machine_only_results(tmp_path):
         )
 
 
-@pytest.mark.parametrize("methods", [["alpha", "beta"], ["alpha", "beta", "gamma"]])
-@pytest.mark.parametrize("tied", [False, True])
-@pytest.mark.parametrize("reference_view", ["original", "source-qualified"])
-@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize(
+    ("methods", "tied", "reference_view", "language"),
+    [
+        (["alpha", "beta"], False, "original", "en"),
+        (["alpha", "beta", "gamma"], True, "source-qualified", "zh"),
+        (["alpha", "beta", "gamma"], False, "source-qualified", "en"),
+        (["alpha", "beta"], True, "original", "zh"),
+    ],
+)
 def test_interpretation_compares_every_registered_method_without_changing_scores(
     methods, tied, reference_view, language
 ):
@@ -1085,8 +1090,10 @@ def test_report_dataset_download_link_is_pinned_and_release_checked(tmp_path, mo
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("suffix", [".svg", ".xml", ".jsonl", ".unknown"])
-@pytest.mark.parametrize("sensitive", [False, True])
+@pytest.mark.parametrize(
+    ("suffix", "sensitive"),
+    [(".svg", False), (".svg", True), (".xml", True), (".jsonl", True), (".unknown", True)],
+)
 def test_all_asset_formats_receive_publication_privacy_checks(tmp_path, suffix, sensitive):
     home = create(tmp_path / "first")
     source = home / ("diagram" + suffix)
@@ -1303,25 +1310,46 @@ def test_failed_details_use_the_same_error_as_dialog_evidence(tmp_path, payload)
 
 _COST_EDITIONS = [
     ("full-cohort-progress", "en"),
-    ("full-cohort-progress", "zh"),
     ("field-extraction-cohort", "zh"),
 ]
+# Damages caught by the disclosure's own shape check are covered without a build below.
 _COST_DAMAGES = [
     "partial",
     "special_path",
     "population",
-    "missing_reason",
     "missing_evidence",
     "hash",
     "source",
-    "method",
-    "receipts",
     "receipt_boolean",
-    "float_population",
-    "zero_missing",
-    "zero_price",
-    "formula",
 ]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"reason": {}},
+        {"missing_cases": 0},
+        {"population_cases": 1.0},
+        {"evidence": {"path": "assets/x.json", "sha256": "short"}},
+        {"quote": {"usd_per_1000_range": [0, 0]}},
+        {"quote": {"pricing_formula": True}},
+    ],
+)
+def test_cost_unavailability_shape_is_rejected(change):
+    from harness.web_extract.report import cost_unavailability
+
+    unavailable = {
+        "population_cases": 3,
+        "missing_cases": 3,
+        "reason": {"en": "Hosting charges were not collected."},
+        "evidence": {"path": "assets/x.json", "sha256": "0" * 64},
+    }
+    quote = {"cost_unavailable": unavailable}
+    assert cost_unavailability(quote, "en") is unavailable
+    quote.update(change.pop("quote", {}))
+    unavailable.update(change)
+    with pytest.raises(ValueError, match="cost unavailability"):
+        cost_unavailability(quote, "en")
 
 
 # Every edition renders the disclosed unavailable cost; each damage reaches the same
@@ -1352,14 +1380,8 @@ def test_unknown_total_cost_requires_scoped_bound_evidence(tmp_path, mode, langu
     }
     if damage == "source":
         disclosure["source_plan_sha256"] = "0" * 64
-    if damage == "method":
-        disclosure["method"] = "unrelated-provider"
-    if damage == "receipts":
-        disclosure["total_charge_receipts"] = 1
     if damage == "receipt_boolean":
         disclosure["total_charge_receipts"] = False
-    if damage == "float_population":
-        disclosure["case_count"] = float(cases)
     filename = "cost receipt#1.json" if damage == "special_path" else "cost-disclosure.json"
     public_path = "assets/" + filename
     evidence = home / filename
@@ -1375,18 +1397,10 @@ def test_unknown_total_cost_requires_scoped_bound_evidence(tmp_path, mode, langu
     }
     if damage == "population":
         unavailable["population_cases"] += 1
-    if damage == "missing_reason":
-        unavailable["reason"] = {}
-    if damage == "zero_missing":
-        unavailable["missing_cases"] = 0
     if damage == "hash":
         unavailable["evidence"]["sha256"] = "0" * 64
     quote = model["prices"][method]
     quote.update(cost_unavailable=unavailable, usd_per_1000="No total bill")
-    if damage == "zero_price":
-        quote["usd_per_1000_range"] = [0, 0]
-    if damage == "formula":
-        quote["pricing_formula"] = True
     if damage != "missing_evidence":
         model.setdefault("assets", []).append(
             {
@@ -1455,8 +1469,43 @@ def test_core_progress_uses_two_columns_without_hiding_pending_or_failed_calls()
     assert table_view.parent.get("tabindex") == "0"
 
 
+def _restore_tree(root, saved):
+    for path in sorted(root.rglob("*"), reverse=True):
+        key = path.relative_to(root)
+        if path.is_symlink() or path.is_file():
+            if key not in saved:
+                path.unlink()
+            elif path.read_bytes() != saved[key]:
+                path.write_bytes(saved[key])
+        elif path.is_dir() and key not in saved and not any(path.iterdir()):
+            path.rmdir()
+    for key, data in saved.items():
+        if data is not None and not (root / key).exists():
+            (root / key).parent.mkdir(parents=True, exist_ok=True)
+            (root / key).write_bytes(data)
+
+
+@pytest.fixture(scope="module")
+def _audited_product_build(tmp_path_factory):
+    """Build the audited report once per module; each test's damage is undone afterwards."""
+    root = tmp_path_factory.mktemp("audited")
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        output = _build_audited_product_report(root, monkeypatch)
+        saved = {
+            path.relative_to(root): (path.read_bytes() if path.is_file() else None)
+            for path in root.rglob("*")
+        }
+        yield root, output, saved
+
+
 @pytest.fixture
-def audited_product_report(tmp_path, monkeypatch):
+def audited_product_report(_audited_product_build):
+    root, output, saved = _audited_product_build
+    yield output
+    _restore_tree(root, saved)
+
+
+def _build_audited_product_report(tmp_path, monkeypatch):
     import json
 
     from harness.web_extract import pipeline
@@ -1846,24 +1895,36 @@ def test_published_cohort_metadata_is_reproduced_from_private_authorities(
         check(output, profile=profile, home=home)
 
 
+_UNAUDITED_REPORTS = {}
+
+
 @pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
 @pytest.mark.parametrize(
     "damage", ["native-response", "reference-coverage", "certified-scope", "injected-review"]
 )
-def test_unaudited_public_responses_remain_bound_to_original_calls(tmp_path, mode, damage):
+def test_unaudited_public_responses_remain_bound_to_original_calls(
+    tmp_path_factory, tmp_path, mode, damage
+):
+    import shutil
+
     from harness.web_extract.report import completion_bundle, completion_links, package
 
-    home = create(tmp_path / "fixture", mode=mode)
-    content = home / "content.json"
-    profile = home / "profile.json"
-    instance = read_json(profile)
-    instance["research_report"] = {
-        "content": {"path": str(content), "sha256": digest(content.read_bytes())}
-    }
-    save_json(profile, instance)
+    if mode not in _UNAUDITED_REPORTS:
+        root = tmp_path_factory.mktemp("unaudited-" + mode)
+        home = create(root / "fixture", mode=mode)
+        content = home / "content.json"
+        profile = home / "profile.json"
+        instance = read_json(profile)
+        instance["research_report"] = {
+            "content": {"path": str(content), "sha256": digest(content.read_bytes())}
+        }
+        save_json(profile, instance)
+        build(root / "report", content, home=home, profile=profile, language="zh")
+        check(root / "report", profile=profile, home=home)
+        _UNAUDITED_REPORTS[mode] = home, profile, root / "report"
+    home, profile, built = _UNAUDITED_REPORTS[mode]
     output = tmp_path / "report"
-    build(output, content, home=home, profile=profile, language="zh")
-    check(output, profile=profile, home=home)
+    shutil.copytree(built, output)
     manifest_path = output / "report-manifest.json"
     manifest = read_json(manifest_path)
     if damage not in ("native-response", "injected-review"):

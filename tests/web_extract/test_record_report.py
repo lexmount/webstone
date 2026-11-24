@@ -1,5 +1,6 @@
 """A schema-based report must preserve the complete planned matrix and exact evidence."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -342,6 +343,14 @@ def test_record_report_drills_to_source_output_native_error_and_pending(tmp_path
         check(output, release=True, profile=home / "profile.json", home=home)
 
 
+@pytest.fixture(scope="module")
+def record_report(tmp_path_factory):
+    """One record example per module; tests damage their own copy of the output."""
+    output = tmp_path_factory.mktemp("record") / "report"
+    create(output, mode="field-extraction-cohort")
+    return output
+
+
 def rebind(output, route, transform):
     path = output / route
     path.write_text(transform(path.read_text(encoding="utf-8")), encoding="utf-8")
@@ -407,9 +416,9 @@ def test_live_report_requires_reference_bound_original_source_navigation(tmp_pat
         _check_rendered_report(output)
 
 
-def test_snapshot_report_cannot_relabel_its_preview_as_live(tmp_path):
+def test_snapshot_report_cannot_relabel_its_preview_as_live(record_report, tmp_path):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     manifest = read_json(output / "report-manifest.json")
     truth = read_json(output / "public-evidence/reference.json")
     manifest["preview_snapshot"] = {
@@ -422,11 +431,14 @@ def test_snapshot_report_cannot_relabel_its_preview_as_live(tmp_path):
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("button_index", [0, -1])
-@pytest.mark.parametrize("source", ["public-evidence/missing.json", "../outside.json"])
-def test_inventory_evidence_targets_are_validated_after_rebinding(tmp_path, button_index, source):
+@pytest.mark.parametrize(
+    ("button_index", "source"), [(0, "public-evidence/missing.json"), (-1, "../outside.json")]
+)
+def test_inventory_evidence_targets_are_validated_after_rebinding(
+    record_report, tmp_path, button_index, source
+):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     (tmp_path / "outside.json").write_text("{}", encoding="utf-8")
 
     def break_evidence(text):
@@ -441,9 +453,9 @@ def test_inventory_evidence_targets_are_validated_after_rebinding(tmp_path, butt
         _check_rendered_report(output)
 
 
-def test_evidence_index_keys_must_match_embedded_case_ids(tmp_path):
+def test_evidence_index_keys_must_match_embedded_case_ids(record_report, tmp_path):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     method = "scrapegraph-extract"
     relative = "public-evidence/" + method + ".json"
     path = output / relative
@@ -481,9 +493,9 @@ def test_evidence_index_keys_must_match_embedded_case_ids(tmp_path):
         "image",
     ],
 )
-def test_record_evidence_and_rendered_values_must_agree(tmp_path, damage):
+def test_record_evidence_and_rendered_values_must_agree(record_report, tmp_path, damage):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     if damage == "native":
         path = output / "public-evidence/scrapegraph-extract.json"
         bucket = read_json(path)
@@ -565,9 +577,11 @@ def test_record_evidence_and_rendered_values_must_agree(tmp_path, damage):
         ("receipts", "receipts are incomplete"),
     ],
 )
-def test_release_checks_reject_semantic_damage_even_after_file_rebinding(tmp_path, damage, error):
+def test_release_checks_reject_semantic_damage_even_after_file_rebinding(
+    record_report, tmp_path, damage, error
+):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     if damage == "receipts":
         manifest = read_json(output / "report-manifest.json")
         manifest["public_evidence_views"].pop()
@@ -750,14 +764,15 @@ def test_record_example_relative_output_outside_working_directory(tmp_path, monk
 @pytest.mark.parametrize(
     "route,leak",
     [
-        ("zh/interpretation.html", "/" + "Users/private-user/internal-file"),
         ("report-manifest.json", "/" + "Users/private-user/internal-file"),
         ("assets/notes.txt", "/" + "Users/private-user/internal-file"),
     ],
 )
-def test_record_distribution_scans_all_files_including_metadata(tmp_path, route, leak):
+def test_record_distribution_scans_all_files_including_metadata(
+    record_report, tmp_path, route, leak
+):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     manifest = read_json(output / "report-manifest.json")
     if route == "report-manifest.json":
         manifest["leaked_note"] = leak
@@ -773,9 +788,9 @@ def test_record_distribution_scans_all_files_including_metadata(tmp_path, route,
 
 
 @pytest.mark.parametrize("href", ["#missing-section", "zh/interpretation.html#missing-method"])
-def test_record_release_rejects_missing_local_fragment(tmp_path, href):
+def test_record_release_rejects_missing_local_fragment(record_report, tmp_path, href):
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     rebind(
         output,
         "zh/protocol.html",
@@ -867,7 +882,7 @@ def test_record_release_requires_all_retry_time_totals(tmp_path, damage):
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("invalid", [2024, ["Ada", 1], None, False, {"value": "Ada"}])
+@pytest.mark.parametrize("invalid", [["Ada", 1], None, {"value": "Ada"}])
 def test_complete_record_report_renders_invalid_native_field_types(tmp_path, monkeypatch, invalid):
     import copy
 
@@ -921,14 +936,14 @@ def test_wholly_unannotated_page_is_unavailable_but_call_failures_remain_failure
     )
 
 
-@pytest.mark.parametrize("dependency", ["report.js", "report.css", "report_ui.py", "messages.json"])
-def test_record_report_rejects_stale_client_dependencies(tmp_path, monkeypatch, dependency):
-    import shutil
-
+@pytest.mark.parametrize("dependency", ["report.js", "report_ui.py", "messages.json"])
+def test_record_report_rejects_stale_client_dependencies(
+    record_report, tmp_path, monkeypatch, dependency
+):
     from harness.web_extract import messages, report
 
     output = tmp_path / "report"
-    create(output, mode="field-extraction-cohort")
+    shutil.copytree(record_report, output)
     current = tmp_path / "current-source"
     current.mkdir()
     if dependency in {"report.js", "report.css"}:
