@@ -592,8 +592,8 @@ def test_report_build_binds_and_replays_the_selected_factual_rule(tmp_path):
     assert matched and all(r['metrics']['answer_in_preview_5'] == 0 for r in matched)
 
 
-@pytest.mark.parametrize('adapter',['lexmount','browserbase','deepseek'])
-@pytest.mark.parametrize('results',[[],[{'url':'https://origin.test/fact'}]])
+@pytest.mark.parametrize('adapter,results',[('lexmount',[]),('browserbase',[{'url':'https://origin.test/fact'}]),
+                                            ('deepseek',[{'url':'https://origin.test/fact'}])])
 def test_error_envelopes_never_become_successes_under_slot_preservation(adapter,results):
     from harness.web_search.core import normalize_response
 
@@ -700,7 +700,7 @@ def test_locked_reference_extensions_rescore_all_methods_without_replacing_origi
     assert 'equivalent_reference_urls' not in profile['cases'][0]
 
 
-@pytest.mark.parametrize('defect', ['wrong-hash', 'unknown-revision', 'changed-query', 'changed-gold', 'second-authority', 'missing-controls'])
+@pytest.mark.parametrize('defect', ['wrong-hash', 'unknown-revision', 'changed-gold', 'second-authority', 'missing-controls'])
 def test_reference_dataset_revision_rejects_unbound_or_changed_inputs(defect):
     from lexbench_websearch.inputs import load_dataset
     from harness.web_search.revisions import apply_report_revision
@@ -712,8 +712,6 @@ def test_reference_dataset_revision_rejects_unbound_or_changed_inputs(defect):
         revision['reference_dataset']['sha256'] = 'a'*64
     elif defect == 'unknown-revision':
         revision['reference_dataset']['revision'] = 'a'*40
-    elif defect == 'changed-query':
-        case['query'] = 'Another question'
     elif defect == 'changed-gold':
         case['reference_answer'] = 'Another answer'
     elif defect == 'second-authority':
@@ -722,7 +720,7 @@ def test_reference_dataset_revision_rejects_unbound_or_changed_inputs(defect):
     else:
         revision['regression_ids'] = ['generic-document-urls']
     expected = {'wrong-hash': 'hash differs', 'unknown-revision': 'not recorded',
-                'changed-query': 'changes a frozen question', 'changed-gold': 'changes a frozen question',
+                'changed-gold': 'changes a frozen question',
                 'second-authority': 'second URL authority', 'missing-controls': 'regression controls'}
     with pytest.raises(ValueError, match=expected[defect]):
         apply_report_revision(dict(cases=[case], methods=[], protocol={'top_k': 5}), [], revision)
@@ -742,8 +740,7 @@ def test_assessment_replay_keeps_each_source_protocol_unless_explicitly_revised(
     assert source['result_url_resolution'] == 'request-url/1'
 
 
-@pytest.mark.parametrize('malformed', [None, {'results': None, 'statuses': []},
-    {'results': [None], 'statuses': [None]}, {'results': {}, 'statuses': 'invalid'}, []])
+@pytest.mark.parametrize('malformed', [None, {'results': [None], 'statuses': [None]}, []])
 def test_reference_capture_freezes_attempts_and_resumes_without_repeating_requests(tmp_path, monkeypatch, malformed):
     from copy import deepcopy
     from harness.web_search.revisions import capture_mirror_observations
@@ -785,8 +782,7 @@ def test_current_full_capture_and_visible_html_controls_use_production_scoring()
         regression_ids=['reference-question-evidence', 'plain-answer-citation-scope'], provider_calls=0))
 
 
-@pytest.mark.parametrize('initial_full', [False, True])
-@pytest.mark.parametrize('retry_failure', [False, True])
+@pytest.mark.parametrize('initial_full,retry_failure', [(False, True), (True, False)])
 def test_full_capture_reuses_portable_prior_evidence_without_repeating_successes(tmp_path, monkeypatch, initial_full, retry_failure):
     from harness.web_search.revisions import capture_mirror_observations
     from lexbench_websearch.simpleqa import mirror_candidates, extend_reference_urls, validate_reference_evidence

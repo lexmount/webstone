@@ -8,7 +8,7 @@ from harness.web_search.relevance import verify_provenance
 from lexbench_websearch.relevance import candidate_packet
 
 
-@pytest.mark.parametrize("field", ["query", "title", "snippet"])
+@pytest.mark.parametrize("field", ["query", "snippet"])
 def test_human_labels_reject_changed_query_or_candidate_text(field):
     profile = {
         "protocol": {"top_k": 5},

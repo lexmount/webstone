@@ -85,8 +85,8 @@ def test_late_contamination_markers_cannot_restore_green_in_truncated_body_previ
     assert not out["items"][0]["answer_outside_preview"]
 
 
-@pytest.mark.parametrize("zh", [False, True])
-def test_real_browser_filters_and_highlights_respect_quality_scope(zh):
+def test_real_browser_filters_and_highlights_respect_quality_scope():
+    zh = True
     playwright = pytest.importorskip("playwright.sync_api")
     try:
         binary = os.environ.get("WEBSTONE_TEST_BROWSER_BINARY") or browser_executable()

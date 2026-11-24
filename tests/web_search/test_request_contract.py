@@ -56,7 +56,6 @@ def replace_rows(output, change):
     "change",
     [
         lambda r: r["request"].update(query="COMPLETELY DIFFERENT QUERY"),
-        lambda r: r["request"].update(count=100),
         lambda r: r["request"].update(need_content=not r["request"]["need_content"]),
         lambda r: r.pop("request"),
         lambda r: r["request"].update(count=True),

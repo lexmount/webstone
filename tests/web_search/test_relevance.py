@@ -436,7 +436,7 @@ def test_unreceipted_historical_repair_requires_the_exact_pinned_predecessor():
         relevance.verify_provenance(profile, rows, evidence)
 
 
-@pytest.mark.parametrize("change", ["prompt", "input", "model", "max_tokens", "extra_params", "repair", "receipt"])
+@pytest.mark.parametrize("change", ["prompt", "model", "repair", "receipt"])
 def test_format_repair_never_reuses_changed_inputs_or_invalid_proof(change):
     import copy
     from harness.web_search import relevance

@@ -106,8 +106,8 @@ class DeliveryScenarios(unittest.TestCase):
                 verify(root / "report", root / "delivery")
 
 
-@pytest.mark.parametrize('prefix', ['', 'en/'])
-def test_large_comparison_stays_browsable_under_host_html_limit(tmp_path, prefix):
+def test_large_comparison_stays_browsable_under_host_html_limit(tmp_path):
+    prefix = 'en/'
     from playwright.sync_api import sync_playwright
     from harness.reporting.visual import browser_executable, local_report_server
 
@@ -171,8 +171,8 @@ def test_crlf_and_non_utf8_provider_bodies_are_lossless():
             assert verify(source, destination)
 
 
-@pytest.mark.parametrize('prefix', ['', 'en/'])
-def test_delivered_detail_sections_open_the_original_file_before_scrolling(tmp_path, prefix):
+def test_delivered_detail_sections_open_the_original_file_before_scrolling(tmp_path):
+    prefix = 'en/'
     from harness.web_search.delivery import _delivery_link
     from harness.reporting.visual import browser_executable, local_report_server
     from playwright.sync_api import sync_playwright

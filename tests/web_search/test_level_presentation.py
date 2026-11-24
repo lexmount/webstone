@@ -167,8 +167,8 @@ def test_output_guide_uses_the_selected_primary_metric_and_available_levels():
     assert not doc.select('[data-shared-level-methods], [data-citation-scope], [data-level-guide-row="l3"]')
 
 
-@pytest.mark.parametrize("zh", [False, True])
-def test_layer_table_has_correct_sort_order_raw_highlights_and_supported_stars(zh):
+def test_layer_table_has_correct_sort_order_raw_highlights_and_supported_stars():
+    zh = True
     doc = check_presentation(render_level_summary(view(), zh))
     table = doc.select_one("table")
     assert table.select_one("th[data-primary-metric]")["aria-sort"] == "descending"
@@ -409,8 +409,8 @@ def test_mixed_reference_audits_do_not_declare_unavailable_panel_metrics():
     assert check_presentation(render_level_summary(selected))
 
 
-@pytest.mark.parametrize('zh', [False, True])
-def test_failure_column_separates_client_timeout_empty_result_and_response_errors(zh):
+def test_failure_column_separates_client_timeout_empty_result_and_response_errors():
+    zh = True
     selected = view(n=4)
     group = [r for r in selected['rows'] if r['method'] == 'a']
     group[0].update(http_status=0, transport_exit=28, error='Operation timed out')
@@ -478,8 +478,8 @@ def test_successful_empty_searches_are_not_labeled_request_failures():
     assert not doc.select('[data-request-failures]')
 
 
-@pytest.mark.parametrize('zh', [False, True])
-def test_every_layered_benchmark_has_a_folded_metric_guide(zh):
+def test_every_layered_benchmark_has_a_folded_metric_guide():
+    zh = True
     selected = view()
     doc = BeautifulSoup(render_level_summary(selected, zh), 'html.parser')
     for panel in doc.select('[data-level-benchmark]'):

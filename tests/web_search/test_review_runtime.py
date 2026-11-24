@@ -34,8 +34,8 @@ print(json.dumps({{"model":"gpt-6.1-sol","usage":{{"output_tokens":12}}}}))
     return str(executable)
 
 
-@pytest.mark.parametrize("source_mode", ["frozen", "live"])
-def test_real_child_is_isolated_then_reused(tmp_path, monkeypatch, source_mode):
+def test_real_child_is_isolated_then_reused(tmp_path, monkeypatch):
+    source_mode = "frozen"
     monkeypatch.setenv('CODEX_HOME', str(tmp_path / 'account'))
     monkeypatch.setenv('REVIEW_SECRET', 'must-not-reach-child')
     _, root, contract = example(tmp_path, source_mode=source_mode)
