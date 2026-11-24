@@ -9,11 +9,10 @@ import pytest
 from harness.benchmarks.publication import DatasetRelease
 
 
-def test_dataset_version_survives_a_hub_rebuild(tmp_path):
+def test_dataset_version_survives_a_hub_rebuild(tmp_path, websearch):
     from dataclasses import replace
 
-    root, revision, _ = checkout(tmp_path, 'websearch')
-    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.2.0')
+    release = replace(websearch[2], dataset_version='1.2.0')
     output = tmp_path / 'versioned'
     assert release.build(output)['edition']['version'] == '1.2.0'
     assert 'v1.2.0' in (output / 'README.md').read_text(encoding='utf-8')
@@ -29,25 +28,24 @@ def test_dataset_version_survives_a_hub_rebuild(tmp_path):
     assert (tmp_path / 'rebuilt/VERSIONING.md').read_text(encoding='utf-8') == 'Committed release policy.\n'
 
 
-def test_version_is_visible_on_a_card_without_subheadings(tmp_path):
+def test_version_is_visible_on_a_card_without_subheadings(tmp_path, websearch):
     from dataclasses import replace
 
-    root, revision, _ = checkout(tmp_path, 'websearch')
     release = replace(
-        DatasetRelease.from_git(root, 'websearch', revision), dataset_version='1.0.0',
+        websearch[2], dataset_version='1.0.0',
         card_body='# Custom benchmark\n\nOriginal description.')
     release.build(tmp_path / 'release')
     assert 'v1.0.0' in (tmp_path / 'release/README.md').read_text(encoding='utf-8')
 
 
 @pytest.mark.parametrize('version', [None, '1.0.0'])
-def test_new_proposals_require_an_unused_explicit_version(tmp_path, monkeypatch, version):
+def test_new_proposals_require_an_unused_explicit_version(tmp_path, monkeypatch, version, websearch):
     import sys
     from types import SimpleNamespace
 
     from harness.benchmarks import publication
 
-    root, revision, _ = checkout(tmp_path, 'websearch')
+    root, revision, _ = websearch
 
     class Api:
         def list_repo_refs(self, *args, **kwargs):
@@ -63,14 +61,13 @@ def test_new_proposals_require_an_unused_explicit_version(tmp_path, monkeypatch,
         publication.main()
 
 
-@pytest.mark.parametrize('version', ['v1.0.0', '1.0', '01.2.3', 'main', ''])
-def test_dataset_release_rejects_invalid_version_labels(tmp_path, version):
+def test_dataset_release_rejects_invalid_version_labels(tmp_path, websearch):
     from dataclasses import replace
 
-    root, revision, _ = checkout(tmp_path, 'websearch')
-    release = replace(DatasetRelease.from_git(root, 'websearch', revision), dataset_version=version)
-    with pytest.raises(ValueError, match='dataset version'):
-        release.build(tmp_path / 'invalid')
+    for version in ['v1.0.0', '1.0', '01.2.3', 'main', '']:
+        release = replace(websearch[2], dataset_version=version)
+        with pytest.raises(ValueError, match='dataset version'):
+            release.build(tmp_path / 'invalid')
 
 
 def git(checkout, *args):
@@ -110,6 +107,13 @@ def checkout(tmp_path, track, defect=None):
     return root, git(root, "rev-parse", "HEAD"), cases
 
 
+@pytest.fixture(scope="module")
+def websearch(tmp_path_factory):
+    """One read-only committed Web Search checkout and its release, shared by the module."""
+    root, revision, _ = checkout(tmp_path_factory.mktemp("websearch"), "websearch")
+    return root, revision, DatasetRelease.from_git(root, "websearch", revision)
+
+
 @pytest.mark.parametrize("track", ["webfetch", "websearch"])
 def test_release_preserves_tasks_not_working_tree_or_private_files(tmp_path, track):
     root, revision, cases = checkout(tmp_path, track)
@@ -141,19 +145,17 @@ def test_invalid_release_is_rejected(tmp_path, track, defect):
         DatasetRelease.from_git(root, track, revision).build(tmp_path / "release")
 
 
-def test_release_requires_commit_and_empty_destination(tmp_path):
-    root, revision, _ = checkout(tmp_path, "websearch")
+def test_release_requires_commit_and_empty_destination(tmp_path, websearch):
+    root, _, release = websearch
     with pytest.raises(ValueError, match="full Git commit"):
         DatasetRelease.from_git(root, "websearch", "main")
-    release = DatasetRelease.from_git(root, "websearch", revision)
     release.build(tmp_path / "release")
     with pytest.raises(ValueError, match="empty"):
         release.build(tmp_path / "release")
 
 
-def test_jsonl_derivative_retains_upstream_identifiers_and_source(tmp_path):
-    root, revision, _ = checkout(tmp_path, "websearch")
-    release = DatasetRelease.from_git(root, "websearch", revision)
+def test_jsonl_derivative_retains_upstream_identifiers_and_source(tmp_path, websearch):
+    _, revision, release = websearch
     records = [{"track_id": "upstream-1", "url": "https://example.org", "html": "<main>Content</main>",
                 "groundtruth_content": "Content"}]
     raw = b"".join((json.dumps(row) + "\n").encode() for row in records)
@@ -174,15 +176,14 @@ def test_jsonl_derivative_retains_upstream_identifiers_and_source(tmp_path):
 @pytest.mark.parametrize("missing", ["yaml", "card"])
 @pytest.mark.parametrize("existing_empty", [False, True])
 def test_build_prerequisites_fail_before_output_and_allow_retry(
-    tmp_path, monkeypatch, missing, existing_empty
+    tmp_path, monkeypatch, missing, existing_empty, websearch
 ):
     import builtins
     from pathlib import Path
 
     from harness.benchmarks import publication
 
-    root, revision, _ = checkout(tmp_path, "websearch")
-    release = DatasetRelease.from_git(root, "websearch", revision)
+    release = websearch[2]
     output = tmp_path / "release"
     if existing_empty:
         output.mkdir()
@@ -256,11 +257,10 @@ assert json.loads(viewer['task'])['query'] == '\u68c0\u7d22 caf\u00e9'
     assert result.returncode == 0, result.stderr
 
 
-def published_hub(tmp_path, track="websearch"):
-    """Build a source release and commit it as a Hugging Face hub checkout."""
-    source, revision, _ = checkout(tmp_path, track)
+def published_hub(tmp_path, release):
+    """Commit a built source release as a Hugging Face hub checkout."""
     root = tmp_path / "hub"
-    DatasetRelease.from_git(source, track, revision).build(root)
+    release.build(root)
     git(root, "init", "-q")
     git(root, "add", ".")
     git(root, "commit", "-qm", "Hub")
@@ -275,8 +275,8 @@ def commit_manifest(root, **changes):
 
 
 @pytest.mark.parametrize("claimed", ["websearch", "trajectory-replay"])
-def test_hub_track_identity_comes_from_committed_manifest(tmp_path, claimed):
-    root = published_hub(tmp_path)
+def test_hub_track_identity_comes_from_committed_manifest(tmp_path, claimed, websearch):
+    root = published_hub(tmp_path, websearch[2])
     revision = git(root, "rev-parse", "HEAD")
     # A dirty working-tree claim must neither repair nor break the committed identity.
     (root / "manifest.json").write_text(json.dumps({"track": "trajectory-replay"}), encoding="utf-8")
@@ -290,32 +290,32 @@ def test_hub_track_identity_comes_from_committed_manifest(tmp_path, claimed):
         assert not output.exists()
 
 
-def test_hub_track_cannot_be_supplied_by_uncommitted_manifest(tmp_path):
-    root = published_hub(tmp_path)
+def test_hub_track_cannot_be_supplied_by_uncommitted_manifest(tmp_path, websearch):
+    root = published_hub(tmp_path, websearch[2])
     git(root, "rm", "-q", "--cached", "manifest.json")
     git(root, "commit", "-qm", "Hub without identity")
     with pytest.raises(ValueError, match="manifest"):
         DatasetRelease.from_git(root, "websearch", git(root, "rev-parse", "HEAD"))
 
 
-@pytest.mark.parametrize('filters', [
-    [], {'unknown': []}, {'viewer_exclude_datasets': 'sample'},
-    {'viewer_exclude_datasets': [True]}, {'viewer_exclude_tracks': []},
-    {'viewer_exclude_tracks': {'sample': 'dynamic'}},
-    {'viewer_exclude_tracks': {'sample': [False]}},
-    {'viewer_exclude_tracks': {'': ['dynamic']}},
-])
-def test_invalid_committed_population_filters_fail_before_build(tmp_path, filters):
-    root = published_hub(tmp_path)
-    revision = commit_manifest(root, viewer_filters=filters)
+def test_invalid_committed_population_filters_fail_before_build(tmp_path, websearch):
+    root = published_hub(tmp_path, websearch[2])
     output = tmp_path / 'release'
-    with pytest.raises(ValueError, match='viewer filters'):
-        DatasetRelease.from_git(root, 'websearch', revision).build(output)
-    assert not output.exists()
+    for filters in [
+        [], {'unknown': []}, {'viewer_exclude_datasets': 'sample'},
+        {'viewer_exclude_datasets': [True]}, {'viewer_exclude_tracks': []},
+        {'viewer_exclude_tracks': {'sample': 'dynamic'}},
+        {'viewer_exclude_tracks': {'sample': [False]}},
+        {'viewer_exclude_tracks': {'': ['dynamic']}},
+    ]:
+        revision = commit_manifest(root, viewer_filters=filters)
+        with pytest.raises(ValueError, match='viewer filters'):
+            DatasetRelease.from_git(root, 'websearch', revision).build(output)
+        assert not output.exists()
 
 
-def test_hub_definitions_come_from_the_manifest_bound_archive(tmp_path, monkeypatch):
-    root = published_hub(tmp_path)
+def test_hub_definitions_come_from_the_manifest_bound_archive(tmp_path, monkeypatch, websearch):
+    root = published_hub(tmp_path, websearch[2])
     expected = DatasetRelease.from_git(root, 'websearch', git(root, 'rev-parse', 'HEAD')).files
     # Large hubs keep definitions only in the archive (LexBench-NewsXLM, LexBench-LiveWeb-IE).
     git(root, 'rm', '-rq', '--cached', 'definitions')
@@ -384,9 +384,8 @@ def test_runtime_settings_survive_original_source_publication_and_hub_rebuild(tm
     assert rebuilt['default_dataset'] == 'sample'
 
 
-def test_hub_rebuild_keeps_committed_edition_tools_and_snapshot_bindings(tmp_path):
-    root, revision, _ = checkout(tmp_path, 'websearch')
-    plain = DatasetRelease.from_git(root, 'websearch', revision).build(tmp_path / 'published')
+def test_hub_rebuild_keeps_committed_edition_tools_and_snapshot_bindings(tmp_path, websearch):
+    plain = websearch[2].build(tmp_path / 'published')
     output = tmp_path / 'published'
     # A hub built without edition metadata or tools gains neither on rebuild.
     git(output, 'init', '-q')
@@ -430,10 +429,9 @@ def test_hub_rebuild_keeps_committed_edition_tools_and_snapshot_bindings(tmp_pat
     ('3.0.0', {'tag': 'v3.0.0'}, False),
     ('3.0.0', {'tag': 'v2.0.0'}, True),
 ])
-def test_hub_release_numbers_have_one_authority(tmp_path, legacy, edition, conflict):
-    root, revision, _ = checkout(tmp_path, 'websearch')
+def test_hub_release_numbers_have_one_authority(tmp_path, legacy, edition, conflict, websearch):
     output = tmp_path / 'hub'
-    manifest = DatasetRelease.from_git(root, 'websearch', revision).build(output)
+    manifest = websearch[2].build(output)
     manifest.update(version=legacy, edition=edition)
     (output / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
     git(output, 'init', '-q')
@@ -448,8 +446,8 @@ def test_hub_release_numbers_have_one_authority(tmp_path, legacy, edition, confl
         assert 'version' not in result
 
 
-def test_committed_paths_cannot_leave_the_release(tmp_path):
-    root = published_hub(tmp_path)
+def test_committed_paths_cannot_leave_the_release(tmp_path, websearch):
+    root = published_hub(tmp_path, websearch[2])
     # Git stores a crafted "tools/../../escaped" tree that ls-tree prints verbatim.
     def tree(entries):
         return subprocess.run(['git', '-C', str(root), 'mktree'], check=True, text=True,
@@ -474,10 +472,9 @@ def test_committed_paths_cannot_leave_the_release(tmp_path):
     {'default_dataset': 'missing'},
     {'scorer': {'repository': 'https://github.com/example/scorer', 'revision': 'main'}},
 ])
-def test_invalid_runtime_choices_fail_before_output(tmp_path, settings):
+def test_invalid_runtime_choices_fail_before_output(tmp_path, settings, websearch):
     from dataclasses import replace
-    root, revision, _ = checkout(tmp_path, 'websearch')
-    release = replace(DatasetRelease.from_git(root, 'websearch', revision), **settings)
+    release = replace(websearch[2], **settings)
     output = tmp_path / 'release'
     with pytest.raises(ValueError, match='Default dataset|Scorer requires'):
         release.build(output)
@@ -486,15 +483,15 @@ def test_invalid_runtime_choices_fail_before_output(tmp_path, settings):
 
 @pytest.mark.parametrize('source_version', [None, '0.9.0'])
 def test_publish_opens_a_review_pr_without_updating_main_or_creating_tags(
-        tmp_path, monkeypatch, capsys, source_version):
+        tmp_path, monkeypatch, capsys, source_version, websearch):
     import sys
     from types import SimpleNamespace
     from harness.benchmarks import publication
 
-    root, revision, _ = checkout(tmp_path, 'websearch')
+    root, revision, release = websearch
     if source_version:
         hub = tmp_path / 'hub'
-        manifest = DatasetRelease.from_git(root, 'websearch', revision).build(hub)
+        manifest = release.build(hub)
         manifest['edition'] = {'version': source_version, 'tag': 'v' + source_version}
         (hub / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
         git(hub, 'init', '-q')

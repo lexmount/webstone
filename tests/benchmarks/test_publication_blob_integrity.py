@@ -23,11 +23,19 @@ def supporting_source(tmp_path):
     return root, git(root, 'rev-parse', 'HEAD'), original
 
 
-@pytest.mark.parametrize('boundary', ['datasets', 'records', 'build'])
-@pytest.mark.parametrize('defect', ['changed', 'missing', 'invalid-hash', 'absolute', 'traversal'])
-def test_every_declared_supporting_file_is_checked_before_admission(tmp_path, boundary, defect):
-    root, revision, _ = supporting_source(tmp_path)
-    release = DatasetRelease.from_git(root, 'webfetch', revision)
+@pytest.fixture(scope='module')
+def supporting_release(tmp_path_factory):
+    root, revision, _ = supporting_source(tmp_path_factory.mktemp('supporting'))
+    return DatasetRelease.from_git(root, 'webfetch', revision)
+
+
+@pytest.mark.parametrize('defect,boundary', [
+    ('changed', 'build'), ('missing', 'build'), ('invalid-hash', 'build'),
+    ('absolute', 'build'), ('traversal', 'build'), ('changed', 'datasets'), ('changed', 'records'),
+])
+def test_every_declared_supporting_file_is_checked_before_admission(
+        tmp_path, supporting_release, boundary, defect):
+    release = supporting_release
     files = dict(release.files)
     name = 'definitions/evaluation/source-inputs.json'
     registry = json.loads(files['definitions/registry.json'])

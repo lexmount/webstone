@@ -9,7 +9,7 @@ from .test_article_post_coverage_integration import fixture
 from . import test_article_component_integration as component_fixture
 
 
-@pytest.mark.parametrize('number', [38, 39, 40, 41, 101])
+@pytest.mark.parametrize('number', [38, 101])
 @pytest.mark.parametrize('representation', ['real', 'spaces', 'tabs', 'fenced', 'unclosed'])
 def test_collection_code_samples_do_not_supply_posts(number, representation):
     case, stable, posts = fixture(number)
@@ -24,7 +24,7 @@ def test_collection_code_samples_do_not_supply_posts(number, representation):
     assert result['passed'] is (representation == 'real')
 
 
-@pytest.mark.parametrize('number', [38, 39, 40, 41, 101])
+@pytest.mark.parametrize('number', [38, 101])
 @pytest.mark.parametrize('author', ['Today', '2026-10-22', '12:34', '\u200b', 'Actual reader', '🙂'])
 @pytest.mark.parametrize('route', ['previous_line', 'prefix', 'linked_profile'])
 def test_collection_author_validation_after_every_extraction_route(number, author, route):

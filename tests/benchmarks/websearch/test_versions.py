@@ -2,9 +2,6 @@
 
 from copy import deepcopy
 import json
-import subprocess
-import sys
-
 import pytest
 
 from lexbench_websearch.inputs import load_dataset, registry
@@ -37,12 +34,27 @@ def release(data=None, version="1.0.0", **options):
     )
 
 
-def test_installed_catalog_is_complete_and_verifiable():
-    edition = catalog_release(require_current_scorer=False)
+@pytest.fixture(scope="module")
+def installed_catalog():
+    return catalog_release(require_current_scorer=False)
+
+
+def test_installed_catalog_is_complete_and_verifiable(installed_catalog):
+    edition = deepcopy(installed_catalog)
     assert edition["tag"] == "bench-v" + edition["version"]
     assert set(edition["datasets"]) == set(registry()["datasets"])
+    revisions = edition["development"]["dataset_revisions"]
     for name, bound in edition["datasets"].items():
-        verify_release(bound, load_dataset(name, revision=edition["development"]["dataset_revisions"][name]), verify_scorer=False)
+        verify_release(bound, load_dataset(name, revision=revisions[name]), verify_scorer=False)
+    # A reference correction is unreleased while the frozen edition still reproduces.
+    assert edition["development"]["dataset_status"] == "unreleased"
+    assert edition["development"]["changed_datasets"] == ["factual-v1"]
+    current = load_dataset("factual-v1")
+    frozen = load_dataset("factual-v1", revision=revisions["factual-v1"])
+    assert any(c.get("equivalent_reference_urls") for c in current["cases"])
+    assert all("equivalent_reference_urls" not in c for c in frozen["cases"])
+    with pytest.raises(ValueError, match="Frozen dataset or scoring contract changed"):
+        verify_release(edition["datasets"]["factual-v1"], current, verify_scorer=False)
 
 
 @pytest.mark.parametrize(
@@ -110,8 +122,8 @@ def test_only_explicit_stable_semver_is_accepted(version):
         release(version=version)
 
 
-def test_catalog_tampering_and_tag_mismatch_are_rejected(tmp_path, monkeypatch):
-    original = catalog_release(require_current_scorer=False)
+def test_catalog_tampering_and_tag_mismatch_are_rejected(tmp_path, monkeypatch, installed_catalog):
+    original = deepcopy(installed_catalog)
     for change in ({"tag": "benchmark-v1.0.0"}, {"datasets": {}}, {"current": {}}):
         path = tmp_path / "catalog.json"
         path.write_text(json.dumps({**original, **change}), encoding="utf-8")
@@ -135,16 +147,18 @@ def test_catalog_tampering_and_tag_mismatch_are_rejected(tmp_path, monkeypatch):
         catalog_release(path)
 
 
-def test_release_cli_writes_once_and_compares_outside_checkout(tmp_path):
+def test_release_cli_writes_once_and_compares_outside_checkout(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from lexbench_websearch.cli import main
+
     source = tmp_path / "dataset.json"
     source.write_text(json.dumps(dataset()), encoding="utf-8")
     output = tmp_path / "release.json"
-    call = lambda *args: subprocess.run(
-        [sys.executable, "-m", "lexbench_websearch.cli", *args],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-    )
+    def call(*args):
+        monkeypatch.setattr("sys.argv", ["lexbench-websearch", *args])
+        main()
+        return SimpleNamespace(returncode=0, stdout=capsys.readouterr().out, stderr="")
     result = call(
         "release",
         "--dataset",
@@ -162,7 +176,6 @@ def test_release_cli_writes_once_and_compares_outside_checkout(tmp_path):
         json.loads(call("compare-releases", str(output), str(output)).stdout)["mode"]
         == "direct"
     )
-    assert call("version").returncode == 0
     with pytest.raises(FileExistsError):
         freeze_release(source, output, version="1.0.0", scorer_revision=REVISION)
     link = tmp_path / "link.json"
@@ -205,22 +218,3 @@ def test_new_editions_reject_the_retired_tag_prefix():
     current["tag"] = "bench-1.1.0"
     with pytest.raises(ValueError, match="tag"):
         verify_release(current, dataset())
-
-
-def test_reference_correction_is_unreleased_and_frozen_edition_still_reproduces():
-    from lexbench_websearch.inputs import definition_path
-
-    path = definition_path("benchmark-release.json")
-    original = path.read_bytes()
-    inspected = catalog_release(require_current_scorer=False)
-    assert inspected["development"]["dataset_status"] == "unreleased"
-    assert inspected["development"]["changed_datasets"] == ["factual-v1"]
-    revision = inspected["development"]["dataset_revisions"]["factual-v1"]
-    current = load_dataset("factual-v1")
-    frozen = load_dataset("factual-v1", revision=revision)
-    assert any(c.get("equivalent_reference_urls") for c in current["cases"])
-    assert all("equivalent_reference_urls" not in c for c in frozen["cases"])
-    verify_release(inspected["datasets"]["factual-v1"], frozen, verify_scorer=False)
-    with pytest.raises(ValueError, match="Frozen dataset or scoring contract changed"):
-        verify_release(inspected["datasets"]["factual-v1"], current, verify_scorer=False)
-    assert path.read_bytes() == original

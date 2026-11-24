@@ -1,5 +1,7 @@
 """Current collection floors work through scoring without live references."""
 import json
+from copy import deepcopy
+from functools import cache
 import subprocess
 import sys
 
@@ -11,9 +13,13 @@ DEFINITIONS = definition_path("webfetch", "evaluation/articles")
 from lexbench_webfetch.evaluation import evaluate_response
 
 
+@cache
+def _cases():
+    return {c['id']: c for c in json.loads((DEFINITIONS / 'tasks.json').read_text(encoding='utf-8'))['cases']}
+
+
 def fixture(number):
-    case = next(c for c in json.loads((DEFINITIONS / 'tasks.json').read_text(encoding='utf-8'))['cases']
-                if c['id'] == f'article-{number:03}')
+    case = deepcopy(_cases()[f'article-{number:03}'])
     stable = '\n\n'.join(a['alternatives'][0] for a in case['acceptance_contract']['stable_text_anchors'])
     count = case['source_benchmark']['post_contract']['minimum_posts']
     prefix = 'https://xueqiu.com/123/' if number == 101 else 'https://x.com/browser_use/status/'
