@@ -25,53 +25,53 @@ from harness.environments.webarena.map_detail import (
 NOMINATIM = "http://127.0.0.1:1"
 
 
-@pytest.mark.parametrize("kind,identifier,name", [
-    ("node", "1479729158", "Bei Jing"),
-    ("way", "172206707", "Chatham University"),
-    ("relation", "2279034", "Carnegie Mellon University"),
-])
-def test_search_result_detail_opens_under_its_original_map_url(kind, identifier, name):
-    place = {"osm_type": kind, "osm_id": int(identifier),
-             "display_name": f"{name}, Pittsburgh, United States", "class": "amenity",
-             "type": "university", "lat": "40.44", "lon": "-79.94",
-             "address": {"city": "Pittsburgh"}, "extratags": {"website": "https://example.org"}}
-    with patch("harness.environments.webarena.map_detail.lookup", return_value=place):
-        server = DetailServer(("127.0.0.1", 0), NOMINATIM)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            with urlopen(f"http://127.0.0.1:{server.server_port}/{kind}/{identifier}") as response:
-                page = response.read().decode()
-                assert response.status == 200
-                assert response.headers["Content-Type"].startswith("text/html")
-            with urlopen(
-                f"http://127.0.0.1:{server.server_port}/{kind}/{identifier}?xhr=1"
-            ) as response:
-                fragment = response.read().decode()
-            assert name in page and identifier in page and "Pittsburgh" in page
-            assert "← OpenStreetMap" in page and "Not Found" not in page
-            assert name in fragment and "<!doctype html>" not in fragment.lower()
-        finally:
-            server.shutdown()
-            server.server_close()
+OBJECTS = {
+    ("node", "1479729158"): "Bei Jing",
+    ("way", "172206707"): "Chatham University",
+    ("relation", "2279034"): "Carnegie Mellon University",
+}
 
 
-def test_missing_object_stays_missing_and_details_escape_untrusted_tags():
-    page = render("node", "1", {"display_name": "<script>alert(1)</script>",
-                                 "extratags": {"note": "<img src=x>"}}).decode()
-    assert "<script>" not in page and "<img src=x>" not in page
-    assert "&lt;script&gt;" in page and "&lt;img src=x&gt;" in page
-    with patch("harness.environments.webarena.map_detail.lookup", return_value=None):
+def found(kind, identifier, _nominatim):
+    name = OBJECTS.get((kind, identifier))
+    if name is None:
+        return None
+    return {"osm_type": kind, "osm_id": int(identifier),
+            "display_name": f"{name}, Pittsburgh, United States", "class": "amenity",
+            "type": "university", "lat": "40.44", "lon": "-79.94",
+            "address": {"city": "Pittsburgh"}, "extratags": {"website": "https://example.org"}}
+
+
+def test_search_result_detail_opens_under_its_original_map_url_and_missing_stays_missing():
+    with patch("harness.environments.webarena.map_detail.lookup", side_effect=found):
         server = DetailServer(("127.0.0.1", 0), NOMINATIM)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(target=server.serve_forever, args=(0.01,), daemon=True)
         thread.start()
+        base = f"http://127.0.0.1:{server.server_port}"
         try:
+            for (kind, identifier), name in OBJECTS.items():
+                with urlopen(f"{base}/{kind}/{identifier}") as response:
+                    page = response.read().decode()
+                    assert response.status == 200
+                    assert response.headers["Content-Type"].startswith("text/html")
+                with urlopen(f"{base}/{kind}/{identifier}?xhr=1") as response:
+                    fragment = response.read().decode()
+                assert name in page and identifier in page and "Pittsburgh" in page
+                assert "← OpenStreetMap" in page and "Not Found" not in page
+                assert name in fragment and "<!doctype html>" not in fragment.lower()
             with pytest.raises(HTTPError) as error:
-                urlopen(f"http://127.0.0.1:{server.server_port}/relation/999999999999")
+                urlopen(f"{base}/relation/999999999999")
             assert error.value.code == 404
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_details_escape_untrusted_tags():
+    page = render("node", "1", {"display_name": "<script>alert(1)</script>",
+                                 "extratags": {"note": "<img src=x>"}}).decode()
+    assert "<script>" not in page and "<img src=x>" not in page
+    assert "&lt;script&gt;" in page and "&lt;img src=x&gt;" in page
 
 
 def test_mounted_script_runs_alone_on_the_ports_it_is_given():
@@ -94,7 +94,7 @@ def test_mounted_script_runs_alone_on_the_ports_it_is_given():
             pass
 
     nominatim = ThreadingHTTPServer(("127.0.0.1", 0), Nominatim)
-    threading.Thread(target=nominatim.serve_forever, daemon=True).start()
+    threading.Thread(target=nominatim.serve_forever, args=(0.01,), daemon=True).start()
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]

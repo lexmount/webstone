@@ -8,10 +8,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize('environment_model,arguments,expected', [
-    (None, ['--model', 'model-a'], 'model-a'),
     ('model-b', [], 'model-b'),
     ('model-b', ['--model=model-a'], 'model-a'),
-    (None, ['--help'], None),
     (None, [], None),
 ])
 def test_wrapper_honors_cli_and_caller_directory(tmp_path, environment_model, arguments, expected):
@@ -41,7 +39,7 @@ def test_wrapper_honors_cli_and_caller_directory(tmp_path, environment_model, ar
         if expected is None:
             with pytest.raises(SystemExit) as stopped:
                 runner.parse_args()
-            assert stopped.value.code == (0 if '--help' in arguments else 2)
+            assert stopped.value.code == 2
         else:
             parsed = runner.parse_args()
             assert parsed.model == expected

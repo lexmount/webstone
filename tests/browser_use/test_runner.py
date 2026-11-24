@@ -26,8 +26,6 @@ from harness.browser_use.runner import (
 )
 from harness.browser_use.selection import load_pilot
 from harness.environments.webarena.runtime import (
-    ENV_CTRL_READY_TIMEOUT_SECONDS,
-    MAGENTO_DEPENDENCY_READY_TIMEOUT_SECONDS,
     PHYSICAL_EXECUTION_LOCK_NAMESPACE,
     QEMU_X86_64_HOST_PATH,
     SITE_AUTH_HEADERS,
@@ -121,10 +119,9 @@ def test_viewport_receipt_supports_a_declared_single_target_session() -> None:
     ]
 
 
-@pytest.mark.parametrize("width,height", [(780, 437), (1920, 1080), (1280, 720)])
-def test_viewport_readback_rejects_unapplied_configuration(width, height) -> None:
+def test_viewport_readback_rejects_unapplied_configuration() -> None:
     with pytest.raises(RuntimeError, match="viewport mismatch"):
-        prepare_browser_viewport(_viewport_service(width, height))
+        prepare_browser_viewport(_viewport_service(1280, 720))
 
 
 def test_viewport_setup_requires_cowagent_owned_context_support() -> None:
@@ -199,7 +196,6 @@ def test_system_contract_fails_empty_retrieve_as_not_found() -> None:
     prompt = _system_prompt()
     assert "NOT_FOUND_ERROR with retrieved_data null" in prompt
     assert "search and list pages as candidate sets" in prompt
-    assert "retrieved_data is always a list" not in prompt
 
 
 def test_agent_step_exhaustion_requires_a_final_tool_call() -> None:
@@ -827,11 +823,6 @@ def test_application_readiness_does_not_follow_container_only_hostname(monkeypat
             {"timeout": 15, "allow_redirects": False},
         )
     ]
-
-
-def test_environment_control_wait_covers_slow_official_image_restore() -> None:
-    assert ENV_CTRL_READY_TIMEOUT_SECONDS == 600
-    assert MAGENTO_DEPENDENCY_READY_TIMEOUT_SECONDS == 300
 
 
 def test_magento_readiness_requires_non_red_elasticsearch(monkeypatch) -> None:

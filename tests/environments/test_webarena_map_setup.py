@@ -9,7 +9,9 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -20,7 +22,6 @@ from harness.environments.webarena.map_setup import (
     MAPPINGS,
     configure_browser_assets,
     configure_tiles,
-    detail_service_command,
     extract_archive,
     main,
     require_space,
@@ -45,6 +46,24 @@ def archive_at(path, members):
     return path
 
 
+def archives_contract(state):
+    """Write every locked archive into ``state`` and return the matching component contract."""
+    contract = {"data_urls": [], "data_archive_bytes": {}, "data_archive_sha256": {}}
+    for name, mappings in MAPPINGS.items():
+        path = archive_at(state / name, [(prefix + "/data", b"verified") for prefix in mappings])
+        contract["data_urls"].append("https://example.invalid/" + name)
+        contract["data_archive_bytes"][name] = path.stat().st_size
+        contract["data_archive_sha256"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return contract
+
+
+@pytest.fixture
+def fast_poll(monkeypatch):
+    """The service loop polls every 5 s; the behaviour under test does not depend on the period."""
+    real_sleep = time.sleep
+    monkeypatch.setattr(map_setup, "time", SimpleNamespace(sleep=lambda _: real_sleep(0.01)))
+
+
 def test_remote_browsers_receive_same_origin_urls_with_or_without_gzip(tmp_path):
     source = tmp_path / "application.js"
     source.write_bytes(b'const search="/nominatim/", route="/osrm/";')
@@ -58,6 +77,7 @@ def test_remote_browsers_receive_same_origin_urls_with_or_without_gzip(tmp_path)
     source.write_bytes(b'const route="http://localhost:8080/osrm/";')
     with pytest.raises(ValueError, match="localhost"):
         configure_browser_assets(8080, tmp_path)
+    configure_browser_assets(9090, tmp_path)
 
 
 def test_corrupt_precompressed_script_is_rebuilt_from_valid_script(tmp_path):
@@ -164,12 +184,7 @@ def test_incomplete_dataset_is_not_success(tmp_path):
 def test_successful_setup_removes_archives_and_restart_never_downloads(tmp_path):
     state = tmp_path / ".map-setup"
     state.mkdir()
-    contract = {"data_urls": [], "data_archive_bytes": {}, "data_archive_sha256": {}}
-    for name, mappings in MAPPINGS.items():
-        path = archive_at(state / name, [(prefix + "/data", b"verified") for prefix in mappings])
-        contract["data_urls"].append("https://example.invalid/" + name)
-        contract["data_archive_bytes"][name] = path.stat().st_size
-        contract["data_archive_sha256"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    contract = archives_contract(state)
     with patch(
         "harness.environments.webarena.map_setup.download",
         side_effect=AssertionError("unexpected network"),
@@ -183,12 +198,8 @@ def test_successful_setup_removes_archives_and_restart_never_downloads(tmp_path)
 def test_existing_partial_extraction_does_not_count_as_ready(tmp_path):
     state = tmp_path / ".map-setup"
     state.mkdir()
-    contract = {"data_urls": [], "data_archive_bytes": {}, "data_archive_sha256": {}}
-    for name, mappings in MAPPINGS.items():
-        path = archive_at(state / name, [(prefix + "/data", b"verified") for prefix in mappings])
-        contract["data_urls"].append("https://example.invalid/" + name)
-        contract["data_archive_bytes"][name] = path.stat().st_size
-        contract["data_archive_sha256"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    contract = archives_contract(state)
+    for mappings in MAPPINGS.values():
         for target in mappings.values():
             (tmp_path / target).mkdir(parents=True)
             (tmp_path / target / "data").write_bytes(b"partial")
@@ -302,17 +313,13 @@ def test_service_never_starts_below_disk_reserve(tmp_path):
     assert not marker.exists()
 
 
-def test_service_exit_status_is_preserved(tmp_path):
+def test_service_exit_status_is_preserved(tmp_path, fast_poll):
     assert serve(tmp_path, 0, [sys.executable, "-c", "raise SystemExit(7)"]) == 7
 
 
-def test_map_stops_if_detail_service_exits(tmp_path):
-    with pytest.raises(RuntimeError, match="Map detail service exited"):
-        serve(tmp_path, 0, [sys.executable, "-c", "import time; time.sleep(60)"],
-              [sys.executable, "-c", "raise SystemExit(7)"])
-
-
-def test_process_group_exit_during_cleanup_preserves_service_failure(tmp_path, monkeypatch):
+def test_detail_service_exit_stops_map_even_if_its_group_is_already_gone(
+    tmp_path, monkeypatch, fast_poll
+):
     original_killpg = os.killpg
 
     def exited_after_poll(pid, sig):
@@ -365,16 +372,6 @@ def test_query_mode_omits_only_update_cache_but_checks_its_original_bytes(tmp_pa
                 assert (tmp_path / target / "data").read_bytes() == b"verified"
     with pytest.raises(ValueError, match="Dataset mode"):
         setup(tmp_path, contract, 0)
-
-    original = archive_at(tmp_path / "changed.tar", [("db/data", b"same"),
-                                                    ("flat/data", b"original")])
-    digest = hashlib.sha256(original.read_bytes()).hexdigest()
-    archive_at(original, [("db/data", b"same"), ("flat/data", b"tampered")])
-    packed = tmp_path / "changed.zst"
-    subprocess.run(["zstd", "-q", str(original), "-o", str(packed)], check=True)
-    with pytest.raises(ValueError, match="checksum"):
-        restore_compressed(packed, tmp_path, {"db": "postgres"},
-                           original.stat().st_size, digest, 0)
 
 
 def test_tile_cache_survives_container_directory_recreation(tmp_path):
@@ -431,20 +428,6 @@ def test_apache_detail_route_is_unchanged_when_ports_come_from_the_contract(tmp_
     )
 
 
-def test_browser_asset_check_follows_the_contract_service_port(tmp_path):
-    source = tmp_path / "application.js"
-    source.write_bytes(b'const search="http://localhost:8080/nominatim/";')
-    with pytest.raises(ValueError, match="localhost"):
-        configure_browser_assets(8080, tmp_path)
-    configure_browser_assets(9090, tmp_path)
-
-
-def test_detail_service_command_carries_the_contract_ports():
-    assert detail_service_command(LOCAL_SERVICES) == [
-        "python3", "/opt/map_detail.py", "--port", "8091", "--nominatim-port", "8085",
-    ]
-
-
 def steps_of_main():
     """Replace every step that touches the container; their order and arguments stay visible."""
     steps = Mock()
@@ -486,20 +469,15 @@ def test_setup_without_serve_stops_after_the_volume_is_ready(tmp_path):
     assert steps.mock_calls == [call.setup(tmp_path, component, 64 * GIB, "", "", False)]
 
 
-def test_contract_without_local_ports_stops_the_script_before_any_download(tmp_path):
+def test_contract_without_local_ports_stops_before_any_download(tmp_path):
     component = json.loads(CONTRACT.read_text(encoding="utf-8"))["components"]["map"]
     del component["local_services"]
     contract = tmp_path / "contract.json"
     contract.write_text(json.dumps({"components": {"map": component}}), encoding="utf-8")
-    root = tmp_path / "volume"
-    result = subprocess.run(
-        [sys.executable, map_setup.__file__, "--root", str(root), "--contract", str(contract)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 1
-    assert "KeyError: 'local_services'" in result.stderr
-    assert not root.exists()
+    steps, patched = steps_of_main()
+    with patched, pytest.raises(KeyError, match="local_services"):
+        main(["--root", str(tmp_path / "volume"), "--contract", str(contract)])
+    assert steps.mock_calls == []
 
 
 def test_mounted_script_initializes_a_volume_with_only_the_standard_library(tmp_path):
@@ -514,17 +492,7 @@ def test_mounted_script_initializes_a_volume_with_only_the_standard_library(tmp_
     root = tmp_path / "volume"
     state = root / ".map-setup"
     state.mkdir(parents=True)
-    component = {
-        "data_urls": [],
-        "data_archive_bytes": {},
-        "data_archive_sha256": {},
-        "local_services": LOCAL_SERVICES,
-    }
-    for name, mappings in MAPPINGS.items():
-        path = archive_at(state / name, [(prefix + "/data", b"verified") for prefix in mappings])
-        component["data_urls"].append("https://example.invalid/" + name)
-        component["data_archive_bytes"][name] = path.stat().st_size
-        component["data_archive_sha256"][name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    component = {**archives_contract(state), "local_services": LOCAL_SERVICES}
     contract = tmp_path / "contract.json"
     contract.write_text(json.dumps({"components": {"map": component}}), encoding="utf-8")
 

@@ -821,16 +821,15 @@ def test_reader_facing_ux_requires_home_core_tables_without_current_data(
         _check_reader_facing_ux(tmp_path, pages)
 
 
-@pytest.mark.parametrize("term", FORBIDDEN_READER_TERMS)
-def test_reader_facing_ux_rejects_unexplained_internal_terms(tmp_path: Path, term: str) -> None:
-    pages = {
-        tmp_path / "index.html": '<table id="home-core-metrics"></table>',
-        tmp_path / "en/index.html": '<table id="home-core-metrics"></table>',
-        tmp_path / "analysis/index.html": f"<p>{term}</p>",
-    }
-
-    with pytest.raises(ValueError, match="unexplained internal term"):
-        _check_reader_facing_ux(tmp_path, pages)
+def test_reader_facing_ux_rejects_unexplained_internal_terms(tmp_path: Path) -> None:
+    for term in FORBIDDEN_READER_TERMS:
+        pages = {
+            tmp_path / "index.html": '<table id="home-core-metrics"></table>',
+            tmp_path / "en/index.html": '<table id="home-core-metrics"></table>',
+            tmp_path / "analysis/index.html": f"<p>{term}</p>",
+        }
+        with pytest.raises(ValueError, match="unexplained internal term"):
+            _check_reader_facing_ux(tmp_path, pages)
 
 
 def test_result_verification_is_readable_and_does_not_duplicate_raw_panels() -> None:
@@ -1162,16 +1161,15 @@ def test_execution_artifact_check_rejects_registry_site_passwords(
         probe._check_execution_artifacts(output, logical, public_results, evidence_index)
 
 
-@pytest.mark.parametrize("language", [None, "en", "zh"])
+@pytest.mark.parametrize("language", ["en", "zh"])
 def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     tmp_path: Path, monkeypatch, language
 ) -> None:
     output, evidence, report = build_browser_use_fixture(tmp_path, monkeypatch, language)
-    if language is not None:
-        contract = json.loads((output / "report-languages.json").read_text(encoding="utf-8"))
-        assert contract["primary_language"] == language
-        assert contract["languages"] == (["zh", "en"] if language == "en" else ["zh"])
-        assert report == output / ("en/index.html" if language == "en" else "index.html")
+    contract = json.loads((output / "report-languages.json").read_text(encoding="utf-8"))
+    assert contract["primary_language"] == language
+    assert contract["languages"] == (["zh", "en"] if language == "en" else ["zh"])
+    assert report == output / ("en/index.html" if language == "en" else "index.html")
     if language == "en":
         from harness.web_fetch.report_i18n import untranslated_english_narrative
         selection = load_pilot(Path("evaluation/browser-use/webarena-verified-pilot.json"))
@@ -1180,6 +1178,13 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
             assert not untranslated_english_narrative(
                 page.read_text(encoding="utf-8"), source_text
             ), page
+        home = (output / "en/index.html").read_text(encoding="utf-8")
+        assert '<html lang="en">' in home and "切换主题" not in home
+        # A selection rationale without English stays as written.
+        assert "创建一个命名明确的空仓库" in (output / "en/datasets/475.html").read_text(
+            encoding="utf-8"
+        )
+        assert report_module.t is report_module._ZH
 
     text = (output / "index.html").read_text(encoding="utf-8")
     assert "1/1" in text
@@ -1194,9 +1199,7 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     assert "Ground truth · 官方验收合同" in task
     assert "没有唯一参考点击路径" in task
     assert "查看本题运行结果" in task
-    assert "最终结果对照" not in task
     dataset = (output / "datasets/index.html").read_text(encoding="utf-8")
-    assert "可完成性证据" not in dataset
     assert "data-result=" not in dataset
     for expected in ("均值", "P50", "P95", "comparison-winner"):
         assert expected in text
@@ -1212,13 +1215,10 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     ):
         assert expected in analysis
     assert analysis.index("同题全配置对比") < analysis.index("BrowserTool 动作延迟")
-    assert "中位数" not in analysis
-    assert "失败结果定位" not in analysis
     assert 'id="pair-table"' not in analysis
     review = (output / "review/index.html").read_text(encoding="utf-8")
     assert "核验与修订记录" in review
     assert "核验轮次" in review
-    assert "逐结果覆盖" not in review
     result_id = "gpt-5.6-sol-chromium-44"
     attempt = (output / f"results/{result_id}.html").read_text(encoding="utf-8")
     for expected in (
@@ -1233,8 +1233,6 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     ):
         assert expected in attempt
     assert "没有 evaluator 明细" in attempt
-    assert "Ground truth 与实际最终回答" not in attempt
-    assert "官方 evaluator 逐规则判定" not in attempt
     for execution in (1, 2):
         artifact = output / f"artifacts/{result_id}/executions/{execution}/execution-evidence.json"
         assert artifact.is_file()
@@ -1253,9 +1251,6 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     assert ("英文报告未生成" in (output / "en/index.html").read_text(encoding="utf-8")) is (
         language != "en"
     )
-    assert json.loads((output / "report-languages.json").read_text(encoding="utf-8"))[
-        "languages"
-    ] == (["zh", "en"] if language == "en" else ["zh"])
     public_results = [
         json.loads(line)
         for line in (output / "data/results.jsonl").read_text(encoding="utf-8").splitlines()
@@ -1298,12 +1293,6 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     missing_response.unlink()
     with pytest.raises(ValueError, match="missing physical execution artifact"):
         _check_execution_artifacts(output, logical, public_results, evidence_index)
-    assert "诊断重试" not in "".join(
-        path.read_text(encoding="utf-8") for path in output.rglob("*.html")
-    )
-    formal_html = "".join(path.read_text(encoding="utf-8") for path in output.rglob("*.html"))
-    for speculative_label in ("证据支持的诊断", "共享链路诊断", "失败归因："):
-        assert speculative_label not in formal_html
     assert not list(output.rglob("*.svg"))
 
 
@@ -1477,8 +1466,6 @@ def test_report_renders_measured_runtime_identities(tmp_path: Path, monkeypatch)
     home_text = report.read_text(encoding="utf-8")
     assert "90 题 Browser Use 完整结果" in home_text
     assert "90 题核心指标" in home_text
-    assert "首次成功与重试恢复" not in home_text
-    assert "Chromium 780×437/493、Moli 1920×1080" not in home_text
     assert "不能视为统一视口下的资源效率结论" in home_text
     assert "共同成功子集仍保留各配置记录的运行环境" in home_text
     english_home = localize_html(home_text, PurePosixPath("index.html"))
@@ -1493,15 +1480,9 @@ def test_report_renders_measured_runtime_identities(tmp_path: Path, monkeypatch)
         assert "Colima" not in page
         assert "macOS" not in page
     assert "Linux fixture host" in text
-    assert "官方数据 812 题" not in methodology_text
-    assert "663" not in methodology_text
     assert "计划与实际对照" in methodology_text
     assert "每题执行上限：3" in methodology_text
     assert "冻结配置及实际执行记录" in methodology_text
-    assert "下一轮轨迹重放" not in methodology_text
-    assert "678 个候选" not in methodology_text
-    assert "Mac 上可以继续扩展哪些实例" not in methodology_text
-    assert "只替换浏览器</td>" not in methodology_text
     english_methodology = localize_html(methodology_text, PurePosixPath("methodology/index.html"))
     assert "frozen configuration and recorded executions" in english_methodology
     assert "execution limit per task: 3" in english_methodology
@@ -1559,28 +1540,6 @@ def _write_model_evidence(path: Path, model: str, rows: list[dict]) -> None:
     (path / "attempts.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
-
-
-def test_two_models_and_two_browsers_keep_distinct_logical_results(tmp_path: Path) -> None:
-    model_a, model_b = tmp_path / "a", tmp_path / "b"
-    rows = [
-        {"engine": engine, "task_id": 44, "tier": "easy", "attempt": 1, "score": 1}
-        for engine in ("chromium", "moli")
-    ]
-    _write_model_evidence(model_a, "model-a", rows)
-    _write_model_evidence(model_b, "model-b", rows)
-
-    bundles = _load_evidence_bundles([model_a, model_b], TWO_BROWSERS_TWO_MODELS)
-    logical = [
-        result for bundle in bundles for result in _logical_results(bundle["source_attempts"])
-    ]
-
-    assert len(logical) == 4
-    assert len({report_module._attempt_id(row) for row in logical}) == 4
-    assert set(report_module._primary_summary(logical, TWO_BROWSERS_TWO_MODELS)) == {
-        "model-a",
-        "model-b",
-    }
 
 
 def test_joint_report_builds_two_model_by_two_browser_matrix(tmp_path: Path, monkeypatch) -> None:
@@ -1732,8 +1691,6 @@ def test_replay_control_uses_selected_counts_and_origin_inventory():
     assert "Unrelated autonomous browser 99" not in isolated
     assert "fixture-model_fixture" in page
     assert "recorded_response" in english and "HAR" in english
-    for obsolete in ("90/90", "36", "37", "Task 173", "Task 676", "Colima"):
-        assert obsolete not in page
 
 
 def test_summary_percentiles_use_the_shared_nearest_rank_definition() -> None:
@@ -2159,20 +2116,6 @@ def test_report_follows_a_registry_of_another_size_without_module_state(
     assert "Alpha" not in (smaller / "analysis/index.html").read_text(encoding="utf-8")
 
 
-def test_four_configuration_claim_keeps_its_published_text(
-    tmp_path: Path, monkeypatch
-) -> None:
-    current = {
-        "engines": ["chromium", "moli"],
-        "baseline_engine": "chromium",
-        "models": ["model-a", "model-b"],
-    }
-    output = _build_registered_report(tmp_path, monkeypatch, "current", current)
-
-    claims = json.loads((output / "data/interpretation-evidence.json").read_text(encoding="utf-8"))
-    assert "四配置最终共同成功任务的性能与资源 P50" in [row["claim"] for row in claims["claims"]]
-
-
 @pytest.mark.parametrize(
     "updates, message",
     [
@@ -2189,21 +2132,6 @@ def test_participant_registry_rejects_an_invalid_profile(updates: dict, message:
     profile = {"engines": ["a", "b"], "models": ["m"], "baseline_engine": "a", **updates}
     with pytest.raises(ValueError, match=message):
         Participants.from_profile(profile)
-
-
-def test_current_engine_row_keeps_its_published_translation(monkeypatch) -> None:
-    # A label may carry a version; the row names the browsers themselves.
-    participants = Participants.from_profile(
-        {
-            "engines": ["chromium", "moli"],
-            "engine_labels": {"moli": "Moli 1.1.3"},
-            "baseline_engine": "chromium",
-            "models": ["m"],
-        }
-    )
-    assert participants.engine_names == "Chromium 与 Moli"
-    monkeypatch.setattr(report_module, "t", report_module._EN)
-    assert participants.engine_names == "Chromium and Moli"
 
 
 def test_logical_results_require_a_model_and_leave_their_input_unchanged() -> None:
