@@ -150,7 +150,11 @@ catalog-acceptance and public variants share one shell and the same-task
 explorer). Web Fetch declares its page sets in `src/harness/web_fetch/template.py`;
 each build mode is a registered variant in `src/harness/web_fetch/report_variants.py`
 that adapts its inputs into one validated `ReportModel` (`report_model.py`), selected
-by the profile or one `--variant`. `check_template_pages` in
+by the profile or one `--variant`. One entry, `render_report` in `report.py`, writes every
+variant: WCXB and WebMainBench contribute their page sets as benchmark `views()`
+(`PageSetHook`), and the report manifest records the rendered variant. Comparison kinds
+declare their evidence (local measurement, diagnostic, headless cohort, certification
+owner) in `report_variants.py`; build, check and package read those declarations. `check_template_pages` in
 `src/harness/reporting/release_check.py` runs that comparison for every edition. The public CLI defaults to English; a rebuild retains the saved language unless explicitly changed. Each track declares its renderer capabilities, including historical Chinese-only formats. Explicit bilingual builds require matching
 routes, measurements and evidence links; absent English has only a notice and
 return link.
