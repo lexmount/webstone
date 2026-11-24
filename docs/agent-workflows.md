@@ -37,7 +37,7 @@ All routes below reuse existing implementations. `--help` is the argument author
 | Web Fetch | `webstone webfetch run`, `score`, `report`, `check`, `package`, `publish`; extras `validate`, `accounts` and specialized cohorts | Generic fixture/native workflow; the same commands also run without the `webfetch` prefix |
 | Web Search | `webstone web-search run`, `report`, `check`, `publish`, `export`; extras `visual`, `judge`, `review` | Profile-bound collection/scoring; judge/review are explicit operations, not hidden automatic review |
 | Web Extract | `webstone web-extract run`, `score`, `report`, `check`, `package`, `publish`; extras such as `prepare`, `plan`, `preflight`, `host` | `web-extract-eval` extra and declared references |
-| Browser Trajectory Replay | `webstone trajectory-replay report`, `check`, `package`, `publish`; extras such as `evaluate`, `replay`, `catalog-run`, `visual` | Fixed trajectories stay model-free |
+| Browser Trajectory Replay | `webstone trajectory-replay run --benchmark <name>`, `report`, `check`, `package`, `publish`; extras such as `qualification`, `catalog-run`, `visual` | Fixed trajectories stay model-free |
 | Browser Use | `webstone browser-use run`, `report`, `check`, `package`, `publish`; extras `visual`, `review` | Experimental; model, isolated sites and `browser-use-eval` dependencies required |
 | Local report rebuild | Selected track's report/check commands | Reuses saved evidence; does not execute provider calls or share publicly |
 | Share a report | Selected track's publish/verify commands | Requires an explicitly selected, authorized host/profile and live verification |

@@ -15,15 +15,27 @@ DEFAULT_CONTRACT = (
 )
 
 
+def archive_component(contract: dict) -> dict:
+    """The one delivered site component that declares downloaded data archives."""
+    components = [
+        component
+        for component in (contract.get("components") or {}).values()
+        if "data_urls" in component
+    ]
+    if len(components) != 1:
+        raise ValueError("site delivery contract must declare exactly one data-archive site")
+    return components[0]
+
+
 def verify_archives(
     data_dir: Path, contract_path: Path = DEFAULT_CONTRACT
 ) -> list[dict[str, str | int]]:
     """Check each Map archive against the contract size and SHA-256, failing on drift."""
     contract = json.loads(contract_path.read_text(encoding="utf-8"))
-    map_site = contract["components"]["map"]
-    expected = map_site["data_archive_sha256"]
-    expected_bytes = map_site["data_archive_bytes"]
-    names = [Path(urlparse(url).path).name for url in map_site["data_urls"]]
+    archived = archive_component(contract)
+    expected = archived["data_archive_sha256"]
+    expected_bytes = archived["data_archive_bytes"]
+    names = [Path(urlparse(url).path).name for url in archived["data_urls"]]
     if (
         len(names) != len(set(names))
         or set(names) != set(expected)

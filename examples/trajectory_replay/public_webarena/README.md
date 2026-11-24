@@ -178,7 +178,7 @@ uv run --frozen python scripts/manage_webarena_rainbond_pool.py \
 ```
 
 Pass each leased `webarena.config.json` as a separate `--webarena-config` argument to
-`scripts/run_webarena_qualification.py`. Overlapping site batches run concurrently only
+`uv run --frozen python -m harness.trajectory_replay qualification run`. Overlapping site batches run concurrently only
 when distinct slice configs are supplied. Afterwards, release each reusable lease. For a
 one-shot pool, destroy the slices instead:
 

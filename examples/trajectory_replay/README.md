@@ -23,6 +23,8 @@ Run:
 
 The default tasks come from [LexBench-Trajectory-Replay on Hugging Face](https://huggingface.co/datasets/Lexmount/LexBench-Trajectory-Replay), at the immutable revision in the code's data lock. The verified local cache works offline after the first download. An explicit `--suite` remains available on the Python CLI for historical inputs.
 
+The script calls `python -m harness.trajectory_replay run --benchmark curated`. Every replay benchmark (`curated`, `public-webarena`, `webarena-verified`) runs through that one `run` verb. For the curated and public benchmarks, `--profile <file>` takes the measured browsers from the profile's `methods[].engine` list; `--engines` narrows that list, and without a profile every registered browser runs.
+
 Use `./examples/trajectory_replay/run.sh --no-report` to save scores and evidence without generating local HTML. Build the report later with `uv run --frozen python examples/trajectory_replay/rebuild_report.py --artifacts <evidence-directory>`; it selects the exact suite bound by the saved manifest. Publishing a report requires a separate explicit request and authorization.
 
 Run the small real-container smoke test before a release (requires the two

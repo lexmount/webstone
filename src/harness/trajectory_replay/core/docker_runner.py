@@ -1,8 +1,7 @@
-"""Docker runner code shared by both Trajectory Replay tracks.
+"""Docker helpers for the shared Trajectory Replay runner loop.
 
-Each track keeps its own ``run_evaluation`` and ``_run_task`` on top of these
-helpers. Its task loop, evaluator, manifest protocol, report target and denominator
-stay separate.
+``core/runner.py`` owns the task loop; each benchmark adapter keeps its own
+attempt, evaluator kinds, manifest protocol, report target and denominator.
 """
 
 from __future__ import annotations

@@ -11,12 +11,14 @@ from playwright.sync_api import sync_playwright
 
 from harness.environments.browser import (
     cleanup_browser_runtime,
+    configured_browser_images,
     engine_cdp_port,
     published_endpoint,
     start_browser_container,
     wait_cdp,
 )
-from harness.trajectory_replay.runner import ENGINE_IMAGES
+
+ENGINE_IMAGES = configured_browser_images()
 
 pytestmark = [
     pytest.mark.real_smoke,

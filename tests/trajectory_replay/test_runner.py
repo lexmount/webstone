@@ -21,8 +21,8 @@ from harness.environments.browser import (
 )
 from harness.trajectory_replay import runner
 from harness.trajectory_replay.core import diagnostics, docker_runner
+from harness.trajectory_replay.core import runner as core_runner
 from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
-from harness.trajectory_replay.runner import _prepare_page
 
 
 def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):
@@ -72,23 +72,23 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         "task", "Task", ({"action": "navigate", "url": "{fixture_origin}/core.html"},),
         (), (), "simple", {}, {},
     )
-    monkeypatch.setattr(runner, "start_fixture_server", lambda root: (
+    monkeypatch.setattr(core_runner, "start_fixture_server", lambda root: (
         MagicMock(), MagicMock(), "http://fixture.test",
     ))
     task.ground_truth["expected_outputs"] = {}
     monkeypatch.setattr(runner, "load_suite", lambda _: TaskSuite("test", (task,)))
     client = MagicMock()
     playwright = MagicMock()
-    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(core_runner.docker, "from_env", lambda: client)
     monkeypatch.setattr(
-        runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
+        core_runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
     )
     monkeypatch.setattr(docker_runner, "start_browser_container", lambda *a, **k: MagicMock())
     monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
     monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
     monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: None)
-    monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
-    monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
+    monkeypatch.setattr(core_runner, "reset_state", lambda *a: None)
+    monkeypatch.setattr(runner, "prepare_page", lambda page, *a, **k: page)
     monkeypatch.setattr(runner, "docker_environment", lambda *a: {})
     monkeypatch.setattr(
         runner,
@@ -153,28 +153,34 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         raise URLError("diagnostic service unavailable")
 
     if unexpected_diagnostic_error:
-        monkeypatch.setattr(runner, "diagnose_summary", diagnostic_failure)
+        monkeypatch.setattr(core_runner, "diagnose_summary", diagnostic_failure)
         with pytest.raises(URLError):
-            runner.run_evaluation(
-                suite_path=suite_path,
-                output_dir=output,
-                reports_dir=tmp_path,
-                agent_smoke_path=smoke_path if with_smoke else None,
-                max_retries=0,
-                llm_diagnostics=True,
-                generate_report=generate_report,
+            core_runner.run_replay(
+                runner.CuratedReplay(suite_path=suite_path),
+                core_runner.ReplayOptions(
+                    output_dir=output,
+                    reports_dir=tmp_path,
+                    engines=("chromium", "moli"),
+                    agent_smoke_path=smoke_path if with_smoke else None,
+                    max_retries=0,
+                    llm_diagnostics=True,
+                    generate_report=generate_report,
+                ),
             )
         assert verify_artifacts() == baseline
     else:
         monkeypatch.setattr(diagnostics, "add_llm_diagnoses", diagnostic_failure)
-        result = runner.run_evaluation(
-            suite_path=suite_path,
-            output_dir=output,
-            reports_dir=tmp_path,
+        result = core_runner.run_replay(
+            runner.CuratedReplay(suite_path=suite_path),
+            core_runner.ReplayOptions(
+                output_dir=output,
+                reports_dir=tmp_path,
+                engines=("chromium", "moli"),
                 agent_smoke_path=smoke_path if with_smoke else None,
-            max_retries=0,
-            llm_diagnostics=True,
-            generate_report=generate_report,
+                max_retries=0,
+                llm_diagnostics=True,
+                generate_report=generate_report,
+            ),
         )
         assert verify_artifacts() == result
         assert result["score"] == baseline["score"]
@@ -194,7 +200,9 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
             spec = importlib.util.spec_from_file_location('explicit_replay_report', script)
             rebuild = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(rebuild)
-            monkeypatch.setattr(rebuild, 'load_suite', lambda _: TaskSuite('test', (task,)))
+            monkeypatch.setattr(rebuild, 'load_suite', lambda _: TaskSuite('test', (task,
+                ),
+            ))
             monkeypatch.setattr(rebuild, 'summarize_attempts', lambda *a, **k: result)
             monkeypatch.setattr(rebuild, 'diagnose_summary', lambda *a, **k: None)
             monkeypatch.setattr(rebuild, 'write_latest_report', report)
@@ -280,52 +288,6 @@ def test_cleanup_continues_after_playwright_stop_failure():
     ]
 
 
-def test_prepare_page_keeps_context_but_replaces_renderer_page(monkeypatch):
-    calls = []
-
-    class Replacement:
-        def set_viewport_size(self, size):
-            calls.append(("viewport", size))
-
-        def evaluate(self, expression):
-            return {"width": 1280, "height": 900}
-
-        def wait_for_timeout(self, timeout):
-            calls.append(("settle", timeout))
-
-    replacement = Replacement()
-
-    class Context:
-        def new_page(self):
-            calls.append(("new_page",))
-            return replacement
-
-    class OldPage:
-        context = Context()
-
-        def close(self, **kwargs):
-            calls.append(("close", kwargs))
-
-    origins = {"https://example.com"}
-    monkeypatch.setattr(
-        runner,
-        "_reset_state",
-        lambda page, visited: calls.append(("reset", set(visited))),
-    )
-
-    result = _prepare_page(OldPage(), origins, settle_ms=1500)
-
-    assert result is replacement
-    assert origins == set()
-    assert calls == [
-        ("reset", {"https://example.com"}),
-        ("close", {"run_before_unload": False}),
-        ("new_page",),
-        ("viewport", {"width": 1280, "height": 900}),
-        ("settle", 1500),
-    ]
-
-
 @pytest.mark.skipif(sys.platform != 'darwin', reason='macOS system aliases')
 def test_replay_accepts_system_alias_but_rejects_user_links(monkeypatch):
     from harness.trajectory_replay.report_inputs import verified_dataset_path
@@ -343,16 +305,24 @@ def test_replay_accepts_system_alias_but_rejects_user_links(monkeypatch):
             raise RuntimeError('suite reached')
         monkeypatch.setattr(runner, 'load_suite', stop_at_suite)
         with pytest.raises(RuntimeError, match='suite reached'):
-            runner.run_evaluation(suite_path=dataset, output_dir=aliased / 'new',
-                                  reports_dir=root / 'report')
+            core_runner.run_replay(
+                runner.CuratedReplay(suite_path=dataset),
+                core_runner.ReplayOptions(
+                    output_dir=aliased / 'new', reports_dir=root / 'report', engines=('chromium',),
+                ),
+            )
         assert seen == [dataset]
         link = root / 'user-link'
         link.symlink_to(root, target_is_directory=True)
         with pytest.raises(ValueError, match='symlink'):
             verified_dataset_path(link / 'dataset.json', digest)
         with pytest.raises(ValueError, match='symlink'):
-            runner.run_evaluation(suite_path=dataset, output_dir=link / 'new',
-                                  reports_dir=root / 'report')
+            core_runner.run_replay(
+                runner.CuratedReplay(suite_path=dataset),
+                core_runner.ReplayOptions(
+                    output_dir=link / 'new', reports_dir=root / 'report', engines=('chromium',),
+                ),
+            )
 
 
 def test_runner_imports_do_not_load_the_token_encoding():

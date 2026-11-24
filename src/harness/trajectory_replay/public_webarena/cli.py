@@ -11,13 +11,14 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from harness.environments.browser import container_engines
+from harness.trajectory_replay.core.runner import ReplayOptions, run_engines, run_replay
 from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
 from harness.trajectory_replay.public_webarena.config import (
     configure_browser_docker_host,
     load_runtime_env,
 )
 from harness.trajectory_replay.public_webarena.qualification import task_ids_from_scope
-from harness.trajectory_replay.public_webarena.runner import run_evaluation
+from harness.trajectory_replay.public_webarena.runner import PublicWebArenaReplay
 
 
 @contextmanager
@@ -43,7 +44,7 @@ def qualification_lock(
         handle.close()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--suite", help="Explicit suite path; defaults to the locked HF qualified human edition"
@@ -93,7 +94,13 @@ def main() -> None:
         "--browser-docker-host",
         help="absolute unix:// socket for measured browser containers",
     )
-    parser.add_argument("--engines", default=",".join(container_engines()))
+    parser.add_argument(
+        "--profile", help="run profile whose methods name the measured engines, in order"
+    )
+    parser.add_argument(
+        "--engines",
+        help="comma-separated engines; narrows the profile, or selects registered engines",
+    )
     parser.add_argument("--qualification-run", action="store_true")
     parser.add_argument("--qualification-pass-index", type=int)
     parser.add_argument("--qualification-required-passes", type=int)
@@ -110,7 +117,7 @@ def main() -> None:
     parser.add_argument("--batch-id", help="batch ID inside --native-scope")
     parser.add_argument("--batch-shard-count", type=int)
     parser.add_argument("--batch-shard-index", type=int)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.qualification_run:
         if args.qualification_pass_index is None:
             parser.error("--qualification-pass-index is required for qualification runs")
@@ -159,24 +166,10 @@ def main() -> None:
         else nullcontext()
     )
     with lock:
-        run_evaluation(
+        benchmark = PublicWebArenaReplay(
             suite_path=args.suite,
-            output_dir=args.output,
-            reports_dir=args.reports,
-            generate_report=not args.no_report,
-            ground_truth_evidence_path=args.ground_truth_evidence,
-            agent_smoke_path=args.agent_smoke,
-            max_retries=args.failure_retries,
-            sample_interval_ms=args.sample_interval_ms,
-            settle_ms=args.settle_ms,
             task_timeout_ms=args.task_timeout_ms,
-            cpus=args.cpus,
-            memory=args.memory,
-            llm_diagnostics=args.llm_diagnostics,
-            diagnosis_model=args.diagnosis_model,
-            diagnosis_reasoning_effort=args.diagnosis_reasoning_effort,
             webarena_config_path=args.webarena_config,
-            engines=tuple(item.strip() for item in args.engines.split(",") if item.strip()),
             qualification_run=args.qualification_run,
             qualification_pass_index=args.qualification_pass_index,
             qualification_required_passes=args.qualification_required_passes,
@@ -198,7 +191,25 @@ def main() -> None:
                 else None
             ),
         )
-
+        run_replay(
+            benchmark,
+            ReplayOptions(
+                output_dir=Path(args.output),
+                reports_dir=Path(args.reports),
+                engines=run_engines(args.profile, args.engines, container_engines()),
+                generate_report=not args.no_report,
+                ground_truth_evidence_path=args.ground_truth_evidence,
+                agent_smoke_path=args.agent_smoke,
+                max_retries=args.failure_retries,
+                sample_interval_ms=args.sample_interval_ms,
+                settle_ms=args.settle_ms,
+                cpus=args.cpus,
+                memory=args.memory,
+                llm_diagnostics=args.llm_diagnostics,
+                diagnosis_model=args.diagnosis_model,
+                diagnosis_reasoning_effort=args.diagnosis_reasoning_effort,
+            ),
+        )
 
 if __name__ == "__main__":
     main()

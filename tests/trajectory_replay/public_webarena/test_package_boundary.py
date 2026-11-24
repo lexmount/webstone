@@ -31,7 +31,7 @@ def test_public_web_arena_options_exist_only_on_public_entrypoint(monkeypatch, c
             entry()
         return capsys.readouterr().out
 
-    curated_help = help_text(curated_cli.evaluate)
+    curated_help = help_text(lambda: curated_cli.run_curated(sys.argv[1:]))
     trajectory_help = help_text(public_cli.main)
     assert "--webarena-config" not in curated_help
     assert "--qualification-run" not in curated_help

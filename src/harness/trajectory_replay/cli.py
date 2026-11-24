@@ -4,19 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from harness.adapters import STAGES as FIXED_STAGES
-from harness.adapters import TrackStages, owner_stage, stage_main
+from harness.adapters import Registry, TrackStages, owner_stage, stage_main
 from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
 
 PROG = "python -m harness.trajectory_replay"
 _PACKAGE = "harness.trajectory_replay"
 _CLI = f"{_PACKAGE}.cli"
 COMMANDS = {
-    "evaluate": (_CLI, "evaluate", "Run the isolated curated suite and save its evidence"),
-    "replay": (_CLI, "replay", "Run the frozen model-free WebArena trajectory suite"),
+    "run": (_CLI, "run", "Replay one registered benchmark and save its evidence"),
     "seeds": (_CLI, "seeds", "Build private replay candidates from Browser Use evidence"),
     "expert-seeds": (_CLI, "expert_seeds", "Merge reviewed expert repairs into a seed manifest"),
     "promote": (_CLI, "promote", "Promote replay-proven trajectories into the dataset"),
@@ -70,6 +69,8 @@ COMMANDS = {
                                "Compare correction catalogs on saved replay evidence"),
     "rescore-saved-retrieval": (f"{_PACKAGE}.diagnostics", "main_saved_retrieval_rescore",
                                 "Rescore saved retrieval evidence without browser calls"),
+    "qualification": (f"{_PACKAGE}.public_webarena.qualification", "main",
+                      "Qualify, repair and audit public WebArena trajectories"),
 }
 
 
@@ -85,12 +86,38 @@ def main(argv: Sequence[str] | None = None, *, prog: str = PROG) -> None:
     stage_main(STAGES, prog, __doc__, argv)
 
 
-def evaluate() -> None:
-    from harness.trajectory_replay.runner import run_evaluation
+# One run verb; each benchmark parses its own options after ``--benchmark``.
+BENCHMARK_RUNS: Registry[Callable[[list[str]], None]] = Registry("replay benchmark")
 
-    parser = argparse.ArgumentParser()
+
+def run() -> None:
+    parser = argparse.ArgumentParser(
+        description="Replay one registered benchmark; its options follow --benchmark.",
+        add_help=False,
+    )
+    parser.add_argument("--benchmark", choices=BENCHMARK_RUNS.names())
+    args, rest = parser.parse_known_args()
+    if args.benchmark is None:
+        parser.print_help()
+        raise SystemExit(0 if {"-h", "--help"} & set(rest) else 2)
+    BENCHMARK_RUNS.get(args.benchmark)(rest)
+
+
+@BENCHMARK_RUNS.register("curated")
+def run_curated(argv: list[str]) -> None:
+    from harness.environments.browser import container_engines
+    from harness.trajectory_replay.core.runner import ReplayOptions, run_engines, run_replay
+    from harness.trajectory_replay.runner import CuratedReplay
+
+    parser = argparse.ArgumentParser(prog=f"{PROG} run --benchmark curated")
     parser.add_argument(
         "--suite", help="Explicit suite path; defaults to the locked HF curated edition"
+    )
+    parser.add_argument(
+        "--profile", help="Run profile whose methods name the measured engines, in order"
+    )
+    parser.add_argument(
+        "--engines", help="Comma-separated engines; narrows the profile or the registry"
     )
     parser.add_argument("--output", required=True, help="New immutable evidence directory")
     parser.add_argument("--reports", help="Defaults to the selected run's report directory")
@@ -114,30 +141,41 @@ def evaluate() -> None:
     parser.add_argument("--llm-diagnostics", action="store_true")
     parser.add_argument("--diagnosis-model", default=DEFAULT_DIAGNOSIS_MODEL)
     parser.add_argument("--diagnosis-reasoning-effort", default="low")
-    args = parser.parse_args()
-    run_evaluation(
-        suite_path=args.suite,
-        output_dir=args.output,
-        reports_dir=Path(args.reports) if args.reports else Path(args.output) / "report",
-        generate_report=not args.no_report,
-        ground_truth_evidence_path=args.ground_truth_evidence,
-        agent_smoke_path=args.agent_smoke,
-        max_retries=args.failure_retries,
-        sample_interval_ms=args.sample_interval_ms,
-        settle_ms=args.settle_ms,
-        cpus=args.cpus,
-        memory=args.memory,
-        llm_diagnostics=args.llm_diagnostics,
-        diagnosis_model=args.diagnosis_model,
-        diagnosis_reasoning_effort=args.diagnosis_reasoning_effort,
+    args = parser.parse_args(argv)
+    run_replay(
+        CuratedReplay(suite_path=args.suite),
+        ReplayOptions(
+            output_dir=Path(args.output),
+            reports_dir=Path(args.reports) if args.reports else Path(args.output) / "report",
+            engines=run_engines(args.profile, args.engines, container_engines()),
+            generate_report=not args.no_report,
+            ground_truth_evidence_path=args.ground_truth_evidence,
+            agent_smoke_path=args.agent_smoke,
+            max_retries=args.failure_retries,
+            sample_interval_ms=args.sample_interval_ms,
+            settle_ms=args.settle_ms,
+            cpus=args.cpus,
+            memory=args.memory,
+            llm_diagnostics=args.llm_diagnostics,
+            diagnosis_model=args.diagnosis_model,
+            diagnosis_reasoning_effort=args.diagnosis_reasoning_effort,
+        ),
     )
 
 
-def replay() -> None:
+@BENCHMARK_RUNS.register("public-webarena")
+def run_public_webarena(argv: list[str]) -> None:
+    from harness.trajectory_replay.public_webarena.cli import main as public_main
+
+    public_main(argv)
+
+
+@BENCHMARK_RUNS.register("webarena-verified")
+def run_webarena_verified(argv: list[str]) -> None:
     # webarena_replay.py is hash-bound into cohort certificates, so its parser lives here.
     from harness.trajectory_replay.webarena_replay import run_replay_suite
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(prog=f"{PROG} run --benchmark webarena-verified")
     parser.add_argument("--profile", required=True)
     parser.add_argument("--seeds", required=True)
     parser.add_argument("--output", required=True)
@@ -179,7 +217,7 @@ def replay() -> None:
         "--qualified-dataset",
         help="complete qualified trajectory dataset required by a formal comparison",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     run_replay_suite(
         profile_path=args.profile,
         seed_manifest_path=args.seeds,

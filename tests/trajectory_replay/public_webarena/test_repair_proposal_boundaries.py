@@ -12,9 +12,8 @@ import pytest
 from harness.trajectory_replay.public_webarena import qualification as q
 
 ROOT = Path(__file__).resolve().parents[3]
-KINDS = ["action_repair", "observed_repair", "capture_target", "replace_target",
-         "autowait_repairs", "evaluator_fill_repair"]
-BATCH = {"autowait_repairs", "evaluator_fill_repair"}
+KINDS = list(q.REPAIR_KINDS.names())
+BATCH = {name for name, kind in q.REPAIR_KINDS.items() if kind.batch}
 
 
 def setup_command(tmp_path, kind):
@@ -31,24 +30,24 @@ def setup_command(tmp_path, kind):
     suite_path = tmp_path / "suite.json"
     suite_path.write_text(json.dumps(suite), encoding="utf-8")
     args = ["--suite", str(suite_path)]
-    if kind == "action_repair":
+    if kind == "action-repair":
         config = {"schema": "lex_browser_use_action_repair/1", "task_id": "task-1",
                   "reason": "Correct declared input", "edits": [{"start_index": 1,
                   "expected_actions": actions[:1], "replacement_actions": [
                       {**actions[0], "text": "Exact title"}]}]}
-    elif kind == "observed_repair":
+    elif kind == "observed-repair":
         config = {"task_id": "task-1", "reason": "Observe visible output",
                   "observation_actions": [{"action": "get_text", "selector": "#answer",
                                            "save_as": "answer"}],
                   "response_builder": {"kind": "observed_json", "task_type": "retrieve",
                                        "output": "answer"}}
-    if kind in {"action_repair", "observed_repair"}:
+    if kind in {"action-repair", "observed-repair"}:
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps(config), encoding="utf-8")
         args += ["--config", str(config_path)]
     elif kind in BATCH:
         args += ["--task-ids", "task-1"]
-        if kind == "autowait_repairs":
+        if kind == "autowait-repairs":
             qualification = {"tasks": [{"task_id": "task-1", "disposition": "needs_trace_repair",
                 "task_contract_sha256": q.task_contract_sha256(suite["tasks"][0]),
                 "failed_step": {"index": 2, "action": "click", "error":
@@ -58,7 +57,7 @@ def setup_command(tmp_path, kind):
             args += ["--qualification", str(path)]
     else:
         args += ["--task-id", "task-1", "--action-index", "2"]
-        if kind == "capture_target":
+        if kind == "capture-target":
             args += ["--output-name", "answer"]
         else:
             args += ["--target-json", json.dumps(actions[1]["target"]),
@@ -71,7 +70,7 @@ def setup_command(tmp_path, kind):
 def run_command(kind, args):
     """Run the shared proposal entry point in-process; return the refusal, if any."""
     try:
-        q.main_repair_proposal(list(args), kind=kind)
+        q.main_repair_proposal([kind, *args])
     except (ValueError, OSError, RuntimeError, SystemExit) as error:
         return str(error) or type(error).__name__
     return None
@@ -104,7 +103,7 @@ def test_real_command_creates_bound_pending_proposal_and_refuses_overwrite(tmp_p
     assert (tmp_path / "suite.json").read_bytes() == original
 
 
-@pytest.mark.parametrize("kind", ["action_repair", "autowait_repairs"])
+@pytest.mark.parametrize("kind", ["action-repair", "autowait-repairs"])
 @pytest.mark.parametrize("boundary", ["input", "link", "parent_link"])
 def test_commands_preserve_inputs_and_reject_linked_outputs(tmp_path, kind, boundary):
     _, args, output = setup_command(tmp_path, kind)
@@ -128,7 +127,7 @@ def test_commands_preserve_inputs_and_reject_linked_outputs(tmp_path, kind, boun
 
 @pytest.mark.parametrize(
     ("kind", "ids"),
-    [("evaluator_fill_repair", "task-1,missing"), ("autowait_repairs", "task-1,../escape")],
+    [("evaluator-fill-repair", "task-1,missing"), ("autowait-repairs", "task-1,../escape")],
 )
 def test_batch_failure_exposes_no_partial_directory(tmp_path, kind, ids):
     _, args, output = setup_command(tmp_path, kind)
@@ -139,7 +138,7 @@ def test_batch_failure_exposes_no_partial_directory(tmp_path, kind, ids):
 
 
 def test_generation_rejects_inputs_changed_before_publication(tmp_path, monkeypatch):
-    _, args, output = setup_command(tmp_path, "action_repair")
+    _, args, output = setup_command(tmp_path, "action-repair")
     original = q.propose_action_repair
 
     def change_input(suite, config):
@@ -149,7 +148,7 @@ def test_generation_rejects_inputs_changed_before_publication(tmp_path, monkeypa
 
     monkeypatch.setattr(q, "propose_action_repair", change_input)
     with pytest.raises(ValueError, match="input changed"):
-        q.main_repair_proposal(args, kind="action_repair")
+        q.main_repair_proposal(["action-repair", *args])
     assert not output.exists()
 
 
@@ -157,9 +156,10 @@ def test_script_entry_point_supports_the_standard_temporary_directory():
     import tempfile
 
     with tempfile.TemporaryDirectory() as directory:
-        _, args, output = setup_command(Path(directory), "action_repair")
+        _, args, output = setup_command(Path(directory), "action-repair")
         result = subprocess.run(
-            [sys.executable, str(ROOT / "scripts/propose_webarena_action_repair.py"), *args],
+            [sys.executable, "-m", "harness.trajectory_replay", "qualification", "propose",
+             "action-repair", *args],
             cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)},
             capture_output=True, text=True, timeout=20,
         )

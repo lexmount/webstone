@@ -17,6 +17,8 @@ from pathlib import Path
 
 from harness.record_io import file_sha256, json_bytes
 
+QUALIFICATION = [sys.executable, '-m', 'harness.trajectory_replay', 'qualification']
+
 
 def verify_dependency_metadata(source_root: Path) -> None:
     from importlib.metadata import requires
@@ -614,9 +616,8 @@ def verify_replay_diagnostics(root: Path, source_root: Path) -> None:
                     'audit-saved-correction', 'rescore-saved-retrieval', 'dataset-revision'):
         subprocess.run([sys.executable, '-m', 'harness.trajectory_replay', command, '--help'],
                        check=True, cwd=root, capture_output=True)
-    for command in ('audit_webarena_recorded_outcomes.py', 'verify_webarena_evaluator_exclusions.py',
-                    'supersede_webarena_task_browser_results.py'):
-        subprocess.run([sys.executable, str(source_root / 'scripts' / command), '--help'],
+    for command in ('audit-recorded-outcomes', 'verify-evaluator-exclusions', 'supersede'):
+        subprocess.run([*QUALIFICATION, command, '--help'],
                        check=True, cwd=root, capture_output=True)
     stage = root / 'replay-diagnostics'
     stage.mkdir()
@@ -669,7 +670,7 @@ def verify_replay_supersession(root: Path, source_root: Path) -> None:
     before = {path.resolve(): path.read_bytes() for source in (base, correction)
               for path in source.rglob('*') if path.is_file()}
     output = root / 'supersession'
-    args = [sys.executable, str(source_root / 'scripts/supersede_webarena_task_browser_results.py'),
+    args = [*QUALIFICATION, 'supersede',
             '--base-run', str(base), '--correction-run', str(correction), '--output', str(output),
             '--replace', 'case-a/moli', '--reason', 'Synthetic installed command correction']
     subprocess.run(args, check=True, cwd=root, capture_output=True)
@@ -708,7 +709,7 @@ def verify_qualification_commands(root: Path, source_root: Path) -> None:
     native_exclusions.write_text(json.dumps({
         'schema': 'lex_webarena_evaluator_exclusions/1', 'excluded_tasks': []}), encoding='utf-8')
     native_output = stage / 'native-scope.json'
-    native_args = [sys.executable, str(source_root / 'scripts/build_webarena_native_scope.py'),
+    native_args = [*QUALIFICATION, 'native-scope',
                    '--suite', str(native_suite), '--image-lock', str(native_images),
                    '--evaluator-exclusions', str(native_exclusions), '--architecture', 'arm64',
                    '--max-tasks-per-shard', '1', '--output', str(native_output)]
@@ -735,7 +736,7 @@ def verify_qualification_commands(root: Path, source_root: Path) -> None:
     repair_output = stage / 'repair-proposal.json'
     arguments = ['--suite', str(repair_source), '--config', str(repair_config),
                  '--output', str(repair_output)]
-    command = [sys.executable, str(source_root / 'scripts/propose_webarena_action_repair.py')]
+    command = [*QUALIFICATION, 'propose', 'action-repair']
     generated = subprocess.run([*command, *arguments], cwd=stage, capture_output=True)
     assert generated.returncode == 0, generated.stderr.decode()
     proposal = json.loads(repair_output.read_bytes())
@@ -747,10 +748,8 @@ def verify_qualification_commands(root: Path, source_root: Path) -> None:
     original_proposal = repair_output.read_bytes()
     repeated = subprocess.run([*command, *arguments], cwd=stage, capture_output=True)
     assert repeated.returncode != 0 and repair_output.read_bytes() == original_proposal
-    for kind in ('action_repair', 'observed_repair', 'capture_target', 'replace_target',
-                 'autowait_repairs', 'evaluator_fill_repair'):
-        subprocess.run([sys.executable,
-                        str(source_root / f'scripts/propose_webarena_{kind}.py'), '--help'],
+    for kind in qualification.REPAIR_KINDS.names():
+        subprocess.run([*QUALIFICATION, 'propose', kind, '--help'],
                        check=True, cwd=stage, capture_output=True)
     fixture = runpy.run_path(str(source_root / 'tests/public_webarena_fixture.py'))
     candidate, decisions = fixture['authoring_suite_fixture']()
@@ -801,9 +800,8 @@ def verify_qualification_commands(root: Path, source_root: Path) -> None:
     partial = evidence / 'pass-1/shopping-0-of-1/partial.txt'
     partial.parent.mkdir(parents=True)
     partial.write_bytes(b'preserve partial evidence')
-    scripts = source_root / 'scripts'
     subprocess.run([
-        sys.executable, str(scripts / 'run_webarena_qualification.py'), '--suite', str(suite),
+        *QUALIFICATION, 'run', '--suite', str(suite),
         '--native-scope', str(scope), '--webarena-config', str(config),
         '--evidence-root', str(evidence), '--dry-run',
     ], check=True, cwd=stage, capture_output=True)
@@ -812,13 +810,12 @@ def verify_qualification_commands(root: Path, source_root: Path) -> None:
     queue = stage / 'queue.json'
     queue.write_text(json.dumps({'tasks': [{'task_id': 'a', 'disposition': 'eligible'}]}), encoding='utf-8')
     for command, arguments in (
-        ('build_webarena_qualification_subset.py', ['--qualification', str(queue),
-                                                  '--dispositions', 'eligible',
-                                                  '--task-types', 'mutate']),
-        ('build_webarena_requalification_suite.py', ['--native-scope', str(scope)]),
+        ('subset', ['--qualification', str(queue), '--dispositions', 'eligible',
+                    '--task-types', 'mutate']),
+        ('requalification-suite', ['--native-scope', str(scope)]),
     ):
         output = stage / (command + '.json')
-        subprocess.run([sys.executable, str(scripts / command), '--suite', str(suite),
+        subprocess.run([*QUALIFICATION, command, '--suite', str(suite),
                         *arguments, '--output', str(output)], check=True, cwd=stage)
         assert qualification.load_suite(output).tasks[0].task_id == 'a'
 
@@ -861,17 +858,15 @@ def verify_repair_commands(root: Path, source_root: Path) -> None:
     }
     proposal_path = stage / 'proposal.json'
     proposal_path.write_text(json.dumps(proposal), encoding='utf-8')
-    scripts = source_root / 'scripts'
     packet = stage / 'packet.json'
-    subprocess.run([sys.executable, str(scripts / 'build_webarena_repair_packet.py'),
+    subprocess.run([*QUALIFICATION, 'repair-packet',
                     '--suite', str(suite_path), '--attempt', str(attempt),
                     '--output', str(packet)], check=True, cwd=stage)
     assert json.loads(packet.read_text(encoding='utf-8'))['schema'] == diagnostics.PACKET_SCHEMA
     assert 'PRIVATE REFERENCE' not in packet.read_text(encoding='utf-8')
-    for entry in ('build_webarena_repair_probe.py', 'build_webarena_repair_batch.py',
-                  'build_webarena_codex_repair_suite.py'):
+    for entry in ('repair-probe', 'repair-batch', 'codex-repair-suite'):
         output = stage / (entry + '.json')
-        subprocess.run([sys.executable, str(scripts / entry), '--suite', str(suite_path),
+        subprocess.run([*QUALIFICATION, entry, '--suite', str(suite_path),
                         '--proposal', str(proposal_path), '--output', str(output)],
                        check=True, cwd=stage)
         assert qualification.load_suite(output).tasks[0].task_id == 'a'
@@ -888,7 +883,7 @@ def verify_repair_commands(root: Path, source_root: Path) -> None:
         repr(json.dumps(proposal)) + ')\n', encoding='utf-8')
     fake.chmod(0o700)
     completed = subprocess.run([
-        sys.executable, str(scripts / 'run_webarena_codex_repairs.py'),
+        *QUALIFICATION, 'codex-repairs',
         '--suite', str(suite_path), '--packet', str(packet),
         '--output-root', str(stage / 'jobs'), '--codex-binary', str(fake),
         '--model', 'offline-fixture', '--max-workers', '1',
@@ -905,7 +900,7 @@ def verify_adjudication_commands(root: Path, source_root: Path) -> None:
     stage = root / 'adjudication'
     stage.mkdir()
     suite_path = stage / 'suite.json'
-    suite_path.write_bytes((root / 'repairs/build_webarena_repair_probe.py.json').read_bytes())
+    suite_path.write_bytes((root / 'repairs/repair-probe.json').read_bytes())
     suite = json.loads(suite_path.read_text(encoding='utf-8'))
     task = suite['tasks'][0]
     rows = []
@@ -931,16 +926,14 @@ def verify_adjudication_commands(root: Path, source_root: Path) -> None:
         rows.append(row)
     projection = stage / 'attempts.jsonl'
     projection.write_text(''.join(json.dumps(row) + '\n' for row in rows), encoding='utf-8')
-    scripts = source_root / 'scripts'
     queue, final = stage / 'queue.json', stage / 'final.json'
     for command, arguments in (
-        ('build_webarena_repair_queue.py', ['--attempts', str(projection), '--output', str(queue)]),
-        ('finalize_webarena_adjudication.py', ['--qualification', str(queue), '--validated-run',
-                                             f'{suite_path}::{projection}', '--output', str(final)]),
-        ('apply_webarena_qualification.py', ['--qualification', str(final),
-                                           '--output', str(stage / 'applied.json')]),
+        ('repair-queue', ['--attempts', str(projection), '--output', str(queue)]),
+        ('finalize', ['--qualification', str(queue), '--validated-run',
+                      f'{suite_path}::{projection}', '--output', str(final)]),
+        ('apply', ['--qualification', str(final), '--output', str(stage / 'applied.json')]),
     ):
-        subprocess.run([sys.executable, str(scripts / command), '--suite', str(suite_path),
+        subprocess.run([*QUALIFICATION, command, '--suite', str(suite_path),
                         *arguments], check=True, cwd=stage)
     applied = q.load_suite(stage / 'applied.json').tasks[0]
     assert applied.ground_truth['qualification']['status'] == 'eligible'
@@ -954,10 +947,9 @@ def verify_adjudication_commands(root: Path, source_root: Path) -> None:
     decision['adjudication']['corrected_trajectory'] = corrected
     proposed = stage / 'proposed.json'
     proposed.write_text(json.dumps(decisions), encoding='utf-8')
-    for command in ('build_webarena_repair_validation_suite.py',
-                    'build_webarena_evidence_revalidation_suite.py'):
+    for command in ('repair-validation-suite', 'evidence-revalidation-suite'):
         output = stage / (command + '.json')
-        subprocess.run([sys.executable, str(scripts / command), '--suite', str(suite_path),
+        subprocess.run([*QUALIFICATION, command, '--suite', str(suite_path),
                         '--qualification', str(proposed), '--output', str(output)],
                        check=True, cwd=stage)
         candidate = q.load_suite(output).tasks[0]

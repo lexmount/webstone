@@ -12,10 +12,13 @@ import pytest
 
 from harness import env_file, runtime_env
 from harness.environments.browser import (
+    container_engines,
     engine_cdp_port,
     start_browser_container,
 )
 from harness.trajectory_replay.core import diagnostics, docker_runner
+from harness.trajectory_replay.core import runner as core_runner
+from harness.trajectory_replay.core.runner import prepare_page as _prepare_page
 from harness.trajectory_replay.core.suite import BrowserTask, TaskSuite
 from harness.trajectory_replay.public_webarena import runner
 from harness.trajectory_replay.public_webarena.config import redact_site_passwords
@@ -24,12 +27,27 @@ from harness.trajectory_replay.public_webarena.runner import (
     _capture_final_page_evidence,
     _environment,
     _environment_failure_row,
-    _prepare_page,
 )
+
+_BENCHMARK_ARGS = {
+    "suite_path", "task_timeout_ms", "webarena_config_path", "qualification_run",
+    "qualification_pass_index", "qualification_required_passes", "trajectory_authoring_run",
+    "task_ids", "task_selection",
+}
+
+
+def run_evaluation(*, engines=None, **kwargs):
+    """Run the public benchmark through the shared replay loop."""
+    benchmark = runner.PublicWebArenaReplay(
+        **{key: value for key, value in kwargs.items() if key in _BENCHMARK_ARGS}
+    )
+    options = {key: value for key, value in kwargs.items() if key not in _BENCHMARK_ARGS}
+    return core_runner.run_replay(benchmark, core_runner.ReplayOptions(
+        engines=container_engines() if engines is None else engines, **options))
 
 
 def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, monkeypatch):
-    from harness.trajectory_replay.public_webarena.evaluators import TaskEvaluation
+    from harness.trajectory_replay.core.evaluators import TaskEvaluation
 
     page = MagicMock()
     page.context.pages = [page]
@@ -92,7 +110,7 @@ def test_task_execution_writes_redacted_evaluator_network_evidence(tmp_path, mon
 def test_failed_task_row_omits_the_login_password(
     tmp_path, monkeypatch, failure, password, written
 ):
-    from harness.trajectory_replay.public_webarena.evaluators import TaskEvaluation
+    from harness.trajectory_replay.core.evaluators import TaskEvaluation
 
     page = MagicMock()
     page.context.pages = [page]
@@ -270,7 +288,7 @@ def test_browser_container_rejects_nonpositive_explicit_cpu_limit():
 
 def test_measured_run_rejects_unlimited_cpu(tmp_path):
     with pytest.raises(ValueError, match="cpus must be positive for measured runs"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=tmp_path / "not-read.json",
             output_dir=tmp_path / "output",
             reports_dir=tmp_path / "reports",
@@ -280,7 +298,7 @@ def test_measured_run_rejects_unlimited_cpu(tmp_path):
 
 def test_trajectory_authoring_requires_one_chromium_attempt(tmp_path):
     with pytest.raises(ValueError, match="one Chromium attempt"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=tmp_path / "not-read.json",
             output_dir=tmp_path / "output",
             reports_dir=tmp_path / "reports",
@@ -292,7 +310,7 @@ def test_trajectory_authoring_requires_one_chromium_attempt(tmp_path):
 
 def test_trajectory_authoring_and_qualification_are_mutually_exclusive(tmp_path):
     with pytest.raises(ValueError, match="mutually exclusive"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=tmp_path / "not-read.json",
             output_dir=tmp_path / "output",
             reports_dir=tmp_path / "reports",
@@ -317,12 +335,12 @@ def test_trajectory_authoring_rejects_state_mutation_tasks_before_docker(tmp_pat
     )
     monkeypatch.setattr(runner, "load_suite", lambda _: TaskSuite("test", (task,)))
     client = MagicMock()
-    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(core_runner.docker, "from_env", lambda: client)
 
     with pytest.raises(
         ValueError, match="permits non-mutating retrieve/navigate tasks only: webarena-1"
     ):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=tmp_path / "suite.json",
             output_dir=tmp_path / "output",
             reports_dir=tmp_path / "reports",
@@ -345,11 +363,11 @@ def test_measured_run_rejects_missing_cgroup_controls_before_creating_output(tmp
         "MemoryLimit": True,
         "PidsLimit": True,
     }
-    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(core_runner.docker, "from_env", lambda: client)
     output = tmp_path / "output"
 
     with pytest.raises(RuntimeError, match="CPU CFS quota, CPU CFS period"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=tmp_path / "suite.json",
             output_dir=output,
             reports_dir=tmp_path / "reports",
@@ -391,7 +409,7 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         "task", "Task", ({"action": "navigate", "url": "{fixture_origin}/core.html"},),
         (), (), "simple", {}, {},
     )
-    monkeypatch.setattr(runner, "start_fixture_server", lambda root: (
+    monkeypatch.setattr(core_runner, "start_fixture_server", lambda root: (
         MagicMock(), MagicMock(), "http://fixture.test",
     ))
     task.ground_truth["expected_outputs"] = {}
@@ -399,9 +417,9 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     client = MagicMock()
     client.info.return_value = {"OSType": "linux", "CgroupVersion": "2"}
     playwright = MagicMock()
-    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(core_runner.docker, "from_env", lambda: client)
     monkeypatch.setattr(
-        runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
+        core_runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: playwright)
     )
     moli_version = {"output": b"moli 1.0.6\n"}
     monkeypatch.setattr(
@@ -414,8 +432,8 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
     monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
     monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: None)
-    monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
-    monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
+    monkeypatch.setattr(core_runner, "reset_state", lambda *a: None)
+    monkeypatch.setattr(runner, "prepare_page", lambda page, *a, **k: page)
     monkeypatch.setattr(runner, "_environment", lambda *a: {})
     monkeypatch.setattr(
         runner,
@@ -487,9 +505,9 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         raise URLError("diagnostic service unavailable")
 
     if unexpected_diagnostic_error:
-        monkeypatch.setattr(runner, "diagnose_summary", diagnostic_failure)
+        monkeypatch.setattr(core_runner, "diagnose_summary", diagnostic_failure)
         with pytest.raises(URLError):
-            runner.run_evaluation(
+            run_evaluation(
                 suite_path=suite_path,
                 output_dir=output,
                 reports_dir=tmp_path,
@@ -502,7 +520,7 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
         assert verify_artifacts() == baseline
     else:
         monkeypatch.setattr(diagnostics, "add_llm_diagnoses", diagnostic_failure)
-        result = runner.run_evaluation(
+        result = run_evaluation(
             suite_path=suite_path,
             output_dir=output,
             reports_dir=tmp_path,
@@ -551,14 +569,14 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     # Rerunning with the same --output must not replace the saved evidence.
     attempts = (output / "attempts.jsonl").read_bytes()
     with pytest.raises(ValueError, match="existing evidence is immutable"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=suite_path, output_dir=output, reports_dir=tmp_path, max_retries=0
         )
     assert (output / "attempts.jsonl").read_bytes() == attempts
     # The curated replay tags a newer Moli build with the same image name.
     moli_version["output"] = b"moli 1.1.3\n"
     with pytest.raises(RuntimeError, match="public replay requires Moli 1.0.6"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=suite_path,
             output_dir=tmp_path / "wrong-moli",
             reports_dir=tmp_path,
@@ -745,10 +763,10 @@ def test_webarena_run_mode_fails_closed_on_qualification_state(
         json.dumps({"schema": "lex_browser_use_tasks/4", "tasks": [task]}), encoding="utf-8"
     )
     docker_call = MagicMock()
-    monkeypatch.setattr(runner.docker, "from_env", docker_call)
+    monkeypatch.setattr(core_runner.docker, "from_env", docker_call)
 
     with pytest.raises(ValueError, match="invalid qualification states"):
-        runner.run_evaluation(
+        run_evaluation(
             suite_path=path,
             output_dir=tmp_path / "output",
             reports_dir=tmp_path / "reports",
@@ -768,7 +786,7 @@ def test_webarena_run_mode_fails_closed_on_qualification_state(
 def test_failed_attempt_evidence_omits_the_login_password(
     tmp_path, monkeypatch, failure, password
 ):
-    from harness.trajectory_replay.public_webarena.evaluators import TaskEvaluation
+    from harness.trajectory_replay.core.evaluators import TaskEvaluation
 
     task = {
         "id": "webarena-1",
@@ -842,16 +860,16 @@ def test_failed_attempt_evidence_omits_the_login_password(
     )
     client = MagicMock()
     client.info.return_value = {"OSType": "linux", "CgroupVersion": "2"}
-    monkeypatch.setattr(runner.docker, "from_env", lambda: client)
+    monkeypatch.setattr(core_runner.docker, "from_env", lambda: client)
     monkeypatch.setattr(
-        runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: MagicMock())
+        core_runner, "sync_playwright", lambda: SimpleNamespace(start=lambda: MagicMock())
     )
     monkeypatch.setattr(docker_runner, "start_browser_container", lambda *a, **k: MagicMock())
     monkeypatch.setattr(docker_runner, "published_endpoint", lambda *a, **k: "http://test.invalid")
     monkeypatch.setattr(docker_runner, "wait_cdp", lambda *a, **k: "ws://test.invalid")
     monkeypatch.setattr(docker_runner, "DockerStatsResources", lambda _: MagicMock())
-    monkeypatch.setattr(runner, "_reset_state", lambda *a: None)
-    monkeypatch.setattr(runner, "_prepare_page", lambda page, *a, **k: page)
+    monkeypatch.setattr(core_runner, "reset_state", lambda *a: None)
+    monkeypatch.setattr(runner, "prepare_page", lambda page, *a, **k: page)
     monkeypatch.setattr(runner, "_environment", lambda *a: {})
     monkeypatch.setattr(runner, "summarize_attempts", lambda *a, **k: {})
     monkeypatch.setattr(runner.WebArenaEnvironment, "verify_runtime", lambda *a: {})
@@ -863,7 +881,7 @@ def test_failed_attempt_evidence_omits_the_login_password(
     )
     output = tmp_path / "output"
 
-    runner.run_evaluation(
+    run_evaluation(
         suite_path=suite,
         output_dir=output,
         reports_dir=tmp_path / "reports",
@@ -911,9 +929,9 @@ def test_prepare_page_keeps_context_but_replaces_renderer_page(monkeypatch):
     origins = {"https://example.com"}
     OldPage.context.pages = [OldPage()]
     monkeypatch.setattr(
-        runner,
-        "_reset_state",
-        lambda page, visited: calls.append(("reset", set(visited))),
+        core_runner,
+        "reset_state",
+        lambda page, visited, **_: calls.append(("reset", set(visited))),
     )
 
     result = _prepare_page(OldPage(), origins, settle_ms=1500)

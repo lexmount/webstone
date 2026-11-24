@@ -5,12 +5,9 @@ from urllib.parse import urlencode
 
 import pytest
 
+from harness.trajectory_replay.core.evaluators import EvaluatorRegistry, TaskEvidence
 from harness.trajectory_replay.core.suite import BrowserTask
-from harness.trajectory_replay.public_webarena.evaluators import (
-    EvaluatorRegistry,
-    TaskEvidence,
-    WebArenaVerifiedEvaluator,
-)
+from harness.trajectory_replay.public_webarena.evaluators import WebArenaVerifiedEvaluator
 
 _NAVIGATE_HEADERS = [
     {"name": "Accept", "value": "text/html"},
@@ -289,7 +286,7 @@ def test_official_task_611_requires_one_post_id_in_comment_url_and_form_key(
 def test_evaluator_registry_follows_runtime_config_rewritten_by_slice_reset(tmp_path):
     """Task 514 reads the safe flash cookie; a slice reset rewrites the site domain."""
     config = tmp_path / "config.json"
-    registry = EvaluatorRegistry(webarena_config_path=config)
+    registry = EvaluatorRegistry(config_path=config)
 
     for generation in (1, 2):
         site = f"http://slice-generation-{generation}.test"

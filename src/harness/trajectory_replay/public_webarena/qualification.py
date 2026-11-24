@@ -13,13 +13,15 @@ import tempfile
 import time
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harness.adapters import Registry
 from harness.environments.browser import reference_engine
 from harness.environments.webarena.topology import RECORDED_PORT_SITES
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, same_json_record
@@ -2499,34 +2501,107 @@ def propose_observed_repair(
     }
 
 
-def main_repair_proposal(argv=None, *, kind: str) -> None:
-    """Generate pending proposals with shared input and publication boundaries."""
-    config_kinds = {"action_repair", "observed_repair"}
-    batch_kinds = {"autowait_repairs", "evaluator_fill_repair"}
-    supported = config_kinds | batch_kinds | {"capture_target", "replace_target"}
-    if kind not in supported:
-        raise ValueError("unknown repair proposal kind")
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--suite", type=Path, required=True)
-    if kind in config_kinds:
-        parser.add_argument("--config", type=Path, required=True)
-    elif kind in batch_kinds:
-        parser.add_argument("--task-ids", required=True)
-        if kind == "autowait_repairs":
-            parser.add_argument("--qualification", type=Path, required=True)
-    else:
-        parser.add_argument("--task-id", required=True)
-        parser.add_argument("--action-index", type=int, required=True)
-        if kind == "capture_target":
-            parser.add_argument("--output-name", required=True)
-            parser.add_argument("--regex")
-        else:
-            parser.add_argument("--target-json", required=True)
-            parser.add_argument("--allow-many", action="store_true")
-            parser.add_argument("--reason", required=True)
-    parser.add_argument("--output-dir" if kind in batch_kinds else "--output",
-                        type=Path, required=True)
+@dataclass(frozen=True)
+class RepairKind:
+    """One repair proposal kind: its own arguments and proposal builder.
+
+    ``propose`` receives the parsed arguments and the decoded JSON inputs.
+    A batch kind writes one proposal per task into a new ``--output-dir``.
+    """
+
+    summary: str
+    add_arguments: Callable[[argparse.ArgumentParser], None]
+    propose: Callable[[argparse.Namespace, dict[str, Any]], list[dict[str, Any]]]
+    batch: bool = False
+
+
+REPAIR_KINDS: Registry[RepairKind] = Registry("repair proposal kind")
+
+
+def _config_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--config", type=Path, required=True)
+
+
+def _batch_task_ids(args: argparse.Namespace) -> list[str]:
+    task_ids = [item.strip() for item in args.task_ids.split(",") if item.strip()]
+    if not task_ids or len(set(task_ids)) != len(task_ids):
+        raise ValueError("task IDs must be non-empty and unique")
+    for task_id in task_ids:
+        safe_identifier(task_id)
+    return task_ids
+
+
+def _autowait_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--task-ids", required=True)
+    parser.add_argument("--qualification", type=Path, required=True)
+
+
+def _task_ids_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--task-ids", required=True)
+
+
+def _capture_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--action-index", type=int, required=True)
+    parser.add_argument("--output-name", required=True)
+    parser.add_argument("--regex")
+
+
+def _replace_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--task-id", required=True)
+    parser.add_argument("--action-index", type=int, required=True)
+    parser.add_argument("--target-json", required=True)
+    parser.add_argument("--allow-many", action="store_true")
+    parser.add_argument("--reason", required=True)
+
+
+def _propose_replace_target(args: argparse.Namespace, payloads: dict[str, Any]) -> list[dict]:
+    target = json.loads(args.target_json)
+    if not isinstance(target, dict):
+        raise ValueError("target JSON must be an object")
+    return [propose_replace_target(
+        payloads["suite"], args.task_id, action_index=args.action_index, target=target,
+        allow_many=args.allow_many, reason=args.reason)]
+
+
+REPAIR_KINDS.register("action-repair", RepairKind(
+    "Splice exact guarded action edits from a repair config", _config_arguments,
+    lambda args, payloads: [propose_action_repair(payloads["suite"], payloads["config"])]))
+REPAIR_KINDS.register("observed-repair", RepairKind(
+    "Collect the answer from declared DOM observations", _config_arguments,
+    lambda args, payloads: [propose_observed_repair(payloads["suite"], payloads["config"])]))
+REPAIR_KINDS.register("capture-target", RepairKind(
+    "Capture an answer from one declared action target", _capture_arguments,
+    lambda args, payloads: [propose_capture_target(
+        payloads["suite"], args.task_id, action_index=args.action_index,
+        output_name=args.output_name, regex=args.regex)]))
+REPAIR_KINDS.register("replace-target", RepairKind(
+    "Replace a stale action locator", _replace_arguments, _propose_replace_target))
+REPAIR_KINDS.register("autowait-repairs", RepairKind(
+    "Bound post-action waits for matching qualification failures", _autowait_arguments,
+    lambda args, payloads: [
+        propose_autowait_repair(payloads["suite"], payloads["qualification"], task_id)
+        for task_id in _batch_task_ids(args)],
+    batch=True))
+REPAIR_KINDS.register("evaluator-fill-repair", RepairKind(
+    "Fill exact official evaluator payload values", _task_ids_arguments,
+    lambda args, payloads: [propose_evaluator_fill_repair(payloads["suite"], task_id)
+                            for task_id in _batch_task_ids(args)],
+    batch=True))
+
+
+def main_repair_proposal(argv=None) -> None:
+    """Generate pending proposals of one registered kind with shared publication boundaries."""
+    parser = argparse.ArgumentParser(description="Propose a pending public WebArena repair")
+    kinds = parser.add_subparsers(dest="kind", required=True, metavar="KIND")
+    for name, repair_kind in REPAIR_KINDS.items():
+        sub = kinds.add_parser(name, help=repair_kind.summary, description=repair_kind.summary)
+        sub.add_argument("--suite", type=Path, required=True)
+        repair_kind.add_arguments(sub)
+        sub.add_argument("--output-dir" if repair_kind.batch else "--output",
+                         type=Path, required=True)
     args = parser.parse_args(argv)
+    kind = REPAIR_KINDS.get(args.kind)
     inputs = {}
     payloads = {}
     for name in ("suite", "config", "qualification"):
@@ -2535,37 +2610,13 @@ def main_repair_proposal(argv=None, *, kind: str) -> None:
             content = path.read_bytes()
             inputs[name] = (path, content)
             payloads[name] = json.loads(content)
-    output = unlinked_path(args.output_dir if kind in batch_kinds else args.output)
+    output = unlinked_path(args.output_dir if kind.batch else args.output)
     if output.exists() or output.is_symlink():
         raise ValueError("proposal output already exists")
     if any(output == path or path.is_relative_to(output) for path, _ in inputs.values()):
         raise ValueError("proposal output overlaps an input")
     suite = payloads["suite"]
-    if kind in batch_kinds:
-        task_ids = [item.strip() for item in args.task_ids.split(",") if item.strip()]
-        if not task_ids or len(set(task_ids)) != len(task_ids):
-            raise ValueError("task IDs must be non-empty and unique")
-        for task_id in task_ids:
-            safe_identifier(task_id)
-        proposals = [
-            propose_autowait_repair(suite, payloads["qualification"], task_id)
-            if kind == "autowait_repairs" else propose_evaluator_fill_repair(suite, task_id)
-            for task_id in task_ids
-        ]
-    elif kind in config_kinds:
-        proposals = [(propose_action_repair if kind == "action_repair"
-                      else propose_observed_repair)(suite, payloads["config"])]
-    elif kind == "capture_target":
-        proposals = [propose_capture_target(
-            suite, args.task_id, action_index=args.action_index,
-            output_name=args.output_name, regex=args.regex)]
-    else:
-        target = json.loads(args.target_json)
-        if not isinstance(target, dict):
-            raise ValueError("target JSON must be an object")
-        proposals = [propose_replace_target(
-            suite, args.task_id, action_index=args.action_index, target=target,
-            allow_many=args.allow_many, reason=args.reason)]
+    proposals = kind.propose(args, payloads)
     for proposal in proposals:
         task = next(task for task in suite["tasks"] if str(task["id"]) == proposal["task_id"])
         proposal["source_trajectory_sha256"] = canonical_json_sha256(task["trajectory"])
@@ -2580,7 +2631,7 @@ def main_repair_proposal(argv=None, *, kind: str) -> None:
         staging = Path(work) / "proposals"
         staging.mkdir()
         for proposal in proposals:
-            filename = f'{proposal["task_id"]}.json' if kind in batch_kinds else "proposal.json"
+            filename = f'{proposal["task_id"]}.json' if kind.batch else "proposal.json"
             _write_immutable(staging / filename, proposal)
         for path, content in inputs.values():
             if unlinked_path(path).read_bytes() != content:
@@ -2588,7 +2639,7 @@ def main_repair_proposal(argv=None, *, kind: str) -> None:
         unlinked_path(output)
         if output.exists() or output.is_symlink():
             raise ValueError("proposal output appeared during generation")
-        if kind in batch_kinds:
+        if kind.batch:
             staging.rename(output)
         else:
             os.link(staging / "proposal.json", output)
@@ -2766,3 +2817,72 @@ def main_native_scope(argv=None) -> None:
         max_tasks_per_qualification_shard=args.max_tasks_per_shard,
     )
     write_new_file(args.output, (json.dumps(payload, indent=2, ensure_ascii=False) + "\n").encode())
+
+
+_PUBLIC = "harness.trajectory_replay.public_webarena"
+# Subcommand -> (owner module, function, summary). Owners are imported only when selected.
+SUBCOMMANDS = {
+    "native-scope": (f"{_PUBLIC}.qualification", "main_native_scope",
+                     "Select the native-architecture task population before qualification"),
+    "runtime-smoke": (f"{_PUBLIC}.diagnostics", "runtime_smoke_main",
+                      "Diagnose browser images against the selected self-hosted sites"),
+    "run": (f"{_PUBLIC}.qualification", "main_qualification",
+            "Run both Chromium qualification passes over the native scope"),
+    "subset": (f"{_PUBLIC}.qualification", "main_subset",
+               "Derive a pending suite from selected queue dispositions"),
+    "requalification-suite": (f"{_PUBLIC}.qualification", "main_requalification_suite",
+                              "Derive a pending full-scope requalification suite"),
+    "repair-queue": (f"{_PUBLIC}.qualification", "main_repair_queue",
+                     "Merge qualification attempts into an immutable correction queue"),
+    "repair-validation-suite": (f"{_PUBLIC}.qualification", "main_repair_validation_suite",
+                                "Derive the pending suite for proposed corrections"),
+    "evidence-revalidation-suite": (f"{_PUBLIC}.qualification",
+                                    "main_evidence_revalidation_suite",
+                                    "Derive the pending suite for evidence revalidation"),
+    "finalize": (f"{_PUBLIC}.qualification", "main_finalize_adjudication",
+                 "Finalize a queue against two validated qualification runs"),
+    "apply": (f"{_PUBLIC}.qualification", "main_apply_adjudication",
+              "Apply final adjudication and derive the qualified suite"),
+    "observation-suite": (f"{_PUBLIC}.qualification", "main_observation_suite",
+                          "Derive a non-canonical page-observation probe suite"),
+    "authoring-suite": (f"{_PUBLIC}.qualification", "main_authoring_suite",
+                        "Derive a diagnostic warm-site trajectory authoring suite"),
+    "repair-packet": (f"{_PUBLIC}.diagnostics", "main_repair_packet",
+                      "Build a sanitized repair-authoring packet from one attempt"),
+    "codex-repairs": (f"{_PUBLIC}.diagnostics", "main_codex_repairs",
+                      "Run bounded read-only Codex repair-authoring jobs"),
+    "propose": (f"{_PUBLIC}.qualification", "main_repair_proposal",
+                "Propose a pending repair of one registered kind"),
+    "repair-probe": (f"{_PUBLIC}.qualification", "main_repair_probe",
+                     "Build a pending one-task repair probe suite"),
+    "repair-batch": (f"{_PUBLIC}.qualification", "main_repair_batch",
+                     "Build a pending repair validation batch"),
+    "codex-repair-suite": (f"{_PUBLIC}.qualification", "main_codex_repair_suite",
+                           "Build a Codex two-pass repair validation suite"),
+    "supersede": (f"{_PUBLIC}.manifest_repair", "main_supersession",
+                  "Supersede declared task-browser results in a corrective rerun"),
+    "audit-recorded-outcomes": (f"{_PUBLIC}.diagnostics", "main_recorded_outcomes",
+                                "Audit recorded outcomes against the official evaluator"),
+    "verify-evaluator-exclusions": (f"{_PUBLIC}.diagnostics", "main_evaluator_exclusions",
+                                    "Verify hash-bound evaluator exclusion evidence"),
+}
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Public WebArena trajectory qualification, repair and audit commands."""
+    import importlib
+
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    commands = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    for name, (_, _, summary) in SUBCOMMANDS.items():
+        # Each owner parses its own options; this level only selects it.
+        commands.add_parser(name, help=summary, add_help=False)
+    args, rest = parser.parse_known_args(argv)
+    module, function, _ = SUBCOMMANDS[args.command]
+    # The owner's usage line names the selected subcommand.
+    invoked = sys.argv
+    sys.argv = [f"{parser.prog} {args.command}", *rest]
+    try:
+        getattr(importlib.import_module(module), function)(rest)
+    finally:
+        sys.argv = invoked

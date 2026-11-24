@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from harness.environments.browser import container_engines
 from harness.trajectory_replay import cli, runner
+from harness.trajectory_replay.core import runner as core_runner
 from harness.trajectory_replay.core.suite import TaskSuite
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,11 +144,13 @@ def test_shared_runner_rejects_reused_or_linked_output_before_loading_inputs(
         pytest.fail("Invalid output must fail before input loading or browser setup")
 
     monkeypatch.setattr(runner, "load_suite", forbidden)
-    monkeypatch.setattr(runner.docker, "from_env", forbidden)
+    monkeypatch.setattr(core_runner.docker, "from_env", forbidden)
     with pytest.raises(ValueError, match="[Oo]utput|symlink"):
-        runner.run_evaluation(
-            suite_path=tmp_path / "missing-suite.json", output_dir=output,
-            reports_dir=tmp_path / "report",
+        core_runner.run_replay(
+            runner.CuratedReplay(suite_path=tmp_path / "missing-suite.json"),
+            core_runner.ReplayOptions(
+                output_dir=output, reports_dir=tmp_path / "report", engines=("chromium",),
+            ),
         )
     assert artifact.read_bytes() == b"immutable\n"
 
@@ -169,11 +173,15 @@ def test_runner_rechecks_destination_after_loading_inputs(tmp_path, monkeypatch,
         return TaskSuite("test", ())
 
     monkeypatch.setattr(runner, "load_suite", load_suite)
-    monkeypatch.setattr(runner.docker, "from_env", lambda: pytest.fail("Browser setup reached"))
+    monkeypatch.setattr(
+        core_runner.docker, "from_env", lambda: pytest.fail("Browser setup reached")
+    )
     with pytest.raises(ValueError, match="Output|symlink"):
-        runner.run_evaluation(
-            suite_path=tmp_path / "suite.json", output_dir=output,
-            reports_dir=output / "report",
+        core_runner.run_replay(
+            runner.CuratedReplay(suite_path=tmp_path / "suite.json"),
+            core_runner.ReplayOptions(
+                output_dir=output, reports_dir=output / "report", engines=("chromium",),
+            ),
         )
     if kind == "occupied":
         assert (output / "attempts.jsonl").read_bytes() == b"competing run\n"
@@ -183,19 +191,21 @@ def test_runner_rechecks_destination_after_loading_inputs(tmp_path, monkeypatch,
 
 def test_direct_cli_requires_explicit_inputs_and_keeps_report_with_run(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(runner, "run_evaluation", lambda **kwargs: calls.append(kwargs))
+    monkeypatch.setattr(core_runner, "run_replay", lambda *args: calls.append(args))
     with pytest.raises(SystemExit) as error:
-        cli.main(["evaluate"])
+        cli.main(["run", "--benchmark", "curated"])
     assert error.value.code == 2
     assert calls == []
     output = tmp_path / "run"
     cli.main([
-        "evaluate", "--suite", "suite.json", "--ground-truth-evidence", "qualification.json",
-        "--output", str(output),
+        "run", "--benchmark", "curated", "--suite", "suite.json",
+        "--ground-truth-evidence", "qualification.json", "--output", str(output),
     ])
-    assert calls[0]["reports_dir"] == output / "report"
-    assert calls[0]["suite_path"] == "suite.json"
-    assert calls[0]["ground_truth_evidence_path"] == "qualification.json"
+    benchmark, options = calls[0]
+    assert options.reports_dir == output / "report"
+    assert benchmark.suite_path == "suite.json"
+    assert options.ground_truth_evidence_path == "qualification.json"
+    assert options.engines == container_engines()
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS system aliases")
