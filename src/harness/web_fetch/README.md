@@ -1452,6 +1452,7 @@ inferred from the latest report. Use them only for an authorized correction or
 history reduction.
 
 `local_revision.revise_local_snapshot(source, configuration)` only rescores a separate saved snapshot.
+Run it as `webstone revise SOURCE --config CONFIG.json`; `webstone revise --help` lists the configuration keys.
 Changed contracts require `rule_revision: true`. Its receipt binds the predecessor,
 selected complete method/task scope, regression IDs, source hashes, explicit contract
 changes, actual scoring time and verdict changes. Physical output bytes, call identities,
@@ -1599,6 +1600,23 @@ it does not upload attachments.
 ## Saved multi-suite reports
 
 Use `scripts/build_report.py --saved-matrix /absolute/input-spec.json --output /absolute/new-report --language zh` to display saved results across suites.
+
+To compare methods that were run separately on the same frozen dataset, derive the
+specification instead of writing it:
+
+```bash
+webstone run --providers method-a --output RUNS/a   # or one run with several providers
+webstone run --providers method-b --output RUNS/b
+webstone compose RUNS/a RUNS/b --output RUNS/comparison.json [--title TITLE]
+uv run --frozen python scripts/build_report.py --saved-matrix RUNS/comparison.json --output NEW_REPORT
+```
+
+`compose` reads each run's `manifest.json`, `dataset.json` and `results.jsonl`,
+requires one frozen dataset hash (`--by-suite` makes each distinct dataset its own
+suite), the same selected cases and one result per method and case, and writes
+`providers`, `suites`, `sources` and every hash with paths relative to the
+specification. Optional keys stay unset; add them by hand when needed. Ordinary runs
+carry their transport evidence in the hash-bound public call log.
 
 The specification may bind `result_review` with an explicit path and SHA-256.
 It must use the shared result-review schema, bind the projected dataset and
