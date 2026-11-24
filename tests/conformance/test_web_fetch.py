@@ -88,7 +88,7 @@ def test_synthetic_fetch_instance_runs_through_every_stage(synthetic_instance, t
     with pytest.raises(ValueError, match="Diagnostic evidence"):
         webstone("webfetch", "package", run / "report", tmp_path / "package.zip")
     webstone("webfetch", "export", run, "--output", tmp_path / "submission.json")
-    rows = [json.loads(line) for line in (run / "results.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (run / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {(row["provider"], row["case_id"], row["ok"]) for row in rows} == {
         (METHOD, "conformance-body", True), (METHOD, "conformance-failure", False)}
     assert METHOD in (run / "report/en/index.html").read_text(encoding="utf-8")

@@ -85,12 +85,14 @@ def test_web_search_rejects_a_malformed_call_record_on_read(tmp_path):
     from harness.web_search.report import load_run
 
     source = _search_run(tmp_path)
-    rows = [json.loads(line) for line in (source / "results.jsonl").read_text().splitlines()]
+    rows = [json.loads(line)
+            for line in (source / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     rows[0]["round"] = "0"
-    (source / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
-    receipt = json.loads((source / "receipt.json").read_text())
+    (source / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows),
+                                          encoding="utf-8")
+    receipt = json.loads((source / "receipt.json").read_text(encoding="utf-8"))
     receipt["results_sha256"] = bytes_sha256((source / "results.jsonl").read_bytes())
-    (source / "receipt.json").write_text(json.dumps(receipt))
+    (source / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
     with pytest.raises(RecordSchemaError, match="websearch.call_record/1 field 'round'"):
         load_run(source)
 
@@ -108,7 +110,7 @@ def test_browser_use_rejects_a_malformed_attempt_on_read(tmp_path):
 
     path = tmp_path / "attempts.jsonl"
     path.write_text(json.dumps({"engine": "e", "task_id": 1, "attempt": 1, "score": 1,
-                                "duration_ms": 5}) + "\n")
+                                "duration_ms": 5}) + "\n", encoding="utf-8")
     with pytest.raises(RecordSchemaError, match="lex_browser_use_attempt/1 record lacks 'paths'"):
         read_attempts(path)
 

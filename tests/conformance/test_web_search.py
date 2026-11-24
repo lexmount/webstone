@@ -74,7 +74,7 @@ def test_synthetic_search_instance_runs_through_every_stage(tmp_path, monkeypatc
         webstone("web-search", "report", "--source", run, "--output", report)
         webstone("web-search", "check", "--output", report)
         webstone("web-search", "export", run, "--benchmark", BENCHMARK, "--output", submission)
-    rows = [json.loads(line) for line in (run / "results.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (run / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [(row["method"], row["results"][0]["url"]) for row in rows] == [(METHOD, TARGET)]
     assert "Conformance method" in (report / "en/index.html").read_text(encoding="utf-8")
     exported = json.loads(submission.read_text(encoding="utf-8"))
