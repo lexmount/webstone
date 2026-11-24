@@ -68,7 +68,7 @@ make browser-check
 make package-check
 ```
 
-`TEST_PATHS` selects tests; `PYTEST_ARGS` adds pytest options, such as `-n 4 --dist worksteal`. `make help` lists targets. Format selected files with `make format FILES="path.py ..."`.
+`make test-python` runs the Python suite in parallel, one worker per CPU; set `PYTEST_WORKERS=4` for a fixed count or `PYTEST_WORKERS=0` to run serially. `TEST_PATHS` selects tests; `PYTEST_ARGS` adds pytest options, such as `--durations=20`. Tests that need the Node packages skip locally until `npm ci` (part of `make setup-test`) installs them; CI always runs them. `make help` lists targets. Format selected files with `make format FILES="path.py ..."`.
 
 CI checks the complete PR. Only README, contribution/security guidance, `AGENTS.md`, Markdown under `docs/`, and images under `docs/assets/` qualify for documentation-only checks. Other paths, unknown scope, main pushes and tags run full checks. The required `Python 3.11` status rejects failed, cancelled or unexpectedly skipped jobs. See [workflow details](.github/workflows/README.md).
 
