@@ -3,24 +3,61 @@
 import json
 import re
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 from urllib.parse import urlencode
 
+from harness.adapters import Capabilities, Registry
+
 BILLING_POLICIES = frozenset({'unknown', 'http-200', 'http-200-nonempty'})
+
 
 @dataclass(frozen=True)
 class Adapter:
+    """One native search transport; conforms to ``harness.adapters.MethodAdapter``.
+
+    Provider-specific behaviour lives in the optional hooks below, so the
+    collector, scorer and report read declarations instead of adapter names:
+
+    - ``envelope``: native response envelope rules with ``account_error``,
+      ``version`` and ``billable`` (see ``TencentEnvelope``);
+    - ``item``: projection of one native result item before scoring;
+    - ``method_rule``: method declarations the adapter requires;
+    - ``provider_default_limit``: the provider chooses the result count when a
+      request carries none.
+    """
+
     request: object
     authorization_header: str = "Authorization"
     authorization_prefix: str = "Bearer "
     response: object = None
     telemetry: object = False
     projection: object = None
-    account_error_codes: frozenset = frozenset()
-    version_path: tuple = ()
     failure: object = None
     output_fields: object = None
+    envelope: object = None
+    item: object = None
+    method_rule: object = None
+    provider_default_limit: bool = False
+    name: str = field(default="", kw_only=True)
+
+    def capabilities(self):
+        flags = {flag for flag, present in (
+            ("telemetry", bool(self.telemetry)),
+            ("native-projection", self.projection is not None),
+            ("versioned-envelope", self.envelope is not None),
+            ("provider-default-limit", self.provider_default_limit),
+        ) if present}
+        return Capabilities(frozenset(flags))
+
+    def implementation_identity(self):
+        """Public transport settings; endpoints and versions belong to each method."""
+        return dict(adapter=self.name, authorization_header=self.authorization_header,
+                    capabilities=sorted(self.capabilities().flags))
+
+    def validate(self, method=None):
+        """Problems with a method declaration for this transport; empty when it can run."""
+        return list(self.method_rule(method)) if method is not None and self.method_rule else []
 
     def field_map(self, method=None):
         from lexbench_websearch.outputs import validate_fields
@@ -29,27 +66,15 @@ class Adapter:
         return validate_fields(deepcopy(value))
 
     def account_error(self, payload, method=None, *, http_status=200):
-        response = payload.get("Response") if isinstance(payload, dict) else None
-        error = response.get("Error") if isinstance(response, dict) else None
-        code = error.get("Code") if isinstance(error, dict) else None
-        if isinstance(code, str) and code.split(".")[0] in self.account_error_codes:
-            return code
-        if (self.version_path and http_status == 200 and not error
-                and (not isinstance(response, dict)
-                     or not isinstance(response.get('Pages'), list)
-                     and not (isinstance(response.get('Version'), str) and response['Version']))):
-            return 'MissingNativeEnvelope'
-        expected = (method or {}).get("expected_response_version")
-        if (expected is not None and isinstance(response, dict) and not error
-                and (isinstance(response.get('Version'), str) and bool(response['Version'])
-                     or isinstance(response.get('Pages'), list)
-                     or (response.get('RequestId') and isinstance(response.get('Query'), str)))):
-            version = payload
-            for key in self.version_path:
-                version = version.get(key) if isinstance(version, dict) else None
-            if version != expected:
-                return f"ResponseVersionMismatch: expected {expected}, received {version}"
-        return None
+        if self.envelope is None:
+            return None
+        return self.envelope.account_error(payload, method, http_status=http_status)
+
+    def response_version(self, payload):
+        return self.envelope.version(payload) if self.envelope is not None else payload
+
+    def normalize_item(self, item):
+        return self.item(item) if self.item else item
 
     def cost(self, method, status, transport_exit, payload):
         price = method.get("price_per_1000")
@@ -63,13 +88,9 @@ class Adapter:
         account_error = self.account_error(payload, method) or ''
         if account_error == 'MissingNativeEnvelope' or account_error.startswith("ResponseVersionMismatch:"):
             return None
-        if method.get('expected_response_version') is not None and self.version_path:
-            response = payload.get('Response') if isinstance(payload, dict) else None
-            if (not isinstance(response, dict) or not response.get('Error')
-                    and not isinstance(response.get('Pages'), list)
-                    and not (response.get('Version') and response.get('RequestId')
-                             and isinstance(response.get('Query'), str))):
-                return None
+        if (method.get('expected_response_version') is not None and self.envelope is not None
+                and not self.envelope.billable(payload)):
+            return None
         if self.failure and self.failure(payload):
             return 0.0
         if policy == "http-200-nonempty":
@@ -272,6 +293,61 @@ def tencent_wsa_response(payload, *, top_k=None, project_slots=False, preserve_i
     return {"results": results}
 
 
+class TencentEnvelope:
+    """Tencent Cloud API envelope: ``Response`` carries ``Error``, ``Pages`` and ``Version``."""
+
+    ACCOUNT_ERRORS = frozenset({"UnauthorizedOperation", "ResourceNotFound", "ResourceUnavailable", "AuthFailure"})
+
+    @staticmethod
+    def _response(payload):
+        return payload.get("Response") if isinstance(payload, dict) else None
+
+    def version(self, payload):
+        response = self._response(payload)
+        return response.get("Version") if isinstance(response, dict) else None
+
+    def account_error(self, payload, method=None, *, http_status=200):
+        response = self._response(payload)
+        error = response.get("Error") if isinstance(response, dict) else None
+        code = error.get("Code") if isinstance(error, dict) else None
+        if isinstance(code, str) and code.split(".")[0] in self.ACCOUNT_ERRORS:
+            return code
+        if (http_status == 200 and not error
+                and (not isinstance(response, dict)
+                     or not isinstance(response.get('Pages'), list)
+                     and not (isinstance(response.get('Version'), str) and response['Version']))):
+            return 'MissingNativeEnvelope'
+        expected = (method or {}).get("expected_response_version")
+        if (expected is not None and isinstance(response, dict) and not error
+                and (isinstance(response.get('Version'), str) and bool(response['Version'])
+                     or isinstance(response.get('Pages'), list)
+                     or (response.get('RequestId') and isinstance(response.get('Query'), str)))):
+            version = self.version(payload)
+            if version != expected:
+                return f"ResponseVersionMismatch: expected {expected}, received {version}"
+        return None
+
+    def billable(self, payload):
+        """A versioned call is billable only when its envelope is complete or names an error."""
+        response = self._response(payload)
+        return isinstance(response, dict) and bool(
+            response.get('Error') or isinstance(response.get('Pages'), list)
+            or (response.get('Version') and response.get('RequestId') and isinstance(response.get('Query'), str)))
+
+
+def tencent_wsa_method(method):
+    expected = method.get('expected_response_version')
+    edition = (method.get('output_options') or {}).get('edition', 'standard')
+    if not isinstance(expected, str) or not expected.strip() or edition != expected:
+        yield 'Yuanbao requires an expected response version matching its edition'
+
+
+def _browserbase_item(item):
+    if isinstance(item, dict) and "snippet" not in item:
+        item["snippet"] = item.get("description", "")
+    return item
+
+
 def _bocha_response(payload, *, top_k=None, project_slots=False, preserve_invalid_slots=False):
     if (
         isinstance(payload, dict)
@@ -333,30 +409,38 @@ def _fields(*, preview=True, extra=False, answer=False, body=False):
                 page_body='content' if body else None)
 
 
-ADAPTERS = {
-    "lexmount": Adapter(lexmount_request, "X-API-Key", "", telemetry=True, output_fields=_fields()),
-    "browserbase": Adapter(browserbase_request, "x-bb-api-key", "", output_fields=_fields(preview=False)),
-    "serper": Adapter(serper_request, "X-API-KEY", "", response=lambda payload: _serp_response(payload, "serper"), projection=lambda payload, **kwargs: _serp_response(payload, "serper", **kwargs), output_fields=_fields()),
-    "brightdata": Adapter(brightdata_request, response=lambda payload: _serp_response(payload, "brightdata"), projection=lambda payload, **kwargs: _serp_response(payload, "brightdata", **kwargs), output_fields=_fields()),
-    "deepseek": Adapter(deepseek_request, output_fields=lambda m: _fields(extra=True, body=(m.get('output_options') or {}).get('need_content', True))),
-    "bocha": Adapter(bocha_request, response=_bocha_response, projection=_bocha_response, output_fields=lambda m: _fields(extra=(m.get('output_options') or {}).get('summary', True))),
-    "bocha-ai": Adapter(bocha_ai_request, response=bocha_ai_response, projection=bocha_ai_response,
-                        output_fields=lambda m: _fields(extra=True, answer=(m.get('output_options') or {}).get('answer', True)),
-                        failure=lambda p: isinstance(p, dict) and p.get('code') != 200),
-    "tencent-wsa": Adapter(tencent_wsa_request, response=tencent_wsa_response,
-                           projection=tencent_wsa_response,
-                           account_error_codes=frozenset({"UnauthorizedOperation", "ResourceNotFound",
-                                                          "ResourceUnavailable", "AuthFailure"}),
-                           version_path=("Response", "Version"),
-                           output_fields=lambda m: _fields(extra=(m.get('output_options') or {}).get('edition', 'standard') != 'lite'),
-                           failure=lambda p: isinstance(p, dict) and isinstance(p.get("Response"), dict) and bool(p["Response"].get("Error"))),
-}
+ADAPTERS = Registry("search adapter")
+
+
+def _register(name, *args, **kwargs):
+    ADAPTERS.register(name, Adapter(*args, name=name, **kwargs))
+
+
+_register("lexmount", lexmount_request, "X-API-Key", "", telemetry=True, output_fields=_fields())
+_register("browserbase", browserbase_request, "x-bb-api-key", "", output_fields=_fields(preview=False),
+          item=_browserbase_item)
+_register("serper", serper_request, "X-API-KEY", "", response=lambda payload: _serp_response(payload, "serper"),
+          projection=lambda payload, **kwargs: _serp_response(payload, "serper", **kwargs), output_fields=_fields())
+_register("brightdata", brightdata_request, response=lambda payload: _serp_response(payload, "brightdata"),
+          projection=lambda payload, **kwargs: _serp_response(payload, "brightdata", **kwargs), output_fields=_fields(),
+          provider_default_limit=True)
+_register("deepseek", deepseek_request,
+          output_fields=lambda m: _fields(extra=True, body=(m.get('output_options') or {}).get('need_content', True)))
+_register("bocha", bocha_request, response=_bocha_response, projection=_bocha_response,
+          output_fields=lambda m: _fields(extra=(m.get('output_options') or {}).get('summary', True)))
+_register("bocha-ai", bocha_ai_request, response=bocha_ai_response, projection=bocha_ai_response,
+          output_fields=lambda m: _fields(extra=True, answer=(m.get('output_options') or {}).get('answer', True)),
+          failure=lambda p: isinstance(p, dict) and p.get('code') != 200)
+_register("tencent-wsa", tencent_wsa_request, response=tencent_wsa_response, projection=tencent_wsa_response,
+          envelope=TencentEnvelope(), method_rule=tencent_wsa_method,
+          output_fields=lambda m: _fields(extra=(m.get('output_options') or {}).get('edition', 'standard') != 'lite'),
+          failure=lambda p: isinstance(p, dict) and isinstance(p.get("Response"), dict) and bool(p["Response"].get("Error")))
 
 
 def adapter_for(name):
     if name not in ADAPTERS:
         raise ValueError("Unknown search adapter: " + str(name))
-    return ADAPTERS[name]
+    return ADAPTERS.get(name)
 
 
 def normalize_envelope(payload, adapter=None, **kwargs):
@@ -367,5 +451,5 @@ def normalize_envelope(payload, adapter=None, **kwargs):
         return config.response(payload) if config.response else payload
     # Saved historical calls predate adapter-tagged native envelopes.
     if isinstance(payload, dict) and isinstance(payload.get("data"), dict) and "webPages" in payload["data"]:
-        return ADAPTERS["bocha"].projection(payload, **kwargs)
+        return ADAPTERS.get("bocha").projection(payload, **kwargs)
     return payload
