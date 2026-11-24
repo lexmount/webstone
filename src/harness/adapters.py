@@ -46,6 +46,11 @@ class Registry(Generic[T]):
 
         return add if item is None else add(item)
 
+    def unregister(self, name: str) -> None:
+        """Remove a registration, such as a temporary instance a test registered."""
+        self.get(name)
+        del self._items[name]
+
     def get(self, name: str) -> T:
         try:
             return self._items[name]

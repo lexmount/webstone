@@ -35,6 +35,10 @@ def test_registry_rejects_conflicts_and_unknown_names():
         registry.get("y")
     with pytest.raises(ValueError, match="non-empty"):
         registry.register("", 3)
+    registry.unregister("x")
+    assert "x" not in registry
+    with pytest.raises(ValueError, match="Unknown benchmark: x"):
+        registry.unregister("x")
 
 
 def test_capabilities_are_declared_flags_and_values():
