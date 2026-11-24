@@ -297,22 +297,41 @@ def build(formal_root: Path, archive: Path, attestation: Path, *, authority: Pat
 
 def check_report_bundle(formal_root: Path) -> dict[str, int]:
     from harness.reporting.release_check import check_template_pages
-    from harness.trajectory_replay.public_webarena.report import METRICS
+    from harness.trajectory_replay.public_webarena.report import METRICS, PAGE_LABELS
     from harness.trajectory_replay.template import TEMPLATE
 
     reports = formal_root / "reports"
-    # Every registered page exists, fills its template role in order, and is in the navigation.
     audit = _read_json(reports / f"{REPORT_STEM}-data.json")
-    variant = check_template_pages(reports, audit.get("template"), TEMPLATE)
-    routes = [page.route for page in variant.pages]
-    for page in variant.pages:
-        text = (reports / page.route).read_text(encoding="utf-8")
-        nav = re.search(r"<nav>(.*?)</nav>", text, re.DOTALL)
-        if not nav or re.findall(r'<a href="([^"]+)"', nav.group(1)) != routes:
-            raise ValueError(f"incomplete report navigation: {page.route}")
-        if re.findall(r'<a href="([^"]+)" aria-current="page">', nav.group(1)) != [page.route]:
-            raise ValueError(f"wrong active report navigation: {page.route}")
-    pages_checked = len(routes)
+    if "template" in audit:
+        # Every registered page fills its template role in order and is in the navigation.
+        variant = check_template_pages(reports, audit["template"], TEMPLATE)
+        link = '<a href="{route}"( aria-current="page")?>{label}</a>'
+        nav_pattern = r"<nav>(.*?)</nav>"
+        active_pattern = r'<a href="[^"]+" aria-current="page">(.*?)</a>'
+    else:
+        # Bundles built before the template record keep their earlier navigation markup.
+        variant = TEMPLATE.variant("public")
+        link = '<a href="{route}" ?(class=active aria-current=page)?>{label}</a>'
+        nav_pattern = r'<nav aria-label="报告分页">(.*?)</nav>'
+        active_pattern = r"<a [^>]*aria-current=page[^>]*>(.*?)</a>"
+    pages = [
+        (page.route, f"{n}. {PAGE_LABELS[page.key]}") for n, page in enumerate(variant.pages, 1)
+    ]
+    expected = "".join(
+        link.format(route=re.escape(route), label=re.escape(label)) for route, label in pages
+    )
+    for route, label in pages:
+        path = reports / route
+        if not path.is_file():
+            raise ValueError(f"missing report page: {route}")
+        nav = re.search(nav_pattern, path.read_text(encoding="utf-8"), re.DOTALL)
+        if not nav:
+            raise ValueError(f"missing report navigation: {route}")
+        if not re.fullmatch(expected, nav.group(1)):
+            raise ValueError(f"incomplete report navigation: {route}")
+        if re.findall(active_pattern, nav.group(1)) != [label]:
+            raise ValueError(f"wrong active report navigation: {route}")
+    pages_checked = len(pages)
 
     homepage = (reports / f"{REPORT_STEM}.html").read_text(encoding="utf-8")
     specs = [spec for _, metrics in METRICS for spec in metrics]
