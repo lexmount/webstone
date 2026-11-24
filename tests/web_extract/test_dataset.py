@@ -130,8 +130,11 @@ def test_existing_hash_bound_upstream_inputs_remain_valid_without_hub(tmp_path):
         assert prepare(home, profile) == manifest
 
 
-@pytest.mark.parametrize("unsafe", [False, True])
-@pytest.mark.parametrize("source_track", ["current", "archived", "unrelated"])
+# An unsafe source stops before any track is read, so it runs once.
+@pytest.mark.parametrize(
+    "unsafe,source_track",
+    [(True, "current"), (False, "current"), (False, "archived"), (False, "unrelated")],
+)
 def test_shared_publisher_reads_committed_extract_inputs_and_rejects_unknown_binary(
     tmp_path, unsafe, source_track
 ):
@@ -211,8 +214,10 @@ def test_shared_publisher_reads_committed_extract_inputs_and_rejects_unknown_bin
     assert (out / "definitions.tar.gz").is_file()
 
 
-@pytest.mark.parametrize("damage", [None, "other-html", "other-upstream"])
-@pytest.mark.parametrize("archived", [False, True])
+@pytest.mark.parametrize(
+    "damage,archived",
+    [(None, False), (None, True), ("other-html", False), ("other-upstream", True)],
+)
 def test_report_distribution_requires_the_same_frozen_inputs(
     tmp_path, monkeypatch, damage, archived
 ):

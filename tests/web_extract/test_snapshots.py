@@ -134,8 +134,17 @@ def binding(home, tmp_path):
     return value
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-@pytest.mark.parametrize("damage", [None, "manifest_sha256", "huggingface", "cloudflare"])
+# Only an undamaged legacy receipt is accepted; damaged identity fields fail in either mode.
+@pytest.mark.parametrize(
+    "legacy,damage",
+    [
+        (False, None),
+        (True, None),
+        (True, "manifest_sha256"),
+        (False, "huggingface"),
+        (True, "cloudflare"),
+    ],
+)
 def test_historical_fixture_omits_only_the_local_hosting_annotation(home, legacy, damage):
     from copy import deepcopy
 

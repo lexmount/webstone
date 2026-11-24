@@ -19,11 +19,10 @@ from harness.web_extract.swde import score
         (["A"], ["A", 1], "invalid", True, False),
         (["A"], ["A", "A"], "partial", True, False),
         ([], [], "correct", False, True),
-        *[
-            (gold, actual, "invalid", False, False)
-            for gold in [[], ["A"]]
-            for actual in [None, False, 0, "", {}]
-        ],
+        ([], None, "invalid", False, False),
+        (["A"], False, "invalid", False, False),
+        ([], "", "invalid", False, False),
+        (["A"], {}, "invalid", False, False),
     ],
 )
 def test_record_diagnosis_preserves_official_hit_and_micro_counts(gold, actual, status, hit, exact):

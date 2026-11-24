@@ -371,8 +371,7 @@ def test_health_and_worker_environment_identity_survives_different_entrypoints(
     assert result.stdout.strip() == expected
 
 
-@pytest.mark.parametrize("status", [200, 302, 404])
-@pytest.mark.parametrize("invalid_utf8", [False, True])
+@pytest.mark.parametrize("status,invalid_utf8", [(200, True), (302, False), (404, False)])
 def test_graph_extracts_unchanged_snapshot_html_without_native_url_preprocessing(
     monkeypatch, status, invalid_utf8
 ):

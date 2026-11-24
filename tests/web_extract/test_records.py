@@ -106,9 +106,17 @@ def test_qualified_decoder_rejects_an_unknown_case(tmp_path):
         pipeline.captured_html(home, "unknown-case", b"<p>Unbound content</p>")
 
 
-@pytest.mark.parametrize("policy", [False, True])
-@pytest.mark.parametrize("header", [None, "text/html; charset=utf-8", "text/html; charset=unknown"])
-@pytest.mark.parametrize("gate", [False, True])
+# Each row hits one branch: parser or unknown-charset error, challenge gate, with and without
+# a recent independent observation policy.
+@pytest.mark.parametrize(
+    "policy,header,gate",
+    [
+        (False, None, False),
+        (True, "text/html; charset=unknown", False),
+        (False, "text/html; charset=utf-8", True),
+        (True, None, True),
+    ],
+)
 def test_unobservable_live_body_retains_access_evidence_and_bounded_fallback(
     tmp_path, monkeypatch, policy, header, gate
 ):
