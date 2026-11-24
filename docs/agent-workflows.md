@@ -61,7 +61,7 @@ Use a new output path; never overwrite existing evidence. Synthetic fixture resu
 
 ## Submit and maintain
 
-Use the [site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) to prepare a result edition from the current catalog and open a fork PR with public evidence. Git, GitHub, and Node.js are enough. Existing `webstone results` integrations can use the [CLI reference](result-submissions.md).
+Use the [site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) to prepare a result edition from the current catalog and open a fork PR with public evidence. Git, GitHub, and Node.js are enough. To submit a Webstone run, `webstone <track> export` writes the submission from its scored results and publication receipt; the [CLI reference](result-submissions.md) covers export, validation and submission.
 
 Dataset definitions belong in Hugging Face PRs. `datasets propose` may build a local bundle or open an HF PR with `--create-pr`; it cannot merge it or release tags. Review and merge data first, then propose a new exact pin through a Webstone code PR. Software, dataset, result and report versions remain independent. No result/dataset operation authorizes a software release.
 

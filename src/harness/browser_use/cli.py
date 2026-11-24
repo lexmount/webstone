@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from harness.adapters import STAGES as FIXED_STAGES
 from harness.adapters import TrackStages, owner_stage, stage_main
+from harness.results.export import export_stage
 
 PROG = "python -m harness.browser_use"
 COMMANDS = {
@@ -26,6 +27,7 @@ COMMANDS = {
 
 
 STAGES = TrackStages(
+    export=export_stage("harness.browser_use.export"),
     **{name: owner_stage(*owner) for name, owner in COMMANDS.items() if name in FIXED_STAGES},
     extra={name: owner_stage(*owner) for name, owner in COMMANDS.items()
            if name not in FIXED_STAGES},

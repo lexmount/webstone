@@ -9,13 +9,28 @@ Install [GitHub CLI](https://cli.github.com/) and Webstone, then sign in to GitH
 ```sh
 pip install webstone
 gh auth login
-webstone results template --benchmark lexbench-webfetch --definition split-media --output report.json
-# Fill actual measurements and public evidence; templates intentionally contain placeholders.
+webstone <track> export RUN_DIR --receipt publish/receipt.json --output report.json
 webstone results validate report.json --provider-url your-method=https://example.com/project
 webstone results submit report.json --provider-url your-method=https://example.com/project --dry-run
 webstone results submit report.json --provider-url your-method=https://example.com/project
 webstone results status 123 --verify-published
 ```
+
+### Export a scored run
+
+`webstone <track> export` is the last pipeline stage. It reads the scored results of a run directory and writes the submission, so no measurement is typed by hand. `--receipt` names the publication receipt that the track's `publish` stage wrote; its public report URL becomes `source.url` and `reportUrl`. Without a receipt the submission is marked unpublished (`source.kind: unpublished-run`, no URL). `validate` and `submit` reject it because it has no public evidence: publish the report, then export again with the receipt.
+
+| Track | `RUN_DIR` | Submission benchmark |
+| --- | --- | --- |
+| Web Fetch (`webstone export`) | A live run with `results.jsonl` and `dataset.json` | `lexbench-webfetch`, definition `split-media` |
+| Web Search | A run with `profile.json`, `results.jsonl` and `receipt.json` | `lexbench-websearch` (`title-snippet-v2`) or `simpleqa-verified` (`source-match-v2`); a run with both takes `--benchmark` |
+| Web Extract | `<home>/runs/<id>` with `contract.json` and its call records | `lexbench-swde` or `lexbench-zyte-product-extraction`, from the dataset manifest |
+| Browser Use | An evidence directory with `attempts.jsonl` and `manifest.json` | `webarena-verified` (`standard`) |
+| Browser Trajectory Replay | A directory with the effective `results.json` | `webarena-verified` (`standard`) |
+
+Each exporter validates the scored records it reads against a versioned schema that binds the common roles in `src/harness/record_schema.py` (method, case, elapsed time, evidence and verdict). A metric the run does not measure is `null`: Web Search scenario relevance comes from the separate relevance review, prices are disclosed only when quoted in USD, and a Web Extract method that skipped part of the population has no quality scores. Method IDs are the run's method names in lowercase hyphen form. Read the exported notes, edit `release.summary` if the change needs a better description, and add the provider URL for a new method at submission.
+
+`webstone results template --benchmark <id> --output report.json` still writes an unfilled template for results produced outside Webstone.
 
 `validate` performs preflight against the current catalog. The website's trusted validator performs authoritative metric, category, denominator and version checks in CI. A successful check does not prove a measurement is true: maintainers must review its evidence and methodology. Every new submission supplies a public HTTPS evidence URL, actual sample population, method versions/configuration and an English `datasetDifference`. Use `null` for undisclosed values, and preserve genuine zeros and original units. Participant IDs need official HTTPS product/GitHub links; `--provider-url` proposes only additive links for the submitted methods.
 

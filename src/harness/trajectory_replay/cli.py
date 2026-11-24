@@ -9,6 +9,7 @@ from pathlib import Path
 
 from harness.adapters import STAGES as FIXED_STAGES
 from harness.adapters import Registry, TrackStages, owner_stage, stage_main
+from harness.results.export import export_stage
 from harness.trajectory_replay.participants import DEFAULT_DIAGNOSIS_MODEL
 
 PROG = "python -m harness.trajectory_replay"
@@ -75,6 +76,7 @@ COMMANDS = {
 
 
 STAGES = TrackStages(
+    export=export_stage("harness.trajectory_replay.export"),
     **{name: owner_stage(*owner) for name, owner in COMMANDS.items() if name in FIXED_STAGES},
     extra={name: owner_stage(*owner) for name, owner in COMMANDS.items()
            if name not in FIXED_STAGES},

@@ -8,6 +8,7 @@ from pathlib import Path
 from harness.adapters import STAGES as FIXED_STAGES
 from harness.adapters import TrackStages
 from harness.report_languages import add_language_argument
+from harness.results.export import export_stage
 from harness.web_extract.dataset import BENCHMARKS
 from harness.web_extract.pipeline import (
     data_home,
@@ -469,6 +470,7 @@ def _commands():
 
 
 STAGES = TrackStages(
+    export=export_stage("harness.web_extract.export"),
     **{name: _command(name) for name in _commands() if name in FIXED_STAGES},
     extra={name: _command(name) for name in _commands() if name not in FIXED_STAGES},
 )

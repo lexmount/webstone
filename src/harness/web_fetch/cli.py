@@ -4,19 +4,20 @@ import argparse
 import json
 import sys
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from lexbench_webfetch.metrics import task_passed
-from lexbench_webfetch.models import TASK_KINDS
-
 from harness.adapters import TrackStages, owner_stage, run_stage
+from harness.data_home import data_home
 from harness.report_languages import (
     ReportLanguageError,
     add_language_argument,
     resolve_report_language,
 )
+from harness.results.export import export_stage
+from harness.runtime_env import load_runtime_env
 from harness.web_fetch.accounts import print_account_checklist
+from harness.web_fetch.benchmarks import BENCHMARKS, FROZEN_INPUTS, LiveSuite
 from harness.web_fetch.config import (
     add_run_arguments,
     load_dataset,
@@ -24,12 +25,11 @@ from harness.web_fetch.config import (
     resolve_provider_selection,
     select_diagnostic_scope,
 )
-from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers import build_provider
 from harness.web_fetch.report_build import build_report
-from harness.web_fetch.benchmarks import BENCHMARKS, FROZEN_INPUTS, LiveSuite
 from harness.web_fetch.runner import rescore_evaluation, run_evaluation, run_frozen_cohort
-from harness.data_home import data_home
+from lexbench_webfetch.metrics import task_passed
+from lexbench_webfetch.models import TASK_KINDS
 
 EXAMPLES = Path(__file__).parent / "data"
 # Web Fetch stages whose owner parses its own arguments, including --help.
@@ -122,10 +122,11 @@ OWNER_COMMANDS = {
 # Fixed stage verbs served by an owner command above. The owner names stay: bound report
 # templates and guides name them.
 STAGE_OWNERS = {"check": "report-revision-check", "package": "site-package", "publish": "site-publish"}
+EXPORT = export_stage("harness.web_fetch.export")
 
 
 def default_run_dir() -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return data_home() / "runs" / stamp
 
 
@@ -487,6 +488,7 @@ def build_parser(root_commands: Mapping[str, str] | None = None,
     accounts.set_defaults(handler=command_accounts)
     summaries = {**(root_commands or {}),
                  **{name: OWNER_COMMANDS[owner][2] for name, owner in STAGE_OWNERS.items()},
+                 "export": EXPORT.__doc__,
                  **{name: summary for name, (_, _, summary) in OWNER_COMMANDS.items()}}
     for name, summary in summaries.items():
         sub.add_parser(name, help=summary, add_help=False)
@@ -517,7 +519,7 @@ def main(argv: Sequence[str] | None = None, *,
             finally:
                 sys.argv = invoked
             return
-    if arguments[:1] and (arguments[0] in OWNER_COMMANDS or arguments[0] in STAGE_OWNERS):
+    if arguments[:1] and arguments[0] in {*OWNER_COMMANDS, *STAGE_OWNERS, "export"}:
         run_stage(STAGES, arguments[0], arguments[1:], parser.prog)
         return
     args = parser.parse_args(arguments)
@@ -548,6 +550,7 @@ STAGES = TrackStages(
     score=_parsed("score"),
     report=_parsed("report"),
     **{stage: _owner(owner) for stage, owner in STAGE_OWNERS.items()},
+    export=EXPORT,
     extra={**{name: _parsed(name) for name in ("validate", "accounts", "compose", "revise")},
            **{name: _owner(name) for name in OWNER_COMMANDS}},
 )

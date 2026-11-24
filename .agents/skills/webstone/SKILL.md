@@ -35,7 +35,7 @@ Build only when requested, through the selected track's existing report/check/pa
 
 When the user asks to submit leaderboard scores, reuse the installed `submit-webstone-result` skill or install it from [webstone-site](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) using the agent's skill installer. If there is no installer, copy that complete `SKILL.md` into `submit-webstone-result/` under the agent's skills directory. Open and follow it for this submission.
 
-Hand off the measured scores, exact benchmark and participant versions, methods, and public evidence. The submission skill owns the result format, versioning and PR. It works with GitHub and Node.js. Submit only when asked, and leave merging to the maintainer.
+Produce the submission from the scored run with `webstone <track> export RUN_DIR --receipt RECEIPT --output report.json`, after the report is published; never type measured values. Hand it off with exact benchmark and participant versions, methods, and public evidence. The submission skill owns the result format, versioning and PR. It works with GitHub and Node.js. Submit only when asked, and leave merging to the maintainer.
 
 ## Update datasets
 

@@ -40,7 +40,7 @@ def tracks_main() -> None:
         "datasets": dataset_inventory(),
         "workflow_guide": ROOT_URL + "docs/agent-workflows.md",
         "submission": "https://github.com/lexmount/webstone-site/pulls",
-        "limits": ["No universal run-all or automatic evidence-to-leaderboard conversion.",
+        "limits": ["No universal run-all; `<track> export` converts one scored run.",
                    "Sharing, result PRs, dataset PRs and software releases are separate actions."]},
         indent=2))
 

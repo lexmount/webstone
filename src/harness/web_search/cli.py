@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from harness.adapters import STAGES as FIXED_STAGES
 from harness.adapters import TrackStages, owner_stage, stage_main
+from harness.results.export import export_stage
 
 PROG = "python -m harness.web_search"
 COMMANDS = {
@@ -29,8 +30,8 @@ def check(argv: list[str]) -> None:
     report(["--check", *argv])
 
 
-def export(argv: list[str]) -> None:
-    """Export a checked report into lossless case shards: export DESTINATION --output REPORT"""
+def delivery(argv: list[str]) -> None:
+    """Export a checked report into lossless case shards: delivery DESTINATION --output REPORT"""
     from harness.web_search.report import main as report
 
     report(argv if {"-h", "--help"} & set(argv) else ["--export-delivery", *argv])
@@ -38,11 +39,11 @@ def export(argv: list[str]) -> None:
 
 STAGES = TrackStages(
     check=check,
-    export=export,
+    export=export_stage("harness.web_search.export", selects_benchmark=True),
     **{name: owner_stage(*owner, takes_argv=True) for name, owner in COMMANDS.items()
        if name in FIXED_STAGES},
     extra={name: owner_stage(*owner, takes_argv=True) for name, owner in COMMANDS.items()
-           if name not in FIXED_STAGES},
+           if name not in FIXED_STAGES} | {"delivery": delivery},
 )
 
 
