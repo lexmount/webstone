@@ -182,7 +182,7 @@ def add_run_arguments(run: argparse.ArgumentParser) -> None:
                           "parses the remaining options")
 
 
-LIVE_ONLY = ("content_scope", "score_scope", "case_ids", "task_kind")
+LIVE_ONLY = ("content_scope", "score_scope", "case_ids", "task_kind", "fail_on_failure")
 FROZEN_ONLY = ("case_ids_file", "profile", "expected_version", "expected_dataset_sha256",
                "official_scorer_commit", "preserve_original_origin", "limit")
 
@@ -190,6 +190,8 @@ FROZEN_ONLY = ("case_ids_file", "profile", "expected_version", "expected_dataset
 def command_run(args: argparse.Namespace) -> int:
     benchmark = BENCHMARKS.get(args.benchmark)
     frozen = benchmark.capabilities().has(FROZEN_INPUTS)
+    if args.limit is not None and args.limit <= 0:
+        raise SystemExit("--limit must be a positive number of cases")
     misplaced = [name for name in (LIVE_ONLY if frozen else FROZEN_ONLY) if getattr(args, name)]
     if misplaced or (frozen and args.runs != 1):
         names = ", ".join("--" + name.replace("_", "-") for name in misplaced or ["runs"])

@@ -70,11 +70,18 @@ def test_webmainbench_score_skips_failed_calls_and_uses_the_prepared_scorer():
         "text_edit": {"score": 1.0, "success": True, "details": {}}}
 
 
-@pytest.mark.parametrize("option", [["--case-ids", "x"], ["--runs", "2"]])
+@pytest.mark.parametrize("option", [["--case-ids", "x"], ["--runs", "2"], ["--fail-on-failure"]])
 def test_frozen_run_rejects_options_it_would_ignore(option, tmp_path):
     with pytest.raises(SystemExit, match="does not apply"):
         cli.main(["run", "--benchmark", "wcxb", "--providers", "moli",
                   "--output", str(tmp_path / "out"), *option])
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_run_rejects_a_limit_that_would_not_limit(limit, tmp_path):
+    with pytest.raises(SystemExit, match="positive"):
+        cli.main(["run", "--benchmark", "webmainbench", "--providers", "moli",
+                  "--output", str(tmp_path / "out"), "--limit", limit])
 
 
 def test_default_run_rejects_frozen_only_options(tmp_path):
