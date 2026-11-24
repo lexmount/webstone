@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 import traceback
@@ -17,9 +18,12 @@ import docker
 from playwright.sync_api import Page, sync_playwright
 
 from harness.container_isolation import require_linux_cgroup_v2
+from harness.distribution import repository_root
 from harness.environments.browser import (
-    DEFAULT_BROWSER_IMAGES,
+    BROWSERS,
     cleanup_browser_runtime,
+    container_engines,
+    reference_engine,
     rotated_engine_order,
     validate_resource_controls,
 )
@@ -65,9 +69,42 @@ from harness.trajectory_replay.public_webarena.webarena_environment import (
     wall_clock_timeout,
 )
 
-ENGINE_IMAGES = dict(DEFAULT_BROWSER_IMAGES)
-# The curated replay builds the same image tag with a newer Moli; refuse to measure it here.
-MOLI_VERSION = "1.0.6"  # examples/trajectory_replay/public_webarena/docker/moli.Dockerfile
+ENGINE_IMAGES = {engine: str(BROWSERS.get(engine).image) for engine in container_engines()}
+# Public image recipes pin browser versions; the curated replay may build the same image
+# tag from a newer release, so a measured container must report the pinned version.
+IMAGE_RECIPES = "examples/trajectory_replay/public_webarena/docker"
+
+
+def pinned_image_version(engine: str, root: Path | None = None) -> str | None:
+    """Return the version the public image recipe pins with ``ARG <ENGINE>_VERSION``."""
+    recipe = (repository_root() if root is None else root) / IMAGE_RECIPES / f"{engine}.Dockerfile"
+    if not recipe.is_file():
+        return None
+    match = re.search(
+        rf"^ARG {re.escape(engine.upper())}_VERSION=v?(\S+)$",
+        recipe.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    return match.group(1) if match else None
+
+
+def _verify_pinned_versions(containers: dict[str, Any]) -> None:
+    """Refuse a container whose browser does not report its recipe's pinned version."""
+    for engine, container in containers.items():
+        adapter = BROWSERS.get(engine)
+        if adapter.version_command is None:
+            continue
+        recipe = f"{IMAGE_RECIPES}/{engine}.Dockerfile"
+        version = pinned_image_version(engine)
+        if version is None:
+            raise RuntimeError(f"public replay has no pinned {adapter.label} version in {recipe}")
+        reported = container.exec_run(list(adapter.version_command)).output
+        reported = reported.decode("utf-8", errors="replace").strip()
+        if version not in [part.lstrip("v") for part in reported.split()]:
+            raise RuntimeError(
+                f"{ENGINE_IMAGES[engine]} reports {reported!r}; public replay requires "
+                f"{adapter.label} {version} built from {recipe}"
+            )
 
 
 def _remaining_task_budget_ms(deadline: float, *, phase: str) -> int:
@@ -493,7 +530,7 @@ def run_evaluation(
     diagnosis_model: str = DEFAULT_DIAGNOSIS_MODEL,
     diagnosis_reasoning_effort: str = "low",
     webarena_config_path: str | Path | None = None,
-    engines: tuple[str, ...] = tuple(DEFAULT_BROWSER_IMAGES),
+    engines: tuple[str, ...] | None = None,
     qualification_run: bool = False,
     qualification_pass_index: int | None = None,
     qualification_required_passes: int | None = None,
@@ -504,6 +541,7 @@ def run_evaluation(
 ) -> dict[str, Any]:
     if max_retries < 0:
         raise ValueError("max_retries must be non-negative")
+    engines = container_engines() if engines is None else engines
     output = Path(output_dir)
     if output.exists():
         raise ValueError("Output must be a new directory; existing evidence is immutable")
@@ -527,10 +565,11 @@ def run_evaluation(
     elif qualification_pass_index is not None or qualification_required_passes is not None:
         raise ValueError("qualification pass identity is valid only for qualification runs")
     if (qualification_run or trajectory_authoring_run) and (
-        engines != ("chromium",) or max_retries != 0
+        engines != (reference_engine(),) or max_retries != 0
     ):
         raise ValueError(
-            "qualification and trajectory authoring require one Chromium attempt and no retries"
+            "qualification and trajectory authoring require one "
+            f"{BROWSERS.get(reference_engine()).label} attempt and no retries"
         )
     from harness.trajectory_replay.report_inputs import (
         agent_smoke_input,
@@ -650,15 +689,7 @@ def run_evaluation(
                 memory=memory,
                 reset_state=_reset_state,
             )
-        if "moli" in runtime.containers:
-            reported = runtime.containers["moli"].exec_run(["moli", "--version"]).output
-            reported = reported.decode("utf-8", errors="replace").strip()
-            if MOLI_VERSION not in [part.lstrip("v") for part in reported.split()]:
-                raise RuntimeError(
-                    f"{ENGINE_IMAGES['moli']} reports {reported!r}; public replay requires "
-                    f"Moli {MOLI_VERSION} built from "
-                    "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile"
-                )
+        _verify_pinned_versions(runtime.containers)
         output.mkdir(parents=True, exist_ok=False)
 
         for task_index, declared_task in enumerate(runnable_tasks):

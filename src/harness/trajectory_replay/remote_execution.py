@@ -21,6 +21,7 @@ import psutil
 from webarena_verified.types.task import WebArenaSite
 
 from harness.distribution import repository_root, source_path
+from harness.environments.browser import BROWSERS, FULL_CDP, engines_with
 from harness.environments.webarena.har import CdpHarRecorder
 from harness.environments.webarena.runtime import (
     browser_tool_config,
@@ -348,61 +349,12 @@ def start_local_browser(
 
 
 def _browser_command(args: argparse.Namespace, port: int, profile: str) -> list[str]:
-    if args.engine == "chromium":
-        command = [
-            str(args.binary),
-            "--headless=new",
-            "--no-first-run",
-            "--no-default-browser-check",
-            # Respect the explicitly configured HTTP fixture origins. An
-            # automatic scheme upgrade changes exact evaluator URL identity.
-            "--disable-features=HttpsUpgrades,HttpsFirstBalancedMode,HttpsFirstModeIncognito",
-            f"--user-data-dir={profile}",
-            f"--remote-debugging-port={port}",
-            "--remote-debugging-address=127.0.0.1",
-            "about:blank",
-        ]
-        host_resolver_rules = getattr(args, "host_resolver_rules", None)
-        if host_resolver_rules:
-            if not isinstance(host_resolver_rules, str) or "\n" in host_resolver_rules:
-                raise ValueError("Chromium host resolver rules must be one line")
-            command.insert(-1, f"--host-resolver-rules={host_resolver_rules}")
-        return command
-    if args.engine == "moli":
-        return [
-            str(args.binary),
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--layout",
-            "--font",
-            "--profile-dir",
-            profile,
-        ]
-    if args.engine == "lightpanda":
-        return [
-            str(args.binary),
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-        ]
-    if args.engine == "obscura":
-        return [
-            str(args.binary),
-            "serve",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--storage-dir",
-            profile,
-            "--allow-private-network",
-        ]
-    raise ValueError(f"unknown local replay engine: {args.engine}")
+    adapter = BROWSERS.get(args.engine) if args.engine in BROWSERS else None
+    if adapter is None or adapter.local_command is None:
+        raise ValueError(f"unknown local replay engine: {args.engine}")
+    return adapter.local_command(
+        str(args.binary), port, profile, getattr(args, "host_resolver_rules", None)
+    )
 
 
 def _task_type(task: object) -> str:
@@ -504,7 +456,7 @@ def run_replay_task(
     portable_task: BrowserTask | None = None,
     portable_action_timeout_ms: int = 30_000,
     backend: str = "browsertool",
-    engine: str = "chromium",
+    engine: str | None = None,
     cdp_headers: dict[str, str] | None = None,
     expected_runtime_metadata: dict[str, str] | None = None,
     request_bridge_origins: set[str] | None = None,
@@ -523,6 +475,9 @@ def run_replay_task(
         tool = BrowserTool(config=browser_tool_config(endpoint))
     elif backend == "playwright":
         from harness.trajectory_replay.playwright_tool import PlaywrightReplayTool
+
+        if engine is None:
+            raise ValueError("Playwright replay requires a browser engine")
 
         tool = PlaywrightReplayTool(
             endpoint,
@@ -1091,7 +1046,7 @@ def main_cohort(argv: list[str] | None = None) -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
     parser.add_argument("--method-id", required=True)
-    parser.add_argument("--engine", choices=("moli", "chromium"), required=True)
+    parser.add_argument("--engine", choices=engines_with(*FULL_CDP), required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--site-map", type=Path, required=True)
     parser.add_argument("--cowagent", type=Path, required=True)

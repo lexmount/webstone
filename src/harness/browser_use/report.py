@@ -51,6 +51,8 @@ from harness.browser_use.selection import (
     report_selection_path,
     validate_against_official,
 )
+from harness.environments.browser import engine_label
+from harness.environments.participants import profile_engines
 from harness.record_io import load_jsonl, optional_file_sha256, read_json, write_json
 from harness.report_languages import (
     add_language_argument,
@@ -145,10 +147,8 @@ class Participants:
 
     @classmethod
     def from_profile(cls, profile: dict[str, Any]) -> Participants:
-        engines = [str(engine) for engine in profile.get("engines") or []]
+        engines = list(profile_engines(profile))
         engine_labels = profile.get("engine_labels") or {}
-        if not engines or len(engines) != len(set(engines)):
-            raise ValueError("current Browser Use profile must register unique browser engines")
         if set(engine_labels) - set(engines):
             raise ValueError("Browser Use engine labels contain an unregistered browser")
         models = [str(model) for model in profile.get("models") or []]
@@ -164,7 +164,7 @@ class Participants:
             raise ValueError("Browser Use baseline_engine must be a registered browser engine")
         return cls(
             engines={
-                engine: str(engine_labels.get(engine) or _engine_name(engine))
+                engine: str(engine_labels.get(engine) or engine_label(engine))
                 for engine in engines
             },
             models={model: str(model_labels.get(model) or model) for model in models},
@@ -180,12 +180,8 @@ class Participants:
     def engine_names(self) -> str:
         """Join registered browser names, without the versions a label may carry."""
 
-        names = [_engine_name(engine) for engine in self.engines]
+        names = [engine_label(engine) for engine in self.engines]
         return (" " + t("participants.and", "and") + " ").join(filter(None, (t("list.separator", ", ").join(names[:-1]), names[-1])))
-
-
-def _engine_name(engine: str) -> str:
-    return engine.replace("_", " ").title()
 
 
 METHODOLOGY_FIGURE = Path(__file__).parent / "assets" / "webarena-autonomous-evaluation-flow.png"

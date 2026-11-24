@@ -23,6 +23,7 @@ from webarena_verified.types.config import EnvironmentConfig, WebArenaVerifiedCo
 from webarena_verified.types.task import WebArenaSite
 
 from harness.distribution import repository_root
+from harness.environments.browser import FULL_CDP, engines_with
 from harness.environments.webarena.runtime import (
     SITE_PORTS,
 )
@@ -370,7 +371,7 @@ def validate_remote_cohort_reset_receipt(
 def validate_method_identity(method_id: str, engine: str) -> None:
     if not isinstance(method_id, str) or not METHOD_ID.fullmatch(method_id):
         raise ValueError("method ID is not a safe stable identifier")
-    if engine not in {"moli", "chromium"}:
+    if engine not in engines_with(*FULL_CDP):
         raise ValueError("unsupported browser engine")
 
 
@@ -567,7 +568,7 @@ def main_freeze(argv=None) -> None:
     parser.add_argument("--site-map", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--method-id", required=True)
-    parser.add_argument("--engine", choices=("chromium", "moli"), required=True)
+    parser.add_argument("--engine", choices=engines_with(*FULL_CDP), required=True)
     parser.add_argument("--retrieval-catalog", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args(argv)

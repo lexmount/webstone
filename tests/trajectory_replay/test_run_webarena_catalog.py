@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from harness.environments.browser import BROWSERS
 from harness.environments.webarena.topology import TRUSTED_RECORDED_HOSTS
 from harness.record_io import canonical_json_sha256, file_sha256
 from harness.trajectory_replay import catalog_runner
@@ -23,7 +24,7 @@ from harness.trajectory_replay.catalog_contracts import (
     row_source_sites,
 )
 from harness.trajectory_replay.catalog_runner import (
-    _kitesurf_cdp_config,
+    _hosted_cdp_config,
     _load_task_selection,
     _recover_completed_attempts,
     _request_bridge_options,
@@ -75,7 +76,7 @@ def test_environment_profile_reads_named_routing_only_for_engines_that_use_it(tm
     assert resolved["host_overrides"] == [
         {"pattern": "*.dev.example.test", "address": "192.0.2.142"}
     ]
-    assert catalog_runner._chromium_host_resolver_rules(
+    assert catalog_runner._host_resolver_rules(
         catalog_runner._load_environment_profile(profile, "chromium", env_file), "chromium"
     ) == "MAP *.dev.example.test 192.0.2.142"
 
@@ -111,7 +112,7 @@ def test_kitesurf_cdp_config_uses_official_endpoint_without_persisting_token(
         encoding="utf-8",
     )
 
-    endpoint, headers, binding = _kitesurf_cdp_config(credentials)
+    endpoint, headers, binding = _hosted_cdp_config(credentials, BROWSERS.get("kitesurf"))
 
     assert endpoint == (
         "wss://api.cloudflare.com/client/v4/accounts/account%2Fid/"
@@ -1399,7 +1400,7 @@ def test_kitesurf_probe_runs_after_account_and_environment_checks(monkeypatch, t
     monkeypatch.setattr(catalog_runner, "verify_webarena_runtime_source", lambda: SimpleNamespace())
     monkeypatch.setattr(
         catalog_runner,
-        "_probe_kitesurf_runtime",
+        "_probe_hosted_runtime",
         lambda *args: pytest.fail("the hosted browser was opened"),
     )
     local = tmp_path / "local.env"

@@ -14,9 +14,16 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 from harness.env_file import local_setting, parse_env_file, select_env_file
+from harness.environments.browser import (
+    BROWSERS,
+    HOST_RESOLVER_RULES,
+    REQUEST_BRIDGE,
+    BrowserAdapter,
+    reference_engine,
+)
 from harness.environments.webarena.topology import (
     TRUSTED_RECORDED_HOSTS,
     require_site_credentials,
@@ -33,7 +40,6 @@ from harness.trajectory_replay.catalog_contracts import (
     validate_environment_preparation,
     verify_physical_evidence,
 )
-from harness.trajectory_replay.participants import BROWSER_ADAPTERS
 from harness.trajectory_replay.remote_execution import (
     finalize_timed_out_task,
     run_replay_task,
@@ -154,7 +160,7 @@ def _load_environment_profile(path: Path, engine: str, env_file: Path) -> dict:
 
     profile = json.loads(path.read_text(encoding="utf-8"))
     names = profile.get("host_overrides_env")
-    if names is None or engine not in {"chromium", "kitesurf"}:
+    if names is None or not _declares(engine, HOST_RESOLVER_RULES, REQUEST_BRIDGE):
         return profile
     if (
         not isinstance(names, dict)
@@ -175,37 +181,26 @@ def _load_environment_profile(path: Path, engine: str, env_file: Path) -> dict:
     }
 
 
-def _kitesurf_cdp_config(
-    path: Path,
+def _declares(engine: str, *flags: str) -> bool:
+    """Whether a registered engine declares any of ``flags``."""
+    return engine in BROWSERS and bool(BROWSERS.get(engine).flags & set(flags))
+
+
+def _hosted_cdp_config(
+    path: Path, adapter: BrowserAdapter
 ) -> tuple[str, dict[str, str], dict[str, object]]:
-    values = _load_env_values(path)
-    account_id = values.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
-    api_token = values.get("CLOUDFLARE_API_TOKEN", "").strip()
-    if not account_id or not api_token:
-        raise ValueError(
-            "Kitesurf requires CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN"
-        )
-    endpoint = (
-        "wss://api.cloudflare.com/client/v4/accounts/"
-        f"{quote(account_id, safe='')}"
-        "/browser-run/devtools/browser?browser=kitesurf"
-    )
-    headers = {"Authorization": f"Bearer {api_token}"}
-    public_binding = {
-        "provider": "cloudflare-browser-run",
-        "browser": "kitesurf",
-        "protocol": "cdp",
-        "endpoint_contract": (
-            "wss://api.cloudflare.com/client/v4/accounts/{account_id}/"
-            "browser-run/devtools/browser?browser=kitesurf"
-        ),
-        "account_id_sha256": hashlib.sha256(account_id.encode()).hexdigest(),
-    }
-    return endpoint, headers, public_binding
+    """Resolve a hosted browser's CDP endpoint from the credential file only."""
+    if adapter.hosted_cdp is None:
+        raise ValueError(f"{adapter.name} is not a hosted browser")
+    return adapter.hosted_cdp(_load_env_values(path))
 
 
-def _probe_kitesurf_runtime(
-    endpoint: str, headers: dict[str, str], *, timeout_ms: int = 120_000
+def _probe_hosted_runtime(
+    adapter: BrowserAdapter,
+    endpoint: str,
+    headers: dict[str, str],
+    *,
+    timeout_ms: int = 120_000,
 ) -> dict[str, str]:
     """Freeze the hosted product/version identity before any task evidence exists."""
 
@@ -214,11 +209,11 @@ def _probe_kitesurf_runtime(
             PlaywrightReplayTool,
         )
 
-        tool = PlaywrightReplayTool(endpoint, engine="kitesurf", headers=headers)
+        tool = PlaywrightReplayTool(endpoint, engine=adapter.name, headers=headers)
         try:
             metadata = tool.runtime_metadata
             if not isinstance(metadata, dict):
-                raise RuntimeError("Kitesurf did not expose Browser.getVersion metadata")
+                raise RuntimeError(f"{adapter.label} did not expose Browser.getVersion metadata")
             return metadata
         finally:
             tool.close()
@@ -226,10 +221,10 @@ def _probe_kitesurf_runtime(
     return _run_forked_with_watchdog(probe, timeout_ms=timeout_ms)
 
 
-def _chromium_host_resolver_rules(environment_profile: dict, engine: str) -> str | None:
-    """Compile deployment-neutral host overrides for Chromium, with legacy read support."""
+def _host_resolver_rules(environment_profile: dict, engine: str) -> str | None:
+    """Compile deployment-neutral host overrides into launch rules, with legacy read support."""
 
-    if engine != "chromium":
+    if not _declares(engine, HOST_RESOLVER_RULES):
         return None
     overrides = environment_profile.get("host_overrides")
     if overrides is None:
@@ -261,9 +256,9 @@ def _request_bridge_options(
     engine: str,
     task_origins: set[str],
 ) -> dict[str, object]:
-    """Bind Kitesurf's local bridge to the deployment's declared host routing."""
+    """Bind a hosted browser's local bridge to the deployment's declared host routing."""
 
-    if engine != "kitesurf":
+    if not _declares(engine, REQUEST_BRIDGE):
         return {
             "request_bridge_origins": None,
             "request_bridge_host_overrides": None,
@@ -519,8 +514,8 @@ def main() -> None:
     parser.add_argument("--binary", type=Path)
     parser.add_argument(
         "--engine",
-        choices=BROWSER_ADAPTERS,
-        default="chromium",
+        choices=BROWSERS.names(),
+        default=reference_engine(),
     )
     parser.add_argument(
         "--credential-env-file",
@@ -528,8 +523,8 @@ def main() -> None:
         default=repository_root(Path(__file__)) / ".env",
         help=(
             "file for WebArena routing, deployment and gateway variables, read after the "
-            "exported environment; Kitesurf credentials come only from this file and are never "
-            "persisted. WebArena site accounts always come from the repository .env"
+            "exported environment; hosted-browser credentials come only from this file and are "
+            "never persisted. WebArena site accounts always come from the repository .env"
         ),
     )
     parser.add_argument("--backend", choices=("browsertool", "playwright"), default="browsertool")
@@ -567,13 +562,14 @@ def main() -> None:
         raise ValueError("action timeout must be positive")
     if args.task_timeout_ms < 1:
         raise ValueError("task timeout must be positive")
-    if args.engine == "kitesurf":
+    adapter = BROWSERS.get(args.engine)
+    if adapter.hosted_cdp is not None:
         if args.backend != "playwright":
-            raise ValueError("Kitesurf trajectory replay requires the Playwright backend")
+            raise ValueError(f"{adapter.label} trajectory replay requires the Playwright backend")
         if args.binary is not None:
-            raise ValueError("Kitesurf is remote and does not accept --binary")
-        remote_endpoint, remote_headers, remote_binding = _kitesurf_cdp_config(
-            args.credential_env_file.expanduser()
+            raise ValueError(f"{adapter.label} is remote and does not accept --binary")
+        remote_endpoint, remote_headers, remote_binding = _hosted_cdp_config(
+            args.credential_env_file.expanduser(), adapter
         )
         # The probe opens a hosted browser, so check accounts, the reset receipt and the
         # environment profile first. Catalog and resume checks still run after it.
@@ -583,8 +579,8 @@ def main() -> None:
             args.environment_profile, args.engine, args.credential_env_file.expanduser()
         )
         try:
-            remote_binding["runtime_metadata"] = _probe_kitesurf_runtime(
-                remote_endpoint, remote_headers
+            remote_binding["runtime_metadata"] = _probe_hosted_runtime(
+                adapter, remote_endpoint, remote_headers
             )
         except Exception as exc:
             raise RuntimeError(
@@ -790,7 +786,7 @@ def main() -> None:
     browser_args = argparse.Namespace(
         engine=args.engine,
         binary=args.binary,
-        host_resolver_rules=_chromium_host_resolver_rules(environment_profile, args.engine),
+        host_resolver_rules=_host_resolver_rules(environment_profile, args.engine),
     )
     with tempfile.TemporaryDirectory(prefix="webarena-catalog-") as profile:
         def start_browser() -> subprocess.Popen:

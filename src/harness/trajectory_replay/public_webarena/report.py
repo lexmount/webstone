@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from harness.distribution import bundled_data_path
-from harness.environments.browser import DEFAULT_BROWSER_IMAGES
+from harness.environments.browser import container_engines, engine_label
 from harness.trajectory_replay.core.report import (
     EVIDENCE_DIALOG_JS,
     SUITE_FILTER_JS,
@@ -30,7 +30,7 @@ from harness.trajectory_replay.core.report import (
     _trace_text,
 )
 from harness.trajectory_replay.messages import report_text
-from harness.trajectory_replay.participants import engine_label, engine_names, summary_engines
+from harness.trajectory_replay.participants import engine_names, summary_engines
 from harness.trajectory_replay.public_webarena.publication import REPORT_STEM, public_projection
 from harness.trajectory_replay.public_webarena.result_audit import audit_result_set
 
@@ -399,7 +399,7 @@ def _load_public_research() -> tuple[dict[str, Any], dict[str, Any]]:
 
 def _research_page(manifest: dict[str, Any], summary: dict[str, Any]) -> str:
     compared_engines = engine_names(
-        summary_engines(summary) or tuple(DEFAULT_BROWSER_IMAGES), f"{t('public.research.and', 'and')} "
+        summary_engines(summary) or container_engines(), f"{t('public.research.and', 'and')} "
     )
     adoption, catalog = _load_public_research()
     records = adoption.get("records") or []
@@ -1752,7 +1752,7 @@ def _appendix_page(manifest: dict[str, Any]) -> str:
     else:
         suite_argument = '&lt;frozen-suite.json&gt;'
     engine_arguments = _e(",".join(
-        (manifest.get("protocol") or {}).get("engines") or DEFAULT_BROWSER_IMAGES
+        (manifest.get("protocol") or {}).get("engines") or container_engines()
     ))
     run_command = (
         "uv run --frozen python -m harness.trajectory_replay.public_webarena.cli "

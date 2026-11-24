@@ -22,6 +22,7 @@ def test_wrapper_honors_cli_and_caller_directory(tmp_path, environment_model, ar
     env = {**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH'],
            'CALL_LOG': str(log), 'WEBSTONE_DATA_HOME': str(tmp_path / 'data')}
     env.pop('BROWSER_USE_MODEL', None)
+    env['BROWSER_USE_PROFILE'] = 'report-profile.json'
     if environment_model:
         env['BROWSER_USE_MODEL'] = environment_model
     result = subprocess.run(['bash', str(ROOT / 'examples/browser_use/run.sh'),
@@ -45,6 +46,7 @@ def test_wrapper_honors_cli_and_caller_directory(tmp_path, environment_model, ar
             parsed = runner.parse_args()
             assert parsed.model == expected
             assert parsed.output == 'relative-evidence'
+            assert parsed.profile == 'report-profile.json'
     assert not result.stdout.strip()
 
 

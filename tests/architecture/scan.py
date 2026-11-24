@@ -19,6 +19,8 @@ TRACKS = frozenset({"web_fetch", "web_search", "web_extract", "trajectory_replay
 SHARED_PACKAGES = frozenset({"reporting", "results", "benchmarks", "environments"})
 # The root command registry names tracks by design; it imports them only when selected.
 ROOT_DISPATCHER = "harness.cli"
+# Packages whose child modules are adapters: each one names only the instance it implements.
+ADAPTER_PACKAGES = ("harness.environments.browser",)
 # Registered names that are also ordinary words in shared code.
 GENERIC_NAMES = frozenset({
     "fixture",  # the synthetic Web Fetch provider and the general test-fixture term
@@ -44,6 +46,8 @@ def track_of(module: str) -> str | None:
 def is_shared(module: str, path: Path) -> bool:
     parts = module.split(".")
     if module == ROOT_DISPATCHER or len(parts) < 2:
+        return False
+    if any(module.startswith(package + ".") for package in ADAPTER_PACKAGES):
         return False
     return parts[1] in SHARED_PACKAGES or (len(parts) == 2 and path.name != "__init__.py")
 
@@ -77,13 +81,13 @@ def layering_violations() -> dict[str, list[str]]:
 
 def registered_names() -> frozenset[str]:
     """Method, provider and browser names from the registries that own them."""
-    from harness.trajectory_replay.participants import BROWSER_ADAPTERS
+    from harness.environments.browser import BROWSERS
     from harness.web_extract.pipeline import METHODS
     from harness.web_fetch.providers.base import PROVIDERS
     from harness.web_search.adapters import ADAPTERS
 
     providers = json.loads((ROOT / "configs/providers.example.json").read_text(encoding="utf-8"))["providers"]
-    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS.names(), *BROWSER_ADAPTERS}
+    names = {*PROVIDERS.names(), *providers, *ADAPTERS.names(), *METHODS.names(), *BROWSERS.names()}
     return frozenset(names - GENERIC_NAMES)
 
 

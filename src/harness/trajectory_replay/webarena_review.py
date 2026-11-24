@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from harness.data_home import data_home
-from harness.record_io import file_sha256
-from harness.trajectory_replay.participants import (
+from harness.environments.participants import (
     bind_participant,
     participant_registry,
     resolve_participant_id,
 )
+from harness.record_io import file_sha256
 from lexbench_webfetch.paths import contained_path
 
 REVIEW_SCHEMA = "lex_webarena_trajectory_replay_failure_review/1"

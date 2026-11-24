@@ -12,8 +12,9 @@ import pytest
 
 from harness import env_file, runtime_env
 from harness.environments.browser import (
-    ENGINE_PORTS,
     cleanup_browser_runtime,
+    container_engines,
+    engine_cdp_port,
     external_websocket_url,
     published_endpoint,
     start_browser_container,
@@ -261,7 +262,8 @@ def test_webarena_site_reuse_state_is_isolated_per_engine():
 
 
 def test_browser_engines_publish_their_external_cdp_ports():
-    assert ENGINE_PORTS == {"chromium": 9223, "moli": 9222}
+    ports = {engine: engine_cdp_port(engine) for engine in container_engines()}
+    assert ports == {"chromium": 9223, "moli": 9222}
 
 
 def test_browser_container_may_omit_cpu_limit_only_when_explicit():
@@ -269,7 +271,7 @@ def test_browser_container_may_omit_cpu_limit_only_when_explicit():
 
     start_browser_container(
         client,
-        image=ENGINE_IMAGES["chromium"], cdp_port=ENGINE_PORTS["chromium"],
+        image=ENGINE_IMAGES["chromium"], cdp_port=engine_cdp_port("chromium"),
         engine="chromium",
         run_id="diagnostic",
         cpus=None,
@@ -286,7 +288,7 @@ def test_browser_container_rejects_nonpositive_explicit_cpu_limit():
     with pytest.raises(ValueError, match="cpus must be positive"):
         start_browser_container(
             MagicMock(),
-            image=ENGINE_IMAGES["chromium"], cdp_port=ENGINE_PORTS["chromium"],
+            image=ENGINE_IMAGES["chromium"], cdp_port=engine_cdp_port("chromium"),
             engine="chromium",
             run_id="invalid",
             cpus=0,
@@ -593,12 +595,9 @@ def test_run_saves_evidence_before_diagnostics_and_cleans_up(
     assert not (tmp_path / "wrong-moli").exists()
 
 
-def test_public_moli_version_matches_its_image_recipe():
-    dockerfile = Path(
-        "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile"
-    ).read_text(encoding="utf-8")
-
-    assert f"ARG MOLI_VERSION=v{runner.MOLI_VERSION}\n" in dockerfile
+def test_public_moli_version_is_read_from_its_image_recipe():
+    assert runner.pinned_image_version("moli") == "1.0.6"
+    assert runner.pinned_image_version("chromium") is None
 
 
 def test_moli_image_installs_its_verified_dynamic_font_dependency():

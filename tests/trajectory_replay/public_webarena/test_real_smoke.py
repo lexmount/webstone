@@ -11,8 +11,8 @@ import pytest
 from playwright.sync_api import sync_playwright
 
 from harness.environments.browser import (
-    ENGINE_PORTS,
     cleanup_browser_runtime,
+    engine_cdp_port,
     published_endpoint,
     start_browser_container,
     wait_cdp,
@@ -46,7 +46,7 @@ def test_real_browser_opens_public_page_and_extracts_heading(engine: str, tmp_pa
     try:
         container = start_browser_container(
             client,
-            image=ENGINE_IMAGES[engine], cdp_port=ENGINE_PORTS[engine],
+            image=ENGINE_IMAGES[engine], cdp_port=engine_cdp_port(engine),
             engine=engine,
             run_id=run_id,
             cpus=(
@@ -62,7 +62,7 @@ def test_real_browser_opens_public_page_and_extracts_heading(engine: str, tmp_pa
         endpoint = published_endpoint(
             container,
             engine=engine,
-            cdp_port=ENGINE_PORTS[engine],
+            cdp_port=engine_cdp_port(engine),
         )
         websocket_url = wait_cdp(endpoint, timeout_seconds=30, container=container)
         browser = playwright.chromium.connect_over_cdp(websocket_url)

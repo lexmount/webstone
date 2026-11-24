@@ -16,8 +16,8 @@ import docker
 
 from harness.distribution import repository_root
 from harness.environments.browser import (
-    ENGINE_PORTS,
     configured_browser_images,
+    engine_cdp_port,
     published_endpoint,
     start_browser_container,
     wait_cdp,
@@ -1500,7 +1500,7 @@ def run_replay_suite(  # noqa: PLR0913
                 network = client.networks.create(f"lex-webarena-replay-{run_id}-{engine}")
                 container = start_browser_container(
                     client,
-                    image=ENGINE_IMAGES[engine], cdp_port=ENGINE_PORTS[engine],
+                    image=ENGINE_IMAGES[engine], cdp_port=engine_cdp_port(engine),
                     engine=engine,
                     run_id=f"replay-{run_id}",
                     cpus=cpus,
@@ -1509,7 +1509,7 @@ def run_replay_suite(  # noqa: PLR0913
                 )
                 container.reload()
                 http_endpoint = published_endpoint(
-                    container, engine=engine, cdp_port=ENGINE_PORTS[engine]
+                    container, engine=engine, cdp_port=engine_cdp_port(engine)
                 )
                 endpoint = wait_cdp(http_endpoint, container=container)
                 benchmark = configure_benchmark(hostname=container_host_gateway(container))
@@ -1565,7 +1565,7 @@ def run_replay_suite(  # noqa: PLR0913
                         container.restart()
                         container.reload()
                         http_endpoint = published_endpoint(
-                            container, engine=engine, cdp_port=ENGINE_PORTS[engine]
+                            container, engine=engine, cdp_port=engine_cdp_port(engine)
                         )
                         endpoint = wait_cdp(http_endpoint, container=container)
                         prior_attempt = attempt

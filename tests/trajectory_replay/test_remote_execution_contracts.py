@@ -18,7 +18,7 @@ from webarena_verified.types.task import WebArenaSite
 from harness.environments.webarena.topology import RECORDING_GATEWAYS
 from harness.record_io import canonical_json_sha256
 from harness.trajectory_replay import remote_execution
-from harness.trajectory_replay.catalog_runner import _chromium_host_resolver_rules
+from harness.trajectory_replay.catalog_runner import _host_resolver_rules
 from harness.trajectory_replay.remote_execution import (
     _browser_command,
     _read_retrieval_contract,
@@ -273,7 +273,7 @@ def test_comparison_browsers_use_their_native_cdp_serve_contracts() -> None:
 
 
 def test_chromium_can_bind_profile_declared_private_ingress() -> None:
-    rules = _chromium_host_resolver_rules(
+    rules = _host_resolver_rules(
         {
             "host_overrides": [
                 {"pattern": "*.dev.example.test", "address": "192.0.2.142"}
@@ -299,13 +299,13 @@ def test_environment_host_overrides_are_not_compiled_for_other_engines() -> None
             {"pattern": "*.dev.example.test", "address": "192.0.2.142"}
         ]
     }
-    assert _chromium_host_resolver_rules(profile, "moli") is None
+    assert _host_resolver_rules(profile, "moli") is None
 
 
 def test_chromium_still_reads_legacy_host_resolver_profile() -> None:
     profile = {"browser_host_resolver_rules": "MAP legacy.example 127.0.0.1"}
     assert (
-        _chromium_host_resolver_rules(profile, "chromium")
+        _host_resolver_rules(profile, "chromium")
         == "MAP legacy.example 127.0.0.1"
     )
 
