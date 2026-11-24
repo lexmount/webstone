@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from harness.web_fetch import rescoring as rescore_content
-from harness.web_fetch import runner
+from harness.web_fetch import benchmarks, runner
 from lexbench_webfetch.metrics import summarize, task_measured, task_passed
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.models import ProviderResult
@@ -992,7 +992,7 @@ class ScoringPipelineTests(unittest.TestCase):
             (refs / f"{name}.json").write_bytes((self.root / "list-references" / f"{name}.json").read_bytes())
 
     def test_live_and_both_rescores_share_scores_without_changing_call_evidence(self):
-        with patch.object(runner, "score_attempt", wraps=score_attempt) as shared:
+        with patch.object(benchmarks, "score_attempt", wraps=score_attempt) as shared:
             original, summary = self.live()
             rescored, resummary = runner.rescore_evaluation(run_dir=self.run, dataset_meta=self.dataset,
                                                            dataset_path=self.path, cases=self.cases)

@@ -25,7 +25,7 @@ from lexbench_webfetch.metrics import summarize, task_passed
 from lexbench_webfetch.models import EvalCase, validate_case
 from lexbench_webfetch.paths import contained_path, safe_identifier
 from lexbench_webfetch.response_input import apply_request_status
-from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, load_list_reference, score_attempt
+from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, load_list_reference
 
 from harness.benchmark_execution import ExecutionPolicy, ExecutionStop, Job, run_jobs, validate_capacity
 from harness.record_io import bytes_sha256, load_jsonl, optional_file_sha256, write_json
@@ -43,6 +43,7 @@ from harness.web_fetch.artifacts import (
     verify_record_private_artifacts,
     verify_record_public_call_logs,
 )
+from harness.web_fetch.benchmarks import LiveSuite
 from harness.web_fetch.call_boundary import fetch_with_deadline, worker_unresolved
 from harness.web_fetch.config import DEFAULT_FAILURE_RETRIES, load_provider_config
 from harness.web_fetch.diagnostics import CallDiagnostics
@@ -551,7 +552,6 @@ def run_evaluation(
     benchmark: Any | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if benchmark is None:
-        from harness.web_fetch.benchmarks import LiveSuite
         benchmark = LiveSuite()
     output_dir = output_dir.resolve()
     for name, value, minimum in (
@@ -1202,14 +1202,14 @@ def rescore_evaluation(
             raise ValueError(f"run contains case absent from dataset: {record['case_id']}")
         artifact = contained_path(run_dir,record["artifact_path"])
         previous_deadline = bool(record.get("metrics", {}).get("deadline_overrun"))
-        record["metrics"] = score_attempt(
-            case, artifact.read_bytes(), ok=bool(record.get("ok")),
-            title=record.get('title'), final_url=record.get('final_url'),
-            metadata=file_scoring_metadata(case, record.get("provider_metadata", {}), run_dir),
-            previous_metrics=record["metrics"],
-            list_reference=load_list_reference(case, dataset_path.parent),
-            status_code=record.get('status_code'),
-        )
+        record["metrics"] = LiveSuite().score(case, {
+            "content": artifact.read_bytes(), "ok": bool(record.get("ok")),
+            "title": record.get('title'), "final_url": record.get('final_url'),
+            "metadata": file_scoring_metadata(case, record.get("provider_metadata", {}), run_dir),
+            "previous_metrics": record["metrics"],
+            "list_reference": load_list_reference(case, dataset_path.parent),
+            "status_code": record.get('status_code'),
+        })
         apply_request_status(record)
         record["metrics"]["deadline_overrun"] = previous_deadline
 

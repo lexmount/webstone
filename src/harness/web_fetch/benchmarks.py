@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from lexbench_webfetch.models import EvalCase
+from lexbench_webfetch.scoring import score_attempt
 
 from harness.adapters import Capabilities, Registry
 from harness.distribution import repository_root
@@ -105,8 +106,6 @@ class LiveSuite:
         return nullcontext(None)
 
     def score(self, case: EvalCase, scored_input: dict) -> dict:
-        from lexbench_webfetch.scoring import score_attempt
-
         options = dict(scored_input)
         return score_attempt(case, options.pop("content"), **options)
 
