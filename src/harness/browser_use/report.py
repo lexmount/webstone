@@ -46,6 +46,7 @@ from harness.browser_use.report_i18n import (
     write_english_report,
 )
 from harness.browser_use.selection import (
+    ALLOWED_SITES,
     PilotSelection,
     load_pilot,
     report_selection_path,
@@ -53,6 +54,7 @@ from harness.browser_use.selection import (
 )
 from harness.environments.browser import engine_label
 from harness.environments.participants import profile_engines
+from harness.environments.webarena.sites import site_labels
 from harness.record_io import load_jsonl, optional_file_sha256, read_json, write_json
 from harness.report_languages import (
     add_language_argument,
@@ -129,12 +131,16 @@ def _record_text(record: dict[str, Any], field: str) -> Any:
     return english if english and _language() == "en" else record.get(field)
 
 
-SITE_LABELS = {
-    "shopping": "Shopping",
-    "shopping_admin": "Shopping Admin",
-    "reddit": "Reddit",
-    "gitlab": "GitLab",
-}
+SITE_LABELS = site_labels("en")
+
+
+def _site_options() -> str:
+    """Filter options for the sites a Browser Use selection may contain."""
+    return "".join(
+        f'<option value="{site}">{_e(label)}</option>'
+        for site, label in SITE_LABELS.items()
+        if site in ALLOWED_SITES
+    )
 
 
 @dataclass(frozen=True)
@@ -959,7 +965,7 @@ def _same_task_comparison(
         for model, engine in configurations
     )
     return (
-        '<article class="browser-comparison" id="configuration-matrix"><header class="comparison-heading"><div><h3>' + t("same_task_comparison.same_task_all_configuration_matrix", "Same-task all-configuration matrix") + "</h3><p>" + t("same_task_comparison.each_row_is_one_task_and", "Each row is one task and each column is one model-by-browser configuration. New configurations add columns only.") + '</p></div><b class="comparison-count" data-matrix-count></b></header><div class="filters matrix-filters"><label>' + t("same_task_comparison.outcome_pattern", "Outcome pattern") + ' <select data-matrix-filter="relation"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="mixed" selected>' + t("same_task_comparison.outcomes_differ", "Outcomes differ") + '</option><option value="all_pass">' + t("same_task_comparison.all_pass", "All pass") + '</option><option value="all_fail">' + t("same_task_comparison.all_fail", "All fail") + "</option></select></label><label>" + t("same_task_comparison.tier", "Tier") + ' <select data-matrix-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-matrix-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="shopping">Shopping</option><option value="shopping_admin">Shopping Admin</option><option value="reddit">Reddit</option><option value="gitlab">GitLab</option></select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-matrix-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + '</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label></div><div class="comparison-result"><div class="table-wrap"><table class="comparison-table configuration-matrix"><thead><tr><th>' + t("same_task_comparison.task", "Task") + f"</th>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></div></article>"
+        '<article class="browser-comparison" id="configuration-matrix"><header class="comparison-heading"><div><h3>' + t("same_task_comparison.same_task_all_configuration_matrix", "Same-task all-configuration matrix") + "</h3><p>" + t("same_task_comparison.each_row_is_one_task_and", "Each row is one task and each column is one model-by-browser configuration. New configurations add columns only.") + '</p></div><b class="comparison-count" data-matrix-count></b></header><div class="filters matrix-filters"><label>' + t("same_task_comparison.outcome_pattern", "Outcome pattern") + ' <select data-matrix-filter="relation"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="mixed" selected>' + t("same_task_comparison.outcomes_differ", "Outcomes differ") + '</option><option value="all_pass">' + t("same_task_comparison.all_pass", "All pass") + '</option><option value="all_fail">' + t("same_task_comparison.all_fail", "All fail") + "</option></select></label><label>" + t("same_task_comparison.tier", "Tier") + ' <select data-matrix-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-matrix-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option>' + _site_options() + '</select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-matrix-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + '</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label></div><div class="comparison-result"><div class="table-wrap"><table class="comparison-table configuration-matrix"><thead><tr><th>' + t("same_task_comparison.task", "Task") + f"</th>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table></div></div></article>"
     )
 
 
@@ -2297,7 +2303,7 @@ def _filters(participants: Participants, *, attempts: bool = False, dataset: boo
     )
     placeholder = t("filters.task_intent_or_acceptance_contract", "Task, intent, or acceptance contract") if dataset else t("filters.task_intent_answer_or_error", "Task, intent, answer, or error")
     return (
-        ('<div class="filters"><label>' + t("filters.full_text_search", "Full-text search") + f' <input data-search type="search" placeholder="{placeholder}"></label><label>' + t("same_task_comparison.tier", "Tier") + ' <select data-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="shopping">Shopping</option><option value="shopping_admin">Shopping Admin</option><option value="reddit">Reddit</option><option value="gitlab">GitLab</option></select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + "</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label>")
+        ('<div class="filters"><label>' + t("filters.full_text_search", "Full-text search") + f' <input data-search type="search" placeholder="{placeholder}"></label><label>' + t("same_task_comparison.tier", "Tier") + ' <select data-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option>' + _site_options() + '</select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + "</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label>")
         + result_filter
         + extra
         + '<span class="count-note" data-visible-count></span></div>'

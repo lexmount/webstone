@@ -28,6 +28,7 @@ from harness.environments.webarena.runtime import (
     login_context,
     prepare_browser_viewport,
 )
+from harness.environments.webarena.sites import site_declares, sites_with
 from harness.environments.webarena.topology import (
     LOCAL_RECORDED_HOSTS,
     TRUSTED_RECORDED_HOSTS,
@@ -974,7 +975,8 @@ def reset_cohort(args: argparse.Namespace, manifest: dict, sites: dict) -> str:
         check=True,
         timeout=1800,
     )
-    admin = urlsplit(sites[WebArenaSite.SHOPPING_ADMIN])
+    (admin_site,) = sites_with(admin_https=True)
+    admin = urlsplit(sites[WebArenaSite(admin_site)])
     validated = validate_remote_cohort_reset_receipt(
         receipt_path,
         site_map_sha256=manifest["site_map_sha256"],
@@ -1013,7 +1015,7 @@ def verify_browser_session(tool: object, sites: dict | None = None) -> list[dict
                     raise ValueError(f"{site.value}: browser changed configured site origin")
                 if response is None or response.status != 200:
                     raise ValueError(f"{site.value}: browser readiness did not return HTTP 200")
-                if site == WebArenaSite.SHOPPING_ADMIN:
+                if site_declares(site, "admin_https"):
                     scripts = page.locator("script[src]").evaluate_all(
                         "nodes => nodes.map(n => n.src)"
                     )
@@ -1021,10 +1023,10 @@ def verify_browser_session(tool: object, sites: dict | None = None) -> list[dict
                         urlsplit(src).scheme != expected.scheme for src in scripts
                     ):
                         raise ValueError(
-                            "shopping_admin: script protocol differs from configured origin"
+                            f"{site.value}: script protocol differs from configured origin"
                         )
                     if page.evaluate("typeof require") != "function":
-                        raise ValueError("shopping_admin: Magento JavaScript loader is unavailable")
+                        raise ValueError(f"{site.value}: Magento JavaScript loader is unavailable")
                 rows.append(
                     {
                         "site": site.value,

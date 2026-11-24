@@ -24,6 +24,7 @@ from harness.environments.participants import (
     participant_registry,
     resolve_participant_id,
 )
+from harness.environments.webarena.sites import site_labels
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl, read_json, write_json
 from harness.report_languages import (
     add_language_argument,
@@ -1803,15 +1804,8 @@ def build_webarena_replay_report(
 CATALOG_REPORT_CSS = (ASSETS / "webarena-catalog.css").read_text(encoding="utf-8")
 
 def _catalog_site_labels() -> dict[str, str]:
-    t = report_text("zh")
-    return {
-        "gitlab": "GitLab",
-        "map": t("catalog.site.map", "Map"),
-        "reddit": "Reddit",
-        "shopping": t("catalog.site.shopping", "Shopping site"),
-        "shopping_admin": t("catalog.site.shopping_admin", "Shopping admin"),
-        "wikipedia": t("catalog.site.wikipedia", "Wikipedia"),
-    }
+    """The catalog edition is Chinese; site labels come from the site registry."""
+    return dict(sorted(site_labels("zh").items()))
 
 
 def _catalog_shell(title: str, body: str, participant: str) -> str:

@@ -10,9 +10,10 @@ from typing import Any
 from webarena_verified.environments.setup import setup_init
 from webarena_verified.types.task import WebArenaSite
 
-from harness.environments.webarena.config import SITES, RuntimeConfig
+from harness.environments.webarena.config import RuntimeConfig
 from harness.environments.webarena.manager import EnvironmentManager
 from harness.environments.webarena.map_archives import verify_archives
+from harness.environments.webarena.sites import SHARED_SITES, SITE_NAMES
 
 
 def _write_receipt(path: Path | None, payload: dict[str, Any]) -> None:
@@ -27,7 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("setup", "verify", "start", "reset", "stop"))
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--site", choices=SITES, action="append")
+    parser.add_argument("--site", choices=SITE_NAMES, action="append")
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--data-dir")
@@ -38,7 +39,7 @@ def main() -> None:
     config = RuntimeConfig.load(args.config)
     names = tuple(args.site or config.sites)
     if args.command == "setup" and (
-        not args.data_dir or any(name not in {"map", "wikipedia"} for name in names)
+        not args.data_dir or any(name not in SHARED_SITES for name in names)
     ):
         parser.error("setup requires --site map|wikipedia and --data-dir")
     manager = (

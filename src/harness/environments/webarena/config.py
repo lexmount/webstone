@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from harness.environments.webarena.sites import SITE_NAMES
 from harness.environments.webarena.topology import (
     ENV_CTRL_CONTAINER_PORT,
     MAP_LOCAL_SERVICE_PORTS,
@@ -20,8 +21,7 @@ from harness.environments.webarena.topology import (
 )
 from harness.safety import unlinked_path, write_new_file
 
-SITES = ("shopping_admin", "shopping", "reddit", "gitlab", "map", "wikipedia")
-SITE_TOKENS = {site: "__" + site.upper() + "__" for site in SITES}
+SITE_TOKENS = {site: "__" + site.upper() + "__" for site in SITE_NAMES}
 WEBARENA_VERIFIED_VERSION = "1.2.3"
 ARCH_ALIASES = {"aarch64": "arm64", "x86_64": "amd64"}
 
@@ -64,7 +64,7 @@ class RuntimeConfig:
         locked_sites = lock.get("images") or {}
         sites: dict[str, SiteConfig] = {}
         used_ports: set[int] = set()
-        for name in SITES:
+        for name in SITE_NAMES:
             runtime = runtime_sites.get(name)
             image = locked_sites.get(name)
             if not isinstance(runtime, dict) or not isinstance(image, dict):
@@ -98,7 +98,7 @@ def normalized_architecture(value: Any) -> str:
 
 
 def official_image_references() -> dict[str, str]:
-    return {site: f"am1n3e/webarena-verified-{site}:latest" for site in SITES}
+    return {site: f"am1n3e/webarena-verified-{site}:latest" for site in SITE_NAMES}
 
 
 REGISTRY_ACCEPT = ", ".join(
@@ -200,7 +200,7 @@ def verify_deployment_contract(root: Path) -> dict:
         or delivery.get("webarena_verified_version") != WEBARENA_VERIFIED_VERSION
     ):
         raise ValueError("WebArena package version differs")
-    sites = set(SITES)
+    sites = set(SITE_NAMES)
     if set(TOPOLOGY["sites"]) != sites:
         raise ValueError("topology registry site inventory differs")
     if set(lock.get("images") or {}) != sites or set(runtime.get("sites") or {}) != sites:

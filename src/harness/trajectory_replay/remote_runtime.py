@@ -27,9 +27,11 @@ from harness.environments.browser import FULL_CDP, engines_with
 from harness.environments.webarena.runtime import (
     SITE_PORTS,
 )
+from harness.environments.webarena.sites import site_adapter, site_declares, sites_with
 from harness.environments.webarena.topology import (
     LOCAL_RECORDED_HOSTS,
     READ_ONLY_SITE_PORTS,
+    SITE_URL_SUFFIX,
     require_recorded_gateway,
 )
 from harness.record_io import canonical_json_sha256, file_sha256, read_json
@@ -72,9 +74,10 @@ def load_remote_sites(path: Path) -> dict[WebArenaSite, str]:
             or parsed.fragment
         ):
             raise ValueError(f"invalid remote URL for {site.value}")
-        if site == WebArenaSite.SHOPPING_ADMIN and parsed.path.rstrip("/") != "/admin":
-            raise ValueError("Shopping Admin remote URL must end in /admin")
-        if site != WebArenaSite.SHOPPING_ADMIN and parsed.path not in {"", "/"}:
+        suffix = SITE_URL_SUFFIX.get(site.value)
+        if suffix and parsed.path.rstrip("/") != suffix:
+            raise ValueError(f"{site_adapter(site).label()} remote URL must end in {suffix}")
+        if not suffix and parsed.path not in {"", "/"}:
             raise ValueError(f"remote URL for {site.value} must be an origin")
         sites[site] = url.rstrip("/")
     origins = {urlsplit(url).netloc for url in sites.values()}
@@ -108,7 +111,7 @@ def remote_benchmark(sites: dict[WebArenaSite, str]) -> WebArenaVerified:
                             ]
                         )
                     ),
-                    use_header_login=site == WebArenaSite.SHOPPING_ADMIN,
+                    use_header_login=site_declares(site, "header_login"),
                 )
                 for site, url in sites.items()
             }
@@ -255,7 +258,7 @@ def validate_remote_reset_receipt(
             or row.get("env_ctrl_ready") is not True
             or row.get("public_http_status") != 200
             or (
-                site in {WebArenaSite.SHOPPING, WebArenaSite.SHOPPING_ADMIN}
+                site_declares(site, "magento")
                 and row.get("elasticsearch_status") not in {"yellow", "green"}
             )
         ):
@@ -304,12 +307,12 @@ def validate_remote_cohort_reset_receipt(
             or row.get("public_http_status") != 200
         ):
             raise ValueError(f"remote cohort reset is not proven for {site}")
-    for site in ("gitlab", "reddit"):
+    for site in sites_with(reset_baseline_check=True):
         check = sites[site].get("baseline_check")
         if not isinstance(check, dict) or check.get("row_count") != 0:
             raise ValueError(f"remote cohort baseline is not proven for {site}")
-    if admin_https_base_url is not None:
-        config = sites["shopping_admin"].get("https_admin_config")
+    for admin_site in sites_with(admin_https=True) if admin_https_base_url is not None else ():
+        config = sites[admin_site].get("https_admin_config")
         if (
             not isinstance(config, dict)
             or config.get("web_secure_base_url") != admin_https_base_url

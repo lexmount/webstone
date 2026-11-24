@@ -32,8 +32,6 @@ from harness.environments.webarena.runtime import (
     QEMU_X86_64_HOST_PATH,
     SITE_AUTH_HEADERS,
     allow_official_container_hostname,
-    bootstrap_postmill_browser_session,
-    bootstrap_postmill_session,
     browser_tool_config,
     configure_benchmark,
     container_host_gateway,
@@ -51,6 +49,10 @@ from harness.environments.webarena.runtime import (
     wait_application_ready,
     wait_container_healthy,
     wait_magento_dependencies_ready,
+)
+from harness.environments.webarena.sites import (
+    bootstrap_postmill_browser_session,
+    bootstrap_postmill_session,
 )
 from harness.environments.webarena.topology import RECORDING_GATEWAYS
 
@@ -669,8 +671,10 @@ def test_postmill_login_keeps_auth_out_of_browser_requests_and_checks_identity(
     )
     service = SimpleNamespace(_context=context, _page=primary, _submit=lambda f: f())
     benchmark = SimpleNamespace(config=SimpleNamespace(get_environment=lambda site: SimpleNamespace(active_url="http://fixture.test")))
+    from harness.environments.webarena import sites as site_adapters
+
     monkeypatch.setattr(
-        runner, "bootstrap_postmill_session",
+        site_adapters, "bootstrap_postmill_session",
         lambda ctx, url: events.append(("bootstrap", ctx is context, url)),
     )
     sites = (WebArenaSite.REDDIT,)

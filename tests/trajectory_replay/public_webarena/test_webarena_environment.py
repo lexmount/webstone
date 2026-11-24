@@ -774,7 +774,7 @@ def test_shopping_admin_login_waits_for_navigation_commit_then_reloads(tmp_path,
             calls.append(("expect_navigation", kwargs))
             return Navigation()
 
-    environment._login_shopping_admin(Page())
+    environment._login("shopping_admin", Page())
 
     assert calls == [
         (
@@ -1168,7 +1168,7 @@ def test_official_form_login_paths_cover_all_stateful_sites(tmp_path, monkeypatc
     pages = {}
     for site in ("shopping", "shopping_admin", "reddit", "gitlab"):
         page = _LoginPage()
-        getattr(environment, f"_login_{site}")(page)
+        environment._login(site, page)
         pages[site] = page
 
     assert pages["shopping"].url == "http://shopping.test/wishlist/"

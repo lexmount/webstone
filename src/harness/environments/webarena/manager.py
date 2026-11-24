@@ -16,8 +16,11 @@ from webarena_verified.types.task import WebArenaSite
 
 from harness.environments.webarena.backend import DockerBackend
 from harness.environments.webarena.config import RuntimeConfig, SiteConfig, normalized_architecture
-
-STATEFUL_SITES = frozenset({"shopping_admin", "shopping", "reddit", "gitlab"})
+from harness.environments.webarena.sites import (
+    ENTRYPOINT_INIT,
+    EXPLICIT_INIT,
+    site_adapter,
+)
 
 
 class EnvironmentManager:
@@ -129,11 +132,12 @@ class EnvironmentManager:
         )
         container = self.client.containers.get(manager.container_name)
         self._wait_control(started.env_ctrl_url, timeout=timeout)
-        if name in {"gitlab", "reddit"}:
+        url_init = site_adapter(name).url_init
+        if url_init == EXPLICIT_INIT:
             self._wait_entrypoint_init(container, timeout=timeout)
             self._explicit_init(container, started.url, site=name)
             self._wait_control(started.env_ctrl_url, timeout=timeout)
-        elif name in {"shopping", "shopping_admin"}:
+        elif url_init == ENTRYPOINT_INIT:
             self._wait_entrypoint_init(container, timeout=timeout)
             self._verify_entrypoint_init(container)
         receipt = self.verify(name, require_running=True)

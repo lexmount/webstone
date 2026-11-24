@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Any
 
 from harness.distribution import repository_root
+from harness.environments.webarena.sites import STATEFUL_SITES
 from harness.record_io import file_sha256
 from harness.safety import unlinked_path
 from lexbench_webfetch.paths import contained_path
 
 PILOT_SCHEMA = "lex_webarena_verified_pilot/1"
-ALLOWED_SITES = frozenset({"shopping", "shopping_admin", "reddit", "gitlab"})
+# Browser Use runs only sites whose state the official reset restores.
+ALLOWED_SITES = frozenset(STATEFUL_SITES)
 TIER_COUNTS = {"easy": 15, "medium": 30, "hard": 45}
 TIER_BOUNDS = {"easy": (1, 4), "medium": (5, 7), "hard": (8, None)}
 TASK_EXCLUSIONS_PATH = repository_root() / "evaluation/browser-use/task-exclusions.json"

@@ -51,7 +51,7 @@ def test_image_lock_command_uses_environment_registry_and_preserves_existing_out
     output = tmp_path / "images.json"
     owner.main_image_lock(["--output", str(output)])
     before = output.read_bytes()
-    assert set(json.loads(before)["images"]) == set(owner.SITES)
+    assert set(json.loads(before)["images"]) == set(owner.SITE_NAMES)
     assert calls == list(owner.official_image_references().values())
     calls.clear()
     with pytest.raises(ValueError, match="output already exists"):

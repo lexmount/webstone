@@ -13,7 +13,6 @@ from harness import runtime_env
 from harness.environments.webarena.rainbond import (
     LEASE_SCHEMA,
     RECEIPT_SCHEMA,
-    STATEFUL_SITES,
     RainbondSlicePool,
     acquire_slice,
     provision_pool,
@@ -21,6 +20,7 @@ from harness.environments.webarena.rainbond import (
     release_slice,
     scale_pool,
 )
+from harness.environments.webarena.sites import STATEFUL_SITES
 from harness.trajectory_replay.public_webarena.config import load_runtime_env
 
 PINNED = {

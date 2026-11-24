@@ -26,6 +26,12 @@ from harness.env_file import repository_credential
 from harness.environments.webarena.backend import MAGENTO_INIT_TIMEOUT_SECONDS, DockerBackend
 from harness.environments.webarena.manager import EnvironmentManager
 from harness.environments.webarena.rainbond import RainbondSlicePool
+from harness.environments.webarena.sites import (
+    EXPLICIT_INIT,
+    STATEFUL_SITES,
+    WEBARENA_SITES,
+    site_adapter,
+)
 from harness.environments.webarena.topology import (
     CONTAINER_HOST_ALIAS,
     RECORDED_PORT_SITES,
@@ -34,7 +40,6 @@ from harness.environments.webarena.topology import (
 from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.public_webarena.config import redact_site_passwords
 
-STATEFUL_SITES = frozenset({"shopping_admin", "shopping", "reddit", "gitlab"})
 _LEGACY_ORIGIN_RE = re.compile(
     r"https?://[a-z0-9.-]+:(?P<port>"
     + "|".join(str(port) for port in sorted(RECORDED_PORT_SITES))
@@ -145,7 +150,7 @@ class WebArenaEnvironment:
         )
         # An unusable login must stop the run here, not record a failure for every attempt.
         for site in sites:
-            if hasattr(self, f"_login_{site}"):
+            if site in WEBARENA_SITES and site_adapter(site).form_login is not None:
                 self._login_credentials(site)
             else:
                 self._credentials(site)
@@ -475,29 +480,29 @@ class WebArenaEnvironment:
                     "retired_containers": list(backend.retired_containers),
                 }
                 self._wait_ready(url, timeout_seconds=timeout_seconds)
-                if site == "gitlab":
+                adapter = site_adapter(site)
+                if adapter.url_init == EXPLICIT_INIT:
+                    if adapter.entrypoint_init_noop:
+                        # The official Ops implementation ignores
+                        # WA_ENV_CTRL_EXTERNAL_SITE_URL here, so its supervisor
+                        # attempt exits before mutating state. Supply the URL
+                        # explicitly after that no-op attempt has exited.
+                        self._wait_container_initialization(
+                            container, timeout_seconds=timeout_seconds
+                        )
                     self._configure_external_url(container, started.url, site=site)
                     self._wait_ready(url, timeout_seconds=timeout_seconds)
                     receipts[site]["external_url_configuration"] = {
                         "external_url": started.url,
-                        "internal_port": SITE_CONTAINER_PORTS[site],
-                        "mode": "explicit_official_init_verified",
-                    }
-                elif site == "reddit":
-                    # Reddit's official Ops implementation does not read
-                    # WA_ENV_CTRL_EXTERNAL_SITE_URL, so its supervisor attempt
-                    # exits before mutating state. Supply the URL explicitly
-                    # after that no-op attempt has exited.
-                    self._wait_container_initialization(container, timeout_seconds=timeout_seconds)
-                    self._configure_external_url(container, started.url, site=site)
-                    self._wait_ready(url, timeout_seconds=timeout_seconds)
-                    receipts[site]["external_url_configuration"] = {
-                        "external_url": started.url,
+                        **(
+                            {"internal_port": SITE_CONTAINER_PORTS[site]}
+                            if adapter.explicit_init_records_port
+                            else {}
+                        ),
                         "mode": "explicit_official_init_verified",
                     }
                 else:
-                    # Shopping and Shopping Admin run their one env-ctrl init
-                    # from the official image entrypoint.
+                    # The image entrypoint runs the one env-ctrl init.
                     self._wait_container_initialization(container, timeout_seconds=timeout_seconds)
                     self._verify_entrypoint_initialization(container)
                     receipts[site]["external_url_configuration"] = {
@@ -505,7 +510,7 @@ class WebArenaEnvironment:
                         "mode": "entrypoint_init_verified",
                         **(
                             {"command_timeout_seconds": MAGENTO_INIT_TIMEOUT_SECONDS}
-                            if site in {"shopping", "shopping_admin"}
+                            if adapter.magento
                             else {}
                         ),
                     }
@@ -610,9 +615,8 @@ class WebArenaEnvironment:
             return page
         sites = list(environment.get("sites") or [])
         for site in sites:
-            login = getattr(self, f"_login_{site}", None)
-            if login is not None:
-                login(page)
+            if site in WEBARENA_SITES and site_adapter(site).form_login is not None:
+                self._login(site, page)
 
         start_urls = [self.resolve_url(str(value)) for value in environment.get("start_urls") or []]
         if not start_urls:
@@ -634,102 +638,12 @@ class WebArenaEnvironment:
             raise ValueError(f"WebArena credentials are missing for site {site!r}")
         return username, password
 
-    def _login_shopping(self, page: Any) -> None:
-        config = self._site_config("shopping")
-        username, password = self._login_credentials("shopping")
+    def _login(self, site: str, page: Any) -> None:
+        """Sign in through the site's visible login form."""
+        adapter = site_adapter(site)
+        config = self._site_config(site)
+        username, password = self._login_credentials(site)
         base_url = str((config.get("urls") or [""])[0]).rstrip("/")
         if not base_url:
-            raise ValueError("WebArena Shopping URL is missing")
-        page.goto(
-            base_url + "/customer/account/login/",
-            wait_until="domcontentloaded",
-            timeout=60_000,
-        )
-        email = page.get_by_label("Email", exact=True)
-        if email.count():
-            email.fill(username)
-            page.get_by_label("Password", exact=True).fill(password)
-            with page.expect_navigation(wait_until="commit", timeout=120_000):
-                page.get_by_role("button", name="Sign In", exact=True).click(
-                    no_wait_after=True, timeout=30_000
-                )
-            # Do not race the submitted form's redirect with the canonical
-            # authenticated-route check below.
-        page.goto(base_url + "/wishlist/", wait_until="domcontentloaded", timeout=60_000)
-        if "/customer/account/login" in page.url:
-            raise RuntimeError("WebArena Shopping login failed")
-
-    def _login_shopping_admin(self, page: Any) -> None:
-        config = self._site_config("shopping_admin")
-        username, password = self._login_credentials("shopping_admin")
-        base_url = str((config.get("urls") or [""])[0]).rstrip("/")
-        if not base_url:
-            raise ValueError("WebArena Shopping Admin URL is missing")
-        page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
-        user_field = page.get_by_placeholder("user name")
-        if user_field.count():
-            user_field.fill(username)
-            page.get_by_placeholder("password").fill(password)
-            with page.expect_navigation(wait_until="commit", timeout=120_000):
-                page.get_by_role("button", name="Sign in", exact=False).click(
-                    no_wait_after=True, timeout=30_000
-                )
-            # Magento's admin shell may keep subresources pending after the
-            # authenticated redirect.  Re-open the canonical URL instead of
-            # tying login success to the old form locator's navigation wait.
-            page.goto(base_url, wait_until="domcontentloaded", timeout=60_000)
-        if page.get_by_placeholder("user name").count():
-            raise RuntimeError("WebArena Shopping Admin login failed")
-
-    def _login_reddit(self, page: Any) -> None:
-        config = self._site_config("reddit")
-        username, password = self._login_credentials("reddit")
-        base_url = str((config.get("urls") or [""])[0]).rstrip("/")
-        if not base_url:
-            raise ValueError("WebArena Reddit URL is missing")
-        page.goto(base_url + "/login", wait_until="domcontentloaded", timeout=60_000)
-        user_field = page.get_by_label("Username")
-        if user_field.count():
-            user_field.fill(username)
-            page.get_by_label("Password").fill(password)
-            with page.expect_navigation(wait_until="commit", timeout=120_000):
-                page.get_by_role("button", name="Log in", exact=True).click(
-                    no_wait_after=True, timeout=30_000
-                )
-            # Supersede the completed form redirect with a deterministic
-            # authenticated route instead of reading from the stale form.
-        post_login_url = page.url
-        page.goto(
-            f"{base_url}/user/{username}/account",
-            wait_until="domcontentloaded",
-            timeout=60_000,
-        )
-        if "/login" in page.url:
-            try:
-                messages = page.locator(
-                    "[role='alert'], .alert, .form-error, .invalid-feedback"
-                ).all_inner_texts()
-            except Exception as exc:
-                messages = [f"diagnostic capture failed: {type(exc).__name__}"]
-            raise RuntimeError(
-                "WebArena Reddit login failed; "
-                f"post_login_url={post_login_url!r}; messages={messages[:3]!r}"
-            )
-
-    def _login_gitlab(self, page: Any) -> None:
-        config = self._site_config("gitlab")
-        username, password = self._login_credentials("gitlab")
-        urls = config.get("urls") or []
-        if not urls:
-            raise ValueError("WebArena GitLab URL is missing")
-        page.goto(str(urls[0]).rstrip("/") + "/users/sign_in", wait_until="domcontentloaded")
-        if page.locator("#user_login").count():
-            user_field = page.locator("#user_login")
-            user_field.fill(username)
-            page.locator("#user_password").fill(password)
-            page.get_by_role("button", name="Sign in", exact=False).click(
-                no_wait_after=True, timeout=30_000
-            )
-            user_field.wait_for(state="detached", timeout=120_000)
-        if page.locator("#user_login").count():
-            raise RuntimeError("WebArena GitLab login failed")
+            raise ValueError(f"WebArena {adapter.label()} URL is missing")
+        adapter.form_login(page, base_url, username, password)
