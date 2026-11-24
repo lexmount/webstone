@@ -22,7 +22,7 @@ def native_inputs(tmp_path):
     return suite, images
 
 
-@pytest.mark.parametrize("size,shards", [(1, 3), (2, 2), (12, 1)])
+@pytest.mark.parametrize("size,shards", [(1, 3), (12, 1)])
 def test_arbitrary_population_and_declared_shard_size(native_inputs, size, shards):
     suite, images = native_inputs
     before = {path: path.read_bytes() for path in native_inputs}

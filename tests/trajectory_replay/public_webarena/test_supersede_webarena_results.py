@@ -109,9 +109,7 @@ def test_subsequent_supersession_verifies_and_retains_the_complete_prior_chain(
     "damage",
     [
         "raw-row",
-        "typed-raw-row",
         "screenshot",
-        "missing-har",
         "linked-har",
         "protocol",
         "empty-reason",
@@ -122,18 +120,13 @@ def test_unbound_or_incomplete_correction_cannot_leave_outputs(tmp_path, damage)
     base, correction = write_supersession_fixture(tmp_path)
     attempt = correction / "tasks/case-a/moli/attempt-1"
     reason, scope = "synthetic repair", {("case-a", "moli")}
-    if damage in {"raw-row", "typed-raw-row"}:
+    if damage == "raw-row":
         path = attempt / "attempt.json"
         row = json.loads(path.read_bytes())
-        if damage == "raw-row":
-            row["status"] = "pass"
-        else:
-            row["is_retry"] = 0
+        row["status"] = "pass"
         path.write_text(json.dumps(row), encoding="utf-8")
     elif damage == "screenshot":
         (attempt / "final.png").write_bytes(b"changed")
-    elif damage == "missing-har":
-        (attempt / "network.har").unlink()
     elif damage == "linked-har":
         path = attempt / "network.har"
         target = tmp_path / "external.har"

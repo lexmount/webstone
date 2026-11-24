@@ -19,18 +19,7 @@ from harness.trajectory_replay.report_inputs import replay_input_path
 from tests.helpers import write_json
 
 
-def test_canonical_qualification_plan_is_an_exact_eighteen_shard_partition():
-    shards = qualification_shards(
-        Path("evaluation/browser-use-public/webarena-amd64-scope.json"),
-        replay_input_path(current="human-candidates"),
-    )
-
-    assert len(shards) == 18
-    assert sum(len(shard["task_ids"]) for shard in shards) == 172
-    assert max(len(shard["task_ids"]) for shard in shards) <= 12
-
-
-def test_parallel_qualification_waves_never_share_a_site():
+def test_canonical_plan_partitions_into_waves_that_never_share_a_site():
     scope = json.loads(
         Path("evaluation/browser-use-public/webarena-amd64-scope.json").read_text(encoding="utf-8")
     )
@@ -39,6 +28,9 @@ def test_parallel_qualification_waves_never_share_a_site():
         replay_input_path(current="human-candidates"),
     )
 
+    assert len(shards) == 18
+    assert sum(len(shard["task_ids"]) for shard in shards) == 172
+    assert max(len(shard["task_ids"]) for shard in shards) <= 12
     waves = qualification_waves(shards, scope, max_workers=3)
     sites = {row["id"]: set(row["sites"]) for row in scope["qualification_batches"]}
 

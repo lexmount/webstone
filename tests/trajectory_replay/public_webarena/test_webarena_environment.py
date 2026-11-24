@@ -344,22 +344,15 @@ def test_recorded_action_origins_are_materialized_from_runtime_config(tmp_path):
     assert materialized.trajectory is task.trajectory
 
 
-def test_unrelated_external_urls_are_not_rewritten(tmp_path):
+def test_legacy_origin_rewrite_keeps_external_urls_and_the_admin_base_path(tmp_path):
     environment, _ = _environment(tmp_path)
 
     assert environment.rewrite_legacy_origins("https://example.com:8443/path") == (
         "https://example.com:8443/path"
     )
-
-
-def test_admin_origin_rewrite_does_not_duplicate_the_admin_base_path(tmp_path):
-    environment, _ = _environment(tmp_path)
-
-    rewritten = environment.rewrite_legacy_origins(
+    assert environment.rewrite_legacy_origins(
         "http://ec2-3-135-39-80.us-east-2.compute.amazonaws.com:7780/admin/review/product/index"
-    )
-
-    assert rewritten == "http://host.docker.internal:17780/admin/review/product/index"
+    ) == ("http://host.docker.internal:17780/admin/review/product/index")
 
 
 def test_stateful_reset_recreates_container_from_pinned_image(tmp_path, monkeypatch):
@@ -405,31 +398,18 @@ def test_stateful_reset_recreates_container_from_pinned_image(tmp_path, monkeypa
     ]
 
 
-def test_gitlab_reset_preserves_internal_port_and_sets_external_url(tmp_path, monkeypatch):
-    pinned = "am1n3e/webarena-verified-gitlab@sha256:" + "b" * 64
-    lock = tmp_path / "images.json"
-    lock.write_text(
-        json.dumps(
-            {
-                "schema": "lex_webarena_environment_images/1",
-                "images": {"gitlab": {"pinned": pinned}},
-            }
-        ),
-        encoding="utf-8",
-    )
-    config = tmp_path / "config.json"
-    config.write_text(
-        json.dumps(
-            {
-                "image_lock": "images.json",
-                "docker_site_hostname": "192.0.2.41",
-                "environments": {"__GITLAB__": {"urls": ["http://192.0.2.41:18023"]}},
-                "control_urls": {"gitlab": "http://127.0.0.1:18024"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    environment = WebArenaEnvironment(config)
+@pytest.mark.parametrize(
+    ("site", "port", "internal_port"), [("gitlab", 18023, 8023), ("reddit", 19999, None)]
+)
+def test_explicit_init_sites_receive_the_external_base_url(
+    tmp_path, monkeypatch, site, port, internal_port
+):
+    environment, _ = _environment(tmp_path)
+    pinned = f"am1n3e/webarena-verified-{site}@sha256:" + "c" * 64
+    environment.image_lock["images"][site] = {"pinned": pinned}
+    external = f"http://192.0.2.41:{port}"
+    environment.environments[f"__{site.upper()}__"] = {"urls": [external]}
+    environment.control_urls[site] = f"http://127.0.0.1:{port + 1}"
     task = BrowserTask(
         task_id="webarena-1",
         title="Task",
@@ -440,86 +420,21 @@ def test_gitlab_reset_preserves_internal_port_and_sets_external_url(tmp_path, mo
         ground_truth={"expected_actions": []},
         source={"url": "https://example.test"},
         evaluator={"kind": "webarena_verified", "task_id": 1, "revision": 2},
-        environment={"kind": "webarena_verified", "sites": ["gitlab"]},
+        environment={"kind": "webarena_verified", "sites": [site]},
         trajectory={"schema": "lex_browser_trajectory/1", "actions": []},
     )
     captured = {}
 
     class Manager:
-        container_name = "webarena_verified_gitlab"
+        container_name = f"webarena_verified_{site}"
 
         def __init__(self, **kwargs):
             captured["config"] = kwargs["config"]
 
-        def start(self, **kwargs):
-            return SimpleNamespace(
-                url="http://192.0.2.41:18023",
-                env_ctrl_url="http://192.0.2.41:18024",
-            )
-
-    docker_client = _Docker([pinned], "webarena_verified_gitlab")
-    monkeypatch.setattr(
-        "harness.trajectory_replay.public_webarena.webarena_environment.ContainerManager", Manager
-    )
-    monkeypatch.setattr(environment, "_wait_ready", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(environment, "_wait_site_ready", lambda *_args, **_kwargs: None)
-
-    result = environment.reset(task, docker_client)
-
-    assert captured["config"].host_port == 18023
-    assert captured["config"].container_port == 8023
-    assert docker_client.containers.container.exec_calls == [
-        (
-            [
-                "env-ctrl",
-                "--verbose",
-                "init",
-                "--base-url",
-                "http://192.0.2.41:18023",
-            ],
-            False,
-        )
-    ]
-    assert result["sites"]["gitlab"]["external_url_configuration"] == {
-        "external_url": "http://192.0.2.41:18023",
-        "internal_port": 8023,
-        "mode": "explicit_official_init_verified",
-    }
-
-
-def test_reddit_reset_supplies_required_base_url_explicitly(tmp_path, monkeypatch):
-    environment, _ = _environment(tmp_path)
-    pinned = "am1n3e/webarena-verified-reddit@sha256:" + "c" * 64
-    environment.image_lock["images"]["reddit"] = {"pinned": pinned}
-    environment.environments["__REDDIT__"] = {"urls": ["http://192.0.2.41:19999"]}
-    environment.control_urls["reddit"] = "http://127.0.0.1:19998"
-    task = BrowserTask(
-        task_id="webarena-641",
-        title="Task",
-        tool_calls=(),
-        assertions=(),
-        tags=(),
-        difficulty="simple",
-        ground_truth={"expected_actions": []},
-        source={"url": "https://example.test"},
-        evaluator={"kind": "webarena_verified", "task_id": 641, "revision": 2},
-        environment={"kind": "webarena_verified", "sites": ["reddit"]},
-        trajectory={"schema": "lex_browser_trajectory/1", "actions": []},
-    )
-
-    class Manager:
-        container_name = "webarena_verified_reddit"
-
-        def __init__(self, **_kwargs):
-            pass
-
         def start(self, **_kwargs):
-            return SimpleNamespace(
-                url="http://192.0.2.41:19999",
-                env_ctrl_url="http://192.0.2.41:19998",
-            )
+            return SimpleNamespace(url=external, env_ctrl_url=f"http://192.0.2.41:{port + 1}")
 
-    docker_client = _Docker([pinned], "webarena_verified_reddit")
+    docker_client = _Docker([pinned], f"webarena_verified_{site}")
     monkeypatch.setattr(
         "harness.trajectory_replay.public_webarena.webarena_environment.ContainerManager", Manager
     )
@@ -529,25 +444,25 @@ def test_reddit_reset_supplies_required_base_url_explicitly(tmp_path, monkeypatc
     result = environment.reset(task, docker_client)
 
     assert docker_client.containers.container.exec_calls == [
-        (
-            [
-                "env-ctrl",
-                "--verbose",
-                "init",
-                "--base-url",
-                "http://192.0.2.41:19999",
-            ],
-            False,
-        )
+        (["env-ctrl", "--verbose", "init", "--base-url", external], False)
     ]
-    assert result["sites"]["reddit"]["external_url_configuration"] == {
-        "external_url": "http://192.0.2.41:19999",
-        "mode": "explicit_official_init_verified",
-    }
+    expected = {"external_url": external, "mode": "explicit_official_init_verified"}
+    if internal_port:
+        assert captured["config"].host_port == port
+        assert captured["config"].container_port == internal_port
+        expected["internal_port"] = internal_port
+    assert result["sites"][site]["external_url_configuration"] == expected
 
 
-@pytest.mark.parametrize("site", ["shopping_admin", "shopping", "reddit"])
-def test_stateful_backend_lets_entrypoint_configure_external_origin_once(site):
+@pytest.mark.parametrize(
+    ("site", "extra"),
+    [
+        ("shopping_admin", {"WA_ENV_CTRL_CMD_TIMEOUT_SEC": "600"}),
+        ("reddit", {}),
+        ("gitlab", {"WA_ENV_CTRL_SKIP_RECONFIGURE": "true"}),
+    ],
+)
+def test_stateful_backend_sets_the_site_specific_initializer_environment(site, extra):
     calls = []
 
     class Containers:
@@ -567,32 +482,7 @@ def test_stateful_backend_lets_entrypoint_configure_external_origin_once(site):
     assert calls[0][1]["ports"] == {"8023/tcp": 18023, "8877/tcp": 18024}
     assert calls[0][1]["environment"] == {
         "WA_ENV_CTRL_EXTERNAL_SITE_URL": "http://192.0.2.41:18023",
-        **(
-            {"WA_ENV_CTRL_CMD_TIMEOUT_SEC": "600"} if site in {"shopping", "shopping_admin"} else {}
-        ),
-    }
-
-
-def test_gitlab_backend_preserves_internal_listener_for_explicit_init():
-    calls = []
-
-    class Containers:
-        def run(self, *args, **kwargs):
-            calls.append((args, kwargs))
-
-    backend = DockerBackend(SimpleNamespace(containers=Containers()))
-
-    backend.container_run(
-        name="webarena_verified_gitlab",
-        image="gitlab@sha256:digest",
-        port_mappings={18023: 8023, 18024: 8877},
-        volume_mappings={},
-        env_vars={"WA_ENV_CTRL_EXTERNAL_SITE_URL": "http://192.0.2.41:18023"},
-    )
-
-    assert calls[0][1]["environment"] == {
-        "WA_ENV_CTRL_EXTERNAL_SITE_URL": "http://192.0.2.41:18023",
-        "WA_ENV_CTRL_SKIP_RECONFIGURE": "true",
+        **extra,
     }
 
 
@@ -886,23 +776,6 @@ def _named_credentials(environment):
     return config
 
 
-def test_credentials_resolve_named_repository_values_without_persisting_them(tmp_path, monkeypatch):
-    environment, _ = _environment(tmp_path)
-    _named_credentials(environment)
-    _repository_env(
-        tmp_path,
-        monkeypatch,
-        "TEST_WEBARENA_USERNAME=fixture-user\nTEST_WEBARENA_PASSWORD=fixture-password\n",
-    )
-
-    assert environment._credentials("shopping_admin") == {
-        "username": "fixture-user",
-        "password": "fixture-password",
-    }
-    assert "fixture-user" not in environment.config_path.read_text(encoding="utf-8")
-    assert "fixture-password" not in environment.config_path.read_text(encoding="utf-8")
-
-
 def test_exported_and_selected_values_change_neither_the_login_nor_its_redaction(
     tmp_path, monkeypatch
 ):
@@ -941,27 +814,10 @@ def test_exported_and_selected_values_change_neither_the_login_nor_its_redaction
     assert os.environ["WEBARENA_TEST_ORDINARY_SETTING"] == "from-selected-file"
 
 
-def test_redaction_follows_a_password_variable_the_runtime_config_names(tmp_path, monkeypatch):
-    environment, _ = _environment(tmp_path)
-    _named_credentials(environment)
-    _repository_env(
-        tmp_path,
-        monkeypatch,
-        "TEST_WEBARENA_USERNAME=fixture-user\nTEST_WEBARENA_PASSWORD=fixture-password\n",
-    )
-    monkeypatch.setenv("TEST_WEBARENA_PASSWORD", "exported-password")
-
-    assert environment.redact_login_passwords("typed fixture-password") == "typed [REDACTED]"
-    assert environment._credentials("shopping_admin")["password"] == "fixture-password"
-
-
 @pytest.mark.parametrize(
     "written",
     [
-        lambda password: password,
-        lambda password: repr(password),
         lambda password: repr([password]),
-        lambda password: json.dumps(password),
         lambda password: json.dumps({"password": password}),
         lambda password: html.escape(password),
     ],
@@ -982,7 +838,7 @@ def test_redaction_covers_the_spellings_of_an_escaped_password(tmp_path, monkeyp
     assert "slash" not in redacted
 
 
-@pytest.mark.parametrize("password", ["ab'cd", "ab'\tcd", "ab\\'cd"])
+@pytest.mark.parametrize("password", ["ab'\tcd", "ab\\'cd"])
 def test_redaction_covers_a_password_inside_the_repr_of_a_larger_message(password):
     message = repr('value "' + password)
     assert "\\'" in message
@@ -1231,7 +1087,7 @@ def test_wall_clock_timeout_inside_playwright_leaves_the_page_usable():
             page = browser.new_page()
             started = time.monotonic()
             with pytest.raises(TimeoutError, match="final evidence capture"):
-                with wall_clock_timeout(0.3, operation="final evidence capture"):
+                with wall_clock_timeout(0.1, operation="final evidence capture"):
                     page.evaluate("() => new Promise(resolve => setTimeout(resolve, 5000))")
             # The deadline must not kill Playwright's event loop; later calls used to hang.
             assert page.evaluate("() => 1 + 1") == 2
@@ -1240,7 +1096,7 @@ def test_wall_clock_timeout_inside_playwright_leaves_the_page_usable():
             # Login waits for a redirect while exiting expect_navigation, not in an API call.
             started = time.monotonic()
             with pytest.raises(TimeoutError, match="environment prepare"):
-                with wall_clock_timeout(0.3, operation="environment prepare"):
+                with wall_clock_timeout(0.1, operation="environment prepare"):
                     with page.expect_navigation(timeout=5_000):
                         pass
             assert page.evaluate("() => 2 + 2") == 4

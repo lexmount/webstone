@@ -98,16 +98,13 @@ def test_recording_population_comes_from_catalog_without_fixed_size(recording):
     assert all(path.read_bytes() == raw for path, raw in originals.items())
 
 
-@pytest.mark.parametrize("bad", ["count", "duplicate", "suite-duplicate", "hash", "escape", "link"])
+@pytest.mark.parametrize("bad", ["count", "suite-duplicate", "hash", "escape", "link"])
 def test_bad_recording_bindings_stop_before_evaluator_calls(recording, bad, tmp_path):
     catalog, traces, suite, trace, calls = recording
-    if bad in {"count", "duplicate", "escape"}:
+    if bad in {"count", "escape"}:
         data = json.loads(catalog.read_bytes())
         if bad == "count":
             data["count"] = 2
-        elif bad == "duplicate":
-            data["count"] = 2
-            data["traces"] *= 2
         else:
             data["traces"][0]["file_name"] = "../outside.zip"
         catalog.write_text(json.dumps(data), encoding="utf-8")

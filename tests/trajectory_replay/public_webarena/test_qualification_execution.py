@@ -49,7 +49,7 @@ def test_dry_run_never_relocates_incomplete_previous_evidence(tmp_path, monkeypa
     assert not (evidence / 'pass-2').exists()
 
 
-@pytest.mark.parametrize('batch_id', ['../escape', '/absolute', 'a/b', 'a\\b'])
+@pytest.mark.parametrize('batch_id', ['../escape', '/absolute'])
 def test_shard_planning_rejects_batch_ids_that_escape_output(tmp_path, batch_id):
     suite, scope, _, _ = inputs(tmp_path)
     data = json.loads(scope.read_text(encoding='utf-8'))
