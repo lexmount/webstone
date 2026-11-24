@@ -1,0 +1,29 @@
+{
+  "harness.benchmarks.publication": [
+    "harness.web_search.revisions"
+  ],
+  "harness.browser_use.report": [
+    "harness.web_fetch.report_style"
+  ],
+  "harness.web_extract.pipeline": [
+    "harness.web_fetch.providers.http_client"
+  ],
+  "harness.web_extract.records": [
+    "harness.web_fetch.providers.http_client"
+  ],
+  "harness.web_extract.report": [
+    "harness.web_fetch.publication_privacy"
+  ],
+  "harness.web_extract.snapshots": [
+    "harness.web_fetch.providers.http_client"
+  ],
+  "harness.web_extract.swde": [
+    "harness.web_fetch.providers.http_client"
+  ],
+  "harness.web_fetch.certification": [
+    "harness.web_search.runner"
+  ],
+  "harness.web_search.report": [
+    "harness.web_fetch.publication_privacy"
+  ]
+}
