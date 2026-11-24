@@ -18,7 +18,7 @@ COMMANDS = {
     "review": ("harness.web_search.review", "main",
                "Freeze, run and collect the independent result review"),
     "publish": ("harness.web_search.publication", "main",
-                "Freeze and publish a checked report to its bound Artifact Site"),
+                "Freeze and publish a checked report to its bound Yours site"),
 }
 
 

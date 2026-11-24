@@ -44,7 +44,7 @@ Report commands share one entry point; `--help` after any command lists its opti
 | `uv run --frozen python -m harness.web_search visual` | Capture the reader evidence that a release check binds |
 | `uv run --frozen python -m harness.web_search judge` | Run explicitly selected model relevance judgments on a frozen report |
 | `uv run --frozen python -m harness.web_search review` | Freeze, run and collect the independent result review |
-| `uv run --frozen python -m harness.web_search publish` | Freeze and publish a checked report to its bound Artifact Site |
+| `uv run --frozen python -m harness.web_search publish` | Freeze and publish a checked report to its bound Yours site |
 
 ## SERP providers and finite quotas
 

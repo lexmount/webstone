@@ -237,7 +237,7 @@ def test_close_observed_leader_stays_green_without_a_significance_star():
 
 
 def test_factual_chart_counts_joint_outcomes_and_shows_measured_english_sources():
-    from harness.web_search.comparison import factual_outcome_chart
+    from harness.web_search.benchmark_views import factual_outcome_chart
 
     output = view()
     case = output["profile"]["cases"][0]
@@ -253,7 +253,7 @@ def test_factual_chart_counts_joint_outcomes_and_shows_measured_english_sources(
             row["results"][0]["title"] = "An unrelated title"
         row["metrics"] = evaluate(by_case[row["case_id"]], row["results"])
     output["benchmarks"] = level_benchmarks(output)
-    doc = BeautifulSoup(factual_outcome_chart(output), "html.parser")
+    doc = BeautifulSoup(factual_outcome_chart(output, output["benchmarks"]["factual"]), "html.parser")
     counts = {
         row["data-factual-outcome-method"]: [
             int(n["data-count"]) for n in row.select("[data-count]")
@@ -269,12 +269,13 @@ def test_factual_chart_counts_joint_outcomes_and_shows_measured_english_sources(
 
 
 def test_unavailable_factual_reference_coverage_has_no_zero_score_chart():
-    from harness.web_search.comparison import factual_outcome_chart, source_matching_chart
+    from harness.web_search.benchmark_views import factual_outcome_chart, source_matching_chart
 
     output = view()
     output["profile"]["factual_quality_exclusions"] = [c["id"] for c in output["profile"]["cases"]]
     output["benchmarks"] = level_benchmarks(output)
-    assert factual_outcome_chart(output) == source_matching_chart(output) == ""
+    panel = output["benchmarks"]["factual"]
+    assert factual_outcome_chart(output, panel) == source_matching_chart(output, panel) == ""
     doc = check_presentation(render_level_summary(output))
     assert not doc.select('[data-metric$="-source_rr"] .comparison-extremum')
 

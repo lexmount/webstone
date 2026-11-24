@@ -1,13 +1,147 @@
-"""Discover maintained report owners and pinned examples before building."""
+"""The report template contract and the registry of maintained report owners.
+
+The base template fixes the page roles every report has and the ordered slots
+on each page. A track template (``TrackTemplate``) fills those roles with
+routes and declares its variants as data; benchmarks contribute extra views
+through ``SectionHook``. Pages mark their role and slots, so a release check can
+compare a built report with the template its manifest records.
+"""
 
 import json
+from collections.abc import Callable, Mapping
 from copy import deepcopy
+from dataclasses import dataclass
 
 from harness.adapters import STAGES
 from harness.distribution import repository_root
 from harness.env_file import local_setting
 
 ROOT = repository_root()
+
+BASE_TEMPLATE = "webstone-report"
+BASE_VERSION = 1
+# Every report has these page roles; each lists its slots in reading order.
+PAGE_ROLES: Mapping[str, tuple[str, ...]] = {
+    "home": ("status", "lead", "core-comparison", "summary", "findings", "coverage"),
+    "datasets": ("lead", "definition", "inventory", "notes"),
+    "methodology": ("lead", "protocol", "notes"),
+    "results": ("lead", "inventory", "comparison", "notes"),
+    "interpretation": ("lead", "summary", "findings", "notes"),
+    "review": ("summary", "notes"),
+    "reproduce": ("commands", "notes"),
+    "changes": ("history",),
+}
+# Authored (bound) content may appear only in these slots; every other slot is generated.
+CONTENT_SLOTS = frozenset({"lead", "summary", "findings", "notes", "history"})
+
+
+@dataclass(frozen=True)
+class SectionHook:
+    """A view that a benchmark or track contributes to one slot of one page role.
+
+    ``key`` names the view so a track can select it; ``render`` takes the
+    track's own arguments, since slots carry track-specific data.
+    """
+
+    key: str
+    role: str
+    slot: str
+    render: Callable[..., str]
+
+    def __post_init__(self):
+        if self.slot not in PAGE_ROLES.get(self.role, ()):
+            raise ValueError(f"Section hook {self.key} names an undeclared slot: {self.role}/{self.slot}")
+
+
+@dataclass(frozen=True)
+class Page:
+    """One route that fills a page role; a role may span several routes (chapters)."""
+
+    key: str  # stable route class, used by navigation and visual checks
+    role: str
+    route: str
+    title: str  # source-language navigation label; the track catalog translates it
+    nav: bool = True  # False places the link in the page footer
+
+
+@dataclass(frozen=True)
+class Variant:
+    """A registered selection of pages and labels over one track template."""
+
+    name: str
+    version: int
+    pages: tuple[Page, ...]
+    absent: frozenset[str] = frozenset()  # base roles this variant does not fill
+
+    def __post_init__(self):
+        roles = {page.role for page in self.pages}
+        if not roles <= PAGE_ROLES.keys() or not self.absent <= PAGE_ROLES.keys():
+            raise ValueError(f"Variant {self.name} uses an undeclared page role")
+        if roles & self.absent or roles | self.absent != PAGE_ROLES.keys():
+            raise ValueError(f"Variant {self.name} must fill or declare absent every page role")
+        for field in ("key", "route"):
+            values = [getattr(page, field) for page in self.pages]
+            if len(values) != len(set(values)):
+                raise ValueError(f"Variant {self.name} repeats a page {field}")
+
+    def page(self, key):
+        return next(page for page in self.pages if page.key == key)
+
+
+@dataclass(frozen=True)
+class TrackTemplate:
+    """The pages a track fills, as one or more registered variants."""
+
+    track: str
+    version: int
+    variants: tuple[Variant, ...]
+
+    def variant(self, name):
+        found = [variant for variant in self.variants if variant.name == name]
+        if len(found) != 1:
+            raise ValueError(f"Unregistered {self.track} report variant: {name}")
+        return found[0]
+
+    def record(self, variant):
+        """The template identity a report manifest stores."""
+        selected = self.variant(variant)
+        return {"base": BASE_TEMPLATE, "base_version": BASE_VERSION, "track_template": self.track,
+                "track_version": self.version, "variant": selected.name,
+                "variant_version": selected.version}
+
+
+def compose(role, fills):
+    """Render a page body: each filled slot in the base order, marked for the release check."""
+    order = PAGE_ROLES[role]
+    unknown = set(fills) - set(order)
+    if unknown:
+        raise ValueError(f"Page role {role} has no slot " + ", ".join(sorted(unknown)))
+    return "".join(f'<div data-slot="{slot}">{fills[slot]}</div>' for slot in order if fills.get(slot))
+
+
+def recorded_variant(record, template):
+    """Return the variant a manifest records, refusing a different base or track version."""
+    if not isinstance(record, Mapping):
+        raise ValueError("Report manifest does not record its template; rebuild it")
+    variant = template.variant(record.get("variant"))
+    if dict(record) | template.record(variant.name) != dict(record):
+        raise ValueError("Report was built from a different template version")
+    return variant
+
+
+def check_page(document, page):
+    """A page carries its role, its slots in base order, and authored content only in content slots."""
+    main = document.select_one("main")
+    if main is None or main.get("data-page-role") != page.role:
+        raise ValueError(f"Page {page.route} does not fill its template role {page.role}")
+    order = PAGE_ROLES[page.role]
+    slots = [node.get("data-slot") for node in main.select("[data-slot]")]
+    if any(slot not in order for slot in slots) or slots != sorted(slots, key=order.index) or len(slots) != len(set(slots)):
+        raise ValueError(f"Page {page.route} sections differ from the {page.role} template order")
+    for node in main.select("[data-authored], [data-authored-figure]"):
+        slot = node.find_parent(attrs={"data-slot": True})
+        if slot is None or slot["data-slot"] not in CONTENT_SLOTS:
+            raise ValueError(f"Page {page.route} places authored content outside a content slot")
 
 # Every registered track inherits these dimensions, including future tracks.
 METRIC_CONTRACT = {

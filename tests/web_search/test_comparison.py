@@ -39,7 +39,7 @@ def test_scoped_acceptance_keeps_unlabelled_and_missing_unknown():
 
 def test_factual_explanation_follows_the_installed_answer_policy(monkeypatch):
     from lexbench_websearch import answer_rules
-    from harness.web_search.report import factual_panel
+    from harness.web_search.benchmark_views import factual_panel
 
     profile, rows = matrix()
     profile["protocol"] = {"top_k": 5}

@@ -12,6 +12,17 @@ from dataclasses import dataclass, field
 from types import ModuleType
 
 from harness.adapters import Registry
+from harness.reporting.templates import SectionHook
+from harness.web_search.benchmark_views import (
+    FACTUAL_KIND,
+    SITE_KIND,
+    TARGET_KIND,
+    MetricKind,
+    factual_outcome_chart,
+    factual_panel,
+    source_matching_chart,
+)
+from harness.web_search.template import HOOK_POINTS
 from lexbench_websearch import simpleqa
 from lexbench_websearch.answers import (
     SCENARIO_PROMPT,
@@ -41,6 +52,7 @@ class AnswerGrading:
     json_response: bool
     format_correction: str
     source: dict | None = None  # {"upstream", "filename", "label"}
+    explains: bool = False  # the parsed grade carries a reason and quoted evidence to show
 
 
 @dataclass(frozen=True)
@@ -66,6 +78,13 @@ class SearchBenchmark:
     answers: AnswerGrading
     text: dict = field(default_factory=dict)  # English catalog keys for the comparison guide
     references: ReferenceDataset | None = None
+    section_hooks: tuple[SectionHook, ...] = ()  # report views at the Search hook points
+    metric_kinds: tuple[MetricKind, ...] = ()  # population summaries that authored content may select
+
+    def __post_init__(self):
+        unknown = {hook.key for hook in self.section_hooks} - HOOK_POINTS.keys()
+        if unknown:
+            raise ValueError(f"{self.name} declares an undeclared Search hook point: " + ", ".join(sorted(unknown)))
 
     def cases(self, profile):
         return [case for case in profile['cases'] if self.member(case)]
@@ -80,6 +99,9 @@ class SearchBenchmark:
     def populations(self):
         return [dict(id=self.name, label=self.label,
                      metrics={level: self.metric_sets(level, []) for level in ('l1', 'l2', 'l3')})]
+
+    def views(self):
+        return list(self.section_hooks)
 
 
 BENCHMARKS = Registry("web search benchmark")
@@ -98,6 +120,7 @@ def catalog_keys():
     keys = {GUIDE_OVERVIEW}
     for item in ordered():
         keys.add(item.label)
+        keys.update(kind.discovery[0] for kind in item.metric_kinds if kind.discovery)
         keys.update(label for level in ('l1', 'l2', 'l3') for _, label in item.metric_sets(level, []))
         for value in item.text.values():
             if isinstance(value, str):
@@ -106,6 +129,21 @@ def catalog_keys():
                 for entry in value.values():
                     keys.update((entry,) if isinstance(entry, str) else entry)
     return keys
+
+
+def view_hooks(key):
+    """Views the registered benchmarks contribute to one Search hook point, in benchmark order."""
+    if key not in HOOK_POINTS:
+        raise ValueError("Undeclared Search hook point: " + key)
+    return [hook for item in ordered() for hook in item.views() if hook.key == key]
+
+
+def metric_kind(name):
+    """The declared population summary named ``name``, or None for the generic delivery count."""
+    found = [kind for item in ordered() for kind in item.metric_kinds if kind.name == name]
+    if len(found) > 1:
+        raise ValueError("Two benchmarks declare the metric kind " + name)
+    return found[0] if found else None
 
 
 def benchmark_of(case):
@@ -179,11 +217,12 @@ def _factual_values(level, row, case, answer, relevance, cases):
 BENCHMARKS.register('scenario', SearchBenchmark(
     name='scenario', label='Scenario relevance', order=0,
     member=lambda case: 'reference_answer' not in case,
-    metric_sets=_scenario_metrics, level_values=_scenario_values,
+    metric_sets=_scenario_metrics, level_values=_scenario_values, metric_kinds=(TARGET_KIND, SITE_KIND),
     answers=AnswerGrading(
         prompt=lambda source: SCENARIO_PROMPT,
         messages=lambda case, packet, source: answer_messages(packet),
         parse=scenario_grade, result_field='answer_grade', value=lambda grade: grade['grade'], json_response=True,
+        explains=True,
         format_correction=("\nOutput-format correction only; keep the rubric unchanged. Return the required "
                            "scenario JSON with only an integer grade and a short reason; do not copy evidence.")),
     text=dict(
@@ -206,7 +245,7 @@ BENCHMARKS.register('scenario', SearchBenchmark(
 BENCHMARKS.register('factual', SearchBenchmark(
     name='factual', label='SimpleQA Verified', order=1,
     member=lambda case: 'reference_answer' in case,
-    metric_sets=_factual_metrics, level_values=_factual_values,
+    metric_sets=_factual_metrics, level_values=_factual_values, metric_kinds=(FACTUAL_KIND,),
     answers=AnswerGrading(
         prompt=official_template,
         messages=lambda case, packet, source: factual_messages(case, packet['answer'], source),
@@ -240,6 +279,12 @@ BENCHMARKS.register('factual', SearchBenchmark(
                 'measured at this level.'),
             l3=('Factual answers are graded correct, incorrect or not attempted with the official SimpleQA template. '
                 'The primary metric is the fraction graded correct.'))),
+    section_hooks=(
+        SectionHook('evidence-panel', 'interpretation', 'findings', factual_panel),
+        SectionHook('level-findings', 'interpretation', 'findings',
+                    lambda view, panel, level, zh: (source_matching_chart(view, panel, zh)
+                                                    + factual_outcome_chart(view, panel, zh)) if level == 'l1' else ''),
+    ),
     references=ReferenceDataset(track='simpleqa-verified', path='datasets/factual-v1.json',
                                 repository='Lexmount/LexBench-SimpleQA-Verified', rules=simpleqa),
 ))

@@ -71,6 +71,9 @@ def test_protocols_accept_minimal_adapters():
         def populations(self):
             return []
 
+        def views(self):
+            return []
+
     assert isinstance(Method(), MethodAdapter)
     assert isinstance(Benchmark(), BenchmarkAdapter)
     assert not isinstance(object(), MethodAdapter)

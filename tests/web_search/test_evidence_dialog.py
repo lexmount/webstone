@@ -5,7 +5,8 @@ import os
 import pytest
 
 from harness.reporting.visual import browser_executable
-from harness.web_search.report import SCRIPT, STYLE, numeric_cell, table
+from harness.reporting.shell import numeric_cell, table
+from harness.web_search.report import SCRIPT, STYLE
 
 playwright = pytest.importorskip("playwright.sync_api")
 

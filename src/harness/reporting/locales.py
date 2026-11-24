@@ -1,4 +1,4 @@
-"""Read report messages from language catalogs."""
+"""The one report message catalog API: a JSON file per track, keyed by language."""
 from functools import cache
 from pathlib import Path
 
@@ -28,3 +28,19 @@ def catalog_text(path: Path, language: str):
             return source.format_map(values)
         return translate(path, key, language, **values)
     return t
+
+
+def source_text(path: Path, language: str, source: str, /, *, context=None, **values):
+    """Render source-language (English) text that is also its own catalog key.
+
+    ``context`` separates one English label with several translations; the
+    catalog stores it as ``context|source``. Values fill named placeholders.
+    """
+    message = source
+    if language != "en":
+        key = f"{context}|{source}" if context else source
+        try:
+            message = _catalog(path)[language][key]
+        except KeyError as exc:
+            raise ValueError(f"Missing report translation: {language}/{key}") from exc
+    return message.format(**values) if values else message
