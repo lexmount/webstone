@@ -16,6 +16,7 @@ from harness.results.export import (
     submission,
 )
 from harness.web_extract.analysis import field_results
+from harness.web_extract.call_records import validate_calls
 from harness.web_extract.dataset import benchmark_config
 from harness.web_extract.pipeline import digest, read_json, score_rows, validate_dataset
 from harness.web_extract.report import completion_bundle
@@ -60,7 +61,7 @@ def _calls(run: Path) -> list[dict[str, Any]]:
             raise ValueError(f"Call evidence changed: {relative}")
         row = read_json(path)
         rows[(row["method"], row["case_id"])] = {**row, "_evidence": relative.as_posix()}
-    return list(rows.values())
+    return validate_calls(list(rows.values()), "calls")
 
 
 def _scored(row: dict[str, Any]) -> dict[str, Any]:

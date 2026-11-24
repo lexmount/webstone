@@ -30,9 +30,9 @@ from harness.browser_use.failure_cause_review import (
     review_path as failure_review_path,
 )
 from harness.browser_use.publication import (
-    read_attempts,
     evaluator_summary,
     evidence_metadata,
+    read_attempts,
     read_public_json,
     result_excerpt,
     sanitize,
@@ -59,7 +59,7 @@ from harness.distribution import repository_root
 from harness.environments.browser import engine_label
 from harness.environments.participants import profile_engines
 from harness.environments.webarena.sites import site_labels
-from harness.record_io import load_jsonl, optional_file_sha256, read_json, write_json
+from harness.record_io import optional_file_sha256, read_json, write_json
 from harness.report_languages import (
     REPORT_PAGE_MARKER,
     add_language_argument,
