@@ -29,6 +29,7 @@ Use `Browser Use` for the autonomous track and `Browser Trajectory Replay` for t
 
 # Change lifecycle and repository footprint
 
+- Follow the [repository specification](docs/spec.md) in every change and review. A method, benchmark or report instance is an adapter plus data; shared stages take no branch for one instance. State any interface extension in the change description.
 - Extend the current owner before adding a parallel implementation. A second browser, cohort, dataset size, provider, language or release must select behavior through data, a registry or parameters in the existing pipeline. It must not create a browser-specific runner, copied renderer, numbered implementation or compatibility alias.
 - Keep command-line files as thin entry points. Parsing, validation, execution, aggregation and publication contracts belong in the track's shared `src/harness/` module so every entry point uses the same rules.
 - Git owns reusable code, hash bindings, provenance annotations and synthetic fixtures. Hugging Face owns task definitions and acceptance contracts; those already frozen in Git stay until superseded. Report-instance profiles and publication bindings belong alongside external evidence, selected explicitly by the caller. Review payloads and report prose already in `research/` are frozen legacy that current code may read; add no new ones.

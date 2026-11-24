@@ -13,6 +13,8 @@ Search existing issues, then use the [bug](.github/ISSUE_TEMPLATE/bug_report.md)
 
 ## Make a change
 
+The [repository specification](docs/spec.md) says where each kind of change belongs and which rules it must meet.
+
 | Change | Owner |
 | --- | --- |
 | Provider or browser behavior | Existing execution modules; [provider contract](docs/provider-contract.md) |
