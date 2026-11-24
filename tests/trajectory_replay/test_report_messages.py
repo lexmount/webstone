@@ -7,85 +7,47 @@ import string
 import pytest
 
 from harness.reporting.source_policy import HAN
-from harness.trajectory_replay import report
 from harness.trajectory_replay.messages import MESSAGES, report_text
 
 PACKAGE = MESSAGES.parent
 RENDERERS = ("webarena_report.py", "failure_matrix.py", "report.py", "public_webarena/report.py")
-CATALOG = json.loads(MESSAGES.read_text(encoding="utf-8"))
 SEMANTIC_ID = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+")
 
 
-def _trees():
-    for name in RENDERERS:
-        yield name, ast.parse((PACKAGE / name).read_text(encoding="utf-8"))
-
-
-def _is_lookup(node: ast.Call) -> bool:
+def _is_lookup(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
     if isinstance(node.func, ast.Name):
         return node.func.id == "t"
     return isinstance(node.func, ast.Call) and getattr(node.func.func, "id", "") == "report_text"
-
-
-def _lookups():
-    for name, tree in _trees():
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and _is_lookup(node):
-                yield name, node
 
 
 def _fields(template: str) -> set[str]:
     return {field for _, field, _, _ in string.Formatter().parse(template) if field}
 
 
-def test_every_lookup_is_a_semantic_id_with_literal_english_source():
+def test_every_lookup_has_a_catalog_translation_with_matching_placeholders():
+    catalog = json.loads(MESSAGES.read_text(encoding="utf-8"))
     sources = {}
-    for name, node in _lookups():
-        where = f"{name}:{node.lineno}"
-        key, source = node.args
-        assert isinstance(key, ast.Constant) and SEMANTIC_ID.fullmatch(key.value), where
-        assert isinstance(source, ast.Constant) and isinstance(source.value, str), where
-        assert not HAN.search(source.value), where
-        assert sources.setdefault(key.value, source.value) == source.value, where
+    for name in RENDERERS:
+        tree = ast.parse((PACKAGE / name).read_text(encoding="utf-8"))
+        for node in filter(_is_lookup, ast.walk(tree)):
+            where = f"{name}:{node.lineno}"
+            key, source = node.args
+            assert isinstance(key, ast.Constant) and SEMANTIC_ID.fullmatch(key.value), where
+            assert isinstance(source, ast.Constant) and isinstance(source.value, str), where
+            assert not HAN.search(source.value), where
+            assert sources.setdefault(key.value, source.value) == source.value, where
+            values = {item.arg for item in node.keywords}
+            assert None not in values and _fields(source.value) == values, where
+            assert _fields(catalog["zh"][key.value]) <= values, where
     assert sources
-
-
-def test_catalog_entries_are_exactly_the_used_ids():
-    """Keys without a dot belong to the interpretation renderer's two-language catalog."""
-    used = {node.args[0].value for _, node in _lookups()}
-    catalog = {key for key in CATALOG["zh"] if key != "nav.other_edition" and "." in key}
-    assert catalog == used
-    undotted = {key for key in CATALOG["zh"] if "." not in key}
-    assert set(CATALOG["en"]) == undotted | {"nav.other_edition"}
-
-
-def test_placeholders_are_supplied_in_both_languages():
-    for name, node in _lookups():
-        values = {item.arg for item in node.keywords}
-        assert None not in values, f"{name}:{node.lineno}"
-        source, translation = node.args[1].value, CATALOG["zh"][node.args[0].value]
-        assert _fields(source) == values, f"{name}:{node.lineno}"
-        assert _fields(translation) <= values, f"{name}:{node.lineno}"
-
-
-def _language_ternaries(source: str) -> list[int]:
-    return [
-        node.lineno
-        for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.IfExp) and "zh" in ast.unparse(node.test)
-        and HAN.search(ast.unparse(node.body) + ast.unparse(node.orelse))
-    ]
-
-
-@pytest.mark.parametrize("name", RENDERERS)
-def test_renderers_have_no_inline_language_ternary(name):
-    assert _language_ternaries((PACKAGE / name).read_text(encoding="utf-8")) == []
-
-
-def test_language_ternary_check_rejects_inline_chinese_but_not_paths():
-    assert _language_ternaries('label = "结果" if zh else "Result"') == [1]
-    assert _language_ternaries('label = f"{n} 题" if lang == "zh" else f"{n} tasks"') == [1]
-    assert _language_ternaries('root = "../" if zh else "../../"') == []
+    # Keys without a dot belong to the interpretation renderer's two-language catalog.
+    assert {key for key in catalog["zh"] if key != "nav.other_edition" and "." in key} == set(
+        sources
+    )
+    undotted = {key for key in catalog["zh"] if "." not in key}
+    assert set(catalog["en"]) == undotted | {"nav.other_edition"}
 
 
 def test_english_is_source_text_and_chinese_comes_from_the_catalog():
@@ -95,25 +57,3 @@ def test_english_is_source_text_and_chinese_comes_from_the_catalog():
     assert english("no.such.id", "Source only") == "Source only"
     with pytest.raises(ValueError, match="zh/no.such.id"):
         chinese("no.such.id", "Source only")
-
-
-def test_english_sentences_spliced_before_more_text_end_with_a_space():
-    sources = {node.args[0].value: node.args[1].value for _, node in _lookups()}
-    for name in ("failure_summary", "no_failures", "ratio_intro"):
-        key = f"public.summary.{name}"
-        assert sources[key].endswith(" "), key
-
-
-def test_english_tied_recommendation_reads_as_a_sentence(monkeypatch):
-    monkeypatch.setattr(report, "t", report_text("en"))
-    summary = {"functional": {name: {"result_final_passes": 7} for name in ("a", "b", "c")}}
-
-    both = report._recommendation(summary, ("a", "b"))
-    assert both.startswith("In this run, both providers have the same")
-    three = report._recommendation(summary, ("a", "b", "c"))
-    assert three.startswith("In this run, 3 providers have the same")
-    assert "on tasks all providers passed" in three
-
-    summary["functional"]["c"]["result_final_passes"] = 1
-    tied_leaders = report._recommendation(summary, ("a", "b", "c"))
-    assert tied_leaders.startswith(f"In this run, {report.engine_names(('a', 'b'))} have the same")

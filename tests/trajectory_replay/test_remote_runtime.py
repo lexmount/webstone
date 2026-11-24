@@ -36,6 +36,61 @@ def _site_map(tmp_path):
     return path
 
 
+@pytest.fixture(scope="module")
+def benchmark(tmp_path_factory):
+    return remote_benchmark(load_remote_sites(_site_map(tmp_path_factory.mktemp("sites"))))
+
+
+def _entry(method, url, mime, text, status, **response):
+    return {
+        "request": {
+            "method": method, "url": url, "headers": [],
+            "postData": {"mimeType": mime, "text": text},
+        },
+        "response": {"status": status, "headers": [], "content": {}, **response},
+    }
+
+
+def _score(benchmark, tmp_path, task_id, entries):
+    trace = tmp_path / f"task-{task_id}.har"
+    trace.write_text(json.dumps({"log": {"entries": entries}}), encoding="utf-8")
+    result = benchmark.evaluate_task(
+        task_id=task_id,
+        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
+        network_trace=trace,
+    )
+    return float(result.score)
+
+
+def _cohort_receipt(site_path, **extra):
+    row = {
+        "service_id": "service", "image_digest": "sha256:abc", "event_id": "event",
+        "event_status": "success", "old_pod": "old", "new_pod": "new",
+        "data_volume_count": 0, "public_http_status": 200,
+    }
+    receipt = {
+        "schema": "webarena_remote_cohort_reset/1",
+        "app_id": 195,
+        "site_map_sha256": file_sha256(site_path),
+        "reset_scope": "once_before_original36_candidate_cohort",
+        "site_reset_between_tasks": False,
+        "sites": {site: dict(row) for site in ("shopping", "shopping_admin", "reddit", "gitlab")},
+        **extra,
+    }
+    receipt["sites"]["reddit"]["baseline_check"] = {"row_count": 0}
+    receipt["sites"]["gitlab"]["baseline_check"] = {"row_count": 0}
+    return receipt
+
+
+def _cohort_kwargs(site_path, **extra):
+    return {
+        "site_map_sha256": file_sha256(site_path),
+        "app_id": 195,
+        "reset_scope": "once_before_original36_candidate_cohort",
+        **extra,
+    }
+
+
 def test_six_site_remote_map_accepts_read_only_sites_and_rebinds_them(tmp_path):
     site_map = _site_map(tmp_path)
     payload = json.loads(site_map.read_text(encoding="utf-8"))
@@ -77,132 +132,27 @@ def test_remote_benchmark_matches_same_host_network_event_after_transport_change
     payload = json.loads(site_map.read_text(encoding="utf-8"))
     payload["sites"]["shopping_admin"] = "https://admin.example/admin"
     site_map.write_text(json.dumps(payload), encoding="utf-8")
-    benchmark = remote_benchmark(load_remote_sites(site_map))
-    trace = tmp_path / "shipment.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "POST",
-                                "url": (
-                                    "http://admin.example/admin/admin/order_shipment/"
-                                    "save/order_id/299/"
-                                ),
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/x-www-form-urlencoded",
-                                    "text": urlencode(
-                                        {
-                                            "tracking[1][carrier_code]": "fedex",
-                                            "tracking[1][number]": "8974568499",
-                                        }
-                                    ),
-                                },
-                            },
-                            "response": {
-                                "status": 302,
-                                "redirectURL": "http://admin.example/admin/sales/order/",
-                                "headers": [],
-                                "content": {},
-                            },
-                        }
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
+    https_benchmark = remote_benchmark(load_remote_sites(site_map))
+    entry = _entry(
+        "POST", "http://admin.example/admin/admin/order_shipment/save/order_id/299/",
+        "application/x-www-form-urlencoded",
+        urlencode({"tracking[1][carrier_code]": "fedex", "tracking[1][number]": "8974568499"}),
+        302, redirectURL="http://admin.example/admin/sales/order/",
     )
-    result = benchmark.evaluate_task(
-        task_id=496,
-        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
-        network_trace=trace,
-    )
-    assert float(result.score) == 1.0, result.model_dump_json(indent=2)
+    assert _score(https_benchmark, tmp_path, 496, [entry]) == 1.0
 
 
-def test_remote_benchmark_matches_distinct_bodies_sent_to_one_endpoint(tmp_path):
-    benchmark = remote_benchmark(load_remote_sites(_site_map(tmp_path)))
+def test_remote_benchmark_requires_every_distinct_body_sent_to_one_endpoint(tmp_path, benchmark):
     task = benchmark.get_task(567)
-    expected = [item.expected for item in task.eval if item.evaluator == "NetworkEventEvaluator"]
-    trace = tmp_path / "members.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "entries": [
-                        {
-                            "request": {
-                                "method": item.http_method,
-                                "url": item.url.replace("__GITLAB__", "http://gitlab.example"),
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/json",
-                                    "text": json.dumps(dict(item.post_data)),
-                                },
-                            },
-                            "response": {
-                                "status": item.response_status,
-                                "headers": [],
-                                "content": {},
-                            },
-                        }
-                        for item in expected
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = benchmark.evaluate_task(
-        task_id=567,
-        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
-        network_trace=trace,
-    )
-    assert float(result.score) == 1.0, result.model_dump_json(indent=2)
-
-
-def test_remote_benchmark_rejects_missing_required_body_on_repeated_endpoint(tmp_path):
-    benchmark = remote_benchmark(load_remote_sites(_site_map(tmp_path)))
-    task = benchmark.get_task(567)
-    expected = [item.expected for item in task.eval if item.evaluator == "NetworkEventEvaluator"]
-    trace = tmp_path / "members-missing-first.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "entries": [
-                        {
-                            "request": {
-                                "method": item.http_method,
-                                "url": item.url.replace("__GITLAB__", "http://gitlab.example"),
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/json",
-                                    "text": json.dumps(dict(item.post_data)),
-                                },
-                            },
-                            "response": {
-                                "status": item.response_status,
-                                "headers": [],
-                                "content": {},
-                            },
-                        }
-                        for item in expected[1:]
-                    ]
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    result = benchmark.evaluate_task(
-        task_id=567,
-        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
-        network_trace=trace,
-    )
-    assert float(result.score) == 0.0, result.model_dump_json(indent=2)
+    entries = [
+        _entry(
+            item.http_method, item.url.replace("__GITLAB__", "http://gitlab.example"),
+            "application/json", json.dumps(dict(item.post_data)), item.response_status,
+        )
+        for item in (row.expected for row in task.eval if row.evaluator == "NetworkEventEvaluator")
+    ]
+    assert _score(benchmark, tmp_path, 567, entries) == 1.0
+    assert _score(benchmark, tmp_path, 567, entries[1:]) == 0.0
 
 
 def test_rebind_remote_calls_preserves_path_query_and_non_site_urls(tmp_path):
@@ -323,115 +273,42 @@ def test_rebinds_recorded_url_inside_portable_playwright_target(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("reddit_origin", "expected_score"),
-    [("http://reddit.example", 1.0), ("http://wrong.example", 0.0)],
-    ids=["markdown-deployment-url", "markdown-wrong-origin"],
+    ("origin", "expected_score"), [("example", 1.0), ("http://wrong.example", 0.0)]
 )
-def test_remote_benchmark_derenders_urls_inside_markdown(tmp_path, reddit_origin, expected_score):
-    benchmark = remote_benchmark(load_remote_sites(_site_map(tmp_path)))
+def test_remote_benchmark_derenders_urls_inside_markdown_and_form_strings(
+    tmp_path, benchmark, origin, expected_score
+):
     task = benchmark.get_task(562)
     project = task.eval[1].expected.post_data
-    expected_content = task.eval[2].expected.post_data["$.actions[0].content"]
-    content = expected_content.replace("__REDDIT__", reddit_origin)
+    content = task.eval[2].expected.post_data["$.actions[0].content"].replace(
+        "__REDDIT__", "http://reddit.example" if origin == "example" else origin
+    )
     commit = {
         "branch": "main",
         "actions": [{"action": "create", "file_path": "README.md", "content": content}],
     }
-    trace = tmp_path / f"task-562-{expected_score}.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "POST",
-                                "url": "http://gitlab.example/projects",
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/x-www-form-urlencoded",
-                                    "text": urlencode(
-                                        {
-                                            key: value
-                                            for key, value in project.items()
-                                            if value is not None
-                                        }
-                                    ),
-                                },
-                            },
-                            "response": {"status": 302, "headers": [], "content": {}},
-                        },
-                        {
-                            "request": {
-                                "method": "POST",
-                                "url": (
-                                    "http://gitlab.example/api/v4/projects/"
-                                    "byteblaze%2FAwesome_DIY_ideas/repository/commits"
-                                ),
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/json",
-                                    "text": json.dumps(commit),
-                                },
-                            },
-                            "response": {"status": 201, "headers": [], "content": {}},
-                        },
-                    ]
-                }
-            }
+    entries = [
+        _entry(
+            "POST", "http://gitlab.example/projects", "application/x-www-form-urlencoded",
+            urlencode({key: value for key, value in project.items() if value is not None}), 302,
         ),
-        encoding="utf-8",
-    )
-    result = benchmark.evaluate_task(
-        task_id=562,
-        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
-        network_trace=trace,
-    )
-    assert float(result.score) == expected_score, result.model_dump_json(indent=2)
-
-
-@pytest.mark.parametrize(
-    ("gitlab_origin", "expected_score"),
-    [("http://gitlab.example", 1.0), ("http://wrong.example", 0.0)],
-    ids=["string-deployment-url", "string-wrong-origin"],
-)
-def test_remote_benchmark_derenders_url_valued_form_strings(
-    tmp_path, gitlab_origin, expected_score
-):
-    benchmark = remote_benchmark(load_remote_sites(_site_map(tmp_path)))
-    task = benchmark.get_task(684)
-    post_data = dict(task.eval[1].expected.post_data)
-    post_data["submission[url]"] = post_data["submission[url]"].replace("__GITLAB__", gitlab_origin)
-    trace = tmp_path / f"task-684-{expected_score}.har"
-    trace.write_text(
-        json.dumps(
-            {
-                "log": {
-                    "entries": [
-                        {
-                            "request": {
-                                "method": "POST",
-                                "url": "http://reddit.example/submit/LifeProTips",
-                                "headers": [],
-                                "postData": {
-                                    "mimeType": "application/x-www-form-urlencoded",
-                                    "text": urlencode(post_data),
-                                },
-                            },
-                            "response": {"status": 302, "headers": [], "content": {}},
-                        }
-                    ]
-                }
-            }
+        _entry(
+            "POST",
+            "http://gitlab.example/api/v4/projects/byteblaze%2FAwesome_DIY_ideas/repository/commits",
+            "application/json", json.dumps(commit), 201,
         ),
-        encoding="utf-8",
+    ]
+    assert _score(benchmark, tmp_path, 562, entries) == expected_score
+
+    post_data = dict(benchmark.get_task(684).eval[1].expected.post_data)
+    post_data["submission[url]"] = post_data["submission[url]"].replace(
+        "__GITLAB__", "http://gitlab.example" if origin == "example" else origin
     )
-    result = benchmark.evaluate_task(
-        task_id=684,
-        agent_response={"task_type": "MUTATE", "status": "SUCCESS", "retrieved_data": None},
-        network_trace=trace,
+    entry = _entry(
+        "POST", "http://reddit.example/submit/LifeProTips",
+        "application/x-www-form-urlencoded", urlencode(post_data), 302,
     )
-    assert float(result.score) == expected_score, result.model_dump_json(indent=2)
+    assert _score(benchmark, tmp_path, 684, [entry]) == expected_score
 
 
 def test_remote_reset_requires_pod_replacement_and_readiness(tmp_path):
@@ -477,40 +354,9 @@ def test_remote_reset_requires_pod_replacement_and_readiness(tmp_path):
 def test_cohort_reset_requires_all_replaced_pods_and_clean_baseline(tmp_path):
     site_path = _site_map(tmp_path)
     receipt_path = tmp_path / "cohort-reset.json"
-    row = {
-        "service_id": "service",
-        "image_digest": "sha256:abc",
-        "event_id": "event",
-        "event_status": "success",
-        "old_pod": "old",
-        "new_pod": "new",
-        "data_volume_count": 0,
-        "public_http_status": 200,
-    }
-    receipt = {
-        "schema": "webarena_remote_cohort_reset/1",
-        "app_id": 195,
-        "site_map_sha256": file_sha256(site_path),
-        "reset_scope": "once_before_original36_candidate_cohort",
-        "site_reset_between_tasks": False,
-        "sites": {
-            site.value: dict(row)
-            for site in (
-                WebArenaSite.SHOPPING,
-                WebArenaSite.SHOPPING_ADMIN,
-                WebArenaSite.REDDIT,
-                WebArenaSite.GITLAB,
-            )
-        },
-    }
-    receipt["sites"]["reddit"]["baseline_check"] = {"row_count": 0}
-    receipt["sites"]["gitlab"]["baseline_check"] = {"row_count": 0}
+    receipt = _cohort_receipt(site_path)
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    kwargs = {
-        "site_map_sha256": file_sha256(site_path),
-        "app_id": 195,
-        "reset_scope": "once_before_original36_candidate_cohort",
-    }
+    kwargs = _cohort_kwargs(site_path)
     assert validate_remote_cohort_reset_receipt(receipt_path, **kwargs) == receipt
     receipt["sites"]["reddit"]["baseline_check"]["row_count"] = 1
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
@@ -521,48 +367,15 @@ def test_cohort_reset_requires_all_replaced_pods_and_clean_baseline(tmp_path):
 def test_cohort_reset_requires_matching_https_admin_configuration(tmp_path):
     site_path = _site_map(tmp_path)
     receipt_path = tmp_path / "cohort-reset.json"
-    row = {
-        "service_id": "service",
-        "image_digest": "sha256:abc",
-        "event_id": "event",
-        "event_status": "success",
-        "old_pod": "old",
-        "new_pod": "new",
-        "data_volume_count": 0,
-        "public_http_status": 200,
-    }
-    receipt = {
-        "schema": "webarena_remote_cohort_reset/1",
-        "app_id": 195,
-        "site_map_sha256": file_sha256(site_path),
-        "reset_scope": "once_before_original36_candidate_cohort",
-        "site_reset_between_tasks": False,
-        "sites": {
-            site.value: dict(row)
-            for site in (
-                WebArenaSite.SHOPPING,
-                WebArenaSite.SHOPPING_ADMIN,
-                WebArenaSite.REDDIT,
-                WebArenaSite.GITLAB,
-            )
-        },
-    }
-    receipt["sites"]["reddit"]["baseline_check"] = {"row_count": 0}
-    receipt["sites"]["gitlab"]["baseline_check"] = {"row_count": 0}
-    config = {
+    receipt = _cohort_receipt(site_path)
+    receipt["sites"]["shopping_admin"]["https_admin_config"] = {
         "web_secure_base_url": "https://admin.example/",
         "web_secure_use_in_adminhtml": 1,
         "config_cache_cleaned": True,
         "public_static_resource_scheme": "https",
     }
-    receipt["sites"]["shopping_admin"]["https_admin_config"] = config
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    kwargs = {
-        "site_map_sha256": file_sha256(site_path),
-        "app_id": 195,
-        "reset_scope": "once_before_original36_candidate_cohort",
-        "admin_https_base_url": "https://admin.example/",
-    }
+    kwargs = _cohort_kwargs(site_path, admin_https_base_url="https://admin.example/")
     assert validate_remote_cohort_reset_receipt(receipt_path, **kwargs) == receipt
     for field, invalid in (
         ("web_secure_base_url", "http://admin.example/"),
@@ -580,102 +393,48 @@ def test_cohort_reset_requires_matching_https_admin_configuration(tmp_path):
 def test_cohort_reset_requires_bound_fast_read_only_site_probes(tmp_path):
     site_path = _site_map(tmp_path)
     receipt_path = tmp_path / "cohort-reset.json"
-    row = {
-        "service_id": "service",
-        "image_digest": "sha256:abc",
-        "event_id": "event",
-        "event_status": "success",
-        "old_pod": "old",
-        "new_pod": "new",
-        "data_volume_count": 0,
-        "public_http_status": 200,
-    }
     url = "http://reddit.example/f/DIY/post"
     probe = {
-        "site": "reddit",
-        "path": "/f/DIY/post",
-        "url": url,
-        "method": "GET",
-        "read_only": True,
-        "cold_http_status": 200,
-        "cold_ms": 26_000,
-        "warm_http_status": 200,
-        "warm_ms": 450,
-        "stable_http_status": 200,
-        "stable_ms": 400,
+        "site": "reddit", "path": "/f/DIY/post", "url": url, "method": "GET", "read_only": True,
+        "cold_http_status": 200, "cold_ms": 26_000, "warm_http_status": 200, "warm_ms": 450,
+        "stable_http_status": 200, "stable_ms": 400,
     }
-    receipt = {
-        "schema": "webarena_remote_cohort_reset/1",
-        "app_id": 195,
-        "site_map_sha256": file_sha256(site_path),
-        "reset_scope": "once_before_original36_candidate_cohort",
-        "site_reset_between_tasks": False,
-        "sites": {
-            site.value: dict(row)
-            for site in (
-                WebArenaSite.SHOPPING,
-                WebArenaSite.SHOPPING_ADMIN,
-                WebArenaSite.REDDIT,
-                WebArenaSite.GITLAB,
-            )
-        },
-        "site_readiness": [probe],
-    }
-    receipt["sites"]["reddit"]["baseline_check"] = {"row_count": 0}
-    receipt["sites"]["gitlab"]["baseline_check"] = {"row_count": 0}
-    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-    kwargs = {
-        "site_map_sha256": file_sha256(site_path),
-        "app_id": 195,
-        "reset_scope": "once_before_original36_candidate_cohort",
-        "required_readiness_probes": [
-            {
-                "site": "reddit",
-                "path": "/f/DIY/post",
-                "url": url,
-                "max_stable_ms": 5000,
-            }
+    receipt = _cohort_receipt(site_path, site_readiness=[probe])
+    kwargs = _cohort_kwargs(
+        site_path,
+        required_readiness_probes=[
+            {"site": "reddit", "path": "/f/DIY/post", "url": url, "max_stable_ms": 5000}
         ],
-    }
-    assert validate_remote_cohort_reset_receipt(receipt_path, **kwargs) == receipt
+    )
+
+    def validate(value):
+        receipt_path.write_text(json.dumps(value), encoding="utf-8")
+        return validate_remote_cohort_reset_receipt(receipt_path, **kwargs)
+
+    assert validate(receipt) == receipt
     recovered = json.loads(json.dumps(receipt))
     recovered["site_readiness"][0].update(
-        {
-            "cold_http_status": 500,
-            "recovery_http_status": 200,
-            "recovery_ms": 15_000,
-        }
+        {"cold_http_status": 500, "recovery_http_status": 200, "recovery_ms": 15_000}
     )
-    receipt_path.write_text(json.dumps(recovered), encoding="utf-8")
-    assert validate_remote_cohort_reset_receipt(receipt_path, **kwargs) == recovered
+    assert validate(recovered) == recovered
     timed_out = json.loads(json.dumps(recovered))
-    timed_out["site_readiness"][0].update(
-        {
-            "cold_http_status": 0,
-            "cold_error": "timeout",
-        }
-    )
-    receipt_path.write_text(json.dumps(timed_out), encoding="utf-8")
-    assert validate_remote_cohort_reset_receipt(receipt_path, **kwargs) == timed_out
+    timed_out["site_readiness"][0].update({"cold_http_status": 0, "cold_error": "timeout"})
+    assert validate(timed_out) == timed_out
     del timed_out["site_readiness"][0]["cold_error"]
-    receipt_path.write_text(json.dumps(timed_out), encoding="utf-8")
-    with pytest.raises(ValueError, match="site readiness"):
-        validate_remote_cohort_reset_receipt(receipt_path, **kwargs)
     del recovered["site_readiness"][0]["recovery_http_status"]
-    receipt_path.write_text(json.dumps(recovered), encoding="utf-8")
-    with pytest.raises(ValueError, match="site readiness"):
-        validate_remote_cohort_reset_receipt(receipt_path, **kwargs)
-    for changed_field, invalid in (
+    invalid = [timed_out, recovered]
+    for changed_field, value in (
         ("url", "http://reddit.example/other"),
         ("read_only", False),
         ("warm_http_status", 500),
         ("stable_ms", 6000),
     ):
         changed = json.loads(json.dumps(receipt))
-        changed["site_readiness"][0][changed_field] = invalid
-        receipt_path.write_text(json.dumps(changed), encoding="utf-8")
+        changed["site_readiness"][0][changed_field] = value
+        invalid.append(changed)
+    for value in invalid:
         with pytest.raises(ValueError, match="site readiness"):
-            validate_remote_cohort_reset_receipt(receipt_path, **kwargs)
+            validate(value)
 
 
 @pytest.mark.parametrize("damage", [None, "stale", "method", "changed"])

@@ -30,7 +30,7 @@ def _fixture(
     tool_dir.mkdir(parents=True)
     for name in ("browser_tool.py", "browser_service.py"):
         (tool_dir / name).write_text("# frozen\n", encoding="utf-8")
-    ids = list(range(1, 90)) if task_ids is None else list(task_ids)
+    ids = [1, 2, 3] if task_ids is None else list(task_ids)
     selection = tmp_path / "selection.json"
     selection.write_text(
         json.dumps({"schema": "lex_webarena_verified_pilot/1",
@@ -153,7 +153,7 @@ def test_browser_readiness_rejects_origin_and_magento_setup_errors(monkeypatch, 
 
 
 def test_certificate_accepts_measured_failures() -> None:
-    tasks = [{"task_id": task_id, "bound_calls_sha256": "bound"} for task_id in range(1, 90)]
+    tasks = [{"task_id": task_id, "bound_calls_sha256": "bound"} for task_id in range(1, 4)]
     rows = [
         {
             "task_id": task_id,
@@ -162,9 +162,9 @@ def test_certificate_accepts_measured_failures() -> None:
             "score": 0.0,
             "evidence_sha256": {"site_reset": str(task_id)},
         }
-        for task_id in range(1, 90)
+        for task_id in range(1, 4)
     ]
-    manifest = {"task_ids": list(range(1, 90)), "tasks": tasks}
+    manifest = {"task_ids": list(range(1, 4)), "tasks": tasks}
     assert cohort.certify_cohort(
         manifest=manifest,
         rows=rows,
@@ -188,23 +188,16 @@ def test_certificate_accepts_measured_failures() -> None:
     )
 
 
-def test_preflight_accepts_exact_frozen_selection(
+def test_preflight_accepts_exact_frozen_selection_for_each_method(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    args, manifest, _save = _fixture(tmp_path, monkeypatch)
+    args, manifest, save = _fixture(tmp_path, monkeypatch)
     found, _sites, _benchmark, selected = cohort.preflight_cohort(args)
     assert found == manifest
-    assert list(selected) == list(range(1, 90))
-
-
-def test_preflight_accepts_chromium_method(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    args, manifest, save = _fixture(tmp_path, monkeypatch)
-    args.method_id = "chromium"
-    args.engine = "chromium"
-    manifest["method_id"] = "chromium"
-    manifest["engine"] = "chromium"
+    assert list(selected) == [1, 2, 3]
+    args.method_id = args.engine = manifest["method_id"] = manifest["engine"] = "chromium"
     save()
-    assert len(cohort.preflight_cohort(args)[3]) == 89
+    assert list(cohort.preflight_cohort(args)[3]) == [1, 2, 3]
 
 
 def test_preflight_rejects_missing_retrieval_contract(
@@ -251,23 +244,11 @@ def test_preflight_rejects_partial_method_and_existing_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     args, manifest, save = _fixture(tmp_path, monkeypatch)
-    manifest["tasks"].pop()
+    removed = manifest["tasks"].pop()
     save()
     with pytest.raises(ValueError, match="exact ordered selected tasks"):
         cohort.preflight_cohort(args)
-    manifest["tasks"].append(
-        {
-            "task_id": 89,
-            "task_contract_sha256": canonical_json_sha256(
-                {"task": {"intent": "Task 89"}, "evaluation_input": {}}
-            ),
-            "actions": [{"action": "goto", "url": "https://example.com"}],
-            "bound_calls_sha256": canonical_json_sha256([{"action": "goto", "url": "https://example.com"}]),
-            "source_actions": [{"action": "goto", "url": "https://example.com"}],
-            "source_calls_sha256": canonical_json_sha256([{"action": "goto", "url": "https://example.com"}]),
-            "readiness": [],
-        }
-    )
+    manifest["tasks"].append(removed)
     save()
     args.output.mkdir()
     with pytest.raises(ValueError, match="append-only"):

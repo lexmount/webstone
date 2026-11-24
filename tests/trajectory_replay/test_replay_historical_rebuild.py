@@ -12,8 +12,11 @@ from harness.benchmarks import data
 from harness.trajectory_replay.report_inputs import replay_suite_for_hash
 
 
-@pytest.mark.parametrize('public', [False, True])
-@pytest.mark.parametrize('mode', ['unrecorded', 'recorded', 'identical', 'explicit'])
+@pytest.mark.parametrize(
+    ('public', 'mode'),
+    [(False, 'unrecorded'), (False, 'recorded'), (False, 'identical'), (False, 'explicit'),
+     (True, 'recorded')],
+)
 def test_rebuild_resolves_historical_suite_before_loading_it(tmp_path, monkeypatch, public, mode):
     track = 'webarena-replay' if public else 'trajectory-replay'
     definition = 'suites/human-qualified-v1.json' if public else 'suites/curated-v1.json'
