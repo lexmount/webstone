@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.trajectory_replay.participants import bind_participant, participant_registry
+from harness.environments.participants import bind_participant, participant_registry
 from harness.trajectory_replay.webarena_review import (
     load_validated_failure_review,
     programmatic_failure,

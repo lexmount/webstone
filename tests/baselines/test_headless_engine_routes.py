@@ -3,7 +3,7 @@
 The snapshot was recorded from the if-chain implementation before engines moved
 into a registry, so it proves that the registry keeps the same behaviour. Each
 line holds one distinct output and the scenarios that produce it. Long browser
-expressions are reduced to their SHA-256. Set ``UPDATE_GOLDEN=1`` only after an
+expressions are reduced to their SHA-256. Set ``WEBSTONE_UPDATE_BASELINES=1`` only after an
 intended route change, and explain the change in the pull request.
 """
 
@@ -26,8 +26,9 @@ from harness.web_fetch.providers.headless import (
     output_mode_for_case,
 )
 from lexbench_webfetch.models import EvalCase
+from tests.baselines.snapshot import UPDATE_VARIABLE
 
-GOLDEN = Path(__file__).parent / 'golden' / 'headless-engine-routes.jsonl'
+SNAPSHOT = Path(__file__).parent / 'headless-engine-routes.jsonl'
 HEADLESS = 'harness.web_fetch.providers.headless'
 URL = 'https://example.com/page'
 # Spelled out so that adding or removing a registered engine changes this test.
@@ -361,12 +362,12 @@ def _write_snapshot(sections):
         lines += [json.dumps({'section': section, 'output': json.loads(output), 'scenarios': keys},
                              ensure_ascii=False, sort_keys=True)
                   for output, keys in sorted(groups.items())]
-    GOLDEN.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    SNAPSHOT.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
 def _read_snapshot():
     sections = {}
-    for line in GOLDEN.read_text(encoding='utf-8').splitlines():
+    for line in SNAPSHOT.read_text(encoding='utf-8').splitlines():
         group = json.loads(line)
         rows = sections.setdefault(group['section'], {})
         rows.update(dict.fromkeys(group['scenarios'], group['output']))
@@ -384,7 +385,7 @@ def test_every_engine_route_matches_the_recorded_snapshot():
         'output_modes': _output_modes(),
         'validation': _validation(),
     }))
-    if os.environ.get('UPDATE_GOLDEN') == '1':
+    if os.environ.get(UPDATE_VARIABLE) == '1':
         _write_snapshot(actual)
         return
     expected = _read_snapshot()

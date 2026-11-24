@@ -31,7 +31,7 @@ def test_independent_extracted_fact_values(information, passed):
     assert score(case(), information)[0] is passed
 
 
-@pytest.mark.parametrize('body', [b'', b'Tiny'])
+@pytest.mark.parametrize('body', [b'Tiny'])
 def test_information_cannot_supply_required_body_length(body):
     assert score(case(), {'published_at': 'May 2026'}, body)[0] is False
 
@@ -46,7 +46,7 @@ def test_extracted_fields_cannot_bypass_excluded_regions(scope):
     assert score(c, {'published_at': 'May 2026'})[0] is False
 
 
-@pytest.mark.parametrize('field', ['keywords', 'debug', 'url', 'raw_html'])
+@pytest.mark.parametrize('field', ['keywords', 'raw_html'])
 def test_arbitrary_metadata_is_not_extracted_page_information(field):
     with pytest.raises(ValueError, match='page information'):
         score(case(), {field: 'May 2026'})

@@ -24,7 +24,7 @@ import tiktoken
 from playwright.sync_api import Browser, Page
 
 from harness.environments.browser import (
-    ENGINE_PORTS,
+    engine_cdp_port,
     published_endpoint,
     start_browser_container,
     wait_cdp,
@@ -268,7 +268,7 @@ def start_engine(
         },
     )
     runtime.networks[engine] = network
-    cdp_port = ENGINE_PORTS[engine]
+    cdp_port = engine_cdp_port(engine)
     container = start_browser_container(
         client,
         image=image,

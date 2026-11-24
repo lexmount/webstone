@@ -3,10 +3,11 @@
 Each track test drives its runnable synthetic example through the stages it can
 run offline (run, score, report, check) and compares a normalized snapshot with
 ``tests/baselines/<track>.json``. The snapshot keeps scored record fields, the
-report's route inventory and, per page, the ordered h1-h3 headings and table
-cells. Absolute paths, timestamps and SHA-256 digests are replaced with tokens,
-so the snapshot depends only on behaviour. ``tests/golden/`` complements this
-with byte-level route hashes; a baseline shows *what* changed in review.
+report's routes with a SHA-256 prefix of each normalized file and, per page, the
+ordered h1-h3 headings and table cells. Absolute paths, timestamps and SHA-256
+digests are replaced with tokens, so the snapshot depends only on behaviour. The
+route digests catch any byte change; the outlines show *what* changed in review.
+Further report scenarios of a track keep only their route digests.
 
 A refactor that changes a baseline must say why in its description. Refresh
 every baseline after an intended change with::
@@ -17,6 +18,7 @@ every baseline after an intended change with::
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import os
 import re
@@ -26,7 +28,10 @@ from pathlib import Path
 
 import pytest
 
+from harness.reporting.mermaid import unpinned_mermaid_urls
+
 BASELINE_DIR = Path(__file__).parent
+CHECKOUT = BASELINE_DIR.parents[1]
 UPDATE_VARIABLE = "WEBSTONE_UPDATE_BASELINES"
 _TIMESTAMP = re.compile(
     r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?"
@@ -44,13 +49,16 @@ class Normalizer:
     """Replace machine-, clock- and digest-specific text with stable tokens."""
 
     def __init__(self, roots: Iterable[Path]):
-        paths = {str(path) for root in roots for path in (root, root.resolve())}
+        tokens = {str(path): "<root>" for root in roots for path in (root, root.resolve())}
+        # Packaged inputs, such as the fixture dataset, are recorded by checkout path.
+        tokens.update(dict.fromkeys(
+            {str(CHECKOUT), str(CHECKOUT.resolve())} - tokens.keys(), "<checkout>"))
         # Longest first, so a nested root is not split by its parent's replacement.
-        self.roots = sorted(paths, key=len, reverse=True)
+        self.roots = sorted(tokens.items(), key=lambda item: len(item[0]), reverse=True)
 
     def text(self, value: str) -> str:
-        for root in self.roots:
-            value = value.replace(root, "<root>")
+        for root, token in self.roots:
+            value = value.replace(root, token)
         value = _TIMESTAMP.sub("<timestamp>", value)
         value = _COMPACT_STAMP.sub("<timestamp>", value)
         return _SHA256.sub("<sha256>", value)
@@ -164,17 +172,43 @@ def page_outline(path: Path, normalizer: Normalizer) -> dict:
     return page
 
 
+def route_digests(report: Path, normalizer: Normalizer) -> list[str]:
+    """List every file under ``report`` as ``<route> <SHA-256 prefix of its normalized bytes>``.
+
+    Text files are normalized like the rest of the snapshot; other files are hashed
+    as written. Routes are normalized too, so the list is sorted after that and
+    keeps routes that differ only by a digest. A 20-digit prefix is ample for change
+    detection and, unlike a full digest, survives ``Normalizer.value``. A rendered
+    page must not load an unpinned Mermaid runtime.
+    """
+    lines = []
+    for route in file_inventory(report):
+        content = (report / route).read_bytes()
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            pass
+        else:
+            if route.endswith((".html", ".js")) and (unpinned := unpinned_mermaid_urls(text)):
+                pytest.fail(f"{route} loads an unpinned Mermaid runtime: {unpinned}")
+            content = normalizer.text(text).encode("utf-8")
+        lines.append(f"{normalizer.text(route)} {hashlib.sha256(content).hexdigest()[:20]}")
+    if not lines:
+        pytest.fail(f"{report} holds no routes")
+    return sorted(lines)
+
+
 def report_snapshot(
     report: Path, normalizer: Normalizer, outline: Callable[[str], bool] = lambda route: True
 ) -> dict:
-    """Return the route inventory and the outline of each HTML page selected by ``outline``.
+    """Return the route digests and the outline of each HTML page selected by ``outline``.
 
-    Every route stays in the inventory; ``outline`` only skips repetitive pages, such
-    as one page per frozen dataset task, whose structure a representative page shows.
+    Every route keeps its digest; ``outline`` only skips repetitive pages, such as
+    one page per frozen dataset task, whose structure a representative page shows.
     """
     pages = [route for route in file_inventory(report, (".html",)) if outline(route)]
     return {
-        "routes": file_inventory(report),
+        "routes": route_digests(report, normalizer),
         "pages": {route: page_outline(report / route, normalizer) for route in pages},
     }
 

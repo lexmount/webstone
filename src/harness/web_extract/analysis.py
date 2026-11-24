@@ -8,8 +8,8 @@ from decimal import InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
+from harness.web_extract.pipeline import PRODUCT, PROFILE, digest, official_scorer
 from harness.web_extract.pipeline import PRODUCT_FIELDS as FIELDS
-from harness.web_extract.pipeline import PROFILE, digest, official_scorer, valid_product_value
 
 
 def score_model_comparison(plan_path, run, contract_path, home, *, stage, repair=None):
@@ -68,8 +68,9 @@ def score_model_comparison(plan_path, run, contract_path, home, *, stage, repair
         )
         reference = case["reference"]
         native = {"http_status": 200 if response.get("success") else 0}
-        if case["dataset"] == "swde":
-            policy = contract["bindings"]["swde"]["reference_policy"]
+        if "values" in reference:
+            # Record references carry their population's declared reference policy.
+            policy = contract["bindings"][case["dataset"]]["reference_policy"]
             unavailable = {tuple(group) for group in policy["unavailable_reference_groups"]}
             native["normalized_fields"] = data
             fields = record_field_results(
@@ -180,22 +181,6 @@ def summarize_model_rows(rows, models):
     return groups
 
 
-REFERENCE_CONTROLS = (
-    ("locale-thousands-price", "price", ["24990"], "24990", "24.99"),
-    ("current-price-excludes-list-price", "price", ["99", "990"], "990.00", "1390"),
-    (
-        "product-id-not-request-token",
-        "sku",
-        ["140212369"],
-        "140212369",
-        "16067472565517510018016014",
-    ),
-    ("explicit-stock-not-default", "availability", ["OutOfStock"], "OutOfStock", "InStock"),
-    ("default-stock-still-required", "availability", ["InStock"], "InStock", None),
-    ("gtin-not-title-model", "sku", ["466/7999", "6935364088101"], "6935364088101", "TAPO C200"),
-)
-
-
 @lru_cache(maxsize=8)
 def matchers(home, profile, source_sha256):
     return official_scorer(home, profile)
@@ -234,7 +219,7 @@ def field_results(home, reference, row, *, profile=PROFILE):
 
 def check_reference_controls(home, *, profile=PROFILE):
     """Paired positive/negative controls through the production field scorer."""
-    for name, field, accepted, valid, invalid in REFERENCE_CONTROLS:
+    for name, field, accepted, valid, invalid in PRODUCT.reference_controls:
         for prediction, expected in ((valid, "correct"), (invalid, "incorrect")):
             result = field_results(
                 home,
@@ -244,7 +229,7 @@ def check_reference_controls(home, *, profile=PROFILE):
             )[field]
             if (result["status"] == "correct") != (expected == "correct"):
                 raise ValueError("Reference correction regression: " + name)
-    return [item[0] for item in REFERENCE_CONTROLS]
+    return [item[0] for item in PRODUCT.reference_controls]
 
 
 def product_audit_scores(truth, reviews, methods, excluded, scorer):
@@ -534,7 +519,7 @@ def completion_metrics(rows, fields_by_case, *, records):
                     and isinstance(value, list)
                     and all(isinstance(item, str) for item in value)
                 )
-            return valid_product_value(field, value)
+            return PRODUCT.valid_value(field, value)
 
         correct = {
             f: delivered

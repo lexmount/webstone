@@ -38,8 +38,10 @@ def measured_example(tmp_path, mode):
 
 
 @pytest.mark.parametrize('mode', ['full-cohort-progress', 'field-extraction-cohort'])
-def test_resource_tables_share_scope_units_counts_and_leaders_on_both_pages(tmp_path, mode):
-    output = measured_example(tmp_path, mode)
+def test_resource_tables_share_scope_units_counts_and_leaders_on_both_pages(
+    tmp_path_factory, mode
+):
+    output = cached_measured_example(tmp_path_factory, mode)
     manifest = read_json(output / 'report-manifest.json')
     for language in manifest['languages']:
         sections = []
@@ -61,13 +63,31 @@ def test_resource_tables_share_scope_units_counts_and_leaders_on_both_pages(tmp_
     assert _check_rendered_report(output)
 
 
-@pytest.mark.parametrize('mode', ['full-cohort-progress', 'field-extraction-cohort'])
-@pytest.mark.parametrize('route', ['index', 'interpretation'])
-@pytest.mark.parametrize('damage', ['missing', 'wrong-value', 'wrong-highlight'])
+_MEASURED = {}
+
+
+def cached_measured_example(factory, mode):
+    """Build each measured mode once per worker; callers that edit it must copy the output."""
+    if mode not in _MEASURED:
+        _MEASURED[mode] = measured_example(factory.mktemp('measured-' + mode), mode)
+    return _MEASURED[mode]
+
+
+# The release check is mode-independent, so every page and damage runs on one cached build.
 def test_release_boundary_rejects_resource_errors_even_with_updated_file_hash(
-    tmp_path, mode, route, damage
+    tmp_path_factory, tmp_path
 ):
-    output = measured_example(tmp_path, mode)
+    import shutil
+
+    built = cached_measured_example(tmp_path_factory, 'field-extraction-cohort')
+    for route in ('index', 'interpretation'):
+        for damage in ('missing', 'wrong-value', 'wrong-highlight'):
+            output = tmp_path / route / damage
+            shutil.copytree(built, output)
+            _reject_resource_damage(output, route, damage)
+
+
+def _reject_resource_damage(output, route, damage):
     path = output / 'zh' / (route + '.html')
     soup = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
     section = soup.select_one('[data-worker-resources]')

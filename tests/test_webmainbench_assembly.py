@@ -128,9 +128,8 @@ def freeze_cohort(root, profile_path, source, scorer, *, retry=False):
     (root / "worker-queue/log.txt").write_text("internal diagnostics", encoding="utf-8")
 
 
-@pytest.fixture
-def evidence(tmp_path):
-    source = tmp_path / "source.jsonl"
+def build_evidence(directory):
+    source = directory / "source.jsonl"
     write_rows(
         source,
         [
@@ -144,7 +143,7 @@ def evidence(tmp_path):
             for i in range(545)
         ],
     )
-    scorer = tmp_path / "scorer"
+    scorer = directory / "scorer"
     scorer.mkdir()
     (scorer / "metric.py").write_text("# synthetic pinned scorer source\n", encoding="utf-8")
     profile = {
@@ -156,11 +155,23 @@ def evidence(tmp_path):
         "official_scorer_commit": "synthetic",
         "metric_config": {"use_llm": False},
     }
-    profile_path = tmp_path / "baseline.json"
+    profile_path = directory / "baseline.json"
     write_json(profile_path, profile)
-    baseline = tmp_path / "baseline"
+    baseline = directory / "baseline"
     freeze_cohort(baseline, profile_path, source, scorer)
-    return tmp_path, baseline, source, scorer, profile_path
+    return directory, baseline, source, scorer, profile_path
+
+
+@pytest.fixture
+def evidence(tmp_path):
+    """Fresh cohorts for tests that damage or change their inputs."""
+    return build_evidence(tmp_path)
+
+
+@pytest.fixture(scope="module")
+def shared_evidence(tmp_path_factory):
+    """Cohorts frozen once for tests that only read them; they assert inputs stay unchanged."""
+    return build_evidence(tmp_path_factory.mktemp("webmainbench-shared"))
 
 
 def variants(evidence, count):
@@ -170,33 +181,30 @@ def variants(evidence, count):
     for index in range(count):
         provider = f"variant-{index}"
         profile_path = directory / f"{provider}.json"
-        write_json(
-            profile_path,
-            {
-                **profile,
-                "providers": ["engine-a"],
-                "binary_sha256": f"binary-{index}",
-                "source_commit": f"commit-{index}",
-            },
-        )
         cohorts[provider] = directory / provider
-        freeze_cohort(cohorts[provider], profile_path, source, scorer, retry=True)
+        if not cohorts[provider].exists():
+            write_json(
+                profile_path,
+                {
+                    **profile,
+                    "providers": ["engine-a"],
+                    "binary_sha256": f"binary-{index}",
+                    "source_commit": f"commit-{index}",
+                },
+            )
+            freeze_cohort(cohorts[provider], profile_path, source, scorer, retry=True)
         entries.append(
             {"provider": provider, "profile": profile_path.name, "label": provider}
         )
-    registry = directory / "variants.json"
+    registry = directory / f"variants-{count}.json"
     write_json(registry, {"variants": entries})
     return registry, cohorts
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("count", [0, 1, 3])
-def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
-    evidence, count
-):
+def assemble_shared(evidence, count):
     directory, baseline, source, scorer, profile = evidence
     registry, cohorts = variants(evidence, count) if count else (None, {})
-    output = directory / "package"
+    output = directory / f"package-{count}"
     before = {
         path: file_sha256(path)
         for root in (baseline, *cohorts.values())
@@ -212,6 +220,24 @@ def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
         cohorts=cohorts,
         scorer=scorer,
     )
+    return output, registry, cohorts, before
+
+
+@pytest.fixture(scope="module")
+def two_variant_package(shared_evidence):
+    """One 2-variant assembly, checked in full and reused as the previous package."""
+    return assemble_shared(shared_evidence, 2)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("count", [0, 2])
+def test_complete_assembly_follows_registry_and_retains_all_physical_calls(
+    shared_evidence, request, count
+):
+    if count:
+        output, _, cohorts, before = request.getfixturevalue("two_variant_package")
+    else:
+        output, _, cohorts, before = assemble_shared(shared_evidence, 0)
     rows, calls = (
         read_jsonl(output / "results.jsonl"),
         read_jsonl(output / "physical-attempts.jsonl"),
@@ -353,20 +379,10 @@ def test_input_changed_after_materialization_cannot_commit_package(
 
 @pytest.mark.slow
 def test_new_certified_variant_replaces_only_its_method_and_preserves_previous_package(
-    evidence,
+    shared_evidence, two_variant_package
 ):
-    directory, baseline, source, scorer, profile = evidence
-    registry, cohorts = variants(evidence, 2)
-    previous = directory / "previous"
-    assemble(
-        baseline,
-        previous,
-        source,
-        profile,
-        registry_path=registry,
-        cohorts=cohorts,
-        scorer=scorer,
-    )
+    directory, baseline, source, scorer, profile = shared_evidence
+    previous, registry, cohorts, _ = two_variant_package
     frozen = {path: file_sha256(path) for path in previous.rglob("*") if path.is_file()}
     previous_rows = read_jsonl(previous / "results.jsonl")
     replacement_profile = directory / "variant-0-v2.json"

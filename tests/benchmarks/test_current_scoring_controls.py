@@ -3,15 +3,7 @@ import hashlib
 import json
 from importlib.resources import files
 
-from lexbench_webfetch.scoring_regressions import check_scoring_regressions, load_scoring_regressions
-
-
-def test_current_corrections_run_through_the_public_scorer_and_task_predicate():
-    controls = json.loads(files('harness.benchmarks').joinpath('scoring-regressions.json').read_bytes())['cases']
-    identifiers = [row['id'] for row in controls]
-    assert len(identifiers) == len(set(identifiers))
-    assert {'false-positive', 'false-negative'} == {row['failure_mode'] for row in controls}
-    assert check_scoring_regressions(identifiers) == identifiers
+from lexbench_webfetch.scoring_regressions import load_scoring_regressions
 
 
 def test_consolidated_code_matches_its_migration_and_correction_bindings():

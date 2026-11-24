@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from harness.web_fetch.container_resources import ContainerCall
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
@@ -760,6 +762,7 @@ class HeadlessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             cli_command('unknown', '/binary', 'https://example.com', 45)
 
+    @pytest.mark.node_packages
     def test_converter_shared_and_nonzero_not_converted(self):
         from types import SimpleNamespace
         request = dict(engine='moli', binary='/binary', url='https://example.com', timeout=1)

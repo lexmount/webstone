@@ -228,9 +228,8 @@ def test_revision_round_trip_preserves_call_with_completion_note(tmp_path):
     assert (source/'results.jsonl').read_bytes() == original
 
 
-@pytest.mark.parametrize('missing_attachment', [False, True])
 @pytest.mark.parametrize('root_revision', [False, True])
-def test_adoption_only_revision_retains_attachments_and_score_provenance(tmp_path, missing_attachment, root_revision, monkeypatch):
+def test_adoption_only_revision_retains_attachments_and_score_provenance(tmp_path, root_revision, monkeypatch):
     monkeypatch.setattr('harness.web_fetch.report_saved_matrix._parameter_execution', lambda *args: {'request': 'fixture'})
     nested, _, revision = revision_fixture(tmp_path/'nested', answer=b'new answer')
     nested['offline_revision']['review_files'] = {
@@ -326,14 +325,14 @@ def test_adoption_only_revision_retains_attachments_and_score_provenance(tmp_pat
             assert_revision_document_mutation_rejected(output, tmp_path/'spec.json', relative)
     assert_saved_receipt_mutation_rejected(output, tmp_path/'spec.json')
     assert_scoring_flags_rejected(output, tmp_path/'spec.json')
-    if missing_attachment:
-        receipt['review_files']['decisions'] = 'missing.json'
-        binding = write(receipt_path, receipt)
-        audit = json.loads((output/'saved-matrix-audit.json').read_text(encoding='utf-8'))
-        audit['files'][receipt_path.relative_to(output).as_posix()] = binding['sha256']
-        write(output/'saved-matrix-audit.json', audit)
-        with pytest.raises(ValueError, match='Missing score revision attachment'):
-            check_saved_matrix(output)
+    # Last, because it leaves the package damaged.
+    receipt['review_files']['decisions'] = 'missing.json'
+    binding = write(receipt_path, receipt)
+    audit = json.loads((output/'saved-matrix-audit.json').read_text(encoding='utf-8'))
+    audit['files'][receipt_path.relative_to(output).as_posix()] = binding['sha256']
+    write(output/'saved-matrix-audit.json', audit)
+    with pytest.raises(ValueError, match='Missing score revision attachment'):
+        check_saved_matrix(output)
 
 
 def test_saved_revision_preserves_calls_and_exposes_original_scores(tmp_path):
@@ -471,9 +470,17 @@ def test_completion_candidate_baseline_requires_explicit_whole_group_reselection
     assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['valid']
 
 
-@pytest.mark.parametrize('defect', [None, 'already_called', 'before_contract',
-                                  'early_first_call', 'duplicate', 'incomplete', 'undeclared', 'extra_baseline', 'retained_call', 'retained_task', 'completed_task', 'extra_uncommitted', 'missing_execution', 'missing_retry_allowance'])
-@pytest.mark.parametrize('contract_form', ['single', 'multiple'])
+# Defects that edit the contract or its declaration run on both contract forms;
+# history and record defects are checked after parsing and run on one.
+_CONTRACT_DEFECTS = [None, 'duplicate', 'incomplete', 'undeclared', 'missing_retry_allowance']
+_HISTORY_DEFECTS = ['already_called', 'before_contract', 'early_first_call', 'extra_baseline',
+                    'retained_call', 'retained_task', 'completed_task', 'extra_uncommitted',
+                    'missing_execution']
+
+
+@pytest.mark.parametrize('defect,contract_form',
+                         [(defect, form) for defect in _CONTRACT_DEFECTS for form in ('single', 'multiple')]
+                         + [(defect, 'single') for defect in _HISTORY_DEFECTS])
 def test_completion_preserves_frozen_offline_history(tmp_path, defect, contract_form, monkeypatch):
     # History controls isolate execution proof; real native authorization has its
     # own positive/negative transport fixtures. The absent-proof case uses production.

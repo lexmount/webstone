@@ -589,7 +589,7 @@ def verify_environment_preparation(root: Path, source_root: Path) -> None:
     with patch.object(config, '_registry_json', registry):
         config.main_image_lock(['--output', str(output)])
     before = output.read_bytes()
-    assert set(json.loads(before)['images']) == set(config.SITES)
+    assert set(json.loads(before)['images']) == set(config.SITE_NAMES)
     with patch.object(config, '_registry_json', side_effect=AssertionError('output preflight must precede registry')):
         try:
             config.main_image_lock(['--output', str(output)])

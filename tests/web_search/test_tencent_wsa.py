@@ -177,7 +177,23 @@ class YuanbaoSearchTests(unittest.TestCase):
             f"ResponseVersionMismatch: expected standard, received {response.get('Version')}",
             response,
         ) for response in ({"Pages": []}, {"Version": "lite", "Pages": "broken"}))
+
+        def native_payload(code, native_response):
+            if native_response is not None:
+                return {"Response": native_response}
+            if code.endswith("received None"):
+                return {"Response": {"Pages": []}}
+            if code.startswith("ResponseVersionMismatch:"):
+                return {"Response": {"Version": "lite", "Pages": []}}
+            return {"Response": {"Error": {"Code": code}}}
+
+        from harness.web_search.adapters import adapter_for
+        method = {"adapter": "tencent-wsa", "expected_response_version": "standard"}
         for code, native_response in responses:
+            self.assertEqual(adapter_for("tencent-wsa").account_error(
+                native_payload(code, native_response), method), code)
+        # One representative of each class exercises the full stop-and-resume path.
+        for code, native_response in (responses[0], responses[len(errors)], responses[-1]):
             with self.subTest(code=code, response=native_response), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 profile = synthetic_profile()
@@ -206,13 +222,7 @@ class YuanbaoSearchTests(unittest.TestCase):
                     if body is None:
                         return receipt, b"reference " * 20
                     requests.append(body)
-                    payload = (
-                        {"Response": {"Pages": []}} if code.endswith("received None") else {"Response": {"Version": "lite", "Pages": []}}
-                        if code.startswith("ResponseVersionMismatch:")
-                        else {"Response": {"Error": {"Code": code}}}
-                    )
-                    if native_response is not None:
-                        payload = {"Response": native_response}
+                    payload = native_payload(code, native_response)
                     if code.startswith('ResponseVersionMismatch:'):
                         self.assertIsNone(request_cost(
                             dict(profile['methods'][0], billing='http-200', price_per_1000=3),

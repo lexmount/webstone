@@ -100,8 +100,18 @@ def test_model_plan_cannot_replace_its_authoritative_reference(tmp_path):
         score_model_comparison(path, output, contract_path, tmp_path, stage="screening")
 
 
-@pytest.mark.parametrize("change_request", [None, "temperature", "timeout", "policy"])
-@pytest.mark.parametrize("failure", ["refused", "interrupted", "worker-error"])
+# Every failure kind is recovered and scored; each changed request reaches the same
+# repair-binding check, so changes are spread across failure kinds instead of multiplied.
+@pytest.mark.parametrize(
+    ("change_request", "failure"),
+    [
+        (None, "refused"),
+        (None, "interrupted"),
+        (None, "worker-error"),
+        ("temperature", "refused"),
+        ("policy", "worker-error"),
+    ],
+)
 def test_transport_recovery_preserves_scope_and_uses_the_final_bound_call(
     tmp_path, change_request, failure, monkeypatch
 ):

@@ -134,8 +134,17 @@ def binding(home, tmp_path):
     return value
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-@pytest.mark.parametrize("damage", [None, "manifest_sha256", "huggingface", "cloudflare"])
+# Only an undamaged legacy receipt is accepted; damaged identity fields fail in either mode.
+@pytest.mark.parametrize(
+    "legacy,damage",
+    [
+        (False, None),
+        (True, None),
+        (True, "manifest_sha256"),
+        (False, "huggingface"),
+        (True, "cloudflare"),
+    ],
+)
 def test_historical_fixture_omits_only_the_local_hosting_annotation(home, legacy, damage):
     from copy import deepcopy
 
@@ -210,7 +219,7 @@ def test_new_plan_freezes_one_url_for_every_participant(home, tmp_path):
     source = tmp_path / "binding.json"
     source.write_text(json.dumps(value), encoding="utf-8")
     methods = [
-        name for name in METHODS if name not in {"firecrawl-parse-json", "zyte-custom"}
+        name for name in METHODS.names() if name not in {"firecrawl-parse-json", "zyte-custom"}
     ]
     options = {
         method: {
@@ -266,9 +275,9 @@ def test_new_plan_freezes_one_url_for_every_participant(home, tmp_path):
     ],
 )
 def test_native_json_requests_send_snapshot_url_without_inline_html(method, monkeypatch):
-    for key in METHODS[method]["keys"]:
+    for key in METHODS.get(method).keys:
         monkeypatch.setenv(key, "test-credential")
-    options = {"input_route": "url"} if METHODS[method]["input"] != "url" else {}
+    options = {"input_route": "url"} if METHODS.get(method).input != "url" else {}
     response = type("Response", (), {"status": 200, "headers": {}, "text": lambda _: "{}"})()
     with patch("harness.web_extract.pipeline.request", return_value=response) as transport:
         result = provider_call(
@@ -300,7 +309,7 @@ def test_native_product_url_routes_fetch_at_vendor_without_upload(method, endpoi
 
     import harness.web_extract.pipeline as pipeline
 
-    for key in METHODS[method]["keys"]:
+    for key in METHODS.get(method).keys:
         monkeypatch.setenv(key, "test-credential")
     session = MagicMock()
     response = session.get.return_value.__enter__.return_value

@@ -32,8 +32,6 @@ from harness.environments.webarena.runtime import (
     QEMU_X86_64_HOST_PATH,
     SITE_AUTH_HEADERS,
     allow_official_container_hostname,
-    bootstrap_postmill_browser_session,
-    bootstrap_postmill_session,
     browser_tool_config,
     configure_benchmark,
     container_host_gateway,
@@ -51,6 +49,10 @@ from harness.environments.webarena.runtime import (
     wait_application_ready,
     wait_container_healthy,
     wait_magento_dependencies_ready,
+)
+from harness.environments.webarena.sites import (
+    bootstrap_postmill_browser_session,
+    bootstrap_postmill_session,
 )
 from harness.environments.webarena.topology import RECORDING_GATEWAYS
 
@@ -669,8 +671,10 @@ def test_postmill_login_keeps_auth_out_of_browser_requests_and_checks_identity(
     )
     service = SimpleNamespace(_context=context, _page=primary, _submit=lambda f: f())
     benchmark = SimpleNamespace(config=SimpleNamespace(get_environment=lambda site: SimpleNamespace(active_url="http://fixture.test")))
+    from harness.environments.webarena import sites as site_adapters
+
     monkeypatch.setattr(
-        runner, "bootstrap_postmill_session",
+        site_adapters, "bootstrap_postmill_session",
         lambda ctx, url: events.append(("bootstrap", ctx is context, url)),
     )
     sites = (WebArenaSite.REDDIT,)
@@ -1431,6 +1435,13 @@ def test_provider_credentials_come_only_from_the_repository_env(tmp_path, monkey
     assert _load_repo_env(tmp_path)["OPENAI_BASE_URL"] == "${OPENAI_BASE_URL}"
 
 
+def _profile(tmp_path: Path, model: str) -> Path:
+    path = tmp_path / "report-profile.json"
+    profile = {"engines": ["chromium", "moli"], "models": [model]}
+    path.write_text(json.dumps(profile), encoding="utf-8")
+    return path
+
+
 def test_explicit_env_file_is_read_without_shell_interpolation(tmp_path, monkeypatch):
     monkeypatch.setenv("SHELL_ONLY_KEY", "shell-key")
     monkeypatch.setenv("SHELL_ONLY_URL", "https://shell.invalid")
@@ -1459,6 +1470,7 @@ def test_explicit_env_file_is_read_without_shell_interpolation(tmp_path, monkeyp
         output=str(tmp_path / "output"),
         selection="unused",
         model="unused",
+        profile=str(_profile(tmp_path, "unused")),
     )
 
     with pytest.raises(ModelReached) as reached:
@@ -1493,23 +1505,35 @@ def test_browser_use_run_stops_before_sites_start_without_site_accounts(
         cowagent_repo=str(cowagent),
         output=str(tmp_path / "output"),
         selection=str(tmp_path / "selection.json"),
+        model="synthetic-model",
+        profile=str(_profile(tmp_path, "synthetic-model")),
     )
 
     with pytest.raises(ValueError, match="WEBARENA_SHOPPING_PASSWORD"):
         runner_module.run(arguments)
 
 
-def test_engine_order_rotates_every_registered_browser(monkeypatch: pytest.MonkeyPatch) -> None:
-    from harness.browser_use import runner as runner_module
+def test_engine_order_rotates_every_profile_browser(tmp_path: Path) -> None:
+    from harness.browser_use.runner import _profile_participants
 
-    assert _engine_order(0) == ("chromium", "moli")
-    assert _engine_order(1) == ("moli", "chromium")
-    monkeypatch.setattr(runner_module, "ENGINE_IMAGES", {"a": "1", "b": "2", "c": "3"})
-    assert [_engine_order(index) for index in range(4)] == [
+    profile = tmp_path / "profile.json"
+    profile.write_text(
+        json.dumps({"engines": ["chromium", "moli"], "models": ["model-a"]}), encoding="utf-8"
+    )
+    engines = _profile_participants(profile, "model-a")
+    assert _engine_order(engines, 0) == ("chromium", "moli")
+    assert _engine_order(engines, 1) == ("moli", "chromium")
+    assert [_engine_order(("a", "b", "c"), index) for index in range(4)] == [
         ("a", "b", "c"),
         ("b", "c", "a"),
         ("c", "a", "b"),
         ("a", "b", "c"),
     ]
-    monkeypatch.setattr(runner_module, "ENGINE_IMAGES", {"solo": "1"})
-    assert _engine_order(1) == ("solo",)
+    assert _engine_order(("solo",), 1) == ("solo",)
+    with pytest.raises(ValueError, match="not registered"):
+        _profile_participants(profile, "model-b")
+    profile.write_text(
+        json.dumps({"engines": ["kitesurf"], "models": ["model-a"]}), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="without a container image"):
+        _profile_participants(profile, "model-a")

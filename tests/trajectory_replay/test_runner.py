@@ -15,8 +15,9 @@ import pytest
 
 from harness import runtime_env
 from harness.environments.browser import (
-    ENGINE_PORTS,
     cleanup_browser_runtime,
+    container_engines,
+    engine_cdp_port,
     external_websocket_url,
     published_endpoint,
 )
@@ -27,7 +28,8 @@ from harness.trajectory_replay.runner import _prepare_page
 
 
 def test_browser_engines_publish_their_external_cdp_ports():
-    assert ENGINE_PORTS == {"chromium": 9223, "moli": 9222}
+    ports = {engine: engine_cdp_port(engine) for engine in container_engines()}
+    assert ports == {"chromium": 9223, "moli": 9222}
 
 
 def test_empty_tool_trace_cannot_pass_process_validation(monkeypatch):

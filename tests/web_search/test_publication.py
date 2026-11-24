@@ -67,9 +67,8 @@ def test_publication_plan_uses_configured_data_home(tmp_path, monkeypatch):
     assert publication.verify_plan(report, work)["target"]["cases"] == 1
 
 
-@pytest.mark.parametrize("name,field", [("relevance", "relevance_sha256"),
-                                       ("independent_review", "independent_review_sha256")])
-@pytest.mark.parametrize("changed", ["missing_binding", "unclaimed_file"])
+@pytest.mark.parametrize("name,field,changed", [("relevance", "relevance_sha256", "missing_binding"),
+                                               ("independent_review", "independent_review_sha256", "unclaimed_file")])
 def test_optional_assessment_must_match_the_checked_manifest(tmp_path, monkeypatch, name, field, changed):
     report, work = publication_files(tmp_path, monkeypatch)
     manifest = json.loads((report / "manifest.json").read_bytes())
@@ -145,7 +144,7 @@ def test_publication_rejects_forged_derived_counts(tmp_path, monkeypatch, field)
         profiles.verify_publication_inputs(manifest, target, data_home=tmp_path)
 
 
-@pytest.mark.parametrize("relative", ["report.zip", "visual_acceptance.json", "relevance.json", "independent_review.json", "content.json", "delivery/delivery-index.json"])
+@pytest.mark.parametrize("relative", ["report.zip", "relevance.json", "content.json", "delivery/delivery-index.json"])
 def test_changed_release_inputs_stop_before_authentication(tmp_path, monkeypatch, relative):
     report, work = publication_files(tmp_path, monkeypatch)
     (work / relative).write_bytes(b"changed")

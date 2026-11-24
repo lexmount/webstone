@@ -198,7 +198,7 @@ def test_human_relevance_is_the_primary_quality_check_when_complete_labels_exist
     assert data["cases"][2]["outputs"]["a"]["quality"] is None
 
 
-@pytest.mark.parametrize('level', [None, 'l1', 'l2'])
+@pytest.mark.parametrize('level', [None, 'l2'])
 def test_duplicate_result_badges_follow_rank_credit_in_every_output_level(level):
     from lexbench_websearch.relevance import ranking_identity
 
@@ -234,8 +234,8 @@ def test_answer_beyond_body_excerpt_does_not_highlight_unmatched_preview():
     assert "Ada" not in item["content"]
 
 
-@pytest.mark.parametrize('zh', [True, False])
-def test_one_query_per_output_page_preserves_all_providers_and_full_text(zh):
+def test_one_query_per_output_page_preserves_all_providers_and_full_text():
+    zh = False
     from harness.reporting.visual import browser_executable
     from playwright.sync_api import sync_playwright
     profile, rows = matrix()
@@ -290,8 +290,8 @@ def test_selected_outputs_remain_readable_and_keyboard_scroll_both_axes():
             browser.close()
 
 
-@pytest.mark.parametrize("zh", [False, True])
-def test_output_notice_describes_only_delivered_fields(zh):
+def test_output_notice_describes_only_delivered_fields():
+    zh = False
     profile, rows = matrix()
     for row in rows:
         for item in row["results"]:

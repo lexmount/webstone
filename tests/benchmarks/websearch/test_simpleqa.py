@@ -165,6 +165,7 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     from harness.benchmarks import data
     from harness.web_search.revisions import apply_report_revision
     from lexbench_websearch.simpleqa import repair_cases
+    from lexbench_websearch.evidence_quality import default_patterns
     from lexbench_websearch.scoring import evaluate
 
     case, recipe = repair_fixture()
@@ -174,6 +175,9 @@ def test_locked_dataset_repair_updates_gold_for_all_saved_methods(tmp_path, monk
     dataset = tmp_path / 'factual-v1.json'
     dataset.write_text(json.dumps(dict(cases=[corrected], case_repairs=recipe)), encoding='utf-8')
     descriptor = dict(sha256=__import__('hashlib').sha256(dataset.read_bytes()).hexdigest())
+    # default_patterns() is cached per process; resolve the real patterns before the
+    # definition lookup below is replaced, or the stub dataset would be cached in their place.
+    default_patterns()
     monkeypatch.setattr(data, 'binding', lambda *args: dict(files={'definitions/datasets/factual-v1.json': descriptor}))
     monkeypatch.setattr(data, 'definition_path', lambda *args: dataset)
     profile = dict(cases=[case], methods=[dict(id='a'), dict(id='b')], protocol={'top_k': 5},

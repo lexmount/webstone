@@ -1046,7 +1046,7 @@ def runtime_smoke_main(argv=None) -> None:
         action="store_true",
         help="authenticate with credentials_env before starting diagnostic HAR capture",
     )
-    parser.add_argument("--engine", action="append", choices=tuple(browser_runtime.ENGINE_PORTS))
+    parser.add_argument("--engine", action="append", choices=browser_runtime.container_engines())
     parser.add_argument("--cpus", type=float, default=None)
     args = parser.parse_args(argv)
     config_path = unlinked_path(args.config)
@@ -1083,7 +1083,7 @@ def runtime_smoke_main(argv=None) -> None:
         "engines": {},
     }
     images = browser_runtime.configured_browser_images()
-    for engine in tuple(dict.fromkeys(args.engine or browser_runtime.ENGINE_PORTS)):
+    for engine in tuple(dict.fromkeys(args.engine or browser_runtime.container_engines())):
         client.images.get(images[engine])
         run_id = f"runtime-smoke-{uuid.uuid4().hex[:10]}"
         network = client.networks.create(
@@ -1098,7 +1098,7 @@ def runtime_smoke_main(argv=None) -> None:
             playwright = sync_playwright().start()
             container = browser_runtime.start_browser_container(
                 client,
-                image=images[engine], cdp_port=browser_runtime.ENGINE_PORTS[engine],
+                image=images[engine], cdp_port=browser_runtime.engine_cdp_port(engine),
                 engine=engine,
                 run_id=run_id,
                 cpus=args.cpus,
@@ -1108,7 +1108,7 @@ def runtime_smoke_main(argv=None) -> None:
             containers[engine] = container
             container.reload()
             endpoint = browser_runtime.published_endpoint(
-                container, engine=engine, cdp_port=browser_runtime.ENGINE_PORTS[engine]
+                container, engine=engine, cdp_port=browser_runtime.engine_cdp_port(engine)
             )
             browser = playwright.chromium.connect_over_cdp(
                 browser_runtime.wait_cdp(endpoint, timeout_seconds=30, container=container)

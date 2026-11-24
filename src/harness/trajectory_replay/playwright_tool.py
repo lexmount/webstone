@@ -19,10 +19,23 @@ import requests
 from playwright.sync_api import sync_playwright
 from requests.adapters import HTTPAdapter
 
+from harness.environments.browser import (
+    BROWSERS,
+    CONTEXT_REQUEST_COOKIE_SHARING,
+    DOCUMENT_OBSERVER,
+    DOM_LOGIN_READINESS,
+    HOSTED_DEFAULT_CONTEXT,
+    LAYOUT_PUBLICATION,
+    MULTIPLE_PAGES,
+    NATIVE_LOGIN_FORM_SUBMIT,
+    NETWORK_RESET_CDP,
+    PLAYWRIGHT_HAR_CAPTURE,
+    STORAGE_CDP,
+    VIEWPORT_OBSERVER,
+)
 from harness.environments.webarena.runtime import (
     BENCHMARK_VIEWPORT,
 )
-from harness.trajectory_replay.participants import BROWSER_ADAPTERS
 from harness.trajectory_replay.public_webarena.executor import execute_steps
 
 SNAPSHOT_NAVIGATION_SETTLE_TIMEOUT_MS = 1_500
@@ -364,26 +377,27 @@ class PlaywrightReplayTool:
         self,
         endpoint: str,
         *,
-        engine: str = "chromium",
+        engine: str,
         headers: dict[str, str] | None = None,
         request_bridge_origins: set[str] | None = None,
         request_bridge_host_overrides: list[dict[str, str]] | None = None,
     ):
-        if engine not in BROWSER_ADAPTERS:
+        if engine not in BROWSERS:
             raise ValueError(f"unknown Playwright replay engine: {engine}")
+        adapter = BROWSERS.get(engine)
         self._engine = engine
-        self._supports_multiple_pages = engine not in {"lightpanda", "obscura", "kitesurf"}
-        self._supports_network_reset_cdp = engine not in {"obscura", "kitesurf"}
-        self._supports_storage_cdp = engine not in {"lightpanda", "obscura", "kitesurf"}
-        self._native_login_form_submit = engine == "kitesurf"
+        self._supports_multiple_pages = MULTIPLE_PAGES in adapter.flags
+        self._supports_network_reset_cdp = NETWORK_RESET_CDP in adapter.flags
+        self._supports_storage_cdp = STORAGE_CDP in adapter.flags
+        self._native_login_form_submit = NATIVE_LOGIN_FORM_SUBMIT in adapter.flags
         self._fresh_context_per_task = True
-        self._supports_context_request_cookie_sharing = engine not in {
-            "lightpanda",
-            "kitesurf",
-        }
-        self.har_capture_transport = "playwright" if engine == "kitesurf" else "cdp"
+        self._supports_context_request_cookie_sharing = (
+            CONTEXT_REQUEST_COOKIE_SHARING in adapter.flags
+        )
+        playwright_har = PLAYWRIGHT_HAR_CAPTURE in adapter.flags
+        self.har_capture_transport = "playwright" if playwright_har else "cdp"
         self.har_request_transform = (
-            self.transform_playwright_har_request if engine == "kitesurf" else None
+            self.transform_playwright_har_request if playwright_har else None
         )
         self._layout_sessions: dict[Any, Any] = {}
         self._viewport_sessions: dict[Any, Any] = {}
@@ -406,7 +420,7 @@ class PlaywrightReplayTool:
             self._browser = self._playwright.chromium.connect_over_cdp(
                 endpoint, **connect_options
             )
-            if engine == "kitesurf":
+            if HOSTED_DEFAULT_CONTEXT in adapter.flags:
                 browser_session = self._browser.new_browser_cdp_session()
                 try:
                     version = browser_session.send("Browser.getVersion")
@@ -424,17 +438,19 @@ class PlaywrightReplayTool:
                     if version.get(key) is not None
                 }
                 if len(self._browser.contexts) != 1:
-                    raise RuntimeError("Kitesurf did not expose exactly one default context")
+                    raise RuntimeError(
+                        f"{adapter.label} did not expose exactly one default context"
+                    )
                 self._context = self._browser.contexts[0]
                 if len(self._context.pages) != 1:
-                    raise RuntimeError("Kitesurf did not expose exactly one default page")
+                    raise RuntimeError(f"{adapter.label} did not expose exactly one default page")
                 self._page = self._context.pages[0]
                 self._install_request_bridge(
                     request_bridge_origins or set(),
                     request_bridge_host_overrides,
                 )
                 self._page.set_viewport_size(dict(BENCHMARK_VIEWPORT))
-                # Kitesurf applies emulation to the next document; its initial
+                # A hosted default context applies emulation to the next document; its first
                 # provider-owned about:blank retains the service default height.
                 self._page.goto("about:blank", wait_until="load", timeout=10_000)
             else:
@@ -1054,9 +1070,9 @@ class PlaywrightReplayTool:
         exact_text: str | None = None,
         timeout_ms: int = 60_000,
     ) -> None:
-        """Wait for a login marker without Kitesurf's broken Locator visibility path."""
+        """Wait for a login marker, polling the DOM when Locator visibility is unreliable."""
 
-        if self._engine != "kitesurf":
+        if DOM_LOGIN_READINESS not in self._declared_flags:
             if exact_text is not None:
                 page.get_by_role(
                     "button", name=exact_text, exact=True
@@ -1089,6 +1105,11 @@ class PlaywrightReplayTool:
                 raise TimeoutError(f"login readiness marker did not appear: {selector}")
             page.wait_for_timeout(100)
 
+    @property
+    def _declared_flags(self) -> frozenset[str]:
+        """Capability flags the engine's browser adapter declares."""
+        return BROWSERS.get(self._engine).flags
+
     def _get_service(self) -> PlaywrightReplayTool:
         return self
 
@@ -1097,17 +1118,17 @@ class PlaywrightReplayTool:
 
     @property
     def layout_observer(self):
-        return self._publish_page_layout if self._engine == "moli" else None
+        return self._publish_page_layout if LAYOUT_PUBLICATION in self._declared_flags else None
 
     @property
     def viewport_observer(self):
-        if self._engine != "obscura":
+        if VIEWPORT_OBSERVER not in self._declared_flags:
             return None
         return self._observe_page_viewport
 
     @property
     def document_observer(self):
-        return self._observe_document if self._engine == "kitesurf" else None
+        return self._observe_document if DOCUMENT_OBSERVER in self._declared_flags else None
 
     def _observe_document(
         self, page: Any, timeout_ms: int, limit: int
@@ -1189,7 +1210,7 @@ class PlaywrightReplayTool:
         or screenshot encoding.
         """
 
-        if getattr(self, "_engine", "chromium") != "moli":
+        if getattr(self, "_engine", None) is None or LAYOUT_PUBLICATION not in self._declared_flags:
             return
         if timeout_ms < 1:
             raise TimeoutError("Moli layout publication budget exhausted")
@@ -1316,7 +1337,10 @@ class PlaywrightReplayTool:
         try:
             if not getattr(self, "_layout_connection_poisoned", False):
                 try:
-                    if self._context is not None and self._engine != "kitesurf":
+                    if (
+                        self._context is not None
+                        and HOSTED_DEFAULT_CONTEXT not in self._declared_flags
+                    ):
                         self._context.close()
                 finally:
                     if self._browser is not None:

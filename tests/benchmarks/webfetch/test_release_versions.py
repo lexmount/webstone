@@ -10,31 +10,64 @@ from lexbench_webfetch.versions import (
 )
 
 
-@pytest.fixture
-def matching_catalog(tmp_path):
-    from lexbench_webfetch.benchmark import definitions, read
-    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
-    release = read(definitions() / "benchmark-release.json")
-    release["scoring_source_sha256"] = SCORING_SOURCE_SHA256
-    path = tmp_path / "catalog.json"
-    path.write_text(json.dumps(release), encoding="utf-8")
-    return path
-
-
 @pytest.mark.slow
-def test_catalog_retains_registered_task_suites_without_counting_annotations(matching_catalog):
-    from lexbench_webfetch.benchmark import registry
-    release = catalog_release(matching_catalog)
+def test_shipped_catalog_retains_registered_task_suites_without_counting_annotations(tmp_path):
+    """Release-data check: the shipped catalog validates against every frozen suite file."""
+    from lexbench_webfetch.benchmark import definitions, read, registry
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+    shipped = read(definitions() / "benchmark-release.json")
+    shipped["scoring_source_sha256"] = SCORING_SOURCE_SHA256
+    path = tmp_path / "catalog.json"
+    path.write_text(json.dumps(shipped), encoding="utf-8")
+    release = catalog_release(path)
     assert release["tag"] == "bench-v" + release["version"]
     entries = [row for row in registry()["suites"] if row.get("kind") != "annotation_cohort"]
     assert [row["suite"] for row in release["suites"]] == [row["id"] for row in entries]
-    assert release["case_count"] == sum(row["case_count"] for row in entries)
+    assert len(entries) == 5
+    assert release["case_count"] == sum(row["case_count"] for row in entries) == 550
+    cohort = read(definitions() / "evaluation/content-scopes-530/tasks.json")
+    population = read(definitions() / "populations/primary-content-20261103.json")
+    assert len(cohort["cases"]) == 530
+    assert {case["id"] for case in cohort["cases"]} == {
+        f"{case['suite']}--{case['id']}" for case in population["cases"]}
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("change", ["omitted_suite", "count", "reference", "scorer", "tag"])
-def test_published_catalog_rejects_changed_population_rules_or_reference_bindings(tmp_path, change, matching_catalog):
-    release = json.loads(matching_catalog.read_text(encoding="utf-8"))
+@pytest.fixture
+def synthetic_catalog(tmp_path, monkeypatch):
+    """A catalog over two synthetic suites and one annotation cohort; validation is stubbed."""
+    from lexbench_webfetch import benchmark
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+    suites = [{"id": name, "dataset_id": name, "directory": name, "case_count": 1,
+               "files": {"tasks.json": name[0] * 64}} for name in ("alpha", "beta")]
+    cohort = {**suites[0], "id": "alpha-annotations", "kind": "annotation_cohort",
+              "source_population": "alpha"}
+    registered = {"suites": [*suites, cohort]}
+    invalid = set()
+
+    def validate(identifier):
+        if identifier in invalid:
+            raise ValueError("Changed suite file")
+        return {"suite": identifier, "case_count": 1, "dataset_sha256": identifier[0] * 64}
+
+    monkeypatch.setattr(benchmark, "registry", lambda: registered)
+    monkeypatch.setattr(benchmark, "validate", validate)
+    release = {"schema_version": 1, "kind": "benchmark_catalog_release", "version": "1.0.0",
+               "tag": "bench-v1.0.0", "scoring_source_sha256": SCORING_SOURCE_SHA256,
+               "scorer_revision": "d" * 40, "case_count": 2,
+               "suites": [{**validate(row["id"]), **{key: row[key] for key in (
+                   "dataset_id", "directory", "files")}} for row in suites]}
+    path = tmp_path / "catalog.json"
+    path.write_text(json.dumps(release), encoding="utf-8")
+    return path, registered, invalid
+
+
+@pytest.mark.parametrize("change", [
+    "omitted_suite", "count", "reference", "scorer", "tag", "extra_task_suite", "corrupt_annotation"])
+def test_published_catalog_rejects_changed_population_rules_or_reference_bindings(
+        tmp_path, change, synthetic_catalog):
+    path, registered, invalid = synthetic_catalog
+    assert catalog_release(path)["case_count"] == 2
+    release = json.loads(path.read_text(encoding="utf-8"))
     if change == "omitted_suite":
         release["suites"].pop()
     elif change == "count":
@@ -43,11 +76,16 @@ def test_published_catalog_rejects_changed_population_rules_or_reference_binding
         release["suites"][0]["dataset_sha256"] = "0" * 64
     elif change == "scorer":
         release["scoring_source_sha256"] = "0" * 64
-    else:
+    elif change == "tag":
         release["tag"] = "bench-v99.0.0"
-    path = tmp_path / "release.json"
+    elif change == "extra_task_suite":
+        registered["suites"].append({**registered["suites"][0], "id": "extra-tasks"})
+    else:
+        # Annotation cohorts do not count as tasks but must still validate.
+        invalid.add("alpha-annotations")
     path.write_text(json.dumps(release), encoding="utf-8")
-    expected = {"tag": "tag differs", "scorer": "scoring source changed"}.get(
+    expected = {"tag": "tag differs", "scorer": "scoring source changed",
+                "corrupt_annotation": "Changed suite file"}.get(
         change, "task or frozen reference bindings changed")
     with pytest.raises(ValueError, match=expected):
         catalog_release(path)
@@ -334,23 +372,3 @@ def test_custom_benchmark_sidecars_keep_their_own_version(monkeypatch, tmp_path,
                                      "--version", "1.0.0", "--scorer-revision", "0" * 40])
     main()
     assert json.loads(capsys.readouterr().out)["version"] == "1.0.0"
-
-
-@pytest.mark.parametrize('change', ['extra_task_suite', 'corrupt_annotation'])
-def test_catalog_still_validates_extra_suites(matching_catalog, monkeypatch, change):
-    from lexbench_webfetch import benchmark
-    registered = deepcopy(benchmark.registry())
-    if change == 'extra_task_suite':
-        extra = deepcopy(registered['suites'][0])
-        extra['id'] = 'extra-tasks'
-        registered['suites'].append(extra)
-        expected = 'task or frozen reference bindings changed'
-    else:
-        cohort = deepcopy(registered['suites'][0])
-        cohort.update(id='test-annotations', kind='annotation_cohort', source_population=cohort['id'])
-        registered['suites'].append(cohort)
-        cohort['files']['tasks.json'] = '0' * 64
-        expected = 'Changed suite file'
-    monkeypatch.setattr(benchmark, 'registry', lambda: registered)
-    with pytest.raises(ValueError, match=expected):
-        catalog_release(matching_catalog)

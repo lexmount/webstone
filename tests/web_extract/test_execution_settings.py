@@ -36,15 +36,16 @@ def test_multi_method_report_uses_every_assigned_shared_limit():
     assert [row.select("td")[1].get_text(strip=True) for row in rows] == ["1", "1"]
 
 
+# Every case first checks the clean report of its mode; each damage reaches the same
+# mode-independent check, so one damage per mode keeps all modes and damages covered.
 @pytest.mark.parametrize(
-    "mode,language",
+    "mode,language,damage",
     [
-        ("compatibility", "en"),
-        ("full-cohort-progress", "en"),
-        ("field-extraction-cohort", "zh"),
+        ("compatibility", "en", "missing"),
+        ("full-cohort-progress", "en", "wrong_count"),
+        ("field-extraction-cohort", "zh", "duplicate"),
     ],
 )
-@pytest.mark.parametrize("damage", ["missing", "wrong_count", "duplicate"])
 def test_execution_settings_follow_measured_contracts(tmp_path, mode, language, damage):
     output = tmp_path / "report"
     create(output, mode=mode, language=language)

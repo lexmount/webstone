@@ -30,6 +30,12 @@ from webarena_verified.types.config import (
 )
 from webarena_verified.types.task import WebArenaSite
 
+from harness.environments.webarena.sites import (
+    WEBARENA_SITES,
+    SessionLogin,
+    site_adapter,
+    sites_with,
+)
 from harness.environments.webarena.topology import (
     CONTAINER_HOST_ALIAS,
     CREDENTIAL_SITES,
@@ -63,9 +69,9 @@ SITE_CREDENTIALS = _SiteCredentials()
 
 
 SITE_AUTH_HEADERS = {
-    WebArenaSite.SHOPPING: "X-M2-Customer-Auto-Login",
-    WebArenaSite.SHOPPING_ADMIN: "X-M2-Admin-Auto-Login",
-    WebArenaSite.REDDIT: "X-Postmill-Auto-Login",
+    WebArenaSite(name): site_adapter(name).auth_header
+    for name in sites_with()
+    if site_adapter(name).auth_header
 }
 
 
@@ -83,9 +89,7 @@ MAGENTO_DEPENDENCY_READY_TIMEOUT_SECONDS = 300
 PHYSICAL_EXECUTION_LOCK_NAMESPACE = "webarena-verified-fixed-site-stack-v1"
 
 
-AMD64_PHP_SITES = frozenset(
-    {WebArenaSite.SHOPPING, WebArenaSite.SHOPPING_ADMIN, WebArenaSite.REDDIT}
-)
+AMD64_PHP_SITES = frozenset(WebArenaSite(name) for name in sites_with(amd64_php=True))
 
 
 PHP_FPM_COMPAT_CONFIG = Path(__file__).with_name("runtime") / "php-fpm-qemu.ini"
@@ -233,7 +237,7 @@ def configure_benchmark(hostname: str = CONTAINER_HOST_ALIAS) -> WebArenaVerifie
             urls=list(
                 dict.fromkeys([site_url(site, hostname), site_url(site, CONTAINER_HOST_ALIAS)])
             ),
-            use_header_login=site == WebArenaSite.SHOPPING_ADMIN,
+            use_header_login=site_adapter(site).header_login,
         )
         for site in SITE_PORTS
     }
@@ -336,9 +340,9 @@ def ensure_site(site: WebArenaSite, *, reset: bool) -> None:
         raise RuntimeError(f"{site.value} did not become ready: {ready.message}")
     with closing(docker.from_env()) as client:
         container = client.containers.get(manager.container_name)
-        if site == WebArenaSite.GITLAB:
+        if site_adapter(site).container_healthcheck:
             wait_container_healthy(container)
-        if site in {WebArenaSite.SHOPPING, WebArenaSite.SHOPPING_ADMIN}:
+        if site_adapter(site).magento:
             wait_magento_dependencies_ready(container)
     wait_application_ready(site, manager.config.health_check_path)
     if QEMU_X86_64_HOST_PATH in manager.config.volumes:
@@ -525,70 +529,6 @@ def prepare_browser_viewport(service: Any) -> dict[str, Any]:
     return evidence
 
 
-def bootstrap_postmill_session(context: Any, base_url: str) -> None:
-    """Authenticate once, without loading subresources or following redirects.
-
-    The image's header authenticator migrates (and destroys) the previous
-    session on every authenticated request. A persistent context header makes
-    concurrent thumbnail requests race with CSRF form sessions. The context's
-    API client shares the browser cookie jar but does not execute page content.
-    Use the configured, host-accessible origin, not a browser-only DNS alias.
-    """
-    creds = SITE_CREDENTIALS[WebArenaSite.REDDIT]
-    response = context.request.get(
-        base_url,
-        headers={
-            SITE_AUTH_HEADERS[WebArenaSite.REDDIT]: (f"{creds['username']}:{creds['password']}")
-        },
-        max_redirects=0,
-        max_retries=0,
-        timeout=90_000,
-    )
-    try:
-        if not 200 <= response.status < 300:
-            raise RuntimeError(
-                f"Postmill session bootstrap requires a direct 2xx response; got {response.status}"
-            )
-        if not any(
-            cookie.get("name") == "PHPSESSID" and cookie.get("value")
-            for cookie in context.cookies(base_url)
-        ):
-            raise RuntimeError("Postmill session bootstrap did not establish a session cookie")
-    finally:
-        response.dispose()
-
-
-def bootstrap_postmill_browser_session(context: Any, page: Any, base_url: str) -> None:
-    """Establish Postmill auth through the browser when API cookies are not shared."""
-
-    creds = SITE_CREDENTIALS[WebArenaSite.REDDIT]
-    page.set_extra_http_headers(
-        {
-            SITE_AUTH_HEADERS[WebArenaSite.REDDIT]: (
-                f"{creds['username']}:{creds['password']}"
-            )
-        }
-    )
-    try:
-        response = page.goto(base_url, wait_until="commit", timeout=90_000)
-    finally:
-        page.set_extra_http_headers({})
-    if (
-        response is None
-        or not 200 <= response.status < 300
-        or response.request.redirected_from is not None
-    ):
-        status = response.status if response is not None else "no response"
-        raise RuntimeError(
-            f"Postmill browser bootstrap requires a direct 2xx response; got {status}"
-        )
-    if not any(
-        cookie.get("name") == "PHPSESSID" and cookie.get("value")
-        for cookie in context.cookies(base_url)
-    ):
-        raise RuntimeError("Postmill browser bootstrap did not establish a session cookie")
-
-
 def login_context(
     service: Any,
     sites: tuple[WebArenaSite, ...],
@@ -628,11 +568,11 @@ def login_context(
         if not fresh_context:
             context.clear_cookies()
         auth_headers = {
-            SITE_AUTH_HEADERS[site]: (
+            site_adapter(site).auth_header: (
                 f"{SITE_CREDENTIALS[site]['username']}:{SITE_CREDENTIALS[site]['password']}"
             )
             for site in sites
-            if site in SITE_AUTH_HEADERS and site != WebArenaSite.REDDIT
+            if site_adapter(site).context_auth_header
         }
         if auth_headers or not fresh_context:
             context.set_extra_http_headers(auth_headers)
@@ -651,49 +591,22 @@ def login_context(
                     )
                 page.set_default_timeout(60_000)
                 page.set_default_navigation_timeout(90_000)
-                if site == WebArenaSite.SHOPPING:
-                    page.goto(f"{base}/customer/account", wait_until="commit")
-                    page.evaluate("localStorage.clear(); sessionStorage.clear()")
-                    page.reload(wait_until="domcontentloaded")
-                    publish_layout(page)
-                    wait_for_login_ready(
-                        page, ".block-dashboard-info, .box-information"
-                    )
-                elif site == WebArenaSite.SHOPPING_ADMIN:
-                    page.goto(base, wait_until="commit")
-                    page.evaluate("localStorage.clear(); sessionStorage.clear()")
-                    page.reload(wait_until="domcontentloaded")
-                    publish_layout(page)
-                    wait_for_login_ready(page, ".page-title")
-                elif site == WebArenaSite.REDDIT:
-                    if getattr(service, "_supports_context_request_cookie_sharing", True):
-                        bootstrap_postmill_session(context, base)
-                    else:
-                        bootstrap_postmill_browser_session(context, page, base)
-                    page.goto(base, wait_until="commit")
-                    page.evaluate("localStorage.clear(); sessionStorage.clear()")
-                    page.reload(wait_until="domcontentloaded")
-                    publish_layout(page)
-                    wait_for_login_ready(
-                        page, "button", exact_text=creds["username"]
-                    )
-                elif site == WebArenaSite.GITLAB:
-                    page.goto(f"{base}/users/sign_in", wait_until="commit")
-                    page.evaluate("localStorage.clear(); sessionStorage.clear()")
-                    page.reload(wait_until="domcontentloaded")
-                    publish_layout(page)
-                    page.get_by_test_id("username-field").fill(creds["username"])
-                    publish_layout(page)
-                    page.get_by_test_id("password-field").fill(creds["password"])
-                    publish_layout(page)
-                    sign_in = page.get_by_test_id("sign-in-button")
-                    if getattr(service, "_native_login_form_submit", False):
-                        service._submit_login_form(page, sign_in)
-                    else:
-                        sign_in.click()
-                    page.wait_for_url("**/", timeout=90_000)
-                elif site not in {WebArenaSite.MAP, WebArenaSite.WIKIPEDIA}:
+                if site not in WEBARENA_SITES:
                     raise ValueError(f"unsupported WebArena login site: {site}")
+                session_login = site_adapter(site).session_login
+                if session_login is None:
+                    raise ValueError(f"unsupported WebArena login site: {site}")
+                session_login(
+                    SessionLogin(
+                        service=service,
+                        context=context,
+                        page=page,
+                        base_url=base,
+                        credentials=creds,
+                        publish_layout=publish_layout,
+                        wait_for_login_ready=wait_for_login_ready,
+                    )
+                )
                 page.wait_for_timeout(1_000)
             finally:
                 if not reuse_primary:

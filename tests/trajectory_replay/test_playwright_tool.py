@@ -1912,7 +1912,7 @@ def test_playwright_backend_executes_portable_and_snapshot_ref_calls(tmp_path: P
     try:
         from harness.trajectory_replay.playwright_tool import PlaywrightReplayTool
 
-        tool = PlaywrightReplayTool(endpoint)
+        tool = PlaywrightReplayTool(endpoint, engine="chromium")
         try:
             assert prepare_browser_viewport(tool)["verified"]
             started = time.monotonic()

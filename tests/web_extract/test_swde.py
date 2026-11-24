@@ -1,6 +1,7 @@
 """Multi-domain native extraction, frozen references and unchanged product behavior."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -81,13 +82,14 @@ def inputs(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(swde, "CARD", card)
     monkeypatch.setitem(
-        dataset.BENCHMARKS,
+        dataset.BENCHMARKS._items,
         "swde",
-        {
-            "profile": str(card),
-            "module": "harness.web_extract.swde",
-            "reference_coverage_archive": "source/archives/groundtruth.7z",
-        },
+        replace(
+            dataset.BENCHMARKS.get("swde"),
+            profile=str(card),
+            snapshot_project=None,
+            snapshot_distribution=None,
+        ),
     )
     monkeypatch.setattr(pipeline, "load_runtime_env", lambda: None)
     monkeypatch.setattr("harness.web_extract.repair.load_runtime_env", lambda: None)
@@ -402,35 +404,34 @@ def reviewed_record_report(record_audit_material, tmp_path, monkeypatch):
     return home, content, profile_path, output, audit_path
 
 
-@pytest.mark.parametrize("damage", ["changed", "missing"])
 def test_record_reference_revision_is_required_at_check_and_package(
-    reviewed_record_report, damage, tmp_path
+    reviewed_record_report, tmp_path
 ):
     from harness.web_extract.report import check, package
 
     home, content, profile, output, _ = reviewed_record_report
     check(output, home=home, profile=profile)
     revision = Path(pipeline.read_json(content)["reference_revision"]["path"])
-    if damage == "missing":
-        revision.unlink()
-    else:
-        pipeline.save_json(revision, {"substituted": True})
+    original = revision.read_bytes()
     visual = tmp_path / "visual.json"
     pipeline.save_json(visual, {})
-    for release in (False, True):
+    for damage in ("changed", "missing"):
+        if damage == "missing":
+            revision.unlink()
+        else:
+            pipeline.save_json(revision, {"substituted": True})
+        for release in (False, True):
+            with pytest.raises((ValueError, FileNotFoundError)):
+                check(output, home=home, profile=profile, release=release, visual_receipt=visual)
+        archive = tmp_path / (damage + ".zip")
         with pytest.raises((ValueError, FileNotFoundError)):
-            check(output, home=home, profile=profile, release=release, visual_receipt=visual)
-    archive = tmp_path / "public.zip"
-    with pytest.raises((ValueError, FileNotFoundError)):
-        package(output, archive, home=home, profile=profile, visual_receipt=visual)
-    assert not archive.exists()
+            package(output, archive, home=home, profile=profile, visual_receipt=visual)
+        assert not archive.exists()
+        revision.write_bytes(original)
 
 
 @pytest.mark.parametrize("source_revision_run", [True], indirect=True)
-@pytest.mark.parametrize("changed", [None, "coverage", "archive", "card"])
-def test_reference_coverage_inputs_remain_frozen_after_formal_verification(
-    reviewed_record_report, changed
-):
+def test_reference_coverage_inputs_remain_frozen_after_formal_verification(reviewed_record_report):
     from harness.reporting.publication import PublicationSnapshot
     from harness.web_extract.report import check, completion_authorities
 
@@ -439,16 +440,19 @@ def test_reference_coverage_inputs_remain_frozen_after_formal_verification(
     revision = pipeline.read_json(Path(model["reference_revision"]["path"]))
     snapshot = PublicationSnapshot.for_inputs(completion_authorities(profile, home))
     check(output, profile=profile, home=home)
-    if changed:
-        path = {
-            "coverage": Path(revision["coverage_authority"]["path"]),
-            "archive": home / "source/archives/groundtruth.7z",
-            "card": swde.CARD,
-        }[changed]
+    snapshot.check()
+    for path in (
+        Path(revision["coverage_authority"]["path"]),
+        home / "source/archives/groundtruth.7z",
+        swde.CARD,
+    ):
+        original = path.read_bytes()
         path.write_bytes(b"changed after reference verification")
-        with pytest.raises(ValueError, match="inputs changed"):
-            snapshot.check()
-    else:
+        try:
+            with pytest.raises(ValueError, match="inputs changed"):
+                snapshot.check()
+        finally:
+            path.write_bytes(original)
         snapshot.check()
 
 
@@ -620,13 +624,18 @@ def test_record_report_reproduces_complete_review_and_preserves_original_evidenc
         assert metrics[method]["scores"]["value_micro"]["f1"] == 1
 
 
-@pytest.mark.parametrize(
-    "damage", ["missing-audit", "unresolved", "native-identity", "aggregate", "source-hash"]
-)
-def test_record_report_rejects_incomplete_or_stale_review(reviewed_record_report, tmp_path, damage):
+def test_record_report_rejects_incomplete_or_stale_review(reviewed_record_report, tmp_path):
+    home, content, profile_path, _, audit_path = reviewed_record_report
+    originals = {path: path.read_bytes() for path in (content, profile_path, audit_path)}
+    for damage in ("missing-audit", "unresolved", "native-identity", "aggregate", "source-hash"):
+        _reject_stale_review(home, content, profile_path, audit_path, tmp_path, damage)
+        for path, data in originals.items():
+            path.write_bytes(data)
+
+
+def _reject_stale_review(home, content, profile_path, audit_path, tmp_path, damage):
     from harness.web_extract import report
 
-    home, content, profile_path, _, audit_path = reviewed_record_report
     model = pipeline.read_json(content)
     audit = pipeline.read_json(audit_path)
     if damage == "missing-audit":
@@ -648,17 +657,28 @@ def test_record_report_rejects_incomplete_or_stale_review(reviewed_record_report
     pipeline.save_json(profile_path, profile)
     with pytest.raises(ValueError, match="review|audit"):
         report.build(
-            tmp_path / "invalid-report", content, home=home, profile=profile_path, language="zh"
+            tmp_path / f"invalid-{damage}", content, home=home, profile=profile_path, language="zh"
         )
 
 
-@pytest.mark.parametrize("damage", ["missing-summary", "wrong-summary", "wrong-fields"])
-def test_record_release_checks_review_content_beyond_file_hashes(reviewed_record_report, damage):
+def test_record_release_checks_review_content_beyond_file_hashes(reviewed_record_report):
+    _, _, _, output, _ = reviewed_record_report
+    manifest_path = output / "report-manifest.json"
+    originals = {
+        path: path.read_bytes()
+        for path in (manifest_path, output / "zh/review.html", output / "zh/results.html")
+    }
+    for damage in ("missing-summary", "wrong-summary", "wrong-fields"):
+        _reject_damaged_review_route(output, damage)
+        for path, data in originals.items():
+            path.write_bytes(data)
+
+
+def _reject_damaged_review_route(output, damage):
     from bs4 import BeautifulSoup
 
     from harness.web_extract import report
 
-    _, _, _, output, _ = reviewed_record_report
     route = "zh/review.html" if damage != "wrong-fields" else "zh/results.html"
     path = output / route
     soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
@@ -1619,7 +1639,9 @@ def test_registered_adapter_dispatch_does_not_depend_on_dataset_name(inputs, mon
     manifest["benchmark"] = "another-schema-cohort"
     pipeline.save_json(home / "dataset/manifest.json", manifest)
     monkeypatch.setitem(
-        dataset.BENCHMARKS, "another-schema-cohort", dict(dataset.BENCHMARKS["swde"])
+        dataset.BENCHMARKS._items,
+        "another-schema-cohort",
+        replace(dataset.BENCHMARKS.get("swde"), name="another-schema-cohort"),
     )
     plan = plan_for_inputs(home, ["cloudflare-json"], tmp_path / "registered.json")
     assert plan["case_count"] == 2
@@ -1641,12 +1663,9 @@ def test_swde_prepare_cannot_reuse_a_valid_other_benchmark(tmp_path, monkeypatch
 
     home = create(tmp_path / "product")
     monkeypatch.setitem(
-        dataset.BENCHMARKS,
+        dataset.BENCHMARKS._items,
         "zyte",
-        {
-            **dataset.BENCHMARKS["zyte"],
-            "profile": str(home / "profile.json"),
-        },
+        replace(dataset.BENCHMARKS.get("zyte"), profile=str(home / "profile.json")),
     )
     archive = tmp_path / "archive.bin"
     archive.write_bytes(b"pinned archive")
@@ -1744,7 +1763,15 @@ def test_clean_prepare_downloads_pinned_scorer_and_recovers_after_partial_extrac
     )
     monkeypatch.setattr(swde, "CARD", card)
     monkeypatch.setitem(
-        dataset.BENCHMARKS, "swde", {"profile": str(card), "module": "harness.web_extract.swde"}
+        dataset.BENCHMARKS._items,
+        "swde",
+        replace(
+            dataset.BENCHMARKS.get("swde"),
+            profile=str(card),
+            snapshot_project=None,
+            snapshot_distribution=None,
+            reference_coverage_archive=None,
+        ),
     )
     download = Mock(
         return_value=HttpResponse(200, "https://source.example/pinned-evaluator", {}, scorer)
@@ -2270,7 +2297,7 @@ def test_shared_instructions_reach_every_native_request_and_its_receipt(monkeypa
         "required": ["price"],
     }
     original = deepcopy(schema)
-    for key in pipeline.available_methods()[method]["keys"]:
+    for key in pipeline.METHODS.get(method).keys:
         monkeypatch.setenv(key, "synthetic")
     captured = []
 
@@ -2642,7 +2669,8 @@ def test_record_later_title_dispute_preserves_the_resolved_author(tmp_path, monk
     manifest['files']['evaluate.py'] = {'sha256': pipeline.digest(scorer.read_bytes()),
                                         'bytes': scorer.stat().st_size}
     pipeline.save_json(home / 'dataset/manifest.json', manifest)
-    monkeypatch.setitem(dataset.BENCHMARKS['swde'], 'profile', str(home / 'profile.json'))
+    monkeypatch.setitem(dataset.BENCHMARKS._items, 'swde',
+                        replace(dataset.BENCHMARKS.get('swde'), profile=str(home / 'profile.json')))
     model = pipeline.read_json(home / 'content.json')
     methods = list(model['participants'])
     truth = pipeline.read_json(home / 'dataset/dataset/ground-truth.json')

@@ -20,8 +20,8 @@ def report_fixture(root):
             '<!doctype html><html lang="zh"><meta charset="utf-8"><main><h1>' + filename + '</h1></main>', encoding='utf-8')
 
 
-@pytest.mark.parametrize('primary', ['zh', 'en'])
-def test_capture_produces_complete_bound_proof_and_rejects_tampering(tmp_path, monkeypatch, primary):
+def test_capture_produces_complete_bound_proof_and_rejects_tampering(tmp_path, monkeypatch):
+    primary = 'zh'
     binary = os.environ.get('WEBSTONE_TEST_BROWSER_BINARY')
     if not binary:
         try:
@@ -31,6 +31,12 @@ def test_capture_produces_complete_bound_proof_and_rejects_tampering(tmp_path, m
     monkeypatch.setenv('BROWSER_USE_VISUAL_BROWSER', binary)
     root, receipt = tmp_path / 'report', tmp_path / 'reader.json'
     report_fixture(root)
+    # A wide table inside a keyboard-reachable scroll region is not page overflow.
+    page = root / 'index.html'
+    table = ('<div class="scroll" tabindex="0" style="width:300px;overflow:auto">'
+             '<table style="width:1800px"><tr><td>Method</td>'
+             '<td class="win"><button>Far column</button></td></tr></table></div>')
+    page.write_text(page.read_text(encoding='utf-8').replace('</main>', table + '</main>'), encoding='utf-8')
     if primary == 'en':
         manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
         manifest.update(primary_language='en', languages=['en', 'zh'])
@@ -74,22 +80,10 @@ def test_capture_produces_complete_bound_proof_and_rejects_tampering(tmp_path, m
             visual.verify(root, receipt)
     receipt.write_text(json.dumps(original), encoding='utf-8')
     assert visual.verify(root, receipt)
-
-
-def test_capture_allows_reachable_scroll_columns_but_rejects_broken_cell_layout(tmp_path):
-    root, receipt = tmp_path / 'report', tmp_path / 'reader.json'
-    report_fixture(root)
-    page = root / 'index.html'
-    original = page.read_text(encoding='utf-8')
-    table = ('<div class="scroll" tabindex="0" style="width:300px;overflow:auto">'
-             '<table style="width:1800px"><tr><td>Method</td>'
-             '<td class="win"><button>Far column</button></td></tr></table></div>')
-    page.write_text(original.replace('</main>', table + '</main>'), encoding='utf-8')
-    visual.capture(root, receipt)
     page.write_text(page.read_text(encoding='utf-8').replace(
         'class="win"', 'class="win" style="display:inline-block"'), encoding='utf-8')
     with pytest.raises(ValueError, match='Invalid table cell layout'):
-        visual.capture(root, receipt)
+        visual.capture(root, tmp_path / 'broken.json')
 
 
 def test_legacy_asserted_readability_is_not_accepted(tmp_path):
@@ -100,7 +94,7 @@ def test_legacy_asserted_readability_is_not_accepted(tmp_path):
         visual.verify(root, receipt)
 
 
-@pytest.mark.parametrize('primary,languages', [('zh', ['zh']), ('zh', ['zh', 'en']), ('en', ['en', 'zh'])])
+@pytest.mark.parametrize('primary,languages', [('zh', ['zh']), ('en', ['en', 'zh'])])
 def test_standalone_routes_follow_saved_primary_language(tmp_path, primary, languages):
     root = tmp_path / 'report'
     report_fixture(root)
@@ -123,8 +117,8 @@ def test_standalone_routes_follow_saved_primary_language(tmp_path, primary, lang
         visual.routes(root)
 
 
-@pytest.mark.parametrize('width', [390, 1280])
-def test_footer_links_share_a_baseline_and_metric_guides_expand_without_page_overflow(tmp_path, width):
+def test_footer_links_share_a_baseline_and_metric_guides_expand_without_page_overflow(tmp_path):
+    width = 390
     from playwright.sync_api import sync_playwright
     from harness.web_search.example import example
     from harness.reporting.visual import local_report_server

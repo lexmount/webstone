@@ -27,13 +27,14 @@ from harness.browser_use.selection import PilotTask, load_pilot, validate_agains
 from harness.container_isolation import require_linux_cgroup_v2
 from harness.env_file import parse_env_file
 from harness.environments.browser import (
-    ENGINE_PORTS,
     configured_browser_images,
+    engine_cdp_port,
     published_endpoint,
     rotated_engine_order,
     start_browser_container,
     wait_cdp,
 )
+from harness.environments.participants import profile_engines
 from harness.environments.webarena.har import CdpHarRecorder
 from harness.environments.webarena.runtime import (
     PHYSICAL_EXECUTION_LOCK_NAMESPACE,
@@ -67,8 +68,6 @@ from harness.resource_accounting import (
     DockerStatsResources,
     ResourceSampler,
 )
-
-ENGINE_IMAGES = configured_browser_images()
 
 SCHEMA = "lex_browser_use_attempt/1"
 
@@ -530,10 +529,27 @@ def _scheduled_tasks(tasks: tuple[PilotTask, ...], max_tasks: int | None) -> tup
     return tasks[:max_tasks]
 
 
-def _engine_order(task_index: int) -> tuple[str, ...]:
-    """Rotate call order by task so every registered browser takes every position."""
+def _engine_order(engines: tuple[str, ...], task_index: int) -> tuple[str, ...]:
+    """Rotate call order by task so every profile browser takes every position."""
 
-    return rotated_engine_order(tuple(ENGINE_IMAGES), task_index)
+    return rotated_engine_order(engines, task_index)
+
+
+def _profile_participants(path: Path, model: str) -> tuple[str, ...]:
+    """Read the browsers to run from the report profile and check the model is registered."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Browser Use profile must be a regular file")
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    engines = profile_engines(profile)
+    images = configured_browser_images()
+    unsupported = [engine for engine in engines if engine not in images]
+    if unsupported:
+        raise ValueError(
+            f"Browser Use profile names browsers without a container image: {unsupported}"
+        )
+    if model not in [str(item) for item in profile.get("models") or []]:
+        raise ValueError(f"model is not registered in the Browser Use profile: {model}")
+    return engines
 
 
 def run(args: argparse.Namespace) -> Path:  # noqa: PLR0915
@@ -551,6 +567,8 @@ def run(args: argparse.Namespace) -> Path:  # noqa: PLR0915
     harness_commit = require_clean_git_checkout(repo_root)
     cowagent_commit = require_clean_git_checkout(cowagent_repo)
 
+    engines = _profile_participants(Path(args.profile).expanduser().resolve(), args.model)
+    images = configured_browser_images()
     output_dir = Path(args.output).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     selection = load_pilot(args.selection)
@@ -600,12 +618,12 @@ def run(args: argparse.Namespace) -> Path:  # noqa: PLR0915
     docker_architecture = str(docker_info.get("Architecture") or "")
     runtime_compatibility = site_runtime_compatibility(docker_architecture)
     try:
-        for engine in ENGINE_IMAGES:
+        for engine in engines:
             network = client.networks.create(f"lex-browser-use-{run_id}-{engine}")
             networks[engine] = network
             container = start_browser_container(
                 client,
-                image=ENGINE_IMAGES[engine], cdp_port=ENGINE_PORTS[engine],
+                image=images[engine], cdp_port=engine_cdp_port(engine),
                 engine=engine,
                 run_id=f"agent-{run_id}",
                 cpus=args.cpus,
@@ -616,7 +634,7 @@ def run(args: argparse.Namespace) -> Path:  # noqa: PLR0915
             container.reload()
             image_metadata[engine] = docker_image_metadata(container.image)
             http_endpoint = published_endpoint(
-                container, engine=engine, cdp_port=ENGINE_PORTS[engine]
+                container, engine=engine, cdp_port=engine_cdp_port(engine)
             )
             endpoints[engine] = wait_cdp(http_endpoint, container=container)
             browser_metadata[engine] = cdp_metadata(http_endpoint)
@@ -665,7 +683,7 @@ def run(args: argparse.Namespace) -> Path:  # noqa: PLR0915
             for task_index, selected in enumerate(
                 _scheduled_tasks(selection.tasks, args.max_tasks)
             ):
-                for engine in _engine_order(task_index):
+                for engine in _engine_order(engines, task_index):
                     _run_engine_attempts(
                         completed=completed,
                         model=args.model,
@@ -774,6 +792,11 @@ def parse_args() -> argparse.Namespace:
         "--selection", default="evaluation/browser-use/webarena-verified-pilot.json"
     )
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--profile",
+        required=True,
+        help="report profile whose engines select the browsers this run measures",
+    )
     parser.add_argument(
         "--env-file",
         help="explicit dotenv file for provider credentials; defaults to the repository .env",

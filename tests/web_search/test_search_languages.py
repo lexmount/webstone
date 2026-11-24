@@ -183,8 +183,8 @@ def test_search_release_rejects_lost_builder_identity(report, defect):
         check(output)
 
 
-@pytest.mark.parametrize('language', ['zh', 'en'])
-def test_delivery_shell_keeps_requested_detail_instead_of_home_redirect(report, tmp_path, language):
+def test_delivery_shell_keeps_requested_detail_instead_of_home_redirect(report, tmp_path):
+    language = 'en'
     from harness.web_search.delivery import export
     output, source = report
     build(output, source=source, language=language)

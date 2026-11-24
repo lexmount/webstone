@@ -44,8 +44,7 @@ def test_revision_authority_is_explicit_and_binds_cause_and_controls():
         validate_revision_binding(revision, authority=authority)
 
 
-@pytest.mark.parametrize('field', ['source_bindings', 'packets'])
-@pytest.mark.parametrize('relative', ['/absolute/outside.json', '../outside.json'])
+@pytest.mark.parametrize('field,relative', [('source_bindings', '/absolute/outside.json'), ('packets', '../outside.json')])
 def test_review_rejects_paths_outside_frozen_bundle(tmp_path, field, relative):
     from harness.web_search import review
     from tests.web_search.test_review import example

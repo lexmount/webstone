@@ -91,6 +91,7 @@ webarena-verified = { git = "https://github.com/lexmount/webarena-verified.git",
 testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
 markers = [
+  "node_packages: needs the Node packages that `npm ci` installs; skipped locally without them, required in CI",
   "real_smoke: accesses real containers or live deployment endpoints",
   "slow: one call takes about eight seconds or more; deselect with -m 'not slow'",
 ]
@@ -210,4 +211,5 @@ bundled-data = [
   "evaluation/browser-use-public/adoption-evidence.json",
   "evaluation/browser-use-public/benchmark-catalog.json",
   "evaluation/browser-use-public/report-changes.json",
+  "examples/trajectory_replay/public_webarena/docker/moli.Dockerfile",
 ]

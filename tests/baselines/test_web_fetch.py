@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from harness.web_fetch import call_boundary, cli, runner
+from harness.web_fetch.report import generate_wcxb, generate_webmainbench
 from tests.baselines.snapshot import (
     Normalizer,
     check_baseline,
@@ -12,7 +13,11 @@ from tests.baselines.snapshot import (
     read_json,
     read_jsonl,
     report_snapshot,
+    route_digests,
 )
+from tests.test_webmainbench_full_report import render_full_report
+from tests.test_webmainbench_report import sample_report_inputs
+from tests.wcxb_fixture import create_report_inputs
 
 RECORD_FIELDS = (
     "attempt_id", "provider", "case_id", "run", "ok", "status_code", "error_type",
@@ -61,3 +66,29 @@ def test_web_fetch_stages(tmp_path: Path, monkeypatch) -> None:
         "summary": summary,
         "report": report_snapshot(run / "report", normalize),
     }))
+
+
+def check_routes(name: str, report: Path, root: Path) -> None:
+    check_baseline(name, {"routes": route_digests(report, Normalizer([root]))})
+
+
+def test_wcxb_report(tmp_path: Path) -> None:
+    inputs = create_report_inputs(tmp_path, english_source=True)
+    generate_wcxb(*inputs, include_english=True)
+    check_routes("wcxb", inputs[0], tmp_path)
+
+
+def test_webmainbench_sample_report(tmp_path: Path) -> None:
+    output = tmp_path / "report"
+    output.mkdir()
+    dataset, records, summaries, manifests = sample_report_inputs(output)
+    review = {"status": "passed", "reviewed_at": "2026-09-14T00:00:00Z", "checks": []}
+    generate_webmainbench(
+        output, dataset, records, summaries, manifests, review, include_english=True
+    )
+    check_routes("webmainbench-sample", output, tmp_path)
+
+
+def test_webmainbench_full_report(tmp_path: Path) -> None:
+    render_full_report(tmp_path, "method-binding.json")
+    check_routes("webmainbench-full", tmp_path, tmp_path)

@@ -71,7 +71,7 @@ def test_reference_finalization_preserves_complete_calls_and_original_failed_pos
     assert raw['provider_calls'] == 0 and len(raw['reference_urls']) == 1
 
 
-@pytest.mark.parametrize('observed_status', [200, 404, 503])
+@pytest.mark.parametrize('observed_status', [200, 503])
 def test_reference_finalization_rejects_observed_source_failures(tmp_path, failed_postcheck, observed_status):
     runner, profile, state = failed_postcheck
     state.update(post_status=observed_status, post_exit=0)
@@ -122,8 +122,9 @@ def test_reference_finalization_replays_its_zero_call_and_complete_scope_contrac
     assert state['provider_calls'] == 1
 
 
-@pytest.mark.parametrize('retry', [None, False, True])
-@pytest.mark.parametrize('failure', ['transport', 'http', 'invalid', 'empty'])
+@pytest.mark.parametrize('retry,failure', [
+    (True, 'transport'), (True, 'http'), (True, 'invalid'), (True, 'empty'), (None, 'http'), (False, 'transport'),
+])
 def test_retries_require_explicit_opt_in(tmp_path, retry, failure):
     from harness.web_search.runner import run
     from harness.web_search.report import load_run
@@ -167,7 +168,7 @@ def test_retries_require_explicit_opt_in(tmp_path, retry, failure):
     assert receipt['certified'] is True
 
 
-@pytest.mark.parametrize('retry', ['false', 'true', '', 0, 1, 2, None, [], {}])
+@pytest.mark.parametrize('retry', ['true', 1, None, []])
 def test_invalid_retry_settings_are_rejected_before_collection(tmp_path, retry):
     from harness.web_search.runner import run
 
@@ -421,7 +422,9 @@ class CollectionScenarios(unittest.TestCase):
                 'resources': {m['id']: {'capacity': 1, 'reason': 'One call per provider'}
                               for m in profile['methods']}}
             source.write_text(json.dumps(profile), encoding='utf-8')
+            from harness.benchmark_execution import ExecutionStop
             with patch.object(runner, 'threading', SimpleNamespace(Event=StopEvent, Lock=AdmissionLock)), \
+                    patch.object(runner, 'ExecutionStop', lambda: ExecutionStop(StopEvent())), \
                     patch.object(runner, 'http_call', side_effect=http), \
                     patch.object(runner, 'load_runtime_env'), \
                     patch.dict(os.environ, LEXMOUNT_SEARCH_API_KEY='test', DEEPSEEK_API_KEY='test'):

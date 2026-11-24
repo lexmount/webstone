@@ -19,9 +19,9 @@ SEED = "swde-native-api-first-round-20261104"
 
 def generic_methods():
     """Use the shared registry as the capability authority for schema-based tasks."""
-    from harness.web_extract.pipeline import available_methods
+    from harness.web_extract.pipeline import METHODS
 
-    return tuple(name for name, spec in available_methods().items() if spec.get("custom_schema"))
+    return tuple(name for name, spec in METHODS.items() if spec.custom_schema)
 
 
 def prepare(home: Path, source: Path):

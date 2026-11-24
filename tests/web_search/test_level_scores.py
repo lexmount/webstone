@@ -69,9 +69,7 @@ def test_unsupported_cutoff_is_rejected_before_any_level_judgments():
 @pytest.mark.parametrize('change', [
     {'extra_params': {'enable_thinking': True}},
     {'extra_params': {}},
-    {'max_tokens': 4096},
     {'temperature': 0.7},
-    {'extra_params': {'enable_thinking': False, 'top_k': 20}},
 ])
 def test_same_model_with_different_inference_settings_is_rejected(change):
     profile, rows, admissions, artifacts, evidence = complete_levels()

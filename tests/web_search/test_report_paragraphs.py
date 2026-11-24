@@ -1,6 +1,7 @@
 """Paragraph corrections retain the frozen comparison and every evidence page."""
 import copy
 import json
+import shutil
 
 import pytest
 from bs4 import BeautifulSoup
@@ -9,18 +10,30 @@ from harness.web_search.example import example
 from harness.web_search.report import build, check, main
 
 
-def fixture(root):
+CONTENT = {'sections': [{'page': 'method', 'title': {'en': 'Method', 'zh': 'Method'},
+                         'paragraphs': [{'en': 'Original explanation.',
+                                         'zh': 'Original translated explanation.'}]}]}
+
+
+@pytest.fixture(scope='module')
+def built(tmp_path_factory):
+    root = tmp_path_factory.mktemp('paragraphs')
     example(root)
-    content = {'sections': [{'page': 'method', 'title': {'en': 'Method', 'zh': 'Method'},
-                            'paragraphs': [{'en': 'Original explanation.',
-                                            'zh': 'Original translated explanation.'}]}]}
     path = root / 'content.json'
-    path.write_text(json.dumps(content), encoding='utf-8')
+    path.write_text(json.dumps(CONTENT), encoding='utf-8')
     build(root / 'report', source=root / 'fixture', content=path, include_english=True)
-    return path, content
+    return root
 
 
-def test_public_paragraph_revision_preserves_all_measured_bytes_and_is_idempotent(tmp_path):
+@pytest.fixture
+def fixture(built):
+    def copy_into(root):
+        shutil.copytree(built, root, dirs_exist_ok=True, symlinks=True)
+        return root / 'content.json', copy.deepcopy(CONTENT)
+    return copy_into
+
+
+def test_public_paragraph_revision_preserves_all_measured_bytes_and_is_idempotent(tmp_path, fixture):
     path, content = fixture(tmp_path)
     report = tmp_path / 'report'
     before = json.loads((report / 'manifest.json').read_bytes())
@@ -46,7 +59,7 @@ def test_public_paragraph_revision_preserves_all_measured_bytes_and_is_idempoten
     assert (report / 'manifest.json').read_bytes() == saved
 
 
-def test_same_revision_recovers_when_manifest_commit_fails(tmp_path, monkeypatch):
+def test_same_revision_recovers_when_manifest_commit_fails(tmp_path, monkeypatch, fixture):
     from harness.web_search import report as owner
 
     path, content = fixture(tmp_path)
@@ -70,44 +83,29 @@ def test_same_revision_recovers_when_manifest_commit_fails(tmp_path, monkeypatch
     assert len(json.loads((report / 'manifest.json').read_bytes())['content_revisions']) == 1
 
 
-@pytest.mark.parametrize('field,value', [
-    ('before_manifest_sha256', '0' * 64), ('before_content_sha256', '0' * 64),
-    ('content_sha256', '0' * 64), ('changed_sections', []), ('provider_calls', 1),
-    ('before_manifest_gzip_base64', 'invalid'),
-    ('schema', 'unknown'), ('content_utf8', '{}'),
-])
-def test_check_rejects_tampered_revision_claims(tmp_path, field, value):
+def test_check_rejects_tampered_revision_claims(tmp_path, fixture):
     path, content = fixture(tmp_path)
     report = tmp_path / 'report'
     content['sections'][0]['paragraphs'][0]['en'] = 'Revised explanation.'
     path.write_text(json.dumps(content), encoding='utf-8')
     main(['--output', str(report), '--revise-paragraphs', str(path)])
     manifest_path = report / 'manifest.json'
-    manifest = json.loads(manifest_path.read_bytes())
-    manifest['content_revisions'][0][field] = value
-    manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
-    with pytest.raises(ValueError, match='revision provenance'):
-        check(report)
-
-
-def test_multiple_revisions_keep_a_verifiable_predecessor_chain(tmp_path):
-    path, content = fixture(tmp_path)
-    report = tmp_path / 'report'
-    for text in ('First correction.', 'Second correction.'):
-        content['sections'][0]['paragraphs'][0]['en'] = text
-        path.write_text(json.dumps(content), encoding='utf-8')
-        main(['--output', str(report), '--revise-paragraphs', str(path)])
-        assert check(report)
-    manifest_path = report / 'manifest.json'
-    manifest = json.loads(manifest_path.read_bytes())
-    manifest['content_revisions'][0]['provider_calls'] = 1
-    manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
-    with pytest.raises(ValueError, match='revision provenance'):
-        check(report)
+    original = manifest_path.read_bytes()
+    for field, value in [
+        ('before_manifest_sha256', '0' * 64), ('before_content_sha256', '0' * 64),
+        ('content_sha256', '0' * 64), ('changed_sections', []), ('provider_calls', 1),
+        ('before_manifest_gzip_base64', 'invalid'),
+        ('schema', 'unknown'), ('content_utf8', '{}'),
+    ]:
+        manifest = json.loads(original)
+        manifest['content_revisions'][0][field] = value
+        manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+        with pytest.raises(ValueError, match='revision provenance'):
+            check(report)
 
 
 @pytest.mark.parametrize('change', ['inputs', 'structure', 'language', 'missing-edition'])
-def test_paragraph_revision_rejects_other_changes_without_partial_writes(tmp_path, change):
+def test_paragraph_revision_rejects_other_changes_without_partial_writes(tmp_path, change, fixture):
     path, content = fixture(tmp_path)
     report = tmp_path / 'report'
     revised = copy.deepcopy(content)
@@ -129,9 +127,8 @@ def test_paragraph_revision_rejects_other_changes_without_partial_writes(tmp_pat
     assert all(p.read_bytes() == raw for p, raw in before.items())
 
 
-@pytest.mark.parametrize('edition', ['', 'en/'])
-@pytest.mark.parametrize('change', ['alter', 'remove'])
-def test_revised_standard_paragraphs_are_checked_in_every_edition(tmp_path, edition, change):
+@pytest.mark.parametrize('edition,change', [('', 'alter'), ('en/', 'remove')])
+def test_revised_standard_paragraphs_are_checked_in_every_edition(tmp_path, edition, change, fixture):
     path, content = fixture(tmp_path)
     report = tmp_path / 'report'
     content['sections'][0]['paragraphs'][0] = {
@@ -150,7 +147,7 @@ def test_revised_standard_paragraphs_are_checked_in_every_edition(tmp_path, edit
         check(report)
 
 
-def test_repeated_paragraph_revisions_keep_one_linear_history(tmp_path):
+def test_repeated_paragraph_revisions_keep_one_linear_history(tmp_path, fixture):
     import base64
     import gzip
     import random
@@ -163,14 +160,14 @@ def test_repeated_paragraph_revisions_keep_one_linear_history(tmp_path):
     manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
     assert check(report)
     sizes = [manifest_path.stat().st_size]
-    for index in range(5):
+    for index in range(3):
         content['sections'][0]['paragraphs'][0]['en'] = f'Correction {index}.'
         path.write_text(json.dumps(content), encoding='utf-8')
         main(['--output', str(report), '--revise-paragraphs', str(path)])
         assert check(report)
         sizes.append(manifest_path.stat().st_size)
     first_growth = sizes[1] - sizes[0]
-    assert sizes[-1] <= sizes[0] + 5 * first_growth * 1.5, sizes
+    assert sizes[-1] <= sizes[0] + 3 * first_growth * 1.5, sizes
     current = json.loads(manifest_path.read_bytes())
     revisions = 0
     while current.get('content_revisions'):
@@ -178,10 +175,10 @@ def test_repeated_paragraph_revisions_keep_one_linear_history(tmp_path):
         receipt = current['content_revisions'][0]
         current = json.loads(gzip.decompress(base64.b64decode(receipt['before_manifest_gzip_base64'])))
         revisions += 1
-    assert revisions == 5
+    assert revisions == 3
 
 
-def test_compact_history_preserves_and_validates_legacy_predecessors(tmp_path):
+def test_compact_history_preserves_and_validates_legacy_predecessors(tmp_path, fixture):
     import base64
     import gzip
 

@@ -32,10 +32,10 @@ The four official amd64 images occupy about 91 GB before writable layers. Legacy
 From the repository root:
 
 ```bash
-./examples/browser_use/run.sh --model YOUR_MODEL
+./examples/browser_use/run.sh --model YOUR_MODEL --profile YOUR_REPORT_PROFILE
 ```
 
-Choose a model your account can access. `BROWSER_USE_MODEL` supplies a default; `--model` overrides it. `./examples/browser_use/run.sh --help` works without credentials or site startup.
+Choose a model your account can access. `BROWSER_USE_MODEL` supplies a default; `--model` overrides it. The report profile's `engines` select the browsers the run measures, and its `models` must include the model; `BROWSER_USE_PROFILE` supplies a default. `./examples/browser_use/run.sh --help` works without credentials or site startup.
 
 To compare another model, use a separate evidence directory:
 
