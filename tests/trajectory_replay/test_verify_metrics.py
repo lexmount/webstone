@@ -101,5 +101,6 @@ def test_independent_audit_rejects_tampered_summary(tmp_path, engines, change, m
 def test_independent_audit_rejects_a_smaller_provider_set_than_attempts(tmp_path):
     engines = ("chromium", "moli", "obscura")
     _audited_summary(tmp_path, engines)
-    rows = [json.loads(line) for line in (tmp_path / "attempts.jsonl").read_text(encoding="utf-8").splitlines()]
+    attempts = (tmp_path / "attempts.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in attempts.splitlines()]
     _rejects(tmp_path, summarize_attempts(rows[:2], engines=engines[:2]), "required provider set")
