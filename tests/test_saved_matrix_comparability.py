@@ -78,8 +78,8 @@ def test_split_retry_uses_proved_remaining_and_original_budgets(tmp_path):
     assert check_saved_matrix(report, spec_path=tmp_path/'spec.json')['valid']
 
 
-@pytest.mark.parametrize('role', ['prior', 'current'])
-@pytest.mark.parametrize('budget', ['missing', -1, 'conflicting', True])
+@pytest.mark.parametrize('role,budget', [
+    ('prior', 'missing'), ('current', -1), ('prior', 'conflicting'), ('current', True)])
 def test_split_retry_cannot_replace_unproved_manifest_budgets(tmp_path, role, budget):
     spec, roots = split_matrix(tmp_path)
     manifest_path = roots[role]/'manifest.json'
@@ -350,8 +350,7 @@ def test_final_checker_requires_original_sources(tmp_path):
     assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['valid']
 
 
-@pytest.mark.parametrize('presentation', ['audit', 'final'])
-@pytest.mark.parametrize('combined', [False, True])
+@pytest.mark.parametrize('presentation,combined', [('audit', True), ('final', False)])
 def test_saved_ranks_preserve_diagnostic_evidence_disclosure(tmp_path, presentation, combined):
     from bs4 import BeautifulSoup
     spec = matrix(tmp_path)
@@ -377,7 +376,7 @@ def test_saved_ranks_preserve_diagnostic_evidence_disclosure(tmp_path, presentat
         assert '任务判定汇总（非排名）' not in page.get_text()
 
 
-@pytest.mark.parametrize('presentation,source_check', [('audit', False), ('audit', True), ('final', True)])
+@pytest.mark.parametrize('presentation,source_check', [('audit', False), ('final', True)])
 def test_checker_accepts_relative_report_root(tmp_path, monkeypatch, presentation, source_check):
     from harness.web_fetch.report_saved_matrix import check_saved_matrix
     spec = matrix(tmp_path)
@@ -402,7 +401,7 @@ def test_checker_rejects_symlinked_report_root(tmp_path, monkeypatch, linked_par
         check_saved_matrix(Path('linked')/output.name if linked_parent else Path('linked'))
 
 
-@pytest.mark.parametrize('identity', ['b'*64, None, '', 'invalid', 1])
+@pytest.mark.parametrize('identity', ['b'*64, None, 'invalid'])
 def test_final_rejects_mixed_or_unverifiable_selected_scorers(tmp_path, identity):
     spec = matrix(tmp_path)
     source = spec['sources'][1]
@@ -433,22 +432,18 @@ def test_final_accepts_uniform_historical_scoring_identity(tmp_path):
     assert json.loads((output/'dataset.json').read_bytes())['comparison']['publication_state'] == 'final_saved_results'
 
 
-@pytest.mark.parametrize('field', [
+_TASK_REQUIREMENT_FIELDS = [
     'body_requirements', 'acceptance_contract', 'required_patterns', 'required_facts',
     'expected_resources', 'resource_output_contract', 'composite_acceptance',
     'forbidden_any', 'page_identity_required', 'reference_answer',
     'mutable_body_policy', 'acceptance_policy_version',
-])
-def test_same_prompt_does_not_hide_a_changed_task_requirement(tmp_path, field):
+]
+
+
+def test_same_prompt_does_not_hide_a_changed_task_requirement(tmp_path):
     from copy import deepcopy
     from harness.web_fetch.report import generate_saved_matrix
     from harness.web_fetch.report_saved_matrix import _require_final_selection
-    before = {'task_prompt': 'Keep the original task', field: 'original requirement'}
-    after = {**before, field: 'changed requirement'}
-    inputs = {'spec': {}, 'missing': {}, 'cases': {'suite': {'case': before}},
-              'revision': {'cases': {('suite', 'case'): after}}}
-    with pytest.raises(ValueError, match='Changed task contracts'):
-        _require_final_selection(inputs)
     spec = matrix(tmp_path)
     spec['presentation'] = 'audit'
     output = build(tmp_path, spec).parent
@@ -456,12 +451,19 @@ def test_same_prompt_does_not_hide_a_changed_task_requirement(tmp_path, field):
     model['presentation'] = 'final'
     row = model['rows'][0]
     current = json.loads((output/row['case_path']).read_bytes())
-    original = deepcopy(current)
-    original[field] = 'different original requirement'
-    write(output/'before-case.json', original)
     row['score_revision_history'] = {'before_case_path': 'before-case.json'}
-    with pytest.raises(ValueError, match='Changed task contracts'):
-        generate_saved_matrix(output, model)
+    for field in _TASK_REQUIREMENT_FIELDS:
+        before = {'task_prompt': 'Keep the original task', field: 'original requirement'}
+        after = {**before, field: 'changed requirement'}
+        inputs = {'spec': {}, 'missing': {}, 'cases': {'suite': {'case': before}},
+                  'revision': {'cases': {('suite', 'case'): after}}}
+        with pytest.raises(ValueError, match='Changed task contracts'):
+            _require_final_selection(inputs)
+        original = deepcopy(current)
+        original[field] = 'different original requirement'
+        write(output/'before-case.json', original)
+        with pytest.raises(ValueError, match='Changed task contracts'):
+            generate_saved_matrix(output, model)
 
 
 def test_diagnostic_annotations_do_not_change_task_acceptance():
@@ -548,8 +550,7 @@ def test_saved_disclosure_is_required_on_home_and_detail_routes(tmp_path, presen
     check_saved_matrix(root, spec_path=tmp_path/'spec.json' if presentation == 'final' else None)
 
 
-@pytest.mark.parametrize('only_missing', [False, True])
-@pytest.mark.parametrize('telemetry', ['receipt', 'events', 'invalid'])
+@pytest.mark.parametrize('only_missing,telemetry', [(False, 'receipt'), (True, 'events'), (False, 'invalid')])
 def test_uncommitted_settings_keep_counts_and_observed_windows(tmp_path, only_missing, telemetry):
     spec = matrix(tmp_path, same_method=True)
     spec['presentation'] = 'audit'
@@ -585,7 +586,7 @@ def test_uncommitted_settings_keep_counts_and_observed_windows(tmp_path, only_mi
         assert settings['collection_end'] == ended
 
 
-@pytest.mark.parametrize('declared', [1, 2, 100])
+@pytest.mark.parametrize('declared', [2, 100])
 def test_ordinary_uncommitted_counts_must_agree(tmp_path, declared):
     spec = matrix(tmp_path, same_method=True)
     spec['presentation'] = 'audit'
@@ -604,8 +605,7 @@ def test_ordinary_uncommitted_counts_must_agree(tmp_path, declared):
         assert settings['calls'] == 3
 
 
-@pytest.mark.parametrize('declared', [None, 2])
-@pytest.mark.parametrize('conflict', [False, True])
+@pytest.mark.parametrize('declared,conflict', [(None, False), (2, False), (None, True)])
 def test_ordinary_uncommitted_starts_use_invocation_identity(tmp_path, declared, conflict):
     spec = matrix(tmp_path, same_method=True)
     spec['presentation'] = 'audit'

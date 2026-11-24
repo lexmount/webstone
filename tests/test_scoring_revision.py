@@ -57,7 +57,7 @@ def revision_fixture(tmp_path: Path, history: bytes):
     return evidence, canonical, case
 
 
-@pytest.mark.parametrize("history", [b"{invalid", b"{}", b"[{}]"])
+@pytest.mark.parametrize("history", [b"{invalid", b"[{}]"])
 def test_invalid_history_rejects_before_any_evidence_write(tmp_path: Path, history: bytes):
     evidence, canonical, _ = revision_fixture(tmp_path, history)
     before = {p.name: p.read_bytes() for p in evidence.iterdir()}

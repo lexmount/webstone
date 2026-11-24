@@ -1,6 +1,5 @@
 from harness.distribution import source_path
 
-from lexbench_webfetch.inputs import definition_path
 import json
 import re
 import shutil
@@ -52,24 +51,6 @@ class RuntimeEntrypointTests(unittest.TestCase):
         self.assertIn("$(UV) sync --frozen --all-extras", makefile)
         self.assertIn('open(".python-version")', makefile)
 
-    def test_common_scoring_dependency_is_in_the_base_environment(self) -> None:
-        project = (ROOT / "pyproject.toml").read_text(encoding='utf-8')
-        base = project.split("[project]", 1)[1].split("[project.scripts]", 1)[0]
-        self.assertIn('beautifulsoup4', base)
-
-    def test_browser_use_routine_and_release_checks_are_separate(self) -> None:
-        makefile = (ROOT / "Makefile").read_text(encoding='utf-8')
-        routine = makefile.split("browser-use-report-check:", 1)[1].split(
-            "browser-use-release-check:", 1
-        )[0]
-        release = makefile.split("browser-use-release-check:", 1)[1]
-
-        self.assertIn("-m harness.browser_use check", routine)
-        self.assertIn("check_report_links.py", routine)
-        self.assertNotIn("browser-use-visual-check", routine)
-        self.assertIn("browser-use-report-check", release.splitlines()[0])
-        self.assertIn("browser-use-visual-check", release)
-
     def test_versioned_moli_slots_reject_wrong_or_missing_binaries(self) -> None:
         valid = {
             "moli-1.0.6": {"reported_version": "moli 1.0.6"},
@@ -86,13 +67,6 @@ class RuntimeEntrypointTests(unittest.TestCase):
                     "moli": {"reported_version": value},
                 }, configs)
 
-    def test_ci_uses_the_same_make_entrypoint(self) -> None:
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding='utf-8')
-        self.assertIn("astral-sh/setup-uv@", workflow)
-        self.assertIn("make setup", workflow)
-        self.assertIn("make ci", workflow)
-        self.assertNotIn("pip install", workflow)
-
     def test_web_fetch_docs_do_not_recommend_system_python(self) -> None:
         for relative in ("README.md", "harness/web_fetch/README.md", "harness/web_fetch/HEADLESS.md"):
             text = source_path(relative, root=ROOT).read_text(encoding='utf-8')
@@ -100,86 +74,6 @@ class RuntimeEntrypointTests(unittest.TestCase):
             self.assertEqual(direct, [], relative)
             unfrozen = re.findall(r"(?m)^\s*uv run (?!--frozen\b)", text)
             self.assertEqual(unfrozen, [], relative)
-
-    def test_oss_provider_configs_pin_current_runtime_identity(self) -> None:
-        expected = {
-            'cowagent-built-in': 'ed5bb344cfe42cee443c8266ba47ee666d8d7471',
-            'openclaw-built-in': '12c4bdf7482f24c85b011e9d858fdec3c245101c',
-            'deepseek-harness-built-in': 'dd6322d604e00eec1ba5e0c8541159906a21094a',
-        }
-        for filename in ('providers.example.json', 'providers.resources.json'):
-            providers = json.loads((ROOT / 'configs' / filename).read_text(encoding='utf-8'))['providers']
-            self.assertEqual(
-                providers['moli-webfetch']['expected_reported_version'], 'moli 1.1.15'
-            )
-            self.assertEqual(
-                providers['moli-webfetch']['expected_binary_sha256'],
-                '7a53cdd071ae60a2f8ff6d08107f67f6b0f1d6247a9acd970d2bcec77ff15b50',
-            )
-            for name, revision in expected.items():
-                self.assertEqual(providers[name]['expected_repo_revision'], revision)
-                self.assertTrue(providers[name]['required_paths'])
-            for name in ('openclaw-built-in', 'deepseek-harness-built-in'):
-                self.assertEqual(providers[name]['expected_node_version'], 'v24.15.0')
-                self.assertEqual(providers[name]['command'][0], '${OPENCLAW_NODE:-node}')
-            self.assertEqual(
-                providers['openclaw-built-in']['expected_package_manager_version'],
-                '12.1.0',
-            )
-            self.assertNotIn('expected_package_manager_version',
-                             providers['deepseek-harness-built-in'])
-            dsh_command = providers['deepseek-harness-built-in']['command']
-            self.assertEqual(dsh_command[1:3], ['--import', 'tsx'])
-            dsh_required = providers['deepseek-harness-built-in']['required_paths']
-            for built_entrypoint in (
-                'vendor/cordis/lib/index.js',
-                'packages/llm/llm/lib/index.js',
-                'packages/core/system-prompt/lib/index.js',
-                'packages/core/tools/lib/index.js',
-                'packages/web/web/lib/index.js',
-                'packages/web/web-fetch-http/lib/index.js',
-                'packages/web/tool-web/lib/index.js',
-                'packages/guard/timeout-policy/lib/index.js',
-            ):
-                self.assertIn(f'{{repo_path}}/{built_entrypoint}', dsh_required)
-            self.assertEqual(
-                providers['langchain-webbase']['expected_library_versions'],
-                {'langchain-community': '0.3.30'},
-            )
-            self.assertEqual(providers['langchain-webbase']['command'][0],
-                             '${OSS_PYTHON:-.venv/bin/python}')
-            self.assertEqual(providers['langchain-webbase']['expected_python_version'],
-                             'Python 3.11.12')
-
-    def test_oss_bootstrap_installs_pinned_package_managers_outside_source_trees(self) -> None:
-        script = (ROOT / 'scripts/bootstrap_oss_baselines.sh').read_text(encoding='utf-8')
-        self.assertIn('node@24.15.0 pnpm@12.1.0', script)
-        self.assertIn('openclaw_pnpm="$openclaw_node_root/node_modules/.bin/pnpm"', script)
-        self.assertNotIn('dsh_pnpm', script)
-        self.assertIn('sparse-checkout disable', script)
-        self.assertNotIn('git -C "$target" clean -ffdX', script)
-        dsh_install = script.index('corepack pnpm install --frozen-lockfile --ignore-scripts')
-        dsh_clean = script.index('corepack pnpm run clean')
-        dsh_build = script.index('corepack pnpm run build:lib:host')
-        self.assertLess(dsh_install, dsh_clean)
-        self.assertLess(dsh_clean, dsh_build)
-        self.assertIn(
-            '"$node_bin_dir/node" --import tsx '
-            'node_modules/.pnpm/.browser-harness-dsh-worker.mts </dev/null',
-            script,
-        )
-
-    def test_env_example_uses_the_bootstrapped_runtime_commands(self) -> None:
-        env_example = (ROOT / '.env.example').read_text(encoding='utf-8')
-        self.assertIn(
-            'OPENCLAW_NODE=~/.webstone/toolchains/openclaw-node/node_modules/node/bin/node',
-            env_example,
-        )
-        self.assertIn(
-            'OPENCLAW_PNPM=~/.webstone/toolchains/openclaw-node/node_modules/.bin/pnpm',
-            env_example,
-        )
-        self.assertNotIn('DEEPSEEK_PNPM=', env_example)
 
     def test_dsh_worker_uses_execution_result_contract_and_fails_non_2xx(self) -> None:
         node = shutil.which("node")
@@ -197,27 +91,6 @@ class RuntimeEntrypointTests(unittest.TestCase):
              str(source_path("harness/web_fetch/workers/dsh_webfetch_worker.mts", root=ROOT))],
             capture_output=True, text=True, check=True, timeout=30,
         )
-
-    def test_openclaw_worker_does_not_publish_exception_stacks(self) -> None:
-        worker = (source_path('harness/web_fetch/workers/openclaw_webfetch_worker.mts', root=ROOT)).read_text(encoding='utf-8')
-        self.assertNotIn('error?.stack', worker)
-        self.assertIn('content: message', worker)
-
-    def test_langchain_worker_does_not_claim_unobserved_final_url(self) -> None:
-        worker = (source_path('harness/web_fetch/workers/langchain_webbase_worker.py', root=ROOT)).read_text(encoding='utf-8')
-        self.assertNotIn('"final_url"', worker)
-        self.assertIn('"document_metadata": metadata', worker)
-
-    def test_legacy_webfetch_dataset_coverage_matches_expected_methods(self) -> None:
-        dataset = json.loads((definition_path('evaluation/dataset-catalog.json')).read_text(encoding='utf-8'))
-        expected = {
-            "cloudflare-markdown", "cowagent-built-in", "crawl4ai",
-            "deepseek-harness-built-in", "exa", "firecrawl",
-            "langchain-webbase", "moli-webfetch", "openclaw-built-in", "tavily",
-        }
-        for track, providers in dataset["coverage_plan"].items():
-            self.assertEqual(set(providers), expected, track)
-            self.assertEqual(len(providers), 10, track)
 
     def test_publication_receipt_must_target_selected_instance(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

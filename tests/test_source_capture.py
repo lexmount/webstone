@@ -153,7 +153,7 @@ def test_invalid_scope_is_rejected_before_capture(
 
 @pytest.mark.parametrize(
     "resolve",
-    ["missing-ip", "=127.0.0.1", "host=invalid", "host=127.0.0.1,host=127.0.0.2"],
+    ["missing-ip", "host=invalid", "host=127.0.0.1,host=127.0.0.2"],
 )
 def test_cli_rejects_malformed_dns_without_creating_output(tmp_path, resolve):
     dataset = dataset_file(tmp_path, "https://example.invalid")

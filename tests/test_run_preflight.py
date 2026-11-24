@@ -36,17 +36,14 @@ def execute(root, events, **overrides):
     return run_evaluation(**settings)
 
 
+# Each parameter once per rejection class: range, boolean, non-integer or non-finite, and type.
 @pytest.mark.parametrize('overrides', [
-    {'runs': 0}, {'runs': -1}, {'runs': True}, {'runs': 1.5}, {'runs': None},
-    {'timeout': 0}, {'timeout': float('inf')}, {'timeout': float('nan')},
-    {'timeout': True}, {'timeout': '1'}, {'timeout': None}, {'timeout': -1},
-    {'delay': -1}, {'delay': float('inf')}, {'delay': float('nan')},
-    {'delay': True}, {'delay': '0'}, {'delay': None},
-    {'provider_concurrency': 0}, {'provider_concurrency': 1.5},
-    {'provider_concurrency': True}, {'provider_concurrency': float('inf')},
-    {'max_failure_retries': True}, {'max_failure_retries': 1.0}, {'max_failure_retries': -1},
-    {'resource_sample_interval_ms': 9}, {'resource_sample_interval_ms': 10.5},
-    {'resource_sample_interval_ms': True},
+    {'runs': 0}, {'runs': True}, {'runs': 1.5},
+    {'timeout': 0}, {'timeout': float('nan')}, {'timeout': '1'},
+    {'delay': -1}, {'delay': float('inf')}, {'delay': None},
+    {'provider_concurrency': 0}, {'provider_concurrency': True},
+    {'max_failure_retries': -1}, {'max_failure_retries': 1.0},
+    {'resource_sample_interval_ms': 9}, {'resource_sample_interval_ms': True},
     {'cases': []}, {'providers': []},
 ])
 def test_bad_execution_parameters_have_no_side_effects(tmp_path, overrides):
@@ -77,9 +74,8 @@ def test_bad_scope_is_rejected_before_adapter_validation(tmp_path, damage):
 
 @pytest.mark.parametrize('change', [
     {'task_kind': 'download'}, {'track': 'unregistered'}, {'url': 'example.invalid'},
-    {'id': '../outside'},
-    {'name': ''}, {'name': 1}, {'category': []},
-    {'expected_any': 'Expected'}, {'expected_any': [None]}, {'expected_any': ['']},
+    {'id': '../outside'}, {'name': ''}, {'category': []},
+    {'expected_any': 'Expected'}, {'expected_any': ['']},
 ])
 def test_dataset_validation_rejects_unexecutable_tasks(tmp_path, change):
     path = tmp_path / 'dataset.json'

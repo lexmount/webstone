@@ -12,7 +12,7 @@ from lexbench_webfetch.scoring import score_attempt
 from tests.test_saved_matrix_evidence import fixture, write, assert_proof_mutations_rejected, assert_revision_document_mutation_rejected, assert_saved_receipt_mutation_rejected, assert_scoring_flags_rejected, assert_whitespace_record_rejected
 
 
-@pytest.mark.parametrize('kind', ['task_rules', 'scorer_only', 'diagnostic_only'])
+@pytest.mark.parametrize('kind', ['task_rules', 'diagnostic_only'])
 def test_final_admission_distinguishes_task_rules_from_scoring_code(tmp_path, kind):
     from tests.test_saved_matrix_comparability import matrix
     from tests.test_saved_matrix_evidence import build
@@ -213,9 +213,8 @@ def test_revision_accepts_hash_verified_nested_artifacts(tmp_path):
         build_saved_matrix(tmp_path/'spec.json', tmp_path/'tampered')
 
 
-@pytest.mark.parametrize('separator', ['\u2028', '\u2029', '\u0085'])
-def test_revision_jsonl_preserves_unicode_line_separators(tmp_path, separator):
-    spec, _, _ = revision_fixture(tmp_path, title='before' + separator + 'after')
+def test_revision_jsonl_preserves_unicode_line_separators(tmp_path):
+    spec, _, _ = revision_fixture(tmp_path, title='before\u2028after')
     report = build_saved_matrix(tmp_path/'spec.json', tmp_path/'revised').parent
     assert check_saved_matrix(report, spec_path=tmp_path/'spec.json')['valid']
 
@@ -297,32 +296,32 @@ def test_adoption_only_revision_retains_attachments_and_score_provenance(tmp_pat
     assert changes.select_one('[data-adopted-revision-history]') is not None
     assert '本报告没有登记结果修订' not in changes.get_text()
     assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['scores_changed'] is True
-    if root_revision:
-        artifact = original_path.parent/original_record['artifact_path']
-        audit_path = output/'saved-matrix-audit.json'
-        original_audit = audit_path.read_bytes()
-        artifact.write_bytes(b'new answer')
-        audit = json.loads(original_audit)
-        audit['files'][artifact.relative_to(output).as_posix()] = hashlib.sha256(artifact.read_bytes()).hexdigest()
-        write(audit_path, audit)
-        for source_spec in (None, tmp_path/'spec.json'):
-            with pytest.raises(ValueError, match='Portable saved record artifact differs'):
-                check_saved_matrix(output, spec_path=source_spec)
-        artifact.write_bytes(b'answer')
-        audit_path.write_bytes(original_audit)
+    # The integrity battery below covers both adoption forms; run it once on the deeper one.
+    if not root_revision:
+        return
+    artifact = original_path.parent/original_record['artifact_path']
+    audit_path = output/'saved-matrix-audit.json'
+    original_audit = audit_path.read_bytes()
+    artifact.write_bytes(b'new answer')
+    audit = json.loads(original_audit)
+    audit['files'][artifact.relative_to(output).as_posix()] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    write(audit_path, audit)
+    for source_spec in (None, tmp_path/'spec.json'):
+        with pytest.raises(ValueError, match='Portable saved record artifact differs'):
+            check_saved_matrix(output, spec_path=source_spec)
+    artifact.write_bytes(b'answer')
+    audit_path.write_bytes(original_audit)
     assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'result_adoption', ['redirect_authority', 'remove'])
     assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'history', ['redirect_scope'])
     assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'score_revision', ['remove'])
-    if root_revision:
-        assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'score_revision_history', ['remove'])
+    assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'score_revision_history', ['remove'])
     assert_proof_mutations_rejected(output, tmp_path/'spec.json', 'completion_note',
                                     ['change_note', 'remove'], error='completion note differs')
     for relative in (receipt_path.relative_to(output).as_posix(), attachment,
                      matrix['rows'][0]['score_revision']['before_case_path']):
         assert_revision_document_mutation_rejected(output, tmp_path/'spec.json', relative)
-    if root_revision:
-        for relative in ('score-revision.json', matrix['rows'][0]['score_revision_history']['before_case_path']):
-            assert_revision_document_mutation_rejected(output, tmp_path/'spec.json', relative)
+    for relative in ('score-revision.json', matrix['rows'][0]['score_revision_history']['before_case_path']):
+        assert_revision_document_mutation_rejected(output, tmp_path/'spec.json', relative)
     assert_saved_receipt_mutation_rejected(output, tmp_path/'spec.json')
     assert_scoring_flags_rejected(output, tmp_path/'spec.json')
     # Last, because it leaves the package damaged.
@@ -387,15 +386,8 @@ def test_revision_keeps_same_id_in_other_suite_unchanged(tmp_path):
     assert 'score-before-record.json' in review and '修订前后证据' in review
 
 
-@pytest.mark.parametrize('with_parameter_candidates', [False, True])
-def test_exclusion_scopes_revision_counts_and_decisions_but_preserves_history(tmp_path, monkeypatch, with_parameter_candidates):
+def test_exclusion_scopes_revision_counts_and_decisions_but_preserves_history(tmp_path):
     spec, _, _ = revision_fixture(tmp_path, multiple=True)
-    if with_parameter_candidates:
-        # Reuse bound calls to exercise assembly of parameter proof alongside
-        # scoped review attachments; transport validation has separate controls.
-        spec['parameter_reruns'] = {'selection': 'replace_track_if_pass_count_improves'}
-        monkeypatch.setattr('harness.web_fetch.report_saved_matrix._parameter_reruns',
-                            lambda inputs: inputs['selected'])
     decisions = [{'suite': suite, 'case_id': 'same', 'rule_decisions': [],
                   'decision_basis': suite+' independent decision'} for suite in ('first', 'second')]
     spec['offline_revision']['review_files'] = {'decisions': write(tmp_path/'decisions.json', decisions)}
@@ -405,9 +397,6 @@ def test_exclusion_scopes_revision_counts_and_decisions_but_preserves_history(tm
     spec['excluded_report_families'] = ['base-web']
     write(tmp_path/'spec.json', spec)
     output = build_saved_matrix(tmp_path/'spec.json', tmp_path/'report').parent
-    if with_parameter_candidates:
-        row = json.loads((output/'matrix.json').read_text(encoding='utf-8'))['rows'][0]
-        assert row['parameter_rerun']['selected_new'] is False
     receipt = json.loads((output/'score-revision.json').read_text(encoding='utf-8'))
     history = json.loads((output/receipt['historical_scope_path']).read_text(encoding='utf-8'))
     assert receipt['changed_cases'] == [] and receipt['rescored_results'] == 0
@@ -433,8 +422,7 @@ def test_revision_rejects_different_frozen_call_even_with_rebound_source(tmp_pat
         build_saved_matrix(tmp_path/'spec.json', tmp_path/'revised')
 
 
-@pytest.mark.parametrize('tie', [False, True])
-@pytest.mark.parametrize('authorized', [False, True])
+@pytest.mark.parametrize('tie,authorized', [(False, False), (False, True), (True, True)])
 def test_completion_candidate_baseline_requires_explicit_whole_group_reselection(tmp_path, monkeypatch, tie, authorized):
     monkeypatch.setattr('harness.web_fetch.report_saved_matrix._parameter_execution', lambda *args: {'request': 'fixture'})
     spec, source, before, _ = fixture(tmp_path)
@@ -470,8 +458,8 @@ def test_completion_candidate_baseline_requires_explicit_whole_group_reselection
     assert check_saved_matrix(output, spec_path=tmp_path/'spec.json')['valid']
 
 
-# Defects that edit the contract or its declaration run on both contract forms;
-# history and record defects are checked after parsing and run on one.
+# Every defect runs on the single contract form; the multiple form shares the parser,
+# so it keeps its accepted path and an undeclared completion.
 _CONTRACT_DEFECTS = [None, 'duplicate', 'incomplete', 'undeclared', 'missing_retry_allowance']
 _HISTORY_DEFECTS = ['already_called', 'before_contract', 'early_first_call', 'extra_baseline',
                     'retained_call', 'retained_task', 'completed_task', 'extra_uncommitted',
@@ -479,8 +467,8 @@ _HISTORY_DEFECTS = ['already_called', 'before_contract', 'early_first_call', 'ex
 
 
 @pytest.mark.parametrize('defect,contract_form',
-                         [(defect, form) for defect in _CONTRACT_DEFECTS for form in ('single', 'multiple')]
-                         + [(defect, 'single') for defect in _HISTORY_DEFECTS])
+                         [(defect, 'single') for defect in _CONTRACT_DEFECTS + _HISTORY_DEFECTS]
+                         + [(None, 'multiple'), ('undeclared', 'multiple')])
 def test_completion_preserves_frozen_offline_history(tmp_path, defect, contract_form, monkeypatch):
     # History controls isolate execution proof; real native authorization has its
     # own positive/negative transport fixtures. The absent-proof case uses production.

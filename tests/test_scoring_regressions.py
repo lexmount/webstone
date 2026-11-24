@@ -4,14 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lexbench_webfetch.metrics import task_measured, task_passed
 from harness.web_fetch.reference_lifecycle import (
     reference_revision_cases,
     scoring_revision_history_sha256,
     valid_scoring_revision,
 )
-from lexbench_webfetch.scoring import score_attempt
-from lexbench_webfetch.scoring_regressions import SCORING_OPTION_FIELDS, active_scoring_regressions, require_scoring_regressions, valid_correction_provenance
+from lexbench_webfetch.scoring_regressions import active_scoring_regressions, require_scoring_regressions, valid_correction_provenance
 from harness.web_fetch.scoring_revision import ALLOWED_FIELDS, correction_provenance
 import pytest
 
@@ -135,37 +133,12 @@ class ScoringRegressionTests(unittest.TestCase):
             self.assertTrue(valid_scoring_revision(root))
 
     @pytest.mark.slow
-    def test_every_registered_false_verdict_control_runs_through_shared_scorer(self):
-        rows = active_scoring_regressions()
+    def test_every_paired_root_cause_registers_both_error_directions(self):
+        # Verdicts of every control are scored by
+        # tests/benchmarks/webfetch/test_standalone_evaluation.py.
         root_modes = {}
-        for identifier, row in rows.items():
-            with self.subTest(regression=identifier):
-                arguments = dict(ok=row['ok'], **{key: row.get(key) for key in SCORING_OPTION_FIELDS})
-                if row.get('expected_validation_error'):
-                    with self.assertRaisesRegex(ValueError, row['expected_validation_error']):
-                        score_attempt(row['case'], row['artifact'].encode(), **arguments)
-                    self.assertFalse(row['expected_task_pass'])
-                    root_modes.setdefault(row['root_cause'], set()).add(row['failure_mode'])
-                    continue
-                metrics = score_attempt(row['case'], row['artifact'].encode(), **arguments)
-                verdict = task_passed(
-                    row["ok"], metrics, row["case"].get("task_kind", "body")
-                )
-                self.assertEqual(verdict, row["expected_task_pass"])
-                if "expected_task_measured" in row:
-                    self.assertEqual(task_measured(metrics), row["expected_task_measured"])
-                for key, expected in row.get("expected_metrics", {}).items():
-                    self.assertEqual(metrics.get(key), expected, key)
-                if (row["root_cause"] == "table_escaped_pipe_boundaries"
-                        and row["expected_task_pass"]):
-                    if row["case"].get("composite_acceptance"):
-                        record = metrics["composite_group_results"][0]["records"][0]
-                        fields = record.get("fields", record)
-                        self.assertEqual(fields["owner"], "Alice | Bob")
-                    else:
-                        self.assertEqual(metrics["stable_records"][0]["fields"]["name"],
-                                         "Alpha | Beta")
-                root_modes.setdefault(row["root_cause"], set()).add(row["failure_mode"])
+        for row in active_scoring_regressions().values():
+            root_modes.setdefault(row["root_cause"], set()).add(row["failure_mode"])
         paired = {"answer_surface_omission", "body_scope_calibration",
                   "declared_scope_exclusions", "declared_truncation",
                   "entity_identity", "record_ownership",

@@ -66,8 +66,11 @@ def test_request_is_independent_of_grading_requirements(name):
         assert 'multipart' not in doc_args
 
 
-@pytest.mark.parametrize('name', SELECTED[5:])
-@pytest.mark.parametrize('answers', [('Expected',), ('wrong', 'Expected'), ('wrong', 'still wrong'), ('HTTP_ERROR', 'Expected')])
+# Every retry shape on one hosted adapter; each other hosted response format once.
+@pytest.mark.parametrize('name,answers', [
+    ('browserbase', answers) for answers in
+    [('Expected',), ('wrong', 'Expected'), ('wrong', 'still wrong'), ('HTTP_ERROR', 'Expected')]] + [
+    (name, ('wrong', 'Expected')) for name in SELECTED[5:] if name != 'browserbase'])
 def test_hosted_native_retry_persists_every_physical_answer(tmp_path, name, answers):
     p, c = provider(name), case()
     texts = iter(answers)
@@ -173,11 +176,14 @@ def test_configured_cli_selection_reaches_runner(tmp_path):
     assert run.call_args.kwargs['max_failure_retries'] == 1
 
 
-@pytest.mark.parametrize('name,route', [(name, 'body') for name in SELECTED] +
-                         [(name, 'document') for name in SELECTED[5:]] +
-                         [('cloudflare-markdown', 'image'), ('cloudflare-markdown', 'video'),
-                          ('moli-webfetch', 'file')])
-@pytest.mark.parametrize('origin_status', [200, 404, None])
+# An origin 404 separates exposing from non-exposing adapters, so every adapter runs it on
+# the body route; missing status and the other routes each run on representative adapters.
+@pytest.mark.parametrize('name,route,origin_status', [(name, 'body', 404) for name in SELECTED] + [
+    ('firecrawl', 'body', None), ('tavily', 'body', None), ('browser-use-fetch', 'body', None),
+    ('browserbase', 'body', None), ('exa', 'body', 200),
+    ('browserbase', 'document', 404), ('brightdata', 'document', 404), ('crawl4ai-cloud', 'document', 404),
+    ('deepseek-fetch-api', 'document', 200), ('cloudflare-markdown', 'image', 404),
+    ('cloudflare-markdown', 'video', 200), ('moli-webfetch', 'file', 200)])
 def test_selected_origin_status_policy_controls_acceptance_and_retry(tmp_path, monkeypatch, name, route, origin_status):
     import hashlib
     import sys
