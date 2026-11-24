@@ -70,6 +70,8 @@ COMMANDS = {
                                "Compare correction catalogs on saved replay evidence"),
     "rescore-saved-retrieval": (f"{_PACKAGE}.diagnostics", "main_saved_retrieval_rescore",
                                 "Rescore saved retrieval evidence without browser calls"),
+    "qualification": (f"{_PACKAGE}.public_webarena.qualification", "main",
+                      "Qualify, repair and audit public WebArena trajectories"),
 }
 
 
