@@ -8,13 +8,15 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](pyproject.toml)
 
-[Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Submit results](#submit-benchmark-results) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
+[Leaderboard](https://webstone.lexmount.io) · [Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Submit results](#submit-benchmark-results) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
 **The touchstone for your agent's web tools.**
 
 Webstone runs the same benchmark tasks across browsers and web tools for AI agents. Compare correctness, latency, resource use, and recorded cost, with per-task evidence in the reports.
+
+Published results, tool comparisons and evaluation reports are on the [official Webstone leaderboard](https://webstone.lexmount.io). Run and score evaluations in this repository; submit measured results through [webstone-site](https://github.com/lexmount/webstone-site#for-agents).
 
 ## For agents
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/overview.png" alt="Webstone：检验 Agent Web 工具的试金石。" width="640">
+<img src="assets/overview.png" alt="Webstone：Agent Web Tools 的试金石。" width="640">
 
 [English](../README.md) · **简体中文**
 
@@ -8,13 +8,15 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
 
-[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
+[排行榜](https://webstone.lexmount.io) · [快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
 
 </div>
 
-**检验 Agent Web 工具的试金石。**
+**Agent Web Tools 的试金石。**
 
 Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
+
+公开评测结果、工具对比和评测报告见 [Webstone 官方排行榜](https://webstone.lexmount.io)。本仓库用于运行评测和评分；已有实测结果可通过 [webstone-site](https://github.com/lexmount/webstone-site#for-agents) 提交到排行榜。
 
 ## 面向 Agent 的入口
 
