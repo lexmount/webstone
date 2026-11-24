@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harness.web_fetch.cli import EXAMPLES, main
+from harness.web_fetch.saved_matrix_compose import unique_suite_id
 from lexbench_webfetch.scoring import score_attempt
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,3 +83,10 @@ def test_revise_command_rescores_a_saved_run_offline(tmp_path, capsys):
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["provider_calls_added"] == 0
     assert receipt["task_verdict_changes"] == [{"attempt_id": "p__a", "before": False, "after": True}]
+
+
+def test_suite_ids_stay_unique_when_a_natural_id_matches_a_derived_one():
+    digest = "12345678" + "9abcdef0" * 7
+    used = {"foo", "foo-12345678"}
+    assert unique_suite_id("foo", digest, used) == "foo-123456789abcdef0"
+    assert unique_suite_id("bar", digest, used) == "bar"

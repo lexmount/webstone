@@ -12,6 +12,16 @@ from harness.web_fetch.report_saved_matrix import _load_saved_matrix
 RUN_FILES = ("manifest.json", "dataset.json", "results.jsonl")
 
 
+
+def unique_suite_id(base: str, digest: str, used: set[str]) -> str:
+    """Return ``base``, or ``base`` with a longer dataset digest prefix until unused."""
+    candidate, width = base, 8
+    while candidate in used:
+        if width > len(digest):
+            raise ValueError("Cannot derive a unique suite id for " + base)
+        candidate, width = base + "-" + digest[:width], width + 8
+    return candidate
+
 def _binding(path: Path, base: Path) -> dict[str, str]:
     return {"path": os.path.relpath(path, base), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
@@ -58,7 +68,7 @@ def compose_saved_matrix(run_dirs, output, *, title=None, by_suite=False) -> Pat
     used_ids = set()
     for digest, members in groups.items():
         first = members[0]
-        suite_id = first["suite_id"] if first["suite_id"] not in used_ids else first["suite_id"] + "-" + digest[:8]
+        suite_id = unique_suite_id(first["suite_id"], digest, used_ids)
         used_ids.add(suite_id)
         if any(set(run["case_ids"]) != set(first["case_ids"]) for run in members):
             raise ValueError(f"Runs of suite {suite_id} selected different cases; run each method on the same cases")
