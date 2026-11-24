@@ -150,6 +150,13 @@ rankings and the complete query population still verify against that scope.
 Do not transfer judgments between changed snippets or provider outputs, even
 when they return the same URL.
 
+Providers register in `adapters.py` (`ADAPTERS`); a provider's envelope, item
+projection, method rules and result-count default are hooks on its `Adapter`, never
+branches in the collector or report. Task populations register in `benchmarks.py`
+(`BENCHMARKS`): each declares its case membership, label, metric sets, level scores,
+L3 answer grading and, when it has one, the reference dataset whose revisions it
+accepts. A further benchmark is added by declaration there.
+
 SERP profiles select providers through the same collector and renderer. Supported adapters include Lexmount, Browserbase Parallel Advanced, Bright Data Google Light JSON and Serper Google. Keep each report's profile, selected participants and publication target alongside its external evidence. These services use different upstream indexes; the comparison measures their delivered rankings.
 
 Configure `LEXMOUNT_SEARCH_API_KEY`, `BROWSERBASE_API_KEY`, `BRIGHTDATA_API_KEY` and `SERPER_API_KEY` in the repository `.env`. Browserbase Search does not require a browser session. Bright Data requires a SERP zone in the profile's `output_options.zone`; its account key alone does not identify the product configuration. Acquire keys from the [Browserbase dashboard](https://www.browserbase.com/overview), [Bright Data console](https://brightdata.com/cp/start), [Serper](https://serper.dev/) and the Lexmount deployment administrator.
