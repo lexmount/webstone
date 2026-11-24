@@ -6,7 +6,7 @@ import hashlib
 from lexbench_webfetch.models import EvalCase
 
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.native_projection import native_answer_projection
+from harness.web_fetch.native_projection import json_object, native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
 from harness.http_client import request
@@ -59,6 +59,30 @@ def _public_url_error(value: object) -> dict[str, object]:
 
 class ExaContentsProvider(Provider):
     native_configuration_fields = (*Provider.native_configuration_fields, 'livecrawl_timeout_ms')
+
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        payload = selection.payload
+        results = payload.get('results')
+        result = json_object(results[0]) if isinstance(results, list) and results else {}
+        content = result.get('text') if isinstance(result.get('text'), str) else ''
+        statuses = payload.get('statuses')
+        status = json_object(statuses[0]) if isinstance(statuses, list) and statuses else {}
+        ok = selection.successful_http and bool(content) and status.get('status') in (None, 'success')
+        if not (ok or content or result.get('url')):
+            return None
+        declaration = {'schema_version': 2, 'content_pointer': ['results', 0, 'text'],
+                       'content_format': 'text', 'optional_content': True,
+                       'result_fields': {'final_url': {'pointer': ['results', 0, 'url'],
+                                                       'fallback': 'request_url'}}}
+        if ok:
+            declaration['result_fields']['title'] = {'pointer': ['results', 0, 'title']}
+        declaration['answer_fields'] = ({
+            'extras': {'pointer': ['results', 0, 'extras'], 'format': 'identity', 'default': {}},
+            'links': {'pointer': ['results', 0, 'extras', 'richLinks'], 'format': 'named_links', 'default': []}}
+            if ok else {})
+        return declaration
 
     def native_route(self, case) -> NativeRoute:
         return NativeRoute('http', '/contents', ('results[].text', 'results[].extras', 'results[].title', 'results[].url',))

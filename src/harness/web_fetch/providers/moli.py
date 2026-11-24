@@ -14,6 +14,7 @@ import threading
 import time
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from lexbench_webfetch.models import TRACKS, EvalCase
@@ -161,6 +162,9 @@ def _family_wait_until(config, track):
 
 
 class MoliWebFetchProvider(Provider):
+    capability_flags = frozenset({
+        'raw_answer_bytes', 'raw_stdout_evidence', 'legacy_markdown_output_label'})
+
     native_configuration_fields = (*Provider.native_configuration_fields, 'native_output', 'document_output')
 
     def _selected_native_route(self, case):
@@ -175,6 +179,19 @@ class MoliWebFetchProvider(Provider):
         if output == "html" and case.task_kind != 'file':
             return 'native_resource_html' if case.task_kind == 'resource' else 'ordinary_html'
         return route
+
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        interface = selection.interface
+        case = selection.case
+        projected_case = SimpleNamespace(**case) if isinstance(case, dict) else case
+        raw = _route_for_case(projected_case, native_default=True,
+            document_output='markdown' if interface in {'ordinary_markdown', 'ordinary_html'} else 'native') in {'raw_file', 'native_document_bytes'}
+        return {'schema_version': 2, 'source_format': 'bytes',
+                'content_format': 'empty' if raw else 'utf8',
+                **({'files': {'format': 'raw_bytes'}} if raw else
+                   {'result_fields': {'final_url': {'format': 'fetch_log_final_url'}}})}
 
     def native_route(self, case) -> NativeRoute:
         interface = self._selected_native_route(case)
@@ -657,7 +674,7 @@ class MoliWebFetchProvider(Provider):
             )
         # Spool artifacts to files rather than retaining arbitrary CLI output in RAM.
         with ExitStack() as dns_stack, ExitStack() as spool_stack:
-            sink = getattr(self, "_call_diagnostics", None)
+            sink = self.call_diagnostics
             output = spool_stack.enter_context(
                 Path(str(sink.path) + ".moli.stdout").open("x+b") if sink else tempfile.TemporaryFile())
             diagnostic = spool_stack.enter_context(

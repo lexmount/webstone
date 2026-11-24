@@ -276,13 +276,6 @@ def rooted(value: str) -> Path:
     return path.resolve() if path.is_absolute() else (source_path(path, root=ROOT)).resolve()
 
 
-def implementation_identity(provider, *, refresh: bool = False) -> dict:
-    if refresh or not isinstance(getattr(provider, "_implementation_identity", None), dict):
-        if errors := provider.validate():
-            raise ValueError("Moli identity/configuration error: " + ", ".join(errors))
-    return dict(provider._implementation_identity)
-
-
 def require_complete_diagnostic_logs(records: list[dict]) -> None:
     """Fail closed unless every logical call retained its complete raw stderr."""
     incomplete = [
@@ -361,7 +354,7 @@ def validate(profile_path: Path) -> tuple[dict, dict, list, object, Path]:
     provider = build_provider(provider_name, config[provider_name])
     if errors := provider.validate():
         raise ValueError("Moli identity/configuration error: " + ", ".join(errors))
-    identity = implementation_identity(provider)
+    identity = provider.implementation_identity()
     if identity != {
         "reported_version": profile["provider"]["reported_version"],
         "binary_sha256": profile["provider"]["binary_sha256"],
@@ -402,7 +395,7 @@ def main(argv: list[str] | None = None, *, certified: bool = False) -> None:
                     "status": profile["status"],
                     "unresolved_case_ids": profile["unresolved_case_ids"],
                     "cases": len(cases),
-                    "provider": implementation_identity(provider),
+                    "provider": provider.implementation_identity(),
                     "provider_calls": 0,
                 },
                 ensure_ascii=False,
@@ -428,7 +421,7 @@ def main(argv: list[str] | None = None, *, certified: bool = False) -> None:
     measured_dataset = measured_risk_control_dataset(profile, dataset, profile_sha256)
     execution = profile["execution"]
     proof_before = frozen_risk_control_input_snapshot(profile_path)
-    pre_identity = implementation_identity(provider)
+    pre_identity = provider.implementation_identity()
 
     from harness.web_fetch.runner import run_evaluation
 
@@ -448,7 +441,7 @@ def main(argv: list[str] | None = None, *, certified: bool = False) -> None:
     if len(records) != 100 or len({row["case_id"] for row in records}) != 100:
         raise ValueError("Incomplete risk-control Moli matrix")
     require_complete_diagnostic_logs(records)
-    post_identity = implementation_identity(provider, refresh=True)
+    post_identity = provider.implementation_identity(refresh=True)
     if post_identity != pre_identity:
         raise ValueError("Moli implementation identity changed during execution")
     proof_after = frozen_risk_control_input_snapshot(profile_path)

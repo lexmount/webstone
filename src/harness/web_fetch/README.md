@@ -981,8 +981,9 @@ Aggregation retains the exact contract bytes; report and release checks verify
 its hash, complete declared scope and per-result receipts. A retrospective audit
 of old logs cannot substitute for this pre-call proof.
 
-New contracts also freeze the deterministic answer-selection policy in
-`native_projection.py`, retaining its hash-bound source once per run. Adapters
+New contracts also freeze the deterministic answer-selection policy: the
+adapter's `native_answer_selection` hook together with `native_projection.py`,
+retaining their hash-bound source once per run. Adapters
 and saved-evidence validation share that policy. Fixed response-structure and
 transport-status branches are allowed; choosing another source after the call
 is rejected even when both fields contain identical bytes. Validation never
@@ -1389,9 +1390,9 @@ require them. Changed installed bytes fail either mode.
 ### Evidence ownership and historical readers
 
 LexBench scores submitted answers and delivered file bytes. Native response
-selection, diagnostic log decoding and source-field verification belong to
-`native_projection.py` in this harness. Both collection and saved-answer checks
-use that owner; changing the owner does not upgrade historical calls to a
+selection belongs to each adapter's `native_answer_selection` hook; diagnostic
+log decoding and source-field verification belong to `native_projection.py` in
+this harness. Both collection and saved-answer checks use those owners; changing the owner does not upgrade historical calls to a
 pre-call policy they never recorded.
 
 All hash-bound reads use `publication_privacy.read_evidence_binding`, including

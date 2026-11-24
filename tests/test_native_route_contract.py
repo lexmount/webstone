@@ -854,13 +854,14 @@ def _synthetic_route_baseline():
     from lexbench_webfetch.models import EvalCase, TRACKS, TASK_KINDS
     from harness.record_io import canonical_json_sha256
     from harness.web_fetch.native_routes import native_route_cell, normalized_http_parameters
-    from harness.web_fetch.providers.base import build_provider
-    methods = ('moli_webfetch', 'firecrawl', 'tavily_extract', 'exa_contents', 'lexmount',
-               'cloudflare_markdown', 'cloudflare_content', 'subprocess_jsonl',
-               'cowagent_builtin', 'fixture', 'kimi_fetch', 'zai_reader', 'claude_web_fetch')
+    from harness.web_fetch.providers.base import PROVIDERS, Provider, build_provider, provider_class
+    # Every registered type that declares a fixed-native route.
+    methods = [name for name in PROVIDERS.names()
+               if provider_class(name).native_route is not Provider.native_route]
     baseline = {}
     for method, configured in product(methods, (False, True)):
-        config = {'type': method, 'uniform_native_parameters': True}
+        # Account fields a vendor requires before it can build any request.
+        config = {'type': method, 'uniform_native_parameters': True, 'zone': 'synthetic-zone'}
         if configured:
             config.update(api_key='synthetic-key', api_token='synthetic-token',
                           account_id='synthetic-account', browser='chromium',

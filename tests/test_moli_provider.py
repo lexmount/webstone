@@ -1522,7 +1522,7 @@ class MoliTests(unittest.TestCase):
         )
         self.assertEqual(provider.validate(), [])
         sink = CallDiagnostics(Path(self.directory.name) / "call.jsonl", "deadline-call")
-        provider._call_diagnostics = sink
+        provider.call_diagnostics = sink
         result, worker = fetch_with_deadline(provider, self.case, 0.5)
         sink.finish(result)
         self.assertEqual(result.error_type, "timeout")

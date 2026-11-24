@@ -13,6 +13,12 @@ from harness.web_fetch.providers.base import Provider
 
 class FixtureProvider(Provider):
     """Deterministic provider used to verify a fresh installation offline."""
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        return {'schema_version': 2, 'content_pointer': ['content'], 'content_format': 'text',
+                'result_fields': {'title': {'pointer': ['title']}, 'final_url': {'pointer': ['final_url']}}}
+
     def native_route(self, case) -> NativeRoute:
         return NativeRoute('fixture', 'synthetic_fixture', ('content', 'title', 'final_url',))
 

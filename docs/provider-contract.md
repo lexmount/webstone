@@ -26,7 +26,11 @@ They must never be added to `metadata`, content, manifest or logs.
 
 ## Add an adapter
 
-1. Implement `Provider` and add its type to `PROVIDER_TYPES` in `src/harness/web_fetch/providers/base.py`.
+1. Implement `Provider` and register its type in `PROVIDERS` in `src/harness/web_fetch/providers/base.py`.
+   Declare the hooks shared code reads on the class: `capability_flags`,
+   `native_answer_selection` (the pre-call answer selection policy) and, where
+   needed, `implementation_identity`, `preflight_capacity` and
+   `capacity_credits_for_cases`. Shared modules never branch on a provider type.
 2. Add an example configuration and tests using local fixtures.
 3. Assign its output contract in `methods.py`.
 
@@ -34,7 +38,8 @@ Use the existing scorer and report renderer.
 
 ### Hosted Markdown fetch services
 
-Five methods share `src/harness/web_fetch/providers/hosted_fetch.py` and the existing HTTP client,
+Five methods share `src/harness/web_fetch/providers/hosted_fetch.py`, where each vendor is a small
+subclass declaring its endpoint, request body, answer fields and envelope rules, and the existing HTTP client,
 runner and scorer. Their credentials and fixed options are declared in
 `configs/providers.example.json`; credentials come from the repository `.env`.
 
@@ -60,6 +65,13 @@ origin errors, empty content and malformed responses remain failures. API status
 is distinct from target-site status. `log_level: debug` saves redacted caller
 requests, response headers/body and errors; it cannot expose undisclosed service
 internals. Only Bright Data receives the native debug option.
+
+A native answer selection policy is identified by the SHA-256 of its source:
+`native_projection.py` followed by the adapter module that defines the type's
+`native_answer_selection` hook. A cohort freezes these bytes beside its evidence
+as `native-answer-policies/<sha256>.py`. Editing either file creates a new policy
+identity; evidence frozen under an earlier identity verifies through an approved
+historical policy registry, described next.
 
 Historical native selectors require independent caller approval. A saved-matrix
 specification can select `native_policy_registry: {"path": "...", "sha256": "..."}`.

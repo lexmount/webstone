@@ -27,7 +27,8 @@ def cohort(tmp_path, monkeypatch):
                'execution': {'runs_per_case': 1, 'timeout_seconds': 1, 'delay_seconds': 0,
                              'concurrency': 1, 'max_failure_retries': 0}}
     profile_path.write_text(json.dumps(profile), encoding='utf-8')
-    provider = SimpleNamespace(_implementation_identity={'version': 'fixture-v1'}, validate=lambda: [])
+    provider = SimpleNamespace(implementation_identity=lambda refresh=False: {'version': 'fixture-v1'},
+                               validate=lambda: [])
     monkeypatch.setattr(risk_control, 'ROOT', tmp_path)
     monkeypatch.setattr(risk_control, 'validate', lambda path: (profile, dataset, [SimpleNamespace(id=row['id']) for row in dataset['cases']], provider, config_path))
     monkeypatch.setenv('WEBSTONE_DATA_HOME', str(tmp_path / 'data'))

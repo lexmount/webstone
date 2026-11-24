@@ -15,7 +15,7 @@ from lexbench_webfetch.models import EvalCase
 
 from harness.record_io import canonical_json_sha256
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.native_projection import native_answer_projection
+from harness.web_fetch.native_projection import json_object, native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute, declared_input_media_kind
 from harness.web_fetch.network_dns import validate_dns_mode
 from harness.web_fetch.providers.base import Provider
@@ -25,6 +25,19 @@ from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 class SubprocessJsonlProvider(Provider):
     """Invoke a persistent repository-native worker over line-delimited JSON."""
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        payload = selection.payload
+        return {'schema_version': 2, 'content_pointer': ['content'],
+                'content_format': 'text' if isinstance(payload.get('content'), str) else 'empty',
+                'result_fields': {'title': {'pointer': ['title']},
+                                  'final_url': {'pointer': ['final_url'], 'fallback': 'request_url'}},
+                'answer_fields': {key: {'pointer': ['metadata', key], 'format': 'identity'}
+                                  for key in ('links', 'images', 'videos', 'media', 'extras')
+                                  if key in json_object(payload.get('metadata'))},
+                **({'files': {'pointer': ['files'], 'format': 'worker_files'}} if payload.get('files') else {})}
+
     def native_route(self, case) -> NativeRoute:
         if self.type not in {'subprocess_jsonl', 'cowagent_builtin'}:
             return super().native_route(case)
@@ -250,7 +263,7 @@ class SubprocessJsonlProvider(Provider):
                 error_message=str(error),
             )
         deadline = time.monotonic() + timeout
-        self._active_diagnostics = getattr(self, "_call_diagnostics", None)
+        self._active_diagnostics = self.call_diagnostics
         previous_process = self._process
         stderr_cursor = self._stderr_cursor()
         process = self._start()

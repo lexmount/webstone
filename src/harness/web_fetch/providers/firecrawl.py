@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from lexbench_webfetch.models import EvalCase
 
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.native_projection import native_answer_projection
+from harness.web_fetch.native_projection import json_object, native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
 from harness.http_client import request
@@ -17,6 +17,45 @@ from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 
 class FirecrawlProvider(Provider):
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        payload = selection.payload
+        track = selection.track
+        task_kind = selection.task_kind
+        successful_http = selection.successful_http
+        data = json_object(payload.get('data'))
+        metadata = json_object(data.get('metadata'))
+        file_route = task_kind == 'file'
+        video_route = task_kind == 'resource' and track == 'video'
+        api_ok = successful_http and payload.get('success') is True
+        file_bytes = b''
+        if file_route and api_ok and isinstance(data.get('rawBase64'), str):
+            try:
+                file_bytes = base64.b64decode(data['rawBase64'], validate=True)
+            except ValueError:
+                pass
+        content = data.get('markdown') if isinstance(data.get('markdown'), str) else ''
+        videos = [item for item in data.get('videos', []) if isinstance(item, (str, dict))] if isinstance(data.get('videos'), list) else []
+        if isinstance(data.get('video'), str) and data['video']:
+            videos.append(data['video'])
+        ok = api_ok and (bool(file_bytes) if file_route else bool(content) or bool(videos and video_route))
+        final_url = metadata.get('url')
+        if not ok and not (isinstance(final_url, str) and final_url):
+            return None
+        fields = {} if file_route or not ok else {
+            'links': {'pointer': ['data', 'links'], 'format': 'identity', 'default': []},
+            'images': {'pointer': ['data', 'images'], 'format': 'identity', 'default': []}}
+        if fields and video_route:
+            fields['videos'] = {'pointer': ['data', 'videos'], 'format': 'video_values', 'default': [],
+                                'legacy': {'pointer': ['data', 'video'], 'default': ''}}
+        return {'schema_version': 2, 'content_pointer': ['data', 'markdown'],
+                'content_format': 'empty' if file_route or not ok else 'text', 'optional_content': True,
+                'result_fields': {'final_url': {'pointer': ['data', 'metadata', 'url'], 'format': 'text_or_none', 'nonempty': True},
+                    **({'title': {'pointer': ['data', 'metadata', 'title'], 'format': 'text_or_none'}} if ok else {})},
+                'answer_fields': fields,
+                **({'files': {'pointer': ['data', 'rawBase64'], 'format': 'base64_file'}} if file_bytes else {})}
+
     def native_route(self, case) -> NativeRoute:
         fields = (['data.rawBase64'] if case.task_kind == 'file' else
                   ['data.markdown', 'data.links', 'data.images', 'data.videos', 'data.video'])

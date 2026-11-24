@@ -12,6 +12,7 @@ from typing import Any
 
 from lexbench_webfetch.models import EvalCase
 
+from harness.adapters import Capabilities, Registry
 from harness.call_diagnostics import emit
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.network_dns import public_dns_context, validate_dns_mode
@@ -109,7 +110,60 @@ def await_owned_process_exit(process, grace=PROCESS_EXIT_GRACE_SECONDS):
 
 
 class Provider(ABC):
+    """One Web Fetch method; conforms to ``harness.adapters.MethodAdapter``.
+
+    Shared code calls only the hooks declared here and reads declared
+    capability flags instead of branching on provider types.
+    """
+
     allow_failure_retries = True
+
+    # Capability flags read by shared evidence checks:
+    #   malformed_envelope_is_evidence  a non-object JSON response selects no answer
+    #   raw_answer_bytes                answers come from response bytes, not a JSON envelope
+    #   raw_stdout_evidence             the retained raw response is the worker's stdout
+    #   raw_http_evidence               byte answers are the retained HTTP response, not stdout
+    #   legacy_markdown_output_label    older evidence named the route "markdown";
+    #                                   replay its frozen request interface instead
+    capability_flags: frozenset[str] = frozenset()
+
+    # Per-call diagnostics sink assigned by the runner; None when not debugging.
+    call_diagnostics = None
+
+    @classmethod
+    def capabilities(cls) -> Capabilities:
+        return Capabilities(flags=cls.capability_flags)
+
+    def implementation_identity(self, *, refresh: bool = False) -> dict[str, Any]:
+        """Identity established by ``validate``; adapters that compute it override.
+
+        Empty when the adapter records no implementation identity.
+        """
+        if refresh or not isinstance(getattr(self, '_implementation_identity', None), dict):
+            if errors := self.validate():
+                raise ValueError(f'{self.name} identity/configuration error: ' + ', '.join(errors))
+        return dict(getattr(self, '_implementation_identity', None) or {})
+
+    def recorded_implementation_identity(self) -> dict[str, Any] | None:
+        """Identity already established outside timed calls, never recomputed here."""
+        identity = getattr(self, '_implementation_identity', None)
+        return identity if isinstance(identity, dict) else None
+
+    def capacity_credits_for_cases(self, cases, *, runs: int, max_failure_retries: int) -> int | None:
+        """Account credits an exact case scope may consume; None without a case-derived bound."""
+        return None
+
+    def preflight_capacity(self, declared_calls: int, timeout: float = 10, *,
+                           required_credits: int | None = None) -> None:
+        """Fail before a cohort whose declared calls exceed account capacity."""
+
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection policy; see ``native_projection.NativeSelection``.
+
+        Its defining module's bytes are part of the frozen policy identity.
+        """
+        raise ValueError('Unsupported native answer selection policy: ' + str(selection.provider_type))
 
     # Public configuration diagnostics only. Credentials, commands and local
     # paths remain covered by the full configuration hash, never displayed.
@@ -241,17 +295,19 @@ class Provider(ABC):
         """Reset cancellation state before the timed worker can start."""
 
 
-# Provider type -> (module in this package, class). Modules load on demand because
-# adapters import this module and some carry their own optional dependencies.
-PROVIDER_TYPES = {
-    "brightdata_unlocker": ("hosted_fetch", "HostedFetchProvider"),
-    "browser_use_fetch": ("hosted_fetch", "HostedFetchProvider"),
-    "browserbase_fetch": ("hosted_fetch", "HostedFetchProvider"),
-    "deepseek_fetch": ("hosted_fetch", "HostedFetchProvider"),
-    "kimi_fetch": ("hosted_fetch", "HostedFetchProvider"),
-    "zai_reader": ("hosted_fetch", "HostedFetchProvider"),
+# Provider type -> (module in this package, class): the one place a type is
+# declared. Modules load on demand because adapters import this module and some
+# carry their own optional dependencies.
+PROVIDERS: Registry[tuple[str, str]] = Registry("Web Fetch provider type")
+for _type, _entry in {
+    "brightdata_unlocker": ("hosted_fetch", "BrightDataUnlockerProvider"),
+    "browser_use_fetch": ("hosted_fetch", "BrowserUseFetchProvider"),
+    "browserbase_fetch": ("hosted_fetch", "BrowserbaseFetchProvider"),
+    "deepseek_fetch": ("hosted_fetch", "DeepSeekFetchProvider"),
+    "kimi_fetch": ("hosted_fetch", "KimiFetchProvider"),
+    "zai_reader": ("hosted_fetch", "ZaiReaderProvider"),
     "claude_web_fetch": ("claude_fetch", "ClaudeFetchProvider"),
-    "crawl4ai_cloud": ("hosted_fetch", "HostedFetchProvider"),
+    "crawl4ai_cloud": ("hosted_fetch", "Crawl4aiCloudProvider"),
     "headless_html": ("headless", "HeadlessProvider"),
     "headless_markdown": ("headless", "HeadlessProvider"),
     "moli_webfetch": ("moli", "MoliWebFetchProvider"),
@@ -266,12 +322,25 @@ PROVIDER_TYPES = {
     "cloudflare_content": ("cloudflare", "CloudflareContentProvider"),
     "subprocess_jsonl": ("subprocess_jsonl", "SubprocessJsonlProvider"),
     "fixture": ("fixture", "FixtureProvider"),
-}
+}.items():
+    PROVIDERS.register(_type, _entry)
+
+
+def provider_class(provider_type: str) -> type[Provider]:
+    """Load the adapter class registered for a provider type."""
+    module, class_name = PROVIDERS.get(provider_type)
+    return getattr(import_module(f"harness.web_fetch.providers.{module}"), class_name)
+
+
+def provider_capabilities(provider_type) -> Capabilities:
+    """Declared capabilities of a saved record's provider type; none when unregistered."""
+    if not isinstance(provider_type, str) or provider_type not in PROVIDERS:
+        return Capabilities()
+    return provider_class(provider_type).capabilities()
 
 
 def build_provider(name: str, config: dict[str, Any]) -> Provider:
     provider_type = config.get("type")
-    if provider_type not in PROVIDER_TYPES:
+    if not isinstance(provider_type, str) or provider_type not in PROVIDERS:
         raise ValueError(f"unknown provider type: {provider_type!r}")
-    module, class_name = PROVIDER_TYPES[provider_type]
-    return getattr(import_module(f"harness.web_fetch.providers.{module}"), class_name)(name, config)
+    return provider_class(provider_type)(name, config)
