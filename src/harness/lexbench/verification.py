@@ -18,6 +18,7 @@ from harness.lexbench.resource_summary import validate_summary
 from harness.record_io import file_sha256, read_json
 from harness.report_languages import check_language_contract, generated_languages
 from harness.reporting.privacy import LEXBENCH_CHECK_SOURCE
+from harness.reporting.release_check import ReleaseRules, validate_release
 from harness.safety import reject_evidence_symlinks
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
@@ -1004,7 +1005,8 @@ def validate(model: Json, site: pathlib.Path, check_files: bool = True) -> bool:
     return True
 
 
-def validate_release(model, profile):
+def check_release_matrix(model, profile):
+    """The Lexbench release rule: the report covers the complete bound method matrix."""
     if model.get("resource_builds") != profile.get("resource_builds"):
         fail("release resource binaries differ from the bound identities")
     if [row["id"] for row in model["functional_methods"]] != profile["method_ids"]:
@@ -1022,9 +1024,13 @@ def verify_evidence(site: pathlib.Path, *, profile: dict | None = None) -> dict:
     reject_evidence_symlinks(site)
     SITE = site.resolve()
     model = json.loads(contained_path(SITE, "data/model.json", reject_symlinks=True).read_text(encoding="utf-8"))
-    if profile is not None:
-        validate_release(model, profile)
-    validate(model, SITE)
+    if profile is None:
+        validate(model, SITE)
+    else:
+        validate_release(SITE, ReleaseRules(
+            identity=lambda _root: check_release_matrix(model, profile),
+            evidence=lambda root: validate(model, root),
+        ))
     # Semantic negative controls must fail through the same validator.
     negative_controls = 0
 

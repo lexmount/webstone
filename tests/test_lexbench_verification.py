@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from harness.lexbench.charts import combine_comparisons, render_chart
-from harness.lexbench.verification import validate, validate_release
+from harness.lexbench.verification import check_release_matrix, validate
 from tests.test_lexbench_cli import checkout_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -297,7 +297,7 @@ def test_release_binding_uses_selected_profile_registry():
         "linux_comparison": {"configurations": [{"id": "engine-z"}]},
         "linux_resource_profiles": {"bound": True},
     }
-    validate_release(model, profile)
+    check_release_matrix(model, profile)
     for change, error in [
         (lambda m: m["resource_builds"]["engine-z"].update(sha256="b" * 64), "binaries"),
         (lambda m: m["functional_methods"].reverse(), "functional method matrix"),
@@ -311,7 +311,7 @@ def test_release_binding_uses_selected_profile_registry():
         altered = copy.deepcopy(model)
         change(altered)
         with pytest.raises(ValueError, match=error):
-            validate_release(altered, profile)
+            check_release_matrix(altered, profile)
 
 
 def test_profile_option_without_release_is_rejected_before_reading_site(tmp_path):
