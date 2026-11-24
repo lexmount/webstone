@@ -513,33 +513,39 @@ def test_uncommitted_first_call_counts_in_native_settings_coverage(tmp_path):
 
 
 @pytest.mark.parametrize('presentation', ['audit', 'final'])
-@pytest.mark.parametrize('route', ['index.html', 'providers/method.html', 'attempt'])
-@pytest.mark.parametrize('defect', ['remove', 'hide', 'remove_marker_and_scope'])
-def test_saved_disclosure_is_required_on_home_and_detail_routes(tmp_path, presentation, route, defect):
+def test_saved_disclosure_is_required_on_home_and_detail_routes(tmp_path, presentation):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_matrix import check_saved_matrix
     spec = matrix(tmp_path)
     spec['presentation'] = presentation
     spec['ranking'] = 'saved_task_pass_rate'
     root = build(tmp_path, spec).parent
-    path = next((root/'attempts').glob('*.html')) if route == 'attempt' else root/route
-    page = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
-    scope = page.select_one('[data-ranking-scope="saved-task-pass-rate"]')
-    assert scope and '认证' in scope.get_text()
-    if defect in {'remove', 'remove_marker_and_scope'}:
-        scope.decompose()
-        if defect == 'remove_marker_and_scope':
-            page.select_one('meta[name="webstone-report"]').decompose()
-    else:
-        scope['hidden'] = ''
-    path.write_text(str(page), encoding='utf-8')
-    # Rebinding bytes cannot turn a missing or hidden disclosure into valid UI.
     audit_path = root/'saved-matrix-audit.json'
-    audit = json.loads(audit_path.read_bytes())
-    audit['files'][path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-    audit_path.write_text(json.dumps(audit), encoding='utf-8')
-    with pytest.raises(ValueError, match='disclosure missing|Rendered page differs from validated source'):
-        check_saved_matrix(root, spec_path=tmp_path/'spec.json' if presentation == 'final' else None)
+    original_audit = audit_path.read_bytes()
+    # One build; each route/defect damage is applied, checked and then restored.
+    for route in ('index.html', 'providers/method.html', 'attempt'):
+        path = next((root/'attempts').glob('*.html')) if route == 'attempt' else root/route
+        original = path.read_bytes()
+        for defect in ('remove', 'hide', 'remove_marker_and_scope'):
+            page = BeautifulSoup(original.decode('utf-8'), 'html.parser')
+            scope = page.select_one('[data-ranking-scope="saved-task-pass-rate"]')
+            assert scope and '认证' in scope.get_text()
+            if defect in {'remove', 'remove_marker_and_scope'}:
+                scope.decompose()
+                if defect == 'remove_marker_and_scope':
+                    page.select_one('meta[name="webstone-report"]').decompose()
+            else:
+                scope['hidden'] = ''
+            path.write_text(str(page), encoding='utf-8')
+            # Rebinding bytes cannot turn a missing or hidden disclosure into valid UI.
+            audit = json.loads(original_audit)
+            audit['files'][path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            audit_path.write_text(json.dumps(audit), encoding='utf-8')
+            with pytest.raises(ValueError, match='disclosure missing|Rendered page differs from validated source'):
+                check_saved_matrix(root, spec_path=tmp_path/'spec.json' if presentation == 'final' else None)
+            path.write_bytes(original)
+            audit_path.write_bytes(original_audit)
+    check_saved_matrix(root, spec_path=tmp_path/'spec.json' if presentation == 'final' else None)
 
 
 @pytest.mark.parametrize('only_missing', [False, True])

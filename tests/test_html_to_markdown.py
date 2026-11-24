@@ -4,11 +4,13 @@ import subprocess
 import unittest
 
 import markdown
+import pytest
 from bs4 import BeautifulSoup
 
 from harness.web_fetch.markdown import converter_command, require_converter
 
 
+@pytest.mark.node_packages
 @unittest.skipUnless(shutil.which('node'), 'HTML conversion requires Node')
 class HtmlToMarkdownTests(unittest.TestCase):
     def test_preformatted_examples_retain_literal_characters_and_whitespace(self):

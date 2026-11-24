@@ -673,11 +673,15 @@ def test_document_dedup_and_reference_path_controls_execute_current_public_score
         provider_calls=0, regression_ids=['relevance-document-dedup', 'reference-mirror-path-variants']))
 
 
-def test_locked_reference_extensions_rescore_all_methods_without_replacing_original_gold():
+def test_locked_reference_extensions_rescore_all_methods_without_replacing_original_gold(monkeypatch):
+    from lexbench_websearch import simpleqa
     from lexbench_websearch.inputs import load_dataset
     from harness.web_search.revisions import apply_report_revision
     from lexbench_websearch.scoring import evaluate
 
+    # Replaying every frozen full capture takes minutes; tests/benchmarks/websearch/test_simpleqa.py
+    # covers that replay on synthetic captures, so this test checks only the rescoring rules.
+    monkeypatch.setattr(simpleqa, 'validate_reference_evidence', lambda dataset, artifacts: None)
     current = load_dataset('factual-v1')
     selected = next(case for case in current['cases'] if case.get('equivalent_reference_urls'))
     original = {k: v for k, v in selected.items()

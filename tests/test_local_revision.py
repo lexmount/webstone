@@ -215,9 +215,25 @@ def _two_revision_chain(root):
     return receipts
 
 
-def test_score_revision_chain_validates_both_steps_and_reaches_original_inputs(tmp_path):
+@pytest.fixture(scope='module')
+def _chain_template(tmp_path_factory):
+    root = tmp_path_factory.mktemp('two-revision-chain')
+    return root, _two_revision_chain(root)
+
+
+@pytest.fixture
+def two_revision_chain(tmp_path, _chain_template):
+    """A copy of one two-step chain; its receipts bind only root-relative paths."""
+    import copy
+    import shutil
+    root, receipts = _chain_template
+    shutil.copytree(root, tmp_path, dirs_exist_ok=True)
+    return copy.deepcopy(receipts)
+
+
+def test_score_revision_chain_validates_both_steps_and_reaches_original_inputs(tmp_path, two_revision_chain):
     from harness.web_fetch.local_revision import validate_revision_chain
-    (first_binding, first), (latest_binding, latest) = _two_revision_chain(tmp_path)
+    (first_binding, first), (latest_binding, latest) = two_revision_chain
     assert first['task_verdict_changes'] == [
         {'attempt_id': 'p__a', 'before': False, 'after': True}]
     assert latest['task_verdict_changes'] == [
@@ -241,9 +257,9 @@ def test_score_revision_chain_validates_both_steps_and_reaches_original_inputs(t
     ('output_dataset_sha256', None),
     ('scoring_source_sha256', 1),
 ])
-def test_revision_receipt_reports_malformed_fields_without_rewriting_evidence(tmp_path, field, value):
+def test_revision_receipt_reports_malformed_fields_without_rewriting_evidence(tmp_path, two_revision_chain, field, value):
     from harness.web_fetch.local_revision import validate_revision_chain
-    _, (binding, receipt) = _two_revision_chain(tmp_path)
+    _, (binding, receipt) = two_revision_chain
     dataset_before = (tmp_path/'dataset.json').read_bytes()
     results_before = (tmp_path/'results.jsonl').read_bytes()
     receipt[field] = value
@@ -264,9 +280,9 @@ def test_revision_receipt_reports_malformed_fields_without_rewriting_evidence(tm
     ('scoring_source_sha256', 'scoring source'),
     ('output_results_sha256', 'output binding'), ('measured_call', 'measured call facts'),
 ])
-def test_hash_connected_intermediate_revision_must_pass_full_validation(tmp_path, tamper, message):
+def test_hash_connected_intermediate_revision_must_pass_full_validation(tmp_path, two_revision_chain, tamper, message):
     from harness.web_fetch.local_revision import validate_revision_chain
-    (parent_binding, parent), (latest_binding, latest) = _two_revision_chain(tmp_path)
+    (parent_binding, parent), (latest_binding, latest) = two_revision_chain
     if tamper in {'authority', 'regression_ids'}:
         parent.pop(tamper)
     elif tamper in {'changed_case_ids', 'task_verdict_changes'}:
@@ -695,8 +711,8 @@ def test_bad_frozen_input_proof_rejects_before_scoring_or_writes(tmp_path, monke
     assert before=={p.relative_to(tmp_path):p.read_bytes()for p in tmp_path.rglob('*')if p.is_file()}
 
 
-def test_bad_predecessor_rejects_before_scoring_or_writes(tmp_path, monkeypatch):
-    _, (latest_binding, _) = _two_revision_chain(tmp_path)
+def test_bad_predecessor_rejects_before_scoring_or_writes(tmp_path, two_revision_chain, monkeypatch):
+    _, (latest_binding, _) = two_revision_chain
     config={'cases':[],'rescore_attempt_ids':['p__a'],
         'authority':{'description':'Declared next revision'},
         'regression_ids':['ordinary-text-player-control-only','ordinary-text-with-player-control'],

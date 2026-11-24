@@ -52,11 +52,15 @@ def test_required_ci_status_rejects_missing_results():
     assert run_gate([]) != 0
 
 
+DOCUMENTATION_RESULTS = ["success", "success", "skipped", "skipped", "skipped"]
+
+
 def test_documentation_gate_accepts_only_the_declared_skips():
-    assert run_gate(["success", "success", "skipped", "skipped"], docs_only="true") == 0
-    for index in range(4):
+    assert len(DOCUMENTATION_RESULTS) == len(ci_gate()["needs"])
+    assert run_gate(DOCUMENTATION_RESULTS, docs_only="true") == 0
+    for index in range(len(DOCUMENTATION_RESULTS)):
         for outcome in ["success", "failure", "cancelled", "skipped"]:
-            results = ["success", "success", "skipped", "skipped"]
+            results = list(DOCUMENTATION_RESULTS)
             if results[index] != outcome:
                 results[index] = outcome
                 assert run_gate(results, docs_only="true") != 0
@@ -64,7 +68,7 @@ def test_documentation_gate_accepts_only_the_declared_skips():
 
 @pytest.mark.parametrize("mode", ["", "unknown", "True"])
 def test_required_ci_status_rejects_an_unknown_scope(mode):
-    assert run_gate(["success"] * 4, docs_only=mode) != 0
+    assert run_gate(["success"] * len(ci_gate()["needs"]), docs_only=mode) != 0
 
 
 def git(root, *args, input=None):
@@ -186,6 +190,7 @@ def github_context(run_id, *, event="push", ref="refs/heads/main", pr=None, work
     }
 
 
+@pytest.mark.node_packages
 @pytest.mark.parametrize("ref", ["refs/heads/main", "refs/tags/v0.3.0"])
 def test_three_non_pr_pushes_cannot_replace_a_pending_run(ref):
     runs = concurrency_for([github_context(run_id, ref=ref) for run_id in (101, 102, 103)])
@@ -193,6 +198,7 @@ def test_three_non_pr_pushes_cannot_replace_a_pending_run(ref):
     assert all(not run["cancel"] for run in runs)
 
 
+@pytest.mark.node_packages
 def test_new_commits_replace_only_runs_of_the_same_pr():
     runs = concurrency_for([
         github_context(101, event="pull_request", pr=77, ref="refs/pull/77/merge"),
@@ -204,6 +210,7 @@ def test_new_commits_replace_only_runs_of_the_same_pr():
     assert all(run["cancel"] for run in runs)
 
 
+@pytest.mark.node_packages
 def test_concurrency_does_not_cross_workflow_boundaries():
     runs = concurrency_for([
         github_context(101, event="pull_request", pr=77, workflow="ci"),
@@ -212,7 +219,7 @@ def test_concurrency_does_not_cross_workflow_boundaries():
     assert runs[0]["group"] != runs[1]["group"]
 
 
-@pytest.mark.parametrize("job", ["scope", "checks", "package", "browser", "test"])
+@pytest.mark.parametrize("job", ["scope", "static", "checks", "package", "browser", "test"])
 def test_each_ci_job_has_a_bounded_budget_including_setup(job):
     budget = ci_workflow()["jobs"][job].get("timeout-minutes")
     assert isinstance(budget, int) and 0 < budget <= 30
@@ -225,19 +232,6 @@ def test_ci_actions_are_bound_to_immutable_commits():
                 assert re.fullmatch(r"[\w.-]+/[\w.-]+@[a-f0-9]{40}", step["uses"])
 
 
-def test_only_documentation_uses_one_test_partition():
-    workflow = ci_workflow()
-    result = subprocess.run(
-        ["node", str(ROOT / "tests/evaluate_ci_expressions.mjs")],
-        input=json.dumps({"policy": workflow["concurrency"],
-                          "partitions": workflow["jobs"]["checks"]["strategy"]["matrix"]["partition"],
-                          "contexts": [{"docs_only": value} for value in ["true", "false", "", "unknown"]]}),
-        text=True, capture_output=True, check=True,
-    )
-    assert [row["partitions"] for row in json.loads(result.stdout)] == [
-        ["primary"], ["primary", "secondary"], ["primary", "secondary"], ["primary", "secondary"]]
-
-
 def test_python_partitions_cover_existing_and_future_test_directories_once(tmp_path):
     names = ["test_shared.py", "benchmarks/test_scorer.py", "future_track/test_new.py",
              "test_browser_observation_contracts.py", "test_report_browser_interactions.py",
@@ -247,8 +241,11 @@ def test_python_partitions_cover_existing_and_future_test_directories_once(tmp_p
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("".join(f"def test_example_{i}(): pass\n" for i in range(10)), encoding="utf-8")
     selected = []
-    commands = [step['run'] for step in ci_workflow()["jobs"]["checks"]["steps"]
-                if step.get('run', '').startswith(("make ci-tests ", "make test-python "))]
+    checks = ci_workflow()["jobs"]["checks"]
+    command = next(step['run'] for step in checks["steps"]
+                   if step.get('run', '').startswith("make test-python "))
+    commands = [command.replace("${{ matrix.shard }}", str(shard))
+                for shard in checks["strategy"]["matrix"]["shard"]]
     for command in [*commands, 'make browser-check']:
         dry_run = subprocess.run(
             [*shlex.split(command)[:2], "-n", *shlex.split(command)[2:]],
@@ -268,7 +265,7 @@ def test_python_partitions_cover_existing_and_future_test_directories_once(tmp_p
             env={**os.environ, 'PYTHONPATH': str(ROOT)},
         )
         selected.append({line for line in result.stdout.splitlines() if "::test_example" in line})
-    assert len(selected) == 3
+    assert len(selected) == len(commands) + 1
     for index, population in enumerate(selected):
         assert all(population.isdisjoint(other) for other in selected[index + 1:])
     assert set.union(*selected) == {f"tests/{name}::test_example_{i}"

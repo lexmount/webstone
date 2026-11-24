@@ -2,6 +2,8 @@ UV ?= uv
 PY := $(UV) run --frozen python
 TEST_PY := $(UV) run --frozen --all-extras python
 PYTEST_ARGS ?=
+# Parallel by default; PYTEST_WORKERS=0 runs serially.
+PYTEST_WORKERS ?= auto
 TEST_PATHS ?= tests
 BROWSER_TESTS ?= include
 export BROWSER_TESTS
@@ -35,6 +37,7 @@ require_profile = @test -n "$($(or $(1),PROFILE))" || (echo '$(or $(1),PROFILE)=
   test-ui \
   fixture-smoke \
   test \
+  ci-static \
   ci-tests \
   ci \
   shell-check \
@@ -125,8 +128,8 @@ lint-check: runtime-check ## Run Ruff
 	$(TEST_PY) -m ruff check --config 'include=["*.py"]' --select F,TID252,B023,B905 .
 	$(TEST_PY) -m ruff check
 
-test-python: runtime-check ## Run Python tests: TEST_PATHS, PYTEST_ARGS
-	$(TEST_PY) -m pytest $(TEST_PATHS) -q $(PYTEST_ARGS) $(if $(filter exclude,$(BROWSER_TESTS)),$(addprefix --ignore=,$(BROWSER_TEST_PATHS)))
+test-python: runtime-check ## Run Python tests in parallel: TEST_PATHS, PYTEST_ARGS, PYTEST_WORKERS
+	$(TEST_PY) -m pytest $(TEST_PATHS) -q -n $(PYTEST_WORKERS) --dist worksteal $(PYTEST_ARGS) $(if $(filter exclude,$(BROWSER_TESTS)),$(addprefix --ignore=,$(BROWSER_TEST_PATHS)))
 
 test-reference-inputs: runtime-check ## Run strict historical-input tests
 	$(TEST_PY) -m pytest tests -q --require-reference-inputs
@@ -143,8 +146,10 @@ fixture-smoke: runtime-check ## Run the offline fixture CLI
 
 test: test-python test-ui test-native-adapters ## Run Python, UI and native adapter tests
 
-ci-tests: track-naming-check lint-check shell-check fixture-smoke ## Run static checks and independent test suites
-	$(MAKE) -j2 test test-extraction-sdk
+ci-static: track-naming-check lint-check shell-check fixture-smoke ## Run static checks and the Node and extraction SDK suites
+	$(MAKE) -j2 test-ui test-native-adapters test-extraction-sdk
+
+ci-tests: ci-static test-python ## Run static checks and every test suite except the browser checks
 
 ci: ci-tests package-check browser-check ## Run every CI job: tests, packaging and browser checks
 

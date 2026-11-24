@@ -117,7 +117,7 @@ Docker extra and a declared image containing the same worker bytes as the host.
 `ENGINES` in `src/harness/web_fetch/providers/headless.py` holds one definition per
 engine: its command-line templates, native CDP server arguments, completion
 semantics, task routes and recorded metadata.
-`tests/golden/headless-engine-routes.jsonl` pins each resulting command line.
+`tests/baselines/headless-engine-routes.jsonl` pins each resulting command line.
 
 Until [#183](https://github.com/lexmount/webstone/issues/183) lands, `ENGINES` does
 not own every engine decision. A new engine also needs matching changes in

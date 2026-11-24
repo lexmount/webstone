@@ -7,11 +7,26 @@ from harness.web_extract.example import create
 from harness.web_extract.pipeline import digest, read_json, save_json
 from harness.web_extract.report import _check_rendered_report
 
+_SUITE = []
+
+
+@pytest.fixture
+def suite_output(tmp_path_factory, tmp_path):
+    """A private copy of one synthetic suite build; tests here damage only the public output."""
+    import shutil
+
+    if not _SUITE:
+        built = tmp_path_factory.mktemp("suite") / "report"
+        create(built, mode="field-extraction-suite")
+        _SUITE.append(built)
+    output = tmp_path / "report"
+    shutil.copytree(_SUITE[0], output)
+    return output
+
 
 @pytest.mark.parametrize("damage", [None, "quality", "navigation", "child-binding"])
-def test_suite_uses_each_cohorts_results_and_bound_details(tmp_path, damage):
-    output = tmp_path / "report"
-    create(output, mode="field-extraction-suite")
+def test_suite_uses_each_cohorts_results_and_bound_details(suite_output, damage):
+    output = suite_output
     manifest = _check_rendered_report(output)
     assert [c["id"] for c in manifest["cohorts"]] == ["first", "second"]
     path = output / "zh/index.html"
@@ -57,8 +72,7 @@ def test_suite_example_rejects_repository_output_before_creating_anything():
     assert not output.with_name(output.name + "-suite-inputs").exists()
 
 
-@pytest.mark.parametrize("damage", [False, True])
-def test_suite_checks_authored_intro_links_with_the_child_prefix(tmp_path, damage):
+def test_suite_checks_authored_intro_links_with_the_child_prefix(tmp_path):
     from harness.web_extract import report, report_suite
 
     home = create(tmp_path / "seed", mode="field-extraction-suite")
@@ -90,15 +104,14 @@ def test_suite_checks_authored_intro_links_with_the_child_prefix(tmp_path, damag
     document = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
     link = document.select_one("[data-page-intro] a")
     assert link["href"] == "first/zh/dataset.html"
-    if damage:
-        link["href"] = "second/zh/dataset.html"
-        path.write_text(str(document), encoding="utf-8")
-        manifest_path = output / "first/report-manifest.json"
-        manifest = read_json(manifest_path)
-        manifest["files"]["zh/index.html"] = digest(path.read_bytes())
-        save_json(manifest_path, manifest)
-        with pytest.raises(ValueError, match="Frozen page intro"):
-            report.check(output / "first", profile=child_profile, home=Path(child["home"]))
+    link["href"] = "second/zh/dataset.html"
+    path.write_text(str(document), encoding="utf-8")
+    manifest_path = output / "first/report-manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["files"]["zh/index.html"] = digest(path.read_bytes())
+    save_json(manifest_path, manifest)
+    with pytest.raises(ValueError, match="Frozen page intro"):
+        report.check(output / "first", profile=child_profile, home=Path(child["home"]))
 
 
 @pytest.mark.parametrize("reserved", ["zh", "en", "public-evidence", "assets"])
@@ -162,12 +175,11 @@ def test_quality_exclusion_preserves_operational_comparison(tmp_path):
     ([1, 1], ["scrapegraph-extract"], "scrapegraph-extract"),
 ])
 def test_suite_latency_uses_execution_scope_without_hiding_measurements(
-    tmp_path, limits, compared, winner
+    suite_output, limits, compared, winner
 ):
     from harness.web_extract import report_suite
 
-    output = tmp_path / "report"
-    create(output, mode="field-extraction-suite")
+    output = suite_output
     child = output / "first"
     sources = read_json(child / "public-evidence/sources.json")
     for method, limit in zip(sources, limits, strict=True):
@@ -292,9 +304,8 @@ def test_suite_validates_every_prefix_before_creating_output(tmp_path, position,
 
 
 @pytest.mark.parametrize("flag", [False, None, 0])
-def test_suite_example_identity_cannot_be_removed_or_relabelled(tmp_path, flag):
-    output = tmp_path / "report"
-    create(output, mode="field-extraction-suite")
+def test_suite_example_identity_cannot_be_removed_or_relabelled(suite_output, flag):
+    output = suite_output
     path = output / "report-manifest.json"
     manifest = read_json(path)
     if flag is None:
@@ -315,19 +326,23 @@ def test_suite_explicit_unsupported_language_fails_before_children_or_output(tmp
     assert not (tmp_path / "output").exists()
 
 
-@pytest.mark.parametrize("href,expected", [
+_SUMMARY_LINKS = [
     ("https://example.org/source", "https://example.org/source"),
     ("first/zh/dataset.html", "first/zh/dataset.html"),
     ("#first", "zh/index.html#first"),
     ("?source=first#first", "zh/index.html?source=first#first"),
-])
-def test_suite_summary_links_survive_owner_normalization_and_are_checked(tmp_path, href, expected):
+]
+
+
+def test_suite_summary_links_survive_owner_normalization_and_are_checked(tmp_path):
     from harness.web_extract import report_suite
 
     source = create(tmp_path / "seed", mode="field-extraction-suite")
     content = source / "content.json"
     model = read_json(content)
-    model["cohorts"][0]["summary_html"] = f'<p><a href="{href}">Source</a></p>'
+    model["cohorts"][0]["summary_html"] = "<p>" + "".join(
+        f'<a href="{href}">Source {index}</a>' for index, (href, _) in enumerate(_SUMMARY_LINKS)
+    ) + "</p>"
     save_json(content, model)
     profile = source / "profile.json"
     authority = read_json(profile)
@@ -336,31 +351,37 @@ def test_suite_summary_links_survive_owner_normalization_and_are_checked(tmp_pat
     save_json(profile, authority)
     output = tmp_path / "report"
     report_suite.build(output, content, profile=profile, language="zh")
+    _check_rendered_report(output)
     path = output / "zh/index.html"
     soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-    link = soup.select_one('[data-cohort="first"] > p a')
-    assert link["href"] == expected
-    if href.startswith("https:"):
-        assert link["target"] == "_blank"
-        assert set(link["rel"]) == {"noopener", "noreferrer"}
-    link["href"] = "https://example.org/another-source"
-    path.write_text(str(soup), encoding="utf-8")
-    manifest = read_json(output / "report-manifest.json")
-    manifest["files"]["zh/index.html"] = digest(path.read_bytes())
-    save_json(output / "report-manifest.json", manifest)
-    with pytest.raises(ValueError, match="Suite comparison"):
-        _check_rendered_report(output)
+    links = [
+        soup.select_one(f'[data-cohort="first"] > p a:-soup-contains("Source {index}")')
+        for index in range(len(_SUMMARY_LINKS))
+    ]
+    assert [link["href"] for link in links] == [expected for _, expected in _SUMMARY_LINKS]
+    assert links[0]["target"] == "_blank"
+    assert set(links[0]["rel"]) == {"noopener", "noreferrer"}
+    assert all(not link.has_attr("target") for link in links[1:])
+    for link in links:
+        original = link["href"]
+        link["href"] = "https://example.org/another-source"
+        path.write_text(str(soup), encoding="utf-8")
+        manifest = read_json(output / "report-manifest.json")
+        manifest["files"]["zh/index.html"] = digest(path.read_bytes())
+        save_json(output / "report-manifest.json", manifest)
+        with pytest.raises(ValueError, match="Suite comparison"):
+            _check_rendered_report(output)
+        link["href"] = original
 
 
 @pytest.mark.parametrize("damage", [
     "remove", "reorder", "label", "child-content", "child-profile",
     "content-authority", "rewrite-authority",
 ])
-def test_suite_scope_is_bound_to_approved_content_after_rehashing(tmp_path, damage):
+def test_suite_scope_is_bound_to_approved_content_after_rehashing(suite_output, damage):
     import shutil
 
-    output = tmp_path / "report"
-    create(output, mode="field-extraction-suite")
+    output = suite_output
     manifest = read_json(output / "report-manifest.json")
     suite = read_json(output / "suite.json")
     path = output / "zh/index.html"

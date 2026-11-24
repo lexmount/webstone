@@ -145,6 +145,9 @@ def test_run_and_offline_rescore_can_select_one_scope_or_both(tmp_path, scope):
     assert row['metrics']['evaluation_content_scope'] == other
     assert 'content_scope_metrics' not in row['metrics']
     assert {p: p.read_bytes() for p in (run/'call-logs').rglob('*.json')} == calls
+    if scope != 'both':
+        return
+    # A changed retrieval task is rejected for every selection; checked once, after a dual-scope run.
     saved_results = (run/'results.jsonl').read_bytes()
     altered = json.loads(dataset.read_text(encoding='utf-8'))
     altered['cases'][0]['url'] = 'https://different.example.test/task'
@@ -218,7 +221,8 @@ def test_suite_list_identifies_overlapping_annotation_cohorts(monkeypatch, capsy
     assert listed == rows
 
 
-@pytest.mark.parametrize('language', ['zh', 'en'])
+# English builds both editions; Chinese-only report builds are covered by the other CLI tests here.
+@pytest.mark.parametrize('language', ['en'])
 def test_one_acquisition_builds_only_the_selected_report(tmp_path, language):
     case = annotated_case()
     case['name'] = 'Complete article body'

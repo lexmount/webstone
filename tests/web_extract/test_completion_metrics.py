@@ -185,9 +185,18 @@ def test_metric_requires_complete_unique_population_and_preserves_inputs():
             completion_metrics(rows, fields, records=False)
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
+_MODES = ["full-cohort-progress", "field-extraction-cohort"]
+
+
+# Each damage reaches the same mode-independent release check; alternate the two modes.
 @pytest.mark.parametrize(
-    "damage", ["comparison", "definition", "count", "coverage", "highlight", "source", "pinning"]
+    ("mode", "damage"),
+    [
+        (_MODES[index % 2], damage)
+        for index, damage in enumerate(
+            ["comparison", "definition", "count", "coverage", "highlight", "source", "pinning"]
+        )
+    ],
 )
 def test_release_check_rejects_misleading_supplemental_metrics(tmp_path, mode, damage):
     from bs4 import BeautifulSoup
@@ -442,8 +451,14 @@ def test_only_explicit_comparison_tables_pin_the_method_column(heading):
         assert document.table.parent.get("tabindex") == "0"
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
-@pytest.mark.parametrize("location", ["direct", "nested", "inside-owner"])
+# Every case checks its clean report first; alternating modes keeps both modes covered.
+@pytest.mark.parametrize(
+    ("mode", "location"),
+    [
+        (_MODES[index % 2], location)
+        for index, location in enumerate(["direct", "nested", "inside-owner"])
+    ],
+)
 def test_home_comparison_precedes_authored_content_and_gate_rejects_reordering(
     tmp_path, mode, location
 ):

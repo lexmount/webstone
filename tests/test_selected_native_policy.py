@@ -178,10 +178,12 @@ def test_configured_cli_selection_reaches_runner(tmp_path):
                          [('cloudflare-markdown', 'image'), ('cloudflare-markdown', 'video'),
                           ('moli-webfetch', 'file')])
 @pytest.mark.parametrize('origin_status', [200, 404, None])
-def test_selected_origin_status_policy_controls_acceptance_and_retry(tmp_path, name, route, origin_status):
+def test_selected_origin_status_policy_controls_acceptance_and_retry(tmp_path, monkeypatch, name, route, origin_status):
     import hashlib
     import sys
     from lexbench_webfetch.metrics import task_passed
+    # A provider's minimum request interval (Firecrawl: seconds) must not wall-clock wait here.
+    monkeypatch.setattr('harness.web_fetch.runner.time.sleep', lambda seconds: None)
     p, c = provider(name), case()
     file_bytes = b'\x89PNG\r\n\x1a\n' + b'fixture bytes' * 8
     if route == 'document':

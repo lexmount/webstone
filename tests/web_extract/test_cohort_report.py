@@ -1301,32 +1301,37 @@ def test_failed_details_use_the_same_error_as_dialog_evidence(tmp_path, payload)
                 assert expected == json.dumps(payload["error"], ensure_ascii=False)
 
 
+_COST_EDITIONS = [
+    ("full-cohort-progress", "en"),
+    ("full-cohort-progress", "zh"),
+    ("field-extraction-cohort", "zh"),
+]
+_COST_DAMAGES = [
+    "partial",
+    "special_path",
+    "population",
+    "missing_reason",
+    "missing_evidence",
+    "hash",
+    "source",
+    "method",
+    "receipts",
+    "receipt_boolean",
+    "float_population",
+    "zero_missing",
+    "zero_price",
+    "formula",
+]
+
+
+# Every edition renders the disclosed unavailable cost; each damage reaches the same
+# mode-independent validator, so damages are spread across editions instead of multiplied.
 @pytest.mark.parametrize(
-    ("mode", "language"),
-    [
-        ("full-cohort-progress", "en"),
-        ("full-cohort-progress", "zh"),
-        ("field-extraction-cohort", "zh"),
-    ],
-)
-@pytest.mark.parametrize(
-    "damage",
-    [
-        None,
-        "partial",
-        "special_path",
-        "population",
-        "missing_reason",
-        "missing_evidence",
-        "hash",
-        "source",
-        "method",
-        "receipts",
-        "receipt_boolean",
-        "float_population",
-        "zero_missing",
-        "zero_price",
-        "formula",
+    ("mode", "language", "damage"),
+    [(mode, language, None) for mode, language in _COST_EDITIONS]
+    + [
+        (*_COST_EDITIONS[index % len(_COST_EDITIONS)], damage)
+        for index, damage in enumerate(_COST_DAMAGES)
     ],
 )
 def test_unknown_total_cost_requires_scoped_bound_evidence(tmp_path, mode, language, damage):
@@ -1589,29 +1594,17 @@ def test_audited_product_build_checks_official_and_completion_columns_separately
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
-@pytest.mark.parametrize(
-    "damage",
-    [
-        None,
-        "before-core",
-        "missing",
-        "changed",
-        "duplicate",
-        "after-guide",
-        "coordinated-removal",
-        "coordinated-rewrite",
-        "coordinated-reorder",
-        "coordinated-addition",
-        "undeclared-addition",
-        "omitted-edition",
-    ],
-)
-def test_bound_intro_and_core_comparison_order_are_checked_together(tmp_path, mode, damage):
-    from copy import deepcopy
+_INTRO_REPORTS = {}
 
-    from harness.web_extract.report import home_comparison_end, package, page_intro_hash
 
+def _intro_report(factory, mode):
+    """Build the bound-intro fixture once per mode; tests damage private copies of the output."""
+    if mode not in _INTRO_REPORTS:
+        _INTRO_REPORTS[mode] = _build_intro_report(factory.mktemp("intro-" + mode), mode)
+    return _INTRO_REPORTS[mode]
+
+
+def _build_intro_report(tmp_path, mode):
     home = create(tmp_path / "fixture", mode=mode)
     content_path = home / "content.json"
     model = read_json(content_path)
@@ -1642,6 +1635,43 @@ def test_bound_intro_and_core_comparison_order_are_checked_together(tmp_path, mo
         language="en" if mode == "full-cohort-progress" else "zh",
     )
     check(output, profile=profile_path, home=home)
+    return home, profile_path, output
+
+
+_INTRO_DAMAGES = [
+    "before-core",
+    "missing",
+    "changed",
+    "duplicate",
+    "after-guide",
+    "coordinated-removal",
+    "coordinated-rewrite",
+    "coordinated-reorder",
+    "coordinated-addition",
+    "undeclared-addition",
+]
+
+
+# Damages to one rendered page reach the same checker in every mode; the clean report and the
+# mode-specific edition omission run in both modes.
+@pytest.mark.parametrize(
+    ("mode", "damage"),
+    [(mode, None) for mode in ("full-cohort-progress", "field-extraction-cohort")]
+    + [(mode, "omitted-edition") for mode in ("full-cohort-progress", "field-extraction-cohort")]
+    + [("full-cohort-progress", damage) for damage in _INTRO_DAMAGES[:5]]
+    + [("field-extraction-cohort", damage) for damage in _INTRO_DAMAGES[5:]],
+)
+def test_bound_intro_and_core_comparison_order_are_checked_together(
+    tmp_path_factory, tmp_path, mode, damage
+):
+    import shutil
+    from copy import deepcopy
+
+    from harness.web_extract.report import home_comparison_end, package, page_intro_hash
+
+    home, profile_path, built = _intro_report(tmp_path_factory, mode)
+    output = tmp_path / "report"
+    shutil.copytree(built, output)
     manifest_path = output / "report-manifest.json"
     manifest = read_json(manifest_path)
     for language in manifest["languages"]:

@@ -77,7 +77,10 @@ def server(events, *, delay=0, status=200, identity=None, barrier=None, interrup
                 self.close_connection = True
 
     instance = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=instance.serve_forever, daemon=True)
+    # A short poll interval keeps shutdown from waiting out the default half-second poll.
+    thread = threading.Thread(
+        target=instance.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{instance.server_port}", requests

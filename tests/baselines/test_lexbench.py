@@ -8,6 +8,8 @@ the comparison values.
 
 from pathlib import Path
 
+import pytest
+
 from harness.lexbench import report
 from tests.baselines.snapshot import (
     Normalizer,
@@ -16,8 +18,13 @@ from tests.baselines.snapshot import (
     omit,
     read_json,
     report_snapshot,
+    route_digests,
 )
-from tests.lexbench_report_fixture import build_report_inputs, pin_vendor_assets
+from tests.lexbench_report_fixture import (
+    build_report_inputs,
+    fold_per_call_routes,
+    pin_vendor_assets,
+)
 
 
 def test_lexbench_stages(tmp_path: Path, monkeypatch) -> None:
@@ -33,3 +40,14 @@ def test_lexbench_stages(tmp_path: Path, monkeypatch) -> None:
                   for path in file_inventory(output / "data/cases")},
         "report": report_snapshot(output, normalize),
     }))
+
+
+@pytest.mark.parametrize("scenario", ["macos", "linux"])
+def test_lexbench_resource_profile_reports(tmp_path: Path, monkeypatch, scenario: str) -> None:
+    monkeypatch.delenv("LEXBENCH_REPORT_RUNNER_ROOT", raising=False)
+    monkeypatch.chdir(tmp_path)
+    pin_vendor_assets(monkeypatch)
+    report.main(build_report_inputs(tmp_path, scenario))
+    fold_per_call_routes(tmp_path / "report")
+    check_baseline(f"lexbench-{scenario}",
+                   {"routes": route_digests(tmp_path / "report", Normalizer([tmp_path]))})

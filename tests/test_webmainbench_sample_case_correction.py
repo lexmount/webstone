@@ -16,9 +16,14 @@ def apply_fixture(fixture):
     return correction.apply(*fixture[:7], profile=fixture[7])
 
 
+RETAINED_PROVIDERS = ("kitesurf", "moli", "chromium")
+
+
 @pytest.fixture
 def retained(tmp_path, monkeypatch):
-    fixture = correction_fixture(tmp_path / "fixture")
+    # Three methods cover the replaced one, untouched ones and cross-method identity;
+    # the production 200-case sample size stays fixed.
+    fixture = correction_fixture(tmp_path / "fixture", providers=RETAINED_PROVIDERS)
     monkeypatch.setattr(correction, "DATASET_SHA256", file_sha256(fixture[5]))
     return fixture
 
@@ -35,7 +40,7 @@ def test_revision_materializes_every_retry_and_excludes_unbound_files(retained):
     assert not list(output.rglob("unbound.txt"))
     assert (source / provider / "private-worker.txt").is_file()
     assert correction.read_jsonl(shard / "scored-results.jsonl")[1:] == correction.read_jsonl(source / provider / "scored-results.jsonl")[1:]
-    for name in ("kitesurf", "lightpanda", "obscura", "moli"):
+    for name in RETAINED_PROVIDERS[:-1]:
         for filename in ("scored-results.jsonl", "results.jsonl", "physical-attempts.jsonl",
                          "score-summary.json", "execution.json", "dataset.json"):
             assert (output / name / filename).read_bytes() == (source / name / filename).read_bytes()

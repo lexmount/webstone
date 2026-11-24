@@ -38,8 +38,14 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
     return path, entries
 
 
-def test_composition_retains_exact_source_records(tmp_path):
-    spec, entries = reports(tmp_path)
+@pytest.fixture(scope='module')
+def shared_reports(tmp_path_factory):
+    """Two saved source reports for tests that only read them."""
+    return reports(tmp_path_factory.mktemp('saved-reports'))
+
+
+def test_composition_retains_exact_source_records(tmp_path, shared_reports):
+    spec, entries = shared_reports
     output = build_saved_matrix(spec, tmp_path / 'combined').parent
     assert check_saved_matrix(output, spec_path=spec)['valid']
     model = json.loads((output / 'matrix.json').read_bytes())
@@ -54,16 +60,16 @@ def test_composition_retains_exact_source_records(tmp_path):
         check_saved_matrix(output)
 
 
-def test_composition_cannot_be_packaged_for_release(tmp_path):
+def test_composition_cannot_be_packaged_for_release(tmp_path, shared_reports):
     from harness.web_fetch.report_package import build as package
-    spec, _ = reports(tmp_path)
+    spec, _ = shared_reports
     output = build_saved_matrix(spec, tmp_path / 'combined').parent
     with pytest.raises(ValueError, match='Diagnostic evidence cannot enter certified assembly or reports'):
         package(output, tmp_path / 'combined.zip')
 
 
-def test_composition_rejects_rebound_row_change(tmp_path):
-    spec, _ = reports(tmp_path)
+def test_composition_rejects_rebound_row_change(tmp_path, shared_reports):
+    spec, _ = shared_reports
     output = build_saved_matrix(spec, tmp_path / 'combined').parent
     matrix = json.loads((output / 'matrix.json').read_bytes())
     matrix['rows'][0]['elapsed_ms'] = 0
@@ -82,8 +88,8 @@ def test_composition_rejects_incompatible_reports(tmp_path, option):
         build_saved_matrix(spec, tmp_path / 'combined')
 
 
-def test_composition_selects_method_without_changing_saved_results(tmp_path):
-    spec, _ = reports(tmp_path)
+def test_composition_selects_method_without_changing_saved_results(tmp_path, shared_reports):
+    spec, _ = shared_reports
     source = build_saved_matrix(spec, tmp_path / 'combined').parent
     audit = source / 'saved-matrix-audit.json'
     selection = {'schema_version': 1, 'title': 'Selected method', 'saved_reports': [{
@@ -103,10 +109,10 @@ def test_composition_selects_method_without_changing_saved_results(tmp_path):
 
 
 @pytest.mark.parametrize('selected', [[], ['unknown'], ['method-0', 'method-0'], 'method-0', [None], None])
-def test_composition_rejects_invalid_method_selection(tmp_path, selected):
-    path, _ = reports(tmp_path)
-    spec = json.loads(path.read_bytes())
+def test_composition_rejects_invalid_method_selection(tmp_path, selected, shared_reports):
+    spec = json.loads(shared_reports[0].read_bytes())
     spec['saved_reports'][0]['providers'] = selected
+    path = tmp_path / 'combined.json'
     write(path, spec)
     with pytest.raises(ValueError, match='Invalid saved report provider selection'):
         build_saved_matrix(path, tmp_path / 'combined')
@@ -335,11 +341,11 @@ def test_extension_updates_only_explicit_population_summary():
 
 
 
-def test_extension_reuses_standard_rankings_and_timing(tmp_path):
+def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports):
     import shutil
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import _shared_presentations, _joined_presentation
-    _, entries = reports(tmp_path)
+    _, entries = shared_reports
     output = tmp_path / 'presentation'
     shutil.copytree(entries[0]['root'], output)
     shutil.copytree(entries[1]['root'], output / 'additional')
@@ -1064,31 +1070,35 @@ def test_bound_billing_replaces_stale_method_overview_price_and_terms():
     assert cell.a['href'] == 'https://example.com'
 
 
-@pytest.mark.parametrize('quote,expected', [
+_PRICE_QUOTES = [
     ({'price': '$0.002 / request', 'note': {'en': 'Standard plan', 'zh': '标准套餐'}}, '$2 / 千次'),
     ({'price': '$0.09 / hour', 'billing_mode': 'duration'}, '$0.09 / 小时'),
     ({'price': '$0.10 / $0.50 / million tokens', 'billing_mode': 'tokens'}, '输入 $0.10 · 输出 $0.50'),
-])
-def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path, quote, expected):
+]
+
+
+def test_extension_price_refresh_uses_bound_quotes_and_retains_results(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import refresh_published_extension
     output, path = _real_extension(tmp_path)
     spec = json.loads(path.read_bytes())
     spec['presentation'] = 'ranked'
     prices = tmp_path/'prices.json'
-    spec['method_prices'] = write(prices, {'method-1': {**quote,
-        'sources': [{'url': 'https://example.com/pricing', 'label': 'Official pricing'}],
-        'checked_at': '2026-11-20'}})
-    write(path, spec)
     records = (output/'additional/results.jsonl').read_bytes()
-    refresh_published_extension(output, spec_path=path)
-    page = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
-    row = next(row for row in page.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
-    assert row.select_one('.method-price-amount').get_text() == expected
-    if 'note' in quote:
-        assert row.select_one('.method-price-note').get_text() == quote['note']['zh']
-    assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
-    assert (output/'additional/results.jsonl').read_bytes() == records
+    # One extension refreshed with each billing form; each refresh rebinds the quote.
+    for quote, expected in _PRICE_QUOTES:
+        spec['method_prices'] = write(prices, {'method-1': {**quote,
+            'sources': [{'url': 'https://example.com/pricing', 'label': 'Official pricing'}],
+            'checked_at': '2026-11-20'}})
+        write(path, spec)
+        refresh_published_extension(output, spec_path=path)
+        page = BeautifulSoup((output/'index.html').read_bytes(), 'html.parser')
+        row = next(row for row in page.select('#ranking-overall tbody tr') if 'method-1' in row.a['href'])
+        assert row.select_one('.method-price-amount').get_text() == expected
+        if 'note' in quote:
+            assert row.select_one('.method-price-note').get_text() == quote['note']['zh']
+        assert json.loads((output/'extension-prices.json').read_bytes())['method-1']['checked_at'] == '2026-11-20'
+        assert (output/'additional/results.jsonl').read_bytes() == records
     before = (output/'index.html').read_bytes()
     prices.write_text('{}', encoding='utf-8')
     with pytest.raises(ValueError, match='Method price binding changed'):

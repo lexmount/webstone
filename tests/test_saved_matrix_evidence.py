@@ -1020,8 +1020,10 @@ def test_uncommitted_replacement_retains_old_history_without_score(tmp_path, def
     with pytest.raises(ValueError,match='current call or explicit uncommitted'):
         build(tmp_path,spec,'uninvoked-correction')
 
-@pytest.mark.parametrize('final_pass,prior_pass', [(True, False), (False, False), (False, True)])
-@pytest.mark.parametrize('timing', ['plain', 'waits', 'incomplete'])
+# Timing variants on the accepted path; a passing prior is rejected before timing matters.
+@pytest.mark.parametrize('final_pass,prior_pass,timing', [
+    (True, False, 'plain'), (True, False, 'waits'), (True, False, 'incomplete'),
+    (False, False, 'plain'), (False, True, 'plain')])
 def test_retry_continuation_keeps_final_verdict_and_prior_bytes(tmp_path, final_pass, prior_pass, monkeypatch, timing):
     spec, root, current, raw = fixture(tmp_path)
     old = deepcopy(current)
@@ -1255,10 +1257,13 @@ def test_colliding_suite_case_routes_rejected_before_output(tmp_path):
     assert not (tmp_path/'report').exists()
 
 
-@pytest.mark.parametrize('before,after,selected', [(False, True, True), (True, True, False),
-                                                   (False, False, False), (True, False, False)])
-@pytest.mark.parametrize('partition', ['track', 'family'])
-@pytest.mark.parametrize('split_baseline', [False, True])
+# Every before/after outcome on the track partition; the family rule and a split
+# baseline each on a selected and a retained group.
+@pytest.mark.parametrize('before,after,selected,partition,split_baseline', [
+    (False, True, True, 'track', False), (True, True, False, 'track', False),
+    (False, False, False, 'track', False), (True, False, False, 'track', False),
+    (False, True, True, 'family', False), (True, False, False, 'family', False),
+    (False, True, True, 'track', True), (True, True, False, 'family', True)])
 def test_single_case_parameter_group_preserves_both_calls_and_selects_improvement(tmp_path, before, after, selected, monkeypatch, partition, split_baseline):
     # Exercise group selection independently of native transport authorization.
     monkeypatch.setattr('harness.web_fetch.report_saved_matrix._parameter_execution',

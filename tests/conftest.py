@@ -120,7 +120,21 @@ def pytest_addoption(parser):
     )
 
 
+NODE_PACKAGES = Path(__file__).resolve().parents[1] / "node_modules"
+
+
+def skip_without_node_packages(items):
+    """Skip ``node_packages`` tests on a local checkout without ``npm ci``; CI must run them."""
+    if NODE_PACKAGES.is_dir() or os.environ.get("CI"):
+        return
+    skip = pytest.mark.skip(reason="needs the Node packages; run `npm ci` (part of `make setup-test`)")
+    for item in items:
+        if item.get_closest_marker("node_packages"):
+            item.add_marker(skip)
+
+
 def pytest_collection_modifyitems(config, items):
+    skip_without_node_packages(items)
     selected = config.getoption("--ci-shard")
     if selected is None:
         return
@@ -150,3 +164,25 @@ def pytest_sessionstart(session):
                 main(["--manifest", str(manifest), "--check"])
         except (FileNotFoundError, ValueError) as error:
             raise pytest.UsageError(str(error)) from error
+
+
+@pytest.fixture
+def validated_catalog(monkeypatch):
+    """Serve registered Web Fetch suites' validations from one shared result per process.
+
+    Tests that mutate a release record or the registry then check only their change
+    instead of re-reading every frozen task file; unregistered suites validate in full.
+    """
+    from copy import deepcopy
+
+    from lexbench_webfetch import benchmark
+    from tests.helpers import shipped_suite_validations
+
+    validated = shipped_suite_validations()
+    validate = benchmark.validate
+    monkeypatch.setattr(
+        benchmark, "validate",
+        lambda identifier: deepcopy(validated[identifier]) if identifier in validated
+        else validate(identifier),
+    )
+    return validated

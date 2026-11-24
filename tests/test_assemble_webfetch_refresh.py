@@ -74,6 +74,14 @@ SPEED_CASES = [
 ]
 
 
+# A few untouched inherited fillers exercise the same path as a full-size population.
+CASE_IDS = list(dict.fromkeys(RERUN_CASES + SPEED_CASES + ["lm-rust-learn", "document-05"]))
+CASE_IDS.extend(f"filler-{index:03d}" for index in range(4))
+LOGICAL_ATTEMPTS = len(CASE_IDS) * len(PROVIDERS)
+# Two full-rerun providers on every task, the other providers on matched tasks, two pairs.
+PLANNED_CALLS = 2 * len(CASE_IDS) + (len(PROVIDERS) - 2) * len(RERUN_CASES) + 2
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -82,8 +90,6 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        required = list(dict.fromkeys(RERUN_CASES + SPEED_CASES + ["lm-rust-learn", "document-05"]))
-        required.extend(f"filler-{index:03d}" for index in range(150 - len(required)))
         self.canonical_cases = [
             {
                 "id": case_id,
@@ -92,7 +98,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 "track": "web",
                 "task_kind": "body",
             }
-            for case_id in required
+            for case_id in CASE_IDS
         ]
         self.canonical = {
             "schema_version": 2,
@@ -139,7 +145,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             "baseline": {
                 "dataset_sha256": sha((self.baseline / "dataset.json").read_bytes()),
                 "results_sha256": sha((self.baseline / "results.jsonl").read_bytes()),
-                "logical_attempts": 1800,
+                "logical_attempts": LOGICAL_ATTEMPTS,
             },
             "main_matrix": {
                 "full_rerun_providers": ["crawl4ai", "langchain-webbase"],
@@ -167,8 +173,8 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                     "reason": "rescore immutable attempts", "attempts": 12,
                     "full_review": True,
                 }],
-                "planned_new_calls": 422,
-                "final_logical_attempts": 1800,
+                "planned_new_calls": PLANNED_CALLS,
+                "final_logical_attempts": LOGICAL_ATTEMPTS,
             },
             "same_window_speed_cohort": {
                 "required": False,
@@ -181,7 +187,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
                 "auxiliary_sha256": {},
                 "planned_new_calls": 0,
             },
-            "total_planned_new_calls": 422,
+            "total_planned_new_calls": PLANNED_CALLS,
         }
         self.plan_path = self.root / "evaluation" / "current-rerun.json"
         write_json(self.plan_path, self.plan)
@@ -329,7 +335,7 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
 
     def test_exact_refresh_scope_matches_the_current_union(self) -> None:
         pairs = expected_refresh_pairs(self.plan, self.canonical)
-        self.assertEqual(len(pairs), 422)
+        self.assertEqual(len(pairs), PLANNED_CALLS)
         self.assertTrue({("crawl4ai", case["id"]) for case in self.canonical_cases} <= pairs)
         self.assertIn(("tavily", "document-03"), pairs)
         self.assertIn(("cowagent-built-in", "document-05"), pairs)
@@ -496,18 +502,18 @@ class AssembleWebfetchRefreshTests(unittest.TestCase):
             json.loads(line)
             for line in (output / "speed-cohort" / "results.jsonl").read_text(encoding="utf-8").splitlines()
         ]
-        self.assertEqual(len(main_rows), 1800)
+        self.assertEqual(len(main_rows), LOGICAL_ATTEMPTS)
         self.assertEqual(len(speed_rows), 240)
         execution = json.loads((output / "execution.json").read_text(encoding="utf-8"))
-        self.assertEqual(sum(batch["attempt_count"] for batch in execution["batches"]), 1800)
+        self.assertEqual(sum(batch["attempt_count"] for batch in execution["batches"]), LOGICAL_ATTEMPTS)
         receipt = json.loads((output / "refresh-assembly.json").read_text(encoding="utf-8"))
-        self.assertEqual(receipt["selected_rerun_attempts"], 422)
-        self.assertEqual(receipt["inherited_attempts"], 1378)
+        self.assertEqual(receipt["selected_rerun_attempts"], PLANNED_CALLS)
+        self.assertEqual(receipt["inherited_attempts"], LOGICAL_ATTEMPTS - PLANNED_CALLS)
         self.assertTrue(receipt["speed_cohort"]["excluded_from_main_results"])
         self.assertTrue(receipt["speed_cohort"]["reused_existing"])
         self.assertEqual(receipt["speed_cohort"]["new_calls"], 0)
         audit = json.loads((output / "selection-audit.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(audit), 422)
+        self.assertEqual(len(audit), PLANNED_CALLS)
         overlap = next(
             row for row in audit
             if row["provider"] == "crawl4ai" and row["case_id"] == RERUN_CASES[0]

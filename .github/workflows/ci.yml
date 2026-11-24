@@ -29,13 +29,9 @@ jobs:
       - id: scope
         run: bash scripts/ci_scope.sh >> "$GITHUB_OUTPUT"
 
-  checks:
-    name: Tests and static checks (${{ matrix.partition }})
+  static:
+    name: Static checks and Node suites
     needs: scope
-    strategy:
-      fail-fast: false
-      matrix:
-        partition: ${{ fromJSON(needs.scope.outputs.docs_only == 'true' && '["primary"]' || '["primary","secondary"]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -56,12 +52,36 @@ jobs:
         if: needs.scope.outputs.docs_only == 'true'
       - run: make setup-test
         if: needs.scope.outputs.docs_only == 'false'
-      - name: Check primary Python shard and static contracts
-        if: needs.scope.outputs.docs_only == 'false' && matrix.partition == 'primary'
-        run: make ci-tests PYTEST_ARGS='--ci-shard=1/2 -n 4 --dist worksteal --durations=20'
-      - name: Check secondary Python shard
-        if: needs.scope.outputs.docs_only == 'false' && matrix.partition == 'secondary'
-        run: make test-python PYTEST_ARGS='--ci-shard=2/2 -n 4 --dist worksteal --durations=20' BROWSER_TESTS=exclude
+      - name: Check naming, lint, shell scripts, fixture smoke, Node and extraction SDK suites
+        if: needs.scope.outputs.docs_only == 'false'
+        run: make ci-static
+
+  checks:
+    name: Python tests (${{ matrix.shard }}/3)
+    needs: scope
+    if: needs.scope.outputs.docs_only == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.7.8"
+          enable-cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: make setup-test
+      - name: Check one Python shard
+        run: make test-python PYTEST_WORKERS=4 PYTEST_ARGS='--ci-shard=${{ matrix.shard }}/3 --durations=20' BROWSER_TESTS=exclude
 
   package:
     name: Installation and packaging
@@ -123,17 +143,17 @@ jobs:
   test:
     name: Python 3.11
     if: ${{ always() }}
-    needs: [scope, checks, package, browser]
+    needs: [scope, static, checks, package, browser]
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - name: Require every applicable check to succeed
         env:
           DOCS_ONLY: ${{ needs.scope.outputs.docs_only }}
-          CHECK_RESULTS: ${{ needs.scope.result }} ${{ needs.checks.result }} ${{ needs.package.result }} ${{ needs.browser.result }}
+          CHECK_RESULTS: ${{ needs.scope.result }} ${{ needs.static.result }} ${{ needs.checks.result }} ${{ needs.package.result }} ${{ needs.browser.result }}
         run: |
           case "$DOCS_ONLY" in
-            true) test "$CHECK_RESULTS" = 'success success skipped skipped' ;;
-            false) test "$CHECK_RESULTS" = 'success success success success' ;;
+            true) test "$CHECK_RESULTS" = 'success success skipped skipped skipped' ;;
+            false) test "$CHECK_RESULTS" = 'success success success success success' ;;
             *) exit 1 ;;
           esac
