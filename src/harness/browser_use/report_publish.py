@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or atomically update the browser-use report on Artifact Site."""
+"""Create or atomically update the browser-use report on Yours."""
 
 from __future__ import annotations
 
@@ -8,15 +8,8 @@ import json
 from pathlib import Path
 
 from harness.record_io import file_sha256
-from harness.reporting.publication import (
-    PublicationClient,
-    PublicationSnapshot,
-    atomic_write,
-    bind_publication_files,
-    recover_binding,
-)
-from harness.reporting.publication import multipart_archive as build_multipart_archive
-from harness.reporting.publish import BoundTrack, publish_bound_release
+from harness.reporting.publication import PublicationClient
+from harness.reporting.publish import BoundTrack, publish
 from harness.reporting.visual import tree_sha256 as _tree_sha256
 from harness.safety import reject_evidence_symlinks
 
@@ -70,20 +63,6 @@ def validate_package() -> None:
         )
 
 
-def request(
-    path: str,
-    data: bytes | None = None,
-    content_type: str | None = None,
-    *,
-    method: str | None = None,
-    base_url: str,
-    extra_headers: dict | None = None,
-):
-    return CLIENT.request(
-        base_url, path, data, content_type, method=method, extra_headers=extra_headers
-    )[:2]
-
-
 def validate_public_preview(status: int, body: str) -> None:
     """Verify the stable report shell instead of a revision-specific headline."""
 
@@ -91,81 +70,36 @@ def validate_public_preview(status: int, body: str) -> None:
         raise RuntimeError("public preview is unavailable or missing the report shell")
 
 
-def multipart_archive(
-    *, archive: Path | None = None, title: str = "Browser Use 评测"
-) -> tuple[bytes, str]:
-    archive = archive if archive is not None else ARCHIVE
-    if not archive.is_file():
-        raise ValueError(f"missing validated package: {ARCHIVE}")
-    return build_multipart_archive(
-        archive, title, boundary_prefix="----browseruse", filename="browser-use.zip"
-    )
-
-
-def recover_publication_binding() -> None:
-    recover_binding(
-        PROFILE,
-        ATTESTATION,
-        BINDING_JOURNAL,
-        schema="lex_browser_use_publication_binding/1",
-        writer=atomic_write,
-    )
-
-
-def bind_published_version(
-    version_id: str,
-    *,
-    slug: str | None = None,
-    share_url: str | None = None,
-    release: PublicationSnapshot | None = None,
-) -> None:
-    if not version_id.startswith("ver_"):
-        raise ValueError("site update response omitted a valid version id")
-    publication = {"expected_version": version_id}
-    if slug is not None:
-        publication["site_slug"] = slug
-    if share_url is not None:
-        publication["share_url"] = share_url
-    bind_publication_files(
-        PROFILE,
-        ATTESTATION,
-        BINDING_JOURNAL,
-        publication=publication,
-        schema="lex_browser_use_publication_binding/1",
-        expected=release.sources if release is not None else None,
-        writer=atomic_write,
-    )
-
-
-def main(*, create: bool = False) -> None:
-    publish_bound_release(
-        BoundTrack(
-            label="Browser Use",
-            default_title="Browser Use 评测",
-            archive=ARCHIVE,
-            profile=PROFILE,
-            receipt=RECEIPT,
-            operation_journal=OPERATION_JOURNAL,
-            inputs=(ATTESTATION, PROFILE),
-            operation_prefix="browser-use-",
-            operation_schema="lex_browser_use_artifact_operation/1",
-            version_field="versionId",
-            request=lambda base, *args, **kwargs: request(*args, base_url=base, **kwargs),
-            public_request=lambda base, path, **kwargs: PUBLIC_CLIENT.request(
-                base, path, authenticated=False, **kwargs
-            ),
-            multipart=lambda title, archive: multipart_archive(archive=archive, title=title),
-            validate_package=validate_package,
-            check_preview=lambda status, body: validate_public_preview(
-                status, body.decode("utf-8", errors="replace")
-            ),
-            recover_binding=recover_publication_binding,
-            bind=lambda _profile, *, version, **kwargs: bind_published_version(version, **kwargs),
-            receipt_required=True,
-            update_title=True,
+def track() -> BoundTrack:
+    return BoundTrack(
+        label="Browser Use",
+        default_title="Browser Use 评测",
+        archive=ARCHIVE,
+        attestation=ATTESTATION,
+        profile=PROFILE,
+        receipt=RECEIPT,
+        operation_journal=OPERATION_JOURNAL,
+        binding_journal=BINDING_JOURNAL,
+        inputs=(ATTESTATION, PROFILE),
+        operation_prefix="browser-use-",
+        operation_schema="lex_browser_use_artifact_operation/1",
+        binding_schema="lex_browser_use_publication_binding/1",
+        version_field="versionId",
+        client=CLIENT,
+        public_client=PUBLIC_CLIENT,
+        upload_boundary="----browseruse",
+        upload_filename="browser-use.zip",
+        validate_package=validate_package,
+        check_preview=lambda status, body: validate_public_preview(
+            status, body.decode("utf-8", errors="replace")
         ),
-        create=create,
+        receipt_required=True,
+        update_title=True,
     )
+
+
+def main(*, create: bool = False, transport=None) -> None:
+    publish(track(), "create" if create else "update", transport=transport)
 
 
 def cli() -> None:

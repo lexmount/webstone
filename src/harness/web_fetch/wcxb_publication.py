@@ -17,8 +17,14 @@ from harness.reporting.publication import (
     package_archive,
     public_share_context,
 )
-from harness.reporting.publication_target import publication_base, require_publication_version
-from harness.reporting.publish import StagedUpdate, publish_staged_update
+from harness.reporting.publication_target import (
+    PublicationTarget,
+    publication_base,
+    read_target,
+    require_publication_version,
+)
+from harness.reporting.publish import StagedUpdate
+from harness.reporting.publish import publish as publish_release
 from harness.web_fetch import wcxb_report_check
 from harness.safety import evidence_tree_identity, reject_evidence_symlinks
 from harness.data_home import data_home
@@ -97,10 +103,11 @@ def publish(*, source: Path, authority_root: Path, work: Path, transport=None, p
     profile = json.loads(profile_bytes)
     base = publication_base(profile_path, document=profile)
     expected = require_publication_version(profile_path, document=profile)
-    slug = profile.get('artifact_hub_site')
+    target = read_target(profile)
+    slug = target.site
     if not isinstance(slug, str) or not slug:
         raise ValueError('WCXB publication requires a bound site')
-    share_path, _ = public_share_context(base, profile.get('artifact_hub_share_url', ''))
+    public_share_context(base, target.share_url or '')
     archive, proof = work / 'wcxb-current.zip', work / 'wcxb-package.json'
     attestation = package(source, archive, proof, authority_root=authority_root, profile_path=profile_path)
 
@@ -112,16 +119,17 @@ def publish(*, source: Path, authority_root: Path, work: Path, transport=None, p
         profile['artifact_hub_expected_version'] = version
         atomic_write(profile_path, json_bytes(profile))
 
-    version = publish_staged_update(
+    version = publish_release(
         StagedUpdate(
-            label='WCXB', prefix='wcxb', client=CLIENT, base=base, slug=slug,
-            expected_version=expected, share_path=share_path,
+            label='WCXB', prefix='wcxb', client=CLIENT,
+            target=PublicationTarget(base_url=base, site=slug, expected_version=expected,
+                                     share_url=target.share_url),
             title=f"WCXB 主内容提取报告 · {profile['case_count']} 页评测",
             archive=archive, archive_sha256=attestation['archive_sha256'],
             inputs=(source, profile_path, binding_path, proof), work=work,
             guard=unchanged_profile, bind=bind,
         ),
-        transport=transport,
+        'update', transport=transport,
     )
     return {'slug': slug, 'versionId': version, 'verified_files': len(attestation['files']),
             'url': profile['artifact_hub_share_url']}

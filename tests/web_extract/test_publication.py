@@ -429,7 +429,7 @@ def test_preview_audit_cannot_adopt_inputs_changed_during_network_check(
         stages.append("package")
         return {"archive_sha256": "archive", "report_manifest_sha256": "manifest"}
 
-    def update(staged, **kwargs):
+    def update(staged, _mode, **kwargs):
         stages.append("upload")
         staged.guard()
         staged.bind("ver_after")
@@ -437,7 +437,7 @@ def test_preview_audit_cannot_adopt_inputs_changed_during_network_check(
 
     monkeypatch.setattr(report, "record_preview", preview)
     monkeypatch.setattr(publication, "package", package)
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     if damage:
         with pytest.raises(ValueError, match="publication inputs changed"):
             publication.publish(source, target, work, visual, home=tmp_path)
@@ -470,7 +470,7 @@ def test_existing_target_is_preserved_and_rebound_only_after_success(tmp_path, m
             "report_manifest_sha256": digest((report / "report-manifest.json").read_bytes()),
         }
 
-    def update(staged, *, transport):
+    def update(staged, _mode, *, transport):
         assert staged.slug == "existing"
         assert staged.expected_version == "ver_before"
         assert read_json(target)["expected_version"] == "ver_before"
@@ -480,7 +480,7 @@ def test_existing_target_is_preserved_and_rebound_only_after_success(tmp_path, m
         return "ver_after"
 
     monkeypatch.setattr(publication, "package", package)
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     result = publication.publish(source, target, work, visual, home=tmp_path)
     bound = read_json(target)
     assert result["versionId"] == "ver_after"
@@ -581,13 +581,13 @@ def test_publication_uses_frozen_audit_even_when_public_receipts_are_rewritten(
 
     monkeypatch.setattr(publication, "package", checked_package)
 
-    def update(staged, **kwargs):
+    def update(staged, _mode, **kwargs):
         calls.append("network")
         staged.guard()
         staged.bind("ver_after")
         return "ver_after"
 
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     if damage:
         from harness.web_extract.cli import main
 
@@ -645,11 +645,11 @@ def test_different_report_profile_needs_explicit_successor(tmp_path, monkeypatch
         ),
     )
 
-    def update(staged, **kwargs):
+    def update(staged, _mode, **kwargs):
         staged.bind("ver_after")
         return "ver_after"
 
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     if approved:
         assert (
             publication.publish(source, target, work, visual, home=tmp_path)["versionId"]
@@ -679,7 +679,7 @@ def test_tampered_resume_package_never_dispatches(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(publication, "check", lambda *a, **k: None)
     monkeypatch.setattr(
-        publication, "publish_staged_update", lambda *a, **k: pytest.fail("dispatched")
+        publication, "publish_release", lambda *a, **k: pytest.fail("dispatched")
     )
     with pytest.raises(ValueError, match="Retained publication package differs"):
         publication.publish(source, target, work, visual, home=tmp_path)
@@ -720,7 +720,7 @@ def test_self_consistent_zip_hash_cannot_replace_checked_contents(tmp_path, monk
     )
     monkeypatch.setattr(publication, "check", lambda *a, **k: None)
     monkeypatch.setattr(
-        publication, "publish_staged_update", lambda *a, **k: pytest.fail("dispatched")
+        publication, "publish_release", lambda *a, **k: pytest.fail("dispatched")
     )
     with pytest.raises(ValueError, match="ZIP inventory"):
         publication.publish(source, target, work, visual, home=tmp_path)
@@ -749,7 +749,7 @@ def test_approved_profile_cannot_change_during_publication(tmp_path, monkeypatch
             change()
         return {"archive_sha256": "archive", "report_manifest_sha256": "manifest"}
 
-    def update(staged, **kwargs):
+    def update(staged, _mode, **kwargs):
         assert selected in staged.inputs
         change()
         if when == "bind":
@@ -759,7 +759,7 @@ def test_approved_profile_cannot_change_during_publication(tmp_path, monkeypatch
         pytest.fail("changed profile accepted")
 
     monkeypatch.setattr(publication, "package", package)
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     with pytest.raises(ValueError, match="successor profile changed"):
         publication.publish(source, target, work, visual, home=tmp_path)
     assert read_json(target)["expected_version"] == "ver_before"
@@ -792,7 +792,7 @@ def test_bound_target_profile_reaches_the_real_packager(tmp_path, monkeypatch):
         lambda report, **kwargs: verify(report, kwargs["profile"], home=kwargs["home"]),
     )
 
-    def update(staged, *, transport):
+    def update(staged, _mode, *, transport):
         assert set(publication.archive_inventory(staged.archive)) == {
             "report-manifest.json",
             "webstone-version.json",
@@ -801,7 +801,7 @@ def test_bound_target_profile_reaches_the_real_packager(tmp_path, monkeypatch):
         staged.bind("ver_packaged")
         return "ver_packaged"
 
-    monkeypatch.setattr(publication, "publish_staged_update", update)
+    monkeypatch.setattr(publication, "publish_release", update)
     result = publication.publish(source, target, work, visual, home=tmp_path)
     assert result["versionId"] == "ver_packaged"
     assert len(audit_calls) == 2  # Package and upload have independent frozen snapshots.
@@ -952,7 +952,7 @@ def test_upload_guards_external_preflight_after_first_verification(
             "report_manifest_sha256": digest((report / "report-manifest.json").read_bytes()),
         }
 
-    def upload(staged, **kwargs):
+    def upload(staged, _mode, **kwargs):
         snapshot = PublicationSnapshot.for_inputs(staged.inputs)
         staged.guard()
         assert verified == [True]
@@ -973,7 +973,7 @@ def test_upload_guards_external_preflight_after_first_verification(
 
     monkeypatch.setattr(publication, "verify_completion_audit", verify)
     monkeypatch.setattr(publication, "package", package)
-    monkeypatch.setattr(publication, "publish_staged_update", upload)
+    monkeypatch.setattr(publication, "publish_release", upload)
     if changed:
         with pytest.raises(ValueError, match="inputs changed"):
             publication.publish(source, target, work, visual, home=home)

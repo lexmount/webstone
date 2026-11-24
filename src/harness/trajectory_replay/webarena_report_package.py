@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and package the current trajectory-replay report for Artifact Site."""
+"""Validate and package the current trajectory-replay report for Yours."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from pathlib import Path
 
 from harness.record_io import file_sha256
 from harness.reporting.publication import package_archive
+from harness.reporting.release_check import ReleaseRules, VisualReceipt
+from harness.reporting.release_check import validate_release as gate
 from harness.trajectory_replay.report_compaction import (
     check_compact_navigation,
     compact_report,
@@ -33,10 +35,16 @@ MAX_ARCHIVE_BYTES = 300_000_000
 def validate_release(
     report: Path, visual_receipt: Path, *, profile_path: Path | None = None
 ) -> dict[str, int]:
-    summary = check_report(report, profile_path=profile_path)
-    if not receipt_is_current(report, visual_receipt):
-        check_visual(report, visual_receipt)
-    return summary
+    """Run the shared release gate with the replay report rules."""
+    results = gate(report, ReleaseRules(
+        identity=lambda root: check_report(root, profile_path=profile_path),
+        visual=VisualReceipt(
+            visual_receipt,
+            is_current=lambda root, receipt: receipt_is_current(root, receipt),
+            check=lambda root, receipt: check_visual(root, receipt),
+        ),
+    ))
+    return results["identity"]
 
 
 def package(

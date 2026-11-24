@@ -1,16 +1,20 @@
-"""Run one report release through its publication lifecycle; each track supplies an adapter.
+"""Publish one report release to Yours through one function.
 
-Tracks differ in what they prove and where they keep their target, so the owner offers
-three lifecycles rather than one with a branch per track:
+``publish(release, mode)`` takes a release, which names its package, its
+publication target and its hooks, and an update mode: ``create`` a new site,
+``update`` the bound site, or ``reuse`` a recorded publication. The target is one
+schema for every track (``PublicationTarget``: host, site, expected version,
+visibility and share link). A release records its outcome in one of three ways,
+because tracks keep different authorities:
 
-- ``publish_receipt_release`` submits a package and records it in a private receipt. Byte
-  verification is a separate command (Web Fetch, Web Search, public WebArena replay).
-- ``publish_bound_release`` verifies the deployed bytes and public share, then advances the
-  profile and attestation together (Browser Use, Browser Trajectory Replay).
-- ``publish_staged_update`` resumes one staged update from a per-release journal, verifies it
-  and lets the report bind its own flat profile (WCXB).
+- ``ReceiptRelease`` records a submitted package in a private receipt; byte
+  verification is a separate command.
+- ``BoundTrack`` verifies the deployed bytes and public share, then advances the
+  profile and attestation together.
+- ``StagedUpdate`` resumes one staged update from a per-release journal, verifies
+  it and lets the report bind its own target.
 
-An adapter always names its own target, version, journals and client. Nothing here holds a
+Existing receipts, journals and bindings keep their formats. Nothing here holds a
 default site, and credentials stay behind ``PublicationClient``.
 """
 
@@ -25,11 +29,12 @@ import urllib.parse
 import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from http.client import RemoteDisconnected
 from io import BytesIO
 from pathlib import Path, PurePosixPath
+from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 
@@ -40,22 +45,44 @@ from harness.reporting.publication import (
     PublicationSnapshot,
     archive_inventory,
     atomic_write,
+    bind_publication_files,
     binding_receipt_matches,
     multipart_archive,
     public_share_context,
+    recover_binding,
     response_json,
     snapshot_publication,
     write_receipt,
 )
 from harness.reporting.publication_target import (
+    PublicationTarget,
     publication_base,
     publication_document,
+    read_target,
     require_publication_site,
     require_publication_version,
 )
 from harness.safety import reject_evidence_symlinks
 
 STAGED_UPLOAD_THRESHOLD = 23 * 1024 * 1024
+UPDATE_MODES = ("create", "update", "reuse")
+
+
+class Release(Protocol):
+    """A release the publisher can run; ``modes`` names the update modes it supports."""
+
+    modes: tuple[str, ...]
+
+    def publish(self, mode: str, transport) -> object: ...
+
+
+def publish(release: Release, mode: str = "update", *, transport=None):
+    """Publish one release in one update mode; tests pass a fake ``transport``."""
+    if mode not in UPDATE_MODES:
+        raise ValueError("Unknown publication mode")
+    if mode not in release.modes:
+        raise ValueError(f"Publication mode {mode!r} is not available for this release")
+    return release.publish(mode, transport)
 
 
 def updated_receipt(receipt, response):
@@ -221,7 +248,7 @@ def site_version(site: dict) -> str:
     nested = site.get("site") if isinstance(site.get("site"), dict) else site
     version = str(nested.get("currentVersionId") or (nested.get("version") or {}).get("id") or "")
     if not version.startswith("ver_"):
-        raise RuntimeError("Artifact Site metadata omitted current version")
+        raise RuntimeError("Yours site metadata omitted current version")
     return version
 
 
@@ -231,7 +258,7 @@ def verify_export(request: Callable, slug: str, archive: Path) -> None:
     if status != 200:
         response_json(status, exported, operation="site export")
     if archive_inventory(exported) != archive_inventory(archive):
-        raise RuntimeError("deployed Artifact Site file tree differs from package")
+        raise RuntimeError("deployed Yours file tree differs from package")
 
 
 # Receipt lifecycle
@@ -251,20 +278,16 @@ class ReceiptRelease:
     client: PublicationClient
     package_check: Callable
     title: str
-    mode: str = "reuse"
-    base_url: str | None = None
-    expected_version: str | None = None
-    visibility: str | None = None
+    # A requested target; each field set here must agree with the bound profile.
+    target: PublicationTarget = field(default_factory=PublicationTarget)
     inputs: tuple = ()
     check_reuse: bool = True
     check_target: Callable | None = None
     check_delivery: Callable | None = None
+    modes = UPDATE_MODES
 
-    def __post_init__(self):
-        if self.mode not in {"create", "update", "reuse"}:
-            raise ValueError("Unknown publication mode")
-        if self.visibility not in {None, "private", "unlisted", "public"}:
-            raise ValueError("Unknown publication visibility")
+    def publish(self, mode, transport):
+        return _publish_receipt(self, mode, transport=transport)
 
 
 def activated_version(result):
@@ -292,8 +315,9 @@ def _receipt_identity(path):
     return path.read_bytes() if path.exists() else None
 
 
-def publish_receipt_release(config: ReceiptRelease, *, transport=None):
+def _publish_receipt(config: ReceiptRelease, mode: str, *, transport=None):
     """Upload or finish a receipt; remote byte verification is a separate command."""
+    requested = config.target
     protected = {config.profile.resolve(), config.archive.resolve(),
                  *(Path(path).resolve() for path in config.inputs)}
     if config.receipt.resolve() in protected or config.journal.resolve() in protected:
@@ -301,7 +325,7 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
     reject_evidence_symlinks(config.profile)
     profile_bytes = config.profile.read_bytes()
     profile = publication_document(json.loads(profile_bytes))
-    base = publication_base(config.profile, config.base_url, document=profile)
+    base = publication_base(config.profile, requested.base_url, document=profile)
     if config.check_target is not None:
         config.check_target(profile, base)
     previous_receipt = _receipt_identity(config.receipt)
@@ -310,7 +334,12 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
         raise ValueError("Publication receipt must be a JSON object")
     if config.receipt.resolve() == config.journal.resolve():
         raise ValueError("Publication authority, receipt and operation journal must be distinct")
-    if config.mode == "create":
+    if requested.site is not None:
+        if mode == "create":
+            raise ValueError("A new site is named by the service; do not request a site with --create")
+        if requested.site != profile.get("artifact_hub_site"):
+            raise ValueError("Requested publication site differs from the bound profile")
+    if mode == "create":
         if profile.get("artifact_hub_site") or profile.get("artifact_hub_expected_version"):
             raise ValueError("--create requires an unbound publication profile")
     else:
@@ -318,8 +347,8 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
             raise ValueError("Current report requires its existing site receipt")
         require_publication_site(result, config.profile, base, document=profile)
     expected = (
-        require_publication_version(config.profile, config.expected_version, document=profile)
-        if config.mode == "update"
+        require_publication_version(config.profile, requested.expected_version, document=profile)
+        if mode == "update"
         else None
     )
 
@@ -361,29 +390,29 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
             if (target.scheme != authority.scheme or target.netloc != authority.netloc
                     or target.query or target.fragment or not (target.path == canonical or legacy)):
                 raise ValueError('Saved report URL differs from the configured service')
-        if config.mode == 'reuse' and config.visibility is None and value.get('share_url'):
+        if mode == 'reuse' and requested.visibility is None and value.get('share_url'):
             return {'slug': value['slug'], 'versionId': version, 'url': saved_url,
                     **({'visibility': value['visibility']} if value.get('visibility') else {})}
         slug = quote(value['slug'], safe='')
         path = '/api/sites/'+slug+'/sharing'
         status, raw = send(path)
         sharing = response_json(status, raw, operation='sharing inspection')
-        visibility = config.visibility or sharing.get('visibility')
+        visibility = requested.visibility or sharing.get('visibility')
         if visibility not in {'private', 'unlisted', 'public'}:
             raise ValueError('Publication did not return its current access state')
-        if config.visibility is not None and sharing.get('visibility') != visibility:
+        if requested.visibility is not None and sharing.get('visibility') != visibility:
             status, raw = send(path, json_bytes({'visibility': visibility}),
                                'application/json', method='PUT')
             sharing = response_json(status, raw, operation='sharing update')
         if sharing.get('visibility') != visibility or sharing.get('moderation'):
             raise ValueError('Requested sharing is not active; inspect the saved publication')
-        value.update(share_url=(saved_url if saved_url and config.visibility is None else base+'/s/'+slug), visibility=visibility,
+        value.update(share_url=(saved_url if saved_url and requested.visibility is None else base+'/s/'+slug), visibility=visibility,
                      publication_pending=False)
         save(value)
         return {'slug': value['slug'], 'versionId': version,
                 'url': value['share_url'], 'visibility': visibility}
 
-    if config.mode == "reuse":
+    if mode == "reuse":
         if not config.check_reuse:
             return finish(result)
         with snapshot_publication(
@@ -420,20 +449,20 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
             "base_url": base,
             "archive_sha256": release.sha256,
             "title": config.title,
-            "kind": config.mode,
-            "slug": None if config.mode == "create" else result["slug"],
+            "kind": mode,
+            "slug": None if mode == "create" else result["slug"],
             "expected_version": expected,
         }
         operations = PublicationOperation(config.journal, config.namespace + "-")
         pending, resumed = operations.pending(
-            identity, allow_create=config.mode != "create" or previous_receipt is None
+            identity, allow_create=mode != "create" or previous_receipt is None
         )
         already_submitted = (
             result.get("operation_key") == pending["key"]
             and result.get("archive_sha256") == release.sha256
             and result.get("base_url") == base
         )
-        if config.mode == "create" and previous_receipt is not None and not already_submitted:
+        if mode == "create" and previous_receipt is not None and not already_submitted:
             raise ValueError("--create requires a new receipt or its matching pending operation")
         if not already_submitted:
             recovered = (
@@ -462,7 +491,7 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
                 )
                 endpoint = (
                     "/api/sites"
-                    if config.mode == "create"
+                    if mode == "create"
                     else "/api/sites/"
                     + quote(result["slug"], safe="")
                     + "/versions?"
@@ -472,7 +501,7 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
                     endpoint, body, content_type, extra_headers={"Idempotency-Key": pending["key"]}
                 )
             response = response_json(status, raw, operation="package submission")
-            if config.mode == "update":
+            if mode == "update":
                 if response.get("slug", result["slug"]) != result["slug"]:
                     raise ValueError("Publication returned an unexpected site")
                 result = updated_receipt(result, response)
@@ -502,28 +531,66 @@ def publish_receipt_release(config: ReceiptRelease, *, transport=None):
 
 @dataclass(frozen=True)
 class BoundTrack:
-    """A report whose verified publication advances its profile and attestation."""
+    """A report whose verified publication advances its profile and attestation.
+
+    The target is the profile's ``publication`` object. Upload names, binding
+    schemas and clients are data; ``validate_package`` and ``check_preview`` are
+    the track's hooks.
+    """
 
     label: str
     default_title: str
     archive: Path
+    attestation: Path
     profile: Path
     receipt: Path
     operation_journal: Path
+    binding_journal: Path
     inputs: tuple
     operation_prefix: str
     operation_schema: str
+    binding_schema: str
     version_field: str
-    request: Callable  # (base, path, data, content_type, *, method, extra_headers)
-    public_request: Callable  # (base, path, *, extra_headers), never authenticated
-    multipart: Callable  # (title, archive) -> (body, content type)
+    client: PublicationClient
+    upload_boundary: str  # stable multipart names; a retried operation replays the same bytes
+    upload_filename: str
     validate_package: Callable
     check_preview: Callable  # (status, body)
-    recover_binding: Callable
-    bind: Callable  # (profile, *, slug, share_url, version, release)
+    public_client: PublicationClient | None = None  # unauthenticated share checks; default ``client``
+    legacy_binding_schema: str | None = None
+    binding_state: str | None = None
     receipt_required: bool = False
     update_title: bool = False
     staged_key_prefix: str | None = None
+    modes = ("create", "update")
+
+    def publish(self, mode, transport):
+        return _publish_bound_release(self, create=mode == "create", transport=transport)
+
+    def multipart(self, title: str, archive: Path | None = None) -> tuple[bytes, str]:
+        return multipart_archive(archive or self.archive, title,
+                                 boundary_prefix=self.upload_boundary, filename=self.upload_filename)
+
+    def recover_binding(self) -> None:
+        recover_binding(self.profile, self.attestation, self.binding_journal,
+                        schema=self.binding_schema, legacy_schema=self.legacy_binding_schema,
+                        writer=atomic_write)
+
+    def bind(self, profile: dict, *, slug: str, share_url: str, version: str,
+             release: PublicationSnapshot | None = None) -> None:
+        """Advance the profile's target and the attestation together."""
+        if not version.startswith("ver_"):
+            raise ValueError("publication response omitted a valid version id")
+        if json.loads(self.profile.read_bytes()) != profile:
+            raise ValueError("publication profile changed before binding")
+        publication = {"site_slug": slug, "share_url": share_url, "expected_version": version}
+        if self.binding_state is not None:
+            publication["state"] = self.binding_state
+        bind_publication_files(
+            self.profile, self.attestation, self.binding_journal, publication=publication,
+            schema=self.binding_schema, expected=release.sources if release is not None else None,
+            writer=atomic_write,
+        )
 
 
 def operation_identity(
@@ -589,23 +656,39 @@ def staged_release_upload(
     return upload_large_archive(staged_request, archive, slug, expected_version, title=title)
 
 
-def publish_bound_release(track: BoundTrack, *, create: bool) -> None:
+def _publish_bound_release(track: BoundTrack, *, create: bool, transport=None) -> None:
     track.recover_binding()
     with snapshot_publication(track.archive, inputs=track.inputs) as release:
         track.validate_package()
         release.check()
-        _publish_bound(track, release, create=create)
+        _publish_bound(track, release, create=create, transport=transport)
 
 
-def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: bool) -> None:
+def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: bool,
+                   transport=None) -> None:
     profile = json.loads(track.profile.read_text(encoding="utf-8"))
-    publication = profile.get("publication") or {}
-    base = str(publication.get("base_url") or "").rstrip("/")
-    bound_slug = str(publication.get("site_slug") or "")
-    expected_version = str(publication.get("expected_version") or "")
+    target = read_target({"publication": profile.get("publication") or {}})
+    base = str(target.base_url or "").rstrip("/")
+    bound_slug = target.site or ""
+    expected_version = target.expected_version or ""
     if not base.startswith("https://"):
         raise ValueError(f"current {track.label} profile has no valid publication base")
-    title = str(publication.get("title") or track.default_title)
+    if target.visibility not in (None, "public"):
+        # This lifecycle verifies the release through its public share; it cannot withdraw it.
+        raise ValueError(f"{track.label} publication only supports public sharing; "
+                         "change the site's access separately before publishing")
+    title = str(target.title or track.default_title)
+    public_client = track.public_client or track.client
+
+    def request(base, path, *args, **kwargs):
+        if transport is not None:
+            return transport(base, path, *args, **kwargs)
+        return track.client.request(base, path, *args, **kwargs)
+
+    def public_request(base, path, **kwargs):
+        if transport is not None:
+            return transport(base, path, authenticated=False, **kwargs)
+        return public_client.request(base, path, authenticated=False, **kwargs)
     operations = PublicationOperation(track.operation_journal, track.operation_prefix)
     identity = operation_identity(
         track.operation_schema, base=base, title=title, archive_sha256=release.sha256,
@@ -614,7 +697,7 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
 
     def raw_send(path, *args, **kwargs):
         release.check()
-        return track.request(base, path, *args, **kwargs)
+        return request(base, path, *args, **kwargs)
 
     def send(path, *args, **kwargs):
         return raw_send(path, *args, **kwargs)[:2]
@@ -663,7 +746,7 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
                 slug=slug, expected=expected_version, allow_create=True,
             )
             result.update(response_json(status, raw, operation="site version upload"))
-        share_url = str(publication.get("share_url") or result.get("share_url") or "")
+        share_url = str(target.share_url or result.get("share_url") or "")
     else:
         slug = pending_created_site(track.receipt, base, release.sha256)
         if slug:
@@ -683,7 +766,8 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
     site_path = f"/api/sites/{quote(slug)}"
     if not share_url:
         status, raw = send(
-            site_path + "/shares", json.dumps({"policy": "public"}).encode(), "application/json"
+            site_path + "/shares", json.dumps({"policy": "public"}).encode(),
+            "application/json",
         )
         share_url = str(response_json(status, raw, operation="public share creation").get("url") or "")
         if not share_url.startswith("https://"):
@@ -699,11 +783,11 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
     verify_export(send, slug, release.archive)
     share_path, share_token = public_share_context(base, share_url)
     release.check()
-    status, _ = track.public_request(base, share_path)[:2]
+    status, _ = public_request(base, share_path)[:2]
     if status != 200:
         raise RuntimeError(f"public report returned HTTP {status}")
     release.check()
-    status, body = track.public_request(
+    status, body = public_request(
         base, f"/api/preview/{quote(slug)}", extra_headers={"X-Artifact-Share": share_token}
     )[:2]
     track.check_preview(status, body)
@@ -734,10 +818,7 @@ class StagedUpdate:
     label: str
     prefix: str
     client: PublicationClient
-    base: str
-    slug: str
-    expected_version: str
-    share_path: str
+    target: PublicationTarget  # base, site, expected version and, when held, the share link
     title: str
     archive: Path
     archive_sha256: str
@@ -747,10 +828,39 @@ class StagedUpdate:
     bind: Callable  # (version) inside the frozen release
     allow_inline: bool = False
     inline_limit_bytes: int | None = None
+    modes = ("update",)
+
+    def publish(self, mode, transport):
+        return _publish_staged_update(self, transport=transport)
+
+    @property
+    def base(self) -> str:
+        return self.target.base_url
+
+    @property
+    def slug(self) -> str:
+        return self.target.site
+
+    @property
+    def expected_version(self) -> str:
+        return self.target.expected_version
+
+    @property
+    def share_path(self) -> str:
+        if self.target.share_url:
+            return public_share_context(self.base, self.target.share_url)[0]
+        return "/s/" + self.slug
 
 
-def publish_staged_update(update: StagedUpdate, *, transport=None) -> str:
+def _publish_staged_update(update: StagedUpdate, *, transport=None) -> str:
     """Resume the same staged update and verify every deployed byte before binding it."""
+    if not update.base or not update.slug or not update.expected_version:
+        raise ValueError(f"{update.label} publication requires a bound site and version")
+    if update.target.visibility not in (None, "public"):
+        # A staged update verifies its public share and cannot change access; refuse before
+        # writing a journal or sending anything so a withdrawn report is never left public.
+        raise ValueError(f"{update.label} publication only supports public sharing; "
+                         "change the site's access separately before publishing")
     inline_limit = update.inline_limit_bytes
     if inline_limit is not None and (type(inline_limit) is not int or inline_limit <= 0):
         raise ValueError('Inline upload limit must be a positive byte count')

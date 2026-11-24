@@ -7,7 +7,7 @@ import pytest
 
 from harness.record_io import json_bytes
 from harness.browser_use import report_publish as autonomous
-from harness.reporting import publication
+from harness.reporting import publication, publish
 from harness.trajectory_replay import webarena_report_publish as replay
 
 
@@ -52,17 +52,12 @@ def setup(tmp_path, monkeypatch, track):
         monkeypatch.setattr(owner, key, path, raising=False)
 
     def bind():
-        if track == "browser-use":
-            owner.bind_published_version(
-                "ver_new", slug="site-1", share_url="https://example.invalid/v/token"
-            )
-        else:
-            owner.bind_publication(
-                json.loads(profile.read_text(encoding="utf-8")),
-                slug="site-1",
-                share_url="https://example.invalid/v/token",
-                version="ver_new",
-            )
+        owner.track().bind(
+            json.loads(profile.read_text(encoding="utf-8")),
+            slug="site-1",
+            share_url="https://example.invalid/v/token",
+            version="ver_new",
+        )
 
     return owner, profile, proof, journal, bind
 
@@ -71,23 +66,23 @@ def setup(tmp_path, monkeypatch, track):
 @pytest.mark.parametrize("phase", ["profile", "proof"])
 def test_interrupted_binding_resumes_complete_pair(tmp_path, monkeypatch, track, phase):
     owner, profile, proof, journal, bind = setup(tmp_path, monkeypatch, track)
-    original = getattr(owner, "atomic_write", lambda path, data: path.write_bytes(data))
+    original = publication.atomic_write
 
     def interrupt(path, data):
         if path == (profile if phase == "profile" else proof):
             raise OSError("simulated binding interruption")
         original(path, data)
 
-    monkeypatch.setattr(owner, "atomic_write", interrupt, raising=False)
+    monkeypatch.setattr(publish, "atomic_write", interrupt)
     with pytest.raises(OSError, match="binding interruption"):
         bind()
     assert journal.is_file()
-    monkeypatch.setattr(owner, "atomic_write", original)
-    owner.recover_publication_binding()
+    monkeypatch.setattr(publish, "atomic_write", original)
+    owner.track().recover_binding()
     assert not journal.exists()
-    publication = json.loads(profile.read_text(encoding="utf-8"))["publication"]
-    assert publication["expected_version"] == "ver_new"
-    assert publication["site_slug"] == "site-1"
+    bound = json.loads(profile.read_text(encoding="utf-8"))["publication"]
+    assert bound["expected_version"] == "ver_new"
+    assert bound["site_slug"] == "site-1"
     assert (
         json.loads(proof.read_text(encoding="utf-8"))["profile_sha256"]
         == hashlib.sha256(profile.read_bytes()).hexdigest()
@@ -100,22 +95,22 @@ def test_recovery_refuses_changed_authority_without_overwriting_it(
     tmp_path, monkeypatch, track, changed
 ):
     owner, profile, proof, journal, bind = setup(tmp_path, monkeypatch, track)
-    original = getattr(owner, "atomic_write", lambda path, data: path.write_bytes(data))
+    original = publication.atomic_write
 
     def interrupt(path, data):
         if path == proof:
             raise OSError("simulated interruption")
         original(path, data)
 
-    monkeypatch.setattr(owner, "atomic_write", interrupt, raising=False)
+    monkeypatch.setattr(publish, "atomic_write", interrupt)
     with pytest.raises(OSError):
         bind()
     target = profile if changed == "profile" else proof
     target.write_text('{"newer_authority":true}', encoding="utf-8")
     before = (profile.read_bytes(), proof.read_bytes(), journal.read_bytes())
-    monkeypatch.setattr(owner, "atomic_write", original)
+    monkeypatch.setattr(publish, "atomic_write", original)
     with pytest.raises(ValueError, match="changed|differs"):
-        owner.recover_publication_binding()
+        owner.track().recover_binding()
     assert (profile.read_bytes(), proof.read_bytes(), journal.read_bytes()) == before
 
 
@@ -137,7 +132,7 @@ def test_completed_binding_can_retry_failed_journal_cleanup(tmp_path, monkeypatc
     before = (profile.read_bytes(), proof.read_bytes())
     assert journal.exists()
     monkeypatch.setattr(Path, "unlink", original)
-    owner.recover_publication_binding()
+    owner.track().recover_binding()
     assert not journal.exists()
     assert (profile.read_bytes(), proof.read_bytes()) == before
 
@@ -145,14 +140,14 @@ def test_completed_binding_can_retry_failed_journal_cleanup(tmp_path, monkeypatc
 @pytest.mark.parametrize("track", ["browser-use", "replay"])
 def test_binding_journal_cannot_be_replayed_into_other_targets(tmp_path, monkeypatch, track):
     owner, profile, proof, journal, bind = setup(tmp_path, monkeypatch, track)
-    original = owner.atomic_write
+    original = publication.atomic_write
 
     def interrupt(path, data):
         if path == profile:
             raise OSError("simulated interruption")
         original(path, data)
 
-    monkeypatch.setattr(owner, "atomic_write", interrupt)
+    monkeypatch.setattr(publish, "atomic_write", interrupt)
     with pytest.raises(OSError):
         bind()
     other_profile, other_proof = tmp_path / "other-profile.json", tmp_path / "other-proof.json"
@@ -160,10 +155,10 @@ def test_binding_journal_cannot_be_replayed_into_other_targets(tmp_path, monkeyp
     other_proof.write_bytes(proof.read_bytes())
     monkeypatch.setattr(owner, "PROFILE", other_profile)
     monkeypatch.setattr(owner, "ATTESTATION", other_proof)
-    monkeypatch.setattr(owner, "atomic_write", original)
+    monkeypatch.setattr(publish, "atomic_write", original)
     before = (other_profile.read_bytes(), other_proof.read_bytes())
     with pytest.raises(ValueError, match="targets differ"):
-        owner.recover_publication_binding()
+        owner.track().recover_binding()
     assert (other_profile.read_bytes(), other_proof.read_bytes()) == before
     assert journal.exists()
 
@@ -191,10 +186,10 @@ def test_legacy_replay_journal_only_finishes_the_already_installed_profile(
     )
     if profile_installed:
         profile.write_bytes(payload)
-        owner.recover_publication_binding()
+        owner.track().recover_binding()
         assert json.loads(proof.read_bytes()) == target_proof and not journal.exists()
     else:
         before = (profile.read_bytes(), proof.read_bytes(), journal.read_bytes())
         with pytest.raises(ValueError, match="legacy.*differs"):
-            owner.recover_publication_binding()
+            owner.track().recover_binding()
         assert (profile.read_bytes(), proof.read_bytes(), journal.read_bytes()) == before

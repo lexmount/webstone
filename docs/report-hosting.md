@@ -28,6 +28,17 @@ identity. See [benchmark editions](benchmarks.md#benchmark-editions) for the
 version and comparison rules. A newer task package must not silently update
 an older report.
 
+## Report checks after code changes
+
+A report check verifies the report's own bytes: the bound file inventory and
+hashes, the bound profile and evidence, and pages that the check re-renders
+from the saved model. It does not bind the renderer's source files, so an
+unrelated code change leaves a built report valid. A renderer change that
+alters output fails the comparison of the affected pages; refresh such a report
+by rebuilding it from the same profile and evidence with the track's `report`
+command, then run `check` again. Visual receipts still name the checker that
+produced them and need a new visual check after that checker changes.
+
 ## Report languages
 
 The Web Fetch CLI falls back to English. `WEBSTONE_REPORT_LANGUAGE=zh` changes the environment default, and `--language` overrides it. A rebuild without `--language` keeps the saved choice.

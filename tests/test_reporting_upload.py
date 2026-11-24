@@ -67,13 +67,13 @@ def test_lookup_input_change_stops_before_version_upload(tmp_path, monkeypatch, 
         monkeypatch.setattr(owner, 'OPERATION_JOURNAL', tmp_path / 'operation.json')
     calls = []
     def request(*args, **kwargs):
-        path = args[1] if track == 'replay' else args[0]
+        path = args[1]
         calls.append(path)
         assert path == '/api/sites/site-1'
         files[damage.upper()].write_text('Changed during site lookup', encoding='utf-8')
         result = (200, b'{"site":{"currentVersionId":"ver_old"}}')
         return (*result, {}) if track == 'replay' else result
-    monkeypatch.setattr(owner, 'request', request)
+    monkeypatch.setattr(owner, 'CLIENT', SimpleNamespace(request=request))
     with pytest.raises(ValueError, match='inputs changed'):
         owner.main(create=False)
     assert calls == ['/api/sites/site-1']
@@ -183,7 +183,8 @@ def test_browser_publication_verifies_full_export_before_binding(tmp_path, monke
                         bundle.writestr('index.html', autonomous.PUBLIC_REPORT_MARKER)
             return 200, exported.getvalue()
         return 200, archive.read_bytes()
-    monkeypatch.setattr(autonomous, 'request', request)
+    monkeypatch.setattr(autonomous, 'CLIENT', SimpleNamespace(
+        request=lambda base, path, *args, **kwargs: request(path, *args, base_url=base, **kwargs)))
     class Response:
         status = 200
         headers = {}

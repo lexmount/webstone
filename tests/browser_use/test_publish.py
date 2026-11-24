@@ -102,7 +102,7 @@ def test_validate_package_requires_and_checks_every_evidence_root(
         raise AssertionError("changed secondary evidence must invalidate the package")
 
 
-def test_bind_published_version_advances_profile_and_attestation(
+def test_bind_advances_profile_and_attestation(
     monkeypatch, tmp_path: Path
 ) -> None:
     profile = tmp_path / "profile.json"
@@ -113,8 +113,12 @@ def test_bind_published_version_advances_profile_and_attestation(
     attestation.write_text(json.dumps({"profile_sha256": "stale"}), encoding="utf-8")
     monkeypatch.setattr(publisher, "PROFILE", profile)
     monkeypatch.setattr(publisher, "ATTESTATION", attestation)
+    monkeypatch.setattr(publisher, "BINDING_JOURNAL", tmp_path / "binding.json")
 
-    publisher.bind_published_version("ver_new")
+    publisher.track().bind(
+        json.loads(profile.read_text(encoding="utf-8")),
+        slug="site-1", share_url="https://example.invalid/v/token", version="ver_new",
+    )
 
     assert (
         json.loads(profile.read_text(encoding="utf-8"))["publication"]["expected_version"]

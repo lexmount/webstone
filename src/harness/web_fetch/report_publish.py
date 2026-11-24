@@ -13,7 +13,8 @@ from pathlib import Path
 from harness.record_io import json_bytes
 from harness.reporting.publication import PublicationClient, atomic_write
 from harness.reporting.publication_target import publication_document, validate_service_base
-from harness.reporting.publish import ReceiptRelease, publish_receipt_release
+from harness.reporting.publication_target import PublicationTarget
+from harness.reporting.publish import ReceiptRelease, publish as publish_release
 from harness.web_fetch.publication_check import check
 from harness.web_fetch.publication_verify import verify_external_packs
 from harness.web_fetch.report_package import part_archives, validate_release
@@ -80,17 +81,18 @@ def publish(config: PublishConfig, *, transport=None, package_check=None):
         verify_external_packs(archive, base, target_slug=profile.get('artifact_hub_site'),
                               attachment_bindings=bindings)
 
-    return publish_receipt_release(
+    return publish_release(
         ReceiptRelease(
             config.profile, config.archive, config.source, config.receipt, config.journal,
             namespace="webfetch", upload_name="webfetch", client=CLIENT, package_check=package_check or check,
-            title=config.title, mode=config.mode, base_url=config.base_url,
-            expected_version=config.expected_version, visibility=config.visibility,
+            title=config.title,
+            target=PublicationTarget(base_url=config.base_url, expected_version=config.expected_version,
+                                     visibility=config.visibility),
             inputs=validation_inputs, check_reuse=package_check is not None,
             check_target=check_target,
             check_delivery=check_delivery,
         ),
-        transport=transport,
+        config.mode, transport=transport,
     )
 
 

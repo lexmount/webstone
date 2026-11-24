@@ -39,6 +39,8 @@ from harness.reporting.publication_privacy import (
     publication_file_risk,
 )
 from harness.reporting.publication_target import validate_service_base
+from harness.reporting.release_check import ReleaseRules
+from harness.reporting.release_check import validate_release as gate
 from harness.web_fetch.published_snapshot import check_snapshot_audit
 from harness.web_fetch.reference_lifecycle import require_certifiable_evidence
 from harness.web_fetch.report_build import validate_local_presentation
@@ -55,6 +57,24 @@ def _require(condition, detail):
 
 
 def validate_release(source: Path, *, presentation_binding: Path | None = None, snapshot_audit=False) -> bool:
+    """Run the shared release gate with the Web Fetch rules; True for a sampled matrix.
+
+    Report links are checked over the projected public inventory
+    (``validate_virtual_links``), so the gate's source-tree link stage is absent.
+    """
+    kind = {}
+
+    def identity(root: Path) -> None:
+        kind['certified'] = _release_identity(root, presentation_binding, snapshot_audit)
+
+    def evidence(root: Path) -> bool:
+        return _certified_evidence(root) if kind['certified'] else False
+
+    return gate(source, ReleaseRules(identity=identity, evidence=evidence, links=None))['evidence']
+
+
+def _release_identity(source: Path, presentation_binding, snapshot_audit) -> bool:
+    """Name which release this report is; only a certified one binds measured evidence."""
     if (source / 'saved-extension.json').is_file():
         from harness.web_fetch.report_saved_composition import check_published_extension
         check_published_extension(source)
@@ -75,8 +95,7 @@ def validate_release(source: Path, *, presentation_binding: Path | None = None, 
     dataset = json.loads(dataset_path.read_text(encoding="utf-8")) if dataset_path.exists() else {}
     records = load_jsonl(source / "results.jsonl")
     check_release(source, dataset, records)
-    manifest_path=source/'report-manifest.json'
-    audit_state=manifest_path.is_file() and json.loads(manifest_path.read_text(encoding="utf-8")).get('evidence_state')=='published_snapshot_score_audit'
+    audit_state=manifest.get('evidence_state')=='published_snapshot_score_audit'
     if snapshot_audit:
         if not audit_state or presentation_binding is not None:
             raise ValueError('Snapshot packaging requires its explicit diagnostic report')
@@ -94,6 +113,13 @@ def validate_release(source: Path, *, presentation_binding: Path | None = None, 
             value = json.loads(path.read_text(encoding="utf-8"))
             manifests.extend(value.get('batches', [value]))
     require_certifiable_evidence(dataset, manifests)
+    return True
+
+
+def _certified_evidence(source: Path) -> bool:
+    dataset_path = source / "dataset.json"
+    dataset = json.loads(dataset_path.read_text(encoding="utf-8")) if dataset_path.exists() else {}
+    records = load_jsonl(source / "results.jsonl")
     content_binding = dataset.get('comparison', {}).get('report_interpretation')
     if content_binding:
         current_browser_article_model(source, {case['id']:case for case in dataset['cases']},
@@ -466,7 +492,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
     (destination / "loader.js").write_bytes(
         (Path(__file__).parent / "assets/report-loader.js").read_bytes()
     )
-    # Artifact Site serves each committed version under an immutable signed base URL.
+    # Yours serves each committed version under an immutable signed base URL.
     # Its signed preview route resolves exact file names but rejects cache-busting
     # query strings on subresources, so the shell must reference the three physical
     # assets without ``?v=...``. The versioned base already provides cache isolation.
@@ -514,7 +540,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
             }
         )
     )
-    # Artifact Site publishes large bundles through staged per-file uploads.
+    # Yours publishes large bundles through staged per-file uploads.
     # Its documented total limit is 300 MB, not the former local 50 MB budget.
     if total > 300*1024*1024:
         compact = destination.parent/'compact'

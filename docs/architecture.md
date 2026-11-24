@@ -87,7 +87,7 @@ through configuration, registries or explicit parameters.
 | WebMainBench certification, scoring and aggregation | `webmainbench_certification.py`, `webmainbench_scoring.py`, `webmainbench_assembly.py` |
 | WCXB scoring, paired timing and publication | `wcxb_metrics.py`, `wcxb_scoring.py`, `wcxb_latency.py`, `wcxb_publication.py` |
 | Web Fetch report construction and rendering | `report_build.py`, `report.py` |
-| Common report assets, links, presentation and publication lifecycles (`publish.py`, with each track as an adapter) | `src/harness/reporting/` |
+| Common report assets, links, presentation, the release gate (`release_check.py`) and the publisher (`publish.py`) | `src/harness/reporting/` |
 | Report template contract: page roles, slot order, track templates, variants and section hooks ([spec](spec.md#report-templates)) | `src/harness/reporting/templates.py` |
 | Shared page shell and components (navigation, theme, language switch, tables, directional highlights, evidence links) and the message catalog API | `src/harness/reporting/shell.py`, `src/harness/reporting/locales.py` |
 | Public evidence projection and the shared report stylesheet | `src/harness/reporting/publication_privacy.py`, `src/harness/reporting/style.py` |
@@ -186,8 +186,10 @@ languages; [report and release](../.agents/skills/benchmark-report/references/re
 owns the reader pass and its scope. Packaging copies only declared public files,
 rejects symlinks and checks that source and authority bytes remain unchanged.
 
-For an explicitly requested and authorized publication, use the selected track's publisher after its release gates pass. Each
-publisher is an adapter that names its own target over the lifecycles in `src/harness/reporting/publish.py`. Publishers
+For an explicitly requested and authorized publication, use the selected track's publisher after its release gates pass. Every
+track publishes through `publish(release, mode)` in `src/harness/reporting/publish.py`: the release names its package,
+its publication target (host, site, expected version, visibility and share link, one `PublicationTarget` schema read
+from each track's stored format) and optional hooks, and the mode is `create`, `update` or `reuse`. Publishers
 freeze the archive and authority, check the expected remote version, retain
 private operation journals for interrupted requests, and verify deployed bytes
 before updating local bindings. Keep journals and receipts until recovery

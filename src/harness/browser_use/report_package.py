@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package the complete browser-use report for Artifact Site."""
+"""Package the complete browser-use report for Yours."""
 
 from __future__ import annotations
 
@@ -18,6 +18,8 @@ from harness.record_io import file_sha256
 from harness.reporting.assets import bound_json_asset
 from harness.reporting.links import check as check_links
 from harness.reporting.publication import package_archive
+from harness.reporting.release_check import ReleaseRules, VisualReceipt
+from harness.reporting.release_check import validate_release as gate
 
 ATTESTATION = Path("publish/browser-use-sites.attestation.json")
 VISUAL_RECEIPT = Path("publish/browser-use-visual-qa.json")
@@ -27,14 +29,22 @@ def validate_release(
     report: Path, evidence: list[Path], visual_receipt: Path,
     *, authority_root: Path | None = None, profile_path: Path | None = None,
 ) -> None:
-    """Run every release gate before creating a publishable archive."""
+    """Run the shared release gate with the Browser Use rules before archiving."""
 
-    check_public_privacy(report)
-    check(report, evidence, None, require_complete=True,
-          authority_root=authority_root, profile_path=profile_path)
-    check_links(report)
-    if not receipt_is_current(report, visual_receipt):
-        check_visual(report, visual_receipt)
+    def identity(root: Path) -> None:
+        check_public_privacy(root)
+        check(root, evidence, None, require_complete=True,
+              authority_root=authority_root, profile_path=profile_path)
+
+    gate(report, ReleaseRules(
+        identity=identity,
+        links=lambda root: check_links(root),
+        visual=VisualReceipt(
+            visual_receipt,
+            is_current=lambda root, receipt: receipt_is_current(root, receipt),
+            check=lambda root, receipt: check_visual(root, receipt),
+        ),
+    ))
 
 
 def package(
