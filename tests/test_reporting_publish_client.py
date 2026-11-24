@@ -963,3 +963,44 @@ def test_rename_keeps_its_identity_free_request_and_short_timeout(tmp_path, monk
     web_fetch.rename_main([str(receipt), '--title', 'after'])
     assert sent(wire) == [('PATCH', '/api/sites/site-one', [BEARER, JSON_BODY], 30)]
     assert wire[0][0].data == b'{"title": "after"}'
+
+
+@pytest.mark.parametrize(('mode', 'site', 'message'), [
+    ('update', 'other-site', 'site differs from the bound profile'),
+    ('reuse', 'other-site', 'site differs from the bound profile'),
+    ('create', 'site-one', 'do not request a site'),
+])
+def test_requested_site_must_match_the_bound_profile_before_any_request(tmp_path, mode, site, message):
+    from harness.reporting.publication_target import PublicationTarget
+
+    profile = tmp_path / 'profile.json'
+    bound = {'artifact_hub_base_url': BASE}
+    if mode != 'create':
+        bound.update(artifact_hub_site='site-one', artifact_hub_expected_version='ver_old')
+    profile.write_text(json.dumps(bound), encoding='utf-8')
+    receipt = tmp_path / 'receipt.json'
+    receipt.write_text(json.dumps({'slug': 'site-one', 'versionId': 'ver_old', 'base_url': BASE}),
+                       encoding='utf-8')
+    (tmp_path / 'report').mkdir()
+    release = publish.ReceiptRelease(
+        profile, tmp_path / 'report.zip', tmp_path / 'report', receipt, tmp_path / 'pending.json',
+        namespace='example', upload_name='example', client=PublicationClient('Example'),
+        package_check=lambda *args: pytest.fail('checked the package'), title='Example',
+        target=PublicationTarget(site=site),
+    )
+    with pytest.raises(ValueError, match=message):
+        publish.publish(release, mode, transport=lambda *args, **kwargs: pytest.fail('sent a request'))
+
+
+@BOUND_TRACKS
+@pytest.mark.parametrize('visibility', ['private', 'unlisted'])
+def test_bound_track_refuses_to_leave_a_withdrawn_report_public(
+        tmp_path, monkeypatch, wire, owner, marker, visibility):
+    archive, wire.respond = lifecycle_site(monkeypatch, tmp_path, owner, marker, active='ver_old')
+    bound_profile(owner, share_url=BASE + '/v/token', visibility=visibility)
+    saved_receipt(owner, archive, verified=True)
+    before = owner.PROFILE.read_bytes()
+    with pytest.raises(ValueError, match='only supports public sharing'):
+        owner.main(create=False)
+    assert wire == []
+    assert owner.PROFILE.read_bytes() == before

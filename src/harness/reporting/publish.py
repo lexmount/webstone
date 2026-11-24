@@ -334,6 +334,11 @@ def _publish_receipt(config: ReceiptRelease, mode: str, *, transport=None):
         raise ValueError("Publication receipt must be a JSON object")
     if config.receipt.resolve() == config.journal.resolve():
         raise ValueError("Publication authority, receipt and operation journal must be distinct")
+    if requested.site is not None:
+        if mode == "create":
+            raise ValueError("A new site is named by the service; do not request a site with --create")
+        if requested.site != profile.get("artifact_hub_site"):
+            raise ValueError("Requested publication site differs from the bound profile")
     if mode == "create":
         if profile.get("artifact_hub_site") or profile.get("artifact_hub_expected_version"):
             raise ValueError("--create requires an unbound publication profile")
@@ -668,6 +673,10 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
     expected_version = target.expected_version or ""
     if not base.startswith("https://"):
         raise ValueError(f"current {track.label} profile has no valid publication base")
+    if target.visibility not in (None, "public"):
+        # This lifecycle verifies the release through its public share; it cannot withdraw it.
+        raise ValueError(f"{track.label} publication only supports public sharing; "
+                         "change the site's access separately before publishing")
     title = str(target.title or track.default_title)
     public_client = track.public_client or track.client
 
@@ -757,7 +766,7 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
     site_path = f"/api/sites/{quote(slug)}"
     if not share_url:
         status, raw = send(
-            site_path + "/shares", json.dumps({"policy": target.visibility or "public"}).encode(),
+            site_path + "/shares", json.dumps({"policy": "public"}).encode(),
             "application/json",
         )
         share_url = str(response_json(status, raw, operation="public share creation").get("url") or "")
