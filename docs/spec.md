@@ -95,9 +95,15 @@ flowchart LR
 | Publish | Package, publication target | Publication receipt | `src/harness/reporting/publish.py` | Rebuild the report |
 | Export result | Scored results, receipt | Result submission | `src/harness/results/` | Require hand-entered measurements |
 
-Scored results carry the method identities and hash bindings to the frozen
-dataset and to the evidence of each call, so the report stage needs no other
-undeclared input. Review records and bound content are optional inputs.
+Artifacts travel as a **run directory**: one directory that contains the frozen
+dataset, the call records with their raw evidence, the scored results and a
+manifest. Every reference between them is a path relative to that directory
+plus a hash. A run directory copied to another machine is complete: a stage
+resolves each reference inside it, verifies the hash, and fails when a file is
+missing or differs. It does not look elsewhere or fall back to another copy.
+Scored results also carry the method identities, so the report stage needs the
+run directory and nothing else. Review records and bound content are optional
+inputs, passed explicitly and bound the same way.
 
 Every artifact has a named, versioned schema, and the stage that reads it
 validates it. A reader can therefore take an artifact produced on another
@@ -386,11 +392,11 @@ until a check exists, review is the enforcement.
 
 ## Migration
 
-Existing code predates this page. New code and every touched code path conform
-from now on. Existing violations are inventoried in the
+Existing code predates this page. New code conforms from now on, and so does
+any function or module a change rewrites or moves. Existing violations are inventoried in the
 [convergence task](https://github.com/lexmount/webstone/issues/336) and removed
 by its tasks; once the checks above exist, their allowlists become the
-inventory. A change may leave an existing violation in place, and may not add
-one. A migration preserves frozen evidence and published
+inventory. A change may leave a violation in code it does not rewrite, and may
+not add one anywhere. A migration preserves frozen evidence and published
 reports, moves callers atomically, and removes the code it replaces in the same
 change.
