@@ -1,6 +1,6 @@
 # Create and share a report
 
-Report generation is optional. When you need a report, build it locally from saved results. Local builds need no Artifact Site account or publication token.
+Report generation is optional. When you need a report, build it locally from saved results. Local builds need no Yours account or publication token.
 
 The Web Fetch CLI builds a local report after `run` and `rescore` by default. Add `--no-report` to either command to save the evaluation or scoring outputs without generating HTML. `rescore --no-report` leaves any existing report unchanged; rebuild it to inspect the updated scores.
 
@@ -57,9 +57,9 @@ Only `en` and `zh` are supported. Unsupported codes fail before a run starts or 
 
 ## Optional sharing
 
-Upload to Artifact Site only when the user has authorized publication to the selected target. Until then, keep the report local.
+Upload to Yours only when the user has authorized publication to the selected target. Until then, keep the report local.
 
-To share a report, open Artifact Site ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)) and install the skill provided there. Use it to publish the report bundle and set access permissions. Keep the remaining run files local for rebuilding and auditing.
+To share a report, open Yours ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)) and install the skill provided there. Use it to publish the report bundle and set access permissions. Keep the remaining run files local for rebuilding and auditing.
 
 ## Maintained benchmark releases
 

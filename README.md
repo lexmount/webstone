@@ -162,13 +162,13 @@ Webstone aims for stable, reproducible results and a controlled, trustworthy eva
 
 3. **Make results easy to review and verify**
 
-    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Artifact Site only when publication is requested and authorized.
+    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Yours only when publication is requested and authorized.
 
 See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scoring and verification requirements.
 
 ## Reports
 
-Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Artifact Site account or publishing authorization.
+Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Yours account or publishing authorization.
 
 The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `rescore --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
@@ -181,7 +181,7 @@ English is the default; add `--language zh` when running or rebuilding for Chine
 
 ### Optional sharing
 
-When sharing is requested and publication is authorized, open Artifact Site ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)), install the skill offered there, and follow it to publish the local report and choose who can access it. Uploading is a separate action; creating a local report does not publish it.
+When sharing is requested and publication is authorized, open Yours ([Global .com](https://yours.lexmount.com/artifact-site) · [China .cn](https://yours.lexmount.cn/artifact-site)), install the skill offered there, and follow it to publish the local report and choose who can access it. Uploading is a separate action; creating a local report does not publish it.
 
 Scoring code ships with Webstone; dataset commits and file hashes are selected in [the data lock](src/harness/benchmarks/data-lock.json). Each report records its Webstone build and selected benchmark edition. See [versioning](docs/benchmarks.md#benchmark-editions) for comparison rules, [reference inputs](docs/reference-inputs.md) for historical data, and the [report guide](docs/report-hosting.md) for local builds and formal releases.
 
@@ -192,7 +192,7 @@ Scoring code ships with Webstone; dataset commits and file hashes are selected i
 flowchart LR
     A["Saved results<br/>and evidence"]:::evidence -->|Optional build / rebuild| B["Local HTML report"]:::run
     B --> C["Drill down to each result<br/>Responses · actions · logs"]:::evidence
-    B -. Requested and authorized .-> D["Share through<br/>Artifact Site"]:::evidence
+    B -. Requested and authorized .-> D["Share through<br/>Yours"]:::evidence
     A -. On request .-> V["LLM verifier"]:::score
     V -. Review findings .-> B
     classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a

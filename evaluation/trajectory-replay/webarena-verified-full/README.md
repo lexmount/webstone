@@ -18,7 +18,7 @@ committed to Git.
   comparing browsers.
 - The comparison release binding, selected with `--comparison-release`, binds
   the current multi-browser results, reviewed failures, report package, and
-  Artifact Site version by relative path and SHA-256. The measured files remain
+  Yours version by relative path and SHA-256. The measured files remain
   under `WEBSTONE_DATA_HOME`.
 - The external run profile described in `../webarena-verified/README.md` remains
   the independent 90-task split.

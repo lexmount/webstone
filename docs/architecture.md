@@ -106,7 +106,7 @@ Reuse the runner and renderer. Method names must not select special scoring rule
 
 Current public benchmark definitions, acceptance contracts and reference bindings are versioned on Hugging Face. Historical hash-bound inputs keep their original identities; new runs select a current HF edition through the data lock.
 
-External files live under `WEBSTONE_DATA_HOME` (default `~/.webstone/`) or a pinned Artifact Site release. Evaluation credentials come from `.env`; publishing uses separate authorization for its host.
+External files live under `WEBSTONE_DATA_HOME` (default `~/.webstone/`) or a pinned Yours release. Evaluation credentials come from `.env`; publishing uses separate authorization for its host.
 
 External report-instance profiles, selected with `--profile`, bind a track's
 exact task population, methods, versions, evidence and publication target. None
@@ -146,8 +146,8 @@ uv run --frozen python scripts/restore_report_content.py \
   --output /absolute/data-home/report-assets/webmainbench-sample/report-content.json
 ```
 
-The binding pins the export by version and hashes, not by link, because Artifact
-Site share links stay out of this public repository. To obtain the export, a
+The binding pins the export by version and hashes, not by link, because Yours
+share links stay out of this public repository. To obtain the export, a
 maintainer with access to the hosting site opens the report through the private
 publication target kept beside its external evidence, then downloads the version
 named by `source.version`. The site identities removed from older release records

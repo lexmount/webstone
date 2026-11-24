@@ -3803,7 +3803,7 @@ def _write_accounts_page(stage: Path, inputs: ReportInputs) -> None:
             [
                 [t("accounts_page.four_self_hosted_sites", "Four self-hosted sites"), t("accounts_page.official_docker_images_and_built_in", "Official Docker images and built-in test accounts; reset before each task"), t("accounts_page.not_required", "Not required")],
                 [t("accounts_page.model_api", "Model API"), f"{model_names}, reasoning={reasoning_effort}", t("accounts_page.corresponding_api_access_required", "Corresponding API access required")],
-                ["Artifact Site", t("accounts_page.publishes_only_the_sanitized_static_report", "Publishes only the sanitized static report"), t("accounts_page.publisher_must_already_have_site_access", "Publisher must already have site access")],
+                ["Yours", t("accounts_page.publishes_only_the_sanitized_static_report", "Publishes only the sanitized static report"), t("accounts_page.publisher_must_already_have_site_access", "Publisher must already have site access")],
             ],
         ),
     )

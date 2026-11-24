@@ -478,7 +478,7 @@ A BrowserTool call that returns success does not prove its intended site mutatio
 
 Component tests exercise Sites-style tokenized preview navigation from a nested result back to the report root; plain relative-link validation alone does not prove that behavior.
 
-The replay build binds content only when `--content` or `--content-bindings` is given: it copies the assets named by the bindings file (`--content-bindings`, default: the repository's `research/trajectory-replay-content.json`) from the `--content` directory (default: the data home's `report-assets/trajectory-replay/`). With neither flag it builds without bound content. Restore missing content from the pinned Artifact Site version, not an unversioned latest report. Do not silently fall back to a repository copy.
+The replay build binds content only when `--content` or `--content-bindings` is given: it copies the assets named by the bindings file (`--content-bindings`, default: the repository's `research/trajectory-replay-content.json`) from the `--content` directory (default: the data home's `report-assets/trajectory-replay/`). With neither flag it builds without bound content. Restore missing content from the pinned Yours version, not an unversioned latest report. Do not silently fall back to a repository copy.
 
 ## Operator sequence
 

@@ -476,7 +476,7 @@ Provider versions and runtime settings can also be instance-local: pass
 `--provider-config <instance-provider.json>` to the certified/diagnostic execution
 entry. The shared runner retains its exact configuration hash in each execution
 batch; changing one instance does not overwrite another report's defaults.
-Use Artifact Site's official CLI for transport and recovery, supplying the
+Use the official Yours CLI for transport and recovery, supplying the
 profile-bound host, slug and expected version. An update does not create a share.
 After export, `diagnostic-check --deployed-archive <export.zip>` compares
 the complete deployed tree with the locally checked instance, byte for byte.
@@ -1212,7 +1212,7 @@ new scores or timings; local fixture validation is not a benchmark rerun.
 
 ## WCXB paired timing and publication
 
-WCXB builds read profile-bound files from `<evidence>/report-assets/` and preserve the same relative paths in the public package; restore missing files from the profile's pinned Artifact Site version, never from an unversioned latest report. Do not silently fall back to a repository copy.
+WCXB builds read profile-bound files from `<evidence>/report-assets/` and preserve the same relative paths in the public package; restore missing files from the profile's pinned Yours version, never from an unversioned latest report. Do not silently fall back to a repository copy.
 
 For the current WCXB report, the source-qualified manifest is the entire evaluation population for quality, delivery, and latency. Keep source-invalid cases outside the current manifest, scored evidence, public package, and future provider calls; preserve earlier physical calls only in private historical evidence. The dataset page owns frozen task inputs, source URLs and human reference scope; it must not show measured browser scores. The home page owns aggregate comparisons, the result analysis owns the filterable method-case inventory, and case result pages own full responses. Keep a direct link from each dataset row to a safe frozen-page preview and its human reference. Default result filters must show a nonempty, clearly labeled diagnostic population when one exists, and filtered tables must shrink rather than leave a large blank viewport.
 

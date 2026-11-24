@@ -162,13 +162,13 @@ flowchart LR
 
 3. **方便审查，可校验**
 
-    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。只有明确要求发布并授权后，才上传到 Artifact Site。
+    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。只有明确要求发布并授权后，才上传到 Yours。
 
 评分与复核的详细要求见[评测设计](benchmarks.md#evaluation-design)。
 
 ## 报告
 
-结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Artifact Site 账号或发布授权。
+结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Yours 账号或发布授权。
 
 `run` 默认生成本地报告。加 `--no-report` 可只保存结果；`rescore --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
@@ -181,7 +181,7 @@ webstone report ./fixture-run
 
 ### 按需分享
 
-明确要求分享并授权发布后，打开 Artifact Site（[全球站 .com](https://yours.lexmount.com/artifact-site) · [中国站 .cn](https://yours.lexmount.cn/artifact-site)），安装网站提供的 skill，按引导发布本地报告并设置访问权限。上传是独立操作，生成本地报告不会自动发布。
+明确要求分享并授权发布后，打开 Yours（[全球站 .com](https://yours.lexmount.com/artifact-site) · [中国站 .cn](https://yours.lexmount.cn/artifact-site)），安装网站提供的 skill，按引导发布本地报告并设置访问权限。上传是独立操作，生成本地报告不会自动发布。
 
 评分代码随 Webstone 安装；数据集提交和文件哈希由[数据锁文件](../src/harness/benchmarks/data-lock.json)指定。报告记录 Webstone 构建版本和选定的评测版本。结果比较规则见[版本说明](benchmarks.md#benchmark-editions)，历史数据见[参考输入](reference-inputs.md)，本地构建与正式发布要求见[报告指南](report-hosting.md)。
 
@@ -192,7 +192,7 @@ webstone report ./fixture-run
 flowchart LR
     A["保存的结果<br/>与原始证据"]:::evidence -->|按需构建或重建| B["本地 HTML 报告"]:::run
     B --> C["下钻到每一个结果<br/>查看响应、动作和日志"]:::evidence
-    B -. 明确请求并授权 .-> D["通过 Artifact Site<br/>分享报告"]:::evidence
+    B -. 明确请求并授权 .-> D["通过 Yours<br/>分享报告"]:::evidence
     A -. 仅按需触发 .-> V["LLM verifier"]:::score
     V -. 复核发现 .-> B
     classDef input fill:#eff6ff,stroke:#60a5fa,color:#1e3a8a

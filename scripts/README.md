@@ -129,7 +129,7 @@ function and its exclusive tests together.
 | `prepare_result_review_subset.py`, `merge_internal_review_shards.py`, `rebind_result_review_metadata.py` | sole entries to the shared independent-review contract in `result_review.py`; only `tests/package_smoke.py` runs them |
 | `harness.web_fetch wcxb-select` | regenerates `evaluation/public-wcxb-test-qualified.json`; only tests name the command |
 | `harness.web_fetch webmainbench-check`, `harness.web_fetch webmainbench-full-check` | standalone release gates for the WebMainBench sample and complete reports; `report_build.py` imports the full-report check, not the command |
-| `rename_artifact_site.py` | Artifact Site display-title maintenance |
+| `rename_artifact_site.py` | Yours display-title maintenance |
 | `use_prepared_webarena_cohort_reset.py` | passed as `run_remote_three_method_cohort.py --cohort-reset-hook`; receipts outside Git bind its hash, not its name |
 | `harness.trajectory_replay seeds`, `expert-seeds`, `replay`, `promote` | seed, replay and promotion stages of the repository-curated dataset; `evaluation/trajectory-replay/webarena-verified/README.md` describes the stages without naming the commands |
 | `harness.trajectory_replay merge-results` | overlays formal correction shards onto the current replay matrix |

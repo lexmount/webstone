@@ -19,9 +19,9 @@ COMMANDS = {
     "review": ("harness.browser_use.review", "main",
                "Write the deterministic per-attempt result review"),
     "package": ("harness.browser_use.report_package", "main",
-                "Package a checked report for its Artifact Site"),
+                "Package a checked report for its Yours site"),
     "publish": ("harness.browser_use.report_publish", "cli",
-                "Publish a packaged report to its bound Artifact Site"),
+                "Publish a packaged report to its bound Yours site"),
 }
 
 

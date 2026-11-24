@@ -73,7 +73,7 @@ OWNER_COMMANDS = {
     "site-bundle-check": ("harness.web_fetch.publication_check", "main",
                           "Validate a Web Fetch publication bundle"),
     "site-package": ("harness.web_fetch.report_package", "main",
-                     "Package a Web Fetch report for Artifact Site"),
+                     "Package a Web Fetch report for Yours"),
     "site-publish": ("harness.web_fetch.report_publish", "main",
                      "Publish a profile-bound Web Fetch package"),
     "site-verify": ("harness.web_fetch.publication_verify", "main",
