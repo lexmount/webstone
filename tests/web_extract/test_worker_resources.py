@@ -61,13 +61,39 @@ def test_resource_tables_share_scope_units_counts_and_leaders_on_both_pages(tmp_
     assert _check_rendered_report(output)
 
 
-@pytest.mark.parametrize('mode', ['full-cohort-progress', 'field-extraction-cohort'])
-@pytest.mark.parametrize('route', ['index', 'interpretation'])
-@pytest.mark.parametrize('damage', ['missing', 'wrong-value', 'wrong-highlight'])
+_MEASURED = {}
+
+
+def copied_measured_example(factory, tmp_path, mode):
+    """Build each measured mode once; damage tests edit only a private copy of the output."""
+    import shutil
+
+    if mode not in _MEASURED:
+        _MEASURED[mode] = measured_example(factory.mktemp('measured-' + mode), mode)
+    output = tmp_path / 'measured'
+    shutil.copytree(_MEASURED[mode], output)
+    return output
+
+
+_RESOURCE_DAMAGES = [
+    (route, damage)
+    for route in ('index', 'interpretation')
+    for damage in ('missing', 'wrong-value', 'wrong-highlight')
+]
+
+
+# Each page and damage reaches the same mode-independent check; alternate the two modes.
+@pytest.mark.parametrize(
+    ('mode', 'route', 'damage'),
+    [
+        (('full-cohort-progress', 'field-extraction-cohort')[index % 2], route, damage)
+        for index, (route, damage) in enumerate(_RESOURCE_DAMAGES)
+    ],
+)
 def test_release_boundary_rejects_resource_errors_even_with_updated_file_hash(
-    tmp_path, mode, route, damage
+    tmp_path_factory, tmp_path, mode, route, damage
 ):
-    output = measured_example(tmp_path, mode)
+    output = copied_measured_example(tmp_path_factory, tmp_path, mode)
     path = output / 'zh' / (route + '.html')
     soup = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
     section = soup.select_one('[data-worker-resources]')

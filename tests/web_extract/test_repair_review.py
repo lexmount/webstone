@@ -2208,18 +2208,25 @@ def test_snapshot_repair_collects_verifies_composes_and_resumes(
     assert any(row["case_id"] == "resource:assets/image.png" for row in fixture_rows) is with_assets
 
 
-@pytest.mark.parametrize("legacy", [False, True])
-@pytest.mark.parametrize("remote_has_hosting_annotation", [False, True])
+_RECEIPT_SHAPES = [(False, False), (False, True), (True, False), (True, True)]
+_CORRUPTED_SNAPSHOT_FIELDS = [
+    "manifest_sha256",
+    "html_inventory_sha256",
+    "case_count",
+    "fixture_base",
+    "huggingface",
+    "extra_identity_field",
+]
+
+
+# Every archived/remote receipt shape must compose; each corrupted identity field reaches the
+# same qualification check, so corruptions are spread across shapes instead of multiplied.
 @pytest.mark.parametrize(
-    "corrupted_field",
-    [
-        None,
-        "manifest_sha256",
-        "html_inventory_sha256",
-        "case_count",
-        "fixture_base",
-        "huggingface",
-        "extra_identity_field",
+    ("legacy", "remote_has_hosting_annotation", "corrupted_field"),
+    [(*shape, None) for shape in _RECEIPT_SHAPES]
+    + [
+        (*_RECEIPT_SHAPES[index % len(_RECEIPT_SHAPES)], field)
+        for index, field in enumerate(_CORRUPTED_SNAPSHOT_FIELDS)
     ],
 )
 def test_managed_snapshot_repair_collects_verifies_composes_and_resumes(

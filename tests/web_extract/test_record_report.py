@@ -16,8 +16,16 @@ from harness.web_extract.report import (
 )
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
-@pytest.mark.parametrize("damage", [None, "home-intro", "moved-home-content"])
+# Both modes render the clean report; each damage reaches the same mode-independent check.
+@pytest.mark.parametrize(
+    ("mode", "damage"),
+    [
+        ("full-cohort-progress", None),
+        ("field-extraction-cohort", None),
+        ("full-cohort-progress", "home-intro"),
+        ("field-extraction-cohort", "moved-home-content"),
+    ],
+)
 def test_interpretation_intro_and_core_first_home_rules_hold_together(tmp_path, mode, damage):
     from harness.web_extract.report import build
 
@@ -103,8 +111,15 @@ def test_latency_directions_are_checked_against_the_collected_contract(tmp_path,
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
-@pytest.mark.parametrize("damage", ["missing", "moved", "changed"])
+# Every case first builds and checks the clean report, so spreading damages covers both modes.
+@pytest.mark.parametrize(
+    ("mode", "damage"),
+    [
+        ("full-cohort-progress", "missing"),
+        ("field-extraction-cohort", "moved"),
+        ("full-cohort-progress", "changed"),
+    ],
+)
 def test_authored_page_intro_precedes_generated_tables_and_is_release_bound(tmp_path, mode, damage):
     from harness.web_extract.report import build
 

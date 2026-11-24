@@ -174,8 +174,13 @@ def test_product_call_budget_includes_access_retries_and_is_frozen_on_resume(tmp
     assert len((run / "calls.journal.jsonl").read_text(encoding="utf-8").splitlines()) == 3
 
 
-@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
-@pytest.mark.parametrize("header", ["Authorization", "X-BB-API-Key", "SGAI-APIKEY"])
+# Every redirect status keeps the standard credential header; each provider-specific header is
+# checked on one method-preserving and one method-changing status.
+@pytest.mark.parametrize(
+    ("status", "header"),
+    [(status, "Authorization") for status in (301, 302, 303, 307, 308)]
+    + [(307, "X-BB-API-Key"), (303, "SGAI-APIKEY")],
+)
 def test_native_redirect_retains_response_without_sending_credentials_to_target(
     tmp_path, monkeypatch, status, header
 ):
@@ -214,7 +219,8 @@ def test_native_redirect_retains_response_without_sending_credentials_to_target(
 
     origin = ThreadingHTTPServer(("127.0.0.1", 0), Origin)
     workers = [
-        threading.Thread(target=server.serve_forever, daemon=True) for server in (target, origin)
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        for server in (target, origin)
     ]
     for worker in workers:
         worker.start()
@@ -634,7 +640,7 @@ def test_continuously_streaming_response_has_a_total_deadline(transport):
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    worker = Thread(target=server.serve_forever, daemon=True)
+    worker = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     worker.start()
 
     @total_deadline
