@@ -1953,10 +1953,23 @@ def render_report(out,*inputs,variant=None,**options):
  """The one renderer entry: write the page set of a registered template variant.
 
  Variants without their own page set (the default) render one validated
- ``ReportModel``. A benchmark contributes its variants' page sets through
- ``views()`` (``PageSetHook``); the track owns the diagnostic and research sets.
+ ``ReportModel``; their builds record the variant. A benchmark contributes its
+ variants' page sets through ``views()`` (``PageSetHook``) and the track owns the
+ diagnostic and research sets; this entry records those variants in the manifest.
  """
- return (_model_pages if variant is None else _page_set(variant))(Path(out),*inputs,**options)
+ if variant is None:return _model_pages(Path(out),*inputs,**options)
+ entry=_page_set(variant)(Path(out),*inputs,**options)
+ _record_template(Path(out),variant)
+ return entry
+
+
+def _record_template(out,variant):
+ """Record the rendered variant in the report manifest, beside what the page set recorded itself."""
+ from harness.web_fetch.template import report_template
+ path=out/'report-manifest.json'
+ manifest=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {'schema_version':1}
+ manifest['template']=report_template(variant)
+ path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
 
 
 def _page_set(variant):

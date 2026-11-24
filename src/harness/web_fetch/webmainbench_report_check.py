@@ -24,6 +24,7 @@ from harness.report_languages import (
 from harness.reporting.assets import load_bound_content
 from harness.reporting.release_check import checked_page, language_editions, open_report, read_page
 from harness.web_fetch.report import EXTRA, JS, STYLE
+from harness.web_fetch.template import check_recorded_template, check_template_pages
 from harness.web_fetch.webmainbench_diagnostics import ERROR_PAGE
 from harness.web_fetch.report_changes import webmainbench_history
 from harness.safety import reject_evidence_symlinks
@@ -262,9 +263,13 @@ def check(root: Path, *, authority_root: Path | None = None) -> None:
         raise ValueError("Bound failure analysis changed")
     failure_analysis = json.loads(failure_bytes)
     manifest = read_json(root / "report-manifest.json")
-    if manifest != {"schema_version": 1, "report": "webmainbench-545-full",
-                    "languages": ["zh"], "case_count": case_count, "provider_count": provider_count,
-                    "result_count": case_count * provider_count}:
+    # Reports built before the variant was recorded keep verifying without it.
+    if "template" in manifest:
+        check_template_pages(root, manifest, authority_root=repo)
+    if {key: value for key, value in manifest.items() if key != "template"} != {
+            "schema_version": 1, "report": "webmainbench-545-full",
+            "languages": ["zh"], "case_count": case_count, "provider_count": provider_count,
+            "result_count": case_count * provider_count}:
         raise ValueError("Incomplete WebMainBench report manifest")
     dataset = read_json(root / "dataset.json")
     records = load_jsonl(root / "results.jsonl")
@@ -521,6 +526,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                         records: list[dict] | None = None, *,
                         authority_root: Path | None = None, profile_path: Path | None = None) -> None:
     root = open_report(root)
+    check_recorded_template(root)
     repo = (profile_path.parent.parent if profile_path is not None else
             authority_directory(authority_root, "evaluation/current-report.json"))
     profile_path = profile_path or repo / "evaluation/current-report.json"
