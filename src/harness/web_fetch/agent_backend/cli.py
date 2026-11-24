@@ -36,6 +36,8 @@ def _plan_args(parser):
     parser.add_argument("--arms", default=DEFAULT_ARMS)
     parser.add_argument("--model", default="claude-sonnet-5-5")
     parser.add_argument("--timeout", type=int, default=420, help="limit for one whole claude process, in seconds")
+    parser.add_argument("--prompt", default=experiment.PROMPT,
+                        help="the task sent to Claude Code, the same for every arm and task; {url} is the task URL")
     parser.add_argument("--fetch-timeout", type=float, default=DEFAULT_CALL_TIMEOUT_SECONDS,
                         help="time limit of one fetch call in seconds, the same for every backend and task family "
                              f"(default: the Webstone per-call budget, {DEFAULT_CALL_TIMEOUT_SECONDS})")
@@ -93,7 +95,7 @@ def cmd_run(args) -> int:
                        params_for=lambda backend, case: backend_params.params_for(
                            backend, case, timeout_seconds=args.fetch_timeout, moli=moli),
                        retries=args.retries, concurrent_arms=not args.serial_arms,
-                       parallel_tasks=args.parallel_tasks, per_suite_limit=args.per_suite_limit)
+                       parallel_tasks=args.parallel_tasks, per_suite_limit=args.per_suite_limit, prompt=args.prompt)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 
@@ -117,7 +119,7 @@ def cmd_resume(args) -> int:
                        retries=int(document["args"]["retries"]),
                        concurrent_arms=document["args"]["serial_arms"] != "True",
                        parallel_tasks=int(document["args"].get("parallel_tasks", 1)),
-                       per_suite_limit=args.per_suite_limit)
+                       per_suite_limit=args.per_suite_limit, prompt=document["prompt"])
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
 
 

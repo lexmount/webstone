@@ -183,7 +183,7 @@ def write_plan(root: pathlib.Path, *, args: dict, meta: dict, sha: str, case_ids
                      "webstone_commit": _git_head(), "moli": moli,
                      "lexmount_cli": _lexmount_cli_identity() if "lexmount" in args.get("arms", "") else None,
                      "dataset_commit": dataset_commit() if meta.get("kind") == "definitions" else None},
-        "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt": PROMPT,
+        "dataset": {"id": meta.get("id"), "kind": meta.get("kind"), "sha256": sha}, "prompt": args.get("prompt") or PROMPT,
         "fixed_environment": arm_module.FIXED_ENV,
         "ineligible_for_all_arms": ineligible or {}, "cases": case_ids, "runs": plan,
     }
@@ -208,10 +208,10 @@ def _claude_unavailable(record: dict, directory: pathlib.Path) -> bool:
     return bool(CLAUDE_UNAVAILABLE.search((record.get("final_text") or "") + "\n" + stderr))
 
 
-def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_attempts, progress, index, total):
+def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_attempts, progress, index, total, prompt):
     """One arm on one task: the attempt, and at most one declared retry. The last attempt is the only result."""
     base = f"{item['case_id']}__{item['arm']}__r{item['rep']}"
-    prompt = PROMPT.format(url=case["url"])
+    prompt = prompt.format(url=case["url"])
     for attempt in range(1, max_attempts + 1):
         directory = root / "runs" / f"{base}__a{attempt}"
         record_path = directory / "record.json"
@@ -233,7 +233,8 @@ def _run_arm(root, item, case, *, claude_bin, model, timeout, params_for, max_at
 
 def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, model: str, timeout: int,
             params_for=lambda backend, case: {}, retries: int = 0, concurrent_arms: bool = True,
-            parallel_tasks: int = 1, per_suite_limit: int | None = None, progress=print) -> None:
+            parallel_tasks: int = 1, per_suite_limit: int | None = None, prompt: str = PROMPT,
+            progress=print) -> None:
     """Run the plan task by task, resumably.
 
     ``per_suite_limit`` runs only the first N planned tasks of every suite in this call, so a run can be checked in
@@ -263,7 +264,8 @@ def execute(root: pathlib.Path, plan: dict, cases: dict, *, claude_bin: str, mod
     def run_task(index, items):
         def work(item):
             _run_arm(root, item, cases[item["case_id"]], claude_bin=claude_bin, model=model, timeout=timeout,
-                     params_for=params_for, max_attempts=retries + 1, progress=say, index=index, total=len(groups))
+                     params_for=params_for, max_attempts=retries + 1, progress=say, index=index, total=len(groups),
+                     prompt=prompt)
         try:
             if concurrent_arms and len(items) > 1:
                 with ThreadPoolExecutor(max_workers=len(items)) as pool:

@@ -32,8 +32,10 @@ DEBUG_END = re.compile(r"tool_dispatch_end tool=(\S+) toolUseId=\S+ outcome=(\S+
 AGENT_USAGE = re.compile(r"<usage>subagent_tokens: (\d+)\s+tool_uses: (\d+)\s+duration_ms: (\d+)</usage>")
 # Claude Code's note listing the original bytes WebFetch saved for binary content (a PDF, an image).
 SAVED_FILE = re.compile(r"^[ \t]*- (/\S+/tool-results/webfetch-[^/\s]+)$", re.M)
-# Identical for every arm: a background subagent gives no usage report, so background tasks are off.
-FIXED_ENV = {"CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
+# Identical for every arm. Claude Code hands page reading to the web-fetch subagent only while its web-fetch-agent
+# mode is on, which otherwise follows a remotely served feature flag; the experiment pins it on. A background subagent
+# gives no usage report, so background tasks are off.
+FIXED_ENV = {"CLAUDE_CODE_WEB_FETCH_AGENT": "1", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1"}
 NETWORK_COMMAND = re.compile(r"\b(curl|wget|httpx|urllib|requests\.get|http\.client|lynx|w3m)\b")
 
 ARMS = {
