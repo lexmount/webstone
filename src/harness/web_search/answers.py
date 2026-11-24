@@ -7,21 +7,17 @@ from copy import deepcopy
 from harness.benchmark_execution import ExecutionPolicy, Job, exclusive_policy, run_jobs
 from harness.record_io import canonical_json_sha256
 from harness.web_search.relevance import run_judge_request, validate_physical_receipts
+from harness.web_search.benchmarks import BENCHMARKS, benchmark_of, grader_source
+from harness.web_search.benchmarks import ordered as search_benchmarks
 from lexbench_websearch.answers import (
     CITATION_CORRECTION,
     CITATION_PROMPT,
     CITATION_RULE,
     CITATION_VALIDATION,
-    SCENARIO_PROMPT,
-    SIMPLEQA_UPSTREAM,
     answer_messages,
     answer_packet,
     citation_grades,
-    factual_grade,
-    factual_messages,
     has_html_markup,
-    official_template,
-    scenario_grade,
 )
 
 
@@ -45,13 +41,13 @@ def _write(path, value):
 
 
 def _prompt_hashes(source):
-    return {kind: hashlib.sha256(text.encode()).hexdigest()
-            for kind, text in dict(scenario=SCENARIO_PROMPT, citations=CITATION_PROMPT,
-                                   factual=official_template(source)).items()}
+    prompts = {item.name: item.answers.prompt(source) for item in search_benchmarks()}
+    prompts['citations'] = CITATION_PROMPT
+    return {kind: hashlib.sha256(text.encode()).hexdigest() for kind, text in prompts.items()}
 
 
 def _jobs(profile, rows, upstream_source):
-    official_template(upstream_source)
+    _prompt_hashes(upstream_source)
     cases = {c['id']: c for c in profile['cases']}
     excluded = set(profile.get('factual_quality_exclusions', []))
     expected = {(mid['id'], cid) for mid in profile['methods'] for cid in cases}
@@ -70,10 +66,9 @@ def _jobs(profile, rows, upstream_source):
         if key in packets:
             raise ValueError('Answer judging requires one logical row per method and task')
         packets[key] = dict(method=row['method'], packet=packet)
-        kind = 'factual' if 'reference_answer' in case else 'scenario'
-        messages = (factual_messages(case, packet['answer'], upstream_source)
-                    if kind == 'factual' else answer_messages(packet))
-        jobs[key + '/' + kind] = dict(kind=kind, packet_key=key, messages=messages)
+        benchmark = benchmark_of(case)
+        messages = benchmark.answers.messages(case, packet, upstream_source)
+        jobs[key + '/' + benchmark.name] = dict(kind=benchmark.name, packet_key=key, messages=messages)
         if packet['citations']:
             jobs[key + '/citations'] = dict(kind='citations', packet_key=key,
                                             messages=answer_messages(packet, citations=True))
@@ -83,7 +78,7 @@ def _jobs(profile, rows, upstream_source):
 def _request(job, model):
     request = dict(model=model, temperature=0, max_tokens=8192, messages=job['messages'],
                    extra_params={'enable_thinking': False})
-    if job['kind'] != 'factual':
+    if job['kind'] not in BENCHMARKS or BENCHMARKS.get(job['kind']).answers.json_response:
         request['response_format'] = {'type': 'json_object'}
     return request
 
@@ -95,10 +90,8 @@ def _parse(job, packet, response):
         raise ValueError('Missing answer-judge response text') from error
     if not isinstance(text, str):
         raise ValueError('Answer-judge response must be text')
-    if job['kind'] == 'factual':
-        return factual_grade(text)
-    if job['kind'] == 'scenario':
-        return scenario_grade(packet, text)
+    if job['kind'] in BENCHMARKS:
+        return BENCHMARKS.get(job['kind']).answers.parse(packet, text)
     return citation_grades(packet, text)
 
 
@@ -109,11 +102,7 @@ def _format_request(job, model, ordinal=1):
         "Return every citation_index exactly once, with a JSON boolean supported and "
         "source_refs containing only ids in that occurrence's supplied source_fields. "
         "Unsupported citations require source_refs=[]. Do not copy claims or quotations."
-        if job['kind'] == 'citations' else
-        "\nOutput-format correction only; keep the rubric unchanged. Return the required "
-        "scenario JSON with only an integer grade and a short reason; do not copy evidence."
-        if job['kind'] == 'scenario' else
-        "\nOutput-format correction only; keep the original rubric unchanged. Return exactly A, B or C."
+        if job['kind'] == 'citations' else BENCHMARKS.get(job['kind']).answers.format_correction
     )
     if ordinal == 2:
         suffix += '\nThis is the final output-format correction; the grading rubric is unchanged.'
@@ -183,7 +172,7 @@ def verify_answer_evidence(profile, rows, evidence, upstream_source):
     if (configuration.get('inputs_sha256') != _inputs_digest(profile, rows)
             or configuration.get('jobs_sha256') != _digest(jobs)
             or configuration.get('maximum_calls') != len(jobs)
-            or configuration.get('upstream') != SIMPLEQA_UPSTREAM
+            or configuration.get('upstream') != grader_source()['upstream']
             or configuration.get('citation_rule') != CITATION_RULE
             or configuration.get('scoring_provenance') != CITATION_CORRECTION
             or configuration.get('prompt_sha256') != _prompt_hashes(upstream_source)
@@ -208,10 +197,9 @@ def verify_answer_evidence(profile, rows, evidence, upstream_source):
         packet_key = job['packet_key']
         grade = _validate_call(job, packets[packet_key]['packet'], call, configuration, key)
         result = results[packet_key]
-        if job['kind'] == 'factual':
-            result['factual_grade'] = grade
-        elif job['kind'] == 'scenario':
-            result['answer_grade'] = grade['grade']
+        if job['kind'] in BENCHMARKS:
+            grading = BENCHMARKS.get(job['kind']).answers
+            result[grading.result_field] = grading.value(grade)
         else:
             result['supported_citations'] = sum(item['supported'] for item in grade)
             result['citation_support'] = result['supported_citations'] / result['citation_count']
@@ -253,21 +241,22 @@ def judge_answers(profile, rows, args, token):
     """Finish a complete L3 population; a resumed run replays saved calls verbatim."""
     if args.retries:
         raise ValueError('L3 answer judging requires zero retries')
-    if args.simpleqa_grader is None:
-        raise ValueError('L3 requires the pinned official SimpleQA grader source')
+    source = grader_source()
+    if args.answer_grader is None:
+        raise ValueError('L3 requires the pinned ' + source['label'] + ' source')
     if args.reuse_evidence or args.source_requirements:
         raise ValueError('L3 does not use relevance inheritance or format-repair inputs')
     from harness.web_search.revisions import validate_revision_controls
 
     validate_revision_controls(CITATION_CORRECTION)
     validate_revision_controls(CITATION_VALIDATION)
-    upstream_source = args.simpleqa_grader.read_bytes()
+    upstream_source = args.answer_grader.read_bytes()
     packets, jobs = _jobs(profile, rows, upstream_source)
     configuration = dict(schema='web-search-answer-judge/1', model=args.model,
                          base_url=args.base_url, temperature=0, max_tokens=8192,
                          attempt_limit=1, format_repair_limit=args.format_repair_limit, extra_params={'enable_thinking': False},
                          request_headers={'x-bf-passthrough-extra-params': 'true'},
-                         upstream=deepcopy(SIMPLEQA_UPSTREAM),
+                         upstream=deepcopy(source['upstream']),
                          citation_rule=CITATION_RULE, scoring_provenance=deepcopy(CITATION_CORRECTION),
                          prompt_sha256=_prompt_hashes(upstream_source),
                          inputs_sha256=_inputs_digest(profile, rows),
@@ -277,7 +266,7 @@ def judge_answers(profile, rows, args, token):
     if contract.exists() and json.loads(contract.read_bytes()) != configuration:
         raise ValueError('Existing answer judge has different frozen inputs')
     _write(contract, configuration)
-    retained_source = args.output/'simpleqa_eval.py'
+    retained_source = args.output/source['filename']
     if retained_source.exists() and retained_source.read_bytes() != upstream_source:
         raise ValueError('Saved official grader source changed')
     retained_source.write_bytes(upstream_source)

@@ -594,10 +594,10 @@ def test_proposals_respect_released_main_and_pending_versions(
 
 @pytest.mark.parametrize("reference", ["os:getcwd", "harness.web_fetch.models", ""])
 def test_derived_viewer_fields_only_resolve_named_harness_functions(reference):
-    from harness.benchmarks.publication import _derived_field
+    from harness.benchmarks.publication import _declared_callable
 
     with pytest.raises(ValueError, match="Invalid derived viewer field"):
-        _derived_field(reference)
+        _declared_callable(reference)
 
 
 def test_webfetch_viewer_configurations_follow_card_subset_order(tmp_path):

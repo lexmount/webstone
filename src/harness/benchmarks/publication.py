@@ -99,11 +99,11 @@ def publish_snapshot_metadata(repository, metadata, *, parent_revision, readme, 
     )
 
 
-def _derived_field(reference: str):
-    """Resolve a ``module:function`` projection named by track card metadata."""
+def _declared_callable(reference: str, purpose: str = "derived viewer field"):
+    """Resolve a ``module:function`` hook named by track card metadata."""
     module, _, name = reference.partition(":")
     if not module.startswith("harness.") or not name:
-        raise ValueError("Invalid derived viewer field: " + reference)
+        raise ValueError(f"Invalid {purpose}: " + reference)
     return getattr(importlib.import_module(module), name)
 
 
@@ -485,24 +485,10 @@ class DatasetRelease:
         external = self.external_definitions(context)
         definition_files = {name: raw for name, raw in self.files.items() if name not in external}
         files = dict(definition_files)
-        if self.track == 'simpleqa-verified':
-            from lexbench_websearch.simpleqa import (
-                repair_cases,
-                validate_reference_evidence,
-                validate_repair_evidence,
-            )
-
-            for name, raw in files.items():
-                if name.startswith('definitions/datasets/') and name.endswith('.json'):
-                    dataset = json.loads(raw)
-                    if dataset.get('case_repairs'):
-                        from harness.web_search.revisions import validate_revision_controls
-
-                        validate_revision_controls(dataset['case_repairs'])
-                        if repair_cases(dataset['cases'], dataset['case_repairs'], reuse_calls=True) != dataset['cases']:
-                            raise ValueError('Published task repairs must already be applied')
-                        validate_repair_evidence(dataset, lambda path: files['definitions/' + path])
-                    validate_reference_evidence(dataset, lambda path: files['definitions/' + path])
+        metadata = json.loads((CARDS / "metadata.json").read_bytes())[self.track]
+        if metadata.get("definitions_check"):
+            # The owning track validates its published definitions before release.
+            _declared_callable(metadata["definitions_check"], "definitions check")(self.track, files)
         if self.track == "headless-browser":
             registry = json.loads(files["definitions/registry.json"])
             for name, binding in registry["source_files"].items():
@@ -513,8 +499,7 @@ class DatasetRelease:
         summary = []
         languages = set()
         used_annotations = {}
-        metadata = json.loads((CARDS / "metadata.json").read_bytes())[self.track]
-        derived = {field: _derived_field(reference)
+        derived = {field: _declared_callable(reference)
                    for field, reference in metadata.get("derived_fields", {}).items()}
         filters = metadata if self.viewer_filters is None else self.viewer_filters
         annotations = self.language_annotations

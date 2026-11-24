@@ -8,6 +8,8 @@ from markdown_it import MarkdownIt
 
 from harness.record_io import bytes_sha256, json_bytes
 from harness.web_search.adapters import adapter_for
+from harness.web_search.benchmarks import benchmark_of, grader_source
+from harness.web_search.benchmarks import ordered as search_benchmarks
 from harness.web_search.core import response_entries, verify_bundle
 from lexbench_webfetch.reference_quality import blocked_page_hits
 from lexbench_websearch.outputs import project_rows, qualify_field
@@ -271,27 +273,15 @@ def level_benchmarks(view):
     level = profile['protocol']['relevance_level']
     excluded = set(profile.get('factual_quality_exclusions', []))
     cases = {c['id']: c for c in profile['cases']}
-    factual_cases = [case for case in cases.values() if 'reference_answer' in case and case['id'] not in excluded]
-    audit_complete = bool(factual_cases) and all('reference_verification_coverage' in case for case in factual_cases)
-    scenario_scores = {(s['case_id'], s['method']): s for s in view.get('relevance_scores', [])}
+    relevance_scores = {(s['case_id'], s['method']): s for s in view.get('relevance_scores', [])}
     answer_scores = {(s['case_id'], s['method']): s for s in view.get('answer_scores', [])}
-    if level == 'l3':
-        definitions = dict(scenario=[('answer_grade', 'Answer usefulness / 3')],
-                           factual=[('correct', 'SimpleQA accuracy')])
-    else:
-        definitions = dict(scenario=[('ndcg', 'nDCG@5'), ('precision', 'Precision@5'),
-                                     ('success', 'Success@5')],
-                           factual=([('source_rr', 'MRR@5'), ('source_hit', 'Source Hit@5'),
-                                     ('answer_match', 'Answer Match@5')]
-                                    if level == 'l1' else [('answer_match', 'Extra-text Answer Match@5')]))
-        if level == 'l1' and audit_complete:
-            definitions['factual'] += [('publisher_rr', 'Publisher-only MRR@5'),
-                                       ('publisher_hit', 'Publisher-only Hit@5')]
     output = {}
-    for benchmark in ('scenario', 'factual'):
-        timing_ids = [cid for cid, case in cases.items()
-                      if ('reference_answer' in case) == (benchmark == 'factual')]
+    definitions = {}
+    for benchmark in search_benchmarks():
+        timing_ids = [cid for cid, case in cases.items() if benchmark_of(case) is benchmark]
         quality_ids = [cid for cid in timing_ids if cid not in excluded]
+        quality_cases = [cases[cid] for cid in quality_ids]
+        definitions[benchmark.name] = benchmark.metric_sets(level, quality_cases)
         if not timing_ids:
             continue
         scored = []
@@ -304,34 +294,17 @@ def level_benchmarks(view):
             if level == 'l3':
                 item = answer_scores[cid, mid]
                 values.update({k: item[k] for k in ('citation_count', 'supported_citations', 'citations_in_results')})
-                if benchmark == 'factual':
-                    values.update(correct=int(item['factual_grade'] == 'CORRECT'),
-                                  incorrect=int(item['factual_grade'] == 'INCORRECT'),
-                                  not_attempted=int(item['factual_grade'] == 'NOT_ATTEMPTED'))
-                else:
-                    values['answer_grade'] = item['answer_grade']
-            elif benchmark == 'scenario':
-                values.update({k: scenario_scores[cid, mid][k] for k in ('ndcg', 'precision', 'success')})
-            else:
-                metrics = row['metrics']
-                if level == 'l1':
-                    values.update(source_rr=metrics['labeled_source_rr_5'], source_hit=metrics['labeled_source_hit_5'],
-                                  answer_match=metrics['answer_in_preview_5'])
-                    if audit_complete:
-                        from lexbench_websearch.scoring import factual_evidence
-
-                        publisher = factual_evidence(dict(cases[cid], equivalent_reference_urls=[]), row['results'], cutoff=5)
-                        values.update(publisher_rr=publisher['labeled_source_rr_5'], publisher_hit=publisher['labeled_source_hit_5'])
-                else:
-                    values['answer_match'] = metrics['answer_in_extra_text_5']
+            values.update(benchmark.level_values(level, row, cases[cid],
+                                                 lambda key=(cid, mid): answer_scores[key],
+                                                 lambda key=(cid, mid): relevance_scores[key], quality_cases))
             scored.append(values)
         expected = {(cid, method['id']) for cid in quality_ids for method in profile['methods']}
         if {(s['case_id'], s['method']) for s in scored} != expected or len(scored) != len(expected):
             raise ValueError('An output level is missing scored benchmark cells')
-        output[benchmark] = dict(case_ids=quality_ids, timing_case_ids=timing_ids,
-                                 primary_metric=definitions[benchmark][0][0],
+        output[benchmark.name] = dict(case_ids=quality_ids, timing_case_ids=timing_ids,
+                                 primary_metric=definitions[benchmark.name][0][0],
                                  metrics=[dict(key=key, label=label, direction='neutral' if key == 'capture_failed' else 'max')
-                                          for key, label in definitions[benchmark]],
+                                          for key, label in definitions[benchmark.name]],
                                  scores=scored)
     return output
 
@@ -409,9 +382,11 @@ def export_level_bundle(path, destination):
     verify_bundle(root, bindings)
     for level, binding in source.get('relevance', {}).items():
         public['relevance'][level] = write('judgments/' + level + '.json', (root/binding['path']).read_bytes())
-    for key, name in [('answers', 'judgments/answers.json'), ('upstream', 'references/simpleqa_eval.py')]:
-        if source.get(key):
-            public[key] = write(name, (root/source[key]['path']).read_bytes())
+    if source.get('answers'):
+        public['answers'] = write('judgments/answers.json', (root/source['answers']['path']).read_bytes())
+    if source.get('upstream'):
+        public['upstream'] = write('references/' + grader_source()['filename'],
+                                   (root/source['upstream']['path']).read_bytes())
     if source.get('field_admissions'):
         admission_path = root/source['field_admissions']['path']
         receipts, artifacts = load_admissions(admission_path)

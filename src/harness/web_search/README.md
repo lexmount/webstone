@@ -98,7 +98,7 @@ missing or overlapping cells still fail. The composed
 profile is a read-only scoring view and cannot be passed to the collector.
 
 Generated answers use the same `judge` command with `--level l3` and
-`--simpleqa-grader /absolute/simpleqa_eval.py`. The independent answer scorer
+`--answer-grader /absolute/simpleqa_eval.py`. The independent answer scorer
 pins the upstream source commit and SHA-256 in `lexbench_websearch.answers`;
 it reads the official template without executing upstream Python. Scenario
 usefulness, factual correctness and citation support use separate requests.
@@ -549,7 +549,7 @@ configurations whose fixed live-page sample fails admission; it never gives them
 zero scores. L3 requires the hash-pinned official SimpleQA grader source.
 
 Generate new pools with `judge --level l1`, `judge --level l2 --field-admissions …`
-and `judge --level l3 --simpleqa-grader …`. Relevance transport retries default to
+and `judge --level l3 --answer-grader …`. Relevance transport retries default to
 zero; `--retries 1` or `--retries 2` explicitly changes the frozen call budget.
 Native collection retries also require explicit opt-in. Keep source-specific
 projection controls when composing independently collected matrices.

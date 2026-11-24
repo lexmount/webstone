@@ -168,6 +168,7 @@
     ]
   },
   "simpleqa-verified": {
+    "definitions_check": "harness.web_search.revisions:validate_release_definitions",
     "pretty_name": "LexBench-SimpleQA-Verified",
     "license": [
       "apache-2.0",

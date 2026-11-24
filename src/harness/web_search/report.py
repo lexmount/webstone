@@ -40,6 +40,8 @@ from harness.reporting.versions import (
     software_identity,
 )
 from harness.web_search.adapters import ADAPTERS
+from harness.web_search.benchmarks import benchmark_of
+from harness.web_search.benchmarks import ordered as search_benchmarks
 from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
     aggregate,
@@ -4076,12 +4078,10 @@ def quality_dataset(profile, content):
         population["case_ids"] = [cid for cid in population["case_ids"] if cid not in excluded]
     if content.get('output_level_assessments'):
         for case in active['cases']:
-            case['cohort'] = 'factual' if 'reference_answer' in case else 'scenario'
-        groups = [dict(id=identity, label=label,
-                       case_ids=[case['id'] for case in active['cases'] if case['cohort'] == identity])
-                  for identity, label in [
-                      ('scenario', dict(en='Scenario relevance', zh=zh_text('Scenario relevance'))),
-                      ('factual', dict(en='SimpleQA Verified', zh=zh_text('SimpleQA Verified')))]]
+            case['cohort'] = benchmark_of(case).name
+        groups = [dict(id=item.name, label=dict(en=item.label, zh=zh_text(item.label)),
+                       case_ids=[case['id'] for case in active['cases'] if case['cohort'] == item.name])
+                  for item in search_benchmarks()]
         active['report_cohorts'] = [group for group in groups if group['case_ids']]
         authored['independent_benchmarks'] = True
         authored['metric_populations'] = [dict(group, benchmark_root=True) for group in active['report_cohorts']]
