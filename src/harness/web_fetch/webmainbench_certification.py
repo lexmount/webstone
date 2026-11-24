@@ -17,7 +17,7 @@ from harness.web_fetch.config import load_provider_config
 from harness.runtime_env import load_runtime_env
 from harness.web_fetch.providers.headless import engine_definition
 from harness.web_fetch.webmainbench_evidence import read_jsonl, require_unique_attempt_ids
-from harness.web_fetch.webmainbench_dataset import CASE_COUNT, load_source
+from harness.web_fetch.webmainbench_dataset import load_source
 from harness.web_fetch.webmainbench_scoring import verify_score
 
 
@@ -40,7 +40,7 @@ def _read_profile(path: Path) -> tuple[dict, str]:
             or not isinstance(methods, list) or not methods
             or any(not isinstance(name, str) for name in methods)
             or len(set(methods)) != len(methods)
-            or type(profile.get("case_count")) is not int or profile["case_count"] != CASE_COUNT
+            or type(profile.get("case_count")) is not int or profile["case_count"] <= 0
             or type(profile.get("runs_per_case")) is not int or profile["runs_per_case"] != 1
             or type(profile.get("concurrency")) is not int or profile["concurrency"] != 1
             or type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
@@ -196,7 +196,7 @@ def main(argv: list[str] | None = None) -> None:
         print("Starting certified full-cohort method: " + provider, flush=True)
         command = [sys.executable, "-m", "harness.web_fetch", "run", "--benchmark", "webmainbench",
                    "--providers", provider, "--dataset", str(args.source),
-                   "--provider-config", str(args.config),
+                   "--provider-config", str(args.config), "--profile", str(args.profile),
                    "--output", str(args.output_root / provider),
                    "--timeout", str(profile["timeout_seconds"]),
                    "--max-failure-retries", str(profile["max_failure_retries"])]

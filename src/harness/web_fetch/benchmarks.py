@@ -183,12 +183,15 @@ class WebMainBench(FrozenPageBenchmark):
 
     def cases(self, profile: argparse.Namespace) -> FrozenCases:
         from harness.benchmarks.data import binding, dependencies
-        from harness.web_fetch.webmainbench_dataset import load_selected_ids, load_source
+        from harness.web_fetch.webmainbench_dataset import CASE_COUNT, load_selected_ids, load_source
 
         selected = selection = None
         if profile.case_ids_file:
             selected, selection = load_selected_ids(profile.case_ids_file, profile.expected_dataset_sha256)
-        records = load_source(profile.dataset, selected, profile.expected_dataset_sha256)
+        # A certifier passes its profile so the declared corpus size reaches the run.
+        declared = json.loads(profile.profile.read_text(encoding="utf-8")) if profile.profile else {}
+        records = load_source(profile.dataset, selected, profile.expected_dataset_sha256,
+                              expected_count=declared.get("case_count", CASE_COUNT))
         expected_versions = {}
         if profile.expected_version:
             expected_versions[profile.provider] = profile.expected_version

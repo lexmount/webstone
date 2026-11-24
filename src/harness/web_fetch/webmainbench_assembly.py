@@ -103,7 +103,8 @@ def _assemble_cohort(
             raise ValueError(
                 "Complete scoring certificate differs from the certified cohort"
             )
-        source_records = load_source(source, expected_sha256=profile["source_dataset_sha256"])
+        source_records = load_source(source, expected_sha256=profile["source_dataset_sha256"],
+                                     expected_count=profile["case_count"])
         expected_providers = certificate["providers"]
         scored_providers = scoring_certificate["providers"]
     ids = {safe_identifier(row["track_id"]) for row in source_records}
