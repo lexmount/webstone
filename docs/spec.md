@@ -5,7 +5,7 @@ This page is the standard that Webstone code, documentation and reviews follow.
 must hold when it changes. The two agree on ownership, and where existing code
 does not yet meet a rule here, [Migration](#migration) applies.
 
-[Model](#model) · [Stages](#stages-and-artifacts) · [Extension points](#extension-points) · [Report instances](#report-instances) · [Commands](#command-surface) · [Rules](#rules) · [Where a change goes](#where-a-change-goes) · [Enforcement](#enforcement) · [Migration](#migration)
+[Model](#model) · [Stages](#stages-and-artifacts) · [Extension points](#extension-points) · [Report instances](#report-instances) · [Report templates](#report-templates) · [Commands](#command-surface) · [Rules](#rules) · [Where a change goes](#where-a-change-goes) · [Enforcement](#enforcement) · [Migration](#migration)
 
 ## Model
 
@@ -104,7 +104,8 @@ interface for every adapter in the same change; do not branch around it.
 | Benchmark adapter | How to load and serve cases, the scorer, populations and denominators, metric set, expected counts, review prompts | A dataset or task family is added |
 | Environment adapter | How to deploy, reset, log in to and label a site or runtime | A stateful target (for example a WebArena site) is added |
 | Track registration | The track's stage implementations, schemas and example, keyed by the fixed stage names | A track is added |
-| Report section hook | A section or detail view that a benchmark or track contributes to the report model | A report needs a view the shared sections do not have |
+| Track template | Which base-template pages and slots the track fills, with its metric set and result-detail layout | A track is added |
+| Report section hook | A section or detail view that a benchmark or track contributes to a template slot | A report needs a view the shared sections do not have |
 | Release rule | An additional check a track contributes to the shared release gate | A track has a presentation or evidence rule of its own |
 | Publication target | Host, site, expected version, visibility and share setting | A report instance is published |
 | Result exporter | How a track's scored results map to a result submission | A track's results go to webstone-site |
@@ -167,6 +168,65 @@ hand with computed hashes.
 Customisation remains possible and expected. It goes into the profile, the bound
 content or an adapter, never into the stage.
 
+## Report templates
+
+Reports come from templates, in three layers. The layers work like a base class
+and its subclasses: each one fills slots the layer above declares and adds no
+page structure of its own.
+
+**Figure 4. Template layers and what each may decide.**
+
+```mermaid
+flowchart TB
+    BT["Base template (shared)<br/>page roles, navigation, section order,<br/>components, languages, themes"]
+    TT["Track template (one per track)<br/>metric set, comparison columns,<br/>result-detail layout, dataset view"]
+    BV["Benchmark views (optional hooks)<br/>extra sections for one task family"]
+    IC["Instance content (data)<br/>interpretation, figures, notes"]
+    BT -- "declares slots for" --> TT
+    TT -- "declares slots for" --> BV
+    BT -- "declares content slots for" --> IC
+    TT --> OUT["Report"]
+    BV --> OUT
+    IC --> OUT
+```
+
+The base template fixes the page roles every report has and the order of
+sections on each. A track fills a role or declares it absent; it does not add a
+role of its own.
+
+| Page role | Answers | Generated from |
+| --- | --- | --- |
+| Home | Who leads, on what population, under which rules | Scored results: the core comparison comes first |
+| Datasets | What was asked, and how a task passes | Frozen dataset; no measured scores |
+| Methodology | How calls were made and scored | Profile, method identities, metric guide |
+| Results | Every logical result, filterable, with a detail view and evidence | Scored results and evidence bindings |
+| Interpretation | What the results mean | Generated summary by default; authored content when bound |
+| Review | What was independently checked | Review records |
+| Reproduce | How to run this again | Profile and the documented commands |
+| Changes | What changed between releases | Bound release history |
+
+Defaults:
+
+- **A report builds from scored results and a profile alone.** With no authored
+  content, every page role renders from data: rankings, counts, failure
+  distributions, metric definitions and reproduction commands. A build never
+  requires hand-written prose, and a missing authored slot renders as its
+  generated default.
+- **The default report of a track and benchmark is always the same shape.** Two
+  runs of the same track differ in data, never in page set, section order or
+  components.
+- **A variant is data.** Certified, diagnostic, audit and similar variants are
+  registered selections of slots and labels over the same template, each with a
+  runnable example. A variant is not a separate generator.
+- **The report records its template.** The report manifest names the base
+  template, track template, variant and their versions.
+
+Free-form work stays possible when it is asked for. Authored interpretation,
+figures and extra sections go into the content slots of the instance. A view
+that the slots cannot hold becomes a section hook that every later report can
+use. A request for one report does not create a new template, a copied renderer
+or a one-off generator.
+
 ## Command surface
 
 Every track exposes the same stage verbs through one root command, and every
@@ -213,8 +273,11 @@ author's working session.
    live in its bound content and are rendered from there in each language.
 9. **Reproduction is a command sequence.** The documented commands, a clean
    checkout and credentials are sufficient.
-10. **History stays verifiable.** Frozen evidence, published reports and
-    hash-bound sources named by a current authority keep their bytes. Rules 1–8
+10. **Default reports are templated.** With no further instruction, a track's
+    report is its registered template rendered from data. Authored content fills
+    declared slots and never changes page structure.
+11. **History stays verifiable.** Frozen evidence, published reports and
+    hash-bound sources named by a current authority keep their bytes. Rules 1–10
     govern current code paths, and historical bytes are data read through them.
 
 ## Where a change goes
@@ -243,6 +306,7 @@ flowchart TD
 | Add a report instance | Profile and bound content outside Git | Any file under `src/` |
 | Add a track | A track package implementing the stage registration, an example, tests | Other tracks, shared packages except their registries |
 | Add a report view | A section hook and its release rule | A branch on benchmark or method in the renderer |
+| Add a report variant | A registered slot selection with an example and tests | A new generator or a copied renderer |
 
 A diff that falls in the right-hand column is either an interface extension,
 which the description must state and justify for all adapters, or a violation.
