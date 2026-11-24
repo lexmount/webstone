@@ -51,3 +51,33 @@ def test_one_single_schema_benchmark_owns_unlabelled_homes():
     assert fixed_field_benchmark().fields
     with pytest.raises(ValueError, match="No benchmark declares"):
         review_prompt("unknown-review/1")
+
+
+@pytest.mark.parametrize("name", BENCHMARKS.names())
+def test_benchmarks_supply_the_shared_adapter_hooks(name, tmp_path):
+    from harness.adapters import BenchmarkAdapter
+    from harness.web_extract.benchmark_adapter import adapter
+
+    hooks = adapter(tmp_path, name)
+    assert isinstance(hooks, BenchmarkAdapter) and hooks.name == name
+    assert hooks.views() == []
+
+
+def test_adapter_hooks_read_cases_serve_inputs_and_score_through_the_pipeline(tmp_path):
+    from harness.web_extract.benchmark_adapter import adapter
+    from harness.web_extract.example import create
+    from harness.web_extract.pipeline import score_rows
+
+    home = create(tmp_path / "report", mode="field-extraction-cohort")
+    hooks = adapter(home)
+    assert hooks.name == "swde"
+    cases = hooks.cases()
+    assert [case["id"] for case in cases] == ["one", "three", "two"]
+    with hooks.inputs(cases) as inputs:
+        assert inputs["mode"] == "snapshot" and (inputs["root"] / "one.html").is_file()
+    assert hooks.populations() == [{"id": "swde", "cases": 3, "fields": ["author", "title"]}]
+    truth = hooks.truth()
+    predictions = {case: {"title": ["Example"], "author": ["A"]} for case in truth}
+    rows = [{"method": "m", "case_id": case, "http_status": 200, "normalized_fields": fields}
+            for case, fields in predictions.items()]
+    assert hooks.score(truth, predictions) == score_rows(home, truth, rows, ["m"])["m"]

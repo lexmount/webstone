@@ -362,7 +362,7 @@ def _check_core_comparison(
             participant = row["participant_id"]
             match = re.search(
                 rf'<tr><td>{re.escape(html.escape(row["label"]))}</td>'
-                r'<td data-metric="core-pass" data-metric-direction="higher" '
+                r'<td data-metric="core-pass" data-metric-direction="max" '
                 r'data-sort="([0-9]+)">(.*?)</td>',
                 home,
                 re.S,
@@ -385,7 +385,7 @@ def _check_core_comparison(
                 continue
             valid_match = re.search(
                 rf'<tr><td>{re.escape(html.escape(row["label"]))}</td>(?:(?!</tr>).)*?'
-                r'<td data-metric="verifiable-pass" data-metric-direction="higher" '
+                r'<td data-metric="verifiable-pass" data-metric-direction="max" '
                 r'data-sort="([0-9]+)">(.*?)</td>',
                 home,
                 re.S,

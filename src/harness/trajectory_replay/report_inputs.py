@@ -5,7 +5,30 @@ from importlib.resources import files
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
+from harness.record_schema import NUMBER, TEXT, RecordSchema, validate_records
 from harness.safety import unlinked_path
+
+# One replay of a task by one method, as the effective results and their physical executions
+# list it. ``status`` holds the replay and evaluator outcome, so the record carries no boolean
+# verdict; ``evidence`` binds the trace and other artifacts. An untimed replay keeps a null
+# duration. Files written before schemas were named read as version 1.
+ATTEMPT_RECORD = RecordSchema(
+    "trajectoryreplay.attempt", 1,
+    {"method": "engine", "case": "task_id", "elapsed": "duration_ms", "evidence": "evidence",
+     "verdict": None},
+    {"status": TEXT},
+    optional={"participant_id": TEXT, "action_count": (int,),
+              "completed_action_count": (int,), "official_rule_score": (*NUMBER, type(None))},
+    nullable=frozenset({"elapsed"}),
+)
+
+
+def validated_results(results: dict, source: str = "results.json") -> dict:
+    """Replay results whose attempts and physical executions match the attempt schema."""
+    for key in ("attempts", "physical_executions"):
+        if key in results:
+            validate_records(results[key], ATTEMPT_RECORD, source=f"{source} {key}")
+    return results
 
 
 def verified_dataset_path(path: Path, digest: str) -> Path:

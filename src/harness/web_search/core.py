@@ -14,8 +14,22 @@ from lexbench_websearch.contracts import validate_cases
 from lexbench_websearch.scoring import canonical_url, normalize_results, task_acceptance
 
 from harness.record_io import bytes_sha256, json_bytes
+from harness.record_schema import NUMBER, TEXT, RecordSchema
 from harness.reporting.publication import atomic_write
 from harness.web_search.adapters import BILLING_POLICIES, Adapter, adapter_for, normalize_envelope
+
+
+# One logical call per case, method and round in ``results.jsonl``; the runner scores it as it
+# is recorded. Delivery is judged from the results by the task predicate, so the record
+# carries no verdict field. Files written before schemas were named read as version 1.
+CALL_RECORD = RecordSchema(
+    "websearch.call_record", 1,
+    {"method": "method", "case": "case_id", "elapsed": "elapsed_ms", "evidence": "evidence",
+     "verdict": None},
+    {"id": TEXT, "round": (int,), "results": (list,), "metrics": (dict,)},
+    optional={"http_status": (int, type(None)), "error": (str, type(None)),
+              "cost": (*NUMBER, type(None)), "attempts": (list,)},
+)
 
 
 def request_cost(method, status, transport_exit, payload):

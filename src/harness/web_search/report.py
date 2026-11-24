@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 from bs4 import BeautifulSoup
 
 from harness.record_io import bytes_sha256, same_json_record
+from harness.record_schema import validate_records
 from harness.report_languages import (
     REPORT_PAGE_MARKER,
     check_language_contract,
@@ -56,6 +57,7 @@ from harness.web_search.benchmarks import benchmark_of, metric_kind, view_hooks
 from harness.web_search.benchmarks import ordered as search_benchmarks
 from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
+    CALL_RECORD,
     aggregate,
     execution_resources,
     method_contract,
@@ -218,7 +220,8 @@ def load_run(source):
     raw = (source / "results.jsonl").read_bytes()
     if bytes_sha256(raw) != receipt["results_sha256"]:
         raise ValueError("Results hash mismatch")
-    rows = [json.loads(line) for line in raw.splitlines()]
+    rows = validate_records([json.loads(line) for line in raw.splitlines()], CALL_RECORD,
+                            source="results.jsonl")
     expected = {
         (c["id"], m["id"], r)
         for c in profile["cases"]

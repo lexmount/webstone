@@ -40,6 +40,7 @@ def _write_fixture(
         "task_id": 44,
         "attempt": 1,
         "score": row_score,
+        "duration_ms": 1000,
         "status": "success",
         "agent_response": response,
         "model_usage": {"request_count": 2, "request_attempt_count": 2},

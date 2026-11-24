@@ -1,9 +1,10 @@
 """Web Search benchmark adapters: populations, metric sets, answer graders and reference datasets.
 
-Comparison, report, output-level, answer and revision code read these
+Comparison, report, output-level, answer, revision and export code read these
 declarations instead of naming a dataset. A further benchmark is added by
-registering one more ``SearchBenchmark``; its ``member`` predicate must not
-overlap another benchmark's.
+registering one more ``SearchBenchmark``. A case that names a registered
+benchmark in its ``benchmark`` field belongs to that benchmark; other cases are
+assigned by the ``member`` predicates, which must not overlap.
 """
 
 from collections.abc import Callable
@@ -80,14 +81,25 @@ class SearchBenchmark:
     references: ReferenceDataset | None = None
     section_hooks: tuple[SectionHook, ...] = ()  # report views at the Search hook points
     metric_kinds: tuple[MetricKind, ...] = ()  # population summaries that authored content may select
+    # Result submission: (webstone-site benchmark, definition, quality metrics read from the
+    # scored call: submission metric -> (row metric, scale), or None when a separate review
+    # supplies it). None when the benchmark's results are not exported.
+    submission: tuple[str, str, dict] | None = None
 
     def __post_init__(self):
         unknown = {hook.key for hook in self.section_hooks} - HOOK_POINTS.keys()
         if unknown:
             raise ValueError(f"{self.name} declares an undeclared Search hook point: " + ", ".join(sorted(unknown)))
 
+    def includes(self, case):
+        """A case naming a registered benchmark belongs to it; others match ``member``."""
+        declared = case.get('benchmark')
+        if isinstance(declared, str) and declared in BENCHMARKS:
+            return declared == self.name
+        return self.member(case)
+
     def cases(self, profile):
-        return [case for case in profile['cases'] if self.member(case)]
+        return [case for case in profile['cases'] if self.includes(case)]
 
     def inputs(self, cases):
         """Search calls query the live web; there is no served input environment."""
@@ -147,7 +159,7 @@ def metric_kind(name):
 
 
 def benchmark_of(case):
-    matches = [item for item in ordered() if item.member(case)]
+    matches = [item for item in ordered() if item.includes(case)]
     if len(matches) != 1:
         raise ValueError('Each search task belongs to exactly one benchmark: ' + str(case.get('id')))
     return matches[0]
@@ -218,6 +230,9 @@ BENCHMARKS.register('scenario', SearchBenchmark(
     name='scenario', label='Scenario relevance', order=0,
     member=lambda case: 'reference_answer' not in case,
     metric_sets=_scenario_metrics, level_values=_scenario_values, metric_kinds=(TARGET_KIND, SITE_KIND),
+    # Scenario relevance needs the separate relevance review, so a scored run exports no quality metric.
+    submission=('lexbench-websearch', 'title-snippet-v2',
+                {'ndcg5': None, 'precision5': None, 'success5': None}),
     answers=AnswerGrading(
         prompt=lambda source: SCENARIO_PROMPT,
         messages=lambda case, packet, source: answer_messages(packet),
@@ -246,6 +261,9 @@ BENCHMARKS.register('factual', SearchBenchmark(
     name='factual', label='SimpleQA Verified', order=1,
     member=lambda case: 'reference_answer' in case,
     metric_sets=_factual_metrics, level_values=_factual_values, metric_kinds=(FACTUAL_KIND,),
+    submission=('simpleqa-verified', 'source-match-v2',
+                {'mrr5': ('labeled_source_rr_5', 1), 'hit5': ('labeled_source_hit_5', 100),
+                 'answerMatch5': ('answer_in_preview_5', 100)}),
     answers=AnswerGrading(
         prompt=official_template,
         messages=lambda case, packet, source: factual_messages(case, packet['answer'], source),

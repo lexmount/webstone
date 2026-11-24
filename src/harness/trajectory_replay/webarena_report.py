@@ -56,7 +56,11 @@ from harness.trajectory_replay.failure_matrix import (
 from harness.trajectory_replay.interpretation import render_interpretation, standalone_document
 from harness.trajectory_replay.messages import MESSAGES, report_text
 from harness.trajectory_replay.remote_runtime import load_remote_sites, remote_benchmark
-from harness.trajectory_replay.report_inputs import bound_dataset_path, verified_dataset_path
+from harness.trajectory_replay.report_inputs import (
+    bound_dataset_path,
+    validated_results,
+    verified_dataset_path,
+)
 from harness.trajectory_replay.runtime_identity import request_bridge_identity
 from harness.trajectory_replay.template import TEMPLATE
 from harness.trajectory_replay.webarena_corrections import load_corrections
@@ -675,10 +679,10 @@ def _metrics_table(
         body.append(
             "<tr>"
             + f'<td>{_e(cells[0])}</td>'
-            + f'<td data-metric="core-pass" data-metric-direction="higher" data-sort="{row["passed"]}">{cells[1]}</td>'
+            + f'<td data-metric="core-pass" data-metric-direction="max" data-sort="{row["passed"]}">{cells[1]}</td>'
             + f'<td>{cells[2]}</td>'
             + (
-                f'<td data-metric="verifiable-pass" data-metric-direction="higher" data-sort="{row["valid_reference_passed"]}">{cells[3]}</td>'
+                f'<td data-metric="verifiable-pass" data-metric-direction="max" data-sort="{row["valid_reference_passed"]}">{cells[3]}</td>'
                 if show_valid_reference
                 else ""
             )
@@ -1093,7 +1097,7 @@ def build_webarena_replay_report(
     if diagnostic_closure_path is not None:
         raise ValueError("diagnostic-only cohorts cannot enter the replay report")
     validated = load_validated_failure_review(results_path, review_path, methods=profile["methods"])
-    results = validated["results"]
+    results = validated_results(validated["results"], Path(results_path).name)
     reviews = validated["by_result"]
     results_source = Path(results_path)
     dataset_source = Path(dataset_path)

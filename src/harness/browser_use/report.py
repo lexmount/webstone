@@ -32,6 +32,7 @@ from harness.browser_use.failure_cause_review import (
 from harness.browser_use.publication import (
     evaluator_summary,
     evidence_metadata,
+    read_attempts,
     read_public_json,
     result_excerpt,
     sanitize,
@@ -58,7 +59,7 @@ from harness.distribution import repository_root
 from harness.environments.browser import engine_label
 from harness.environments.participants import profile_engines
 from harness.environments.webarena.sites import site_labels
-from harness.record_io import load_jsonl, optional_file_sha256, read_json, write_json
+from harness.record_io import optional_file_sha256, read_json, write_json
 from harness.report_languages import (
     REPORT_PAGE_MARKER,
     add_language_argument,
@@ -212,11 +213,7 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 def _read_attempts(evidence: Path) -> list[dict[str, Any]]:
     path = evidence / "attempts.jsonl"
-    return (
-        load_jsonl(path, skip_blank=True)
-        if path.is_file()
-        else []
-    )
+    return read_attempts(path) if path.is_file() else []
 
 
 def _evidence_paths(evidence: Path | Iterable[Path]) -> list[Path]:

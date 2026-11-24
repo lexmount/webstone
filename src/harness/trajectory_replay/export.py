@@ -8,6 +8,7 @@ from typing import Any
 from harness.record_io import read_json
 from harness.record_schema import validate_records
 from harness.results.export import percent, provider, rounded, scored_result_schema, submission
+from harness.trajectory_replay.report_inputs import validated_results
 from harness.trajectory_replay.webarena_report import _load_artifact, _stat
 
 BENCHMARK, DEFINITION = "webarena-verified", "standard"
@@ -30,7 +31,7 @@ def _scored(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[str, Any]:
-    results = read_json(Path(run_dir) / "results.json")
+    results = validated_results(read_json(Path(run_dir) / "results.json"))
     records = validate_records([_scored(row) for row in results["attempts"]], SCORED_RESULT,
                                source="results.json")
     if not records:

@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from harness.browser_use.publication import read_public_json, trajectory
+from harness.browser_use.publication import read_attempts, read_public_json, trajectory
 from harness.browser_use.report import _logical_results
-from harness.record_io import load_jsonl, read_json
+from harness.record_io import read_json
 from harness.record_schema import validate_records
 from harness.results.export import (
     distribution,
@@ -40,7 +40,7 @@ def _scored(row: dict[str, Any]) -> dict[str, Any]:
 def export(run_dir: Path | str, receipt: dict[str, Any] | None = None) -> dict[str, Any]:
     run = Path(run_dir)
     protocol = read_json(run / "manifest.json").get("protocol") or {}
-    rows = load_jsonl(run / "attempts.jsonl", skip_blank=True)
+    rows = read_attempts(run / "attempts.jsonl")
     if not rows:
         raise ValueError("The run has no scored attempts")
     for row in rows:

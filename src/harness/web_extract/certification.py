@@ -7,6 +7,7 @@ from pathlib import Path
 
 from harness.benchmark_execution import ExecutionPolicy, assess_execution
 from harness.reporting.templates import metric_contract
+from harness.web_extract.call_records import load_run
 from harness.web_extract.dataset import (
     IMPLICIT_RECORD_INSTRUCTIONS,
     benchmark_config,
@@ -20,7 +21,6 @@ from harness.web_extract.pipeline import (
     data_home,
     digest,
     instruction_schema,
-    load_run,
     probe,
     read_json,
     record_instructions,

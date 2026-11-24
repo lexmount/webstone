@@ -14,8 +14,27 @@ from harness.environments.webarena.topology import (
     public_host_replacements,
     public_origin_replacements,
 )
-from harness.record_io import optional_file_sha256, read_json
+from harness.record_io import load_jsonl, optional_file_sha256, read_json
+from harness.record_schema import NUMBER, TEXT, RecordSchema, validate_records
 from harness.reporting.privacy import BROWSER_USE, PRIVATE_IPV4
+
+# One physical Agent execution per line of ``attempts.jsonl``. ``score`` is the official
+# evaluator's score; the logical verdict is selected from the executions of a task, so the
+# record carries no verdict field. ``paths`` binds every private artifact of the execution.
+ATTEMPT_RECORD = RecordSchema(
+    "lex_browser_use_attempt", 1,
+    {"method": "engine", "case": "task_id", "elapsed": "duration_ms", "evidence": "paths",
+     "verdict": None},
+    {"attempt": (int,), "score": NUMBER},
+    optional={"model": TEXT, "status": TEXT},
+)
+
+
+def read_attempts(path: Path) -> list[dict[str, Any]]:
+    """The physical executions of one evidence directory, validated against their schema."""
+    return validate_records(load_jsonl(path, skip_blank=True), ATTEMPT_RECORD,
+                            source=path.name)
+
 
 _SENSITIVE_KEY = re.compile(
     r"(?:authorization|cookie|password|passwd|secret|token|storage_state|api[_-]?key)", re.I

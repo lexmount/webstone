@@ -1537,6 +1537,8 @@ def _write_model_evidence(path: Path, model: str, rows: list[dict]) -> None:
     (path / "manifest.json").write_text(
         json.dumps({"protocol": {"model": model}}), encoding="utf-8"
     )
+    # Fields a recorded execution always carries; tests vary only what they examine.
+    rows = [{"duration_ms": 1000, "paths": {}, **row} for row in rows]
     (path / "attempts.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
