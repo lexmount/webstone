@@ -27,7 +27,6 @@ from harness.web_fetch.adjudication_evidence import (
 )
 from harness.web_fetch.artifacts import (
     copy_cohort_evidence,
-    diagnostic_log_binding,
     materialize_reference_checks,
     materialize_task_references,
     record_public_call_log_bindings,
@@ -65,6 +64,7 @@ from harness.web_fetch.report import (
     succeeded,
 )
 from harness.web_fetch.report_changes import webmainbench_history
+from harness.web_fetch.report_variants import comparison_kind, dataset_kind
 from harness.web_fetch.webmainbench_report import webmainbench_full_machine_issue
 from harness.web_fetch.report_diagnostic import (
     check_diagnostic_report,
@@ -74,7 +74,6 @@ from harness.web_fetch.report_diagnostic import (
 from harness.web_fetch.report_version import check_release
 from harness.web_fetch.resource_cohort import validate_cohort
 from harness.web_fetch.result_review import require_result_review
-from harness.web_fetch.risk_control import validate_risk_control_certification
 from harness.safety import (
     copy_evidence_file,
     evidence_tree_identity,
@@ -200,23 +199,11 @@ def build_diagnostic_cohorts(source: Path | None, output: Path, profile: Path | 
     return output / "index.html"
 
 
-def require_risk_control_certification(source: Path, dataset: dict, records: list[dict]) -> None:
-    """Validate the complete profile-bound risk-control cohort before reporting."""
-
-    comparison = dataset.get("comparison", {})
-    if comparison.get("kind") != "risk_control_100_moli":
-        return
-    path = contained_path(source, "certification.json")
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("Risk-control report requires a certification receipt")
-    profile_path = repository_root() / "evaluation/risk-control/run-profile.json"
-    receipt = json.loads(path.read_text(encoding="utf-8"))
-    validate_risk_control_certification(source, dataset, records, receipt, profile_path)
-    for record in records:
-        metadata = record.get("provider_metadata", {})
-        if (diagnostic_log_binding(metadata) is None
-                or metadata.get("diagnostic_log_truncated") is not False):
-            raise ValueError("Risk-control certification requires complete diagnostic logs")
+def require_declared_certification(source: Path, dataset: dict, records: list[dict]) -> None:
+    """Validate the certification receipt the dataset's comparison kind declares, if any."""
+    owner = dataset_kind(dataset).certification_owner()
+    if owner is not None:
+        owner.require_report_certification(source, dataset, records)
 
 
 def scoring_scope(records, cases):
@@ -527,7 +514,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             show_local_status_banners=show_local_status_banners, profile_path=profile_path)
     dataset_probe = json.loads(contained_path(source, 'dataset.json').read_text(encoding='utf-8'))
     diagnostic_preview = (diagnostic_preview and
-        dataset_probe.get('comparison', {}).get('kind') == 'web_fetch_diagnostic')
+        dataset_kind(dataset_probe).diagnostic)
     if not local_audit and not diagnostic_preview:
         require_certifiable_evidence(dataset_probe)
     from harness.web_fetch.report_variants import variant_for_kind
@@ -554,7 +541,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
     records = validate_records(load_jsonl(contained_path(source,'results.jsonl')), SCORED_RESULT,
                                source='results.jsonl')
     validate_report_ids(dataset,records)
-    require_risk_control_certification(source, dataset, records)
+    require_declared_certification(source, dataset, records)
     cases = {c['id']:c for c in dataset['cases']}
     if local_audit:
         result_review = require_local_audit(source, dataset, records)
@@ -751,11 +738,9 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             (staging/name).write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
         if (source / 'certification.json').is_file():
             shutil.copy2(source / 'certification.json', staging / 'certification.json')
-            if dataset.get('comparison', {}).get('kind') == 'risk_control_100_moli':
-                from harness.web_fetch.risk_control import risk_control_verification_binding
-                receipt = json.loads((source / 'certification.json').read_text(encoding='utf-8'))
-                verification_name, _ = risk_control_verification_binding(receipt)
-                for name in ('dataset.json', 'manifest.json', 'execution.json', verification_name):
+            owner = dataset_kind(dataset).certification_owner()
+            if owner is not None:
+                for name in owner.certification_files(source):
                     shutil.copy2(contained_path(source, name), staging / name)
         reliability=assess_reliability(dataset,records)
         (staging/'reliability.json').write_text(json.dumps(reliability,ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
@@ -859,7 +844,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         if (source/'file-rerun-selection.json').is_file():
             shutil.copy2(source/'file-rerun-selection.json', staging/'file-rerun-selection.json')
             shutil.copytree(source/'history/file-baseline', staging/'history/file-baseline')
-        if dataset.get("comparison", {}).get("kind") == "uniform_native_local_measurement":
+        if dataset_kind(dataset).local_measurement:
             shutil.copy2(source / "local-run-contract.json", staging / "local-run-contract.json")
             if (source/"providers.json").is_file():
                 from harness.reporting.publication_privacy import require_public_method_options
@@ -923,7 +908,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
             template_manifest['retry_acceptance_scopes'] = scope_state['retry_scopes']
         if release_binding:
             template_manifest['benchmark_release'] = release_binding
-        if dataset.get('comparison', {}).get('kind') == 'uniform_native_local_measurement':
+        if dataset_kind(dataset).local_measurement:
             template_manifest.update(evidence_state='local_measurement', certified=False,
                 languages=template_manifest['generated_languages'], provider_calls_added=0)
         from harness.reporting.versions import bind_build_version
@@ -1613,7 +1598,7 @@ def validate_local_presentation(output: Path, binding_path: Path):
     binding = json.loads(binding_path.read_text(encoding='utf-8'))
     manifest_path = contained_path(output, 'report-manifest.json')
     manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
-    if (binding.get('comparison_kind') != 'uniform_native_local_measurement'
+    if (not comparison_kind(binding.get('comparison_kind')).local_measurement
             or manifest.get('evidence_state') != 'local_measurement'
             or manifest.get('certified') is not False
             or manifest.get('languages') != list(generated_languages(output))

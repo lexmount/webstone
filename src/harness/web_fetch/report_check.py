@@ -44,7 +44,7 @@ from harness.web_fetch.report_version import check_release
 from harness.web_fetch.result_ledger import validate_ledger
 from harness.web_fetch.storage import require_canonical_inputs, require_current_report_profile
 from harness.web_fetch.wcxb_report_check import check as check_wcxb
-from harness.web_fetch.report_variants import VARIANTS, variant_for_kind
+from harness.web_fetch.report_variants import VARIANTS, comparison_kind, dataset_kind, variant_for_kind
 
 
 def require_public_evidence_page(content, relative, views):
@@ -493,7 +493,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
     public_payload_views = False
     current_snapshot_authority = False
     names = {r["provider"] for r in rs}
-    local_measurement = d.get("comparison", {}).get("kind") == "uniform_native_local_measurement"
+    local_measurement = dataset_kind(d).local_measurement
     if presentation_binding and not local_measurement:
         raise ValueError("Presentation binding requires a frozen uniform-native diagnostic snapshot")
     sample_ranking = local_measurement and local_pass_rate_ranking(d)
@@ -540,12 +540,12 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
     else:
         inventory = read_json(repository / "configs/evaluation-inventory.json")
         canonical_dataset = repository / "evaluation/dataset.json"
-    if d.get("comparison", {}).get("kind") in {"headless_html", "headless_markdown"}:
+    if dataset_kind(d).headless_cohort:
         headless = read_json(repository / "configs/providers.headless.json")
         if profile_path is None:
             raise ValueError("Headless report checks require --profile")
         profile = read_json(profile_path)
-        if profile.get("comparison_kind") not in {"headless_html", "headless_markdown"}:
+        if not comparison_kind(profile.get("comparison_kind")).headless_cohort:
             raise ValueError(
                 "Legacy headless report cannot be checked against a different "
                 "current report profile"
@@ -958,7 +958,7 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
             if expected_failure not in [h.get_text() for h in soup.select("#filtered-table th")]:
                 raise ValueError(path)
     records = load_jsonl(out / 'results.jsonl')
-    synthetic = dataset.get('comparison', {}).get('kind') == 'synthetic_browser_report'
+    synthetic = dataset_kind(dataset).synthetic
     if records and all(row.get('provider_type') == 'fixture' for row in records) and (
         synthetic or all(not native_browser_engine(row['provider']) for row in records)
     ):

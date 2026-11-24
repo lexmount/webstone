@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.web_fetch.report_build import require_risk_control_certification
+from harness.web_fetch.report_build import require_declared_certification as require_risk_control_certification
 from harness.web_fetch.risk_control import main as run_risk_control
 from harness.web_fetch.risk_control import (
     measured_risk_control_dataset,

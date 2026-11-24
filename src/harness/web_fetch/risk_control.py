@@ -513,3 +513,25 @@ def main(argv: list[str] | None = None, *, certified: bool = False) -> None:
 
         result["report"] = str(build_report(output, output / "report"))
     print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def require_report_certification(source: Path, dataset: dict, records: list[dict]) -> None:
+    """Validate the complete profile-bound risk-control cohort before reporting."""
+    path = contained_path(source, "certification.json")
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("Risk-control report requires a certification receipt")
+    profile_path = repository_root() / "evaluation/risk-control/run-profile.json"
+    receipt = json.loads(path.read_text(encoding="utf-8"))
+    validate_risk_control_certification(source, dataset, records, receipt, profile_path)
+    for record in records:
+        metadata = record.get("provider_metadata", {})
+        if (diagnostic_log_binding(metadata) is None
+                or metadata.get("diagnostic_log_truncated") is not False):
+            raise ValueError("Risk-control certification requires complete diagnostic logs")
+
+
+def certification_files(source: Path) -> tuple[str, ...]:
+    """Evidence files a certified risk-control report keeps beside its receipt."""
+    receipt = json.loads((source / "certification.json").read_text(encoding="utf-8"))
+    verification_name, _ = risk_control_verification_binding(receipt)
+    return ("dataset.json", "manifest.json", "execution.json", verification_name)
