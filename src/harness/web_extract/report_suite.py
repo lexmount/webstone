@@ -214,7 +214,7 @@ def build(output, content, *, profile, language=None):
         output / "report-manifest.json",
         {
             "mode": MODE,
-            "template": owner.template_identity("web-extract"),
+            "template": owner.template_record(MODE),
             "template_version": owner.VERSION,
             "webstone": owner.bind_build_version(output),
             "renderer_sha256": digest(Path(owner.__file__).read_bytes()),
@@ -246,6 +246,7 @@ def _check_rendered_suite(output, *, release=False, visual_receipt=None):
     manifest = read_json(output / "report-manifest.json")
     owner.check_report_identity(output, manifest, "web-extract")
     owner.check_input_profile(output, manifest)
+    owner.check_template_pages(output, manifest)
     if manifest.get("mode") != MODE:
         raise ValueError("Suite report mode changed; rebuild required")
     actual = {p.relative_to(output).as_posix() for p in output.rglob("*") if p.is_file()}

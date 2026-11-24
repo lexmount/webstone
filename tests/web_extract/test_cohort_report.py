@@ -1716,7 +1716,12 @@ def test_bound_intro_and_core_comparison_order_are_checked_together(
     import shutil
     from copy import deepcopy
 
-    from harness.web_extract.report import home_comparison_end, package, page_intro_hash
+    from harness.web_extract.report import (
+        INTRO_SELECTOR,
+        intro_is_correctly_placed,
+        package,
+        page_intro_hash,
+    )
 
     home, profile_path, built = _intro_report(tmp_path_factory, mode)
     output = tmp_path / "report"
@@ -1727,20 +1732,20 @@ def test_bound_intro_and_core_comparison_order_are_checked_together(
         for route in ("index", "protocol"):
             path = output / language / (route + ".html")
             document = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-            intro = document.select_one("main > [data-page-intro]")
+            intro = document.select_one(INTRO_SELECTOR)
             assert intro is not None
             assert (
                 page_intro_hash(str(document))
                 == manifest["page_intros"][f"{language}/{route}.html"]
             )
+            assert intro_is_correctly_placed(document, intro, route + ".html", manifest["mode"])
             if route == "index":
-                assert intro.find_previous_sibling() is home_comparison_end(document)
                 first = document.main.find(True, recursive=False)
                 assert first.has_attr("data-core-metrics") or first.select_one(
                     "[data-core-metrics]"
                 )
             else:
-                assert document.main.find(True, recursive=False) is intro
+                assert document.main.find(True, recursive=False) is intro.parent
     if damage is None:
         return
     if damage == "omitted-edition":
@@ -1763,7 +1768,7 @@ def test_bound_intro_and_core_comparison_order_are_checked_together(
     relative = "zh/dataset.html" if damage.endswith("addition") else "zh/index.html"
     path = output / relative
     document = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-    intro = document.select_one("main > [data-page-intro]")
+    intro = document.select_one(INTRO_SELECTOR)
     if damage == "before-core":
         document.main.insert(0, intro.extract())
     elif damage == "missing":
@@ -1784,7 +1789,9 @@ def test_bound_intro_and_core_comparison_order_are_checked_together(
     elif damage.endswith("addition"):
         extra = document.new_tag("section", attrs={"data-page-intro": ""})
         extra.string = "Unrequested introduction."
-        document.main.insert(0, extra)
+        slot = document.new_tag("div", attrs={"data-slot": "lead"})
+        slot.append(extra)
+        document.main.insert(0, slot)
         if damage == "coordinated-addition":
             manifest["page_intros"][relative] = page_intro_hash(str(document))
     else:

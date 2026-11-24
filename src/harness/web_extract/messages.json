@@ -531,7 +531,8 @@
     "suite_dataset": "Tasks and webpages",
     "suite_examples": "Methods and real examples",
     "suite_case_results": "Per-page results",
-    "suite_notice": "Independent benchmark comparisons · machine-scored"
+    "suite_notice": "Independent benchmark comparisons · machine-scored",
+    "price_not_declared": "No price contract is bound to this report."
   },
   "zh": {
     "stages_client_transport": "客户端连接",
@@ -1065,6 +1066,7 @@
     "suite_dataset": "题目与网页",
     "suite_examples": "方法与真实示例",
     "suite_case_results": "逐页结果",
-    "suite_notice": "各数据集独立比较 · 机器评分"
+    "suite_notice": "各数据集独立比较 · 机器评分",
+    "price_not_declared": "本报告未绑定价格说明。"
   }
 }

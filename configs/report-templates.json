@@ -88,15 +88,14 @@
       "example": "examples/web_extract/README.md",
       "example_version": 1,
       "example_build": "uv run --frozen python -m harness.web_extract.example --output /tmp/extract-example",
-      "build": "uv run --frozen python -m harness.web_extract.cli report --profile /absolute/report-profile.json --content /absolute/content.json --output /absolute/report --language zh",
+      "build": "uv run --frozen python -m harness.web_extract.cli report --profile /absolute/report-profile.json --run /absolute/run --output /absolute/report --language zh",
       "check": "uv run --frozen python -m harness.web_extract.cli --home /absolute/benchmark-home check /absolute/report --profile /absolute/report-profile.json",
       "tests": "tests/web_extract/",
       "variants": [
-        "research-and-compatibility",
-        "full-cohort-progress",
-        "synthetic",
-        "field-extraction-cohort",
-        "field-extraction-suite"
+        "product",
+        "product-progress",
+        "record-cohort",
+        "suite"
       ],
       "release_check": "uv run --frozen python -m harness.web_extract.cli --home /absolute/benchmark-home check /absolute/report --release --visual-receipt /absolute/visual-receipt.json --profile /absolute/report-profile.json",
       "package": "uv run --frozen python -m harness.web_extract.cli --home /absolute/benchmark-home package /absolute/report --output /absolute/report.zip --visual-receipt /absolute/visual-receipt.json --profile /absolute/report-profile.json",

@@ -25,7 +25,7 @@ from harness.report_languages import resolve_report_language
 from harness.reporting.links import LinkIndex
 from harness.reporting.publication_privacy import project_evidence_view, publication_risk
 from harness.reporting.release_check import check_report_identity, checked_page, open_report
-from harness.reporting.templates import template_identity
+from harness.reporting.templates import check_page, compose, recorded_variant, template_identity
 from harness.reporting.versions import bind_build_version
 from harness.web_extract.analysis import (
     check_product_audit,
@@ -56,6 +56,7 @@ from harness.web_extract.pipeline import (
 )
 from harness.web_extract.product_fields import DECLARED, REPORTED, REPORTED_DERIVED, label_key
 from harness.web_extract.report_ui import JS
+from harness.web_extract.template import BODY_SLOTS, TEMPLATE, intro_slot, variant_for_mode
 
 VERSION = "web-extract-research/1"
 STAGES = {
@@ -152,6 +153,8 @@ EXTRA_LABELS = {
         "en": message("extra_labels_interpretation", "en"),
     },
 }
+# An authored page intro fills exactly one template slot of its page.
+INTRO_SELECTOR = "main > [data-slot] > [data-page-intro]"
 ASSETS = Path(__file__).with_name("assets")
 CSS = (ASSETS / "report.css").read_text(encoding="utf-8")
 
@@ -198,28 +201,24 @@ def page(
 
     intro="",
 ):
-    if intro:
-        fragment = BeautifulSoup(body, "html.parser")
-        introduction = BeautifulSoup(
-            "<section data-page-intro>" + intro + "</section>", "html.parser"
-        ).section
-        if route == "index" and state in ("full-cohort-progress", "field-extraction-cohort"):
-            anchor = home_comparison_end(fragment)
-            if anchor is None:
-                raise ValueError("Report home intro requires its core comparison")
-            anchor.insert_after(introduction)
-        else:
-            fragment.insert(0, introduction)
-        body = str(fragment)
+    variant = variant_for_mode(state)
+    role = "results"
+    if not detail:
+        role = variant.page(route).role
+        fills = {BODY_SLOTS[role]: body}
+        if intro:
+            introduction = "<section data-page-intro>" + intro + "</section>"
+            slot = intro_slot(route, state)
+            if slot == "lead":
+                fills["lead"] = introduction
+            else:
+                core, rest = split_after_comparison(body)
+                fills = {"core-comparison": core, slot: introduction, "findings": rest}
+        body = compose(role, fills)
     labels = LABELS[language]
-    if state != "compatibility":
+    if variant.options.get("notice"):
         labels = list(labels)
-        labels[7] = message(
-            "records_notice"
-            if state == "field-extraction-cohort"
-            else "frozen_product_page_extraction_machine_scoring_failed_calls_retai",
-            language,
-        )
+        labels[7] = message(variant.options["notice"], language)
         labels[2] = message("results_and_failures", language)
     if notice is not None:
         labels = list(labels)
@@ -239,7 +238,7 @@ def page(
         ]
     )
     if (
-        (state != "field-extraction-suite" and (
+        (not variant.options.get("external_navigation") and (
             len(entries) != len(PAGES)
             or {entry.get("route") for entry in entries} != set(PAGES)
         ))
@@ -277,7 +276,7 @@ def page(
     other_route = route if not detail else "results"
     if other not in languages:
         other_route = "index"
-    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css"></head><body><header><div class="eyebrow">WEB EXTRACT / STRUCTURED EXTRACTION</div><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p><div class="report-toolbar"><nav>{part5}</nav><div class="report-tools"><a href="../{part6}/{part7}.html">{part8}</a><button id="theme">{part9}</button></div></div></header><main>{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
+    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css"></head><body><header><div class="eyebrow">WEB EXTRACT / STRUCTURED EXTRACTION</div><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p><div class="report-toolbar"><nav>{part5}</nav><div class="report-tools"><a href="../{part6}/{part7}.html">{part8}</a><button id="theme">{part9}</button></div></div></header><main data-page-role="{role}">{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
         part0=language,
         part1=esc(title),
         part2=esc(title),
@@ -289,6 +288,7 @@ def page(
         part8=message("english", other),
         part9=labels[8],
         part10=body,
+        role=role,
         part11=("评测方法与数据版本" if language == "zh" else "Methodology and dataset versions"),
         part12=message("input_and_file_bindings", language),
     )
@@ -305,7 +305,7 @@ def page(
             value = element.get(attr)
             if value is not None and not urlsplit(value).scheme and not urlsplit(value).netloc:
                 base = (
-                    "/" if state == "field-extraction-suite" and urlsplit(value).path
+                    "/" if variant.options.get("external_navigation") and urlsplit(value).path
                     else f"/{language}/{route}.html"
                 )
                 element[attr] = urljoin(base, value).lstrip("/")
@@ -359,8 +359,19 @@ def home_comparison_end(document):
 
 
 
+def split_after_comparison(body):
+    """Split a home body after its core comparison, where a variant places the authored intro."""
+    fragment = BeautifulSoup(body, "html.parser")
+    anchor = home_comparison_end(fragment)
+    if anchor is None or anchor.parent is not fragment:
+        raise ValueError("Report home intro requires its core comparison")
+    nodes = list(fragment.contents)
+    end = next(index for index, node in enumerate(nodes) if node is anchor) + 1
+    return "".join(map(str, nodes[:end])), "".join(map(str, nodes[end:]))
+
+
 def page_intro_hash(rendered):
-    node = BeautifulSoup(rendered, "html.parser").select_one("main > [data-page-intro]")
+    node = BeautifulSoup(rendered, "html.parser").select_one(INTRO_SELECTOR)
     if node is None:
         raise ValueError("Report page intro was not rendered")
     return digest(str(node).encode())
@@ -461,10 +472,17 @@ def bind_model_tables(output, binding, language, body):
 
 
 def intro_is_correctly_placed(document, node, route, mode):
-    if Path(route).stem == "index" and mode in ("full-cohort-progress", "field-extraction-cohort"):
-        anchor = home_comparison_end(document)
-        return anchor is not None and node.find_previous_sibling() is anchor
-    return document.main.find(True, recursive=False) is node
+    """The intro alone fills the variant's intro slot; after the comparison or leading the page."""
+    slot = node.parent
+    expected = intro_slot(Path(route).stem, mode)
+    if (slot is None or slot.parent is not document.main or slot.get("data-slot") != expected
+            or slot.find_all(True, recursive=False) != [node]):
+        return False
+    if expected == "lead":
+        return document.main.find(True, recursive=False) is slot
+    core = slot.find_previous_sibling()
+    return (core is not None and core.get("data-slot") == "core-comparison"
+            and core.find_all(True, recursive=False)[-1] is home_comparison_end(core))
 
 
 def report_editions(manifest):
@@ -501,7 +519,7 @@ def verify_page_intros(source, model, manifest):
             document = BeautifulSoup((source / relative).read_text(encoding="utf-8"), "html.parser")
             nodes = document.select("[data-page-intro]")
             if nodes:
-                if len(nodes) != 1 or nodes[0].parent is not document.main:
+                if len(nodes) != 1 or nodes[0].parent.parent is not document.main:
                     raise ValueError("Frozen page intro inventory differs")
                 if not intro_is_correctly_placed(
                     document, nodes[0], route, model.get("mode", "compatibility")
@@ -1614,6 +1632,11 @@ def price_table(methods, prices, lang, labels=None):
     labels = labels or {}
     records = []
     for method in methods:
+        if not prices:
+            # Generated default: the report binds no authored price contracts at all.
+            records.append([esc(labels.get(method, method)), "—",
+                            esc(message("price_not_declared", lang)), "—", "—"])
+            continue
         value = prices.get(method, {})
         sources = value.get("sources", [])
         if (
@@ -1942,8 +1965,9 @@ def operating_metrics(methods, rows, prices, lang, labels, *, compared=None, exe
                 str(len(values)),
                 str(len(selected) - len(values)),
                 *[f"{v:.3f}" if v is not None else "—" for v in stats],
-                esc(price_quote(prices[method], lang)),
-                esc(price_remarks(prices[method], lang, summary=True))
+                esc(price_quote(prices[method], lang)) if prices else "—",
+                (esc(price_remarks(prices[method], lang, summary=True)) if prices
+                 else esc(message("price_not_declared", lang)))
                 + '<br><a href="accounts.html">'
                 + message("terms_and_sources", lang)
                 + "</a>",
@@ -2886,10 +2910,14 @@ def report_shape(mode):
     return REPORT_SHAPES.get(mode if mode in REPORT_SHAPES else "compatibility")
 
 
-def build(output: Path, content: Path, *, home: Path, run=None, language=None, profile=PROFILE):
-    """Render any Web Extract report; the content's mode selects the task-shape hook."""
+def build(output: Path, content: Path | None = None, *, home: Path, run=None, language=None, profile=PROFILE):
+    """Render any Web Extract report; the content's mode selects the task-shape hook.
+
+    Without authored content the single-schema shape renders every page from the
+    run evidence and the profile, leaving authored slots at their generated defaults.
+    """
     require_external_output(output)
-    mode = read_json(content).get("mode") if content.is_file() else None
+    mode = read_json(content).get("mode") if content is not None and content.is_file() else None
     return report_shape(mode).build(
         output, content, home=home, run=run, language=language, profile=profile
     )
@@ -2913,7 +2941,7 @@ def _build_product(output, content, *, home, run, language, profile):
     if language not in LABELS:
         raise ValueError("Unsupported language")
     languages = ("zh",) if language == "zh" else ("en", "zh")
-    model = read_json(content)
+    model = read_json(content) if content is not None else {"pages": {}}
     names = model.get("method_labels", {})
     if language == "en" and any(
         page.get(part, {}).get("zh") and not page.get(part, {}).get("en")
@@ -2940,7 +2968,7 @@ def _build_product(output, content, *, home, run, language, profile):
             home, read_json(profile)["dataset"], model["dataset_distribution"]
         )
     binding = read_json(profile).get("research_report", {}).get("content", {}).get("sha256")
-    if binding and digest(content.read_bytes()) != binding:
+    if binding and (content is None or digest(content.read_bytes()) != binding):
         raise ValueError("Report prose differs from the profile-bound source")
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     history = read_json(home / "historical-reproduction.json")
@@ -3671,7 +3699,7 @@ def _build_product(output, content, *, home, run, language, profile):
     save_json(
         output / "report-manifest.json",
         {
-            "template": template_identity("web-extract"),
+            "template": template_record(state),
             "page_intros": page_intros,
             "model_comparison": model.get("model_comparison"),
             "template_version": VERSION,
@@ -3705,7 +3733,7 @@ def _build_product(output, content, *, home, run, language, profile):
             "audited_scores": audit.get("audited_scores") if audit else None,
             "completion_reference_exclusions": audit.get("excluded_fields", {}) if audit else {},
             "completion_audit": completion_audit,
-            "content_sha256": digest(content.read_bytes()),
+            "content_sha256": digest(content.read_bytes()) if content is not None else None,
             "profile_sha256": digest(profile.read_bytes()),
             "input_profile": input_profile,
             "dataset_manifest_sha256": history["dataset_manifest_sha256"],
@@ -3735,6 +3763,8 @@ def report_dependencies():
 
 
 def validate_release_prices(manifest):
+    if not manifest.get("prices"):
+        raise ValueError("A release requires a declared price contract for every method")
     if manifest.get("dataset_kind") == "published-upstream":
         for value in manifest["prices"].values():
             if (
@@ -3822,8 +3852,25 @@ def check_price_coverage(output, methods, prices, language, labels):
         raise ValueError("Cost/pricing coverage differs from bound source")
 
 
+def template_record(mode):
+    """The maintained owner plus the base, track and variant template versions a manifest records."""
+    return {**template_identity(TEMPLATE.track), **TEMPLATE.record(variant_for_mode(mode).name)}
+
+
+def check_template_pages(output, manifest):
+    """Every generated edition fills its recorded variant's pages, roles and slot order."""
+    variant = recorded_variant(manifest.get("template"), TEMPLATE)
+    if variant is not variant_for_mode(manifest.get("mode")):
+        raise ValueError("Report template variant differs from its content mode")
+    for language in manifest["languages"]:
+        for selected in variant.pages:
+            path = output / language / selected.route
+            check_page(BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser"), selected)
+
+
 def check_reader_contract(output, manifest, *, release=False):
     report_editions(manifest)
+    check_template_pages(output, manifest)
     validate_catalog()
     if any(manifest.get(key) != value for key, value in report_dependencies().items()):
         raise ValueError("Report client dependencies changed; rebuild required")
@@ -3833,7 +3880,7 @@ def check_reader_contract(output, manifest, *, release=False):
         if route not in manifest["files"] or Path(route).is_absolute() or ".." in Path(route).parts:
             raise ValueError("Unsafe report page intro binding")
         document = BeautifulSoup((output / route).read_text(encoding="utf-8"), "html.parser")
-        nodes = document.select("main > [data-page-intro]")
+        nodes = document.select(INTRO_SELECTOR)
         if len(nodes) != 1 or digest(str(nodes[0]).encode()) != checksum:
             raise ValueError("Report page intro is missing or changed")
         if not intro_is_correctly_placed(document, nodes[0], route, manifest.get("mode")):
@@ -5669,7 +5716,7 @@ def build_record_cohort(output, content, *, home, run, language, profile):
             if bound_profile.get("local_example", False)
             else "published-upstream",
             "input_profile": input_profile,
-            "template": template_identity("web-extract"),
+            "template": template_record("field-extraction-cohort"),
             "template_version": VERSION,
             "webstone": version,
             "renderer_sha256": digest(Path(__file__).read_bytes()),
