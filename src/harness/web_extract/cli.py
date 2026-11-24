@@ -45,7 +45,8 @@ def build_parser(prog=None):
     p.add_argument("--repair-plan", type=Path, action="append")
     p.add_argument("--repair-run", type=Path, action="append")
     p = sub.add_parser("prepare")
-    p.add_argument("--benchmark", choices=tuple(BENCHMARKS), default="zyte")
+    p.add_argument("--benchmark", choices=BENCHMARKS.names(),
+                   help="Registered benchmark; defaults to the single-schema product benchmark")
     p.add_argument("--source", type=Path)
     p.add_argument("--dataset", help="Registered Hugging Face dataset; see datasets")
     p.add_argument("--revision", help="Full dataset commit recorded by pin-dataset")

@@ -22,7 +22,7 @@ from collections.abc import Callable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import InvalidOperation
 from functools import wraps
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
@@ -35,34 +35,24 @@ from harness.http_client import request
 from harness.record_io import bytes_sha256 as digest
 from harness.record_io import read_json as shared_read_json
 from harness.runtime_env import load_runtime_env
-from harness.web_extract.dataset import benchmark_config, input_mode
+from harness.web_extract.dataset import (
+    EXPORTED_EVALUATOR,
+    benchmark_config,
+    fixed_field_benchmark,
+    input_mode,
+)
 from lexbench_webfetch.paths import validate_http_url
 
 ROOT = repository_root()
-PROFILE = Path(__file__).resolve().parents[1] / "benchmarks/cards/zyte-product-extraction.json"
-PRODUCT_FIELDS = ("price", "sku", "availability")
-FIELDS = (*PRODUCT_FIELDS, "InStock", "OutOfStock")
+# The single-schema benchmark's declarations drive the upstream-scored product path.
+PRODUCT = fixed_field_benchmark()
+PROFILE = Path(__file__).resolve().parents[1] / "benchmarks/cards" / PRODUCT.profile
+PRODUCT_FIELDS = PRODUCT.fields
+FIELDS = (*PRODUCT_FIELDS, *PRODUCT.derived_fields)
+SCHEMA = PRODUCT.schema
 _RAW_SESSIONS = {}
 _COLLECTION_CLOCK = None
 _CAPTURE_METADATA_UNSET = object()
-
-
-def valid_product_value(field, value):
-    """Validate native target values before normalization can discard bad types."""
-    if field not in PRODUCT_FIELDS:
-        raise ValueError("Unknown product target field: " + field)
-    if value is None:
-        return True
-    if isinstance(value, (bool, dict, list)):
-        return False
-    if field == "price":
-        try:
-            return Decimal(str(value)).is_finite()
-        except (InvalidOperation, ValueError):
-            return False
-    if field == "availability":
-        return value in ("InStock", "OutOfStock")
-    return isinstance(value, (str, int, float))
 
 
 def execution_identity(row):
@@ -207,10 +197,12 @@ def data_home() -> Path:
     return shared_data_home() / "web-extract"
 
 
-def prepare(destination: Path, profile=PROFILE, *, benchmark="zyte", source=None,
+def prepare(destination: Path, profile=PROFILE, *, benchmark=None, source=None,
             dataset=None, revision=None):
     if dataset is not None:
-        if source is not None or benchmark != "zyte" or profile != PROFILE:
+        # Registered editions are record datasets prepared by their own task adapter.
+        if (source is not None or benchmark_config(name=benchmark)["adapter"] is not None
+                or profile != PROFILE):
             raise ValueError("Select a registered dataset or a local benchmark source")
         from harness.web_extract.dataset import prepare_registered
 
@@ -284,10 +276,9 @@ def validate_dataset(home: Path, profile=None):
     expected = {"html/" + key + ".html" for key in truth}
     if len(truth) != pin["cases"] or not expected.issubset(manifest["files"]):
         raise ValueError("Incomplete HTML population")
-    if manifest.get("benchmark") == "records":
-        from harness.web_extract.records import exported_evaluator
-
-        if (root / "evaluate.py").read_bytes() != exported_evaluator():
+    config = benchmark_config(name=manifest.get("benchmark"))
+    if config["benchmark"].capabilities.has(EXPORTED_EVALUATOR):
+        if (root / "evaluate.py").read_bytes() != config["adapter"].exported_evaluator():
             raise ValueError(
                 "Pinned record evaluator differs from the runtime; use the original "
                 "revision or a declared scoring correction"
@@ -381,31 +372,6 @@ def probe_cases(truth: dict):
             raise ValueError("Compatibility sampling stratum is absent")
         selected.append(matches[0])
     return selected
-
-
-SCHEMA = {
-    "type": "object",
-    "properties": {
-        "price": {
-            "type": ["number", "null"],
-            "description": (
-                "Current price of the page's main product, not original price "
-                "or a recommendation. Null if absent."
-            ),
-        },
-        "sku": {
-            "type": ["string", "null"],
-            "description": "Main product SKU or unique product identifier. Null if absent.",
-        },
-        "availability": {
-            "type": ["string", "null"],
-            "enum": ["InStock", "OutOfStock", None],
-            "description": "Main product stock status. Null if unknown.",
-        },
-    },
-    "required": ["price", "sku", "availability"],
-    "additionalProperties": False,
-}
 
 
 def redact(value):
@@ -840,11 +806,7 @@ def _scrapegraph_request(
     headers = {"SGAI-APIKEY": os.environ["SGAI_API_KEY"]}
     body = {
         "html": html,
-        "prompt": prompt
-        or (
-            "Extract the main product current price, SKU and stock availability. "
-            "Use null for absent fields."
-        ),
+        "prompt": prompt or PRODUCT.instructions,
         "schema": schema or SCHEMA,
     }
     if native_options.get("input_route") == "url":
@@ -980,8 +942,7 @@ def _self_hosted_request(
             or (
                 "Extract the fields defined by the schema from the main record."
                 if schema
-                else "Extract the main product current price, SKU and stock availability. "
-                "Use null for absent fields."
+                else PRODUCT.instructions
             ),
             "expected_runtime": identity,
         },
@@ -1356,10 +1317,10 @@ def normalize_extracted_fields(item, *, schema=None, preserve_native_types=False
     """Project an extracted object independently of its provider's response envelope."""
     if schema is not None or preserve_native_types:
         return dict(item) if isinstance(item, dict) else None
-    if not isinstance(item, dict) or not any(f in item for f in ("price", "sku", "availability")):
+    if not isinstance(item, dict) or not any(f in item for f in PRODUCT_FIELDS):
         return None
     result = {}
-    for field in ("price", "sku", "availability"):
+    for field in PRODUCT_FIELDS:
         value = item.get(field)
         if value is not None and not isinstance(value, (dict, list, bool)):
             result[field] = str(value)
@@ -2650,7 +2611,6 @@ def score_run(
 
 def score_rows(home, truth, rows, methods, *, reference_policy=None):
     """Use the same upstream scoring boundary for original and repaired views."""
-    from decimal import InvalidOperation
 
     if benchmark_config(home)["adapter"] is not None:
         score = benchmark_config(home)["adapter"].score

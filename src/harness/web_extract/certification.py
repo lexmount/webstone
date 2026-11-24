@@ -7,7 +7,12 @@ from pathlib import Path
 
 from harness.benchmark_execution import ExecutionPolicy, assess_execution
 from harness.reporting.templates import metric_contract
-from harness.web_extract.dataset import benchmark_config, input_mode, task_bindings
+from harness.web_extract.dataset import (
+    IMPLICIT_RECORD_INSTRUCTIONS,
+    benchmark_config,
+    input_mode,
+    task_bindings,
+)
 from harness.web_extract.pipeline import (
     METHODS,
     RECORD_INSTRUCTIONS,
@@ -345,7 +350,7 @@ def run(
         instructions = plan.get("extraction_instructions")
         if (
             "extraction_instructions" not in plan
-            and read_json(home / "dataset/manifest.json").get("benchmark") == "swde"
+            and benchmark_config(home)["benchmark"].capabilities.has(IMPLICIT_RECORD_INSTRUCTIONS)
         ):
             instructions = RECORD_INSTRUCTIONS
         if instructions != record_instructions(home):
