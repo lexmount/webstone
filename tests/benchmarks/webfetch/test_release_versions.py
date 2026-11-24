@@ -11,7 +11,7 @@ from lexbench_webfetch.versions import (
 
 
 @pytest.fixture
-def matching_catalog(tmp_path):
+def matching_catalog(tmp_path, validated_catalog):
     from lexbench_webfetch.benchmark import definitions, read
     from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
     release = read(definitions() / "benchmark-release.json")
@@ -21,7 +21,6 @@ def matching_catalog(tmp_path):
     return path
 
 
-@pytest.mark.slow
 def test_catalog_retains_registered_task_suites_without_counting_annotations(matching_catalog):
     from lexbench_webfetch.benchmark import registry
     release = catalog_release(matching_catalog)
@@ -31,7 +30,6 @@ def test_catalog_retains_registered_task_suites_without_counting_annotations(mat
     assert release["case_count"] == sum(row["case_count"] for row in entries)
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize("change", ["omitted_suite", "count", "reference", "scorer", "tag"])
 def test_published_catalog_rejects_changed_population_rules_or_reference_bindings(tmp_path, change, matching_catalog):
     release = json.loads(matching_catalog.read_text(encoding="utf-8"))
