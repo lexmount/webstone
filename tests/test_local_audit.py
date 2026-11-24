@@ -454,7 +454,7 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     from harness.web_fetch.report_check import check
     for invalid_template in (None, {"renderer": "unregistered-renderer"}):
         _write(rebuilt/"report-manifest.json", {**rebuilt_manifest, "template": invalid_template})
-        with pytest.raises(ValueError, match="maintained template|does not record its template"):
+        with pytest.raises(ValueError, match="maintained template"):
             check(rebuilt, authority_root=Path(__file__).resolve().parents[1],
                   presentation_binding=binding_path)
     _write(rebuilt/"report-manifest.json", rebuilt_manifest)

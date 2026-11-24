@@ -77,7 +77,7 @@ def test_release_check_rejects_pages_that_leave_their_template(tmp_path):
         check_template_pages(tmp_path, manifest)
     with pytest.raises(ValueError, match="different template version"):
         check_template_pages(tmp_path, {"template": {**manifest["template"], "variant_version": 0}})
-    with pytest.raises(ValueError, match="does not record its template"):
+    with pytest.raises(ValueError, match="no recorded variant"):
         check_template_pages(tmp_path, {"template": None})
     _template_report(tmp_path)
     (tmp_path / "review/index.html").unlink()

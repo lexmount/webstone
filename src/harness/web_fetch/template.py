@@ -74,7 +74,10 @@ def report_template(variant):
 
 def check_template_pages(root: Path, manifest, *, authority_root=None):
     """A built report matches its recorded variant: identity, page roles and slot order."""
-    variant = recorded_variant(manifest.get("template"), TEMPLATE)
+    record = manifest.get("template")
+    if not isinstance(record, dict) or "variant" not in record:
+        raise ValueError("Report manifest differs from the maintained template: no recorded variant; rebuild it")
+    variant = recorded_variant(record, TEMPLATE)
     expected = {**(resolve_template("webfetch", root=authority_root) if authority_root else
                    resolve_template("webfetch")), **TEMPLATE.record(variant.name)}
     if manifest["template"] != expected:
