@@ -113,6 +113,10 @@ class LiveSuite:
         """Populations come from the dataset's own declaration."""
         return []
 
+    def views(self) -> list:
+        """The shared Web Fetch report sections cover this suite."""
+        return []
+
 
 class FrozenPageBenchmark:
     """Shared behaviour of benchmarks whose inputs are frozen HTML pages."""
@@ -126,6 +130,10 @@ class FrozenPageBenchmark:
 
     def capabilities(self) -> Capabilities:
         return Capabilities(frozenset({FROZEN_INPUTS}))
+
+    def views(self) -> list:
+        """The shared Web Fetch report sections cover frozen-page benchmarks."""
+        return []
 
     def case(self, record: dict, url: str) -> EvalCase:
         """The call input for one frozen record served at ``url``."""

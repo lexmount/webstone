@@ -34,3 +34,17 @@ def test_english_source_text_needs_no_catalog_entry(tmp_path):
         catalog_text(path, "zh")("result.missing", "Absent")
     with pytest.raises(KeyError):
         catalog_text(path, "en")("result.count", "{passed} tasks")
+
+
+def test_source_text_is_its_own_key_and_context_separates_meanings(tmp_path):
+    from harness.reporting.locales import source_text
+
+    path = tmp_path / "messages.json"
+    path.write_text(json.dumps({"zh": {"Run": "运行", "verb|Run": "执行", "{n} tasks": "{n} 题"}}), encoding="utf-8")
+    assert source_text(path, "en", "Run") == "Run"
+    assert source_text(path, "zh", "Run") == "运行"
+    assert source_text(path, "zh", "Run", context="verb") == "执行"
+    assert source_text(path, "zh", "{n} tasks", n=3) == "3 题"
+    assert source_text(path, "zh", "{n} tasks") == "{n} 题"
+    with pytest.raises(ValueError, match="zh/Absent"):
+        source_text(path, "zh", "Absent")

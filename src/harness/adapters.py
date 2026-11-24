@@ -128,6 +128,10 @@ class BenchmarkAdapter(Protocol):
         """Denominators, families, metric sets and the expected matrix."""
         ...
 
+    def views(self) -> list[Any]:
+        """Report sections (``harness.reporting.templates.SectionHook``) for track hook points; often none."""
+        ...
+
 
 STAGES = ("run", "score", "report", "check", "package", "publish", "export")
 
