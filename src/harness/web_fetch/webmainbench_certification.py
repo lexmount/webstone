@@ -46,8 +46,6 @@ def _read_profile(path: Path) -> tuple[dict, str]:
             or type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
             or type(profile.get("max_failure_retries")) is not int or profile["max_failure_retries"] < 0
             or not isinstance(versions, dict)
-            or any(not isinstance(versions.get(name), str) or not versions[name].strip()
-                   for name in methods if not engine_definition(name).hosted)
             or (profile.get("binary_sha256") and len(methods) != 1)):
         raise ValueError("Invalid complete WebMainBench profile or registered method scope")
     for name in methods:
@@ -167,6 +165,12 @@ def main(argv: list[str] | None = None) -> None:
     settings = load_provider_config(args.config)
     if any(not isinstance(settings.get(name), dict) for name in profile["providers"]):
         raise ValueError("Runtime configuration is missing a declared method")
+    # Hosted capability follows each participant's configured engine, not its report label.
+    local = [name for name in profile["providers"]
+             if not engine_definition(settings[name].get("engine")).hosted]
+    versions = profile.get("versions", {})
+    if any(not isinstance(versions.get(name), str) or not versions[name].strip() for name in local):
+        raise ValueError("Invalid complete WebMainBench profile or registered method scope")
     before = source_binding(args.source, args.scorer, profile)
     source_commit = profile.get('source_commit')
     verify_source_checkout(profile, args.binary_source)
@@ -200,8 +204,8 @@ def main(argv: list[str] | None = None) -> None:
             "--expected-dataset-sha256", profile["source_dataset_sha256"],
             "--official-scorer-commit", profile["official_scorer_commit"],
         ]
-        if not engine_definition(provider).hosted:
-            version = profile["versions"][provider].split()[-1]
+        if provider in local:
+            version = versions[provider].split()[-1]
             command += ["--expected-version", version]
         if args.env_file is not None:
             command += ["--env-file", str(args.env_file)]
