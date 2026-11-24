@@ -218,6 +218,48 @@ def command_rescore(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_compose(args: argparse.Namespace) -> int:
+    from harness.web_fetch.saved_matrix_compose import compose_saved_matrix
+
+    try:
+        path = compose_saved_matrix(args.run_dirs, args.output, title=args.title, by_suite=args.by_suite)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    print(f"Saved-matrix specification: {path}")
+    print(f"Build: uv run --frozen python scripts/build_report.py --saved-matrix {path} --output NEW_REPORT")
+    return 0
+
+
+REVISE_HELP = """Rescore a saved run directory offline without provider calls.
+
+The configuration is a JSON object:
+  cases                       replacement case definitions (existing case IDs); required, may be []
+  authority.description       why the revision is authorized; required
+  regression_ids              scoring-regression control IDs proving the change; required
+  rule_revision               true when any case acceptance contract changes
+  excluded_cases              case IDs excluded symmetrically across every method
+  rescore_attempt_ids         additional attempt IDs to rescore unchanged
+  predecessor_revision        path/hash binding of the previous revision receipt
+  input_verdicts              path/hash binding of frozen pre-revision verdicts
+  native_answer_corrections   per-attempt native answer projections to replay
+  native_context_corrections  per-attempt native context projections to replay
+  superseded_controls         regression controls this revision supersedes
+
+The receipt is printed as JSON; the revision is kept under
+SOURCE/local-evidence/offline-revisions/."""
+
+
+def command_revise(args: argparse.Namespace) -> int:
+    from harness.web_fetch.local_revision import revise_local_snapshot
+
+    try:
+        receipt = revise_local_snapshot(args.source, args.config.resolve())
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    print(json.dumps(receipt, ensure_ascii=False, indent=2))
+    return 0
+
+
 def command_validate(args: argparse.Namespace) -> int:
     load_runtime_env(args.env_file)
     _, cases = load_dataset(args.dataset, content_scope=args.content_scope)
@@ -345,6 +387,21 @@ def build_parser(root_commands: Mapping[str, str] | None = None) -> argparse.Arg
                          help="Rescore saved data without rebuilding HTML; existing reports are unchanged")
     add_language_argument(rescore)
     rescore.set_defaults(handler=command_rescore)
+
+    compose = sub.add_parser(
+        "compose", help="Write a saved-matrix specification comparing several run directories")
+    compose.add_argument("run_dirs", nargs="+", type=Path, metavar="RUN_DIR")
+    compose.add_argument("--output", type=Path, required=True, help="New specification file")
+    compose.add_argument("--title", help="Report title (default: dataset names)")
+    compose.add_argument("--by-suite", action="store_true",
+                         help="Compare runs of different frozen datasets as separate suites")
+    compose.set_defaults(handler=command_compose)
+
+    revise = sub.add_parser("revise", help="Rescore a saved run offline from a revision configuration",
+                            description=REVISE_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    revise.add_argument("source", type=Path, help="Saved run directory to revise")
+    revise.add_argument("--config", type=Path, required=True, help="Revision configuration JSON")
+    revise.set_defaults(handler=command_revise)
 
     validate = sub.add_parser("validate", help="Validate dataset and provider credentials without network calls")
     validate.add_argument("--dataset", type=Path, default=EXAMPLES / "fixture-dataset.json")

@@ -203,6 +203,9 @@ def _called(record):
         return False
     if states and states <= {'not_started'}:
         return False
+    if not states and record_public_call_log_bindings(record):
+        # Ordinary runs: a verified public call log always opens with call_started.
+        return record.get('error_type') != 'unsupported_task'
     raise ValueError('Saved result lacks explicit transport evidence')
 
 
