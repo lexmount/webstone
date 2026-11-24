@@ -15,6 +15,7 @@ from lexbench_webfetch.paths import validate_http_url
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.native_projection import (
     SRCSET_PARSER,
+    json_object,
     native_answer_projection,
     project_native_answer,
 )
@@ -277,6 +278,36 @@ class CloudflareMarkdownProvider(Provider):
         if include_video_page_links and not self.config.get('scrape_selectors'):
             body['elements'] = [{'selector': 'a[href]'}]
         self._diagnostic_timeouts(body, timeout_ms)
+
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        payload = selection.payload
+        track = selection.track
+        task_kind = selection.task_kind
+        get = selection.get
+        provider_type = selection.provider_type
+        interface = selection.interface
+        success = payload.get('success') is True
+        meta = json_object(payload.get('meta'))
+        resources = (interface == '/scrape' if interface is not None else
+                     provider_type == 'cloudflare_markdown' and task_kind == 'resource' and track in {'image', 'video'})
+        if resources:
+            if not success and not meta:
+                return None
+            key = 'images' if track == 'image' else 'videos'
+            return {'schema_version': 2, 'content_pointer': ['result'],
+                    'content_format': 'json' if success else 'empty',
+                    'result_fields': {'final_url': {'pointer': ['meta', 'finalUrl'], 'fallback': 'request_url'}},
+                    'answer_fields': {key: {'pointer': ['result'], 'format': 'html_attribute_urls',
+                                           'srcset_parser': SRCSET_PARSER, 'base_url': meta.get('finalUrl') or get('url')}} if success else {}}
+        text = success and isinstance(payload.get('result', ''), str)
+        if not text and not meta:
+            return None
+        return {'schema_version': 2, 'content_pointer': ['result'],
+                'content_format': 'text' if text else 'empty', 'optional_content': True,
+                'result_fields': {**({'title': {'pointer': ['meta', 'title']}} if provider_type == 'cloudflare_markdown' else {}),
+                    'final_url': {'pointer': ['meta', 'finalUrl'], 'fallback': 'request_url'}}}
 
     def native_route(self, case) -> NativeRoute:
         return NativeRoute('http', self.native_http_interface(case), ('result', 'meta.title', 'meta.finalUrl',))

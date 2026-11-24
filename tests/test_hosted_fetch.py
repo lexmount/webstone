@@ -13,7 +13,7 @@ from harness.web_fetch.methods import method_info
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers import build_provider
 from harness.http_client import HttpResponse
-from harness.web_fetch.providers.hosted_fetch import ENDPOINTS
+from harness.web_fetch.providers.base import provider_class
 from harness.web_fetch.runner import run_evaluation
 from lexbench_webfetch.metrics import task_passed
 
@@ -44,7 +44,7 @@ class HostedFetchTest(unittest.TestCase):
                                       ({}, 'invalid_response')):
                 with self.subTest(kind=kind, payload=payload):
                     raw = json.dumps(payload).encode()
-                    call.return_value = HttpResponse(200, ENDPOINTS[kind], {}, raw)
+                    call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
                     result = self.provider(kind).fetch(self.case, 30)
                     self.assertEqual(result.error_type, expected)
                     self.assertEqual(result.content, '')
@@ -64,7 +64,7 @@ class HostedFetchTest(unittest.TestCase):
                     raw = b'\xef\xbb\xbf' + self.response(kind).body
                 elif encoding == 'utf16':
                     raw = self.response(kind).body.decode().encode('utf-16')
-                call.return_value = HttpResponse(200, ENDPOINTS[kind], {}, raw)
+                call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
                 with tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     dataset = {'id': 'invalid-utf8', 'cases': [vars(self.case)]}
@@ -326,7 +326,7 @@ class HostedFetchTest(unittest.TestCase):
                                 'headers': {'Content-Type': 'application/pdf'}})
                     raw = json.dumps(payload).encode()
                     call.reset_mock()
-                    call.return_value = HttpResponse(200, ENDPOINTS[kind], {}, raw)
+                    call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
                     provider = self.provider(kind)
                     before = provider.native_http_arguments(self.case, 30)[1]['json_body']
                     result = provider.fetch(case, 30)
@@ -365,7 +365,7 @@ class HostedFetchTest(unittest.TestCase):
                             'final_url': case.url, 'headers': {'content-type': 'application/pdf'}})
                 raw = json.dumps(payload).encode()
                 call.reset_mock()
-                call.return_value = HttpResponse(200, ENDPOINTS[kind], {}, raw)
+                call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
                 dataset = {'id': 'native-file', 'cases': [vars(case)]}
                 path = root / 'input.json'
                 path.write_text(json.dumps(dataset), encoding='utf-8')
@@ -394,7 +394,7 @@ class HostedFetchTest(unittest.TestCase):
                                 'status_code': 200, 'final_url': case.url})
                     raw = json.dumps(payload).encode()
                     call.reset_mock()
-                    call.return_value = HttpResponse(200, ENDPOINTS[kind], {}, raw)
+                    call.return_value = HttpResponse(200, provider_class(kind).endpoint, {}, raw)
                     result = self.provider(kind).fetch(case, 30)
                     self.assertFalse(result.ok)
                     self.assertEqual(result.error_type, 'invalid_response')
@@ -434,7 +434,7 @@ class HostedFetchTest(unittest.TestCase):
     @patch('harness.http_client.urllib.request.build_opener')
     def test_runner_scores_and_saves_hosted_methods(self, call):
         def respond(request, **kwargs):
-            kind = next(kind for kind in TYPES if ENDPOINTS[kind] == request.full_url)
+            kind = next(kind for kind in TYPES if provider_class(kind).endpoint == request.full_url)
             response = self.response(kind)
             return Mock(status=response.status, headers={'x-brd-debug':'req_id=test-native-id; render=true'},
                         read=Mock(return_value=response.body), geturl=Mock(return_value=response.url))

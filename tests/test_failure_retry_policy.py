@@ -153,7 +153,7 @@ def test_cleanup_events_and_native_logs_are_retained_before_retry(run_task, tmp_
             self.calls += 1
             if self.calls == 1:
                 time.sleep(timeout + .1)
-                sink = self._call_diagnostics
+                sink = self.call_diagnostics
                 sink.emit('native_library', 'cleanup_observation')
                 Path(str(sink.path)+'.moli.stderr').write_text('native cleanup bytes', encoding='utf-8')
                 self.finished = datetime.now(timezone.utc)

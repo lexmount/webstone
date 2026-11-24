@@ -61,7 +61,7 @@ def fetch_with_deadline(provider, case, timeout, *, native_route_ledger=None):
     begin = time.perf_counter()
     def work():
         try:
-            with diagnostic_context(getattr(provider, "_call_diagnostics", None)):
+            with diagnostic_context(provider.call_diagnostics):
                 emit("provider_invoked", url=case.url, timeout_seconds=timeout)
                 fetch_options = ({'native_route_ledger': native_route_ledger}
                                  if native_route_ledger is not None else {})
@@ -77,7 +77,7 @@ def fetch_with_deadline(provider, case, timeout, *, native_route_ledger=None):
                 # Recorded before the thread ends, so a caller that sees the
                 # thread finished also sees the surviving process.
                 worker.process_cleanup_failed = True
-            sink=getattr(provider, "_call_diagnostics", None)
+            sink=provider.call_diagnostics
             if sink: sink.emit("caller", "provider_exception", type=type(error).__name__, message=str(error),
                                traceback=traceback.format_exc())
             value = error
@@ -95,7 +95,7 @@ def fetch_with_deadline(provider, case, timeout, *, native_route_ledger=None):
         caller_deadline_exceeded = True
         value = TimeoutError('End-to-end answer deadline exceeded')
     if caller_deadline_exceeded:
-        sink = getattr(provider, "_call_diagnostics", None)
+        sink = provider.call_diagnostics
         if sink:
             sink.emit("caller", "answer_timeout", type=type(value).__name__, message=str(value),
                       timeout_seconds=timeout, worker_still_running=worker.is_alive())
@@ -135,7 +135,7 @@ def fetch_with_deadline(provider, case, timeout, *, native_route_ledger=None):
         # Stop the user-observed timer before scorer input preparation/storage.
         value.metadata['_answer_elapsed_ms'] = round((completed - begin) * 1000, 2)
         value.metadata['latency_scope'] = 'native_response_received'
-        with diagnostic_context(getattr(provider, "_call_diagnostics", None)):
+        with diagnostic_context(provider.call_diagnostics):
             emit("provider_returned", ok=value.ok, content_chars=len(value.content))
             value = prepare_answer(value, case)
             emit("answer_prepared", content_chars=len(value.prepared_answer[0]))

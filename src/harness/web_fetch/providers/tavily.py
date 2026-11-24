@@ -6,7 +6,7 @@ import hashlib
 from lexbench_webfetch.models import EvalCase
 
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.native_projection import native_answer_projection
+from harness.web_fetch.native_projection import json_object, native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
 from harness.http_client import request
@@ -30,6 +30,23 @@ def _public_failure_errors(values: list[object]) -> list[str]:
 
 
 class TavilyExtractProvider(Provider):
+    @staticmethod
+    def native_answer_selection(selection):
+        """Pre-call answer selection; part of the frozen policy identity."""
+        results = selection.payload.get('results')
+        result = json_object(results[0]) if isinstance(results, list) and results else {}
+        content = result.get('raw_content') if isinstance(result.get('raw_content'), str) else ''
+        ok = selection.successful_http and bool(content)
+        if not (ok or content or result.get('url')):
+            return None
+        return {'schema_version': 2, 'content_pointer': ['results', 0, 'raw_content'],
+                'content_format': 'text', 'optional_content': True,
+                'result_fields': {'final_url': {'pointer': ['results', 0, 'url'],
+                                                'fallback': 'request_url'}},
+                'answer_fields': ({'images': {
+                    'pointer': ['results', 0, 'images'] if result.get('images') else ['images'],
+                    'format': 'identity', 'default': []}} if ok else {})}
+
     def native_route(self, case) -> NativeRoute:
         return NativeRoute('http', '/extract', ('results[].raw_content', 'results[].images', 'images', 'results[].url',))
 

@@ -104,30 +104,14 @@ def preflight_declared_capacity(
         if provider.name in checked:
             continue
         checked.add(provider.name)
-        hook = getattr(provider, "preflight_capacity", None)
-        if hook is not None:
-            if not callable(hook):
-                raise ValueError(
-                    f"provider {provider.name!r} has an invalid capacity preflight hook"
-                )
-            estimator = getattr(provider, "capacity_credits_for_cases", None)
-            if cases is not None and estimator is not None:
-                if not callable(estimator):
-                    raise ValueError(
-                        f"provider {provider.name!r} has an invalid capacity estimator"
-                    )
-                required_credits = estimator(
-                    cases,
-                    runs=runs,
-                    max_failure_retries=max_failure_retries,
-                )
-                hook(
-                    declared_calls,
-                    timeout=timeout,
-                    required_credits=required_credits,
-                )
-            else:
-                hook(declared_calls, timeout=timeout)
+        required_credits = (provider.capacity_credits_for_cases(
+            cases, runs=runs, max_failure_retries=max_failure_retries)
+            if cases is not None else None)
+        if required_credits is None:
+            provider.preflight_capacity(declared_calls, timeout=timeout)
+        else:
+            provider.preflight_capacity(
+                declared_calls, timeout=timeout, required_credits=required_credits)
 
 
 def utc_now() -> str:
@@ -672,8 +656,8 @@ def run_evaluation(
                 "type": provider.type,
                 "min_interval_seconds": provider.min_interval_seconds,
                 "fixed_native_parameters": bool(provider.config.get("uniform_native_parameters")),
-                **({"implementation_identity": provider._implementation_identity}
-                   if isinstance(getattr(provider, '_implementation_identity', None), dict) else {}),
+                **({"implementation_identity": identity}
+                   if isinstance(identity := provider.recorded_implementation_identity(), dict) else {}),
             }
             for provider in providers
         ],
@@ -802,7 +786,7 @@ def run_evaluation(
                             if provider.config.get("log_level") == "debug":
                                 diagnostics = CallDiagnostics(output_dir / "private_artifacts" / "live-logs" / provider.name / case.id / f"run-{run_number:03d}-physical-{physical_attempt:03d}.jsonl", attempt_id)
                                 diagnostics.emit("caller", "call_started", provider=provider.name, case_id=case.id, url=case.url, timeout_seconds=timeout)
-                            provider._call_diagnostics = diagnostics
+                            provider.call_diagnostics = diagnostics
                             if native_routes is not None and provider.name in native_routes.providers:
                                 native_routes.begin_attempt(provider, case, physical_attempt)
                             try:

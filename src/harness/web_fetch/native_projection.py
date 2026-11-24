@@ -1,8 +1,9 @@
 """Deterministic native answer selection, bound before a cohort starts.
 
-Branches depend only on response structure and transport outcome. Keeping their
-implementation in one owner lets acquisition and saved-evidence checks replay
-the same policy rather than accepting any later declaration of allowed fields.
+Each adapter declares its selection policy as ``native_answer_selection``;
+branches depend only on response structure and transport outcome. Acquisition
+and saved-evidence checks dispatch to the same hook through the provider
+registry, so replay never accepts a later declaration of allowed fields.
 """
 
 import base64
@@ -10,19 +11,43 @@ import binascii
 import hashlib
 import json
 import re
+import sys
+from dataclasses import dataclass
 from functools import lru_cache
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from types import SimpleNamespace
+from typing import Any
 from urllib.parse import parse_qsl, quote, urljoin, urlsplit
 
 from lexbench_webfetch.paths import validate_http_url
 from lexbench_webfetch.resource_urls import srcset_urls
 
 
-def native_projection_source():
-    return Path(__file__).read_bytes()
+def _selector(provider_type):
+    """The registered adapter's selection hook, or None for an unregistered type."""
+    from harness.web_fetch.providers.base import PROVIDERS, provider_class
+    if not isinstance(provider_type, str) or provider_type not in PROVIDERS:
+        return None
+    return provider_class(provider_type).native_answer_selection
+
+
+def native_projection_source(provider_type):
+    """Bytes that define one provider type's answer selection policy.
+
+    The policy is this module plus the adapter module that defines the type's
+    ``native_answer_selection`` hook. The bytes are frozen beside evidence as
+    data and identified by their SHA-256; they are never executed.
+    """
+    paths = [Path(__file__)]
+    selector = _selector(provider_type)
+    if selector is not None:
+        owner = Path(sys.modules[selector.__module__].__file__)
+        if owner != paths[0]:
+            paths.append(owner)
+    root = Path(__file__).parent
+    return b''.join(b'# native answer policy source: ' + path.relative_to(root).as_posix().encode() + b'\n'
+                    + path.read_bytes() for path in paths)
 
 
 def native_projection_regressions():
@@ -84,266 +109,59 @@ def native_projection_policy_version(policy, provider_type):
 
 
 def native_projection_policy(provider_type):
-    digest = hashlib.sha256(native_projection_source()).hexdigest()
+    digest = hashlib.sha256(native_projection_source(provider_type)).hexdigest()
     return {'kind': 'native-answer-selection', 'version': 7,
             'provider_type': provider_type,
             'source_sha256': digest, 'source_path': 'native-answer-policies/'+digest+'.py'}
 
 
-def _object(value):
+def json_object(value):
+    """The value when it is a JSON object, otherwise an empty object."""
     return value if isinstance(value, dict) else {}
 
 
+@dataclass(frozen=True)
+class NativeSelection:
+    """One response presented to an adapter's pre-call answer selection policy.
+
+    Adapters declare ``native_answer_selection(selection)``; it returns the
+    projection declaration or None when the response carries no answer.
+    """
+
+    provider_type: str
+    case: Any
+    payload: dict
+    status_code: Any
+    interface: Any
+    policy_version: int
+
+    def get(self, key, default=None):
+        if isinstance(self.case, dict):
+            return self.case.get(key, default)
+        return getattr(self.case, key, default)
+
+    @property
+    def track(self):
+        return self.get('track', 'web')
+
+    @property
+    def task_kind(self):
+        return self.get('task_kind', 'body')
+
+    @property
+    def successful_http(self):
+        return type(self.status_code) is int and 200 <= self.status_code < 300
+
+
 def native_answer_projection(provider_type, case, payload, status_code=None, *, interface=None, policy_version=7):
-    """Return the declaration selected by the pre-call structural policy."""
+    """Return the declaration selected by the adapter's pre-call structural policy."""
     if type(policy_version) is not int or policy_version not in {1, 2, 3, 4, 5, 6, 7}:
         raise ValueError('Unknown native answer selection policy version')
-    get = case.get if isinstance(case, dict) else lambda key, default=None: getattr(case, key, default)
-    track, task_kind = get('track', 'web'), get('task_kind', 'body')
-    payload = _object(payload)
-    successful_http = type(status_code) is int and 200 <= status_code < 300
-    if provider_type in {'lexmount', 'lexmount_cn'}:
-        result = _object(payload.get('result'))
-        extra = _object(result.get('extra'))
-        text_scalar = {'format': 'text_or_text_list'} if policy_version >= 7 else {}
-        return {'schema_version': 2, 'content_pointer': ['result', 'main_text'],
-                **({'answer_format': 'plain_text'} if policy_version >= 4 else {}),
-                'content_format': 'text' if isinstance(result.get('main_text'), str) else 'empty',
-                'optional_content': True,
-                'result_fields': {
-                    'final_url': {'pointer': ['result', 'final_url' if result.get('final_url') else 'url'],
-                                  'format': 'text_or_none'},
-                    'title': {'pointer': ['result', 'title'], 'format': 'text_or_none'}},
-                'answer_fields': {
-                    # Resources only when returned as lists: an explicit null is no resources.
-                    **{name: {'pointer': ['result', name], 'format': 'identity'}
-                       for name in ('links', 'images') if isinstance(result.get(name), list)},
-                    # Malformed returned fields are absent: keep only text values and rows.
-                    **({'page_structure': {'pointer': ['result', 'extra', 'dom_summary'],
-                                          'format': 'object_fields', 'default': {},
-                                          'fields': {'headings': {'pointer': ['headings'], 'format': 'text_items',
-                                                                  'default': None}}}
-                        if policy_version >= 7 else {'pointer': ['result', 'extra', 'dom_summary'],
-                                                     'format': 'identity', 'default': {}}}
-                       if policy_version >= 4 and (policy_version < 7 or isinstance(extra.get('dom_summary', {}), dict))
-                       else {}),
-                    **({'records': (
-                            {'pointer': ['result', 'extra', 'quotes'], 'format': 'object_rows', 'default': [],
-                             'fields': {'quote': {'pointer': ['text'], 'default': None},
-                                        'author': {'pointer': ['author'], 'default': None},
-                                        'tags': {'pointer': ['tags'], 'format': 'joined_text_items', 'default': []}}}
-                            if policy_version >= 6 and isinstance(extra.get('quotes'), list)
-                            and not extra.get('reviews')
-                            else {'pointer': ['result', 'extra', 'reviews'], 'format': 'identity', 'default': []})}
-                       if policy_version >= 4 and (policy_version < 7 or isinstance(extra.get('reviews', []), list)
-                                                   or isinstance(extra.get('quotes'), list) and not extra.get('reviews'))
-                       else {}),
-                    **({'page_information': {
-                        'pointer': ['result'], 'format': 'object_fields', 'default': {},
-                        'fields': {
-                            # Title, description and site name are document metadata, not page text.
-                            **{key: {'pointer': [key], 'default': None, **text_scalar}
-                               for key in ('author', 'description', 'publish_time')
-                               if policy_version < 7 or key != 'description'},
-                            **{key: {'pointer': ['extra', source if source in extra
-                                                   else {'lead': 'dek', 'breadcrumbs': 'breadcrumb'}.get(source, source)], 'default': None,
-                                     **({'format': 'text_items'} if key in {'categories', 'tags', 'headings', 'table_of_contents', 'breadcrumbs'} else text_scalar)}
-                               for key, source in (
-                                   ('published_at', 'published_at'), ('subtitle', 'subtitle'),
-                                   ('lead', 'lead'), ('source', 'source'), ('editor', 'editor'),
-                                   *((('site_name', 'site_name'),) if policy_version < 7 else ()),
-                                   ('copyright', 'copyright_statement'),
-                                   ('statement', 'statement'), ('categories', 'categories'),
-                                   ('tags', 'tags'), ('headings', 'headings'),
-                                   ('table_of_contents', 'table_of_contents'),
-                                   ('breadcrumbs', 'breadcrumbs'))},
-                            'paragraphs': {'pointer': ['extra', 'dom_summary', 'paragraphs'], 'format': 'text_items', 'default': None},
-                            **({'section_headings': {'pointer': ['extra', 'section_headings'],
-                                                      'format': 'text_items', 'default': None}}
-                               if policy_version >= 7 and isinstance(extra.get('section_headings'), list) else {}),
-                        }}}
-                       if policy_version >= 5 else {})}}
-    if provider_type == 'brightdata_unlocker':
-        if policy_version >= 3 and task_kind == 'file':
-            return {'schema_version': 2, 'source_format': 'bytes', 'content_format': 'empty',
-                    **({'files': {'format': 'raw_bytes'}} if successful_http else {})}
-        return {'schema_version': 2, 'source_format': 'bytes',
-                'content_format': 'utf8' if successful_http else 'empty'}
-    if provider_type == 'claude_web_fetch':
-        blocks = payload.get('content', [])
-        malformed = not isinstance(blocks, list) or any(not isinstance(block, dict) for block in blocks)
-        blocks = [] if malformed else blocks
-        selected = None
-        target_url = case.get('url') if isinstance(case, dict) else case.url
-        for index, block in enumerate(blocks if isinstance(blocks, list) else []):
-            if block.get('type') != 'web_fetch_tool_result':
-                continue
-            # The final tool result is authoritative, including a failed retry.
-            selected = None
-            result = _object(block.get('content'))
-            source = _object(_object(result.get('content')).get('source'))
-            if (block.get('type') == 'web_fetch_tool_result' and result.get('type') == 'web_fetch_result'
-                    and source.get('type') == 'text' and isinstance(source.get('data'), str)):
-                selected = index
-        result_id = blocks[selected].get('tool_use_id') if selected is not None else None
-        invocations = [index for index, block in enumerate(blocks)
-                       if block.get('type') == 'server_tool_use' and block.get('id') == result_id]
-        invalid = (not successful_http or selected is None
-                   or malformed
-                   or not isinstance(result_id, str) or not result_id
-                   or len(invocations) != 1 or invocations[0] >= selected
-                   or not any(b.get('type') == 'server_tool_use' for b in blocks)
-                   or any(b.get('name') != 'web_fetch' or not isinstance(b.get('input'), dict)
-                          or _object(b.get('input')).get('url') != target_url
-                          for b in blocks if b.get('type') == 'server_tool_use'))
-        return {'schema_version': 2, 'content_format': 'empty' if invalid else 'text',
-                **({'content_pointer': ['content', selected, 'content', 'content', 'source', 'data']}
-                   if not invalid else {}), 'optional_content': True,
-                **({'result_fields': {
-                    'title': {'pointer': ['content', selected, 'content', 'content', 'title'], 'format': 'text_or_none'},
-                    'final_url': {'pointer': ['content', selected, 'content', 'url'], 'format': 'text_or_none'}}}
-                   if not invalid else {})}
-    if provider_type in {'kimi_fetch', 'zai_reader'}:
-        prefix = ['reader_result'] if provider_type == 'zai_reader' else []
-        answer = _object(payload.get('reader_result')) if prefix else payload
-        field = 'markdown' if provider_type == 'kimi_fetch' else 'content'
-        return {'schema_version': 2, 'content_pointer': [*prefix, field],
-                'content_format': 'text' if successful_http and isinstance(answer.get(field), str) else 'empty',
-                'optional_content': True, 'result_fields': {
-                    key: {'pointer': [*prefix, source], 'format': 'text_or_none'}
-                    for key, source in (('title', 'title'), ('final_url', 'url'))}}
-    if provider_type in {'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'crawl4ai_cloud'}:
-        field = ('body' if provider_type == 'browser_use_fetch' else
-                 'markdown' if provider_type == 'crawl4ai_cloud' else 'content')
-        value = payload.get(field)
-        fmt = 'text' if isinstance(value, str) else 'empty'
-        declaration = {'schema_version': 2, 'content_pointer': [field],
-                       'content_format': fmt if successful_http else 'empty',
-                       'optional_content': True, 'result_fields': {}}
-        if policy_version >= 2 and task_kind == 'file' and provider_type in {'browser_use_fetch', 'browserbase_fetch'}:
-            declaration['content_format'] = 'empty'
-            binary = (payload.get('is_binary') is True if provider_type == 'browser_use_fetch'
-                      else payload.get('encoding') == 'base64')
-            file_field = 'body_base64' if binary and provider_type == 'browser_use_fetch' else field
-            file_value = payload.get(file_field)
-            encoding_valid = (type(payload.get('is_binary', False)) is bool if provider_type == 'browser_use_fetch'
-                              else payload.get('encoding', 'utf-8') in ('utf-8', 'base64'))
-            if successful_http and encoding_valid and not payload.get('error') and isinstance(file_value, str) and file_value:
-                try:
-                    delivered = base64.b64decode(file_value, validate=True) if binary else file_value.encode('utf-8')
-                except (ValueError, UnicodeError):
-                    delivered = b''
-                if delivered:
-                    declaration['files'] = {'pointer': [file_field],
-                                            'format': 'base64_file' if binary else 'utf8_file'}
-        if provider_type == 'deepseek_fetch':
-            declaration['result_fields']['title'] = {'pointer': ['title'], 'format': 'text_or_none'}
-        if provider_type == 'browser_use_fetch':
-            declaration['result_fields']['final_url'] = {'pointer': ['final_url'], 'format': 'text_or_none'}
-        return declaration
-    if provider_type in {'tavily_extract', 'exa_contents'}:
-        results = payload.get('results')
-        result = _object(results[0]) if isinstance(results, list) and results else {}
-        field = 'raw_content' if provider_type == 'tavily_extract' else 'text'
-        content = result.get(field) if isinstance(result.get(field), str) else ''
-        ok = successful_http and bool(content)
-        if provider_type == 'exa_contents':
-            statuses = payload.get('statuses')
-            status = _object(statuses[0]) if isinstance(statuses, list) and statuses else {}
-            ok = ok and status.get('status') in (None, 'success')
-        if not (ok or content or result.get('url')):
-            return None
-        declaration = {'schema_version': 2, 'content_pointer': ['results', 0, field],
-                       'content_format': 'text', 'optional_content': True,
-                       'result_fields': {'final_url': {'pointer': ['results', 0, 'url'],
-                                                       'fallback': 'request_url'}}}
-        if provider_type == 'tavily_extract':
-            declaration['answer_fields'] = ({'images': {
-                'pointer': ['results', 0, 'images'] if result.get('images') else ['images'],
-                'format': 'identity', 'default': []}} if ok else {})
-        else:
-            if ok:
-                declaration['result_fields']['title'] = {'pointer': ['results', 0, 'title']}
-            declaration['answer_fields'] = ({
-                'extras': {'pointer': ['results', 0, 'extras'], 'format': 'identity', 'default': {}},
-                'links': {'pointer': ['results', 0, 'extras', 'richLinks'], 'format': 'named_links', 'default': []}}
-                if ok else {})
-        return declaration
-    if provider_type == 'firecrawl':
-        data = _object(payload.get('data'))
-        metadata = _object(data.get('metadata'))
-        file_route = task_kind == 'file'
-        video_route = task_kind == 'resource' and track == 'video'
-        api_ok = successful_http and payload.get('success') is True
-        file_bytes = b''
-        if file_route and api_ok and isinstance(data.get('rawBase64'), str):
-            try:
-                file_bytes = base64.b64decode(data['rawBase64'], validate=True)
-            except ValueError:
-                pass
-        content = data.get('markdown') if isinstance(data.get('markdown'), str) else ''
-        videos = [item for item in data.get('videos', []) if isinstance(item, (str, dict))] if isinstance(data.get('videos'), list) else []
-        if isinstance(data.get('video'), str) and data['video']:
-            videos.append(data['video'])
-        ok = api_ok and (bool(file_bytes) if file_route else bool(content) or bool(videos and video_route))
-        final_url = metadata.get('url')
-        if not ok and not (isinstance(final_url, str) and final_url):
-            return None
-        fields = {} if file_route or not ok else {
-            'links': {'pointer': ['data', 'links'], 'format': 'identity', 'default': []},
-            'images': {'pointer': ['data', 'images'], 'format': 'identity', 'default': []}}
-        if fields and video_route:
-            fields['videos'] = {'pointer': ['data', 'videos'], 'format': 'video_values', 'default': [],
-                                'legacy': {'pointer': ['data', 'video'], 'default': ''}}
-        return {'schema_version': 2, 'content_pointer': ['data', 'markdown'],
-                'content_format': 'empty' if file_route or not ok else 'text', 'optional_content': True,
-                'result_fields': {'final_url': {'pointer': ['data', 'metadata', 'url'], 'format': 'text_or_none', 'nonempty': True},
-                    **({'title': {'pointer': ['data', 'metadata', 'title'], 'format': 'text_or_none'}} if ok else {})},
-                'answer_fields': fields,
-                **({'files': {'pointer': ['data', 'rawBase64'], 'format': 'base64_file'}} if file_bytes else {})}
-    if provider_type in {'cloudflare_markdown', 'cloudflare_content'}:
-        success = payload.get('success') is True
-        meta = _object(payload.get('meta'))
-        resources = (interface == '/scrape' if interface is not None else
-                     provider_type == 'cloudflare_markdown' and task_kind == 'resource' and track in {'image', 'video'})
-        if resources:
-            if not success and not meta:
-                return None
-            key = 'images' if track == 'image' else 'videos'
-            return {'schema_version': 2, 'content_pointer': ['result'],
-                    'content_format': 'json' if success else 'empty',
-                    'result_fields': {'final_url': {'pointer': ['meta', 'finalUrl'], 'fallback': 'request_url'}},
-                    'answer_fields': {key: {'pointer': ['result'], 'format': 'html_attribute_urls',
-                                           'srcset_parser': SRCSET_PARSER, 'base_url': meta.get('finalUrl') or get('url')}} if success else {}}
-        text = success and isinstance(payload.get('result', ''), str)
-        if not text and not meta:
-            return None
-        return {'schema_version': 2, 'content_pointer': ['result'],
-                'content_format': 'text' if text else 'empty', 'optional_content': True,
-                'result_fields': {**({'title': {'pointer': ['meta', 'title']}} if provider_type == 'cloudflare_markdown' else {}),
-                    'final_url': {'pointer': ['meta', 'finalUrl'], 'fallback': 'request_url'}}}
-    if provider_type in {'subprocess_jsonl', 'cowagent_builtin'}:
-        return {'schema_version': 2, 'content_pointer': ['content'],
-                'content_format': 'text' if isinstance(payload.get('content'), str) else 'empty',
-                'result_fields': {'title': {'pointer': ['title']},
-                                  'final_url': {'pointer': ['final_url'], 'fallback': 'request_url'}},
-                'answer_fields': {key: {'pointer': ['metadata', key], 'format': 'identity'}
-                                  for key in ('links', 'images', 'videos', 'media', 'extras')
-                                  if key in _object(payload.get('metadata'))},
-                **({'files': {'pointer': ['files'], 'format': 'worker_files'}} if payload.get('files') else {})}
-    if provider_type == 'moli_webfetch':
-        from harness.web_fetch.providers.moli import _route_for_case
-        projected_case = SimpleNamespace(**case) if isinstance(case, dict) else case
-        raw = _route_for_case(projected_case, native_default=True,
-            document_output='markdown' if interface in {'ordinary_markdown', 'ordinary_html'} else 'native') in {'raw_file', 'native_document_bytes'}
-        return {'schema_version': 2, 'source_format': 'bytes',
-                'content_format': 'empty' if raw else 'utf8',
-                **({'files': {'format': 'raw_bytes'}} if raw else
-                   {'result_fields': {'final_url': {'format': 'fetch_log_final_url'}}})}
-    if provider_type == 'fixture':
-        return {'schema_version': 2, 'content_pointer': ['content'], 'content_format': 'text',
-                'result_fields': {'title': {'pointer': ['title']}, 'final_url': {'pointer': ['final_url']}}}
-    raise ValueError('Unsupported native answer selection policy: ' + str(provider_type))
+    selector = _selector(provider_type)
+    if selector is None:
+        raise ValueError('Unsupported native answer selection policy: ' + str(provider_type))
+    return selector(NativeSelection(provider_type, case, json_object(payload), status_code,
+                                    interface, policy_version))
 
 
 def native_field_value(payload, pointer):

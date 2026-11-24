@@ -381,7 +381,7 @@ def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_pa
     policy = native_projection_policy('kimi_fetch')
     policy_path = source/policy['source_path']
     policy_path.parent.mkdir()
-    policy_path.write_bytes(native_projection_source())
+    policy_path.write_bytes(native_projection_source('kimi_fetch'))
     raw = write(source/'private_artifacts/early.response.bin',
                 {'markdown':answer.decode(),'title':'Example','url':case['url']})
     events = write(source/'private_artifacts/early.stderr.log',

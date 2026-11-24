@@ -79,11 +79,11 @@ def registered_names() -> frozenset[str]:
     """Method, provider and browser names from the registries that own them."""
     from harness.trajectory_replay.participants import BROWSER_ADAPTERS
     from harness.web_extract.pipeline import METHODS
-    from harness.web_fetch.providers.base import PROVIDER_TYPES
+    from harness.web_fetch.providers.base import PROVIDERS
     from harness.web_search.adapters import ADAPTERS
 
     providers = json.loads((ROOT / "configs/providers.example.json").read_text(encoding="utf-8"))["providers"]
-    names = {*PROVIDER_TYPES, *providers, *ADAPTERS, *METHODS, *BROWSER_ADAPTERS}
+    names = {*PROVIDERS.names(), *providers, *ADAPTERS, *METHODS, *BROWSER_ADAPTERS}
     return frozenset(names - GENERIC_NAMES)
 
 

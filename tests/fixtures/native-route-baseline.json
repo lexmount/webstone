@@ -1,106 +1,154 @@
 {
+  "brightdata_unlocker:configured": {
+    "cells": 192,
+    "sha256": "88275fb5f1deb6ad5dc53c3f153fd3f3e96884a0aa8463f1aab9b8f0d7dec7e3"
+  },
+  "brightdata_unlocker:defaults": {
+    "cells": 192,
+    "sha256": "f9ca94a0e3fbcce9ab7d5b893a36f28c481692e8051efa063e28cb3847e8d340"
+  },
+  "browser_use_fetch:configured": {
+    "cells": 192,
+    "sha256": "f7d20765b7609b4b531614cefe96ba3269e3d6de9b24b08abd7380e314d0d6c6"
+  },
+  "browser_use_fetch:defaults": {
+    "cells": 192,
+    "sha256": "2cc9de50a480e5c10dae21fff822b52adf6b5e9492984a716bb63d21f0bc7f00"
+  },
+  "browserbase_fetch:configured": {
+    "cells": 192,
+    "sha256": "9a944d6899eacadea82fe9c0499e024fc765d9751226b8c31ed880ceee4fff6e"
+  },
+  "browserbase_fetch:defaults": {
+    "cells": 192,
+    "sha256": "4b059eb64eec41882393a368979a0d589bea0b2aee9bf8b7d1e2d04a48f261e1"
+  },
   "claude_web_fetch:configured": {
     "cells": 192,
-    "sha256": "eb89d2e73f5581b52368a4bffee442606a3431676a90c60d9010f64dbf378d4c"
+    "sha256": "b3967d8cd8ddb7478f025ead8fc4e23a82813c594ddf759d3b02c9cf506f0af0"
   },
   "claude_web_fetch:defaults": {
     "cells": 192,
-    "sha256": "2d8e38b338c2e5d6ad54477d5a42b5b8cf1517ac3295be99e15069587a77599f"
+    "sha256": "494577be31b6c3b547cc1a004b5f0e7472f45572b281495ae402949b53d46539"
   },
   "cloudflare_content:configured": {
     "cells": 192,
-    "sha256": "80df530d4c9c133a7ac9f702d0d7773c5b653d05f50acf62613a8806fcdf13f2"
+    "sha256": "95650785aea346700fcc24b7fcd41f5f45ca8c8efb9fa3f69214cf8d280c45f2"
   },
   "cloudflare_content:defaults": {
     "cells": 192,
-    "sha256": "97b83534509d6453c531c6bd30b95c22e269017ff06b1dfc21c960ae3b36228b"
+    "sha256": "bc86631fdaf170365658b5de4cd79d053e95dafc4abd4708f6a27a7ff22c1493"
   },
   "cloudflare_markdown:configured": {
     "cells": 192,
-    "sha256": "23376e0687071fb2e169309d49391e2eb5bcb8c576f702a67cad849c36767d31"
+    "sha256": "7b36621841448e53c4180c2617784170d13599746c4607e9aac14e0cb20b8901"
   },
   "cloudflare_markdown:defaults": {
     "cells": 192,
-    "sha256": "544cf893b25969b5231171fed2c2025b5e4e7fbcd3afa99cf7844da20daab67b"
+    "sha256": "efbc2d074d0917852b7cd1002f2722b9bc29089d07e83253a58fd6d429fe6eaa"
   },
   "cowagent_builtin:configured": {
     "cells": 192,
-    "sha256": "295fb1c398e538e1816acd63abbd7e751d16f852555d34d9515835a8422d145a"
+    "sha256": "74a0a01b9a82067a6f5f815c2bc9d97c87b60f6bc4e10bf6dd11dadb7f5ab0cd"
   },
   "cowagent_builtin:defaults": {
     "cells": 192,
-    "sha256": "e119fcdc7e6b465320ba9c94bd27ddb5473b4517a1decf2fc449b015f22e9957"
+    "sha256": "c3d208aa432678bb69d5c16f87d1f9eba8edf0477a437ab695778bbd5d9d69c2"
+  },
+  "crawl4ai_cloud:configured": {
+    "cells": 192,
+    "sha256": "843945e38544bcc6aba79d253408b6199b8f4e5632bcd2c65981563118e9b8b7"
+  },
+  "crawl4ai_cloud:defaults": {
+    "cells": 192,
+    "sha256": "72af3ad7b156e07103ec9974f0a827cdf22e5f8fceb050d8a1c89861b490cede"
+  },
+  "deepseek_fetch:configured": {
+    "cells": 192,
+    "sha256": "8b894ae3568b0b258b020ceb54f024af64375803903373d238aa1a79fc0fba37"
+  },
+  "deepseek_fetch:defaults": {
+    "cells": 192,
+    "sha256": "9732c4492c811947f1aac95db88fedb519414ccf84ce49dc20717fa1efb8698e"
   },
   "exa_contents:configured": {
     "cells": 192,
-    "sha256": "97dea96d47711edf6bde700c03f3c4269e26457cca9edfbaff13bab9a09ac12c"
+    "sha256": "454380a6559acf1f97317a1bbe385b06c115244f49f6e3e83606084677e5b8ac"
   },
   "exa_contents:defaults": {
     "cells": 192,
-    "sha256": "fe7ca3144b4c3c68003369a492283a8a3963037a9628692c36468ff881eaff11"
+    "sha256": "d78f2be4e30215f5b8975e13335db74b18cbaaf900416677e6ce437dd7b80cd1"
   },
   "firecrawl:configured": {
     "cells": 192,
-    "sha256": "49193ebd461f14c1a7407ed55300c2cf35b7c9bb278396bf3a483acb268fb99e"
+    "sha256": "2746c7149818017c9ef0b9155746247bbe5c0e19bf7b7fa8042634f58539c185"
   },
   "firecrawl:defaults": {
     "cells": 192,
-    "sha256": "2b20f1c424190dd53c4682c425a1ec9fa572a64a93cbeebcba6e8ed5711cf6cf"
+    "sha256": "2cc7a63a313a9a190023c0014eb6ed7012b6f98b73d319164705b552e26cd29c"
   },
   "fixture:configured": {
     "cells": 192,
-    "sha256": "5064b2f01cda4d538e974c91ec630c34c52e51e52a9bc726e7b8c4ee40d62b63"
+    "sha256": "9e0cf85bd727ef456309eac4bfeb918cbf5c3ee1759b1eeac9f75f04235afd5e"
   },
   "fixture:defaults": {
     "cells": 192,
-    "sha256": "8cde15dc2b9d9bc4a32725a2a4fc95c1d9e2d8b8288aa9cd472db805ff0c607b"
+    "sha256": "0d4b9e37294d63ec7c520e0a7b6b6b864b6d9d423ae467c24f89bde4b0df1041"
   },
   "kimi_fetch:configured": {
     "cells": 192,
-    "sha256": "b6cd55ee7233495d7152307ca7cedb4bbf2a2a83b2d63f54da5f470057e3fda7"
+    "sha256": "b34512a26bee783b9f6d6e4e91d157a75e7729080136d821e4d30a2ebc7a1aae"
   },
   "kimi_fetch:defaults": {
     "cells": 192,
-    "sha256": "17f83b363175360daa2a51f84aeb9eaba4cc205e1f434f6f896a1ef43a5792c5"
+    "sha256": "84c04959cbf2d72ea2db7bb0cfaff66de841f617ccf387da8c267647bbc1edb0"
   },
   "lexmount:configured": {
     "cells": 192,
-    "sha256": "f907725d719bc625af671b795797007bad198fd6e44292ab85199a3de0c75d09"
+    "sha256": "90956a0c9097ea21f7bc740359d37eb639df796bc90eadad51dbc0857a851b6a"
   },
   "lexmount:defaults": {
     "cells": 192,
-    "sha256": "9fef7eb76ba01b5a3a9e821b5111c78d3f033438bb1b6528330df76ccc6b35ad"
+    "sha256": "91c684c8a6b33c02f506439a65188a27e5d955050113a410dbc6f685e137e565"
+  },
+  "lexmount_cn:configured": {
+    "cells": 192,
+    "sha256": "c0ace11b68ad795658e48d82f8190c981507ef7fd853f9a6f6dc9cf5b0c8cdd4"
+  },
+  "lexmount_cn:defaults": {
+    "cells": 192,
+    "sha256": "99c0e9266dbc32c1a149f7877adb1aa54680a8ed494d954663287708471486b7"
   },
   "moli_webfetch:configured": {
     "cells": 192,
-    "sha256": "9c401dbe841aab1a3294ee547fcfad999fcd0fb367fe4950146d894a3717b573"
+    "sha256": "f5fc3826d44023df58a49cb82bb809a373c3c89d2a9bb26904709f83813a1d02"
   },
   "moli_webfetch:defaults": {
     "cells": 192,
-    "sha256": "472efa0aa9a2c0afd0462e33a05bd74dc4623a87c99e683aebbefa5e2d1310b3"
+    "sha256": "44d19497ed136d027ef3ef7386727683a1027f855dcd20a33aa101074ea838ea"
   },
   "subprocess_jsonl:configured": {
     "cells": 192,
-    "sha256": "ff240030f4f45b42dffcf16685b738dfeb977f044c6f2ad749f66434a0104b58"
+    "sha256": "3c2b74a06d2a514c5e2c17e48d0f940dac19f1f50269569141316c9958dc6e5d"
   },
   "subprocess_jsonl:defaults": {
     "cells": 192,
-    "sha256": "0550c941de13b6a0be669ca9947380a63af9cd7fe211a5770692529f8150b240"
+    "sha256": "5a0563bba1a73cad8e187861afcce4f142c0e997d8039f63b6c44e17dfbd8372"
   },
   "tavily_extract:configured": {
     "cells": 192,
-    "sha256": "1f937268e7678c3b035fbccc085116131fb14ba5afcd46990205a41d82638d7d"
+    "sha256": "f1d2c82ebbb8c498f3c56671aaa1665a59d7b926d0cdb65c058715bcaac1bd29"
   },
   "tavily_extract:defaults": {
     "cells": 192,
-    "sha256": "6e8f96ab7ee60f8a133a765397e0318d043dcd11b2f3ad36843ed15ab57ec082"
+    "sha256": "ef6a9998aa12be3a8a6fdf9e922d67e3d786267c8971d08e1267dd9cf79d79c2"
   },
   "zai_reader:configured": {
     "cells": 192,
-    "sha256": "6cef9c736e13ebc951c5ee9aea6552bb5083044101d3eb96b5d2f8c093627f89"
+    "sha256": "d3aa8d444d6eec098f6ffa299302bc1c00c59edc4e25381111ef117b27e5ac06"
   },
   "zai_reader:defaults": {
     "cells": 192,
-    "sha256": "bcc596c15be3c7f052bd9e81a96f28ce44d823750f995a9577687f0035c5f206"
+    "sha256": "6a599a4cefc92733f36a04ea30d6acdc2fcec3ad36fbdbf3f459074eb860bc1f"
   }
 }

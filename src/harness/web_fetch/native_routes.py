@@ -259,7 +259,7 @@ class NativeRouteLedger:
             raise ValueError('Native route contract already exists; do not overwrite a run')
         for cell in self.cells.values():
             policy = cell['answer_selection_policy']
-            policy_source = native_projection_source()
+            policy_source = native_projection_source(cell['provider_type'])
             if hashlib.sha256(policy_source).hexdigest() != policy['source_sha256']:
                 raise ValueError('Native answer policy changed before the pre-call freeze')
             policy_path = contained_path(source, policy['source_path'], reject_symlinks=True)
@@ -518,9 +518,9 @@ def native_cases_by_id(root):
     return indexed
 
 
-# Adapters that declare no answer for a malformed (non-object JSON) envelope.
-_MALFORMED_ENVELOPE_IS_EVIDENCE = frozenset({'browser_use_fetch', 'browserbase_fetch', 'deepseek_fetch', 'kimi_fetch', 'zai_reader', 'claude_web_fetch', 'crawl4ai_cloud',
-                                    'lexmount', 'lexmount_cn'})
+def _record_capabilities(record):
+    from harness.web_fetch.providers.base import provider_capabilities
+    return provider_capabilities(record.get('provider_type'))
 
 
 def _expected_native_declaration(root, record, raw, cases_by_id, *, policy_version=3):
@@ -531,14 +531,16 @@ def _expected_native_declaration(root, record, raw, cases_by_id, *, policy_versi
     # Serialized inputs may omit EvalCase defaults; replay must use the same
     # routing defaults as acquisition without changing the frozen input bytes.
     case = {'task_kind': 'body', 'track': 'web', **case}
+    capabilities = _record_capabilities(record)
+    strict_envelope = capabilities.has('malformed_envelope_is_evidence')
     try:
-        if record['provider_type'] in _MALFORMED_ENVELOPE_IS_EVIDENCE:
+        if strict_envelope:
             payload = parse_utf8_json(raw)
         else:
-            payload = json.loads(raw) if record['provider_type'] not in {'moli_webfetch', 'brightdata_unlocker'} else {}
+            payload = json.loads(raw) if not capabilities.has('raw_answer_bytes') else {}
     except (ValueError, UnicodeDecodeError):
         payload = None
-    if record['provider_type'] in _MALFORMED_ENVELOPE_IS_EVIDENCE:
+    if strict_envelope:
         if not isinstance(payload, dict):
             return None  # Malformed API envelopes are evidence, never answers.
     if payload is None:
@@ -546,10 +548,10 @@ def _expected_native_declaration(root, record, raw, cases_by_id, *, policy_versi
     requests = record['provider_metadata']['native_route_receipt'].get('requests', [])
     interface = requests[0].get('signature', {}).get('interface') if requests else None
     output_contract = record['provider_metadata'].get('output_contract', interface)
-    # Historical Moli captures used a format label instead of an interface.
+    # Some historical captures used a format label instead of an interface.
     # Replay their frozen request route; current adapters retain the route in
     # output_contract. Never rewrite the old evidence to repair its label.
-    if record['provider_type'] == 'moli_webfetch' and output_contract == 'markdown':
+    if capabilities.has('legacy_markdown_output_label') and output_contract == 'markdown':
         output_contract = interface
     return native_answer_projection(record['provider_type'], case, payload,
                                     record['provider_metadata'].get('api_http_status', record.get('status_code')),
@@ -584,7 +586,7 @@ def verify_saved_native_answer(root, record, *, cases_by_id=None):
             # A timed-out empty answer is deliberately discarded. Network or
             # pre-transport failures may have no raw response to select from.
             if record.get('error_type') != 'timeout':
-                bytes_source = record.get('provider_type') == 'moli_webfetch'
+                bytes_source = _record_capabilities(record).has('raw_stdout_evidence')
                 raw_path = metadata.get('raw_stdout_path' if bytes_source else 'raw_response_path')
                 raw_hash = metadata.get('raw_stdout_sha256' if bytes_source else 'raw_response_sha256')
                 if raw_path or raw_hash:
@@ -601,7 +603,7 @@ def verify_saved_native_answer(root, record, *, cases_by_id=None):
             raise ValueError('Discarded late native answer retains score-bearing fields')
         return
     stdout_source = (declaration.get('source_format') == 'bytes'
-                     and record.get('provider_type') != 'brightdata_unlocker')
+                     and not _record_capabilities(record).has('raw_http_evidence'))
     raw_path = metadata.get('raw_stdout_path' if stdout_source else 'raw_response_path')
     raw_hash = metadata.get('raw_stdout_sha256' if stdout_source else 'raw_response_sha256')
     if not raw_path or not raw_hash:
