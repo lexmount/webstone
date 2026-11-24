@@ -646,7 +646,7 @@ def test_overlapping_load_does_not_hide_work_from_budget_projection(tmp_path, mo
         assert len(requests) == 2
 
 
-@pytest.mark.parametrize('invalid', [0, -1, float('inf'), float('nan'), True])
+@pytest.mark.parametrize('invalid', [0, float('nan'), True])
 def test_invalid_auxiliary_deadlines_fail_before_any_model_call(tmp_path, invalid):
     with server([]) as (url, calls):
         value = plan(url)

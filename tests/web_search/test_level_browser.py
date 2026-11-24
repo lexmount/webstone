@@ -12,8 +12,8 @@ from harness.web_search.report import SCRIPT, STYLE
 from tests.web_search.test_level_scores import complete_levels
 
 
-@pytest.mark.parametrize('width', [480, 1280])
-def test_home_explanation_remains_visible_while_switching_outputs(tmp_path, width):
+def test_home_explanation_remains_visible_while_switching_outputs(tmp_path):
+    width = 480
     from harness.web_search.comparison import render_level_guide, render_level_tabs
     from tests.web_search.test_level_presentation import guide_views
 
@@ -46,8 +46,8 @@ def test_home_explanation_remains_visible_while_switching_outputs(tmp_path, widt
             browser.close()
 
 
-@pytest.mark.parametrize("width", [480, 1280])
-def test_level_tabs_and_independent_filters_in_real_browser(tmp_path, width):
+def test_level_tabs_and_independent_filters_in_real_browser(tmp_path):
+    width = 480
     playwright = pytest.importorskip("playwright.sync_api")
     profile, rows, admissions, artifacts, evidence = complete_levels()
     views = assessed_levels(

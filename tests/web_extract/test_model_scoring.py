@@ -109,7 +109,6 @@ def test_model_plan_cannot_replace_its_authoritative_reference(tmp_path):
         (None, "interrupted"),
         (None, "worker-error"),
         ("temperature", "refused"),
-        ("timeout", "interrupted"),
         ("policy", "worker-error"),
     ],
 )

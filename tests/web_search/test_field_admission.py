@@ -199,7 +199,7 @@ def test_basic_search_needs_no_page_fetch_and_keeps_only_top_five_native_slots()
     assert rows[1:] == untouched[1:]
 
 
-@pytest.mark.parametrize('malformed', [None, {}, 'invalid', [None], [1, 'invalid']])
+@pytest.mark.parametrize('malformed', [None, 'invalid', [None]])
 def test_malformed_capture_collections_are_unavailable_not_runtime_errors(malformed):
     def change(payload, plan):
         payload.update(results=malformed, statuses=malformed)

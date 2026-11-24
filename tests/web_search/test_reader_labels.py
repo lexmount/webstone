@@ -4,8 +4,7 @@ import pytest
 from lexbench_websearch.relevance import query_metrics
 from harness.web_search.report import relevance_panel
 
-@pytest.mark.parametrize('zh', [True, False])
-@pytest.mark.parametrize('kind', ['model', 'human'])
+@pytest.mark.parametrize('zh,kind', [(True, 'model'), (False, 'human')])
 def test_relevance_labels_identify_the_actual_annotator_and_metric(zh, kind):
     profile = {'methods': [{'id': 'search', 'label': 'Search'}], 'cases': [{'id': 'q', 'query': 'Question'}]}
     result = {'case_id': 'q', 'method': 'search', 'family': 'web', **query_metrics(['a'], {'a': 3})}

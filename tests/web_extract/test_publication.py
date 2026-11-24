@@ -33,30 +33,35 @@ def dataset_pin(home, case_ids=("page",)):
     }
 
 
-@pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
+_NATIVE_MODES = ["full-cohort-progress", "field-extraction-cohort"]
+_NATIVE_DAMAGES = [
+    "public-envelope",
+    "original-envelope",
+    "http-status",
+    "compatibility",
+    "missing-delivery",
+    "request-parameters",
+    "retry-removed",
+    "retry-usage",
+    "retry-time",
+    "single-attempt",
+    "injected-usage",
+    "injected-time",
+    "coerced-type",
+    "reordered-keys",
+    "retry-coerced-type",
+    "missing-home",
+    "relocated-home",
+    "wrong-home",
+]
+
+
+# Both modes build a clean release; each damage reaches the same mode-independent binding check,
+# so damages alternate between modes instead of multiplying.
 @pytest.mark.parametrize(
-    "damage",
-    [
-        None,
-        "public-envelope",
-        "original-envelope",
-        "http-status",
-        "compatibility",
-        "missing-delivery",
-        "request-parameters",
-        "retry-removed",
-        "retry-usage",
-        "retry-time",
-        "single-attempt",
-        "injected-usage",
-        "injected-time",
-        "coerced-type",
-        "reordered-keys",
-        "retry-coerced-type",
-        "missing-home",
-        "relocated-home",
-        "wrong-home",
-    ],
+    ("mode", "damage"),
+    [(mode, None) for mode in _NATIVE_MODES]
+    + [(_NATIVE_MODES[i % 2], damage) for i, damage in enumerate(_NATIVE_DAMAGES)],
 )
 def test_release_binds_native_execution_and_accepts_privacy_projection(
     tmp_path, damage, mode, segments=False
@@ -496,10 +501,15 @@ def test_incomplete_target_never_packages_or_dispatches(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "damage",
-    [None, "coordinated-public-audit", "missing-authority", "original", "content", "profile"],
+    ("damage", "local_example"),
+    [(None, False), (None, True)]
+    + [
+        (damage, index % 2 == 0)
+        for index, damage in enumerate(
+            ["coordinated-public-audit", "missing-authority", "original", "content", "profile"]
+        )
+    ],
 )
-@pytest.mark.parametrize("local_example", [False, True])
 def test_publication_uses_frozen_audit_even_when_public_receipts_are_rewritten(
     tmp_path, monkeypatch, damage, local_example
 ):
@@ -888,8 +898,14 @@ def external_preflight(tmp_path, stubbed_serial_collection):
     return home, plan, assessment, preflight
 
 
-@pytest.mark.parametrize("plan_binding", ["cohort", "selection", "segment"])
-@pytest.mark.parametrize("changed", [None, "assessment", "receipt", "manifest", "contract", "call"])
+@pytest.mark.parametrize(
+    ("plan_binding", "changed"),
+    [(binding, None) for binding in ("cohort", "selection", "segment")]
+    + [
+        (("cohort", "selection", "segment")[index % 3], changed)
+        for index, changed in enumerate(["assessment", "receipt", "manifest", "contract", "call"])
+    ],
+)
 def test_upload_guards_external_preflight_after_first_verification(
     external_preflight, tmp_path, monkeypatch, plan_binding, changed
 ):

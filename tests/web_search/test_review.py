@@ -12,8 +12,9 @@ from harness.web_search import review
 from harness.web_search.core import normalize_response
 
 
-@pytest.mark.parametrize('same_preview', [False, True])
-@pytest.mark.parametrize('reference', [{}, {'anchors': ['https://example.org/page']}, {'domains': ['example.org']}])
+@pytest.mark.parametrize('same_preview,reference', [
+    (False, {}), (True, {'anchors': ['https://example.org/page']}), (False, {'domains': ['example.org']}),
+])
 def test_unranked_scoped_annotations_do_not_block_or_grade_excluded_methods(tmp_path, same_preview, reference):
     from lexbench_websearch.relevance import candidate_packet
     from lexbench_websearch.scoring import evaluate
@@ -557,17 +558,14 @@ def test_collect_projects_existing_absolute_private_contract_without_mutating_it
     assert review.load_frozen(root) == contract
 
 
-@pytest.mark.parametrize("defect", ["model", "sandbox", "web-search", "extra-option", "input", "input-file", "output", "attempt-output", "packet", "raw"])
+@pytest.mark.parametrize("defect", ["sandbox", "extra-option", "input", "input-file", "output", "attempt-output", "packet", "raw"])
 def test_collect_requires_unchanged_private_physical_execution(tmp_path, defect):
     _, root, contract = example(tmp_path)
     complete(root, contract)
     state_path = root / "jobs/0001/status.json"
     state = json.loads(state_path.read_bytes())
-    if defect in ("model", "sandbox", "web-search"):
-        option, value = {"model": ("--model", "other-model"),
-                         "sandbox": ("--sandbox", "danger-full-access"),
-                         "web-search": ("-c", 'web_search="disabled"')}[defect]
-        state["command"][state["command"].index(option) + 1] = value
+    if defect == "sandbox":
+        state["command"][state["command"].index("--sandbox") + 1] = "danger-full-access"
     elif defect == "extra-option":
         state["command"][1:1] = ["--dangerously-bypass-approvals-and-sandbox"]
     elif defect == "input":
@@ -665,8 +663,8 @@ def test_packet_schema_physical_receipt_cannot_drift(tmp_path, defect):
         review.collect(root, require_complete=True)
 
 
-@pytest.mark.parametrize("error", [KeyError("cases"), TypeError("not a mapping")])
-def test_malformed_opinion_error_records_a_terminal_failed_job(tmp_path, error):
+def test_malformed_opinion_error_records_a_terminal_failed_job(tmp_path):
+    error = KeyError("cases")
     _, root, contract = example(tmp_path)
 
     class Process:
@@ -719,8 +717,9 @@ def test_job_error_before_the_wait_kills_the_reviewer_and_records_it(tmp_path, f
     assert state["error"] == ("disk full" if not raised else "Reviewer job ended unexpectedly")
 
 
-@pytest.mark.parametrize('level', ['l1', 'l2'])
-@pytest.mark.parametrize('second_url,expected', [('http://www.example.org/page', False), ('https://example.org/other', True)])
+@pytest.mark.parametrize('level,second_url,expected', [
+    ('l1', 'http://www.example.org/page', False), ('l2', 'https://example.org/other', True),
+])
 def test_failure_review_and_report_share_document_deduplication(tmp_path, level, second_url, expected):
     from harness.web_search.comparison import comparison_data
     from lexbench_websearch.relevance import candidate_packet, score

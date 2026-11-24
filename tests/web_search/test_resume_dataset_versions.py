@@ -10,8 +10,10 @@ from harness.web_search import runner
 from tests.web_search.fixtures import execution_profile
 
 
-@pytest.mark.parametrize('changed', [None, 'websearch', 'simpleqa-verified', 'missing'])
-@pytest.mark.parametrize('entry', ['resume', 'execution-revision', 'revised-collector'])
+@pytest.mark.parametrize('changed,entry', [
+    (None, 'resume'), (None, 'execution-revision'), (None, 'revised-collector'),
+    ('websearch', 'resume'), ('simpleqa-verified', 'execution-revision'), ('missing', 'revised-collector'),
+])
 def test_resume_checks_dataset_selection_before_requests_or_saved_changes(tmp_path, monkeypatch, changed, entry):
     profile = execution_profile()
     profile['cases'] = profile['cases'][:1]

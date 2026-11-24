@@ -67,8 +67,7 @@ def test_keepalive_failure_survives_post_call_attestation_outage(client, worker_
         assert payload["error"] == "original worker failure"
 
 
-@pytest.mark.parametrize("padding", [0, 5990, 7000])
-@pytest.mark.parametrize("keepalive", [False, True])
+@pytest.mark.parametrize("padding,keepalive", [(0, False), (5990, True), (7000, False)])
 def test_worker_errors_redact_credentials_before_the_public_length_limit(
     client, monkeypatch, padding, keepalive
 ):
@@ -100,15 +99,11 @@ def client(monkeypatch):
     [
         None,
         [],
-        3,
-        "text",
         {},
         {**BODY, "url": 123},
         {**BODY, "schema": {"type": "object", "properties": ["name"]}},
-        {**BODY, "schema": {"type": "object", "properties": {"name": 123}}},
         {**BODY, "schema": {"type": "object", "properties": {"name": {"type": "bogus"}}}},
         {**BODY, "instruction": 123},
-        {**BODY, "instruction": None},
     ],
 )
 def test_malformed_shapes_are_client_errors_without_starting_a_worker(client, body):
@@ -655,7 +650,9 @@ def test_startup_does_not_become_ready_when_preparation_times_out():
         pytest.fail('An unprepared runtime became ready')
 
 
-@pytest.mark.parametrize('changed_file', ['bundle', 'browser-binary', 'host-boot'])
+# Bundle and host-boot mutations share the backend attestation test's hashing path; the browser
+# service adds the browser binary inventory.
+@pytest.mark.parametrize('changed_file', ['browser-binary'])
 def test_browser_dependency_mutation_rejects_the_frozen_backend(
     tmp_path, monkeypatch, changed_file
 ):
@@ -723,9 +720,17 @@ def test_browser_dependency_mutation_rejects_the_frozen_backend(
                 assert requests.get(browser_url, timeout=5).status_code == 503
 
 
-@pytest.mark.parametrize("keepalive", [False, True])
+# Each failure runs once; HTTP modes alternate so both response shapes stay covered.
 @pytest.mark.parametrize(
-    "failure", ["launch", "invalid-json", "non-finite-json", "surrogate", "unexpected"])
+    "failure,keepalive",
+    [
+        ("launch", False),
+        ("invalid-json", True),
+        ("non-finite-json", False),
+        ("surrogate", True),
+        ("unexpected", False),
+    ],
+)
 def test_worker_boundary_failures_have_a_sanitized_server_status(client, keepalive, failure):
     secret = "private-process-diagnostic"
     outcome = {

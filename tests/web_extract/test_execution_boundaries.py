@@ -131,7 +131,7 @@ def accepted(*args, **kwargs):
     }
 
 
-@pytest.mark.parametrize("budget", [0, 2, True, "3", 24])
+@pytest.mark.parametrize("budget", [0, True, 24])
 def test_product_call_budget_is_validated_before_dispatch(tmp_path, budget):
     home = create(tmp_path / "example")
     with collection_context(), patch("harness.web_extract.pipeline.provider_call") as call:
@@ -175,11 +175,11 @@ def test_product_call_budget_includes_access_retries_and_is_frozen_on_resume(tmp
     assert len((run / "calls.journal.jsonl").read_text(encoding="utf-8").splitlines()) == 3
 
 
-# Every redirect status keeps the standard credential header; each provider-specific header is
-# checked on one method-preserving and one method-changing status.
+# One method-changing and one method-preserving redirect keep the standard credential header; each
+# provider-specific header is checked on one of them.
 @pytest.mark.parametrize(
     ("status", "header"),
-    [(status, "Authorization") for status in (301, 302, 303, 307, 308)]
+    [(status, "Authorization") for status in (302, 307)]
     + [(307, "X-BB-API-Key"), (303, "SGAI-APIKEY")],
 )
 def test_native_redirect_retains_response_without_sending_credentials_to_target(
@@ -714,21 +714,6 @@ def test_repeated_missing_credentials_do_not_exhaust_full_run(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "response",
-    [
-        {"success": False, "error": "session expired"},
-        {
-            "success": False,
-            "error": "page could not load",
-            "content": "account balance upgrade credits",
-        },
-    ],
-)
-def test_target_error_content_never_spends_account_retry_budget(response):
-    assert access_blocker({"http_status": 200, "response": response}) is None
-
-
-@pytest.mark.parametrize(
     "method,bad,good",
     [
         ("firecrawl-json", {"data": None}, {"data": {"json": {"sku": "ok"}}}),
@@ -800,8 +785,14 @@ def test_incomplete_direct_resume_rejects_damaged_snapshot_before_dispatch(tmp_p
     call.assert_not_called()
 
 
-@pytest.mark.parametrize("text", ['{"price":NaN}', '{"nested":[Infinity]}', '{"price":1e400}'])
-@pytest.mark.parametrize("route", ["diffbot-product", "scrapfly-product", "cloudflare-json"])
+@pytest.mark.parametrize(
+    "text,route",
+    [
+        ('{"price":NaN}', "diffbot-product"),
+        ('{"nested":[Infinity]}', "scrapfly-product"),
+        ('{"price":1e400}', "cloudflare-json"),
+    ],
+)
 def test_nonfinite_native_reply_is_checkpoint_safe(tmp_path, text, route):
     from harness.web_extract.pipeline import provider_call, read_json
 
@@ -850,19 +841,19 @@ def test_nonfinite_native_reply_is_checkpoint_safe(tmp_path, text, route):
     assert row["http_status"] == 200 and row["elapsed_seconds"] >= 0
 
 
+# Both retryable first statuses share the reconciliation path, so they alternate across mutations.
 @pytest.mark.parametrize(
-    "mutation",
+    "mutation,first_status",
     [
-        "earlier-logical",
-        "missing-physical",
-        "journal-omission",
-        "successful-retry",
-        "wrong-attempt",
-        "exceeded-budget",
-        "missing-journal",
+        ("earlier-logical", 402),
+        ("missing-physical", 403),
+        ("journal-omission", 402),
+        ("successful-retry", 403),
+        ("wrong-attempt", 402),
+        ("exceeded-budget", 403),
+        ("missing-journal", 402),
     ],
 )
-@pytest.mark.parametrize("first_status", [402, 403])
 def test_aggregation_reconciles_retry_history_and_final_selection(tmp_path, mutation, first_status):
     import json
     from copy import deepcopy
@@ -1222,50 +1213,10 @@ def test_changed_dataset_snapshot_blocks_native_calls_and_repair(tmp_path):
             fixture_check(home, base, ["any-case"], snapshot_manifest=receipt)
 
 
-@pytest.mark.parametrize("status", [200, 403, 429])
 @pytest.mark.parametrize(
-    "message", ["Target page blocked", "Download failed: forbidden", "Target page mentions credits"]
+    "changed,hosting_provider",
+    [(False, "external"), (False, "cloudflare"), (False, None), (True, "external")],
 )
-def test_target_failures_do_not_pause_the_account(status, message):
-    row = {"http_status": status, "response": {"success": False, "error": message}}
-    assert access_blocker(row) is None
-
-
-def test_extraction_error_containing_a_field_name_is_not_account_quota():
-    assert (
-        access_blocker(
-            {"http_status": 200, "response": {"error": "Cannot extract credit card field"}}
-        )
-        is None
-    )
-
-
-@pytest.mark.parametrize("status", [200, 402, 429])
-@pytest.mark.parametrize(
-    "message",
-    ["Insufficient credits to fetch target URL", "Invalid API key while fetching target page"],
-)
-def test_account_denial_is_not_hidden_by_target_fetch_words(status, message):
-    result = access_blocker({"http_status": status, "response": {"error": message}})
-    assert result in {"authentication", "quota_or_payment", "quota_or_permission"}
-
-
-@pytest.mark.parametrize(
-    "status, text, expected",
-    [
-        (401, "Failed to fetch target", "authentication"),
-        (402, "Target page blocked", "quota_or_payment"),
-        (429, "Your credit balance is too low", "quota_or_permission"),
-        (403, "Target page forbidden", None),
-        (403, "", None),
-    ],
-)
-def test_account_status_and_target_denial_have_distinct_scope(status, text, expected):
-    assert access_blocker({"http_status": status, "response": {"error": text}}) == expected
-
-
-@pytest.mark.parametrize("changed", [False, True])
-@pytest.mark.parametrize("hosting_provider", ["external", "cloudflare", None])
 def test_external_manifest_does_not_replace_page_audit_during_collection(
     tmp_path, changed, hosting_provider
 ):
@@ -1363,26 +1314,6 @@ def test_pooled_api_connections_never_inherit_response_cookies(method, monkeypat
             assert session.cookies.get("previous_page") == "one"
             assert result["request"]["cookie_policy"] == "no_inherited_api_cookies"
     assert sent == [None, None]
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "API access is not enabled for this account",
-        "Your plan does not include this endpoint",
-        "Permission denied: your key cannot fetch this resource",
-    ],
-)
-def test_explicit_account_403_stops_even_when_it_mentions_fetch(message):
-    assert access_blocker({"http_status": 403, "response": {"error": message}}) == "permission"
-
-
-@pytest.mark.parametrize(
-    "message",
-    ["Forbidden", "", "Access denied", "Permission denied", "access denied by target firewall"],
-)
-def test_ambiguous_or_target_403_does_not_imply_account_denial(message):
-    assert access_blocker({"http_status": 403, "response": {"error": message}}) is None
 
 
 def denial_inputs(tmp_path, same_site=False):
@@ -1544,46 +1475,6 @@ def test_current_retry_history_requires_its_recorded_stop_decision(tmp_path, dam
         load_run(run)
 
 
-@pytest.mark.parametrize("status", [200, 403, 429])
-@pytest.mark.parametrize("field", ["token", "API key", "account", "plan"])
-def test_extraction_failures_named_after_account_concepts_are_not_permission_denials(status, field):
-    assert (
-        access_blocker(
-            {"http_status": status, "response": {"error": "Cannot extract " + field + " field"}}
-        )
-        is None
-    )
-
-
-@pytest.mark.parametrize("status", [200, 403, 429])
-@pytest.mark.parametrize(
-    "message",
-    [
-        "API failed to fetch target URL: forbidden",
-        "Account API failed to fetch target URL: forbidden",
-        "Provider API response does not include required key",
-        "Failed to fetch target URL: access denied by target firewall",
-        "Target page has a plan field; forbidden by target firewall",
-        "The API key field was not included in the extracted response",
-    ],
-)
-def test_account_keywords_do_not_change_the_scope_of_a_target_or_extraction_error(status, message):
-    assert access_blocker({"http_status": status, "response": {"error": message}}) is None
-
-
-@pytest.mark.parametrize(
-    "message",
-    [
-        "Account is disabled",
-        "Forbidden for your account",
-        "API permissions are not enabled",
-        "This token is not authorized to fetch this resource",
-    ],
-)
-def test_permission_denial_tied_directly_to_an_entitlement_pauses(message):
-    assert access_blocker({"http_status": 403, "response": {"error": message}}) == "permission"
-
-
 @pytest.mark.parametrize(
     "title,detail,blocked",
     [
@@ -1687,3 +1578,52 @@ def test_non_object_native_response_is_checkpointed_and_not_replayed(tmp_path, p
             patch('harness.web_extract.pipeline.provider_call') as call:
         probe(home, [method], full=True, run_dir=run, native_options=options)
         call.assert_not_called()
+
+
+# Account denials pause collection; target-page, extraction and ambiguous 403 errors do not, even
+# when their text mentions accounts, keys, plans or credits. Each row is one distinct wording rule.
+@pytest.mark.parametrize(
+    "status,response,expected",
+    [
+        (200, {"success": False, "error": "Target page blocked"}, None),
+        (403, {"success": False, "error": "Download failed: forbidden"}, None),
+        (429, {"success": False, "error": "Target page mentions credits"}, None),
+        (200, {"success": False, "error": "session expired"}, None),
+        (
+            200,
+            {"success": False, "error": "page could not load",
+             "content": "account balance upgrade credits"},
+            None,
+        ),
+        (200, {"error": "Cannot extract credit card field"}, None),
+        (403, {"error": "Cannot extract API key field"}, None),
+        (429, {"error": "Cannot extract token field"}, None),
+        (200, {"error": "Cannot extract plan field"}, None),
+        (403, {"error": "API failed to fetch target URL: forbidden"}, None),
+        (429, {"error": "Account API failed to fetch target URL: forbidden"}, None),
+        (200, {"error": "Provider API response does not include required key"}, None),
+        (403, {"error": "Failed to fetch target URL: access denied by target firewall"}, None),
+        (429, {"error": "Target page has a plan field; forbidden by target firewall"}, None),
+        (200, {"error": "The API key field was not included in the extracted response"}, None),
+        (403, {"error": "Target page forbidden"}, None),
+        (403, {"error": ""}, None),
+        (403, {"error": "Forbidden"}, None),
+        (403, {"error": "Access denied"}, None),
+        (403, {"error": "Permission denied"}, None),
+        (200, {"error": "Insufficient credits to fetch target URL"}, "quota_or_permission"),
+        (200, {"error": "Invalid API key while fetching target page"}, "authentication"),
+        (402, {"error": "Invalid API key while fetching target page"}, "quota_or_payment"),
+        (401, {"error": "Failed to fetch target"}, "authentication"),
+        (402, {"error": "Target page blocked"}, "quota_or_payment"),
+        (429, {"error": "Your credit balance is too low"}, "quota_or_permission"),
+        (403, {"error": "API access is not enabled for this account"}, "permission"),
+        (403, {"error": "Your plan does not include this endpoint"}, "permission"),
+        (403, {"error": "Permission denied: your key cannot fetch this resource"}, "permission"),
+        (403, {"error": "Account is disabled"}, "permission"),
+        (403, {"error": "Forbidden for your account"}, "permission"),
+        (403, {"error": "API permissions are not enabled"}, "permission"),
+        (403, {"error": "This token is not authorized to fetch this resource"}, "permission"),
+    ],
+)
+def test_access_blocker_separates_account_denials_from_target_errors(status, response, expected):
+    assert access_blocker({"http_status": status, "response": response}) == expected

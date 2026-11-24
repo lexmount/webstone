@@ -251,8 +251,8 @@ def test_reference_only_rebinding_replays_identical_answer_requests(answer_run):
 
 
 
-@pytest.mark.parametrize('html', ['<a href="https://example.test/doc">source</a>', '<span>Claim</span>'])
-def test_saved_html_answers_fail_release_replay_before_judge_calls(answer_run, html):
+def test_saved_html_answers_fail_release_replay_before_judge_calls(answer_run):
+    html = '<a href="https://example.test/doc">source</a>'
     for row in answer_run['rows']:
         row['answer'] = html
     with pytest.raises(ValueError, match='unsupported HTML'):

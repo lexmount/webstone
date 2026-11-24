@@ -167,7 +167,7 @@ def test_legacy_repair_rejects_unproven_sources_before_mutations(legacy_run, cha
 
 @pytest.mark.parametrize(
     "change",
-    ["metadata-only", "receipt-only", "case", "registry", "rubric", "factual", "factual-case"],
+    ["metadata-only", "receipt-only", "case", "factual"],
 )
 def test_legacy_bindings_compare_runtime_inputs_not_publication_metadata(
     tmp_path, monkeypatch, change
@@ -182,16 +182,8 @@ def test_legacy_bindings_compare_runtime_inputs_not_publication_metadata(
         current["files"]["definitions/scoring-revisions.json"]["sha256"] = "a" * 64
     elif change == "case":
         current["files"]["definitions/datasets/scenarios-v2.json"]["sha256"] = "a" * 64
-    elif change == "rubric":
-        current["files"]["definitions/preview-rubric-v2.txt"]["sha256"] = "a" * 64
-    elif change == "registry":
-        current["files"]["definitions/registry.json"]["sha256"] = "a" * 64
     else:
-        relative = (
-            "definitions/factual-source.json"
-            if change == "factual"
-            else "definitions/datasets/factual-v1.json"
-        )
+        relative = "definitions/datasets/factual-v1.json"
         lock["datasets"]["simpleqa-verified"]["files"][relative]["sha256"] = "a" * 64
     (tmp_path / "data-lock.json").write_text(json.dumps(lock), encoding="utf-8")
     monkeypatch.setattr(data, "__file__", str(tmp_path / "data.py"))

@@ -29,38 +29,37 @@ def test_top_level_help_lists_every_command(tmp_path):
         assert name in listed and summary in listed
 
 
-@pytest.mark.parametrize("command, option", [
-    ("report", "--release-check"),
-    ("visual", "--receipt"),
-    ("judge", "--reuse-evidence"),
-    ("review", "{freeze,run,collect}"),
-    ("publish", "--visual-receipt"),
+def run_main(capsys, *arguments):
+    with pytest.raises(SystemExit) as stopped:
+        main(list(arguments))
+    captured = capsys.readouterr()
+    return stopped.value.code or 0, captured.out, captured.err
+
+
+@pytest.mark.parametrize("arguments, option", [
+    (("report", "--help"), "--release-check"),
+    (("visual", "--help"), "--receipt"),
+    (("judge", "--help"), "--reuse-evidence"),
+    (("review", "--help"), "{freeze,run,collect}"),
+    (("publish", "--help"), "--visual-receipt"),
+    (("review", "collect", "--help"), "--require-complete"),
 ])
-def test_command_help_comes_from_its_owner_under_the_public_name(tmp_path, command, option):
-    result = run_module(command, "--help", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith(f"usage: {PROG} {command} ")
-    assert option in result.stdout
+def test_command_help_comes_from_its_owner_under_the_public_name(capsys, arguments, option):
+    code, out, _ = run_main(capsys, *arguments)
+    assert code == 0
+    assert out.startswith(f"usage: {PROG} {' '.join(arguments[:-1])} ")
+    assert option in out
 
 
-def test_review_keeps_its_nested_commands(tmp_path):
-    result = run_module("review", "collect", "--help", cwd=tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.startswith(f"usage: {PROG} review collect ")
-    assert "--require-complete" in result.stdout
-
-
-@pytest.mark.parametrize("arguments", [[], ["unknown"]])
-def test_missing_or_unknown_command_fails_without_running_an_owner(tmp_path, arguments):
-    result = run_module(*arguments, cwd=tmp_path)
-    assert result.returncode == 2
-    assert f"usage: {PROG} " in result.stderr
-
-
-def test_owner_rejects_an_unknown_option_the_router_passed_through(tmp_path):
-    result = run_module("report", "--output", str(tmp_path), "--not-an-option", cwd=tmp_path)
-    assert result.returncode == 2
-    assert "--not-an-option" in result.stderr
+@pytest.mark.parametrize("arguments, message", [
+    ([], f"usage: {PROG} "),
+    (["unknown"], f"usage: {PROG} "),
+    (["report", "--output", "out", "--not-an-option"], "--not-an-option"),
+])
+def test_missing_unknown_or_rejected_arguments_fail_with_usage(capsys, arguments, message):
+    code, _, err = run_main(capsys, *arguments)
+    assert code == 2
+    assert message in err
 
 
 def test_report_command_checks_a_generated_report_and_restores_process_arguments(

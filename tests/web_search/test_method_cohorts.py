@@ -243,8 +243,7 @@ def test_added_provider_cannot_change_measurement_or_projection_controls(tmp_pat
         load_report_runs(old, [("new", new)], {}, composition="methods")
 
 
-@pytest.mark.parametrize("composition", ["cases", "methods"])
-@pytest.mark.parametrize("synthetic_first", [True, False])
+@pytest.mark.parametrize("composition,synthetic_first", [("cases", True), ("methods", False)])
 def test_mixed_measured_and_synthetic_collections_are_rejected(
     tmp_path, monkeypatch, composition, synthetic_first
 ):

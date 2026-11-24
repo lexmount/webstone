@@ -59,6 +59,20 @@ def model_report(tmp_path, mode):
     return output
 
 
+_BUILT = {}
+
+
+def copied_model_report(factory, tmp_path, mode, name):
+    """Build each mode once per worker; every caller edits only its own copy."""
+    import shutil
+
+    if mode not in _BUILT:
+        _BUILT[mode] = model_report(factory.mktemp("model-" + mode), mode)
+    output = tmp_path / name
+    shutil.copytree(_BUILT[mode], output)
+    return output
+
+
 @pytest.mark.parametrize("mode", ["full-cohort-progress", "field-extraction-cohort"])
 def test_model_table_is_generated_from_case_scores_in_both_report_modes(tmp_path, mode):
     output = model_report(tmp_path, mode)
@@ -74,9 +88,15 @@ def test_model_table_is_generated_from_case_scores_in_both_report_modes(tmp_path
                            '.comparison-winner')
 
 
-@pytest.mark.parametrize("damage", ["quality", "timer", "missing-row", "missing-binding"])
-def test_release_rejects_model_table_drift_after_file_hashes_are_updated(tmp_path, damage):
-    output = model_report(tmp_path, "full-cohort-progress")
+def test_release_rejects_model_table_drift_after_file_hashes_are_updated(
+    tmp_path_factory, tmp_path
+):
+    for damage in ("quality", "timer", "missing-row", "missing-binding"):
+        output = copied_model_report(tmp_path_factory, tmp_path, "full-cohort-progress", damage)
+        _reject_model_table_drift(output, damage)
+
+
+def _reject_model_table_drift(output, damage):
     if damage == "missing-binding":
         manifest = read_json(output / "report-manifest.json")
         manifest.pop("model_comparison")
@@ -97,9 +117,17 @@ def test_release_rejects_model_table_drift_after_file_hashes_are_updated(tmp_pat
         _check_rendered_report(output)
 
 
-@pytest.mark.parametrize("incorrect", [0.1, 0.9, "missing-case", "duplicate-case"])
-def test_model_summary_cannot_override_case_judgments_in_either_direction(tmp_path, incorrect):
-    output = model_report(tmp_path, "field-extraction-cohort")
+def test_model_summary_cannot_override_case_judgments_in_either_direction(
+    tmp_path_factory, tmp_path
+):
+    for incorrect in (0.1, 0.9, "missing-case", "duplicate-case"):
+        output = copied_model_report(
+            tmp_path_factory, tmp_path, "field-extraction-cohort", str(incorrect)
+        )
+        _reject_overridden_summary(output, incorrect)
+
+
+def _reject_overridden_summary(output, incorrect):
     archive = output / "assets/model-scores.zip"
     with zipfile.ZipFile(archive) as bundle:
         scores = json.loads(bundle.read("validation-scores.json"))

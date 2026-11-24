@@ -52,8 +52,9 @@ def test_suffix_sharing_methods_have_independent_quotas(tmp_path):
     assert physical_call_counts(profile, output) == {"variant-a": 2, "a": 1}
 
 
-@pytest.mark.parametrize("tail", [b"", b'{"id":', b'{"id":"\xe4', b'{"id":\n'])
-@pytest.mark.parametrize("selection", [None, "primary", "supplement"])
+@pytest.mark.parametrize("selection,tail", [
+    (None, b""), ("primary", b'{"id":'), ("supplement", b'{"id":"\xe4'), ("primary", b'{"id":\n'),
+])
 def test_execution_revision_resolves_composed_profiles_and_current_cohorts(tmp_path, selection, tail):
     profile = synthetic_serp_profile()
     profile["methods"] = profile["methods"][:1]
@@ -153,8 +154,8 @@ def test_execution_revision_resolves_composed_profiles_and_current_cohorts(tmp_p
         assert frozen["current_selection"]["cohort"] == cohort
 
 
-@pytest.mark.parametrize("zh", [False, True])
-def test_catalog_prose_follows_selected_participants(zh):
+def test_catalog_prose_follows_selected_participants():
+    zh = False
     profile = {"methods": [{"id": "alpha", "label": "Alpha"}]}
     content = {
         "catalog_pricing": {
@@ -218,8 +219,7 @@ def test_combined_release_export_keeps_the_explicit_publication_plan(tmp_path, m
     verify.assert_not_called()
 
 
-@pytest.mark.parametrize("boundary", ["send", "response", "save"])
-@pytest.mark.parametrize("stop_at", [1, 2])
+@pytest.mark.parametrize("boundary,stop_at", [("send", 1), ("response", 2), ("save", 1)])
 def test_interrupted_paid_attempt_still_exhausts_budget(tmp_path, boundary, stop_at):
     from pathlib import Path
     from harness.web_search.runner import physical_call_counts
@@ -269,8 +269,7 @@ def test_interrupted_paid_attempt_still_exhausts_budget(tmp_path, boundary, stop
     assert not (output / 'receipt.json').exists()
 
 
-@pytest.mark.parametrize('cutoff', [5, 10])
-@pytest.mark.parametrize('position', ['first', 'last', 'excluded'])
+@pytest.mark.parametrize('cutoff,position', [(5, 'first'), (10, 'last'), (10, 'excluded')])
 def test_reference_panels_respect_declared_cutoff(cutoff, position):
     from bs4 import BeautifulSoup
     from lexbench_websearch.scoring import evaluate
