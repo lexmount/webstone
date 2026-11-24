@@ -2,17 +2,12 @@
 
 import hashlib
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 from harness.safety import unlinked_path
 from harness.trajectory_replay import diagnostics as d
-
-ROOT = Path(__file__).resolve().parents[2]
 
 
 def readiness_files(tmp_path):
@@ -54,31 +49,24 @@ def readiness_files(tmp_path):
     return results, trace
 
 
-def command(name, *args):
-    return subprocess.run(
-        [sys.executable, "-m", "harness.trajectory_replay", name, *map(str, args)],
-        cwd=ROOT,
-        env={**os.environ, "PYTHONPATH": os.pathsep.join((str(ROOT / "src"), str(ROOT)))},
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
+def readiness(*args):
+    d.main_readiness([str(arg) for arg in args])
 
 
 def test_readiness_command_creates_new_diagnostic_without_changing_a_pass(tmp_path):
     results, trace = readiness_files(tmp_path)
     originals = {path: path.read_bytes() for path in (results, trace)}
     output = tmp_path / "diagnostic.json"
-    result = command("audit-readiness", "--results", results, "--output", output)
-    assert result.returncode == 0, result.stderr
+    readiness("--results", results, "--output", output)
     payload = json.loads(output.read_bytes())
     assert payload["score_effect"] == "none"
     assert payload["findings"][0]["historical_status"] == "pass"
     assert payload["findings"][0]["dispatch_state_known"] is False
     assert all(path.read_bytes() == content for path, content in originals.items())
     output.write_bytes(b"Independent receipt")
-    result = command("audit-readiness", "--results", results, "--output", output)
-    assert result.returncode != 0 and output.read_bytes() == b"Independent receipt"
+    with pytest.raises((ValueError, OSError)):
+        readiness("--results", results, "--output", output)
+    assert output.read_bytes() == b"Independent receipt"
 
 
 @pytest.mark.parametrize("boundary", ["alias", "linked-output", "linked-parent", "linked-input"])
@@ -98,8 +86,8 @@ def test_readiness_command_rejects_unsafe_boundaries(tmp_path, boundary):
         linked = tmp_path / "linked"
         linked.symlink_to(tmp_path, target_is_directory=True)
         output = linked / "diagnostic.json"
-    result = command("audit-readiness", "--results", input_path, "--output", output)
-    assert result.returncode != 0
+    with pytest.raises((ValueError, OSError)):
+        readiness("--results", input_path, "--output", output)
     assert results.read_bytes() == original
     if boundary == "linked-output":
         assert output.is_symlink() and output.readlink() == results

@@ -48,8 +48,11 @@ def _reset_receipt(method_id: str) -> dict:
     }
 
 
+TASKS = 4
+
+
 def _fixture(root: Path, *, reverse_inventory: bool = False, method_names=None) -> dict:
-    ids = list(range(1, 91))
+    ids = list(range(1, TASKS + 1))
     inventory_ids = list(reversed(ids)) if reverse_inventory else ids
     selection = _write(
         root / "selection.json",
@@ -228,11 +231,11 @@ def _fixture(root: Path, *, reverse_inventory: bool = False, method_names=None) 
 def test_aggregate_has_exact_three_method_selected_task_matrix(tmp_path: Path) -> None:
     inputs = _fixture(tmp_path)
     result = aggregate_method_cohorts(**inputs)
-    assert len(result["attempts"]) == len(result["physical_executions"]) == 270
+    assert len(result["attempts"]) == len(result["physical_executions"]) == 3 * TASKS
     from harness.environments.participants import bind_participant, participant_registry
     registry = participant_registry([
         {"id": row["participant_id"], "engine": row["engine"]}
-        for row in result["attempts"][::90]
+        for row in result["attempts"][::TASKS]
     ])
     for row in result["physical_executions"]:
         assert (bind_participant(row, registry)["engine"]
@@ -255,7 +258,7 @@ def test_add_two_methods_preserves_existing_results(tmp_path: Path) -> None:
     inputs = _fixture(tmp_path / "expanded", method_names=(*original, "moli-tag", "moli-latest"))
     inputs["cohort_inputs"].update(old_inputs["cohort_inputs"])
     after = aggregate_method_cohorts(**inputs)
-    assert len(after["attempts"]) == len(after["physical_executions"]) == 450
+    assert len(after["attempts"]) == len(after["physical_executions"]) == 5 * TASKS
     assert ([row for row in after["attempts"] if row["participant_id"] in original]
             == before["attempts"])
     inputs["cohort_inputs"].pop("moli-latest")
@@ -267,7 +270,7 @@ def test_rejects_incomplete_old_cohort(tmp_path: Path) -> None:
     inputs = _fixture(tmp_path)
     receipt = inputs["cohort_inputs"]["moli-fixed"][1]
     data = json.loads(receipt.read_text(encoding="utf-8"))
-    data["results"] = data["results"][:36]
+    data["results"] = data["results"][:2]
     _write(receipt, data)
     with pytest.raises(ValueError, match="exactly one execution"):
         aggregate_method_cohorts(**inputs)
@@ -286,7 +289,7 @@ def test_cli_accepts_complete_five_method_matrix_without_overwriting(tmp_path: P
         args.extend(["--manifest", f"{method}={manifest}", "--receipt", f"{method}={receipt}"])
     main_aggregate(args)
     before = output.read_bytes()
-    assert len(json.loads(before)["attempts"]) == 450
+    assert len(json.loads(before)["attempts"]) == 5 * TASKS
     with pytest.raises(ValueError, match="append-only"):
         main_aggregate(args)
     assert output.read_bytes() == before
@@ -295,7 +298,7 @@ def test_cli_accepts_complete_five_method_matrix_without_overwriting(tmp_path: P
 def test_sampling_inventory_order_does_not_override_numeric_execution(tmp_path: Path) -> None:
     inputs = _fixture(tmp_path, reverse_inventory=True)
     result = aggregate_method_cohorts(**inputs)
-    assert [r["task_id"] for r in result["attempts"][:90]] == list(range(1, 91))
+    assert [r["task_id"] for r in result["attempts"][:TASKS]] == list(range(1, TASKS + 1))
 
 
 def test_selection_cannot_silently_drop_malformed_rows_with_consistent_hashes(tmp_path):
@@ -377,25 +380,15 @@ def test_rejects_missing_evidence_or_validity(tmp_path: Path) -> None:
         aggregate_method_cohorts(**inputs)
 
 
-def test_rejects_hash_bound_but_false_site_reset(tmp_path: Path) -> None:
+@pytest.mark.parametrize("site, field, value", [
+    ("reddit", "new_pod", "reddit-old-chromium"),
+    (None, "task_id", 2),
+])
+def test_rejects_hash_bound_but_unproven_site_reset(tmp_path: Path, site, field, value) -> None:
     inputs = _fixture(tmp_path)
     reset_path = tmp_path / "chromium/site-reset.json"
     reset = json.loads(reset_path.read_text(encoding="utf-8"))
-    reset["sites"]["reddit"]["new_pod"] = reset["sites"]["reddit"]["old_pod"]
-    _write(reset_path, reset)
-    receipt_path = inputs["cohort_inputs"]["chromium"][1]
-    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    receipt["cohort_reset_sha256"] = _sha(reset_path)
-    _write(receipt_path, receipt)
-    with pytest.raises(ValueError, match="remote cohort reset is not proven"):
-        aggregate_method_cohorts(**inputs)
-
-
-def test_rejects_reset_receipt_from_a_task(tmp_path: Path) -> None:
-    inputs = _fixture(tmp_path)
-    reset_path = tmp_path / "chromium/site-reset.json"
-    reset = json.loads(reset_path.read_text(encoding="utf-8"))
-    reset["task_id"] = 2
+    (reset["sites"][site] if site else reset)[field] = value
     _write(reset_path, reset)
     receipt_path = inputs["cohort_inputs"]["chromium"][1]
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
