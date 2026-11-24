@@ -8,7 +8,7 @@ from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.native_projection import (
     require_native_answer_projection, native_answer_projection, project_native_answer,
 )
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.providers.lexmount import LexmountProvider
 
 

@@ -25,7 +25,7 @@ from harness.web_fetch.native_projection import (
     require_native_answer_projection,
     require_native_projection_schema,
 )
-from harness.web_fetch.publication_privacy import read_evidence_binding
+from harness.reporting.publication_privacy import read_evidence_binding
 from harness.web_fetch.retrieval_hints import native_default_case
 
 INPUT_MEDIA_KINDS = frozenset({

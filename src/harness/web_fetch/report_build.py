@@ -43,7 +43,7 @@ from harness.web_fetch.local_revision import (
     validate_revision_chain,
 )
 from harness.web_fetch.native_routes import verify_native_execution_manifests
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
     read_evidence_binding,
     require_host_metadata_projection,
     require_public_evidence_view_inventory,
@@ -861,7 +861,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
         if dataset.get("comparison", {}).get("kind") == "uniform_native_local_measurement":
             shutil.copy2(source / "local-run-contract.json", staging / "local-run-contract.json")
             if (source/"providers.json").is_file():
-                from harness.web_fetch.publication_privacy import require_public_method_options
+                from harness.reporting.publication_privacy import require_public_method_options
                 from harness.web_fetch.report import NATIVE_OPTION_LABELS
                 config_bytes = contained_path(source, 'providers.json', reject_symlinks=True).read_bytes()
                 config_hash = hashlib.sha256(config_bytes).hexdigest()

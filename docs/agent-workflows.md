@@ -34,18 +34,18 @@ All routes below reuse existing implementations. `--help` is the argument author
 | Discover Tracks and benchmarks | `webstone tracks` | JSON capability/guide index plus exact dataset pins and suites; no calls or downloads |
 | Inspect pinned dataset selections | `webstone datasets list` | Local package lock; readable tags never override exact commits |
 | Fetch/repair selected inputs | `webstone datasets fetch --help` | Existing hash-verified dataset cache owner; downloads only on invocation |
-| Web Fetch | `webstone validate`, `run`, `rescore`, `report` | Generic fixture/native workflow; specialized cohorts remain explicit commands in root help |
-| Web Search | `webstone web-search run`, `report`, `judge`, `review`, `publish` | Profile-bound collection/scoring; judge/review are explicit operations, not hidden automatic review |
-| Web Extract | `webstone web-extract --help` | Prepare/plan/preflight/reproduce/score/report/host stages; `web-extract-eval` extra and declared references |
-| Browser Trajectory Replay | `webstone trajectory-replay --help` | Evaluate/replay/catalog-run plus report/check/package/publish; fixed trajectories stay model-free |
-| Browser Use | `webstone browser-use run`, `report`, `check`, `package`, `publish` | Experimental; model, isolated sites and `browser-use-eval` dependencies required |
+| Web Fetch | `webstone webfetch run`, `score`, `report`, `check`, `package`, `publish`; extras `validate`, `accounts` and specialized cohorts | Generic fixture/native workflow; the same commands also run without the `webfetch` prefix |
+| Web Search | `webstone web-search run`, `report`, `check`, `publish`, `export`; extras `visual`, `judge`, `review` | Profile-bound collection/scoring; judge/review are explicit operations, not hidden automatic review |
+| Web Extract | `webstone web-extract run`, `score`, `report`, `check`, `package`, `publish`; extras such as `prepare`, `plan`, `preflight`, `host` | `web-extract-eval` extra and declared references |
+| Browser Trajectory Replay | `webstone trajectory-replay report`, `check`, `package`, `publish`; extras such as `evaluate`, `replay`, `catalog-run`, `visual` | Fixed trajectories stay model-free |
+| Browser Use | `webstone browser-use run`, `report`, `check`, `package`, `publish`; extras `visual`, `review` | Experimental; model, isolated sites and `browser-use-eval` dependencies required |
 | Local report rebuild | Selected track's report/check commands | Reuses saved evidence; does not execute provider calls or share publicly |
 | Share a report | Selected track's publish/verify commands | Requires an explicitly selected, authorized host/profile and live verification |
 | Leaderboard results | [Site submission skill](https://github.com/lexmount/webstone-site/blob/main/.agents/skills/submit-webstone-result/SKILL.md) | Public result-only PR to webstone-site; never direct main writes |
 | Dataset proposal | `webstone datasets propose --help` | Existing dataset publisher; explicit source checkout/revision; `dataset-publish` extra for HF PR upload; never merges PRs |
 | Adopt a dataset commit | `webstone datasets pin --help` | Explicit `--root` Webstone checkout, inspected diff and code PR after data review |
 
-The default root `webstone run` remains Web Fetch for compatibility. Track-prefixed routes do not reinterpret existing flags. `tracks` lists independently selected datasets, not a claim that every stage is fully automated or available in the base package.
+Every track answers `webstone <track> <stage>` with the fixed stages `run`, `score`, `report`, `check`, `package`, `publish` and `export` it declares (`STAGES` in its `cli.py`, a `harness.adapters.TrackStages`), plus its own extras; `webstone <track> --help` lists them. The default root `webstone run` remains Web Fetch for compatibility. Track-prefixed routes do not reinterpret existing flags. `tracks` lists independently selected datasets, not a claim that every stage is fully automated or available in the base package.
 
 ## A bounded first run
 

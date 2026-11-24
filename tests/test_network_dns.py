@@ -301,7 +301,7 @@ class HostedDnsBoundaryTests(unittest.TestCase):
 
     def test_all_hosted_boundaries_honor_doh_and_system_modes(self):
         from urllib.parse import urlsplit
-        from harness.web_fetch.providers.http_client import HttpResponse
+        from harness.http_client import HttpResponse
         for kind in self.kinds:
             for mode in ('system', 'public_doh'):
                 with self.subTest(kind=kind, mode=mode):

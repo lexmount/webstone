@@ -13,7 +13,7 @@ from lexbench_webfetch.scoring_regressions import build_correction_provenance
 
 from harness.record_io import canonical_json_sha256, file_sha256, read_json
 from harness.web_fetch import adjudication_evidence, local_execution_contract
-from harness.web_fetch.publication_privacy import read_evidence_binding
+from harness.reporting.publication_privacy import read_evidence_binding
 from harness.web_fetch.reference_inputs import benchmark_input_path, input_tree
 from harness.web_fetch.reliability import assess_reliability
 

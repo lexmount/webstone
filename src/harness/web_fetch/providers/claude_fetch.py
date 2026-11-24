@@ -14,11 +14,11 @@ import time
 from pathlib import Path
 
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.diagnostics import emit
+from harness.call_diagnostics import emit
 from harness.web_fetch.native_projection import native_answer_projection, project_native_answer, project_native_result_fields
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider, terminate_owned_process_tree, await_owned_process_exit
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.workers.claude_fetch_worker import runtime_sources
 from harness.record_io import parse_utf8_json
 

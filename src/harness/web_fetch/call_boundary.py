@@ -7,7 +7,7 @@ import traceback
 from lexbench_webfetch.file_acceptance import evaluate_files
 from lexbench_webfetch.response_input import answer_input
 
-from harness.web_fetch.diagnostics import diagnostic_context, emit
+from harness.call_diagnostics import diagnostic_context, emit
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.base import ProcessCleanupError
 

@@ -114,7 +114,7 @@ def test_actual_native_http_requests_are_locked_before_transport(tmp_path):
     from datetime import datetime, timezone
     from unittest.mock import patch
     from harness.web_fetch.native_routes import verify_native_route_contract
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     provider, cases, ledger, manifest, dataset = _route_http_fixture(tmp_path)
     records = []
     seen = []
@@ -188,7 +188,7 @@ def test_runner_freezes_route_matrix_before_mocked_provider_calls(tmp_path):
     from unittest.mock import patch
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.runner import run_evaluation
     cases = [EvalCase(label, label, 'https://example.test/'+label, 'control', [],
                       source_benchmark={'input_media_kind': 'html_page'}) for label in ('one', 'two')]
@@ -254,7 +254,7 @@ def test_each_http_adapter_matches_its_pre_call_contract(tmp_path, method, modul
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.native_routes import NativeRouteLedger
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     config = {'type': method, 'uniform_native_parameters': True,
               'api_key': 'fixture', 'api_token': 'fixture', 'account_id': 'fixture',
               'include_resource_links': True, 'rich_links_limit': 12, 'include_images': True,
@@ -282,7 +282,7 @@ def test_custom_firecrawl_without_auth_still_matches_actual_request(tmp_path):
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.native_routes import NativeRouteLedger
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     provider = build_provider('firecrawl', {'type': 'firecrawl', 'base_url': 'https://fixture.test',
                                            'uniform_native_parameters': True})
     case = EvalCase('case', 'Case', 'https://example.test/', 'control', [],
@@ -464,7 +464,7 @@ def test_http_native_answers_survive_persistence_and_reject_tampering(tmp_path, 
     from unittest.mock import patch
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.native_routes import NativeRouteLedger
     from harness.web_fetch.runner import persist_result_artifacts
     from harness.web_fetch.call_boundary import prepare_answer
@@ -603,7 +603,7 @@ def test_failed_native_envelope_retains_provable_result_context(tmp_path, method
     from unittest.mock import patch
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.runner import persist_result_artifacts
     provider = build_provider('method', {'type': method, 'api_key': 'fixture', 'api_token': 'fixture',
         'account_id': 'fixture', 'uniform_native_parameters': True})
@@ -622,7 +622,7 @@ def test_resource_adapter_uses_returned_address_before_resolving_relative_attrib
     from unittest.mock import patch
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.runner import persist_result_artifacts
     provider = build_provider('method', {'type': 'cloudflare_markdown', 'api_token': 'fixture',
         'account_id': 'fixture', 'uniform_native_parameters': True})
@@ -722,7 +722,7 @@ def test_native_http_retries_keep_each_physical_route_receipt(tmp_path, retries)
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.native_routes import verify_native_route_contract
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.runner import run_evaluation
 
     case = EvalCase('one', 'One', 'https://example.test/one', 'control', ['Expected'],
@@ -792,7 +792,7 @@ def test_shared_http_builder_controls_freeze_and_fetch(tmp_path, method, module)
     from lexbench_webfetch.models import EvalCase
     from harness.web_fetch.native_routes import NativeRouteLedger, normalized_http_parameters
     from harness.web_fetch.providers.base import build_provider
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     provider = build_provider('method', {
         'type': method, 'uniform_native_parameters': True, 'api_key': 'fixture',
         'api_token': 'fixture', 'account_id': 'fixture', 'max_bytes': 12345,
@@ -1149,7 +1149,7 @@ def test_parameter_report_requires_authorized_native_execution(tmp_path, defect)
     from datetime import datetime, timezone
     from dataclasses import asdict
     from unittest.mock import patch
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
     from harness.web_fetch.report_saved_matrix import _parameter_execution, _SourceBindings
     provider, cases, ledger, manifest, _ = _route_http_fixture(tmp_path)
     case = cases[0]

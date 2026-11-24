@@ -20,6 +20,7 @@ from harness.env_file import local_setting
 from harness.record_io import canonical_json_sha256
 from harness.report_languages import resolve_report_language
 from harness.reporting.links import LinkIndex
+from harness.reporting.publication_privacy import project_evidence_view, publication_risk
 from harness.reporting.release_check import check_report_identity, checked_page, open_report
 from harness.reporting.templates import template_identity
 from harness.reporting.versions import bind_build_version
@@ -51,7 +52,6 @@ from harness.web_extract.pipeline import (
     verify_retry_history,
 )
 from harness.web_extract.report_ui import JS
-from harness.web_fetch.publication_privacy import project_evidence_view, publication_risk
 
 VERSION = "web-extract-research/1"
 STAGES = {

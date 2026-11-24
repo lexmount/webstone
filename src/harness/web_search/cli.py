@@ -1,10 +1,10 @@
 """Build, check, review, judge and publish Web Search reports."""
 from __future__ import annotations
 
-import argparse
-import importlib
-import sys
 from collections.abc import Sequence
+
+from harness.adapters import STAGES as FIXED_STAGES
+from harness.adapters import TrackStages, owner_stage, stage_main
 
 PROG = "python -m harness.web_search"
 COMMANDS = {
@@ -22,26 +22,29 @@ COMMANDS = {
 }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    prog = sys.argv[0] if sys.argv[0].startswith("webstone ") else PROG
-    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
-    for name, (_, _, summary) in COMMANDS.items():
-        # The owning module parses the remaining arguments, including its own --help.
-        sub.add_parser(name, help=summary, add_help=False)
-    return parser
+def check(argv: list[str]) -> None:
+    """Check a built report against its evidence"""
+    from harness.web_search.report import main as report
+
+    report(["--check", *argv])
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = build_parser()
-    args, remaining = parser.parse_known_args(argv)
-    module, function, _ = COMMANDS[args.command]
-    # Import on selection so each command and top-level help load only what they use.
-    handler = getattr(importlib.import_module(module), function)
-    invoked_as = sys.argv[0]
-    # The owner's parser takes its usage name from argv[0].
-    sys.argv[0] = f"{parser.prog} {args.command}"
-    try:
-        handler(remaining)
-    finally:
-        sys.argv[0] = invoked_as
+def export(argv: list[str]) -> None:
+    """Export a checked report into lossless case shards: export DESTINATION --output REPORT"""
+    from harness.web_search.report import main as report
+
+    report(argv if {"-h", "--help"} & set(argv) else ["--export-delivery", *argv])
+
+
+STAGES = TrackStages(
+    check=check,
+    export=export,
+    **{name: owner_stage(*owner, takes_argv=True) for name, owner in COMMANDS.items()
+       if name in FIXED_STAGES},
+    extra={name: owner_stage(*owner, takes_argv=True) for name, owner in COMMANDS.items()
+           if name not in FIXED_STAGES},
+)
+
+
+def main(argv: Sequence[str] | None = None, *, prog: str = PROG) -> None:
+    stage_main(STAGES, prog, __doc__, argv)

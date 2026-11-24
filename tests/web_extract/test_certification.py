@@ -33,6 +33,31 @@ def test_public_plan_defaults_to_isolation_and_keeps_explicit_quality_parallelis
     assert received["execution_purpose"] == "quality"
 
 
+@pytest.mark.parametrize("arguments", [
+    ["web-extract", "--home", "HOME", "run", "--method", "m"],
+    ["web-extract", "run", "--home", "HOME", "--method", "m"],
+])
+def test_run_stage_forwards_home_and_arguments_to_certified_collection(
+    tmp_path, monkeypatch, arguments
+):
+    from harness.cli import main as webstone
+    from harness.web_extract import certification
+
+    received = []
+    monkeypatch.setattr(certification, "main", received.append)
+    webstone([str(tmp_path) if value == "HOME" else value for value in arguments])
+    assert received == [["--home", str(tmp_path), "--method", "m"]]
+
+
+def test_track_help_lists_the_run_stage(capsys):
+    from harness.cli import main as webstone
+
+    with pytest.raises(SystemExit) as stopped:
+        webstone(["web-extract", "--help"])
+    assert stopped.value.code == 0
+    assert "run" in capsys.readouterr().out.split("{", 1)[1].split("}", 1)[0].split(",")
+
+
 def test_certified_default_keeps_webfetch_arguments():
     with patch("harness.web_fetch.certification.main", return_value="legacy") as run:
         assert main(["--profile", "external.json"]) == "legacy"

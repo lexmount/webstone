@@ -19,10 +19,10 @@ from harness.web_fetch.providers.cowagent import CowAgentBuiltinProvider
 from harness.web_fetch.providers.exa import ExaContentsProvider
 from harness.web_fetch.providers.firecrawl import FirecrawlProvider
 from harness.web_fetch.providers.http import HttpProvider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.providers.lexmount import LexmountProvider
 from harness.web_fetch.providers.tavily import TavilyExtractProvider
-from harness.web_fetch.publication_privacy import project_file
+from harness.reporting.publication_privacy import project_file
 from harness.web_fetch.runner import run_evaluation
 from lexbench_webfetch.scoring import score_attempt
 

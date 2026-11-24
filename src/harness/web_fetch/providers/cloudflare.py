@@ -20,7 +20,7 @@ from harness.web_fetch.native_projection import (
 )
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import HttpOnlyRedirectHandler, HttpResponse, request
+from harness.http_client import HttpOnlyRedirectHandler, HttpResponse, request
 from harness.web_fetch.retrieval_hints import (
     native_contract_for_case,
     native_default_case,

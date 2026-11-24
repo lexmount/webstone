@@ -11,7 +11,7 @@ from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, _same_page_url, sco
 
 from harness.record_io import canonical_json_sha256, file_sha256, load_jsonl
 from harness.web_fetch.local_execution_contract import local_measurement_call_sha256
-from harness.web_fetch.publication_privacy import evidence_excerpt_matches, read_evidence_binding
+from harness.reporting.publication_privacy import evidence_excerpt_matches, read_evidence_binding
 from harness.web_fetch.result_review import review_input_identity
 
 

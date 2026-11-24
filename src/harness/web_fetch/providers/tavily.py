@@ -9,7 +9,7 @@ from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.native_projection import native_answer_projection
 from harness.web_fetch.native_routes import NativeRoute
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import request
+from harness.http_client import request
 
 # Tavily's failed_results entries are free-form.  Keep the useful public API
 # diagnostics, but never project arbitrary response text into public evidence.

@@ -44,7 +44,6 @@ from harness.web_fetch.webmainbench_runner import (
     load_wcxb_source,
     selected_wcxb_input,
 )
-from harness.web_search.runner import main as search_main
 from lexbench_webfetch.metrics import normalize_for_match
 from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
 from lexbench_webfetch.versions import verify_release
@@ -183,10 +182,6 @@ def run(stage: Callable[[list[str]], None], arguments: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
-    if argv[:1] == ["web-search"]:
-
-        search_main(argv[1:], certified=True)
-        return
     if argv[:1] == ["webmainbench-latency"]:
         from harness.web_fetch.webmainbench_latency_correction import certify
 

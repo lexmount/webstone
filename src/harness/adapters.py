@@ -10,7 +10,10 @@ See docs/spec.md, "Extension points" and "One pipeline per track".
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Iterator
+import argparse
+import importlib
+import sys
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
@@ -155,3 +158,59 @@ class TrackStages:
 
     def supported(self) -> tuple[str, ...]:
         return tuple(stage for stage in STAGES if getattr(self, stage) is not None)
+
+    def names(self) -> tuple[str, ...]:
+        """Every command the track offers: its fixed stages first, then its extras."""
+        return (*self.supported(), *self.extra)
+
+    def command(self, name: str) -> Callable[[list[str]], Any]:
+        handler = getattr(self, name) if name in STAGES else self.extra.get(name)
+        if handler is None:
+            raise ValueError(f"Unknown stage: {name} (offered: {', '.join(self.names())})")
+        return handler
+
+
+def owner_stage(module: str, function: str, summary: str, *,
+                takes_argv: bool = False) -> Callable[[list[str]], Any]:
+    """A stage implemented by ``module.function``, imported only when selected.
+
+    Most owners read ``sys.argv``; several record their own source hash, so
+    their ``main()`` stays unchanged. ``takes_argv`` owners receive the list.
+    ``run_stage`` names the command in ``sys.argv[0]`` for the owner's usage line.
+    """
+
+    def stage(argv: list[str]) -> Any:
+        handler = getattr(importlib.import_module(module), function)
+        if takes_argv:
+            return handler(list(argv))
+        invoked = sys.argv
+        sys.argv = [invoked[0], *argv]
+        try:
+            return handler()
+        finally:
+            sys.argv = invoked
+
+    stage.__doc__ = summary
+    return stage
+
+
+def run_stage(stages: TrackStages, name: str, argv: Sequence[str], prog: str) -> None:
+    """Run one stage under the public name ``<prog> <name>``."""
+    handler = stages.command(name)
+    invoked = sys.argv
+    sys.argv = [f"{prog} {name}", *invoked[1:]]
+    try:
+        handler(list(argv))
+    finally:
+        sys.argv = invoked
+
+
+def stage_main(stages: TrackStages, prog: str, description: str | None,
+               argv: Sequence[str] | None = None) -> None:
+    """Select a stage and pass it the remaining arguments, including its own ``--help``."""
+    parser = argparse.ArgumentParser(prog=prog, description=description)
+    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
+    for name in stages.names():
+        sub.add_parser(name, help=stages.command(name).__doc__, add_help=False)
+    args, remaining = parser.parse_known_args(argv)
+    run_stage(stages, args.command, remaining, parser.prog)

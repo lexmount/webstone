@@ -34,7 +34,7 @@ from harness.web_fetch.report_components import (
 from harness.web_fetch.report_i18n import pair, t
 from harness.web_fetch.report_interfaces import browser_task_interface_matrix, method_provenance
 from harness.web_fetch.report_resources import render_resource_comparison
-from harness.web_fetch.report_style import STYLE
+from harness.reporting.style import STYLE
 
 
 def _mean(values):

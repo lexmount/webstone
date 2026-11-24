@@ -33,7 +33,7 @@ from harness.reporting.packs import (
     write_packs,
 )
 from harness.reporting.publication import archive_inventory
-from harness.web_fetch.publication_privacy import (
+from harness.reporting.publication_privacy import (
     project_file,
     project_redundant_result_streams,
     publication_file_risk,

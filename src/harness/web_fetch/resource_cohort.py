@@ -13,7 +13,7 @@ from lexbench_webfetch.paths import contained_path
 from harness.numbers import positive_number
 from harness.record_io import load_jsonl
 from harness.web_fetch.artifacts import verify_record_artifacts
-from harness.web_fetch.publication_privacy import project_execution_manifest
+from harness.reporting.publication_privacy import project_execution_manifest
 from harness.web_fetch.reference_lifecycle import require_verified_reference_checks
 from harness.web_fetch.result_review import require_result_review
 from harness.web_fetch.speed_cohort import provider_cohort

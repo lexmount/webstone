@@ -30,7 +30,7 @@ from harness.web_fetch.providers.base import (
     Provider, await_owned_process_exit, terminate_owned_process_tree,
 )
 from harness.web_fetch.providers.headless import HeadlessProvider
-from harness.web_fetch.providers.http_client import inner_timeout_budget
+from harness.http_client import inner_timeout_budget
 from harness.web_fetch.retrieval_hints import (
     NATIVE_RETRIEVAL_HINTS,
     native_contract_for_case,

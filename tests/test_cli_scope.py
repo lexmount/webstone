@@ -148,7 +148,7 @@ def test_diagnostic_run_rescore_keeps_scope_and_cannot_release(experiment, resco
     before = json.loads((evidence / 'dataset.json').read_text(encoding='utf-8'))
     calls = list(paths)
     if rescore:
-        result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'rescore',
+        result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
             str(evidence), '--dataset', str(root / 'dataset.json')],
             text=True, capture_output=True)
         assert result.returncode == 0, result.stdout + result.stderr
@@ -198,7 +198,7 @@ def test_diagnostic_rescore_rejects_changed_execution_scope_before_writes(experi
                         'task_kind': 'body'}[damage]
     dataset_path.write_text(json.dumps(dataset), encoding='utf-8')
     calls = list(paths)
-    result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'rescore',
+    result = subprocess.run([sys.executable, '-m', 'harness.web_fetch', 'score',
         str(evidence), '--dataset', str(dataset_path)], text=True, capture_output=True)
     assert result.returncode != 0
     assert paths == calls
@@ -235,7 +235,7 @@ def test_rescore_rejects_invalid_language_before_rewriting_evidence(tmp_path, mo
     def unexpected(*args, **kwargs):
         pytest.fail("Invalid language must not rescore evidence")
     monkeypatch.setattr(cli, "rescore_evaluation", unexpected)
-    args = cli.build_parser().parse_args(["rescore", str(tmp_path / "run"), "--dataset", str(tmp_path / "unused.json")])
+    args = cli.build_parser().parse_args(["score", str(tmp_path / "run"), "--dataset", str(tmp_path / "unused.json")])
     with pytest.raises(ValueError, match="WEBSTONE_REPORT_LANGUAGE"):
         cli.command_rescore(args)
 
@@ -267,7 +267,7 @@ def test_rescore_defaults_to_the_saved_content_scope_and_rejects_switches(tmp_pa
         assert len(kwargs['cases'][0].required_facts)==1
         return [],{}
     monkeypatch.setattr(cli,'rescore_evaluation',rescore)
-    args=cli.build_parser().parse_args(['rescore',str(run),'--dataset',str(dataset),'--no-report'])
+    args=cli.build_parser().parse_args(['score',str(run),'--dataset',str(dataset),'--no-report'])
     assert cli.command_rescore(args)==0 and seen==['main']
     args.content_scope='full'
     with pytest.raises(ValueError,match='saved content scope'):cli.command_rescore(args)
@@ -286,7 +286,7 @@ def test_filtered_rescore_does_not_apply_task_scope_to_unexecuted_legacy_tasks(t
         assert kwargs['dataset_meta'].get('content_scope') is None
         return [],{}
     monkeypatch.setattr(cli,'rescore_evaluation',rescore)
-    args=cli.build_parser().parse_args(['rescore',str(run),'--dataset',str(dataset),'--no-report'])
+    args=cli.build_parser().parse_args(['score',str(run),'--dataset',str(dataset),'--no-report'])
     for explicit in (None,'full'):
         args.content_scope=explicit;assert cli.command_rescore(args)==0
     assert seen==[{'article':'full','legacy':None}]*2

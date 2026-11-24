@@ -1,10 +1,10 @@
 """Build, check, review, package and publish Browser Use reports."""
 from __future__ import annotations
 
-import argparse
-import importlib
-import sys
 from collections.abc import Sequence
+
+from harness.adapters import STAGES as FIXED_STAGES
+from harness.adapters import TrackStages, owner_stage, stage_main
 
 PROG = "python -m harness.browser_use"
 COMMANDS = {
@@ -25,26 +25,13 @@ COMMANDS = {
 }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    prog = sys.argv[0] if sys.argv[0].startswith("webstone ") else PROG
-    parser = argparse.ArgumentParser(prog=prog, description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
-    for name, (_, _, summary) in COMMANDS.items():
-        # The owning module parses the remaining arguments, including its own --help.
-        sub.add_parser(name, help=summary, add_help=False)
-    return parser
+STAGES = TrackStages(
+    **{name: owner_stage(*owner) for name, owner in COMMANDS.items() if name in FIXED_STAGES},
+    extra={name: owner_stage(*owner) for name, owner in COMMANDS.items()
+           if name not in FIXED_STAGES},
+)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    parser = build_parser()
-    args, remaining = parser.parse_known_args(argv)
-    module, function, _ = COMMANDS[args.command]
-    # Import on selection so each command and top-level help load only what they use.
-    handler = getattr(importlib.import_module(module), function)
-    invoked = sys.argv
+def main(argv: Sequence[str] | None = None, *, prog: str = PROG) -> None:
     # Owners read sys.argv: visual receipts hash report_visual.py, so its main cannot change.
-    sys.argv = [f"{parser.prog} {args.command}", *remaining]
-    try:
-        handler()
-    finally:
-        sys.argv = invoked
+    stage_main(STAGES, prog, __doc__, argv)

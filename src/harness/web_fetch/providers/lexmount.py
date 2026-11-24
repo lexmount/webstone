@@ -9,7 +9,7 @@ from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.native_projection import native_answer_projection, project_native_answer
 from harness.web_fetch.native_routes import NativeRoute, encode_http_target_url
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import inner_timeout_budget, request
+from harness.http_client import inner_timeout_budget, request
 from harness.web_fetch.retrieval_hints import plan_for_case
 
 _ENGINES = {

@@ -979,7 +979,7 @@ def test_direct_diagnostic_collection_remains_uncertified(tmp_path):
 
 
 def test_certified_entry_rejects_unqualified_sources_before_provider_calls(tmp_path):
-    from harness.web_fetch.certification import main as certified_main
+    from harness.cli import certified_main
     profile_path = CollectionScenarios().profile(tmp_path)
     calls=[]
     def http(url,body=None,*args,**kwargs):

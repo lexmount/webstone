@@ -32,13 +32,13 @@ from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import check_presentation
 from harness.reporting.presentation import esc as escape_text
 from harness.reporting.publication import atomic_write
+from harness.reporting.publication_privacy import SENSITIVE_KEY, project_file
 from harness.reporting.versions import (
     FILENAME,
     bind_build_version,
     check_build_version,
     software_identity,
 )
-from harness.web_fetch.publication_privacy import SENSITIVE_KEY, project_file
 from harness.web_search.comparison import render_comparison
 from harness.web_search.core import (
     aggregate,

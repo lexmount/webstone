@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from harness.web_fetch.providers import http_client
+from harness import http_client
 
 
 @pytest.fixture

@@ -1670,7 +1670,7 @@ def test_swde_prepare_rejects_linked_storage_before_download_or_write(
     import io
     import tarfile
 
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
 
     home, outside = tmp_path / "home", tmp_path / "outside"
     home.mkdir()
@@ -1694,7 +1694,7 @@ def test_swde_prepare_rejects_linked_storage_before_download_or_write(
     pipeline.save_json(card_path, card)
     monkeypatch.setattr(swde, "CARD", card_path)
     download = Mock(return_value=HttpResponse(200, "https://source.example", {}, scorer))
-    monkeypatch.setattr("harness.web_fetch.providers.http_client.request", download)
+    monkeypatch.setattr("harness.http_client.request", download)
     with pytest.raises(ValueError, match="symlink"):
         swde.prepare(home, archive)
     assert (outside / "auto.7z").read_bytes() == b"outside sentinel"
@@ -1709,7 +1709,7 @@ def test_clean_prepare_downloads_pinned_scorer_and_recovers_after_partial_extrac
     import io
     import tarfile
 
-    from harness.web_fetch.providers.http_client import HttpResponse
+    from harness.http_client import HttpResponse
 
     home = tmp_path / "clean"
     archive = tmp_path / "source.tar.gz"
@@ -1749,7 +1749,7 @@ def test_clean_prepare_downloads_pinned_scorer_and_recovers_after_partial_extrac
     download = Mock(
         return_value=HttpResponse(200, "https://source.example/pinned-evaluator", {}, scorer)
     )
-    monkeypatch.setattr("harness.web_fetch.providers.http_client.request", download)
+    monkeypatch.setattr("harness.http_client.request", download)
     fail = [True]
 
     def unpack(source, target):

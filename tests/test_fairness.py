@@ -174,7 +174,7 @@ class FairnessTests(unittest.TestCase):
 
     def test_file_runner_persists_bytes_with_relative_output_path(self):
         from harness.web_fetch.providers.http import HttpProvider
-        from harness.web_fetch.providers.http_client import HttpResponse
+        from harness.http_client import HttpResponse
         from harness.web_fetch.runner import run_evaluation
         raw=b'\x89PNG\r\n\x1a\n'+b'payload'*10
         c=EvalCase('file','file','https://example.com/file','image',[],task_kind='file',content_score_applicable=False,

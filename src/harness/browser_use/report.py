@@ -60,8 +60,8 @@ from harness.report_languages import (
     write_language_contract,
 )
 from harness.reporting.assets import bound_json_asset
+from harness.reporting.style import STYLE as SHARED_STYLE
 from harness.reporting.templates import template_identity
-from harness.web_fetch.report_style import STYLE as SHARED_STYLE
 from lexbench_webfetch.metrics import percentile
 
 

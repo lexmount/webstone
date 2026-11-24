@@ -20,7 +20,7 @@ import urllib.request
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
-from harness.web_fetch.diagnostics import emit
+from harness.call_diagnostics import emit
 from harness.platform_capabilities import require_macos
 
 DNS_ENDPOINT = "https://cloudflare-dns.com/dns-query"

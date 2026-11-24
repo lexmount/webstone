@@ -17,7 +17,7 @@ from lexbench_webfetch.paths import contained_path, safe_identifier
 
 from harness.record_io import file_sha256
 from harness.web_fetch import native_routes
-from harness.web_fetch.publication_privacy import original_evidence_size, read_evidence_binding
+from harness.reporting.publication_privacy import original_evidence_size, read_evidence_binding
 from harness.web_fetch.reference_lifecycle import (
     latency_correction_original_elapsed,
     preserve_legacy_reference_dataset,

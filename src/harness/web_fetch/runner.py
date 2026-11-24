@@ -57,7 +57,7 @@ from harness.web_fetch.native_routes import (
 from harness.web_fetch.network_preflight import preflight_guarded_providers
 from harness.web_fetch.providers import Provider
 from harness.web_fetch.providers.base import ProcessCleanupError
-from harness.web_fetch.publication_privacy import redact_url_queries
+from harness.reporting.publication_privacy import redact_url_queries
 from harness.web_fetch.reference_inputs import benchmark_input_path, read_dataset_bytes, input_tree
 from harness.web_fetch.reference_lifecycle import (
     ReferenceLifecycleError,

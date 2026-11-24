@@ -3,9 +3,10 @@ import json
 import logging
 import pytest
 from unittest.mock import patch
-from harness.web_fetch.diagnostics import CallDiagnostics, diagnostic_context
+from harness.call_diagnostics import diagnostic_context
+from harness.web_fetch.diagnostics import CallDiagnostics
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.providers.http_client import request
+from harness.http_client import request
 
 def test_http_diagnostics_observe_request_response_without_credentials(tmp_path):
     sink=CallDiagnostics(tmp_path / "trace.jsonl", "call-1")

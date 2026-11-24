@@ -5,7 +5,7 @@ from unittest.mock import patch
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers.cloudflare import CloudflareMarkdownProvider
 from harness.web_fetch.providers.firecrawl import FirecrawlProvider
-from harness.web_fetch.providers.http_client import HttpResponse
+from harness.http_client import HttpResponse
 from harness.web_fetch.providers.lexmount import LexmountProvider
 
 

@@ -105,7 +105,8 @@ def test_identity_receipt_parsed_fields_are_immutable():
 @pytest.mark.parametrize("changed", [False, True])
 def test_review_inputs_require_original_bound_bytes(tmp_path, monkeypatch, entry, changed):
     import json
-    from harness.web_fetch import adjudication_evidence, publication_privacy
+    from harness.reporting import publication_privacy
+    from harness.web_fetch import adjudication_evidence
 
     def no_public_substitute(*args):
         raise AssertionError("Original review input must not fall back to a public projection")

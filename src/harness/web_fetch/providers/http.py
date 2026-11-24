@@ -8,7 +8,7 @@ from lexbench_webfetch.models import EvalCase
 
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.base import Provider
-from harness.web_fetch.providers.http_client import inner_timeout_budget, request
+from harness.http_client import inner_timeout_budget, request
 
 
 class TextExtractor(HTMLParser):

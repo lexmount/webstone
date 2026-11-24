@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from email.message import Message
 from typing import Any
 
-from harness.web_fetch.diagnostics import emit
+from harness.call_diagnostics import emit
 from lexbench_webfetch.paths import validate_http_url
 
 

@@ -27,6 +27,7 @@ OWNER_OPTIONS = {
     "tracks": "--help",
     "skills": "install",
     "datasets": "propose",
+    "webfetch": "validate",
     "web-search": "run",
     "web-extract": "prepare",
     "trajectory-replay": "evaluate",
@@ -93,7 +94,7 @@ def test_every_owner_command_is_covered_and_listed_by_top_level_help(tmp_path):
     listed = " ".join(result.stdout.split())
     for name, (_, _, summary) in COMMANDS.items():
         assert name in listed and " ".join(summary.split()) in listed
-    for name in ("run", "report", "rescore", "validate", "accounts"):
+    for name in ("run", "report", "score", "validate", "accounts", "check", "package", "publish"):
         assert name in listed
 
 

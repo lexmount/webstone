@@ -49,7 +49,7 @@ def test_web_fetch_stages(tmp_path: Path, monkeypatch) -> None:
     records = [pick(row, RECORD_FIELDS) for row in read_jsonl(run / "results.jsonl")]
     summary = read_json(run / "summary.json")
 
-    webstone("rescore", str(run), "--dataset", str(cli.EXAMPLES / "fixture-dataset.json"))
+    webstone("score", str(run), "--dataset", str(cli.EXAMPLES / "fixture-dataset.json"))
     rescored = [pick(row, RECORD_FIELDS) for row in read_jsonl(run / "results.jsonl")]
     assert rescored == records, "rescore changed the scored records of an unchanged run"
     assert read_json(run / "summary.json") == summary
