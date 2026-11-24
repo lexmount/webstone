@@ -120,7 +120,21 @@ def pytest_addoption(parser):
     )
 
 
+NODE_PACKAGES = Path(__file__).resolve().parents[1] / "node_modules"
+
+
+def skip_without_node_packages(items):
+    """Skip ``node_packages`` tests on a local checkout without ``npm ci``; CI must run them."""
+    if NODE_PACKAGES.is_dir() or os.environ.get("CI"):
+        return
+    skip = pytest.mark.skip(reason="needs the Node packages; run `npm ci` (part of `make setup-test`)")
+    for item in items:
+        if item.get_closest_marker("node_packages"):
+            item.add_marker(skip)
+
+
 def pytest_collection_modifyitems(config, items):
+    skip_without_node_packages(items)
     selected = config.getoption("--ci-shard")
     if selected is None:
         return
