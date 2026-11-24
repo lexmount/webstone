@@ -4,12 +4,17 @@ The agent only supplies a URL. The harness decides every other request parameter
 the same rules the Web Fetch providers use, so a backend is configured exactly as it is in a provider run:
 
 * ``moli``: ``MoliWebFetchProvider.native_cli_command``; dynamic tasks use ``--wait-until domstable``, other
-  web tasks ``--wait-until done``. A task the native route cannot configure has no parameters.
-* ``lexmount``: dynamic tasks request ``engine_preference: lightmount_domstable``. A task that declares
-  per-task hints gets its own timeout, mirroring ``LexmountProvider.fetch``; a task that declares the uniform
-  native marker (no per-task assistance) gets the family-level timeout, the caller budget. Other tasks send
-  no options.
-* ``builtin``: Claude Code's WebFetch has no request parameters.
+  web tasks ``--wait-until done``.
+* ``lexmount``: dynamic tasks request ``engine_preference: lightmount_domstable``, mirroring
+  ``LexmountProvider.fetch``; a dynamic task that declares per-task hints keeps its own shorter timeout.
+* ``builtin``: Claude Code's WebFetch takes no request parameters; its deadline is set through the environment.
+
+One fetch time limit applies to every backend and every task family (``timeout_seconds``, default the Webstone
+per-call budget ``DEFAULT_CALL_TIMEOUT_SECONDS``). It is the hard stop of the fetch call: the MCP server stops the
+moli process or the Lexmount request at that point, and the built-in WebFetch gets it as
+``CLAUDE_CODE_WEBFETCH_DEADLINE_MS``. moli's readiness and HTTP timeouts and Lexmount's ``timeout_ms`` get the
+same inner budget the Web Fetch providers derive from a call budget (``inner_timeout_budget``), so a backend can
+report its own timeout before the hard stop.
 
 Parameters are chosen by family, never by task id, host or expected answer.
 """
@@ -30,7 +35,6 @@ from harness.web_fetch.providers.lexmount import LexmountProvider
 from harness.web_fetch.providers.moli import MoliWebFetchProvider, _family_wait_until
 from harness.web_fetch.retrieval_hints import plan_for_case
 
-CALLER_BUDGET_SECONDS = 45  # the native caller budget the Web Fetch providers run under
 _FIELDS = {f.name for f in dataclasses.fields(EvalCase)}
 
 
@@ -52,11 +56,16 @@ def moli_provider(binary: str | None = None) -> MoliWebFetchProvider:
     return MoliWebFetchProvider("moli-webfetch", config)
 
 
-def params_for(arm_backend: str, case: dict, *, moli: MoliWebFetchProvider | None = None) -> dict:
+def params_for(arm_backend: str, case: dict, *, timeout_seconds: float, moli: MoliWebFetchProvider | None = None) -> dict:
     """Return the request parameters for one task, or raise ValueError if the backend cannot be configured."""
+    if not timeout_seconds > 0:
+        raise ValueError("the fetch time limit must be positive")
+    limit = {"timeout_seconds": timeout_seconds}
+    inner_ms = max(1, int(inner_timeout_budget(timeout_seconds) * 1000))
     if arm_backend == "builtin":
-        return {}
+        return limit
     eval_case = to_case(case)
+    moli_timeouts = ["--timeout-ms", str(inner_ms), "--http-timeout", str(inner_ms), "--http-connect-timeout", str(inner_ms)]
     if arm_backend == "moli":
         provider = moli or moli_provider()
         if eval_case.track == "document":
@@ -70,34 +79,33 @@ def params_for(arm_backend: str, case: dict, *, moli: MoliWebFetchProvider | Non
                 argv.append("--block-private-networks")
             if config.get("log_level"):
                 argv += ["--log-level", str(config["log_level"])]
-            return {"argv": argv}
+            return {**limit, "argv": argv + moli_timeouts}
         command = provider.native_cli_command(eval_case)
         if command[-1] != eval_case.url:
             raise ValueError("unexpected moli command shape")
-        return {"argv": command[1:-1]}
+        return {**limit, "argv": command[1:-1] + moli_timeouts}
     if arm_backend == "lexmount":
         if eval_case.track != "dynamic":
-            return {}
-        family_timeout_ms = max(1, int(inner_timeout_budget(CALLER_BUDGET_SECONDS) * 1000))
-        if (eval_case.retrieval_hints or {}).get("mode") == "native":  # uniform native family: no per-task assistance
-            timeout_ms = family_timeout_ms
-        else:
+            return {**limit, "options": {"timeout_ms": inner_ms}}
+        timeout_ms = inner_ms
+        if (eval_case.retrieval_hints or {}).get("mode") != "native":  # per-task hints may ask for less time
             plan = plan_for_case(eval_case)
             if plan is None:
                 raise ValueError("invalid dynamic retrieval_hints")
-            timeout_ms = min(plan.timeout_ms, family_timeout_ms)
+            timeout_ms = min(plan.timeout_ms, inner_ms)
         engine = LexmountProvider("lexmount", {}).config.get("dynamic_engine", "lightmount_domstable")
-        return {"options": {"engine_preference": engine, "timeout_ms": timeout_ms}}
+        return {**limit, "options": {"engine_preference": engine, "timeout_ms": timeout_ms}}
     raise ValueError(f"unknown backend {arm_backend}")
 
 
-def ineligible(cases: dict, backends: list[str], *, moli: MoliWebFetchProvider | None = None) -> dict[str, str]:
+def ineligible(cases: dict, backends: list[str], *, timeout_seconds: float,
+               moli: MoliWebFetchProvider | None = None) -> dict[str, str]:
     """Tasks that any selected backend cannot be configured for, with the reason. They are excluded for every arm."""
     result = {}
     for cid, case in cases.items():
         for backend in backends:
             try:
-                params_for(backend, case, moli=moli)
+                params_for(backend, case, timeout_seconds=timeout_seconds, moli=moli)
             except ValueError as error:
                 result[cid] = f"{backend}: {error}"
                 break

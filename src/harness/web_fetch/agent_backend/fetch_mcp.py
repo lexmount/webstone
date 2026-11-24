@@ -85,10 +85,13 @@ def moli(url, timeout, params):
 BACKENDS = {"lexmount": lexmount, "moli": moli}
 
 
-def fetch(backend, url, timeout, params=None):
-    """Return (text, is_error, log_row). ``log_row["ok"]`` is the backend's own verdict, not the agent's view."""
+def fetch(backend, url, params):
+    """Return (text, is_error, log_row, artifacts). ``log_row["ok"]`` is the backend's own verdict, not the agent's view.
+
+    ``params["timeout_seconds"]`` is the hard stop of the call, the same for every backend.
+    """
     started = time.time()
-    text, status, request_id, message, artifacts = BACKENDS[backend](url, timeout, params or {})
+    text, status, request_id, message, artifacts = BACKENDS[backend](url, float(params["timeout_seconds"]), params)
     ok = bool(text) and status in (0, 200)
     row = {"url": url, "status": status, "ok": ok, "wall_ms": round((time.time() - started) * 1000), "chars": len(text),
            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if ok else None, "request_id": request_id}
@@ -115,7 +118,7 @@ def serve(args):
             send({"jsonrpc": "2.0", "id": ident, "result": {"tools": [TOOL]}})
         elif method == "tools/call":
             url = ((message.get("params") or {}).get("arguments") or {}).get("url", "")
-            text, is_error, row, artifacts = fetch(args.backend, url, args.timeout, params)
+            text, is_error, row, artifacts = fetch(args.backend, url, params)
             if args.out_dir:  # the backend's complete output, whatever Claude Code shows the agent
                 os.makedirs(args.out_dir, exist_ok=True)
                 stem = f"call-{sum(1 for _ in open(args.log, encoding='utf-8')) + 1 if os.path.exists(args.log) else 1}"
@@ -142,7 +145,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--backend", required=True, choices=sorted(BACKENDS))
     parser.add_argument("--log", required=True)
-    parser.add_argument("--params", help="JSON file with the harness-chosen request parameters for this run")
+    parser.add_argument("--params", required=True, help="JSON file with the harness-chosen request parameters for this run")
     parser.add_argument("--out-dir", help="directory that receives each successful call's complete output")
-    parser.add_argument("--timeout", type=float, default=45.0, help="per-call budget in seconds (the Web Fetch caller budget)")
     serve(parser.parse_args())

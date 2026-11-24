@@ -247,6 +247,9 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     work.mkdir(exist_ok=True)  # empty working directory: no project instructions leak in
     (out / "backend_params.json").write_text(json.dumps(params or {}), encoding="utf-8")
     env = {**os.environ, **FIXED_ENV, **(extra_env or {})}
+    if ARMS[arm]["backend"] == "builtin" and (params or {}).get("timeout_seconds"):
+        # The built-in tool's deadline is the experiment's fetch time limit, like the MCP backends' hard stop.
+        env["CLAUDE_CODE_WEBFETCH_DEADLINE_MS"] = str(int(float(params["timeout_seconds"]) * 1000))
     if ARMS[arm]["backend"] == "lexmount":
         missing = [name for name in LEXMOUNT_ENV if not env.get(name)]
         if missing:

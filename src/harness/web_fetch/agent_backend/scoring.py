@@ -159,6 +159,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "markdown_chars": _stats([r.get("markdown_chars") for r in used]),
             # Metrics describe final attempts only. Earlier attempts are listed under ``retry_cost``, never averaged in.
             "subagent_tokens": _stats([r["subagent_tokens"] for r in used]),
+            # The fetched page is the subagent's tool result, so its tokens grow with the delivered text. A failed
+            # fetch costs only the fixed overhead; this view leaves those runs out.
+            "subagent_tokens_fetched": _stats([r["subagent_tokens"] for r in used if not r["fetch_failed"]]),
             "subagent_duration_ms": _stats([r["subagent_duration_ms"] for r in used]),
             "fetch_tool_ms": _stats([r["fetch_tool_ms"] for r in used]),
             "tool_uses": dict(Counter(r["subagent_tool_uses"] for r in used)),
@@ -172,6 +175,15 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
                            "subagent_tokens": sum(r["subagent_tokens"] or 0 for r in before),
                            "haiku_model_cost_usd": sum(r.get("haiku_model_cost_usd") or 0 for r in before)},
         }
+    # Diagnostic like-for-like view: tasks that every arm fetched, so each arm read the same pages. It is chosen
+    # after the outcome and never ranks the arms; the all-run and per-arm fetched figures stay the primary ones.
+    fetched_by_all = [v for k, v in sorted(by_key.items()) if k in included
+                      and all(x["valid"] and not x["fetch_failed"] for x in v.values())]
+    summary["fetched_by_every_arm"] = {"tasks": len(fetched_by_all), "arms": {arm: {
+        "subagent_tokens": _stats([v[arm]["subagent_tokens"] for v in fetched_by_all]),
+        "markdown_chars": _stats([v[arm].get("markdown_chars") for v in fetched_by_all]),
+        "subagent_duration_ms": _stats([v[arm]["subagent_duration_ms"] for v in fetched_by_all]),
+        "fetch_tool_ms": _stats([v[arm]["fetch_tool_ms"] for v in fetched_by_all])} for arm in arm_names}}
     summary["by_suite"] = {}
     for arm in arm_names:  # tasks and passes per task category, the first part of the task id
         table: dict = {}

@@ -20,7 +20,17 @@ Fixed environment (recorded in `plan.json`): `CLAUDE_CODE_DISABLE_BACKGROUND_TAS
 
 ## Parameters
 
-Parameters are generated per task family by `backend_params.py`, never per task, and match the Webstone provider configuration. moli: `fetch --dump markdown --wait-until done|domstable --block-private-networks`; the readiness deadline is moli's native default (25 s). Lexmount: dynamic tasks request `engine_preference: lightmount_domstable` with the family timeout (45 s caller budget), other tasks send no options. The built-in tool has no parameters. Document tasks carry no input media declaration in the current edition, so moli's document family uses its automatic output (`fetch --wait-until done`), the form its document route uses; direct PDF/DOCX then arrive as original bytes, which, as in the benchmark, cannot pass a body contract on bytes alone. Every task of the edition is run for every arm; none is dropped because a backend handles it badly.
+Parameters are generated per task family by `backend_params.py`, never per task, and match the Webstone provider configuration. moli: `fetch --dump markdown --wait-until done|domstable --block-private-networks` (the provider's native command). Lexmount: dynamic tasks request `engine_preference: lightmount_domstable`, other tasks send only the time limit. The built-in tool has no request parameters. Document tasks carry no input media declaration in the current edition, so moli's document family uses its automatic output (`fetch --wait-until done`), the form its document route uses; direct PDF/DOCX then arrive as original bytes, which, as in the benchmark, cannot pass a body contract on bytes alone. Every task of the edition is run for every arm; none is dropped because a backend handles it badly.
+
+One fetch time limit applies to every arm and every task family: `--fetch-timeout SECONDS`, default the Webstone per-call budget `DEFAULT_CALL_TIMEOUT_SECONDS` (30 s, `harness/web_fetch/config.py`), recorded in `plan.json`. It is the hard stop of one fetch call:
+
+| Arm | How the limit is applied |
+| --- | --- |
+| `builtin` | `CLAUDE_CODE_WEBFETCH_DEADLINE_MS` (otherwise WebFetch uses its own deadline: 300 s unless Claude Code's remote configuration sets another) |
+| `lexmount` | the MCP server stops the request at the limit; `options.timeout_ms` gets the inner budget |
+| `moli` | the MCP server stops the process at the limit; `--timeout-ms`, `--http-timeout` and `--http-connect-timeout` get the inner budget (otherwise moli's own 25 s readiness deadline) |
+
+The inner budget is the one the Web Fetch providers derive from a call budget (`inner_timeout_budget`: the limit minus 10 %, at least 1 s and at most 5 s), so a backend reports its own timeout before the hard stop. A slower local network is handled by raising the one limit for every arm, for example `--fetch-timeout 45`.
 
 ## Prerequisites
 
@@ -34,7 +44,7 @@ Parameters are generated per task family by `backend_params.py`, never per task,
 uv run --frozen python scripts/agent_fetch_experiment.py check
 uv run --frozen python scripts/agent_fetch_experiment.py plan  --per-suite 5          # write plan.json only
 uv run --frozen python scripts/agent_fetch_experiment.py run   --per-suite 5 --retries 1 --run-id my-run
-uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --run-id full   # every task
+uv run --frozen python scripts/agent_fetch_experiment.py run   --limit 1000 --retries 1 --fetch-timeout 45 --run-id full   # every task
 uv run --frozen python scripts/agent_fetch_experiment.py resume --run <run dir>
 uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir>       # no provider or model calls
 ```
@@ -54,6 +64,8 @@ The pass verdict is the benchmark's own `score_attempt` and task predicate appli
 Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`; the harness never extracts text from delivered files or converts formats. The empty-output control must fail every selected task. A task's own reference text is not used as a control: many tasks have none, and the acceptance rules are defined on the whole page.
 
 ## Metrics
+
+The fetched page is the subagent's tool result: the subagent reads all of it and returns only its report, so the main agent never sees the page and the subagent's tokens grow with the delivered text. `summary.json` therefore gives subagent tokens over all valid runs, over each arm's fetched runs (`subagent_tokens_fetched`; a failed fetch costs only the fixed overhead), and, as a diagnostic, over the tasks every arm fetched (`fetched_by_every_arm`, the same pages for every arm; it is selected after the outcome and never ranks the arms).
 
 Per run: subagent tokens and duration exactly as Claude Code reports them (a run without the report is invalid, never filled in), fetch tool duration from the tool dispatch log (the same measurement point in every arm), backend calls, the route taken, and the fetch tool's raw result. Fetch API cost is calls × `--price-per-1000` / 1000; the subagent model cost is the haiku usage cost and includes small auxiliary calls of the main session, so it is an upper bound. `summary.json` also carries pass counts per task category.
 

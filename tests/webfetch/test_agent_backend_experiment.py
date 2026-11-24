@@ -15,6 +15,7 @@ FAKE_CLAUDE = r'''#!{python}
 import json, os, sys
 route = os.environ.get("FAKE_ROUTE", "delegated")
 debug = sys.argv[sys.argv.index("--debug-file") + 1]
+open(debug + ".deadline", "w").write(os.environ.get("CLAUDE_CODE_WEBFETCH_DEADLINE_MS", ""))
 def emit(o): print(json.dumps(o))
 def agent(i): emit({{"type": "assistant", "message": {{"content": [{{"type": "tool_use", "id": i, "name": "Agent", "input": {{}}}}]}}}})
 USAGE = "report\nagentId: x\n<usage>subagent_tokens: 321\ntool_uses: 1\nduration_ms: 4500</usage>"
@@ -101,6 +102,14 @@ def test_arm_commands_differ_only_in_the_fetch_tool(tmp_path, arm, expect_tools,
     assert ("--disallowedTools" in command) == (arm != "builtin")
 
 
+def test_the_builtin_tool_gets_the_fetch_time_limit_as_its_deadline(tmp_path, fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_ROUTE", "delegated")
+    monkeypatch.delenv("CLAUDE_CODE_WEBFETCH_DEADLINE_MS", raising=False)
+    arms.run_one("builtin", "c00", "https://example.com/", "prompt", tmp_path / "r", claude_bin=fake_claude,
+                 params={"timeout_seconds": 45})
+    assert (tmp_path / "r" / "debug.log.deadline").read_text(encoding="utf-8") == "45000"
+
+
 def test_valid_run_records_the_reported_subagent_usage(tmp_path, fake_claude, monkeypatch):
     monkeypatch.setenv("FAKE_ROUTE", "delegated")
     record = arms.run_one("builtin", "c00", "https://example.com/", "prompt", tmp_path / "r", claude_bin=fake_claude)
@@ -177,7 +186,7 @@ def _mcp(backend, env, tmp_path, urls, params=None):
     lines += [{"jsonrpc": "2.0", "id": 3 + i, "method": "tools/call", "params": {"arguments": {"url": u}}} for i, u in enumerate(urls)]
     log = tmp_path / "calls.jsonl"
     params_file = tmp_path / "params.json"
-    params_file.write_text(json.dumps(params or {}), encoding="utf-8")
+    params_file.write_text(json.dumps({"timeout_seconds": 20, **(params or {})}), encoding="utf-8")
     out = subprocess.run([sys.executable, "-I", str(arms.MCP_SERVER), "--backend", backend, "--log", str(log), "--params", str(params_file), "--out-dir", str(tmp_path / "out")],
                          env={**os.environ, **env},
                          capture_output=True, text=True, input="\n".join(json.dumps(x) for x in lines) + "\n", timeout=30).stdout
@@ -232,14 +241,30 @@ def _task(track, **extra):
 
 def test_moli_parameters_follow_the_task_family_and_every_task_is_configurable(fake_moli):
     provider = backend_params.moli_provider(fake_moli)
-    web = backend_params.params_for("moli", _task("web"), moli=provider)["argv"]
-    dynamic = backend_params.params_for("moli", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}), moli=provider)["argv"]
+    web = backend_params.params_for("moli", _task("web"), timeout_seconds=45, moli=provider)["argv"]
+    dynamic = backend_params.params_for("moli", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}),
+                                        timeout_seconds=45, moli=provider)["argv"]
     assert web[web.index("--wait-until") + 1] == "done" and "--layout" not in web
     assert dynamic[dynamic.index("--wait-until") + 1] == "domstable" and "--layout" in dynamic and "--with-frames" in dynamic
     # documents carry no input media declaration in the current edition: one family setting, moli's automatic output
-    document = backend_params.params_for("moli", _task("document"), moli=provider)["argv"]
+    document = backend_params.params_for("moli", _task("document"), timeout_seconds=45, moli=provider)["argv"]
     assert "--dump" not in document and document[document.index("--wait-until") + 1] == "done"
-    assert backend_params.ineligible({"a": _task("web"), "b": _task("document")}, ["builtin", "moli"], moli=provider) == {}
+    for argv in (web, dynamic, document):  # one time limit for every family; moli times out inside the hard stop
+        assert [argv[argv.index(flag) + 1] for flag in ("--timeout-ms", "--http-timeout", "--http-connect-timeout")] == ["40500"] * 3
+    assert backend_params.ineligible({"a": _task("web"), "b": _task("document")}, ["builtin", "moli"],
+                                     timeout_seconds=45, moli=provider) == {}
+
+
+def test_one_fetch_time_limit_reaches_every_backend(tmp_path, fake_moli):
+    for backend in ("builtin", "lexmount", "moli"):
+        for task in (_task("web"), _task("document"), _task("dynamic", retrieval_hints={"version": 3, "mode": "native"})):
+            params = backend_params.params_for(backend, task, timeout_seconds=45,
+                                               moli=backend_params.moli_provider(fake_moli))
+            assert params["timeout_seconds"] == 45
+            if backend == "lexmount":
+                assert params["options"]["timeout_ms"] == 40500
+    with pytest.raises(ValueError):
+        backend_params.params_for("builtin", _task("web"), timeout_seconds=0)
 
 
 def test_lexmount_parameters_match_what_the_provider_sends(monkeypatch):
@@ -256,13 +281,16 @@ def test_lexmount_parameters_match_what_the_provider_sends(monkeypatch):
         task = _task(track, **extra)
         with pytest.raises(RuntimeError):
             provider_module.LexmountProvider("lexmount", {"api_key": "k", "project_id": "p"}).fetch(
-                backend_params.to_case(task), backend_params.CALLER_BUDGET_SECONDS)
-        mine = backend_params.params_for("lexmount", task)
-        assert sent["body"]["extract"] == {"url": task["url"], **({"options": mine["options"]} if mine else {})}
-    native = backend_params.params_for("lexmount", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}))
-    assert native == {"options": {"engine_preference": "lightmount_domstable",
-                                  "timeout_ms": int(provider_module.inner_timeout_budget(backend_params.CALLER_BUDGET_SECONDS) * 1000)}}
-    assert backend_params.params_for("builtin", _task("web")) == {}
+                backend_params.to_case(task), 45)
+        mine = backend_params.params_for("lexmount", task, timeout_seconds=45)
+        if track == "dynamic":  # the provider's dynamic request, unchanged
+            assert sent["body"]["extract"] == {"url": task["url"], "options": mine["options"]}
+        else:  # other tasks add only the shared time limit to the provider's plain request
+            assert sent["body"]["extract"] == {"url": task["url"]} and mine["options"] == {"timeout_ms": 40500}
+    native = backend_params.params_for("lexmount", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}),
+                                       timeout_seconds=45)
+    assert native == {"timeout_seconds": 45, "options": {"engine_preference": "lightmount_domstable", "timeout_ms": 40500}}
+    assert backend_params.params_for("builtin", _task("web"), timeout_seconds=45) == {"timeout_seconds": 45}
 
 
 def _record(case, arm, **over):
@@ -315,6 +343,12 @@ def test_one_chance_per_run_every_task_counts_and_invalid_runs_are_never_average
     assert moli["fetch_api_cost_usd"] == 0.0 and built["fetch_api_cost_usd"] == 0.0
     assert (built["passed"], moli["passed"], lex["passed"]) == (1, 4, 3)  # the invalid lexmount run is not passed
     assert summary["paired"]["builtin|moli"] == {"pairs": 4, "only_builtin": 0, "only_moli": 3, "both_pass": 1, "both_fail": 0}
+    # token views: fetched runs per arm, and the tasks every arm fetched (b has an invalid lexmount run)
+    assert lex["subagent_tokens_fetched"]["n"] == sum(1 for r in json.loads((tmp_path / "scored_runs.json").read_text(encoding="utf-8"))
+                                                       if r["arm"] == "lexmount" and r["valid"] and not r["fetch_failed"])
+    common = summary["fetched_by_every_arm"]
+    assert common["tasks"] <= 3  # never the task with an invalid run
+    assert {a: v["subagent_tokens"]["n"] for a, v in common["arms"].items()} == {a: common["tasks"] for a in common["arms"]}
 
 
 def _fake_runner(monkeypatch, outcomes, log):

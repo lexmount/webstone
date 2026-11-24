@@ -10,6 +10,7 @@ import sys
 
 from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.agent_backend import backend_params, experiment, scoring
+from harness.web_fetch.config import DEFAULT_CALL_TIMEOUT_SECONDS
 
 DEFAULT_ARMS = "builtin,lexmount,moli"
 
@@ -34,7 +35,10 @@ def _plan_args(parser):
     parser.add_argument("--reps", type=int, default=1)
     parser.add_argument("--arms", default=DEFAULT_ARMS)
     parser.add_argument("--model", default="claude-sonnet-5-5")
-    parser.add_argument("--timeout", type=int, default=420)
+    parser.add_argument("--timeout", type=int, default=420, help="limit for one whole claude process, in seconds")
+    parser.add_argument("--fetch-timeout", type=float, default=DEFAULT_CALL_TIMEOUT_SECONDS,
+                        help="time limit of one fetch call in seconds, the same for every backend and task family "
+                             f"(default: the Webstone per-call budget, {DEFAULT_CALL_TIMEOUT_SECONDS})")
     parser.add_argument("--retries", type=int, choices=(0, 1), default=0,
                         help="declared retries after a protocol violation or a failed fetch call (default 0); "
                              "the last attempt is the only result")
@@ -54,7 +58,7 @@ def _prepare(args):
     backends = [arm_module.ARMS[a]["backend"] for a in _split(args.arms)]
     kinds = tuple(_split(args.task_kinds)) or None
     pool = {c: v for c, v in cases.items() if kinds is None or v.get("task_kind", "body") in kinds}
-    ineligible = backend_params.ineligible(pool, backends, moli=moli)
+    ineligible = backend_params.ineligible(pool, backends, timeout_seconds=args.fetch_timeout, moli=moli)
     ids = experiment.select_cases(cases, task_kinds=kinds, limit=args.limit, seed=args.seed,
                                   include=_split(args.include), case_ids=_split(args.case_ids),
                                   exclude=_split(args.exclude), ineligible=ineligible,
@@ -80,7 +84,8 @@ def cmd_run(args) -> int:
     print(f"{len(document['cases'])} tasks, {len(document['runs'])} runs -> {root}; "
           f"{len(document['ineligible_for_all_arms'])} tasks not configurable for every arm")
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=args.model, timeout=args.timeout,
-                       params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
+                       params_for=lambda backend, case: backend_params.params_for(
+                           backend, case, timeout_seconds=args.fetch_timeout, moli=moli),
                        retries=args.retries, concurrent_arms=not args.serial_arms,
                        parallel_tasks=args.parallel_tasks)
     return cmd_score(argparse.Namespace(run=root, dataset=args.dataset, materials=None, price_per_1000=args.price_per_1000))
@@ -96,9 +101,13 @@ def cmd_resume(args) -> int:
     if recorded and recorded != experiment.dataset_commit():
         raise SystemExit("the pinned dataset commit differs from the one recorded in plan.json; start a new run")
     moli = backend_params.moli_provider() if "moli" in document["args"]["arms"] else None
+    if "fetch_timeout" not in document["args"]:
+        raise SystemExit("plan.json records no fetch time limit; start a new run")
+    limit = float(document["args"]["fetch_timeout"])
     experiment.execute(root, document, cases, claude_bin=args.claude_bin, model=document["args"]["model"],
                        timeout=int(document["args"]["timeout"]),
-                       params_for=lambda backend, case: backend_params.params_for(backend, case, moli=moli),
+                       params_for=lambda backend, case: backend_params.params_for(
+                           backend, case, timeout_seconds=limit, moli=moli),
                        retries=int(document["args"]["retries"]),
                        concurrent_arms=document["args"]["serial_arms"] != "True",
                        parallel_tasks=int(document["args"].get("parallel_tasks", 1)))
@@ -167,8 +176,9 @@ def cmd_check(args) -> int:
                           "expected_any": [], "track": "web"}
             provider = backend_params.moli_provider(moli) if moli else None
             for backend in ("lexmount", "moli") if moli else ("lexmount",):
-                params = backend_params.params_for(backend, probe_case, moli=provider)
-                text, is_error, row, _ = fetch_mcp.fetch(backend, "https://example.com/", 60, params)
+                params = backend_params.params_for(backend, probe_case, timeout_seconds=DEFAULT_CALL_TIMEOUT_SECONDS,
+                                                   moli=provider)
+                text, is_error, row, _ = fetch_mcp.fetch(backend, "https://example.com/", params)
                 add(f"{backend} fetch call", "FAIL" if is_error else "PASS", f"status {row['status']}, {row['wall_ms']} ms, {row['chars']} chars")
     width = max(len(r[0]) for r in rows)
     for name, status, detail in rows:
