@@ -2480,6 +2480,9 @@
     "request_success": "请求成功率",
     "task_pass": "任务通过率",
     "chart_mean_f1": "{quality_count} 页有效参考上的平均 F1",
-    "chart_mean_f1_caption": "按与人工主内容参考对比的逐页 F1 平均值排序。"
+    "chart_mean_f1_caption": "按与人工主内容参考对比的逐页 F1 平均值排序。",
+    "saved_matrix_final_call_timing_summary": "最终调用耗时：均值（P50 · P95）",
+    "saved_matrix_passing_final_call_summary": "通过项耗时：均值（P50 · P95）",
+    "latency_mean_p50_p95": "耗时：均值（P50 · P95）"
   }
 }

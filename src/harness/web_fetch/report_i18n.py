@@ -1008,6 +1008,8 @@ _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · re
                          'formal publication.',
  'final_call_timing_headers': ['Mean final-call latency', 'P50 final-call latency', 'P95 final-call latency'],
  'passing_final_call_headers': ['Mean latency (passed)', 'P50 latency (passed)', 'P95 latency (passed)'],
+ 'final_call_timing_summary': 'Final-call latency: mean (P50 · P95)',
+ 'passing_final_call_summary': 'Latency (passed): mean (P50 · P95)',
  'passing_final_call_title': 'Final-call latency for passing tasks',
  'passing_final_call_help': 'Only passing tasks are included. Green bold values are the shortest in their columns. Each method passed a different mix of tasks, so these values do not rank speed on the same tasks.',
  'all_final_call_timing_title': 'Final-call latency for all calls',

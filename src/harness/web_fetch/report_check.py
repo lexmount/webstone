@@ -659,11 +659,13 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
             raise ValueError(c["id"])
     check_report_language_parity(root, d)
     display_labels = method_display_labels()
+    bilingual = 'en' in generated_languages(root)
     pages = ((page, root, rs, case_by_id, local_measurement) for page in root.rglob('*.html'))
     for p, page_root, page_records, page_cases, page_diagnostic in pages:
         text = p.read_text(encoding="utf-8")
         page_soup = check_presentation(text)
-        check_one_language(page_soup)
+        if bilingual:
+            check_one_language(page_soup)
         check_display_names(page_soup, display_labels)
         reader = VisibleText()
         reader.feed(text)

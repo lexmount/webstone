@@ -692,8 +692,8 @@ def check_visual(root: Path, browser_binary: str) -> None:
                                                 raise ValueError(f'Guide image did not render: {image.get_attribute("src")}') from error
                                     if route == 'index.html' and not dark:
                                         check_presentation(page.content())
-                                        quality = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(5)').all()]
-                                        if float(page.locator('#wcxb-core tbody tr').first.locator('td').nth(4).get_attribute('data-sort')) != max(quality):
+                                        quality = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(2)').all()]
+                                        if float(page.locator('#wcxb-core tbody tr').first.locator('td').nth(1).get_attribute('data-sort')) != max(quality):
                                             raise ValueError('Core table is not ordered by qualified F1')
                                         page.locator('[data-core-sort="5"]').click()
                                         latency = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(6)').all()]

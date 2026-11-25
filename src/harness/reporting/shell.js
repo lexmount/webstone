@@ -28,6 +28,19 @@ function update(box){
   // The swipe hint follows whether the table overflows at all, so reaching an edge never moves the layout.
   box.toggleAttribute('data-scrollable',room>1);
 }
+// On a desktop page a table wider than the text column widens its scroller toward the
+// viewport edges, so the whole table shows without sideways scrolling where it fits.
+const BREAKOUT_MIN=1100,GUTTER=24;
+function breakout(box,table){
+  box.removeAttribute('data-breakout');box.style.removeProperty('width');box.style.removeProperty('max-width');box.style.removeProperty('margin-left');
+  if(innerWidth<BREAKOUT_MIN||box.closest('dialog'))return;
+  const need=table.scrollWidth-box.clientWidth;
+  if(need<=1)return;
+  const rect=box.getBoundingClientRect(),width=Math.min(rect.width+need,innerWidth-2*GUTTER),extra=width-rect.width;
+  if(extra<=1)return;
+  const shift=Math.max(0,Math.min(extra/2,rect.left-GUTTER),extra-(innerWidth-GUTTER-rect.right));
+  box.setAttribute('data-breakout','');box.style.width=width+'px';box.style.maxWidth='none';box.style.marginLeft=(-shift)+'px';
+}
 function mark(){
   pressed();
   const source=document.querySelector('[data-table-hint]'),hint=source?source.textContent.trim():'';
@@ -37,6 +50,7 @@ function mark(){
     if(!box)return;
     if(hint)box.setAttribute('data-hint',hint);
     if(!box.hasAttribute('data-shell-scroll')){box.setAttribute('data-shell-scroll','');box.addEventListener('scroll',function(){update(box)},{passive:true})}
+    breakout(box,table);
     update(box);
   });
 }

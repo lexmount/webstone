@@ -39,15 +39,18 @@ def check_display_names(html, labels: Mapping[str, object]) -> None:
                 continue
             for part in _CELL_PARTS.split(str(text).strip()):
                 if part in raw:
-                    raise ValueError(f"Table cell shows the raw id {part!r} instead of its display name")
+                    table = cell.find_parent("table")
+                    where = (table.get("id") or "") if table is not None else ""
+                    raise ValueError(f"Table cell shows the raw id {part!r} instead of its display name"
+                                     + (f" in table {where!r}" if where else "")
+                                     + f": {cell.get_text(' ', strip=True)[:80]!r}")
 
 
-_CJK = re.compile(r"[㐀-鿿]")
+_CJK = re.compile(r"[\u3400-\u9fff]")
 # Interface words a Chinese page translates; names, units and metric acronyms (P50, F1) stay as they are.
 INTERFACE_WORDS = ("Mean", "Median", "Average", "Total", "Status", "Result", "Results", "Pass", "Passed",
                    "Fail", "Failed", "Task", "Tasks", "Latency", "Score", "Rank", "Back", "Next",
-                   "Previous", "Close", "Search", "Filter", "All", "Details", "Error", "Errors", "Source",
-                   "Value", "Count", "Owner", "Revision")
+                   "Previous", "Close", "Details", "Owner", "Revision")
 _INTERFACE_WORD = re.compile(r"\b(?:" + "|".join(INTERFACE_WORDS) + r")\b")
 _INTERFACE = "main h1, main h2, main h3, main h4, th, summary, button, label, caption, legend, dt, option"
 

@@ -114,7 +114,7 @@ def test_public_release_check_rejects_wrong_or_missing_output_explanation(tmp_pa
     elif damage == 'misplaced':
         soup.select_one('[data-output-level]').insert_after(guide.extract())
     elif damage == 'fields':
-        guide.select_one('[data-level-input]').string = 'Score the entire page body'
+        guide.select_one('[data-level-input]').string = '对整页正文评分'
     elif damage == 'population':
         guide.select_one('thead th:nth-child(3)').string = '999 factual queries'
     else:

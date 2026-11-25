@@ -50,12 +50,12 @@ def adoption_counts(data,names):
         result.append({'provider':name,'repository_count':len(repos) if sigs is not None else None,'file_count':len(files) if sigs is not None else None,'signatures':sorted(sigs or []),'repositories':list(repos.values())})
     return sorted(result,key=lambda x:(x['repository_count'] is None,-(x['repository_count'] or 0),x['provider']))
 
-def _implementation_scope(records, *, section, table, cell, esc):
+def _implementation_scope(records, *, section, table, cell, esc, ctx):
     from harness.web_fetch.report import model_text
     inventories = implementation_inventory(records)
     if not inventories:
         return ""
-    rows = [("", cell(esc(name)) + cell("<code>" + esc(fingerprint) + "</code>") + cell(str(count)))
+    rows = [("", cell(esc(display_name(name, ctx=ctx))) + cell("<code>" + esc(fingerprint) + "</code>") + cell(str(count)))
             for name, counts in sorted(inventories.items())
             for fingerprint, count in counts.items()]
     explanation = model_text(
@@ -77,7 +77,7 @@ def render_methods(out,records,*,hero,section,table,cell,link,esc,authored=True,
                 '<p><code>fetch(EvalCase, timeout) → ProviderResult</code></p>'
                 '<p>输入为任务定义与超时预算，输出为预设的内容或错误。完整输出见该方法的结果详情。</p>',
                 'interface-' + name)
-        return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc)
+        return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc, ctx=ctx)
     dataset=json.loads((out/'dataset.json').read_text(encoding='utf-8')) if (out/'dataset.json').is_file() else {}
     native=measurement_presentation(dataset).native_outputs
     if not authored and not native:
@@ -86,7 +86,7 @@ def render_methods(out,records,*,hero,section,table,cell,link,esc,authored=True,
             names=sorted({row['provider'] for row in records})
             body+=section(t('saved_method_interfaces', 'Interfaces and examples'),render_interfaces(out,records,only_measured=True, ctx=ctx),'method-guide-interfaces')
             body+=section(t('saved_method_pricing', 'Pricing and billing'),render_pricing(out,names,table=table,cell=cell,link=link,esc=esc, ctx=ctx),'method-guide-pricing')
-            return body+_implementation_scope(records,section=section,table=table,cell=cell,esc=esc)
+            return body+_implementation_scope(records,section=section,table=table,cell=cell,esc=esc,ctx=ctx)
         anchors={'method-guide-pricing'}
         for name in sorted({row['provider'] for row in records}):
             selected=[row for row in records if row['provider']==name]
@@ -106,7 +106,7 @@ def render_methods(out,records,*,hero,section,table,cell,link,esc,authored=True,
                           'interface-'+name)
         for anchor in sorted(anchors):
             body+=section('费用信息','<p>本轮结果未绑定价格资料；费用取决于调用方配置与服务账单。</p>',anchor)
-        return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc)
+        return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc, ctx=ctx)
     source=repository_root()/'research/provider-adoption.json'
     data=json.loads(source.read_text(encoding='utf-8'));names=sorted({r['provider'] for r in records})
     counts=adoption_counts(data,sorted(set(PROFILES)|set(names)))
@@ -162,4 +162,4 @@ def render_methods(out,records,*,hero,section,table,cell,link,esc,authored=True,
         ('interfaces','接口与示例',render_interfaces(out,records, ctx=ctx)),
         ('scope','统计口径',scope),
     ]))
-    return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc)
+    return body + _implementation_scope(records, section=section, table=table, cell=cell, esc=esc, ctx=ctx)

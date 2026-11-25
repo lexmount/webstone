@@ -145,20 +145,24 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
   fast_value=min(summary['providers'][p]['mean_latency_ms'] for p in providers)
   best=[p for p in providers if summary['providers'][p]['quality_f1']==best_value]
   fast=[p for p in providers if summary['providers'][p]['mean_latency_ms']==fast_value]
-  metrics=(('quality_precision','max','precision'),('quality_recall','max','recall'),('quality_f1','max','f1'),('mean_latency_ms','min','mean'),('p50_latency_ms','min','p50'),('p95_latency_ms','min','p95'))
+  metrics=(('quality_precision','max','precision'),('quality_recall','max','recall'),('quality_f1','max','f1'),('mean_latency_ms','min','mean'))
   winners={key:unique_winner({p:summary['providers'][p][key] for p in providers},direction) for key,direction,_ in metrics}
   metric_digits={key:score_digits({p:summary['providers'][p][key] for p in providers},direction) for key,direction,_ in metrics if direction=='max'}
 
   core_rows=[]
   for p in sorted(providers,key=lambda name:summary['providers'][name]['quality_f1'],reverse=True):
    s=summary['providers'][p]
-   cells=''.join(comparison_cell(s[key],label,direction,p==winners[key],fmt(s[key],metric_digits[key]) if direction=='max' else f'{s[key]:,.0f} ms') for key,direction,label in metrics)
-   core_rows.append(f'<tr><td><a href="{href(lang,"providers/"+p+".html")}">{esc(browser_label(p))}</a></td><td>{s["delivered"]}/{case_count}</td>{cells}</tr>')
-  core_headers=[x['provider'],x['delivered'],x['precision'],x['recall'],f'F1 ({quality_count})',(report_text('zh' if lang == 'zh' else 'en')('mean_latency', 'Mean latency')),(report_text('zh' if lang == 'zh' else 'en')('p50_latency', 'P50 latency')),(report_text('zh' if lang == 'zh' else 'en')('p95_latency', 'P95 latency'))]
+   quality={key:comparison_cell(s[key],label,direction,p==winners[key],fmt(s[key],metric_digits[key])) for key,direction,label in metrics if direction=='max'}
+   # The summary folds Mean/P50/P95 into one cell; the mean is the compared value.
+   latency=comparison_cell(s['mean_latency_ms'],'mean','min',p==winners['mean_latency_ms'],f'{s["mean_latency_ms"]:,.0f} ms')
+   latency=latency[:-len('</td>')]+shell.spread('',f'{s["p50_latency_ms"]:,.0f} ms',f'{s["p95_latency_ms"]:,.0f} ms')+'</td>'
+   # The primary metric, qualified F1, follows the browser name.
+   core_rows.append(f'<tr><td><a href="{href(lang,"providers/"+p+".html")}">{esc(browser_label(p))}</a></td>{quality["quality_f1"]}{quality["quality_precision"]}{quality["quality_recall"]}<td>{s["delivered"]}/{case_count}</td>{latency}</tr>')
+  core_headers=[x['provider'],f'F1 ({quality_count})',x['precision'],x['recall'],x['delivered'],(report_text('zh' if lang == 'zh' else 'en')('latency_mean_p50_p95', 'Latency: mean (P50 · P95)'))]
   core_header_html=[]
   for index,label in enumerate(core_headers):
-   sort_attr=' aria-sort="descending"' if index==4 else ''
-   next_direction=' data-next-direction="asc"' if index==4 else ''
+   sort_attr=' aria-sort="descending"' if index==1 else ''
+   next_direction=' data-next-direction="asc"' if index==1 else ''
    core_header_html.append(f'<th{sort_attr}><button type="button" data-core-sort="{index}"{next_direction}>{esc(label)} ↕</button></th>' if index else f'<th>{esc(label)}</th>')
   core='<div class="scroll"><table id="wcxb-core"><thead><tr>'+''.join(core_header_html)+'</tr></thead><tbody>'+''.join(core_rows)+'</tbody></table></div>'
   moli_before=summary['providers'].get(baseline)

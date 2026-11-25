@@ -1141,7 +1141,8 @@ def _assert_passing_latency_once(output):
     ranking = page.select_one('#ranking-overall')
     assert ranking.select_one('td[data-rank]')
     assert '--rank-column' in page.head.select_one('style[data-report-page-style]').get_text()
-    assert len(ranking.select('[data-metric^="final_call_latency"]')) == 6
+    # One folded Mean/P50/P95 cell per method.
+    assert len(ranking.select('[data-metric^="final_call_latency"]')) == 2
     assert '通过项耗时' in ranking.thead.get_text()
     assert page.select_one('a[href="analysis/index.html#all-final-call-timing"]')
     rows = ranking.select('tbody tr')

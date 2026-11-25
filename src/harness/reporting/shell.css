@@ -20,3 +20,4 @@ table[data-sticky-first] tr>:first-child{position:sticky;left:0;z-index:1;backgr
 @media(max-width:700px){[data-scrollable][data-hint]::before{content:attr(data-hint);display:block;position:sticky;left:0;width:max-content;max-width:calc(100vw - 48px);padding:4px 10px;font-size:12px;color:var(--muted)}table[data-sticky-first] tr>:first-child{max-width:42vw}}
 .shell-empty{margin:12px 0;padding:14px 16px;border:1px dashed var(--line);border-radius:10px;color:var(--muted)}
 @media print{.shell-top{display:none!important}[data-overflow]{-webkit-mask-image:none;mask-image:none}}
+.shell-spread{display:block;color:var(--muted);font-size:12px;font-weight:400;white-space:nowrap}

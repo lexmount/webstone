@@ -119,7 +119,8 @@ def test_external_matrix_through_build_and_check_clis(tmp_path, monkeypatch,
             assert name+' 9.9.9' in page
             assert 'Moli 原生 Markdown' not in page
             assert 'Moli native Markdown' not in page
-            assert 'native Markdown' in page
+            # Each edition names the route in its own language.
+            assert ('native Markdown' if prefix else '原生 Markdown') in page
     saved = [json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(saved) == case_count * method_count
     for prefix, unit in (("", "秒"), ("en/", "seconds")):

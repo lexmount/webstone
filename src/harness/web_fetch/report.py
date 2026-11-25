@@ -1604,7 +1604,7 @@ def matched_latency(groups,cases,base, *, ctx):
    for r in records:
     if r['case_id'] in common and succeeded(r,cases[r['case_id']], ctx=ctx):bycase[r['case_id']].append(r['elapsed_ms'])
    times=[statistics.mean(v) for v in bycase.values()]
-   rows.append(('',cell(esc(provider))+cell(ms(statistics.mean(times)))+cell(ms(percentile(times,.5)))))
+   rows.append(('',cell(esc(provider_label(provider, ctx=ctx)))+cell(ms(statistics.mean(times)))+cell(ms(percentile(times,.5)))))
  links='、'.join(link(base+'datasets/'+key+'.html',cases[key].get('name',key)) for key in sorted(common))
  return ('<details><summary>' + t('matched_task_latency_tasks_passed_by_every', 'Matched-task latency · tasks passed by every method') + f"</summary><p>{note}</p>{(table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks')], rows, metrics=[]) + '<p>' + links + '</p>' if rows else '')}</details>")
 
@@ -1806,8 +1806,10 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   passed=sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in rs)
   called=[r for r in rs if r.get('report_invocation_status') != 'adapter_rejected']
   request_success=sum(bool(r['ok']) for r in called)
-  values=cell(link(f'providers/{name}.html',provider_label(name, ctx=ctx),browser_method_label(name,language='en', ctx=ctx)))+cell(rate(request_success,len(called)),request_success/len(called) if called else -1)
+  # The primary metric, the overall pass rate, follows the method name.
+  values=cell(link(f'providers/{name}.html',provider_label(name, ctx=ctx),browser_method_label(name,language='en', ctx=ctx)))
   if combined:values+=cell(rate(passed,n)+(f'<br><small>{passed}/{n}</small>' if has_unknown else ''),passed/n if n else -1)
+  values+=cell(rate(request_success,len(called)),request_success/len(called) if called else -1)
   if ctx.suites and len(called) < len(cases):
    values=values.replace('</a>', '</a><br><small>'+saved_matrix_text('incomplete')+'</small>',1)
   if has_unknown:values+=cell(str(len(rs)-n))
@@ -1816,15 +1818,14 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
    values+=cell(f'{sum(succeeded(r,cases[r["case_id"]], ctx=ctx) for r in subset)}/{len(subset)}',sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in subset)/len(subset) if subset else -1)
   times=[r['elapsed_ms'] for r in called if not passing_latency or succeeded(r,cases[r['case_id']], ctx=ctx)]
   mean_time=statistics.mean(times) if times else None
-  values+=cell(ms(mean_time),mean_time)
-  values+=cell(ms(percentile(times,.5)),percentile(times,.5))
-  values+=cell(ms(percentile(times,.95)),percentile(times,.95))
+  values+=cell(shell.spread(ms(mean_time),ms(percentile(times,.5)),ms(percentile(times,.95))),mean_time)
   if audit:values+=review_cell(audit,rs)
   rows.append((passed/n if n else -1,name,('',values)))
  rows=[row for _,_,row in sorted(rows,key=lambda x:(-x[0],x[1]) if combined else (x[1],))]
  tracks=active_tracks(cases, ctx=ctx)
- timing_heads=saved_matrix_text('passing_final_call_headers' if passing_latency else 'final_call_timing_headers')
- heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if ctx.suites else label for _,label in tracks]+timing_heads
+ # Summaries fold Mean/P50/P95 into one cell; the mean orders the column.
+ timing_heads=[saved_matrix_text('passing_final_call_summary' if passing_latency else 'final_call_timing_summary')]
+ heads=[(t('report_method_22b9f0', 'Method'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+[(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if ctx.suites else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  published_basis=published_ranking_basis(case_count,track_count)
@@ -1866,7 +1867,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead">'+model_text(*pair('report_compare_each_frozen_task_group_separately_without_a_f6add0', 'Compare each frozen task group separately, without a combined pass-rate ranking. Cross-group cases retain their original identities; record counts are not unique-site counts.'))+'</p>'
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in item[1]),item[0]))]
- rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
+ rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(1+int(ranked),'desc') if combined else (0,'asc'))
  if help:
   # One sentence stays beside the ranking; the full basis and latency policy live in the closed metric notes.
   help=help.replace('<div class="metric-help">','<div class="metric-help">'+intro+timing_note,1)
@@ -2558,7 +2559,9 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  _write_uncalled_participants(out,model, ctx=ctx)
  if include_english:
   write_english_report(out,source_routes=english_routes)
- drop_english_source(out,source_routes=english_routes)
+  # With both editions published, each page holds one language. A Chinese-only
+  # build keeps the English labels so a later English edition can derive from it.
+  drop_english_source(out,source_routes=english_routes)
  if presentation_only and (out/'report-languages.json').is_file():
   if ('en' in generated_languages(out)) != include_english:
    raise ValueError('Presentation refresh cannot change generated languages')
