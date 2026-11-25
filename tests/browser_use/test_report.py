@@ -864,6 +864,9 @@ def test_failed_result_without_failed_rules_shows_the_evaluation_error(
     assert "Fixture expected mutation missing" in english
     for home in (output / "index.html", output / "en/index.html"):
         assert "data-report-en=" not in visible_text(home.read_text(encoding="utf-8"))
+    lead = (output / "en/index.html").read_text(encoding="utf-8").split("data-home-lead>", 1)[1]
+    assert lead.startswith("CowAgent drives Chromium, Moli 1.1.3 with GPT-5.6 Sol")
+    assert "1 of 2 recorded results pass (50.0%)" in lead.split("</p>", 1)[0]
 
 
 def test_result_verification_is_readable_and_does_not_duplicate_raw_panels() -> None:

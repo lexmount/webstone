@@ -1427,3 +1427,12 @@ def test_environment_page_never_names_a_recording_gateway(tmp_path: Path, monkey
     page = environment_page([gateway, "host.docker.internal"], "english", "en")
     assert gateway not in page
     assert "Colima" in page
+
+
+def test_only_failed_inventory_rows_offer_a_diagnosis(tmp_path, monkeypatch):
+    output, *_ = build_replay_fixture(tmp_path, monkeypatch, failed=True)
+    page = BeautifulSoup((output / "results.html").read_text(encoding="utf-8"), "html.parser")
+    rows = page.select(".inventory tbody tr")
+    assert any(row["data-status"] != "pass" for row in rows)
+    for row in rows:
+        assert bool(row.select("[data-open-diagnosis]")) == (row["data-status"] != "pass")
