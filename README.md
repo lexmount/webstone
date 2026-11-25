@@ -17,6 +17,8 @@
 
 Webstone runs the same benchmark tasks across browsers and web tools for AI agents. Compare correctness, latency, resource use, and recorded cost, with per-task evidence in the reports.
 
+See the [Webstone leaderboard](https://webstone.lexmount.io) for published benchmark results and comparison reports.
+
 ## For agents
 
 Copy this into your agent:
@@ -170,8 +172,6 @@ Webstone aims for stable, reproducible results and a controlled, trustworthy eva
 See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scoring and verification requirements.
 
 ## Reports
-
-Published benchmark results and comparison reports are on the [Webstone leaderboard](https://webstone.lexmount.io).
 
 Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Yours account or publishing authorization.
 
