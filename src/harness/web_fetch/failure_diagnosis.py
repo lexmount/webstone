@@ -208,7 +208,15 @@ def _native_failure(payload, case):
     error = payload.get('error')
     certainty = t('direct_response_basis', 'Direct-response basis')
     category = stage = evidence = None
-    if isinstance(error, dict) and error.get('type') == 'security_risk':
+    if payload.get('code') == 'BLOCKED_TARGET' and isinstance(error, str):
+        category = t('method_safety_restriction', 'Method safety restriction')
+        stage = t('method_security_policy', 'Method security policy')
+        evidence = error
+    elif isinstance(error, str) and re.search(r'invalid peer certificate|certificate verify failed|SSL certificate problem', error, re.I):
+        category = t('retrieval_connection_failed', 'Retrieval connection failed')
+        stage = t('network_connection', 'Network connection')
+        evidence = error
+    elif isinstance(error, dict) and error.get('type') == 'security_risk':
         category = t('method_safety_restriction', 'Method safety restriction')
         stage = t('method_security_policy', 'Method security policy')
         evidence = json.dumps(error, ensure_ascii=False)

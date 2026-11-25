@@ -504,6 +504,8 @@ def _load_saved_matrix(spec_path, approved_policies=None):
     _declared_review_scope(spec)
     if 'public_evidence_views' in spec and type(spec['public_evidence_views']) is not bool:
         raise ValueError('Public evidence views must be explicitly enabled or disabled')
+    if 'retain_superseded_results' in spec and type(spec['retain_superseded_results']) is not bool:
+        raise ValueError('Superseded result retention must be explicitly enabled or disabled')
     sources = _SourceBindings(spec_path.parent)
     bind, binding, tracked = sources.bind, sources.binding, sources.tracked
     def registry(items):
@@ -1828,7 +1830,8 @@ def _display_record_bytes(settings, name, raw, *, case=None, root=None):
 def _require_public_fixed_selection(inputs, candidates, adoptions):
     """Public views may accompany scoring-only corrections of unchanged calls."""
     revision = inputs['revision']
-    if candidates or adoptions or inputs['historical'] or revision and revision['cases']:
+    retained_history = inputs['historical'] and inputs['spec'].get('retain_superseded_results', True)
+    if candidates or adoptions or retained_history or revision and revision['cases']:
         raise ValueError('Public evidence views require fixed calls and unchanged task contracts')
     if revision:
         for key, after in revision['records'].items():
@@ -2146,7 +2149,7 @@ def _build_saved_matrix(spec_path: Path, output: Path, approved_policies: dict) 
                         'private_artifacts_verified_not_copied': record_private_bindings(record),
                         'scores_changed': revised, 'provider_calls_added': 0,
                         **({'score_revision': item['score_revision']} if revised else {})})
-                if key in historical:
+                if key in historical and spec.get('retain_superseded_results', True):
                     old_root, old_record, old_line, old_results = historical[key]
                     history_prefix = prefix + '/history/' + safe_identifier(old_record['attempt_id'])
                     history_record = history_prefix + '/record.json'
@@ -2200,6 +2203,8 @@ def _build_saved_matrix(spec_path: Path, output: Path, approved_policies: dict) 
              'execution_settings': execution_settings,
              'source_bindings': [{'sha256': digest, 'name': path.name} for path, digest in tracked.items()],
              'limitations': spec.get('limitations', [])}
+    if 'retain_superseded_results' in spec:
+        model['retain_superseded_results'] = spec['retain_superseded_results']
     if _declared_review_scope(spec) is not None:
         model['independent_result_review_scope'] = spec['independent_result_review_scope']
     if spec.get('native_policy_registry'):
@@ -2298,7 +2303,7 @@ def _source_record_inventory(inputs, candidates, decisions, adoptions, keys):
                 if adoption['revision']:
                     expected[prefix+'/adoption-before-score.json'] = adoption['original'][2]
             expected[prefix+'/record.json'] = final
-        if key in inputs['historical']:
+        if key in inputs['historical'] and inputs['spec'].get('retain_superseded_results', True):
             record = inputs['historical'][key][1]
             expected[prefix+'/history/'+safe_identifier(record['attempt_id'])+'/record.json'] = inputs['historical'][key][2]
         continuations = (inputs.get('parameter_continuations', {})
@@ -2320,6 +2325,7 @@ def _validate_source_disclosures(output, model, inputs, adoptions, keys):
         'suites': [{'id': p['id'], 'label': p['label']} for p in spec['suites']],
         'limitations': spec.get('limitations', []), 'ranking': spec.get('ranking', 'diagnostic'), 'combined_ranking': spec.get('combined_ranking', True),
         'independent_result_review_scope': _declared_review_scope(spec),
+        'retain_superseded_results': spec.get('retain_superseded_results'),
         'report_families': ([g for g in spec['report_families']
                             if g['id'] not in spec.get('excluded_report_families', [])]
                            if 'report_families' in spec else None),
@@ -2462,11 +2468,12 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
     if key in inputs['historical']:
         _, record, _, results = inputs['historical'][key]
         relative = prefix+'/history/'+safe_identifier(record['attempt_id'])
-        history.append({'record_path': relative+'/record.json',
-            'answer_path': relative+'/'+record['artifact_path'], 'scope_path': 'replacement-scope.json',
-            'attempt_id': record['attempt_id'], 'called': _called(record), 'started_at': record.get('started_at'),
-            'source_results_sha256': inputs['sources'].tracked[results],
-            'private_artifacts_verified_not_copied': record_private_bindings(record)})
+        if inputs['spec'].get('retain_superseded_results', True):
+            history.append({'record_path': relative+'/record.json',
+                'answer_path': relative+'/'+record['artifact_path'], 'scope_path': 'replacement-scope.json',
+                'attempt_id': record['attempt_id'], 'called': _called(record), 'started_at': record.get('started_at'),
+                'source_results_sha256': inputs['sources'].tracked[results],
+                'private_artifacts_verified_not_copied': record_private_bindings(record)})
         expected_scope = {'kind': 'predeclared_replacement_scope_public_view',
             'original_sha256': inputs['sources'].tracked[inputs['replacement_scope']],
             'cells': [{'suite': cell['suite'], 'provider': cell['provider'], 'case_id': cell['case_id'],

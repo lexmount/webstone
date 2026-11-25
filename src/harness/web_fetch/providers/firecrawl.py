@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import math
 from urllib.parse import urlsplit
 
@@ -17,6 +18,16 @@ from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 
 class FirecrawlProvider(Provider):
+    @classmethod
+    def launches_local_browser(cls, config):
+        host = urlsplit(str(config.get('base_url', 'https://api.firecrawl.dev'))).hostname
+        if host == 'localhost':
+            return True
+        try:
+            return ipaddress.ip_address(host or '').is_loopback
+        except ValueError:
+            return False
+
     native_configuration_fields = Provider.native_configuration_fields + (
         'formats_by_task_kind', 'native_request_fields',
     )
@@ -98,6 +109,8 @@ class FirecrawlProvider(Provider):
 
     def validate(self) -> list[str]:
         errors = super().validate()
+        if self.launches_local_browser(self.config) and self.config.get('dns_mode', 'system') != 'system':
+            errors.append('A loopback Firecrawl service uses its own system DNS; client DNS cannot configure it')
         if "only_main_content" in self.config and not isinstance(self.config["only_main_content"], bool):
             errors.append("only_main_content must be boolean")
         formats_by_kind = self.config.get("formats_by_task_kind", {})

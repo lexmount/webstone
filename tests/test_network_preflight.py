@@ -4,6 +4,30 @@ from harness.web_fetch.network_preflight import inspect_system_dns, require_usab
 
 
 class NetworkPreflightTests(unittest.TestCase):
+    def test_loopback_firecrawl_checks_target_dns_before_product_calls(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from harness.web_fetch.network_preflight import preflight_guarded_providers
+        from harness.web_fetch.providers.firecrawl import FirecrawlProvider
+        for endpoint in ('http://127.0.0.1:3002', 'http://localhost:3002', 'http://[::1]:3002'):
+            provider = FirecrawlProvider('local', {'type':'firecrawl', 'base_url':endpoint})
+            for address in ('198.19.0.58', '10.2.0.11', '93.184.216.34'):
+                fake = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (address,443))]
+                with self.subTest(endpoint=endpoint,address=address), patch('socket.getaddrinfo',return_value=fake):
+                    if address == '93.184.216.34':
+                        self.assertTrue(preflight_guarded_providers([provider],[SimpleNamespace(url='https://public.example/')]))
+                    else:
+                        with self.assertRaisesRegex(ValueError,'Do not disable'):
+                            preflight_guarded_providers([provider],[SimpleNamespace(url='https://public.example/')])
+        hosted = FirecrawlProvider('hosted', {'type':'firecrawl'})
+        with patch('socket.getaddrinfo',side_effect=AssertionError('Hosted DNS is remote')):
+            self.assertIsNone(preflight_guarded_providers([hosted],[SimpleNamespace(url='https://public.example/')]))
+
+    def test_loopback_firecrawl_cannot_claim_client_dns_controls_service_dns(self):
+        from harness.web_fetch.providers.firecrawl import FirecrawlProvider
+        provider = FirecrawlProvider('local', {'type':'firecrawl','base_url':'http://127.0.0.1:3002','dns_mode':'public_doh'})
+        self.assertTrue(any('system DNS' in error for error in provider.validate()))
+
     def test_non_public_or_synthetic_dns_is_not_a_fair_public_comparison(self):
         for addresses,accepted in ((['185.199.108.153'],True),(['2606:4700:4700::1111'],True),
             (['10.0.0.11'],False),(['127.0.0.1'],False),(['169.254.1.1'],False),
