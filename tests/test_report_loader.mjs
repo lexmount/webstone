@@ -383,3 +383,11 @@ homeUrls.forEach(url=>URL.revokeObjectURL(url));
 await vm.runInContext("pageManifest('detail.html')",homeContext);
 assert.deepEqual(homeRequests,['manifest.json'],'details must acquire the full catalog only when selected');
 console.log('PASS: summary and its chart load without the full catalog or evidence packs; details remain lazy');
+{
+ const jsonContext=vm.createContext({});
+ vm.runInContext(reportSource.match(/function minifyJson[\s\S]*?\n(?=function )/)[0]+reportSource.match(/function losslessJson[^\n]*\n/)[0],jsonContext);
+ assert.equal(vm.runInContext(`losslessJson('{"a":[1,2],"b":"x y"}')`,jsonContext),'{\n  "a": [\n    1,\n    2\n  ],\n  "b": "x y"\n}');
+ for(const raw of ['{"id":9007199254740993}','{"a":1,"a":2}','{"v":1.0}','{"s":"\\u00e9"}','not json'])
+  assert.equal(vm.runInContext('losslessJson('+JSON.stringify(raw)+')',jsonContext),raw);
+ console.log('PASS: JSON evidence is indented only when every token survives');
+}
