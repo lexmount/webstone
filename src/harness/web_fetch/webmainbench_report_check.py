@@ -34,6 +34,7 @@ from harness.web_fetch.webmainbench_latency_correction import (
     prior_results_path,
     validate_latency_correction,
 )
+from harness.web_fetch.webmainbench_latency_diagnostic import RUNS as LATENCY_DIAGNOSTIC_RUNS
 
 ROOT = repository_root()
 
@@ -491,7 +492,6 @@ def check(root: Path, *, authority_root: Path | None = None) -> None:
         raise ValueError("On-demand evidence viewer missing")
 
 
-SAMPLE_PROVIDERS = {"kitesurf", "lightpanda", "obscura", "moli", "moli-1.1.7", "chromium"}
 SAMPLE_METRICS = ("text_edit", "code_edit", "table_edit", "table_TEDS", "formula_edit")
 EXPECTED_STYLE_SHA256 = hashlib.sha256((STYLE + EXTRA).encode("utf-8")).hexdigest()
 EXPECTED_SCRIPT_SHA256 = hashlib.sha256(JS.encode("utf-8")).hexdigest()
@@ -547,8 +547,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                 or len(latency_diagnostic.get('per_case', [])) != 200
                 or {row['case_id'] for row in latency_diagnostic['per_case']} !=
                    {row['id'] for row in dataset.get('cases', [])}
-                or set(latency_diagnostic.get('runs', {})) != {
-                    'moli-115-control', 'moli-117-repeat'}):
+                or set(latency_diagnostic.get('runs', {})) != set(LATENCY_DIAGNOSTIC_RUNS)):
             raise ValueError('Published latency diagnostic is incomplete or no longer bound to official evidence')
     source_history = webmainbench_history(read_json(repo / 'research/report-changes.json'))
     bundled_history = read_json(root / 'report-changes.json')
@@ -576,9 +575,12 @@ def check_sample_report(root: Path, dataset: dict | None = None,
     if dataset.get("id") != "webmainbench-545-preselected-200-six-methods":
         raise ValueError("Not the current WebMainBench preselected-200 report")
     cases = {row["id"]: row for row in dataset.get("cases", [])}
-    if len(cases) != 200 or len(records) != 200 * len(SAMPLE_PROVIDERS):
+    # The method set is the bound score summary's; the repository content binding pins its bytes.
+    summaries = read_json(root / "score-summaries.json")
+    providers = frozenset(summaries)
+    if len(cases) != 200 or len(records) != 200 * len(providers):
         raise ValueError("WebMainBench report matrix size mismatch")
-    expected = {(provider, case_id) for provider in SAMPLE_PROVIDERS for case_id in cases}
+    expected = {(provider, case_id) for provider in providers for case_id in cases}
     if {(row.get("provider"), row.get("case_id")) for row in records} != expected:
         raise ValueError("WebMainBench report provider/case matrix mismatch")
     if len({row.get("attempt_id") for row in records}) != len(records):
@@ -594,7 +596,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
         raise ValueError("WebMainBench sample binding mismatch")
 
     review = read_json(root / "result-review.json")
-    if (review.get("status") != "passed" or set(review.get("providers", [])) != SAMPLE_PROVIDERS
+    if (review.get("status") != "passed" or set(review.get("providers", [])) != providers
             or review.get("sample_manifest_sha256") != sample_sha
             or review.get("sample_case_count") != 200
             or review.get('bindings', {}).get('results_jsonl_sha256') != file_sha256(prior_results_path(root))
@@ -617,9 +619,6 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             or bindings.get("score_summaries_json_sha256") != file_sha256(root / "score-summaries.json")):
         raise ValueError("WebMainBench anomaly review is missing, incomplete, or not bound to this report")
 
-    summaries = read_json(root / "score-summaries.json")
-    if set(summaries) != SAMPLE_PROVIDERS:
-        raise ValueError("WebMainBench score-summary provider set mismatch")
     grouped = defaultdict(list)
     for row in records:
         grouped[row["provider"]].append(row)
@@ -669,7 +668,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             raise ValueError("WebMainBench retry chain mismatch: " + row["attempt_id"])
 
     executions = read_json(root / "execution.json").get("batches", [])
-    if {row.get("provider") for row in executions} != SAMPLE_PROVIDERS:
+    if {row.get("provider") for row in executions} != providers:
         raise ValueError("WebMainBench execution manifest provider set mismatch")
 
     zh = {path.relative_to(root) for path in root.rglob("*.html") if path.relative_to(root).parts[0] != "en"}
@@ -703,12 +702,12 @@ def check_sample_report(root: Path, dataset: dict | None = None,
         raise ValueError("WebMainBench failure-first explanation does not match the measured matrix")
     if not any("响应与正文" in tag.get_text(strip=True) for tag in analysis.select("#wmb-attempt-matrix th")):
         raise ValueError("WebMainBench result rows must expose response and body-text condition")
-    if len(analysis.select("#wmb-compare-rows > tr")) != 200 or len(analysis.select("[data-wmb-compare-method]")) != len(SAMPLE_PROVIDERS):
+    if len(analysis.select("#wmb-compare-rows > tr")) != 200 or len(analysis.select("[data-wmb-compare-method]")) != len(providers):
         raise ValueError("WebMainBench same-page group comparison is incomplete")
     if {option.get("value") for option in analysis.select('[data-wmb-filter="failure"] option') if option.get("value")} != output_errors - {None}:
         raise ValueError("WebMainBench request failure classes are incomplete")
     expected_slices = sum(len(summaries[provider].get("dimensions", {}).get(axis, {}))
-                          for provider in SAMPLE_PROVIDERS for axis in ("language", "level", "table", "code", "equation"))
+                          for provider in providers for axis in ("language", "level", "table", "code", "equation"))
     if (len(analysis.select("#wmb-slices tbody > tr")) != expected_slices
             or len(analysis.select("[data-wmb-slice-filter]")) != 3
             or not analysis.select_one(".wmb-slice-table-wrap")):
@@ -721,28 +720,28 @@ def check_sample_report(root: Path, dataset: dict | None = None,
         guides[prefix] = guide
         if {section.get("id") for section in guide.select(".wmb-editorial section[id]")} != expected_guide_sections:
             raise ValueError(f"WebMainBench {language} report interpretation is incomplete")
-        if (len(guide.select(".wmb-guide-results tbody > tr")) != len(SAMPLE_PROVIDERS)
+        if (len(guide.select(".wmb-guide-results tbody > tr")) != len(providers)
                 or len(guide.select(".wmb-guide-toc a")) != len(expected_guide_sections)
                 or len(guide.select("#overall .wmb-score-part")) != 5
                 or guide.select_one("#overall .wmb-score-result") is None
                 or guide.select_one("#overall .wmb-denominator-matrix") is None
                 or len(guide.select("#content .wmb-evidence-pair > article")) != 2
-                or len(guide.select("#content .wmb-case-stats > span")) != len(SAMPLE_PROVIDERS)
+                or len(guide.select("#content .wmb-case-stats > span")) != len(providers)
                 or len(guide.select("#tables .wmb-evidence-pair > article")) != 2
-                or len(guide.select("#tables .wmb-case-stats > span")) != len(SAMPLE_PROVIDERS)
+                or len(guide.select("#tables .wmb-case-stats > span")) != len(providers)
                 or len(guide.select("#version-differences details.wmb-version-case")) != 5
                 or len(guide.select("#version-differences .wmb-version-case .actions a")) != 15
                 or len(guide.select("#version-differences .wmb-evidence-pair pre")) != 10
-                or len(guide.select("#delivery .wmb-guide-latency tbody > tr")) != len(SAMPLE_PROVIDERS)):
+                or len(guide.select("#delivery .wmb-guide-latency tbody > tr")) != len(providers)):
             raise ValueError(f"WebMainBench {language} guide lacks cohort, scoring, specimens or latency evidence")
-        # Fixed representative cases in the reviewed WMB-200 cohort. Replacing
-        # the cohort requires re-reviewing the article and its evidence links.
-        guide_hrefs = {anchor.get("href") for anchor in guide.select("a[href]")}
-        if not {
-            "../datasets/c42e7f28-f109-459b-8423-2ce20f651ac9.html",
-            "../datasets/686205e4-4549-42ce-bf42-f285f941c868.html",
-            "../attempts/chromium__ccb6033c-0a12-4f9c-8c68-794f26129841__r001.html",
-        }.issubset(guide_hrefs):
+        # The bound interpretation names its own representative tasks and results;
+        # each one must open a generated task or result page of this edition.
+        evidence = [href for anchor in guide.select("a[href]")
+                    if (href := anchor.get("href", "")).startswith(("../datasets/", "../attempts/"))
+                    and href.endswith(".html")]
+        if (not any(href.startswith("../datasets/") for href in evidence)
+                or not any(href.startswith("../attempts/") for href in evidence)
+                or any(not contained_path(root / prefix, href[3:]).is_file() for href in evidence)):
             raise ValueError(f"WebMainBench {language} guide lacks representative evidence links")
     dataset_page = read_page(root / "datasets/index.html")
     if len(dataset_page.select('table[data-wmb-table] tbody tr')) != 200:
@@ -773,14 +772,14 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             correction_label = '修正后复算' if not prefix else 'recomputed after correction'
             if correction_label not in localized_home.get_text(' ', strip=True):
                 raise ValueError(prefix + 'Corrected scores must not be labeled as original official scores')
-        if (len(localized_home.select("#wmb-core-results tbody > tr")) != len(SAMPLE_PROVIDERS)
+        if (len(localized_home.select("#wmb-core-results tbody > tr")) != len(providers)
                 or not {mean_label, "P50 latency ↕" if prefix else "P50 耗时 ↕", "P95 latency ↕" if prefix else "P95 耗时 ↕"}.issubset(home_headers)
                 or localized_home.select_one('#wmb-core-results').get('data-col') != '2'
                 or localized_home.select_one('#wmb-core-results').get('data-dir') != 'desc'
                 or {"非空内容交付率 ↕", "Non-empty delivery rate ↕"} & home_headers):
             raise ValueError(prefix + "WebMainBench home must have one core comparison with mean, P50 and P95")
         table_population=localized_home.select('.wmb-table-population-table tbody tr')
-        if len(table_population)!=len(SAMPLE_PROVIDERS):raise ValueError('Table-scoring population breakdown missing')
+        if len(table_population)!=len(providers):raise ValueError('Table-scoring population breakdown missing')
         for tr in table_population:
             cells=tr.find_all('td',recursive=False)
             name=Path(cells[1].a['href']).stem
@@ -799,7 +798,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             raise ValueError(prefix + "Home must explain final-success timing separately from scoring populations")
         successes = {name: [row for row in grouped[name]
                             if row['ok'] and (text := contained_path(root, row['artifact_path']).read_text(encoding='utf-8')).strip()
-                            and not ERROR_PAGE.search(text)] for name in SAMPLE_PROVIDERS}
+                            and not ERROR_PAGE.search(text)] for name in providers}
         shared_cases = set.intersection(*(set(row['case_id'] for row in rows) for rows in successes.values()))
         for tr in localized_home.select('#wmb-core-results tbody tr'):
             cells = tr.find_all('td', recursive=False)
@@ -811,7 +810,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                 raise ValueError(name + ': final successful-fetch timing differs from immutable calls')
 
         matched = localized_home.select_one('.wmb-matched-latency')
-        if matched is None or str(len(shared_cases)) not in matched.get_text() or len(matched.select('tbody tr')) != len(SAMPLE_PROVIDERS):
+        if matched is None or str(len(shared_cases)) not in matched.get_text() or len(matched.select('tbody tr')) != len(providers):
             raise ValueError(prefix + "Matched latency must show the measured shared-success population with scoped minimum markers")
         for tr in matched.select('tbody tr'):
             cells = tr.find_all('td', recursive=False)
@@ -871,7 +870,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                        for control in page.select(selector)] for page in localized]
             if len(inputs) == 2 and inputs[0] != inputs[1]:
                 raise ValueError("WebMainBench bilingual filter fields or values differ: " + route)
-    for provider in SAMPLE_PROVIDERS:
+    for provider in providers:
         method_page = read_page(root / "providers" / f'{provider}.html')
         if len(method_page.select('table[data-wmb-table] tbody tr')) != 200:
             raise ValueError(provider + ": filtered per-method result inventory is incomplete")

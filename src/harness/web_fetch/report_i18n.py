@@ -69,13 +69,17 @@ def t(key: str, source: str, /, **values) -> str:
     return chinese
 
 
-def legacy_t(report: str, key: str, /, **values) -> str:
-    """The Chinese edition of one already-published report's frozen message.
+def published_ranking_basis(case_count: int, track_count: int) -> str | None:
+    """The Chinese ranking basis an already-published report froze for its population, if any.
 
     Its English comes only from that report's catalog in the English pass; the
     shared catalog never learns it.
     """
-    return legacy_report_text(report)['messages'][key]['zh'].format_map(values)
+    for report in _legacy_reports().values():
+        basis = report.get('ranking_basis')
+        if basis and (basis['case_count'], basis['track_count']) == (case_count, track_count):
+            return report['messages'][basis['message']]['zh']
+    return None
 
 
 def pair(key: str, source: str, /, **values) -> tuple[str, str]:

@@ -338,7 +338,7 @@ def test_sample_webmainbench_gate_reads_every_generated_edition(tmp_path):
 def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(tmp_path):
     report, repo = _sample_webmainbench_with_history(tmp_path)
     write_language_contract(report, include_english=False)
-    providers = sorted(webmainbench_report_check.SAMPLE_PROVIDERS)
+    providers = ["method-a", "method-b"]
     case_ids = [f"case-{number}" for number in range(200)]
     artifact = report / "artifacts/output.md"
     artifact.parent.mkdir()

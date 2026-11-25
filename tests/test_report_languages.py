@@ -285,9 +285,11 @@ def test_published_report_text_is_read_only_for_that_report(tmp_path):
 def test_rendering_a_published_message_does_not_leak_into_other_reports(tmp_path):
     import json
     from harness.web_fetch.report_i18n import (
-        _historical_release_ids, legacy_report_text, legacy_t, published_report_catalog, translate_text)
+        _historical_release_ids, legacy_report_text, published_ranking_basis, published_report_catalog,
+        translate_text)
     message = legacy_report_text('web-fetch-published')['messages']['every_method_runs_the_same_150_tasks']
-    chinese = legacy_t('web-fetch-published', 'every_method_runs_the_same_150_tasks')
+    chinese = published_ranking_basis(150, 6)
+    assert chinese == message['zh'] and published_ranking_basis(150, 5) is None
     assert translate_text(chinese) == chinese
     assert translate_text(chinese, published_report_catalog(tmp_path)) == chinese
     (tmp_path / 'report-changes.json').write_text(

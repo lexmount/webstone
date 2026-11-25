@@ -115,7 +115,7 @@ from harness.web_fetch.report_explainer import (
  load_browser_failure_review,
  render_explainer,
 )
-from harness.web_fetch.report_i18n import legacy_t, pair, report_text, t, write_english_report
+from harness.web_fetch.report_i18n import pair, published_ranking_basis, report_text, t, write_english_report
 from harness.web_fetch.report_interfaces import method_provenance
 from harness.web_fetch.report_methods import render_methods
 from harness.web_fetch.report_quality import render_quality_observations
@@ -1796,8 +1796,9 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  heads=[(t('report_method_22b9f0', 'Method')),(t('report_request_success_rate_413aeb', 'Request success rate'))]+([(t('report_overall_task_pass_rate_71785d', 'Overall task pass rate'))] if combined else [])+([(t('report_undecidable_including_uncalled_273298', 'Undecidable (including uncalled)')) if has_not_called else (t('report_undecidable_4c6165', 'Undecidable'))] if has_unknown else [])+[esc(label) if render_context().suites else label for _,label in tracks]+timing_heads
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
- if case_count==150 and track_count==6:
-  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + legacy_t('web-fetch-published', 'every_method_runs_the_same_150_tasks') + '</p>')
+ published_basis=published_ranking_basis(case_count,track_count)
+ if published_basis:
+  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + published_basis + '</p>')
  else:
   intro=(('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + t('every_method_runs_the_current_dataset_s', "Every method runs the current dataset's {case_count} planned tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the {track_label} family rankings.", case_count=case_count, track_label=track_label) + '</p>'))
  if has_unknown:
