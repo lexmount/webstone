@@ -45,9 +45,11 @@ Register products in `src/harness/web_fetch/data/report-methods.json`; versions 
 
 Use `<type>(<scope>): <summary>`; scope is optional. Types: `fix`, `feat`, `docs`, `refactor`, `test`, `perf`, `build`, `ci`, `chore`.
 
-Write an English imperative describing the complete change, preferably within 72 characters and without a final period. Mark breaking changes with `!` and explain migration. Keep the PR title aligned with its final diff; do not rewrite shared history solely to rename commits.
+Write an English imperative describing the complete change, preferably within 72 characters, never over 100, and without a final period. Mark breaking changes with `!` and explain migration. Keep the PR title aligned with its final diff; do not rewrite shared history solely to rename commits.
 
 Examples: `fix(scoring): require facts in the returned body`; `docs: shorten contribution guidance`.
+
+The required `PR title` check validates new and edited PR titles before merge. Run `node scripts/check-pr-title.mjs "fix(scoring): require returned facts"` locally. Squash merges use the PR title as their commit subject.
 
 ## Run the checks
 

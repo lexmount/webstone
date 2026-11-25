@@ -8,6 +8,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](pyproject.toml)
 [![Leaderboard](https://img.shields.io/badge/Leaderboard-webstone.lexmount.io-51735b)](https://webstone.lexmount.io)
+[![Datasets](https://img.shields.io/badge/%F0%9F%A4%97-Datasets-ffd21e)](https://huggingface.co/Lexmount)
 
 [Quickstart](#quickstart) · [Tracks](#evaluation-tracks) · [Approach](#evaluation-approach) · [Reports](#reports) · [Submit results](#submit-benchmark-results) · [Datasets and code](#datasets-and-code) · [Versions](#versions) · [Contributing](CONTRIBUTING.md)
 
