@@ -36,7 +36,10 @@ def test_an_id_containing_a_separator_is_still_a_raw_id():
 
 def test_a_label_containing_its_id_is_a_display_name():
     labels = {"foo": "foo / bar"}
-    check_display_names(page("<table><tr><td>foo / bar</td><td>Model · foo / bar</td></tr></table>"), labels)
+    check_display_names(page("<table><tr><td>foo / bar</td><td>Model · foo / bar</td>"
+                             "<td><span>foo</span> / bar</td></tr></table>"), labels)
+    with pytest.raises(ValueError, match="raw id 'foo'"):
+        check_display_names(page("<table><tr><td>foo</td></tr></table>"), {"foo": "Friendly", "other": "oo"})
     with pytest.raises(ValueError, match="raw id 'foo'"):
         check_display_names(page("<table><tr><td>Model · foo</td></tr></table>"), labels)
 

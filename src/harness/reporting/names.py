@@ -27,40 +27,48 @@ def _edition(soup) -> str:
     return "zh" if language.startswith("zh") else "en"
 
 
+def _parts(text: str) -> list[str]:
+    return [part for part in _CELL_PARTS.split(text.strip()) if part]
+
+
 def check_display_names(html, labels: Mapping[str, object]) -> None:
     """Body cells show registered display names, never a raw registered id.
 
     Labels resolve in the page's own language. Ids whose display label in that
     language equals the id itself are names already; links, data attributes and
-    verbatim evidence keep ids and are not read.
+    verbatim evidence keep ids and are not read. A cell is read as its visible
+    text across inline markup and split at separators; parts that belong to a
+    whole display label are names, and any other part or the whole text that
+    equals a raw id fails.
     """
     soup = BeautifulSoup(html, "html.parser") if isinstance(html, str) else html
     language = _edition(soup)
     raw = {name for name in labels if display_name(labels, name, language) != name}
     if not raw:
         return
-    # A display label may itself contain an id between separators ("foo / bar");
-    # remove whole labels before reading the remaining parts.
-    shown = sorted({display_name(labels, name, language) for name in labels}, key=len, reverse=True)
+    shown = {display_name(labels, name, language) for name in labels}
+    label_parts = [parts for parts in (_parts(label) for label in shown) if parts]
     for cell in soup.select("main td, main tbody th"):
         # Visible text only: comments and other non-rendered nodes are not names.
-        texts = [str(text) for text in cell.find_all(string=True)
-                 if type(text) is NavigableString
-                 and text.find_parent(["pre", "code", "script", "style", "template"]) is None
-                 and text.find_parent(attrs={"data-verbatim": True}) is None]
-        # Each text node, and the cell read across inline elements, so a split id is still seen.
-        for text in (*texts, "".join(texts)):
-            text = text.strip()
-            for label in shown:
-                text = text.replace(label, "\0")
-            # The whole text first: an id may itself contain a separator.
-            for part in (text, *_CELL_PARTS.split(text)):
-                if part in raw:
-                    table = cell.find_parent("table")
-                    where = (table.get("id") or "") if table is not None else ""
-                    raise ValueError(f"Table cell shows the raw id {part!r} instead of its display name"
-                                     + (f" in table {where!r}" if where else "")
-                                     + f": {cell.get_text(' ', strip=True)[:80]!r}")
+        text = "".join(str(node) for node in cell.find_all(string=True)
+                       if type(node) is NavigableString
+                       and node.find_parent(["pre", "code", "script", "style", "template"]) is None
+                       and node.find_parent(attrs={"data-verbatim": True}) is None).strip()
+        parts = _parts(text)
+        covered = set()
+        for label in label_parts:
+            for start in range(len(parts) - len(label) + 1):
+                if parts[start:start + len(label)] == label:
+                    covered.update(range(start, start + len(label)))
+        # The whole text too: an id may itself contain a separator.
+        found = text if text in raw and text not in shown else next(
+            (part for index, part in enumerate(parts) if part in raw and index not in covered), None)
+        if found is not None:
+            table = cell.find_parent("table")
+            where = (table.get("id") or "") if table is not None else ""
+            raise ValueError(f"Table cell shows the raw id {found!r} instead of its display name"
+                             + (f" in table {where!r}" if where else "")
+                             + f": {cell.get_text(' ', strip=True)[:80]!r}")
 
 
 _CJK = re.compile(r"[\u3400-\u9fff]")
