@@ -4,6 +4,7 @@ from unittest.mock import patch
 from harness.web_fetch.methods import METHOD_REGISTRY, method_info, method_page_model
 from harness.web_fetch.report_components import metric_guide, metric_legend
 from harness.web_fetch.report_methods import adoption_counts
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class AdoptionTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class AdoptionTests(unittest.TestCase):
              'provider_metadata':{}}]
    def render():
     return render_methods(out,records,hero=hero,section=section,
-                          table=table,cell=cell,link=link,esc=esc)
+                          table=table,cell=cell,link=link,esc=esc, ctx=RenderContext())
    with patch('harness.web_fetch.report_methods.render_interfaces',return_value=''):
     body=render()
    self.assertIn('href="https://github.com/lexmount/moli/tree/main/skills/moli-webfetch"',body)
@@ -36,7 +37,7 @@ class AdoptionTests(unittest.TestCase):
  def test_missing_run_configuration_does_not_imply_default_or_unpaid_execution(self):
   for provider_type in ('custom_adapter', 'fixture', 'cowagent_builtin'):
    model=method_page_model('custom','Custom',[
-       {'provider_type':provider_type,'provider_metadata':{}}])
+       {'provider_type':provider_type,'provider_metadata':{}}], scope=MethodScope())
    self.assertNotIn('默认正文',model['configuration'])
    self.assertNotIn('未启用',model['configuration'])
 
@@ -44,16 +45,16 @@ class AdoptionTests(unittest.TestCase):
   records=[{'provider_type':'headless_markdown','provider_metadata':{
       'extractor':'moli_native_markdown','output_contract':'markdown'}},
       {'provider_type':'headless_markdown','provider_metadata':{}}]
-  model=method_page_model('custom','Custom',records)
+  model=method_page_model('custom','Custom',records, scope=MethodScope())
   self.assertIn('1/2',model['configuration'])
   self.assertIn('Moli CLI',model['configuration'])
   self.assertNotIn('未启用',model['configuration'])
-  empty=method_page_model('custom','Custom',records[1:])['configuration']
+  empty=method_page_model('custom','Custom',records[1:], scope=MethodScope())['configuration']
   self.assertIn('0/1',empty)
   self.assertIn('未记录',empty)
   self.assertNotIn(method_info('headless_markdown')['endpoint'],empty)
   for subset in (records,records[1:]):
-   translated=method_page_model('custom','Custom',subset,language='en')['configuration']
+   translated=method_page_model('custom','Custom',subset,language='en', scope=MethodScope())['configuration']
    self.assertNotRegex(translated,r'[\u4e00-\u9fff]')
    self.assertIn('records',translated)
 
@@ -62,7 +63,7 @@ class AdoptionTests(unittest.TestCase):
       'reported_version':'moli 1.1.9','dump':'markdown',
       'route':'dynamic_native_markdown','wait_until':'done',
       'wait':{'strategy':'native_default_completion'}}}
-  model=method_page_model('moli-webfetch','Moli',[record]*100)
+  model=method_page_model('moli-webfetch','Moli',[record]*100, scope=MethodScope())
   self.assertEqual(model['title'],'Moli 1.1.9')
   self.assertEqual(model['endpoint'],'moli fetch --dump markdown --wait-until done URL')
   self.assertIn('本轮 100 例',model['configuration'])
@@ -74,7 +75,7 @@ class AdoptionTests(unittest.TestCase):
       'route':'dynamic_native_markdown','wait_until':'domstable',
       'layout':True,'with_frames':True,
       'wait':{'strategy':'native_task_family_completion'}}}
-  model=method_page_model('moli','Moli',[record]*100)
+  model=method_page_model('moli','Moli',[record]*100, scope=MethodScope())
   self.assertEqual(
       model['endpoint'],
       'moli fetch --dump markdown --layout --with-frames --wait-until domstable URL')
@@ -93,7 +94,7 @@ class AdoptionTests(unittest.TestCase):
    model=method_page_model(
        'future-provider','Future Provider',
        [{'provider_type':'future_method','provider_metadata':{}}],
-   )
+   scope=MethodScope())
   self.assertEqual(model,{
       'title':'Future Provider','contract':'URL → text','endpoint':'future fetch URL',
       'freshness':'fresh process','configuration':'Configured from registry.',
@@ -182,24 +183,25 @@ def test_report_labels_distinguish_release_and_source_build_with_same_version(tm
     (tmp_path/'implementation-provenance.json').write_text(json.dumps(identities), encoding='utf-8')
     records=[{'provider':x['provider'],'provider_metadata':{'binary_sha256':x['binary_sha256']}}
              for x in identities['implementations']]
-    original=provider_label('moli-release')
+    original=provider_label('moli-release', ctx=RenderContext())
 
     @with_measured_method_labels
-    def render(out,dataset,rows):
+    def render(out,dataset,rows, *, scope):
+        ctx=RenderContext(methods=scope)
         for label in (provider_label,display_name):
-            assert label('moli-release')=='Moli 1.1.15'
-            assert label('moli-candidate')=='Moli 1.1.17 · candidate build (99a22382)'
+            assert label('moli-release', ctx=ctx)=='Moli 1.1.15'
+            assert label('moli-candidate', ctx=ctx)=='Moli 1.1.17 · candidate build (99a22382)'
 
     render(tmp_path,{},records)
-    assert provider_label('moli-release')==original
+    assert provider_label('moli-release', ctx=RenderContext())==original
     records[0]['provider_metadata']['binary_sha256']='different-build'
 
     @with_measured_method_labels
-    def unrelated(out,dataset,rows):
-        assert provider_label('moli-release')==original
+    def unrelated(out,dataset,rows, *, scope):
+        assert provider_label('moli-release', ctx=RenderContext(methods=scope))==original
 
     unrelated(tmp_path,{},records)
-    assert provider_label('moli-release')==original
+    assert provider_label('moli-release', ctx=RenderContext())==original
 
 
 def test_method_guide_discloses_retained_success_and_repaired_failure_builds(tmp_path):
@@ -210,17 +212,17 @@ def test_method_guide_discloses_retained_success_and_repaired_failure_builds(tmp
                 'provider_metadata': {'binary_sha256': build}}
                for build in ('retained-build', 'retained-build', 'repair-build')]
     body = render_methods(tmp_path, records, hero=hero, section=section,
-                          table=table, cell=cell, link=link, esc=esc)
+                          table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     assert 'implementation-scope' in body
     assert 'retained-build' in body and 'repair-build' in body
     assert '>2<' in body and '>1<' in body
     assert '累计成绩不代表某一个版本' in body
     single = render_methods(tmp_path, records[:2], hero=hero, section=section,
-                            table=table, cell=cell, link=link, esc=esc)
+                            table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     assert 'implementation-scope' in single
     assert 'retained-build' in single and '>2<' in single
     unknown = render_methods(tmp_path, [{'provider': 'cloud', 'provider_type': 'fixture'}],
-                             hero=hero, section=section, table=table, cell=cell, link=link, esc=esc)
+                             hero=hero, section=section, table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     assert 'unknown' in unknown and '>1<' in unknown
 
 
@@ -232,17 +234,17 @@ def test_bound_external_method_registry_is_scoped_to_its_report(tmp_path):
      with_measured_method_labels,
     )
     @with_measured_method_labels
-    def render(out,dataset,records):
-        assert native_browser_engine('external-build') == 'moli'
-        assert browser_method_label('external-build') == 'External Moli build'
-        assert browser_method_registry()['external-build']['source_url'] == 'https://example.test/build'
+    def render(out,dataset,records, *, scope):
+        assert native_browser_engine('external-build', scope=scope) == 'moli'
+        assert browser_method_label('external-build', scope=scope) == 'External Moli build'
+        assert browser_method_registry(scope=scope)['external-build']['source_url'] == 'https://example.test/build'
         return 'rendered'
     dataset={'comparison':{'method_registry':{'external-build':{'engine':'moli','label':'External Moli build','source_url':'https://example.test/build'}}}}
     assert render(tmp_path,dataset,[]) == 'rendered'
     import json
     (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
     assert render(tmp_path,{'external-case':{'id':'external-case'}},[]) == 'rendered'
-    assert native_browser_engine('external-build') is None
+    assert native_browser_engine('external-build', scope=MethodScope()) is None
 
 
 def test_new_participant_interface_and_access_are_bound_data(tmp_path):
@@ -268,8 +270,8 @@ def test_new_participant_interface_and_access_are_bound_data(tmp_path):
            'case_id':'example','attempt_id':'future__example',
            'artifact_path':'answer.txt','ok':True}]
     @with_measured_method_labels
-    def render(out, definition, records):
-        return render_interfaces(out,records)
+    def render(out, definition, records, *, scope):
+        return render_interfaces(out,records, ctx=RenderContext(methods=scope))
     html=render(tmp_path,dataset,rows)
     output=json.loads((tmp_path/'adoption/interfaces/future-version.json').read_text(encoding='utf-8'))
     assert output['interface']==contract and output['access']==access
@@ -284,14 +286,14 @@ def test_method_model_selects_direct_english_fields_without_reverse_translation(
                     'route': 'dynamic_native_markdown', 'wait_until': 'domstable',
                     'layout': True, 'with_frames': True,
                     'wait': {'strategy': 'native_task_family_completion'}}}]
-    model = method_page_model('moli', 'Moli', records, language='en')
+    model = method_page_model('moli', 'Moli', records, language='en', scope=MethodScope())
     assert model['title'] == 'Moli 9.9.9'
     assert 'domstable' in model['configuration']
     import re
     assert not re.search(r'[\u4e00-\u9fff]', ' '.join(model.values()))
     records[0]['provider_type'] = 'headless_markdown'
     records[0]['provider_metadata'].update(extractor='moli_native_markdown', output_contract='markdown')
-    observed = method_page_model('moli', 'Moli', records, language='en')
+    observed = method_page_model('moli', 'Moli', records, language='en', scope=MethodScope())
     assert '1/1 records' in observed['configuration']
     assert not re.search(r'[\u4e00-\u9fff]', observed['configuration'])
 
@@ -306,12 +308,12 @@ def test_hosted_interfaces_follow_adapter_identity_in_external_cohorts():
         record = {'provider': 'external-participant', 'provider_type': adapter,
                   'provider_metadata': {}}
         for language in ('zh', 'en'):
-            spec = method_spec('external-participant', record, language=language)
+            spec = method_spec('external-participant', record, language=language, ctx=RenderContext())
             assert spec['entry'] == method_info(adapter, language=language)['endpoint']
             assert spec['request']['url'] == 'https://example.com/'
             assert spec['source'] == 'src/harness/web_fetch/providers/hosted_fetch.py'
             assert spec['fields']
             assert 'API_KEY' in spec['auth']
-        english = method_spec('external-participant', record, language='en')
+        english = method_spec('external-participant', record, language='en', ctx=RenderContext())
         assert 'historical call parameters' in english['notes']
         assert not any('\u3400' <= char <= '\u9fff' for char in str(english))

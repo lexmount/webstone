@@ -99,6 +99,7 @@ from harness.web_fetch.webmainbench_latency_diagnostic import (
     load_diagnostic as load_latency_diagnostic,
 )
 from harness.web_fetch.wcxb_dataset import load_wcxb_source
+from harness.web_fetch.report_model import RenderContext
 
 REPOSITORY = repository_root()
 
@@ -380,9 +381,9 @@ def write_frozen_result_summary(output, dataset, records):
                     and cases[row['case_id']].get('track', 'web') == track]
             if not rows:
                 continue
-            eligible = [row for row in rows if measured(row, cases[row['case_id']])]
+            eligible = [row for row in rows if measured(row, cases[row['case_id']], ctx=RenderContext())]
             text = [row for row in eligible if row['metrics'].get('content_check_coverage') is not None]
-            item = {'attempts': len(rows), 'task_pass': sum(succeeded(row, cases[row['case_id']]) for row in rows),
+            item = {'attempts': len(rows), 'task_pass': sum(succeeded(row, cases[row['case_id']], ctx=RenderContext()) for row in rows),
                     'task_evaluated_attempts': len(eligible), 'task_unmeasured_attempts': len(rows) - len(eligible),
                     'task_excluded_attempts': sum(bool(row['metrics'].get('evaluation_excluded')) for row in rows),
                     'scoring_scope': scoring_scope(eligible, cases), 'text_checked_attempts': len(text),
@@ -391,7 +392,7 @@ def write_frozen_result_summary(output, dataset, records):
                 body = [row for row in eligible if cases[row['case_id']].get('task_kind', 'body') == 'body'
                         and cases[row['case_id']].get('ground_truth_main_content')]
                 item.update(body_evaluated_attempts=len(body),
-                            body_task_pass=sum(succeeded(row, cases[row['case_id']]) for row in body) if body else None)
+                            body_task_pass=sum(succeeded(row, cases[row['case_id']], ctx=RenderContext()) for row in body) if body else None)
             providers[provider] = item
         summary[track] = providers
     for name, value in [('summary.json', summary), ('reliability.json', assess_reliability(dataset, records))]:
@@ -400,7 +401,7 @@ def write_frozen_result_summary(output, dataset, records):
 
 def _report_summary(dataset, records):
     cases = {case["id"]: case for case in dataset["cases"]}
-    summary = {t:{p:{'attempts':len(rs), 'task_pass':sum(succeeded(r,cases[r['case_id']]) for r in rs)}
+    summary = {t:{p:{'attempts':len(rs), 'task_pass':sum(succeeded(r,cases[r['case_id']], ctx=RenderContext()) for r in rs)}
                   for p in sorted({r['provider'] for r in records})
                   if (rs := [r for r in records if r['provider']==p and cases[r['case_id']].get('track','web')==t])}
                for t in TRACKS}
@@ -410,12 +411,12 @@ def _report_summary(dataset, records):
         body = [r for r in subset if cases[r['case_id']].get('task_kind', 'body') == 'body'
                 and cases[r['case_id']].get('ground_truth_main_content')]
         row['body_evaluated_attempts'] = len(body)
-        row['body_task_pass'] = sum(succeeded(r, cases[r['case_id']]) for r in body) if body else None
+        row['body_task_pass'] = sum(succeeded(r, cases[r['case_id']], ctx=RenderContext()) for r in body) if body else None
     for track, providers in summary.items():
         for provider, row in providers.items():
             subset = [r for r in records if r['provider'] == provider and cases[r['case_id']].get('track','web') == track]
             row['scoring_scope'] = scoring_scope(subset, cases)
-            row['task_evaluated_attempts'] = sum(measured(r, cases[r['case_id']]) for r in subset)
+            row['task_evaluated_attempts'] = sum(measured(r, cases[r['case_id']], ctx=RenderContext()) for r in subset)
             row['task_unmeasured_attempts'] = len(subset) - row['task_evaluated_attempts']
             text=[r for r in subset if r['metrics'].get('content_check_coverage') is not None]
             row['text_checked_attempts']=len(text)
@@ -472,7 +473,7 @@ def _select_report_scope(output, dataset, records, scope=None):
             case = cases[row['case_id']]
             text = contained_path(output, row['artifact_path']).read_text(encoding='utf-8', errors='replace')
             row['diagnosis'] = diagnose(row, case, text)
-            row['failure_category'] = failure_category(row, case)
+            row['failure_category'] = failure_category(row, case, ctx=RenderContext())
             from harness.web_fetch.title_quality import add_title_quality
             add_title_quality(row, case, output)
     if changed:
@@ -715,7 +716,7 @@ def build_report(source: Path, output: Path, *, include_english: bool = False,
                 r['diagnosis'] = saved_diagnosis
             else:
                 r['diagnosis']=diagnose(r,cases[r['case_id']],text)
-            r['failure_category'] = failure_category(r, cases[r['case_id']])
+            r['failure_category'] = failure_category(r, cases[r['case_id']], ctx=RenderContext())
         for folder in ['reference-checks']:
             tree=contained_path(source,folder,reject_symlinks=True)
             if tree.exists():

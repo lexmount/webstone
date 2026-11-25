@@ -17,6 +17,7 @@ from harness.reporting.presentation import esc
 from harness.reporting.style import STYLE
 from harness.safety import safe_href
 from harness.web_fetch.methods import browser_method_registry, method_access, native_browser_engine, report_method, report_method_catalog, with_measured_method_labels
+from harness.web_fetch.report_model import RenderContext
 from harness.web_fetch.providers.headless import engine_definition
 from harness.web_fetch.report import EXTRA, JS, cell, hero, link, ms, pct, readable_output, section, table
 from harness.web_fetch.report_changes import render_webmainbench_history
@@ -400,7 +401,7 @@ def _wmb_comparison(cases,bycase,names,labels,english=False):
  return result
 
 
-def _wmb_result_detail(r,c,output,reference,labels,metric_labels,failure_notes,corrected,english=False):
+def _wmb_result_detail(r,c,output,reference,labels,metric_labels,failure_notes,corrected,english=False, *, ctx):
  h=report_text('en' if english else 'zh', legacy='webmainbench')
  dialogs=[]
  def button(target,label):
@@ -411,7 +412,7 @@ def _wmb_result_detail(r,c,output,reference,labels,metric_labels,failure_notes,c
  raw_prefix='../../' if english else '../'
  metadata=r.get('provider_metadata') or {}
  case_id=c['id'];failed=not r['_body_present']
- body=hero(labels[r['provider']],h('page_id', 'Page ID: ')+case_id)
+ body=hero(labels[r['provider']],h('page_id', 'Page ID: ')+case_id, ctx=ctx)
  body+='<nav class="wrap actions">'+link('../analysis/index.html',h('all_results', 'All results'))+' · '+link('../analysis/index.html#inspect?query='+case_id,h('compare_methods_on_this_page', 'Compare methods on this page'))+' · '+link('../datasets/'+case_id+'.html#frozen-input',h('frozen_input_and_reference', 'Frozen input and reference'))+'</nav>'
  summary=[(h('result', 'Outcome'),_wmb_body_state(r,output,english)),(h('final_call_latency', 'Final-call latency'),ms(r['elapsed_ms'])),(h('per_page_score', 'Per-page score'),_wmb_pct(r.get('metrics',{}).get('overall',{}).get('score')) if r.get('metrics',{}).get('overall',{}).get('success') else '—')]
  body+=section(h('result_summary', 'Result summary'),'<div class="wmb-attempt-summary" data-result-summary>'+''.join('<article class="card"><b>'+esc(k)+'</b><strong>'+esc(v)+'</strong></article>' for k,v in summary)+'</div><p class="source-note">'+h('body_text_does_not_imply_quality_acceptance', 'Body text does not imply quality acceptance. Per-page score averages this page’s available components; the home score averages five cohort means.')+'</p>','result-summary')
@@ -460,8 +461,9 @@ def _wmb_result_detail(r,c,output,reference,labels,metric_labels,failure_notes,c
 
 
 @with_measured_method_labels
-def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:list,review:dict|None=None,research:dict|None=None,corrections:dict|None=None,adoption_data:dict|None=None,fixture_correction:dict|None=None,teds_revision:tuple|None=None,anomaly_review:dict|None=None,latency_diagnostic:dict|None=None,*,include_english:bool=False,report_content:dict|None=None):
+def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:list,review:dict|None=None,research:dict|None=None,corrections:dict|None=None,adoption_data:dict|None=None,fixture_correction:dict|None=None,teds_revision:tuple|None=None,anomaly_review:dict|None=None,latency_diagnostic:dict|None=None,*,include_english:bool=False,report_content:dict|None=None,scope):
  """Render the current WebMainBench report with the established report shell."""
+ ctx=RenderContext(methods=scope)
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA,encoding='utf-8')
  (out/'assets/report.js').write_text(JS,encoding='utf-8')
@@ -479,7 +481,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
  failure_types=sorted({r['_output_error'] for r in records if not r['_body_present'] and r['_output_error']})
  failed_request_count=sum(not r['_body_present'] for r in records)
  case_count=len(cases);method_count=len(names);result_count=case_count*method_count
- labels={name: browser_method_registry().get(name,{}).get('label') or (native_browser_engine(name) or name).capitalize() for name in names}
+ labels={name: browser_method_registry(scope=ctx.methods).get(name,{}).get('label') or (native_browser_engine(name, scope=ctx.methods) or name).capitalize() for name in names}
  def scope(text):
   return text.replace('{case_count}',str(case_count)).replace('{method_count}',str(len(names))).replace('{result_count}',str(result_count))
  metric_order=['overall','text_edit','code_edit','formula_edit','table_edit','table_TEDS']
@@ -524,7 +526,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   status=(h('pages_methods_results_evidence_and_arithmetic_checks', '{case_count} pages × {count} methods = {result_count:,} results; evidence and arithmetic checks passed, but table-structure score validity did not.', case_count=case_count, count=len(names), result_count=result_count) if review and review.get('status')=='passed' else h('measurement_complete_independent_review_has_not_passed', 'Measurement complete; independent review has not passed, so this build is not publishable.'))
   if corrected:
    status=h('pages_methods_the_official_repository_and_leaderboard', '{case_count} pages × {count} methods. The official repository and leaderboard remain unchanged. An independent recomputation corrects the demonstrated TEDS defect on the same saved outputs.', case_count=case_count, count=len(names))
-  home=hero(h('webmainbench_545_preselected_measured_methods', case_count=case_count, count=len(names)),h('methods_read_the_same_frozen_html_and', '{count} methods read the same frozen HTML and are compared with the same human-calibrated Markdown; page-level responses, empty body text and causes live in result details.', count=len(names)))
+  home=hero(h('webmainbench_545_preselected_measured_methods', case_count=case_count, count=len(names)),h('methods_read_the_same_frozen_html_and', '{count} methods read the same frozen HTML and are compared with the same human-calibrated Markdown; page-level responses, empty body text and causes live in result details.', count=len(names)), ctx=ctx)
   home+='<div class="wrap reliability'+('' if review and review.get('status')=='passed' else ' failure')+'"><strong>'+esc(status)+'</strong></div>'
   home+=section(h('what_this_ranking_measures', 'What this ranking measures'),'<div class="wmb-scope-map"><article><b>'+h('input_identical_archived_html', 'Input: identical archived HTML')+'</b><p>'+h('pages_methods_no_live_origin_fetch', '{case_count} pages × {count} methods; no live origin fetch.', case_count=case_count, count=len(names))+'</p></article><article><b>'+h('target_main_content_not_every_page_element', 'Target: main content, not every page element')+'</b><p>'+h('body_text_code_formulas_and_tables_navigation', 'Body text, code, formulas and tables; navigation, ads and recommendations are outside the target.')+'</p></article><article><b>'+h('score_similarity_to_the_human_main_content', 'Score: similarity to the human main-content reference')+'</b><p>'+h('extra_boilerplate_and_lost_table_structure_reduce', 'Extra boilerplate and lost table structure reduce scores. A low score does not mean the page was not retrieved.')+'</p></article></div><p class="actions">'+link('guide/index.html#content',h('see_a_real_scored_page', 'See a real scored page →'))+' · '+link('methodology/index.html#input-routes',h('how_all_methods_read_the_same_html', 'How all {count} methods read the same HTML →', count=len(names)))+'</p><p class="source-note">'+h('this_is_not_a_live_fetch_success', 'This is not a live-fetch success rate or an overall browser-capability ranking.')+'</p>','benchmark-scope')
   core_headers=[h('method', 'Method'),metric_labels['overall'] if corrected else h('overall_under_review', 'overall (under review)'),'text_edit','code_edit','formula_edit','table_edit',metric_labels['table_TEDS'] if corrected else h('table_teds_under_review', 'table_TEDS (under review)'),h('successful_all_pages', 'Successful / all pages'),h('mean_latency_2', 'Mean latency'),h('p50_latency', 'P50 latency'),h('p95_latency', 'P95 latency')]
@@ -545,7 +547,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   for c in cases.values():
    meta=c['meta']
    dataset_rows.append((_wmb_row_attrs(c),cell(link(c['id']+'.html',c['id']))+cell(esc(meta.get('language') or 'unavailable'))+cell(esc(meta.get('level')))+cell(esc('+'.join(meta.get('table') or []) or 'none'))+cell(esc('+'.join(meta.get('code') or []) or 'none'))+cell(esc('+'.join(meta.get('equation') or []) or 'none'))))
-  body=hero(h('dataset', 'Dataset'),h('a_frozen_page_sample_from_the_webmainbench', 'A frozen {{case_count}}-page sample from the WebMainBench parent, selected before any method result was produced.'))
+  body=hero(h('dataset', 'Dataset'),h('a_frozen_page_sample_from_the_webmainbench', 'A frozen {{case_count}}-page sample from the WebMainBench parent, selected before any method result was produced.'), ctx=ctx)
   body+=section(h('pages_4', '{{case_count}} pages'),'<p class="source-note">'+h('filter_by_language_difficulty_and_content_type', 'Filter by language, difficulty and content type. Open a track ID for the frozen HTML, human-calibrated Markdown reference and official metadata; method results are in the analysis section. Official scoring compares each conversion with the reference directly, without a prewritten per-task checklist.')+'</p>'+_wmb_controls(cases,labels,english,include_method=False,include_metric=False,include_delivery=False)+_wmb_filter_table(['Track ID',h('language', 'Language'),h('difficulty', 'Difficulty'),h('table', 'Table'),h('code', 'Code'),h('formula', 'Formula')],dataset_rows,'wmb-cases',english))
   sample=dataset.get('sample',{});sampling=sample.get('sampling',{})
   if sampling:
@@ -583,7 +585,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    body+=section(h('adjacent_browser_and_web_agent_benchmarks', 'Adjacent browser and web-agent benchmarks'),table([h('benchmark_2', 'Benchmark'),h('scale', 'Size'),h('measures_2', 'Measures'),h('adoption', 'Adoption'),h('why_separate_2', 'Why separate'),h('evidence', 'Evidence')],adjacent,cls='wide-prose-table',metrics=[]))
   _wmb_write(out,'datasets/index.html',h('dataset', 'Dataset'),body,english)
 
-  method=hero(h('methodology', 'Methodology'),h('start_with_one_frozen_page_what_the', 'Start with one frozen page: what the browser delivered, how the official scorer calculates it, and which figures cannot currently support conclusions.'))
+  method=hero(h('methodology', 'Methodology'),h('start_with_one_frozen_page_what_the', 'Start with one frozen page: what the browser delivered, how the official scorer calculates it, and which figures cannot currently support conclusions.'), ctx=ctx)
   flow_source=scope(report_text('zh' if not english else 'en')('flowchart_lr_a_1_frozen_html_br', 'flowchart LR\n    A["1  Frozen HTML<br/>the same {{case_count}} pages"] --> B["2  {{method_count}} methods convert<br/>one final response per page"]\n    B --> C{{"3  Did the final<br/>call succeed?"}}\n    C -->|"No"| D["Result detail<br/>error type · response · cause"]\n    C -->|"Yes"| E["4  Compare with human Markdown<br/>text · code · formula · table"]\n    E --> F["5  Per-page components<br/>absent on both sides: skipped<br/>present on one side: scored zero"]\n    F --> G["6  Component means<br/>scored pages / {{case_count}} shown below score"]\n    E --> H["Exclude empty content and error pages<br/>final successful fetch: mean · P50 · P95"]'))
   flow_fallback='<div class="wmb-flow-fallback" data-wmb-flow-fallback>'+''.join(f'<span><b>{index}</b> {label}</span>' for index,label in enumerate(([h('frozen_input', 'Frozen input'),h('conversion', 'Conversion'),h('inspect_response_and_body', 'Inspect response and body'),h('per_page_scoring', 'Per-page scoring'),h('mean_over_scored_pages', 'Mean over scored pages')]),1))+'</div>'
   flow='<div class="wmb-flow">'+flow_fallback+'<pre class="mermaid" hidden>'+esc(flow_source)+'</pre></div>'
@@ -602,7 +604,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   method+=section(h('successful_timing_matched_diagnosis_and_execution_cost', 'Successful timing, matched diagnosis and execution cost'),'<p>'+h('the_primary_table_uses_elapsed_ms_from', 'The primary table uses elapsed_ms from the final successful fetch with target content, alongside the success count, mean, P50 and P95. Error pages, empty content and failed final calls are excluded. A retry does not create a separate logical result or add the previous call’s time to the successful fetch.')+'</p><p>'+h('the_matched_diagnosis_uses_the_intersection_of', 'The matched diagnosis uses the intersection of successful pages across all {{method_count}} configurations. Every method uses identical pages. This post-execution subset is not a speed ranking for all {{case_count}} pages and does not remove any other results. Original call chains and accumulated execution cost remain available for audit, separately from successful-fetch latency.')+'</p><details><summary>'+h('previous_measure_accumulated_execution_cost_on_all', 'Previous measure: accumulated execution cost on all {{case_count}} pages (not successful-fetch speed)')+'</summary><p>'+h('this_retains_total_elapsed_ms_sum_all', 'This retains total_elapsed_ms: sum all physical-call durations per page, then calculate mean, P50 and P95 over the fixed {{case_count}} pages. It describes execution cost for this run.')+'</p>'+table([h('method', 'Method'),h('pages_3', 'Pages'),h('mean', 'Mean'),'P50','P95'],cost_rows,metrics=[])+'</details>','latency-policy')
   _wmb_write(out,'methodology/index.html',h('methodology', 'Methodology'),method,english)
 
-  analysis=hero(h('analysis', 'Analysis'),h('compare_methods_on_the_same_page_then_2', 'Compare methods on the same page, then inspect category scores, and finally drill into each response, body text and cause.'))
+  analysis=hero(h('analysis', 'Analysis'),h('compare_methods_on_the_same_page_then_2', 'Compare methods on the same page, then inspect category scores, and finally drill into each response, body text and cause.'), ctx=ctx)
   analysis+=section(h('method_comparison', 'Method group comparison'),_wmb_comparison(cases,bycase,names,labels,english),'comparison')
   slice_rows=[];slice_categories=set();slice_axis_labels={'language':h('language', 'Language'),'level':h('difficulty', 'Difficulty'),'table':h('table_type', 'Table type'),'code':h('code_type', 'Code type'),'equation':h('formula_type', 'Formula type')}
   for axis in ('language','level','table','code','equation'):
@@ -642,7 +644,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   analysis+=section(h('page_results_and_responses', 'Page results and responses'),'<p class="wmb-metric-note">'+h('the_complete_matrix_contains_results_and_initially', 'The complete matrix contains {case_count}×{method_count} results and initially shows the {failed_request_count} conversions without body text. Each row states whether body text was produced and whether the final API/worker material is body text, an error response, an error page or no readable response. Open the track ID or method for the complete response, human reference, component scores and the currently supported cause.', case_count=case_count, method_count=method_count, failed_request_count=failed_request_count)+'</p>'+_wmb_controls(cases,labels,english,default_request='failed',failure_types=failure_types)+'<p class="wmb-scroll-note">'+h('scroll_horizontally_for_component_scores_and_latency', 'Scroll horizontally for component scores and latency; both the track ID and method name open the detail.')+'</p>'+_wmb_filter_table(['Track ID',h('method', 'Method'),h('language', 'Language'),h('difficulty', 'Difficulty'),h('table', 'Table'),h('code', 'Code'),h('formula', 'Formula'),h('body_text_produced', 'Body text produced'),h('response_and_body', 'Response and body')]+[metric_labels[m] for m in metric_order[1:]]+[h('final_fetch_latency', 'Final fetch latency'),h('detail', 'Detail')],inspect_rows,'wmb-attempt-matrix',english))
   _wmb_write(out,'analysis/index.html',h('analysis', 'Analysis'),analysis+analysis_tail,english)
 
-  review_body=hero(h('review_record', 'Review'),h('original_official_results_are_retained_alongside_the', 'Original official results are retained alongside the scope and effects of corrections; page-level causes are in result details.'))
+  review_body=hero(h('review_record', 'Review'),h('original_official_results_are_retained_alongside_the', 'Original official results are retained alongside the scope and effects of corrections; page-level causes are in result details.'), ctx=ctx)
   raw_prefix='../../' if english else '../'
   if corrected:
    receipt,revision_review=teds_revision
@@ -691,17 +693,17 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   for name in names:
    ident=identities[name]
    provider_rows.append(('',cell(labels[name])+cell(esc(ident.get('reported_version') or h('hosted_backend_undisclosed_nightly_has_no_version', 'Hosted backend undisclosed / nightly has no version command')))+cell('<code class="tiny break">'+esc(ident.get('binary_sha256') or '—')+'</code>')+cell(esc(ident.get('deployment')))))
-  adoption=hero(h('methods', 'Methods'),h('compare_the_registered_configurations_versions_and_interfaces', 'Compare the {{method_count}} registered configurations; versions and interfaces are listed below.'))
+  adoption=hero(h('methods', 'Methods'),h('compare_the_registered_configurations_versions_and_interfaces', 'Compare the {{method_count}} registered configurations; versions and interfaces are listed below.'), ctx=ctx)
   adoption+=section(h('measured_implementations', 'Measured implementations'),table([h('method', 'Method'),h('version', 'Version'),h('binary_sha_256', 'Binary SHA-256'),h('deployment_2', 'Deployment')],provider_rows,metrics=[]))
   interface_rows=[]
   language='en' if english else 'zh'
   for name in names:
    example=next((r for r in records if r['provider']==name and r['ok']),next(r for r in records if r['provider']==name))
-   entry=method_spec(name,example,language=language)['entry']
+   entry=method_spec(name,example,language=language, ctx=ctx)['entry']
    metadata=example.get('provider_metadata',{})
-   input_route=_observed_route(native_browser_engine(name,example),metadata,language=language)
+   input_route=_observed_route(native_browser_engine(name,example, scope=ctx.methods),metadata,language=language, ctx=ctx)
    output_route=report_method_catalog(language)['output_contract_labels'].get(metadata.get('output_contract'),h('not_recorded', 'Not recorded'))
-   official=browser_method_registry().get(name,{}).get('source_url') or report_method(name).get('source_url','')
+   official=browser_method_registry(scope=ctx.methods).get(name,{}).get('source_url') or report_method(name, scope=ctx.methods).get('source_url','')
 
    interface_rows.append(('',cell(link('../providers/'+name+'.html',labels[name]))+cell(esc(entry))+cell(esc(input_route))+cell(esc(output_route))+cell(link('../attempts/'+example['attempt_id']+'.html',h('actual_input_output_and_component_scores', 'Actual input, output and component scores')))+cell(link(official,h('official_source_2', 'Official source')))))
   adoption+=section(h('run_inputs_outputs_and_examples', 'Run inputs, outputs and examples'),'<p>'+h('these_are_the_frozen_html_routes_used', 'These are the frozen-HTML routes used for this public benchmark, not live fetching of original URLs. Example links open archived calls; account fields show variable names or placeholders only.')+'</p>'+table([h('method', 'Method'),h('interface_program', 'Interface / program'),h('run_input', 'Run input'),h('run_output', 'Run output'),h('archived_call_example', 'Archived call example'),h('official_source_3', 'Official source')],interface_rows,cls='wide-prose-table',metrics=[]))
@@ -727,7 +729,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    adoption+=section(h('open_source_adoption_evidence', 'Open-source adoption evidence'),'<p>'+h('this_independent_source_snapshot_covers_registered_methods', 'This independent source snapshot covers registered methods, not only the {{method_count}} measured configurations. Search candidates have ranking, activity and star thresholds; the counts are verified signature hits in the bounded candidate set, not global share or production users. Open a method to inspect repositories and files.')+'</p><p class="source-note">'+esc(adoption_data['generated_at'])+' · '+link(data_prefix+'evidence.json',h('full_source_evidence', 'Full source evidence'))+' · '+link(data_prefix+'counts.json',h('per_method_counts', 'Per-method counts'))+'</p>'+table([h('method', 'Method'),h('matched_repositories', 'Matched repositories'),h('matched_files', 'Matched files')],count_rows,'wmb-adoption-counts',True,metrics=[])+''.join(details))
   _wmb_write(out,'adoption/index.html',h('methods', 'Methods'),adoption,english)
 
-  reproduce=hero(h('reproduction', 'Reproduction'),h('dataset_scorer_browsers_and_outputs_are_fixed', 'Dataset, scorer, browsers and outputs are fixed by hashes or commits.'))
+  reproduce=hero(h('reproduction', 'Reproduction'),h('dataset_scorer_browsers_and_outputs_are_fixed', 'Dataset, scorer, browsers and outputs are fixed by hashes or commits.'), ctx=ctx)
   parent_sha=esc(dataset['source_dataset_sha256'])
   reproduce+=section(h('core_reproduction_commands', 'Core reproduction commands'),'<p>'+h('the_commands_use_this_repository_s_locked', 'The commands use this repository’s locked dependencies. Running all {{method_count}} methods and official scoring first requires the public parent set, the pinned scorer checkout and the measured binaries. Evaluation credentials come only from the local repository .env and are not included in this report. Angle brackets denote local paths.')+'</p><pre>uv run --frozen --extra headless-eval python -m harness.web_fetch run --benchmark webmainbench --providers &lt;name&gt; --dataset &lt;WebMainBench_545.jsonl&gt; --expected-dataset-sha256 '+parent_sha+' --case-ids-file &lt;sample-manifest&gt; --output &lt;method-evidence&gt;\nuv run --frozen --extra webmainbench-eval python -m harness.web_fetch score --benchmark webmainbench --evidence &lt;method-evidence&gt; --dataset &lt;WebMainBench_545.jsonl&gt; --expected-dataset-sha256 '+parent_sha+' --scorer-repo &lt;pinned-scorer-checkout&gt;\nuv run --frozen python -m harness.web_fetch webmainbench-assemble --source-root &lt;six-method-batches&gt; --output &lt;assembled-evidence&gt; --dataset &lt;WebMainBench_545.jsonl&gt; --sample-manifest &lt;sample-manifest&gt; --review &lt;independent-review.json&gt;\nuv run --frozen --extra webmainbench-eval python -m harness.web_fetch webmainbench-teds-correction --source &lt;assembled-evidence&gt; --output &lt;corrected-evidence&gt; --scorer-repo &lt;pinned-scorer-checkout&gt;\nuv run --frozen --extra webmainbench-eval python -m harness.web_fetch webmainbench-teds-review --source &lt;assembled-evidence&gt; --corrected &lt;corrected-evidence&gt;\nmake public-benchmark-report PROFILE=&lt;profile&gt; EVIDENCE=&lt;corrected-evidence&gt;</pre>')
   reproduce+=section(h('pinned_identities', 'Pinned identities'),f"<p>Parent dataset SHA-256: <code>{esc(dataset['source_dataset_sha256'])}</code></p><p>Sample manifest SHA-256: <code>{esc(dataset['sample_manifest_sha256'])}</code> · {link('../sample-manifest.json' if not english else '../../sample-manifest.json', h('download_page_manifest', 'Download {{case_count}}-page manifest'))}</p><p>Official scorer commit: <code>9d991bdc00c57b57521499494d96be85c31317ba</code></p>")
@@ -747,15 +749,15 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    ('latency-corrections.json','查看逐页纠正收据','Inspect the per-page correction receipt'),
    ('prior-latency-results.jsonl','下载原始逐页结果','Download prior per-page results'),
   ) if latency_corrected else ()
-  changes=(render_webmainbench_history(release_data,english,release_links) if release_data.get('releases') else '<p>'+h('no_releases_recorded', 'No releases recorded.')+'</p>')
+  changes=(render_webmainbench_history(release_data,english,release_links, ctx=ctx) if release_data.get('releases') else '<p>'+h('no_releases_recorded', 'No releases recorded.')+'</p>')
   _wmb_write(out,'changes/index.html',h('changelog', 'Changes'),changes,english)
 
   account_rows=[]
   for name in names:
-   access=method_access(name,records)
+   access=method_access(name,records, scope=ctx.methods)
 
    account_rows.append(('',cell(labels[name])+cell(esc(access['account']))+cell('<br>'.join('<code>'+esc(v)+'</code>' for v in access['env_vars']))+cell('<br>'.join(link(url,label) for label,url in access['links']))))
-  accounts=hero(h('access_setup', 'Accounts and setup'),h('only_the_kitesurf_cloudflare_route_needs_account'))
+  accounts=hero(h('access_setup', 'Accounts and setup'),h('only_the_kitesurf_cloudflare_route_needs_account'), ctx=ctx)
   accounts+=section(h('configuration', 'Configuration'),table([h('method', 'Method'),h('account', 'Account'),h('variables', 'Variables'),h('official_source', 'Official source')],account_rows,cls='accounts-table',metrics=[]))
   _wmb_write(out,'accounts/index.html',h('access_setup', 'Accounts and setup'),accounts,english)
 
@@ -763,7 +765,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    ref=contained_path(out,'references/'+c['id']+'.md').read_text(encoding='utf-8')
    frozen_html=contained_path(out,'sources/'+c['id']+'.html.txt').read_text(encoding='utf-8',errors='replace')
    ref_prefix='../../' if english else '../'
-   body=hero(h('frozen_page', 'Frozen page')+' · '+c['id'],h('official_html_snapshot_and_human_calibrated_reference', 'Official HTML snapshot and human-calibrated reference'))+'<nav class="wrap actions">'+link('#frozen-input',h('read_archived_page', 'Read archived page'))+' · '+link(c['url'],h('open_source_website', 'Open source website ↗'))+' · '+link('../analysis/index.html#inspect?query='+c['id'],h('compare_method_outputs', 'Compare method outputs'))+'</nav>'
+   body=hero(h('frozen_page', 'Frozen page')+' · '+c['id'],h('official_html_snapshot_and_human_calibrated_reference', 'Official HTML snapshot and human-calibrated reference'), ctx=ctx)+'<nav class="wrap actions">'+link('#frozen-input',h('read_archived_page', 'Read archived page'))+' · '+link(c['url'],h('open_source_website', 'Open source website ↗'))+' · '+link('../analysis/index.html#inspect?query='+c['id'],h('compare_method_outputs', 'Compare method outputs'))+'</nav>'
    body+=section(h('source_and_metadata', 'Source and metadata'),f"<p>{link(c['url'], h('original_url_2', 'Original URL ↗'))}</p><pre>{esc(json.dumps(c['meta'], ensure_ascii=False, indent=2))}</pre><p>HTML SHA-256: <code>{esc(c['input_html_sha256'])}</code></p>")
    body+=section(h('human_calibrated_reference', 'Human-calibrated reference'),'<p>'+h('this_markdown_is_the_official_main_content', 'This Markdown is the official main-content reference, not the entire page; it excludes navigation and recommendations and does not guarantee coverage of text in images. The scorer extracts text, code, formulas and tables from each conversion and reference, then calculates five components.')+'</p><p class="actions">'+link(ref_prefix+'references/'+c['id']+'.md',h('download_reference_2', 'Download reference'))+' · '+link('../methodology/index.html',h('official_scoring_method', 'Official scoring method'))+'</p><pre class="wmb-source-pre">'+esc(ref)+'</pre>')
    body+=section(h('frozen_page_reading_view', 'Frozen-page reading view'),'<p class="actions">'+link(c['url'],h('source_website_live_may_have_changed', 'Source website ↗ (live, may have changed)'))+' · '+link('../analysis/index.html#inspect?query='+c['id'],h('inspect_method_results_for_this_page', 'Inspect method results for this page'))+'</p><p class="source-note">'+h('read_the_html_archive_used_in_this', 'Read the HTML archive used in this run below. This safe preview disables scripts, external resources and navigation; images appear as placeholders. It is a static reading view, not a measured browser screenshot or a replay of script execution. The complete input remains in the source view.')+'</p>'+_wmb_html_preview(frozen_html,english)+'<details><summary>'+h('view_complete_html_source', 'View complete HTML source')+'</summary><pre class="wmb-source-pre">'+esc(frozen_html)+'</pre><p>'+link(ref_prefix+'sources/'+c['id']+'.html.txt',h('save_raw_file', 'Save raw file'))+'</p></details>','frozen-input')
@@ -781,7 +783,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
     values+=''.join(_wmb_metric_cell(r,metric) for metric in metric_order[1:])
     values+=cell(ms(r['elapsed_ms']),r['elapsed_ms'])+cell(link('../datasets/'+r['case_id']+'.html',h('page_and_reference', 'Page and reference')))
     rows.append((_wmb_row_attrs(c,r),values))
-   body=hero(labels[name],h('final_results_latency_is_the_final_fetch', '{case_count} final results; latency is the final fetch duration, excluding earlier failures.', case_count=case_count))
+   body=hero(labels[name],h('final_results_latency_is_the_final_fetch', '{case_count} final results; latency is the final fetch duration, excluding earlier failures.', case_count=case_count), ctx=ctx)
    body+=section(h('per_page_results', 'Per-page results'),'<p class="source-note">'+h('open_a_track_id_for_scores_the', 'Open a track ID for scores, the complete response and cause; the last column opens the frozen page and human reference. “Body text produced” only states that readable Markdown exists, not that content passed; error pages are explicit in the response column.')+'</p>'+_wmb_controls(cases,labels,english,include_method=False,failure_types=failure_types)+'<p class="wmb-scroll-note">'+h('scroll_horizontally_and_vertically_within_the_table', 'Scroll horizontally and vertically within the table.')+'</p>'+_wmb_filter_table(['Track ID',h('language', 'Language'),h('difficulty', 'Difficulty'),h('table', 'Table'),h('code', 'Code'),h('formula', 'Formula'),h('body_text_produced', 'Body text produced'),h('response_and_body', 'Response and body') ]+[metric_labels[m] for m in metric_order[1:]]+[h('final_fetch_latency', 'Final fetch latency'),h('page_and_reference', 'Page and reference')],rows,'wmb-provider-'+name,english))
    _wmb_write(out,'providers/'+name+'.html',labels[name],body,english)
 
@@ -790,7 +792,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    output_path=contained_path(out,r['artifact_path'])
    output_text=output_path.read_text(encoding='utf-8',errors='replace') if output_path.is_file() else ''
    reference_text=contained_path(out,'references/'+case_id+'.md').read_text(encoding='utf-8')
-   attempt_body=_wmb_result_detail(r,c,output_text,reference_text,labels,metric_labels,failure_notes,corrected,english)
+   attempt_body=_wmb_result_detail(r,c,output_text,reference_text,labels,metric_labels,failure_notes,corrected,english, ctx=ctx)
    _wmb_write(out,'attempts/'+attempt_id+'.html',labels[r['provider']]+' · '+case_id,attempt_body,english)
  write_language_contract(out,include_english=include_english)
 

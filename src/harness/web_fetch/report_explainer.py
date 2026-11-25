@@ -6,6 +6,7 @@ import json
 import re
 import statistics
 from collections import Counter
+from dataclasses import replace
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -115,12 +116,12 @@ def _article_speed_population(cases, records, providers, *, execution_scope):
     }
 
 
-def _render_article_resources(summary, selected):
+def _render_article_resources(summary, selected, *, ctx):
     if summary is None:
         return (('<p>' + t('the_current_evidence_has_no_independent_client_3', 'The current evidence has no independent client-side resource measurement; this article does not infer CPU or memory from latency.') + '</p>'),
                 t('resource_metrics_will_be_added_only_after', 'Resource metrics will be added only after an independent matched-task measurement.'))
     selected = summary.get('providers', selected)
-    rendered, result = render_resource_comparison(summary, selected)
+    rendered, result = render_resource_comparison(summary, selected, ctx=ctx)
     interpretation = (
         t('is_the_resource_efficiency_leader_in_this', '{winner_label} is the resource-efficiency leader in this run, with the lowest use in {winner_count} of {ranked_metric_count} lower-is-better metrics. Resource leadership is not the same as leadership in overall task pass rate.', winner_label=result['winner_label'], ranked_metric_count=result['ranked_metric_count'], winner_count=result['winner_count'])
     )
@@ -301,7 +302,7 @@ def browser_example_evidence(out, case, row, *, focus=None, reference_focus=None
             'run_id':str(row.get('run_id') or row.get('attempt_id')), 'passed':accepted}
 
 
-def current_browser_article_model(out, cases, records, binding):
+def current_browser_article_model(out, cases, records, binding, *, ctx):
     """Bind new cohort prose to measured inputs; derive every comparison value."""
     path = contained_path(out, binding['path'])
     raw = path.read_bytes()
@@ -362,7 +363,7 @@ def current_browser_article_model(out, cases, records, binding):
         explanation = chapter.get('explanation')
         if not isinstance(explanation, str) or not explanation.strip():
             raise ValueError('Browser chapter requires a measured explanation')
-        versions = method_versions(rows,provenance)
+        versions = method_versions(rows,provenance, scope=ctx.methods)
         groups = {track: [row for row in rows if report_family(cases[row['case_id']]) == track] for track in tracks}
         final_times=[]
         physical_calls=0
@@ -457,13 +458,13 @@ def _offline_browser_article(body, out, cases, model):
     return str(document)+''.join(appendices)
 
 
-def _browser_network_rows(records, providers):
+def _browser_network_rows(records, providers, *, ctx):
     """Summarize recorded DNS routes without filling missing metadata."""
     rows=[]
     for provider in providers:
-        label=browser_method_label(provider)
+        label=browser_method_label(provider, scope=ctx.methods)
         if label==provider:label=provider.title()
-        if engine_definition(native_browser_engine(provider)).hosted:
+        if engine_definition(native_browser_engine(provider, scope=ctx.methods)).hosted:
             rows.append({'provider':provider,'mode':'service_network',
                          'text':label+'在 Cloudflare Browser Run 托管网络中执行；本地 DNS 配置不适用于该服务。耗时包含云端部署位置和公网路径。'})
             continue
@@ -531,13 +532,14 @@ def _browser_reviewed_error(out, model, row):
 
 
 @with_measured_method_labels
-def _render_current_browser_article(out, cases, records, binding):
-    model = current_browser_article_model(out, cases, records, binding)
+def _render_current_browser_article(out, cases, records, binding, *, ctx, scope):
+    ctx = replace(ctx, methods=scope)
+    model = current_browser_article_model(out, cases, records, binding, ctx=ctx)
     content, names, stats = model['content'], model['providers'], model['stats']
-    engine_count = len({native_browser_engine(name) or name for name in names})
+    engine_count = len({native_browser_engine(name, scope=scope) or name for name in names})
     def label(name):
-        return bilingual_text(browser_method_label(name) if browser_method_label(name) != name else name.title(),
-                              browser_method_label(name,language='en') if browser_method_label(name,language='en') != name else name.title())
+        return bilingual_text(browser_method_label(name, scope=scope) if browser_method_label(name, scope=scope) != name else name.title(),
+                              browser_method_label(name,language='en', scope=scope) if browser_method_label(name,language='en', scope=scope) != name else name.title())
     def paragraph(value):
         return '<p>' + escape(value).replace('\n\n', '</p><p>') + '</p>'
     def section(title, body, anchor, english_title=None):
@@ -569,8 +571,8 @@ def _render_current_browser_article(out, cases, records, binding):
         rate = group['passed']/group['n']
         values = [stats[n]['tracks'][track]['passed']/stats[n]['tracks'][track]['n'] for n in names]
         return f"{group['passed']}/{group['n']}<br>" + metric(name,'family_'+track,rate,values,True)
-    interfaces = browser_task_interface_matrix(cases, names, records, compact=True)
-    english_interfaces = browser_task_interface_matrix(cases, names, records, compact=True, language='en')
+    interfaces = browser_task_interface_matrix(cases, names, records, compact=True, ctx=ctx)
+    english_interfaces = browser_task_interface_matrix(cases, names, records, compact=True, language='en', ctx=ctx)
     english_routes = {(name,row['track']):row['cells'][name] for row in english_interfaces['rows'] for name in names}
     route_rows = []
     for row in interfaces['rows']:
@@ -584,8 +586,8 @@ def _render_current_browser_article(out, cases, records, binding):
                          + '<br><br>'.join('<span data-route-mode="'+escape(part['mode'])+'" data-case-count="'+str(part['count'])+'" data-report-en="'+escape(str(part['count'])+' tasks: '+english_part['description'],quote=True)+'">'
                            +str(part['count'])+' 题：'+escape(part['description'])+'</span>' for part,english_part in zip(parts,english_parts,strict=True))+'</div>')
         route_rows.append((escape(BROWSER_FAMILY_NAMES[row['track']])+f" · {row['count']} 题", *cells))
-    matrix = _table([t('task_family', 'Task family'),*((browser_method_label(name),browser_method_label(name,language='en')) for name in names)], route_rows, '每格为实际请求的接口路线与目标交付物；调用失败或能力不足仍保留原路线，不代表已经成功交付。')
-    network_rows = _browser_network_rows(records, names)
+    matrix = _table([t('task_family', 'Task family'),*((browser_method_label(name, scope=scope),browser_method_label(name,language='en', scope=scope)) for name in names)], route_rows, '每格为实际请求的接口路线与目标交付物；调用失败或能力不足仍保留原路线，不代表已经成功交付。')
+    network_rows = _browser_network_rows(records, names, ctx=ctx)
     network_note = '<details><summary>网络执行位置与解析方式</summary>'+''.join(
         '<p data-network-method="'+escape(row['provider'])+'" data-network-mode="'
         +escape(row['mode'])+'">'+escape(row['text'])+'</p>' for row in network_rows)+'</details>'
@@ -626,7 +628,7 @@ def _render_current_browser_article(out, cases, records, binding):
         # complete declared population instead of silently dropping rows whose
         # IDs do not appear in the quality matrix.
         table, explanation = _render_article_resources(
-            resource_summary, resource_summary['providers'])
+            resource_summary, resource_summary['providers'], ctx=ctx)
         body += section('客户端资源消耗', table+paragraph(explanation), 'resources')
     else:
         body += section('客户端资源消耗', '<p>本轮未登记完整可比的 CPU、内存和网络资源测量，不据此作资源效率排名。</p>', 'resources')
@@ -673,9 +675,9 @@ def _render_current_browser_article(out, cases, records, binding):
         example = '<details data-browser-specimen="'+escape(name)+'"><summary>'+escape(case.get('name',case['id']))+' · '+escape(case['id'])+'</summary>'
         example += '<p><a href="'+escape(case['url'],quote=True)+'">原始页面</a> · <a href="../datasets/'+escape(case['id'],quote=True)+'.html">任务与验收规则</a> · <a data-browser-result="'+escape(name)+'" href="../attempts/'+escape(row['attempt_id'],quote=True)+'.html">完整结果、评分与日志</a></p>'
         example += '<h4>参考范围或验收要求（节选）</h4><pre>'+escape(reference)+'</pre><h4>实际返回（节选）</h4><pre>'+escape(raw)+'</pre><h4>程序返回或验收结果</h4><pre style="max-height:24rem;overflow:auto;white-space:pre-wrap" data-browser-error="'+escape(name)+'">'+escape(error)+'</pre></details>'
-        body += section((browser_method_label(name) if browser_method_label(name) != name else name.title())+'：'+str(stat['passed'])+'/'+str(model['cases'])+' 题通过',
+        body += section((browser_method_label(name, scope=scope) if browser_method_label(name, scope=scope) != name else name.title())+'：'+str(stat['passed'])+'/'+str(model['cases'])+' 题通过',
                         '<div data-browser-chapter="'+escape(name)+'">'+paragraph(chapter['explanation'])+distribution+example+'</div>', 'browser-'+name,
-                        browser_method_label(name,language='en')+': '+str(stat['passed'])+'/'+str(model['cases'])+' tasks passed')
+                        browser_method_label(name,language='en', scope=scope)+': '+str(stat['passed'])+'/'+str(model['cases'])+' tasks passed')
     review_path = contained_path(out,'result-review.json')
     review = json.loads(review_path.read_text(encoding='utf-8')) if review_path.is_file() else None
     body += section('结论与审查范围', paragraph(content['conclusions'])+
@@ -844,10 +846,11 @@ def _render_current_browser_article(out, cases, records, binding):
 
 
 @with_measured_method_labels
-def check_current_browser_article(out, cases, records, binding):
+def check_current_browser_article(out, cases, records, binding, *, ctx, scope):
     """Verify numerical populations, unique highlights and complete drilldowns."""
-    model = current_browser_article_model(out, cases, records, binding)
-    interfaces = browser_task_interface_matrix(cases, model['providers'], records, compact=True)
+    ctx = replace(ctx, methods=scope)
+    model = current_browser_article_model(out, cases, records, binding, ctx=ctx)
+    interfaces = browser_task_interface_matrix(cases, model['providers'], records, compact=True, ctx=ctx)
     expected_interfaces = {(name,row['track']):[(part['mode'],part['count'],str(part['count'])+' 题：'+part['description']) for part in row['cells'][name]]
                            for row in interfaces['rows'] for name in model['providers']}
     expected = {}
@@ -1049,7 +1052,7 @@ def check_current_browser_article(out, cases, records, binding):
         if actual_interfaces != expected_interfaces:
             raise ValueError('Browser task interface matrix is missing or differs from declared tasks')
         expected_network=[(row['provider'],row['mode'],row['text'])
-                          for row in _browser_network_rows(records,model['providers'])]
+                          for row in _browser_network_rows(records,model['providers'], ctx=ctx)]
         if [tuple(row) for row in inspect.network] != expected_network:
             raise ValueError('Browser network environment disclosure is missing or wrong')
         actual={}
@@ -1093,7 +1096,7 @@ def check_current_browser_article(out, cases, records, binding):
     return model
 
 
-def _saved_failure_chapters(cases, records):
+def _saved_failure_chapters(cases, records, *, ctx):
     """Explain the full failure population using recorded program evidence only."""
     from harness.web_fetch.report import provider_label, measured, succeeded, result_case, result_href
     heading = t('saved_failure_chapters', 'Why each method did not pass')
@@ -1101,8 +1104,8 @@ def _saved_failure_chapters(cases, records):
     chapters = []
     for provider in dict.fromkeys(row['provider'] for row in records):
         selected = [row for row in records if row['provider'] == provider]
-        eligible = [row for row in selected if measured(row, cases[row['case_id']])]
-        failed = [row for row in eligible if not succeeded(row, cases[row['case_id']])]
+        eligible = [row for row in selected if measured(row, cases[row['case_id']], ctx=ctx)]
+        failed = [row for row in eligible if not succeeded(row, cases[row['case_id']], ctx=ctx)]
         grouped = {}
         for row in failed:
             category = (row.get('diagnosis') or {}).get('category') or t(
@@ -1112,13 +1115,13 @@ def _saved_failure_chapters(cases, records):
         for category, members in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
             specimen = members[0]
             aid = specimen.get('attempt_id')
-            target = escape(result_href(specimen, 'attempt', '../'), quote=True) if aid else '../analysis/index.html'
+            target = escape(result_href(specimen, 'attempt', '../', ctx=ctx), quote=True) if aid else '../analysis/index.html'
             evidence_link = '<a href="'+target+'">'+t('inspect_response_scoring', 'Inspect response and scoring')+'</a>'
             rows.append((escape(category), str(len(members)), f'{len(members)/len(failed):.1%}', evidence_link))
             proof = (specimen.get('diagnosis') or {}).get('evidence')
             if proof:
                 examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
-                    +'</p><p>'+escape(result_case(specimen, cases[specimen['case_id']]).get('url', ''))+' · '+evidence_link+'</p></details>')
+                    +'</p><p>'+escape(result_case(specimen, cases[specimen['case_id']], ctx=ctx).get('url', ''))+' · '+evidence_link+'</p></details>')
         count = '<p>'+t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
                   total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))+'</p>'
         if len(eligible) != len(selected):
@@ -1127,18 +1130,18 @@ def _saved_failure_chapters(cases, records):
             t('method_failure_share', 'Share of this method’s failures'), t('example_evidence', 'Example evidence')], rows,
             t('complete_failure_distribution', 'Complete failure distribution')) if failed else ''
         chapters.append('<section data-method-failures="'+escape(provider, quote=True)+'"><h3>'
-            +escape(provider_label(provider))+'</h3>'+count+distribution+''.join(examples)+'</section>')
+            +escape(provider_label(provider, ctx=ctx))+'</h3>'+count+distribution+''.join(examples)+'</section>')
     return '<section data-saved-failure-chapters><h2>'+heading+'</h2><p>'+note+'</p>'+''.join(chapters)+'</section>'
 
 
-def render_explainer(out, cases, records, *, table=None, cell=None, link=None, authored=True, content_binding=None):
+def render_explainer(out, cases, records, *, table=None, cell=None, link=None, authored=True, content_binding=None, ctx):
     """Render explicitly bound editorial content, otherwise summarize these inputs."""
     out = Path(out)
     dataset_path = out / 'dataset.json'
     if content_binding is None and dataset_path.is_file():
         content_binding = json.loads(dataset_path.read_text(encoding='utf-8')).get('comparison', {}).get('report_interpretation')
     if authored and content_binding is not None:
-        return _render_current_browser_article(out, cases, records, content_binding)
+        return _render_current_browser_article(out, cases, records, content_binding, ctx=ctx, scope=ctx.methods)
     passes = sum(task_passed(row['ok'], row['metrics'],
                  cases[row['case_id']].get('task_kind', 'body')) for row in records)
     intro = bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
@@ -1147,30 +1150,30 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
         scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
         if scope:
             from harness.web_fetch.report import provider_label, measured, succeeded, comparative_rows, cell as report_cell, table as report_table
-            eligible_results = [row for row in records if measured(row, cases[row['case_id']])]
+            eligible_results = [row for row in records if measured(row, cases[row['case_id']], ctx=ctx)]
             if len(eligible_results) != len(records):
                 intro = t('saved_measured_result_summary', 'This report contains {tasks} tasks and {total} saved logical results. Of {measured} measurable results, {passed} passed; {unavailable} are unavailable and excluded from pass-rate denominators. Findings apply only to the registered tasks and rules.',
                     tasks=len(cases), total=len(records), measured=len(eligible_results),
-                    passed=sum(succeeded(row, cases[row['case_id']]) for row in eligible_results),
+                    passed=sum(succeeded(row, cases[row['case_id']], ctx=ctx) for row in eligible_results),
                     unavailable=len(records)-len(eligible_results))
             rows = []
             for name in dict.fromkeys(row['provider'] for row in records):
                 selected = [row for row in records if row['provider'] == name]
-                eligible = [row for row in selected if measured(row, cases[row['case_id']])]
-                passed = sum(succeeded(row, cases[row['case_id']]) for row in eligible)
+                eligible = [row for row in selected if measured(row, cases[row['case_id']], ctx=ctx)]
+                passed = sum(succeeded(row, cases[row['case_id']], ctx=ctx) for row in eligible)
                 rate = passed/len(eligible) if eligible else None
                 label = f'{rate:.1%}' if rate is not None else '—'
                 if eligible and len(eligible) != len(selected):
                     label += f' ({passed}/{len(eligible)})'
-                rows.append(('',report_cell(escape(provider_label(name)))+report_cell(str(len(selected)))
+                rows.append(('',report_cell(escape(provider_label(name, ctx=ctx)))+report_cell(str(len(selected)))
                     +report_cell(str(passed))+report_cell(label,rate)))
             title=t('method_comparison_for_this_round', 'Method comparison for this round')
             context = '<div role="region" aria-label="'+escape(title)+'">'+report_table(
                 [t('method', 'Method'), t('saved_results', 'Saved results'),
                  t('saved_passed', 'Passed'), t('saved_pass_rate', 'Pass rate')],
-                comparative_rows(rows,{3:('saved-guide-pass-rate','max')}),metrics=[])+'</div>'
+                comparative_rows(rows,{3:('saved-guide-pass-rate','max')}, ctx=ctx),metrics=[])+'</div>'
             context += '<p>'+t('saved_task_acceptance_note', 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
-            context += _saved_failure_chapters(cases, records)
+            context += _saved_failure_chapters(cases, records, ctx=ctx)
             context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'
             context += ''.join('<p>'+escape(note)+'</p>' for note in scope.get('limitations', []))
             context += '<p><a href="../review/index.html">' + bilingual_text(

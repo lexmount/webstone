@@ -36,13 +36,13 @@ def method_provenance(out):
  return {item['binary_sha256']:item for item in json.loads(path.read_text(encoding='utf-8')).get('implementations',[])} if path.is_file() else {}
 
 
-def method_spec(name, record, *, timeout_seconds=None, language="zh"):
- bound=browser_method_registry().get(name,{}).get('report_interface')
+def method_spec(name, record, *, timeout_seconds=None, language="zh", ctx):
+ bound=browser_method_registry(scope=ctx.methods).get(name,{}).get('report_interface')
  if bound is not None:
   return bound[language] if set(bound)=={'zh','en'} else bound
  catalog=report_method_catalog() if language=='zh' else report_method_catalog(language)
  owner=catalog['adapters'].get((record or {}).get('provider_type'),{}).get('interface_method')
- registered=catalog['methods'][owner] if owner else report_method(name,record,language=language)
+ registered=catalog['methods'][owner] if owner else report_method(name,record,language=language, scope=ctx.methods)
  messages=catalog['messages']
  base=registered.get('interface') or catalog['unregistered_interface']
  meta=(record or {}).get('provider_metadata',{})
@@ -108,14 +108,14 @@ def _route_template(rule, metadata):
  return rule['text'].format(**values)
 
 
-def _observed_route(engine, meta, *, language="zh", compact=False):
+def _observed_route(engine, meta, *, language="zh", compact=False, ctx):
  """Describe only the registered interface persisted by one measured call."""
  messages=report_method_catalog(language)['messages']
  route=meta.get('route')
  extractor=meta.get('extractor')
  contract=meta.get('output_contract')
  route_note=messages['route_note'].format(route=route) if route and not compact else ''
- for rule in report_method(engine,language=language).get('observed_routes',[]):
+ for rule in report_method(engine,language=language, scope=ctx.methods).get('observed_routes',[]):
   description=_route_template(rule,meta)
   if description is not None:
    return rule.get('compact_text',description) if compact else description+route_note
@@ -132,14 +132,14 @@ def _observed_route(engine, meta, *, language="zh", compact=False):
  return messages['route_unrecorded']
 
 
-def browser_task_interface_matrix(cases, providers, records=None, *, compact=False, language="zh"):
+def browser_task_interface_matrix(cases, providers, records=None, *, compact=False, language="zh", ctx):
  """Describe task routes, preferring persisted call metadata when available."""
  catalog=report_method_catalog(language)
  messages=catalog['messages']
  methods=catalog['methods']
  selected={name:next((row for row in (records or []) if row['provider']==name),None)
            for name in providers}
- engines={name:native_browser_engine(name,selected[name]) for name in providers}
+ engines={name:native_browser_engine(name,selected[name], scope=ctx.methods) for name in providers}
  routes={name:item.get('routes',{}) for name,item in methods.items()}
  capabilities={name:item.get('capabilities',messages['not_registered']) for name,item in routes.items()}
  tracks=[]
@@ -166,7 +166,7 @@ def browser_task_interface_matrix(cases, providers, records=None, *, compact=Fal
     plan=next((rule for rule in methods[engine].get('task_interfaces',[])
                if metadata_matches(case_metadata,rule['case_equals'])),None)
     measured=indexed.get((provider,case_id))
-    provider_type=(measured or selected[provider] or {}).get('provider_type') or browser_method_registry().get(provider,{}).get('type','headless_markdown')
+    provider_type=(measured or selected[provider] or {}).get('provider_type') or browser_method_registry(scope=ctx.methods).get(provider,{}).get('type','headless_markdown')
     selector_type=report_method_catalog()['adapters'].get(provider_type,{}).get('task_mode_provider_type',provider_type)
     mode=output_mode_for_case(engine, selector_type, SimpleNamespace(
      **{**case_metadata, 'url': case.get('url', '')}))
@@ -176,7 +176,7 @@ def browser_task_interface_matrix(cases, providers, records=None, *, compact=Fal
       observed=next((rule for rule in methods[engine].get('observed_routes',[])
                      if _route_template(rule,meta) is not None),None)
       mode=observed['mode'] if observed else 'unregistered'
-     description=_observed_route(engine,meta,language=language,compact=compact)
+     description=_observed_route(engine,meta,language=language,compact=compact, ctx=ctx)
      wait=_observed_wait(meta,language=language)
     elif plan:
      description=plan['description'].format(**routes.get(engine,{}))
@@ -205,14 +205,14 @@ def browser_task_interface_matrix(cases, providers, records=None, *, compact=Fal
    observed=[]
    for row in records:
     if row['provider']!=provider:continue
-    description=_observed_route(engine,row.get('provider_metadata') or {},language=language)
+    description=_observed_route(engine,row.get('provider_metadata') or {},language=language, ctx=ctx)
     if description not in observed:observed.append(description)
    selected_capabilities[provider]=(messages['calls_prefix']+messages['separator'].join(observed)
      if observed else messages['calls_unrecorded'])
  return {'providers':providers,'capabilities':selected_capabilities,'rows':rows}
 
 
-def render_interfaces(out,records,*,only_measured=False):
+def render_interfaces(out,records,*,only_measured=False, ctx):
  messages=report_method_catalog()['messages']
  english_messages=report_method_catalog('en')['messages']
  dataset_path=out/"dataset.json"
@@ -237,8 +237,8 @@ def render_interfaces(out,records,*,only_measured=False):
  case_order={case['id']: index for index, case in enumerate(dataset.get('cases', []))}
  for i,name in enumerate(names):
   r=min((r for r in records if r['provider']==name), key=lambda row: case_order.get(row['case_id'], len(case_order)), default=None)
-  s=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"))
-  english=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"),language="en")
+  s=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"), ctx=ctx)
+  english=method_spec(name,r,timeout_seconds=comparison.get("timeout_seconds"),language="en", ctx=ctx)
   log_record=r
   log_root=out
   if r and r['attempt_id'] in evidence_scopes:
@@ -265,19 +265,19 @@ def render_interfaces(out,records,*,only_measured=False):
    english={**english,'request':verified[0],'notes':english_messages['interface_verified_template_note']+english['notes']}
   elif bindings:
    request=json.loads(evidence_artifacts.verify_public_call_log(log_root,bindings[-1]).read_text(encoding='utf-8'))["request"]
-   model=method_page_model(name,name,[x for x in records if x["provider"]==name])
+   model=method_page_model(name,name,[x for x in records if x["provider"]==name], scope=ctx.methods)
    s={**s,"entry":model["endpoint"],"params":[],"request":request,"notes":messages['interface_request_note']}
-   english_model=method_page_model(name,name,[x for x in records if x["provider"]==name],language="en")
+   english_model=method_page_model(name,name,[x for x in records if x["provider"]==name],language="en", scope=ctx.methods)
    english={**english,"entry":english_model["endpoint"],"params":[],"request":request,"notes":english_messages['interface_request_note']}
-  access=method_access(name,records)
-  english_access=method_access(name,records,language="en")
+  access=method_access(name,records, scope=ctx.methods)
+  english_access=method_access(name,records,language="en", scope=ctx.methods)
   if r:
    content=contained_path(out,r['artifact_path']).read_text(encoding='utf-8');sample={k:r.get(k) for k in ['ok','status_code','title','final_url']};sample['content_excerpt']=content[:450];sample['content_characters']=len(content)
   else:sample={'measurement':None,'note':messages['interface_unmeasured_sample']}
   # Explicit whitelist: no local paths, request IDs, credentials or session metadata.
   meta=r.get('provider_metadata',{}) if r else {};sample['metadata']={k:meta[k] for k in ['engine','upstream_status','links_count','images_count','extractor','truncated','document_count'] if k in meta}
   dest=out/'adoption'/'interfaces';dest.mkdir(parents=True,exist_ok=True);(dest/(name+'.json')).write_text(json.dumps({'interface':s,'access':access,'sample':sample,'attempt_id':r['attempt_id'] if r else None},ensure_ascii=False,indent=2)+'\n', encoding='utf-8')
-  body+=f'<details class="interface-panel" id="interface-{name}"'+(' open' if i==0 else '')+'><summary>'+bilingual_text(browser_method_label(name),browser_method_label(name,language='en'))+'</summary>'
+  body+=f'<details class="interface-panel" id="interface-{name}"'+(' open' if i==0 else '')+'><summary>'+bilingual_text(browser_method_label(name, scope=ctx.methods),browser_method_label(name,language='en', scope=ctx.methods))+'</summary>'
   body+='<p class="interface-endpoint"><code>'+bilingual_text(s['entry'],english['entry'])+'</code></p><p class="source-note">'+bilingual_text(s['auth'],english['auth'])+'</p>'
   if access:
    body+=messages['interface_accounts_html']+bilingual_text(access['account'],english_access['account'])+'</p><p>'+bilingual_text(access['configuration'],english_access['configuration'])+'</p><p>'+ ' · '.join('<a href="'+escape(url,quote=True)+'">'+bilingual_text(label,english_access['links'][index][0])+'</a>' for index,(label,url) in enumerate(access['links']))+messages['interface_source_note_html']

@@ -8,6 +8,7 @@ from tests.architecture.scan import (
     LAYERING_ALLOWLIST,
     allowlist_drift,
     benchmark_module_imports,
+    context_variable_modules,
     imported_modules,
     layering_violations,
     modules,
@@ -42,3 +43,7 @@ def test_allowlist_drift_fails_in_both_directions():
 
 def test_shared_web_extract_modules_reach_benchmarks_through_adapters():
     assert benchmark_module_imports() == {}
+
+
+def test_track_modules_pass_state_explicitly():
+    assert context_variable_modules() == []

@@ -22,6 +22,7 @@ from harness.web_fetch.report_check import check_saved_result_summary
 from harness.web_fetch.report_explainer import check_current_browser_article
 from harness.web_fetch.report_version import check_release, load_release
 from harness.web_fetch.scoring_revision import ALLOWED_FIELDS, correction_provenance
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 def _bound(root, binding):
@@ -278,7 +279,7 @@ def check_snapshot_audit(root):
     if scope is None or any(str(value) not in scope.get_text() for value in expected_scope):
         raise ValueError('Snapshot report lost its scoring input scope')
     audit_html = read_page(root/'audit/index.html')
-    check_current_browser_article(root,{case['id']:case for case in dataset['cases']},rows,dataset['comparison']['report_interpretation'])
+    check_current_browser_article(root,{case['id']:case for case in dataset['cases']},rows,dataset['comparison']['report_interpretation'], ctx=RenderContext(), scope=MethodScope())
     for route in ['index.html','guide/index.html','analysis/index.html','audit/index.html']:
         checked_page(root/route)
     for item in audit['providers']:

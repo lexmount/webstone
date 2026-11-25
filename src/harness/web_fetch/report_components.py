@@ -490,7 +490,7 @@ def acceptance_scope(cases, records):
     return {'families': dict(families), 'methods': dict(methods), 'affiliated_cases': affiliated}
 
 
-def render_acceptance_scope(cases, records):
+def render_acceptance_scope(cases, records, *, ctx):
     from harness.web_fetch.report import cell, link, pct, provider_label, section, table
     from harness.web_fetch.report import model_text
     scope = acceptance_scope(cases, records)
@@ -511,7 +511,7 @@ def render_acceptance_scope(cases, records):
                   str(unverified) + '/' + str(passes) + ' (' + pct(unverified / passes if passes else None) + ')',
                   str(counts['blocked_diagnostics']), str(counts['resource_results']),
                   str(counts['unexpected_resources']), pct(precision))
-        rows.append(('', cell(esc(provider_label(name))) + ''.join(cell(value) for value in values)))
+        rows.append(('', cell(esc(provider_label(name, ctx=ctx))) + ''.join(cell(value) for value in values)))
     body += '<p>' + model_text(*pair('passes_without_verified_page_identity_retain_their', 'Passes without verified page identity retain their frozen verdicts; their share uses all passes as its denominator. Blocked-page markers are diagnostic. Unexpected URLs and mean precision describe resource tasks without adding a new recall threshold. Language checks compare the primary tag unless a task declares exact regional matching.')) + '</p>'
     body += table([model_text(*pair('method', 'Method')), model_text(*pair('results_2', 'Results')), model_text(*pair('passes', 'Passes')),
                    model_text(*pair('identity_verified', 'Identity verified')), model_text(*pair('unverified_identity_passes_all_passes', 'Unverified identity passes / all passes')),

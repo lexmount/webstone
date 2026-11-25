@@ -7,6 +7,7 @@ from harness.record_io import canonical_json_sha256
 
 from harness.web_fetch.providers.native_task_routes import require_native_task_routes
 from harness.web_fetch.report_interfaces import SPECS, browser_task_interface_matrix, method_access, method_spec
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class NativeBrowserVariantTests(unittest.TestCase):
@@ -42,19 +43,19 @@ class NativeBrowserVariantTests(unittest.TestCase):
             native_browser_engine,
             report_method,
         )
-        self.assertEqual(native_browser_engine("moli-candidate"), "moli")
-        self.assertEqual(browser_method_label("moli-candidate"), "Moli candidate build")
-        self.assertEqual(browser_method_label("moli-release"), "Moli release build")
-        self.assertNotIn("source_url", browser_method_registry()["moli-candidate"])
-        self.assertEqual(report_method("moli-candidate")["source_url"],
+        self.assertEqual(native_browser_engine("moli-candidate", scope=MethodScope()), "moli")
+        self.assertEqual(browser_method_label("moli-candidate", scope=MethodScope()), "Moli candidate build")
+        self.assertEqual(browser_method_label("moli-release", scope=MethodScope()), "Moli release build")
+        self.assertNotIn("source_url", browser_method_registry(scope=MethodScope())["moli-candidate"])
+        self.assertEqual(report_method("moli-candidate", scope=MethodScope())["source_url"],
                          "https://github.com/lexmount/moli")
 
     def test_report_labels_mixed_fixed_evidence_by_measured_versions_and_counts(self):
         from harness.web_fetch.methods import browser_method_label, with_measured_method_labels
 
         @with_measured_method_labels
-        def render(out, dataset, records):
-            return browser_method_label("moli-candidate")
+        def render(out, dataset, records, *, scope):
+            return browser_method_label("moli-candidate", scope=scope)
 
         records = [
             {"provider": "moli-candidate", "provider_metadata": {"binary_sha256": "a" * 64}},
@@ -79,8 +80,8 @@ class NativeBrowserVariantTests(unittest.TestCase):
         from harness.web_fetch.methods import browser_method_label, with_measured_method_labels
 
         @with_measured_method_labels
-        def render(out, dataset, records):
-            return browser_method_label("moli-candidate")
+        def render(out, dataset, records, *, scope):
+            return browser_method_label("moli-candidate", scope=scope)
 
         records = [
             {"provider": "moli-candidate", "provider_metadata": {"binary_sha256": "a" * 64}},
@@ -105,7 +106,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
         cases["media-file"] = {"id": "media-file", "url": "https://example.com/file.png",
                                  "track": "image", "task_kind": "file"}
         providers = ["moli", "lightpanda", "obscura", "chromium", "kitesurf", self.candidate]
-        matrix = browser_task_interface_matrix(cases, providers)
+        matrix = browser_task_interface_matrix(cases, providers, ctx=RenderContext())
         self.assertEqual(len(matrix["rows"]), 7)
         self.assertEqual(sum(len(row["cells"]) for row in matrix["rows"]), 42)
         for row in matrix["rows"]:
@@ -138,7 +139,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
                 "extractor": "lightpanda_native_markdown", "output_contract": "markdown",
                 "wait_until": "load", "navigation_wait_until": "domcontentloaded"}},
         ]
-        matrix = browser_task_interface_matrix(cases, ["moli", "lightpanda"], records)
+        matrix = browser_task_interface_matrix(cases, ["moli", "lightpanda"], records, ctx=RenderContext())
         rows = {row["track"]: row for row in matrix["rows"]}
         self.assertIn("Moli 原生 Markdown", rows["web"]["cells"]["moli"][0]["description"])
         self.assertEqual(rows["web"]["cells"]["moli"][0]["wait"], "输出完成条件 done")
@@ -151,8 +152,8 @@ class NativeBrowserVariantTests(unittest.TestCase):
                          "导航等待 domcontentloaded；输出完成条件 load")
 
     def test_branch_interface_description_uses_native_moli_contract(self):
-        self.assertIsNotNone(method_access(self.candidate, []))
-        description = method_spec(self.candidate, self.row({"reported_version": "moli 1.1.15"}))
+        self.assertIsNotNone(method_access(self.candidate, [], scope=MethodScope()))
+        description = method_spec(self.candidate, self.row({"reported_version": "moli 1.1.15"}), ctx=RenderContext())
         self.assertIn("Moli", description["entry"])
         self.assertNotIn("pypdf", description["notes"])
         self.assertEqual(
@@ -168,7 +169,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
                 "reported_version": "moli 1.1.15", "route": "ordinary_markdown",
                 "dump": "markdown", "extractor": "moli_native_markdown",
                 "wait_until": "done",
-            }, provider=provider))
+            }, provider=provider), ctx=RenderContext())
             self.assertEqual(description["entry"],
                              "CLI · Moli · 路线以逐次调用记录为准")
             self.assertNotIn("HTML", description["entry"])
@@ -185,7 +186,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
             "reported_version": "moli 1.1.17",
             "internal_timeout_policy": "native_default",
             "http_connect_timeout_ms": None,
-        }))
+        }), ctx=RenderContext())
         self.assertIn("未传入 Moli 内部超时参数", description["notes"])
         self.assertIn("保留该二进制默认值", str(description["params"]))
         for timeout_ms in (45_000, 40_500):
@@ -194,7 +195,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
                     "reported_version": "moli 1.1.15",
                     "internal_timeout_policy": "explicit",
                     "http_connect_timeout_ms": timeout_ms,
-                }))
+                }), ctx=RenderContext())
                 self.assertIn("显式 Moli 超时", description["notes"])
                 self.assertIn(f"{timeout_ms:,} 毫秒", str(description["params"]))
                 self.assertNotIn("产品默认值。", str(description["params"]))
@@ -209,13 +210,13 @@ class NativeBrowserVariantTests(unittest.TestCase):
                "provider_metadata": {"wait_until": "domcontentloaded",
                                      "navigation_wait_until": "load",
                                      "converter_sha256": digest}}
-        description = method_spec("chromium", row)
+        description = method_spec("chromium", row, ctx=RenderContext())
         self.assertEqual(description["request"]["wait_until"], "load")
         self.assertEqual(description["request"]["converter_sha256"], digest)
         self.assertIn(digest, str(description["params"]))
         self.assertIn("代码块围栏", description["notes"])
         del row["provider_metadata"]["converter_sha256"]
-        self.assertNotIn("converter_sha256", method_spec("chromium", row)["request"])
+        self.assertNotIn("converter_sha256", method_spec("chromium", row, ctx=RenderContext())["request"])
 
     def test_branch_only_report_requires_native_interface_contract(self):
         from harness.web_fetch.storage import require_current_report_profile
@@ -262,7 +263,7 @@ class NativeBrowserVariantTests(unittest.TestCase):
             path = out / "article.json"
             path.write_text(json.dumps(content), encoding="utf-8")
             body = _render_current_browser_article(out, cases, records,
-                {"path": "article.json", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+                {"path": "article.json", "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}, ctx=RenderContext(), scope=MethodScope())
             self.assertIn("5 种浏览器", body)
             self.assertIn("6 种配置", body)
             self.assertIn("Moli release build", body)
@@ -274,7 +275,7 @@ def test_same_reported_version_keeps_distinct_measured_builds_visible():
     from harness.web_fetch.methods import method_versions
     rows = [{'provider': 'other-browser', 'provider_metadata': {
         'reported_version': '2.4.0', 'binary_sha256': value * 64}} for value in ['a', 'b', 'a']]
-    assert method_versions(rows) == ['2.4.0 [aaaaaaaa, bbbbbbbb]']
-    assert method_versions(rows[:1]) == ['2.4.0']
+    assert method_versions(rows, scope=MethodScope()) == ['2.4.0 [aaaaaaaa, bbbbbbbb]']
+    assert method_versions(rows[:1], scope=MethodScope()) == ['2.4.0']
     assert method_versions([{'provider': 'other-browser', 'provider_metadata': {
-        'reported_version': '2.4.0'}}]) == ['2.4.0']
+        'reported_version': '2.4.0'}}], scope=MethodScope()) == ['2.4.0']

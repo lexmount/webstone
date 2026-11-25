@@ -5,14 +5,15 @@ import unittest
 
 from harness.web_fetch.report_interfaces import SPECS, render_interfaces
 from harness.web_fetch.methods import method_access
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class HeadlessAccessTests(unittest.TestCase):
     def test_all_measured_engines_have_account_and_official_sources(self):
         from harness.web_fetch.methods import browser_method_registry
-        for name in browser_method_registry():
-            self.assertTrue(method_access(name, [])['links'])
-        accesses = {name: method_access(name, []) for name in SPECS}
+        for name in browser_method_registry(scope=MethodScope()):
+            self.assertTrue(method_access(name, [], scope=MethodScope())['links'])
+        accesses = {name: method_access(name, [], scope=MethodScope()) for name in SPECS}
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -21,7 +22,7 @@ class HeadlessAccessTests(unittest.TestCase):
             row={'provider':'kitesurf','case_id':'static-simple','attempt_id':'kitesurf-example',
                  'artifact_path':'body.txt','provider_metadata':{'api_token':'credential-canary',
                  'headers':{'Authorization':'Bearer credential-canary'},'engine':'kitesurf'}}
-            body = render_interfaces(root, [row])
+            body = render_interfaces(root, [row], ctx=RenderContext())
             self.assertEqual(body.count('<h3>账号与获取入口</h3>'), len(SPECS))
             for name, access in accesses.items():
                 if name in SPECS:
@@ -45,7 +46,7 @@ class HeadlessAccessTests(unittest.TestCase):
                           'attempt_id': 'chromium__static-simple__r001',
                           'artifact_path': 'body.txt',
                           'provider_metadata': {'navigation_wait_until': wait}}
-                render_interfaces(root, [record])
+                render_interfaces(root, [record], ctx=RenderContext())
                 interface = json.loads((root / 'adoption/interfaces/chromium.json').read_text(encoding='utf-8'))['interface']
                 self.assertEqual(interface['request']['wait_until'], wait)
                 self.assertEqual(next(row[2] for row in interface['params'] if row[0] == 'wait_until'), wait)
@@ -55,13 +56,13 @@ class HeadlessAccessTests(unittest.TestCase):
         from harness.web_fetch.methods import method_version
         for name,version,compat in [('moli','1.1.15','145.0.0.0'),('lightpanda','1.0.0','124.0.6367.29'),('obscura','0.2.4','145.0.0.0')]:
             row={'provider':name,'provider_metadata':{'binary_sha256':'hash','browser_version':compat}}
-            self.assertEqual(method_version(row,{'hash':{'version':version}}),version)
-            self.assertIsNone(method_version(row))
+            self.assertEqual(method_version(row,{'hash':{'version':version}}, scope=MethodScope()),version)
+            self.assertIsNone(method_version(row, scope=MethodScope()))
             row['provider_metadata']['reported_version']=version
-            self.assertEqual(method_version(row),version)
-        self.assertEqual(method_version({'provider':'chromium','provider_metadata':{'browser_version':'155.0.8059.39'}}),'155.0.8059.39')
-        self.assertNotIn('145.0.0.0',str(method_version({'provider':'kitesurf','provider_metadata':{'browser_version':'145.0.0.0'}})))
-        self.assertEqual(method_version({'provider':'kitesurf','provider_metadata':{'reported_version':'service-build-9'}}),'service-build-9')
+            self.assertEqual(method_version(row, scope=MethodScope()),version)
+        self.assertEqual(method_version({'provider':'chromium','provider_metadata':{'browser_version':'155.0.8059.39'}}, scope=MethodScope()),'155.0.8059.39')
+        self.assertNotIn('145.0.0.0',str(method_version({'provider':'kitesurf','provider_metadata':{'browser_version':'145.0.0.0'}}, scope=MethodScope())))
+        self.assertEqual(method_version({'provider':'kitesurf','provider_metadata':{'reported_version':'service-build-9'}}, scope=MethodScope()),'service-build-9')
 
 
 if __name__ == '__main__':
@@ -75,7 +76,7 @@ def test_interface_authored_fields_use_direct_english(tmp_path, monkeypatch):
     from harness.web_fetch.methods import report_method_catalog
     from harness.web_fetch.report_i18n import localize_html
     (tmp_path/'adoption').mkdir()
-    body = render_interfaces(tmp_path, [])
+    body = render_interfaces(tmp_path, [], ctx=RenderContext())
     english = unescape(localize_html(body, PurePosixPath('adoption/index.html')))
     expected = report_method_catalog('en')['methods']['chromium']['interface']
     assert expected['notes'] in english

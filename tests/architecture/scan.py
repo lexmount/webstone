@@ -97,6 +97,19 @@ def benchmark_module_imports() -> dict[str, list[str]]:
     return occurrences
 
 
+def context_variable_modules() -> list[str]:
+    """Track modules that pass state through context variables instead of arguments (spec rule 4)."""
+    found = []
+    for module, path in modules().items():
+        tree = ast.parse(path.read_bytes(), filename=str(path))
+        if track_of(module) and any(
+                (isinstance(node, ast.ImportFrom) and node.module == "contextvars")
+                or (isinstance(node, ast.Import) and any(alias.name == "contextvars" for alias in node.names))
+                for node in ast.walk(tree)):
+            found.append(module)
+    return sorted(found)
+
+
 def registered_names() -> frozenset[str]:
     """Method, provider and browser names from the registries that own them."""
     from harness.environments.browser import BROWSERS

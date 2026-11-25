@@ -2,6 +2,7 @@
 import json
 
 from harness.web_fetch.report_explainer import render_explainer
+from harness.web_fetch.report_model import RenderContext
 
 
 def test_saved_findings_keep_content_and_derive_counts(tmp_path):
@@ -11,12 +12,11 @@ def test_saved_findings_keep_content_and_derive_counts(tmp_path):
     (tmp_path / 'dataset.json').write_text(json.dumps({'saved_matrix_scope': {
         'providers': [{'provider': 'sample-method', 'passed': 99}],
         'limitations': ['Saved body omitted the list. <script>bad</script>']}}), encoding='utf-8')
-    from harness.web_fetch.report import rendering
-    from harness.web_fetch.report_model import report_model
+    from harness.web_fetch.report_model import MethodScope, model_render_context, report_model
     model = report_model({'cases': list(cases.values())}, records,
                          participants=[{'id': 'sample-method', 'label': 'Saved participant'}])
-    with rendering(model):
-        page = render_explainer(tmp_path, cases, records, authored=False)
+    page = render_explainer(tmp_path, cases, records, authored=False,
+                            ctx=model_render_context(model, methods=MethodScope()))
     assert 'Saved participant' in page
     assert '&lt;span' not in page
     from bs4 import BeautifulSoup
@@ -31,7 +31,7 @@ def test_saved_findings_keep_content_and_derive_counts(tmp_path):
 
 
 def test_unbound_report_does_not_invent_saved_findings(tmp_path):
-    page = render_explainer(tmp_path, {}, [], authored=False)
+    page = render_explainer(tmp_path, {}, [], authored=False, ctx=RenderContext())
     assert '../review/index.html' not in page
     assert '0/0' in page
 
@@ -48,7 +48,7 @@ def test_saved_failure_chapters_cover_every_method_and_failure_with_exact_eviden
         for provider in ['first', 'second'] for name in cases]
     before = deepcopy(records)
     (tmp_path/'dataset.json').write_text(json.dumps({'saved_matrix_scope': {'limitations': []}}), encoding='utf-8')
-    soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False), 'html.parser')
+    soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False, ctx=RenderContext()), 'html.parser')
     chapters = soup.select('[data-method-failures]')
     assert [node['data-method-failures'] for node in chapters] == ['first', 'second']
     for provider, chapter in zip(['first', 'second'], chapters, strict=True):
@@ -70,7 +70,7 @@ def test_saved_guide_keeps_unmeasured_results_out_of_failures_and_rates(tmp_path
     records += [{'provider': 'unmeasured', 'case_id': 'unknown', 'ok': True,
                  'metrics': {'acceptance_checks': {'body': None}}}]
     (tmp_path/'dataset.json').write_text(json.dumps({'saved_matrix_scope': {'limitations': []}}), encoding='utf-8')
-    soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False), 'html.parser')
+    soup = BeautifulSoup(render_explainer(tmp_path, cases, records, authored=False, ctx=RenderContext()), 'html.parser')
     chapters = soup.select('[data-method-failures]')
     assert '未通过 1 题' in chapters[0].get_text()
     assert '2 条可判定结果通过 1 条' in soup.get_text()

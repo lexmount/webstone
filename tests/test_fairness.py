@@ -18,6 +18,7 @@ from harness.web_fetch.report import case_attrs, ranking, result_label
 from lexbench_webfetch.response_input import apply_request_status
 from lexbench_webfetch.scoring import score_attempt
 from lexbench_webfetch.stable_tasks import evaluate_stable_task
+from harness.web_fetch.report_model import RenderContext
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -382,9 +383,9 @@ class FairnessTests(unittest.TestCase):
         m = score_attempt(c,b'link only',ok=True)
         r = {'provider':'p','ok':True,'metrics':m,'elapsed_ms':20,'case_id':'x'}
         self.assertFalse(task_measured(m))
-        self.assertEqual(result_label(r,c),'无法判定')
-        self.assertIn('data-result="unmeasured"',case_attrs(r,c))
-        self.assertIn('0/1', ranking([r],{'x':c},'media_file'))
+        self.assertEqual(result_label(r,c, ctx=RenderContext()),'无法判定')
+        self.assertIn('data-result="unmeasured"',case_attrs(r,c, ctx=RenderContext()))
+        self.assertIn('0/1', ranking([r],{'x':c},'media_file', ctx=RenderContext()))
 
     def test_file_bytes_are_typed_hashed_and_target_bound(self):
         raw = b'\x89PNG\r\n\x1a\n' + b'payload'*10

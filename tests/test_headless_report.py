@@ -37,6 +37,7 @@ from harness.record_io import canonical_json_sha256
 from harness.web_fetch.report_resources import GROUPS, render_resource_comparison
 from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
 from harness.web_fetch.speed_cohort import build_summary as build_speed_summary
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class BrowserCohortRegistryTests(unittest.TestCase):
@@ -45,7 +46,7 @@ class BrowserCohortRegistryTests(unittest.TestCase):
         from harness.web_fetch.report_methods import display_name
         for version in ('1.1.15','1.2.0'):
             records=[{'provider_type':'moli_webfetch','provider_metadata':{'reported_version':'moli '+version}}]
-            model=method_page_model('moli',display_name('moli'),records)
+            model=method_page_model('moli',display_name('moli', ctx=RenderContext()),records, scope=MethodScope())
             self.assertIn('Moli '+version,model['title'])
             self.assertNotIn('1.1.5',model['title'])
 
@@ -53,10 +54,10 @@ class BrowserCohortRegistryTests(unittest.TestCase):
     def test_task_specific_moli_adapter_keeps_browser_report_routes(self):
         from harness.web_fetch.report import is_headless_cohort
         records = [{'provider_type': 'moli_webfetch'}, {'provider_type': 'headless_markdown'}]
-        self.assertTrue(is_headless_cohort(records))
+        self.assertTrue(is_headless_cohort(records, ctx=RenderContext()))
         for unrelated in ([], [{'provider_type': 'moli_webfetch'}],
                           records + [{'provider_type': 'firecrawl'}]):
-            self.assertFalse(is_headless_cohort(unrelated))
+            self.assertFalse(is_headless_cohort(unrelated, ctx=RenderContext()))
 
 
 class HeadlessReportTests(unittest.TestCase):
@@ -74,7 +75,7 @@ class HeadlessReportTests(unittest.TestCase):
         rows[3]['metrics']['network_rx_bytes']['mean'] = 0.5
         rows[1]['metrics']['network_tx_bytes']['mean'] = 0.5
         summary = {'rows': rows, 'common_pass_cases': ['a'], 'planned_cases': ['a']}
-        page, result = render_resource_comparison(summary, providers)
+        page, result = render_resource_comparison(summary, providers, ctx=RenderContext())
         self.assertEqual((result['winner'], result['winner_count']), ('moli', 8))
         self.assertIn('<span>CPU 领先者</span><strong>Lightpanda</strong>', page)
         self.assertIn('<span>内存领先者</span><strong>Obscura</strong>', page)
@@ -92,7 +93,7 @@ class HeadlessReportTests(unittest.TestCase):
             for provider in providers],
             'common_pass_cases': ['a'], 'planned_cases': ['a'],
         }
-        page, result = render_resource_comparison(summary, providers)
+        page, result = render_resource_comparison(summary, providers, ctx=RenderContext())
         self.assertTrue(result['winner_tied'])
         english = localize_html(page, PurePosixPath('guide/index.html'))
         self.assertIn('Resource-efficiency co-leaders in this run', english)
@@ -102,7 +103,7 @@ class HeadlessReportTests(unittest.TestCase):
         self.assertNotIn('1.1.15', english)
         self.assertIn('sample interval was not recorded', english)
         summary['environment'] = {'sample_interval_ms': 125}
-        recorded, _ = render_resource_comparison(summary, providers)
+        recorded, _ = render_resource_comparison(summary, providers, ctx=RenderContext())
         self.assertIn('125 ms', recorded)
         self.assertNotIn('50 ms', recorded)
 
@@ -127,7 +128,7 @@ class HeadlessReportTests(unittest.TestCase):
             rows.append({'provider': provider, 'metrics': metrics})
         summary = {'providers': resource_providers, 'rows': rows, 'common_pass_cases': ['a'] * 8,
                    'planned_cases': ['a'] * 20}
-        page, interpretation = _render_article_resources(summary, selected)
+        page, interpretation = _render_article_resources(summary, selected, ctx=RenderContext())
         self.assertNotIn('<th scope="col">Kitesurf</th>', page)
         self.assertIn('data-resource-population="all_declared_calls"', page)
         self.assertIn('全部 20 个普通网页，包含失败调用', page)
@@ -658,8 +659,8 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             review['results_sha256']=hashlib.sha256((root/'results.jsonl').read_bytes()).hexdigest();review_path.write_text(json.dumps(review), encoding='utf-8')
             content['failure_review']['sha256']=hashlib.sha256(review_path.read_bytes()).hexdigest()
             path.write_text(json.dumps(content,ensure_ascii=False), encoding='utf-8');binding['sha256']=hashlib.sha256(path.read_bytes()).hexdigest()
-            body=render_explainer(root,cases,rows,content_binding=binding);page=root/'guide/index.html';page.write_text(body, encoding='utf-8')
-            check_current_browser_article(root,cases,rows,binding)
+            body=render_explainer(root,cases,rows,content_binding=binding, ctx=RenderContext());page=root/'guide/index.html';page.write_text(body, encoding='utf-8')
+            check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             parsed=BeautifulSoup(body,'html.parser')
             self.assertEqual(len(parsed.select('[data-reading-speed]')),6)
             self.assertEqual([int(node['data-count']) for node in parsed.select('[data-version-relation]')],[1,1,0,0])
@@ -676,7 +677,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             ]:
                 with self.subTest(label=label):
                     changed=BeautifulSoup(body,'html.parser');node=changed.select_one(selector);node[attribute]=value;page.write_text(str(changed), encoding='utf-8')
-                    with self.assertRaises(ValueError):check_current_browser_article(root,cases,rows,binding)
+                    with self.assertRaises(ValueError):check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             page.write_text(body, encoding='utf-8')
 
     def test_empty_response_has_zero_delivered_characters(self):
@@ -705,7 +706,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
         rows=[dict(provider='moli',case_id=cid,provider_metadata=(
             dict(extractor='moli_native_markdown',dump='markdown',route=cid)
             if cid!='unknown' else {})) for cid in cases]
-        matrix=browser_task_interface_matrix(cases,['moli'],rows,compact=True)
+        matrix=browser_task_interface_matrix(cases,['moli'],rows,compact=True, ctx=RenderContext())
         parts=matrix['rows'][0]['cells']['moli']
         self.assertEqual([(p['count'],p['description']) for p in parts],[(2,'原生 Markdown'),(1,'接口未记录')])
 
@@ -726,9 +727,9 @@ class CurrentBrowserArticleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);cases,rows,binding=self.example(root)
             self.bind_failure_review(root,cases,rows,binding)
-            body=render_explainer(root,cases,rows,content_binding=binding)
+            body=render_explainer(root,cases,rows,content_binding=binding, ctx=RenderContext())
             (root/'guide/index.html').write_text(body, encoding='utf-8')
-            model=check_current_browser_article(root,cases,rows,binding)
+            model=check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             self.assertEqual(model['stats']['moli']['failure_counts'],{'http_status':1})
             self.assertEqual(model['stats']['moli']['reviewed_failure_counts'],{'source_access_denied':1})
             self.assertNotIn('data-reviewed-reason=',body)
@@ -757,7 +758,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
                             body.replace('P50 是中位数','P50 值',1)]:
                 page.write_text(changed, encoding='utf-8')
                 with self.assertRaises(ValueError):
-                    check_current_browser_article(root,cases,rows,binding)
+                    check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
 
     def test_interpretation_examples_use_saved_checks_and_do_not_decode_binary_files(self):
         from harness.web_fetch.report_explainer import browser_example_evidence
@@ -817,19 +818,19 @@ class CurrentBrowserArticleTests(unittest.TestCase):
                 content_path.write_text(json.dumps(content,ensure_ascii=False), encoding='utf-8')
                 binding['sha256']=hashlib.sha256(content_path.read_bytes()).hexdigest()
                 with self.subTest(mutation=mutations.index(mutation)), self.assertRaises(ValueError):
-                    current_browser_article_model(root,cases,rows,binding)
+                    current_browser_article_model(root,cases,rows,binding, ctx=RenderContext())
             content.pop('failure_review');content_path.write_text(json.dumps(content), encoding='utf-8')
             binding['sha256']=hashlib.sha256(content_path.read_bytes()).hexdigest()
             with self.assertRaisesRegex(ValueError,'requires a failure review'):
-                current_browser_article_model(root,cases,rows,binding)
+                current_browser_article_model(root,cases,rows,binding, ctx=RenderContext())
 
     def test_new_cohort_has_dynamic_families_populations_and_evidence(self):
         from harness.web_fetch.report_explainer import render_explainer, check_current_browser_article
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);cases,rows,binding=self.example(root)
-            body=render_explainer(root,cases,rows,content_binding=binding)
+            body=render_explainer(root,cases,rows,content_binding=binding, ctx=RenderContext())
             (root/'guide/index.html').write_text(body, encoding='utf-8')
-            model=check_current_browser_article(root,cases,rows,binding)
+            model=check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             self.assertEqual(model['cases'],2)
             self.assertEqual(model['stats']['moli']['pass_rate'],0.5)
             self.assertEqual(model['stats']['moli']['all']['mean'],20)
@@ -866,9 +867,9 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             content['evidence_sha256']=canonical_json_sha256(_headless_article_input(cases,rows,['moli','lightpanda']))
             content_path.write_text(json.dumps(content,ensure_ascii=False), encoding='utf-8')
             binding['sha256']=hashlib.sha256(content_path.read_bytes()).hexdigest()
-            body=render_explainer(root,cases,rows,content_binding=binding)
+            body=render_explainer(root,cases,rows,content_binding=binding, ctx=RenderContext())
             page=root/'guide/index.html';page.write_text(body, encoding='utf-8')
-            model=check_current_browser_article(root,cases,rows,binding)
+            model=check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             excerpt=BeautifulSoup(body,'html.parser').select_one('[data-browser-error="moli"]').get_text()
             self.assertLess(len(excerpt),4100)
             self.assertTrue(excerpt.endswith('FINAL ERROR: connection reset'))
@@ -878,7 +879,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             self.assertEqual(model['stats']['moli']['specimen']['error_message'],original)
             page.write_text(body.replace('FINAL ERROR: connection reset','different failure',1), encoding='utf-8')
             with self.assertRaisesRegex(ValueError,'error excerpt'):
-                check_current_browser_article(root,cases,rows,binding)
+                check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
 
     def test_real_provider_revision_gate_checks_bound_article_with_measured_labels(self):
         from harness.web_fetch.methods import with_measured_method_labels
@@ -898,7 +899,8 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             (root/'dataset.json').write_text(json.dumps({'cases':list(cases.values()),'comparison':{'report_interpretation':binding}}), encoding='utf-8')
             (root/'results.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding='utf-8')
             (root/'index.html').write_text('<a href="providers/moli.html">Moli 9.2.3</a>', encoding='utf-8')
-            body=with_measured_method_labels(render_explainer)(root,cases,rows,content_binding=binding)
+            body=with_measured_method_labels(lambda out,cases,records,*,scope,**kwargs:render_explainer(
+                out,cases,records,ctx=RenderContext(methods=scope),**kwargs))(root,cases,rows,content_binding=binding)
             self.assertIn('Moli 9.2.3',body)
             page=root/'guide/index.html';page.write_text(body, encoding='utf-8')
             # The real-provider public revision boundary must finish the bound
@@ -927,7 +929,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             {'provider': 'kitesurf', 'provider_metadata': {'dns_mode': 'public_doh'}},
         ]
         rows = {row['provider']: row for row in _browser_network_rows(
-            records, ['moli', 'chromium', 'lightpanda', 'kitesurf'])}
+            records, ['moli', 'chromium', 'lightpanda', 'kitesurf'], ctx=RenderContext())}
         self.assertEqual(rows['moli']['mode'], 'public_doh')
         self.assertIn('不回退系统 DNS', rows['moli']['text'])
         self.assertIn('不保证', rows['moli']['text'])
@@ -941,7 +943,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
         from harness.web_fetch.report_explainer import render_explainer, check_current_browser_article
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);cases,rows,binding=self.example(root)
-            body=render_explainer(root,cases,rows,content_binding=binding)
+            body=render_explainer(root,cases,rows,content_binding=binding, ctx=RenderContext())
             page=root/'guide/index.html';page.write_text(body, encoding='utf-8')
             changes=[body.replace(' data-winner="true"','',1),
                      body.replace('data-value="0.5"','data-value="0.9"',1),
@@ -959,11 +961,11 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             for changed in changes:
                 with self.subTest(change=changes.index(changed)):
                     page.write_text(changed, encoding='utf-8')
-                    with self.assertRaises(ValueError):check_current_browser_article(root,cases,rows,binding)
+                    with self.assertRaises(ValueError):check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
             page.write_text(body, encoding='utf-8')
             (root/'attempts/moli__risk-case.html').unlink()
             with self.assertRaisesRegex(ValueError,'target is broken'):
-                check_current_browser_article(root,cases,rows,binding)
+                check_current_browser_article(root,cases,rows,binding, ctx=RenderContext(), scope=MethodScope())
 
     def test_new_content_cannot_hide_incomplete_matrix_or_changed_measurements(self):
         from harness.web_fetch.report_explainer import render_explainer, _headless_article_input
@@ -971,12 +973,12 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             root=Path(temp);cases,rows,binding=self.example(root)
             changed=deepcopy(rows);changed[0]['elapsed_ms']=100
             with self.assertRaisesRegex(ValueError,'evidence changed'):
-                render_explainer(root,cases,changed,content_binding=binding)
+                render_explainer(root,cases,changed,content_binding=binding, ctx=RenderContext())
             p=root/binding['path'];content=json.loads(p.read_text(encoding='utf-8'))
             content['evidence_sha256']=canonical_json_sha256(_headless_article_input(cases,rows[:-1],['moli','lightpanda']))
             p.write_text(json.dumps(content), encoding='utf-8');binding['sha256']=hashlib.sha256(p.read_bytes()).hexdigest()
             with self.assertRaisesRegex(ValueError,'complete declared matrix'):
-                render_explainer(root,cases,rows[:-1],content_binding=binding)
+                render_explainer(root,cases,rows[:-1],content_binding=binding, ctx=RenderContext())
 
     def test_public_builder_materializes_bound_prose_and_preserves_scores(self):
         from harness.web_fetch.config import load_dataset
@@ -1042,7 +1044,7 @@ class CurrentBrowserArticleTests(unittest.TestCase):
             failed=next(row for row in rows if not row['ok'])
             self.assertIn('失败原因专题核验',(report/'attempts'/f"{failed['attempt_id']}.html").read_text(encoding='utf-8'))
             self.assertEqual((report/'implementation-provenance.json').read_bytes(),provenance.read_bytes())
-            check_current_browser_article(report,case_map,rows,binding)
+            check_current_browser_article(report,case_map,rows,binding, ctx=RenderContext(), scope=MethodScope())
             from bs4 import BeautifulSoup
             offline=BeautifulSoup((report/'guide/article.html').read_text(encoding='utf-8'),'html.parser')
             self.assertFalse(offline.select('script,link[rel="stylesheet"]'))
@@ -1126,12 +1128,12 @@ def test_resource_notes_localize_with_recorded_or_missing_sample_interval():
             key: {'mean': 1, 'p50': 1, 'p95': 1} for key in keys}}],
             'providers': ['fixture'], 'common_pass_cases': ['a'], 'planned_cases': ['a'],
             'environment': {'sample_interval_ms': interval}}
-        page, _ = render_resource_comparison(summary, ['fixture', 'remote-fixture'])
+        page, _ = render_resource_comparison(summary, ['fixture', 'remote-fixture'], ctx=RenderContext())
         english = localize_html(page, PurePosixPath('guide/index.html'))
         assert not untranslated_english_narrative(english)
         assert 'remote-fixture' in english
         assert 'Kitesurf' not in english
         assert 'CPU utilization and transfer rates are not ranked as lower-is-better' in english
         assert ('every 23 ms' if interval else 'sample interval was not recorded') in english
-        measured_only, _ = render_resource_comparison(summary, ['fixture'])
+        measured_only, _ = render_resource_comparison(summary, ['fixture'], ctx=RenderContext())
         assert 'remote-fixture' not in measured_only

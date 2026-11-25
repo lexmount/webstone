@@ -23,22 +23,22 @@ CAPABILITIES = {name:item['capabilities'] for name,item in report_method_catalog
                 if item.get('capabilities')}
 SOURCES = {key:(item['label'],item['url']) for key,item in report_method_catalog()['sources'].items()}
 
-def task_capabilities(out, names, records, *, sources=None, language="zh"):
+def task_capabilities(out, names, records, *, sources=None, language="zh", ctx):
     """Describe the configured native task routes, without upgrading product claims."""
     catalog = report_method_catalog() if language == "zh" else report_method_catalog(language)
     sources = {key:(item["label"],item["url"]) for key,item in catalog["sources"].items()} if sources is None else sources
     measured=[r for r in records if r.get('provider_metadata',{}).get('output_contract')]
-    if (not measured or not all(report_method(name).get('kind') == 'browser' for name in names)
+    if (not measured or not all(report_method(name, scope=ctx.methods).get('kind') == 'browser' for name in names)
             or not (out/'dataset.json').is_file()):return None
     dataset=json.loads((out/'dataset.json').read_text(encoding='utf-8'))
     cases={case['id']:case for case in dataset['cases']}
-    matrix=browser_task_interface_matrix(cases,names,language=language)
+    matrix=browser_task_interface_matrix(cases,names,language=language, ctx=ctx)
     configured={}
     budget=dataset.get('comparison',{}).get('timeout_seconds')
     budget_zh=(f'外层预算 {budget:g} 秒。' if positive_number(budget) else '外层预算未记录。')
     budget_en=(f'Outer budget: {budget:g} seconds.' if positive_number(budget) else 'Outer budget not recorded.')
     for name in names:
-        registered=report_method(name,language=language)
+        registered=report_method(name,language=language, scope=ctx.methods)
         row={**registered.get('capabilities',{})}
         if not row:continue
         row.update(registered.get('task_capabilities',{}))
@@ -46,21 +46,21 @@ def task_capabilities(out, names, records, *, sources=None, language="zh"):
                    tested=budget_zh+'接口按任务大类预选；具体请求参数见保存的调用记录。',
                    tested_en=budget_en+' Interfaces are selected by task family; exact request parameters are in the saved call records.')
         source='task-native-'+name
-        source_url=report_method(name).get('source_url','')
+        source_url=report_method(name, scope=ctx.methods).get('source_url','')
         sources[source]=(name+(' · 官方接口' if language=='zh' else ' · Official interface'),source_url)
         row['sources']=[*row.get('sources',[]),source]
         configured[name]=row
     return configured
 
-def source_version_checks(names, records):
+def source_version_checks(names, records, *, ctx):
     """A dated source check applies to its bound version, not every future binary."""
     checks = report_method_catalog()['sources']
     result = {}
     for name in names:
         subset = [row for row in records if row.get('provider') == name]
-        registered = report_method(name, subset[0] if subset else None)
+        registered = report_method(name, subset[0] if subset else None, scope=ctx.methods)
         versions = {normalized_method_version(registered, version) if version else None
-                    for row in subset for version in [method_version(row)]}
+                    for row in subset for version in [method_version(row, scope=ctx.methods)]}
         rows = []
         for key in registered.get('capabilities', {}).get('sources', []):
             source = checks[key]
@@ -97,17 +97,17 @@ def render_source_version_notice(rows):
     return '<ul class="source-version-notice">'+''.join(notices)+'</ul>' if notices else ''
 
 
-def render_capabilities(out, names, *, table, cell, link, records=()):
-    labels={name:browser_method_label(name) for name in names}
+def render_capabilities(out, names, *, table, cell, link, records=(), ctx):
+    labels={name:browser_method_label(name, scope=ctx.methods) for name in names}
     sources = dict(SOURCES)
-    configured=task_capabilities(out,names,records,sources=sources)
-    capabilities=configured or {name:report_method(name).get('capabilities') for name in names if report_method(name).get('capabilities')}
+    configured=task_capabilities(out,names,records,sources=sources, ctx=ctx)
+    capabilities=configured or {name:report_method(name, scope=ctx.methods).get('capabilities') for name in names if report_method(name, scope=ctx.methods).get('capabilities')}
     english_catalog=report_method_catalog('en')
     english_sources={key:(item['label'],item['url']) for key,item in english_catalog['sources'].items()}
-    english_configured=task_capabilities(out,names,records,sources=english_sources,language='en')
-    english_capabilities=english_configured or {name:report_method(name,language='en').get('capabilities') for name in capabilities}
+    english_configured=task_capabilities(out,names,records,sources=english_sources,language='en', ctx=ctx)
+    english_capabilities=english_configured or {name:report_method(name,language='en', scope=ctx.methods).get('capabilities') for name in capabilities}
     unknown = sorted(set(names) - set(capabilities))
-    version_checks = source_version_checks(names, records)
+    version_checks = source_version_checks(names, records, ctx=ctx)
     evidence = {'source_version_checks': version_checks, 'source_checks': report_method_catalog()['sources'], 'scope': '官方契约/固定源码能力，不是实测成绩',
                 'sources': sources, 'methods': {n: capabilities[n] for n in names if n in capabilities}, 'unreviewed': unknown}
     (out / 'adoption' / 'capabilities.json').write_text(json.dumps(evidence, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
@@ -120,7 +120,7 @@ def render_capabilities(out, names, *, table, cell, link, records=()):
         def localized(key, row=row, english=english):
             return bilingual_text(row[key],english[key])
         tested = (bilingual_text(row['tested'], row['tested_en']) if row.get('tested_en') else bilingual_text('仓库登记配置示例；实际调用以保存记录为准。', 'Repository configuration example; consult saved records for actual calls.') + localized('tested'))
-        method = cell(link('#capability-'+name, labels.get(name,name),browser_method_label(name,language='en')))
+        method = cell(link('#capability-'+name, labels.get(name,name),browser_method_label(name,language='en', scope=ctx.methods)))
         values = []
         for key in ['web', 'document', 'image', 'av', 'file']:
             item = row[key]

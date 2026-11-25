@@ -6,6 +6,7 @@ from harness.web_fetch.accounts import account_checklist, env_template
 from harness.web_fetch.methods import method_access, report_method_catalog
 from harness.web_fetch.report import render_account_requirements
 from harness.web_fetch.report_i18n import localize_html
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 def test_checklist_has_unique_ids_and_official_links():
@@ -28,7 +29,7 @@ def test_every_method_uses_one_access_schema():
     for name, method in report_method_catalog()['methods'].items():
         assert 'account_id' not in method
         assert 'account' not in method
-        access = method_access(name, [])
+        access = method_access(name, [], scope=MethodScope())
         assert access['type'] in {'hosted', 'local'}
         assert access['account'] and access['configuration'] and access['links']
         assert isinstance(access['env_vars'], list)
@@ -36,7 +37,7 @@ def test_every_method_uses_one_access_schema():
 
 def test_report_uses_only_measured_methods_and_includes_all_hosted_accounts():
     names = {'firecrawl', 'tavily', 'exa', 'cloudflare-markdown', 'moli', 'crawl4ai'}
-    page = render_account_requirements([{'provider': name} for name in names])
+    page = render_account_requirements([{'provider': name} for name in names], ctx=RenderContext())
     intro = page.split('需要供应商账号的方法：', 1)[1].split('</p>', 1)[0]
     for name in ('firecrawl', 'tavily', 'exa', 'cloudflare'):
         assert name in intro.casefold()
@@ -49,22 +50,22 @@ def test_report_uses_only_measured_methods_and_includes_all_hosted_accounts():
 
 def test_unknown_method_has_explicit_missing_access():
     for language, label in (('zh', '未登记'), ('en', 'Not registered')):
-        access = method_access('unknown-method', [], language=language)
+        access = method_access('unknown-method', [], language=language, scope=MethodScope())
         assert access['type'] == 'unknown'
         assert access['account'] == label
         assert access['env_vars'] == []
-    assert 'unknown-method' in render_account_requirements([{'provider': 'unknown-method'}])
+    assert 'unknown-method' in render_account_requirements([{'provider': 'unknown-method'}], ctx=RenderContext())
 
 
 def test_local_tools_retain_runtime_commands():
-    assert method_access('openclaw-built-in', [])['env_vars'] == [
+    assert method_access('openclaw-built-in', [], scope=MethodScope())['env_vars'] == [
         'OPENCLAW_REPO', 'OPENCLAW_NODE', 'OPENCLAW_PNPM']
-    assert method_access('deepseek-harness-built-in', [])['env_vars'] == [
+    assert method_access('deepseek-harness-built-in', [], scope=MethodScope())['env_vars'] == [
         'DEEPSEEK_HARNESS_REPO', 'OPENCLAW_NODE', 'DEEPSEEK_PNPM']
 
 
 def test_cloudflare_retains_both_product_permissions():
-    access = method_access('cloudflare-markdown', [])
+    access = method_access('cloudflare-markdown', [], scope=MethodScope())
     assert access['env_vars'] == ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']
     assert 'Browser Rendering → Edit' in access['configuration']
     assert 'Workers AI → Read' in access['configuration']
@@ -90,7 +91,7 @@ def test_json_registered_hosted_method_appears_in_both_languages(monkeypatch):
                    'account': 'Requires an account.', 'configuration': 'Create an API key.'}}
     monkeypatch.setattr('harness.web_fetch.methods.report_method_catalog', lambda language='zh': catalog)
     page = render_account_requirements([{'provider': 'acme-api',
-        'provider_metadata': {'api_key': 'secret-canary'}}])
+        'provider_metadata': {'api_key': 'secret-canary'}}], ctx=RenderContext())
     assert '需要供应商账号的方法：' in page
     assert 'Acme API' in page.split('需要供应商账号的方法：', 1)[1].split('</p>', 1)[0]
     english = localize_html(page, PurePosixPath('accounts/index.html'))
@@ -115,7 +116,7 @@ def test_access_localization_uses_field_identity_when_chinese_text_collides(monk
                        'configuration': {'zh': '配置要求', 'en': name+' configuration'}}}
     monkeypatch.setattr('harness.web_fetch.methods.report_method_catalog',
                         lambda language='zh': _catalog_value(catalog, language=language))
-    html = render_account_requirements([{'provider': name} for name in ['alpha-api', 'beta-api']])
+    html = render_account_requirements([{'provider': name} for name in ['alpha-api', 'beta-api']], ctx=RenderContext())
     english = localize_html(html, PurePosixPath('accounts/index.html'))
     assert 'Create an Alpha account' in english
     assert 'Use your existing Beta account' in english
@@ -128,7 +129,7 @@ def test_official_links_render_text_instead_of_escaped_bilingual_markup():
     from bs4 import BeautifulSoup
     from pathlib import PurePosixPath
     from harness.web_fetch.report_i18n import localize_html
-    body = render_account_requirements([{'provider': 'moli'}])
+    body = render_account_requirements([{'provider': 'moli'}], ctx=RenderContext())
     for page in (body, localize_html(body, PurePosixPath('accounts/index.html'))):
         soup = BeautifulSoup(page, 'html.parser')
         links = soup.select('a[href^="https://"]')
@@ -141,12 +142,12 @@ def test_version_aliases_use_their_execution_variables():
     import re
     from harness.web_fetch.methods import browser_method_registry
 
-    for name, config in browser_method_registry().items():
+    for name, config in browser_method_registry(scope=MethodScope()).items():
         if config.get('engine') != 'moli':
             continue
         variable = re.fullmatch(r'\$\{([^:}]+)(?::-[^}]*)?}', config['binary']).group(1)
         for language in ('zh', 'en'):
-            access = method_access(name, [], language=language)
+            access = method_access(name, [], language=language, scope=MethodScope())
             assert access['env_vars'] == [variable]
             assert variable in access['configuration']
 
@@ -169,8 +170,8 @@ def test_measured_installation_uses_verified_configuration(tmp_path):
                 'reported_version': '1.1.7'}} for name in providers]
 
     @with_measured_method_labels
-    def render(out, dataset, records, manifests):
-        return render_account_requirements(records)
+    def render(out, dataset, records, manifests, *, scope):
+        return render_account_requirements(records, ctx=RenderContext(methods=scope))
 
     page = render(tmp_path, {}, records, manifests)
     assert 'FROZEN_OLD_BINARY' in page and 'FROZEN_NEW_BINARY' in page
@@ -187,12 +188,12 @@ def test_measured_installation_uses_verified_configuration(tmp_path):
     config.unlink()
     assert 'installation variables were not recorded' in render(tmp_path, {}, records, manifests)
     # The scoped configuration must not leak into another report or a catalog query.
-    assert method_access('moli-candidate', [])['env_vars'] == ['MOLI_CANDIDATE_BINARY']
+    assert method_access('moli-candidate', [], scope=MethodScope())['env_vars'] == ['MOLI_CANDIDATE_BINARY']
 
 
 def test_measured_installation_does_not_guess_from_current_config():
     records = [{'provider': 'moli', 'provider_metadata': {'engine': 'moli'}}]
-    access = method_access('moli', records, language='en')
+    access = method_access('moli', records, language='en', scope=MethodScope())
     assert access['env_vars'] == []
     assert 'not recorded' in access['configuration']
 

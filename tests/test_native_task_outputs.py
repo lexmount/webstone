@@ -10,6 +10,7 @@ from unittest.mock import patch
 from lexbench_webfetch.models import EvalCase
 from harness.web_fetch.providers.moli import MoliWebFetchProvider
 from harness.web_fetch.providers.headless_worker import fetch
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class NativeTaskOutputTests(unittest.TestCase):
@@ -142,7 +143,7 @@ class NativeRoutePublicationTests(unittest.TestCase):
         from harness.web_fetch.methods import browser_method_registry
         case={'id':'dynamic-page','url':'https://example.com/app','track':'dynamic','task_kind':'body'}
         native={'route':'dynamic_native_markdown','output':'markdown','dump':'markdown'}
-        providers = [name for name, profile in browser_method_registry().items()
+        providers = [name for name, profile in browser_method_registry(scope=MethodScope()).items()
                      if profile.get('engine') == 'moli']
         self.assertIn('moli', providers)
         for provider in providers:
@@ -488,7 +489,7 @@ class AllFamilyInterfaceTests(unittest.TestCase):
                              'track':'image','task_kind':'file'}
         cases['risk_control']['source_benchmark']={'risk_control':{'navigation_contract':{
             'requested_url':'https://example.test/page','observed_final_url':'https://example.test/final'}}}
-        matrix=browser_task_interface_matrix(cases,providers)
+        matrix=browser_task_interface_matrix(cases,providers, ctx=RenderContext())
         self.assertEqual(len(matrix['rows']),7)
         self.assertEqual(sum(len(row['cells']) for row in matrix['rows']),35)
         rows={row['track']:row for row in matrix['rows']}
@@ -511,7 +512,7 @@ class AllFamilyInterfaceTests(unittest.TestCase):
         changed=deepcopy(cases)
         for case in changed.values():
             case.update(ground_truth_main_content='Different hidden answer',expected_resources=[{'url':'https://secret.test/answer'}])
-        self.assertEqual(browser_task_interface_matrix(changed,providers),matrix)
+        self.assertEqual(browser_task_interface_matrix(changed,providers, ctx=RenderContext()),matrix)
 
     def test_wait_labels_distinguish_page_interfaces_from_document_and_media_interfaces(self):
         from harness.web_fetch.report_interfaces import browser_task_interface_matrix
@@ -522,7 +523,7 @@ class AllFamilyInterfaceTests(unittest.TestCase):
             'resources':{'url':'https://example.test/gallery','track':'image','task_kind':'resource'},
         }
         providers=['lightpanda','kitesurf','obscura']
-        rows={row['track']:row for row in browser_task_interface_matrix(cases,providers)['rows']}
+        rows={row['track']:row for row in browser_task_interface_matrix(cases,providers, ctx=RenderContext())['rows']}
         self.assertIn('done',rows['web']['cells']['lightpanda'][0]['wait'])
         self.assertIn('networkidle2',rows['web']['cells']['kitesurf'][0]['wait'])
         for provider in providers:

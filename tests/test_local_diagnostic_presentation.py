@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from harness.web_fetch.report import render_report, local_audit_banner, overall_ranking, ranking
 from harness.web_fetch.report_model import report_model
 from tests.test_report_body_scope import case, record
+from harness.web_fetch.report_model import RenderContext
 
 
 def test_diagnostic_tables_do_not_rank_without_explicit_selection():
@@ -16,8 +17,8 @@ def test_diagnostic_tables_do_not_rank_without_explicit_selection():
     high['provider'] = 'z-high'
     low = record(c, passed=False)
     low['provider'] = 'a-low'
-    for rendered in (overall_ranking([high, low], {c['id']: c}, diagnostic=True),
-                     ranking([high, low], {c['id']: c}, 'web', diagnostic=True)):
+    for rendered in (overall_ranking([high, low], {c['id']: c}, diagnostic=True, ctx=RenderContext()),
+                     ranking([high, low], {c['id']: c}, 'web', diagnostic=True, ctx=RenderContext())):
         soup = BeautifulSoup(rendered, 'html.parser')
         table = soup.select_one('table.ranking')
         assert table.get('data-col') == '2'
@@ -30,7 +31,7 @@ def test_diagnostic_tables_do_not_rank_without_explicit_selection():
         assert len(rows[0].select('td')) == len(table.select('th'))
         assert '0)' in table.select_one('th button')['onclick']
     # Certified comparisons retain their existing score order and ordinal column.
-    certified = BeautifulSoup(overall_ranking([high, low], {c['id']: c}), 'html.parser')
+    certified = BeautifulSoup(overall_ranking([high, low], {c['id']: c}, ctx=RenderContext()), 'html.parser')
     assert certified.select_one('tbody tr td').get_text() == '1'
     assert 'z-high' in certified.select_one('tbody tr').get_text()
 
@@ -138,7 +139,7 @@ def test_explicit_sample_ranking_reuses_existing_ranked_table_and_keeps_scope(tm
     c = case('body', kind='body', track='web')
     high, low = record(c), record(c, passed=False)
     high['provider'], low['provider'] = 'z-high', 'a-low'
-    markup = overall_ranking([low, high], {c['id']: c}, diagnostic=not local_pass_rate_ranking(dataset))
+    markup = overall_ranking([low, high], {c['id']: c}, diagnostic=not local_pass_rate_ranking(dataset), ctx=RenderContext())
     soup = BeautifulSoup(markup, 'html.parser')
     assert soup.select_one('tbody tr td').get_text() == '1'
     assert 'z-high' in soup.select_one('tbody tr').get_text()
@@ -215,7 +216,7 @@ def test_review_display_distinguishes_fresh_reviews_from_retained_history(tmp_pa
         'sha256': hashlib.sha256(receipt.read_bytes()).hexdigest()}}}
     c = case('body', kind='body', track='web')
     dataset['cases'] = [c]
-    findings = current_local_review_findings(tmp_path, dataset, [record(c)], audit)
+    findings = current_local_review_findings(tmp_path, dataset, [record(c)], audit, ctx=RenderContext())
     text = ' '.join(x['text'] for x in findings)
     assert '重新检查 10 条' in text and '90 条沿用原始复核' in text
     assert '初判与程序有 1 条分歧' in text

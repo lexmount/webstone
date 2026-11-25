@@ -9,6 +9,7 @@ from harness.web_fetch.report import table, cell, link
 from harness.web_fetch.report_i18n import localize_html, untranslated_english_narrative
 from harness.web_fetch.report_pricing import SOURCE, per_thousand, render_pricing
 from harness.web_fetch.report_pricing import browser_monthly as _browser_monthly
+from harness.web_fetch.report_model import RenderContext
 
 
 def test_exact_commitment_conversion_not_rounded_annual_label():
@@ -76,7 +77,7 @@ def test_render_has_summary_details_download_and_explicit_billing_limits():
     names = [p['id'] for p in data['providers']] + [i for p in data['other_methods'] for i in p['ids']]
     with tempfile.TemporaryDirectory() as directory:
         out = Path(directory)
-        rendered = render_pricing(out, names, table=table, cell=cell, link=link, esc=esc)
+        rendered = render_pricing(out, names, table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
         assert json.loads((out/'adoption/pricing.json').read_text(encoding='utf-8')) == data
     for name in names[:4]:
         assert f'id="pricing-{name}"' in rendered
@@ -93,14 +94,14 @@ def test_render_has_summary_details_download_and_explicit_billing_limits():
 
 def test_render_only_registered_providers():
     with tempfile.TemporaryDirectory() as directory:
-        rendered = render_pricing(Path(directory), ['exa'], table=table, cell=cell, link=link, esc=esc)
+        rendered = render_pricing(Path(directory), ['exa'], table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     assert 'id="pricing-exa"' in rendered
     assert 'id="pricing-firecrawl"' not in rendered
 
 
 def test_native_fetch_prices_cover_model_billing_and_unavailable_quotes(tmp_path):
     names = ['kimi-fetch', 'zai-reader', 'claude-web-fetch']
-    rendered = render_pricing(tmp_path, names, table=table, cell=cell, link=link, esc=esc)
+    rendered = render_pricing(tmp_path, names, table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     for name in names:
         assert f'id="pricing-{name}"' in rendered
         assert f'href="#pricing-{name}"' in rendered
@@ -137,7 +138,7 @@ def test_model_billing_explanation_does_not_depend_on_bound_catalog_translations
         'checked_at': data['checked_at'], 'providers': [english(provider)],
         'other_methods': [],
     }), encoding='utf-8')
-    rendered = render_pricing(tmp_path, ['claude-web-fetch'], table=table, cell=cell, link=link, esc=esc)
+    rendered = render_pricing(tmp_path, ['claude-web-fetch'], table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     localized = localize_html(rendered, PurePosixPath('adoption/index.html'))
     assert 'Model-backed tools also incur model token charges' in localized
     assert untranslated_english_narrative(localized) == []
@@ -158,7 +159,7 @@ def test_report_bound_pricing_overrides_legacy_catalog(tmp_path):
     path.write_text(json.dumps(bound), encoding='utf-8')
     rendered = render_pricing(
         tmp_path, ["local-browser"], table=table, cell=cell, link=link, esc=esc
-    )
+    , ctx=RenderContext())
     assert "Local browser" in rendered
     assert json.loads((tmp_path / "adoption/pricing.json").read_text(encoding='utf-8')) == bound
 
@@ -168,7 +169,7 @@ def test_report_bound_pricing_overrides_legacy_catalog(tmp_path):
     [(['chromium', 'moli-candidate'], '本轮执行模式的成本边界'), (['chromium', 'exa'], '获取 1,000 个网页')],
 )
 def test_only_browser_only_cohorts_get_the_cost_boundary_table(tmp_path, names, heading):
-    rendered = render_pricing(tmp_path, names, table=table, cell=cell, link=link, esc=esc)
+    rendered = render_pricing(tmp_path, names, table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     assert rendered.startswith(f'<h3>{heading}')
 
 
@@ -177,7 +178,7 @@ def test_firecrawl_current_route_and_billing_boundaries_are_localized_one_to_one
     with tempfile.TemporaryDirectory() as directory:
         rendered = render_pricing(
             Path(directory), ['firecrawl'], table=table, cell=cell, link=link, esc=esc
-        )
+        , ctx=RenderContext())
         catalog = published_report_catalog(Path(directory))
     english = localize_html(
         '<html lang="zh-CN"><body>' + rendered + '</body></html>',
@@ -203,7 +204,7 @@ def test_bound_pricing_supplies_new_bilingual_statement_without_catalog_edits(tm
     assets = tmp_path / 'report-assets'
     assets.mkdir()
     (assets / 'provider-pricing.json').write_text(json.dumps(data), encoding='utf-8')
-    rendered = render_pricing(tmp_path, ['exa'], table=table, cell=cell, link=link, esc=esc)
+    rendered = render_pricing(tmp_path, ['exa'], table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
     english = localize_html(rendered, PurePosixPath('adoption/index.html'))
     assert '模拟说明：新的套餐边界。' in rendered
     assert 'Synthetic note: revised plan scope.' in english

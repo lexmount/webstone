@@ -5,6 +5,7 @@ from lexbench_webfetch.scoring import score_attempt
 from lexbench_webfetch.response_input import apply_request_status
 from lexbench_webfetch.metrics import evaluate_content
 from lexbench_webfetch.stable_tasks import evaluate_stable_task
+from harness.web_fetch.report_model import RenderContext
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
@@ -212,14 +213,14 @@ class FailureDiagnosisTests(unittest.TestCase):
    row=self.record(ok=True,status_code=200,case_id=track,metrics=metrics)
    row['diagnosis']=diagnose(row,case,raw)
    self.assertEqual(row['diagnosis']['category'],'返回拦截或验证页')
-   self.assertEqual(failure_category(row,case),row['diagnosis']['category'])
-   self.assertIn('data-failure-category="返回拦截或验证页"',case_attrs(row,case))
+   self.assertEqual(failure_category(row,case, ctx=RenderContext()),row['diagnosis']['category'])
+   self.assertIn('data-failure-category="返回拦截或验证页"',case_attrs(row,case, ctx=RenderContext()))
    rows.append(row);cases[track]=case
-  self.assertEqual(failure_filters(rows,cases)[1][2],[('返回拦截或验证页','返回拦截或验证页')])
+  self.assertEqual(failure_filters(rows,cases, ctx=RenderContext())[1][2],[('返回拦截或验证页','返回拦截或验证页')])
   passed=self.record(ok=True,status_code=200,case_id='web',metrics=score_attempt(cases['web'],b'Actual article',ok=True))
   passed['diagnosis']=rows[0]['diagnosis']
-  self.assertEqual(failure_category(passed,cases['web']),'—')
-  self.assertIn('data-failure-category=""',case_attrs(passed,cases['web']))
+  self.assertEqual(failure_category(passed,cases['web'], ctx=RenderContext()),'—')
+  self.assertIn('data-failure-category=""',case_attrs(passed,cases['web'], ctx=RenderContext()))
  def test_technical_document_failure_is_not_a_challenge_page(self):
   raw='# HTTP reference\nThe status 403 Forbidden means access was refused.\n'
   metrics=score_attempt({'url':'https://example.test','required_facts':[{'id':'missing','alternatives':['Other required content']}]},raw.encode(),ok=True)
@@ -565,11 +566,11 @@ class UnifiedTextFailureTests(unittest.TestCase):
                 record['case_id'] = track
                 before = deepcopy(record)
                 rows.append(record)
-                category = failure_category(record, case)
+                category = failure_category(record, case, ctx=RenderContext())
                 record['diagnosis'] = diagnose(record, case, '')
-                self.assertEqual(failure_category(record, case), category)
+                self.assertEqual(failure_category(record, case, ctx=RenderContext()), category)
                 self.assertEqual(record['metrics'], before['metrics'])
-                attrs = case_attrs(record, case)
+                attrs = case_attrs(record, case, ctx=RenderContext())
                 if metrics['content_pass']:
                     self.assertIsNone(record['diagnosis'])
                     self.assertIn('data-result="pass"', attrs)
@@ -578,9 +579,9 @@ class UnifiedTextFailureTests(unittest.TestCase):
                     self.assertIn('data-result="fail"', attrs)
                     self.assertIn('data-failure-stage="task"', attrs)
                     self.assertIn('data-failure-category="缺少关键信息"', attrs)
-        filters = failure_filters(rows, cases)
+        filters = failure_filters(rows, cases, ctx=RenderContext())
         self.assertEqual(filters[1][2], [('缺少关键信息', '缺少关键信息')])
-        html = filter_controls([('result', '结果', [('pass', '任务通过'), ('fail', '任务失败')])] + filters)
+        html = filter_controls([('result', '结果', [('pass', '任务通过'), ('fail', '任务失败')])] + filters, ctx=RenderContext())
         self.assertIn('value="fail" selected', html)
         for key in ('failureStage', 'failureCategory'):
             self.assertRegex(html, 'data-filter="' + key + '"[^>]*><option value="">全部</option>')

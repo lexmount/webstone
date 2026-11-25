@@ -11,12 +11,13 @@ from pathlib import Path
 
 from harness.web_fetch.cli import default_run_dir
 from harness.web_fetch.report import run_log_section
+from harness.web_fetch.report_model import RenderContext
 
 
 def test_call_evidence_labels_a_non_moli_tool_version(tmp_path):
     record = {"attempt_id": "other__page", "run_id": "example-run", "ok": True,
               "elapsed_ms": 10, "provider_metadata": {"browser_version": "OtherBrowser 2.0"}}
-    page = run_log_section(tmp_path, record, "example content")
+    page = run_log_section(tmp_path, record, "example content", ctx=RenderContext())
     assert "工具版本" in page
     assert "OtherBrowser 2.0" in page
     assert "Moli 版本" not in page

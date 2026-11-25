@@ -5,6 +5,7 @@ import json
 import pytest
 
 from harness.web_fetch import report
+from harness.web_fetch.report_model import RenderContext
 
 
 @pytest.mark.parametrize('blind', [False, True])
@@ -31,7 +32,7 @@ def test_current_review_text_reports_actual_blindness(tmp_path, blind):
     (tmp_path/'result-review.json').write_text(json.dumps(audit), encoding='utf-8')
     (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
     summary = report.review_summary(tmp_path)
-    findings = report.current_local_review_findings(tmp_path, dataset, [record], audit)
+    findings = report.current_local_review_findings(tmp_path, dataset, [record], audit, ctx=RenderContext())
     text = '\n'.join(row['text']+' '+row['text_en'] for row in findings)
     if blind:
         assert '先隐藏程序结论' in text
@@ -42,7 +43,7 @@ def test_current_review_text_reports_actual_blindness(tmp_path, blind):
         assert '先隐藏程序结论' not in text
         assert 'Fresh review withheld machine verdicts' not in text
         assert '不是独立盲审' in summary
-    report.write_review_page(tmp_path, [record])
+    report.write_review_page(tmp_path, [record], ctx=RenderContext())
     page = (tmp_path/'review/index.html').read_text(encoding='utf-8')
     if not blind:
         assert '本次重新检查的记录采用已知程序结论的证据复核' in page
