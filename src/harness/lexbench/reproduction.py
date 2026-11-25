@@ -8,6 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from harness.lexbench import layout_engine
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
 
@@ -103,11 +104,12 @@ def command(
         raise ValueError("Use the exact captured image identity")
     repo, out, modules, agent = (path.resolve() for path in (repo, out, modules, agent))
     name = mode + "_" + phase
+    engine = layout_engine()
     args = [
         "run",
         "--engines",
-        "moli",
-        "--moli-layout",
+        engine,
+        f"--{engine}-layout",
         mode,
         "--k",
         str(c["k_runs"]),
