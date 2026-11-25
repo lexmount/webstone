@@ -159,7 +159,7 @@
    }
   },
   "routes": [
-   "app.js 36e95571888096bcb3b5",
+   "app.js 4268ce6102e1f89606e8",
    "en/index.html 004bca1e880d0c57749c",
    "index.html 4df7b9d217d9cb156d68",
    "public-evidence/provenance/input-profile.json 85a23f5230a4318d2a73",
@@ -170,7 +170,7 @@
    "public-evidence/synthetic-success-<sha256>.json 88ca4f93fad69d16c156",
    "public-evidence/synthetic-success-<sha256>.json a5aa6fa77eaf01cb3389",
    "report-manifest.json b64f62d7e641e7a92185",
-   "style.css 26cc2ff3050bf5dc5111",
+   "style.css ae2339cd587c81ea234b",
    "webstone-version.json 561aadb67df5738a512b",
    "zh/accounts.html 9cdc02aecca6a9c1dcfc",
    "zh/candidates.html 9b7d1320bc30d96135d0",

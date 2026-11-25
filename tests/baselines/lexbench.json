@@ -2000,7 +2000,7 @@
   },
   "routes": [
    "README.md cf63735162a3d3002e05",
-   "app.js 250919c3f3d0240b2247",
+   "app.js 6799d07ccafe206ee5d5",
    "assets/comparison-all-success-resources-zh.svg df8e3947fc1ea6e828fd",
    "assets/comparison-version-success-resources-zh.svg 96867cf90c16f5f8794f",
    "data/cases/task-001.json 4fbb6c689576f0d24f6a",
@@ -2230,7 +2230,7 @@
    "data/version-comparison.json 41220030dc1e43488ab3",
    "en.html c6ff11e22fa05b37ebdb",
    "en/index.html 690db8438fa023e0159c",
-   "index.html 64d801d142b3903fbece",
+   "index.html 50eba1d8c6ce420a7be3",
    "mermaid-LICENSE.txt a137884c043688569bee",
    "mermaid.min.js 9e3a4a3b08758d51e3f3",
    "report-languages.json 9b74fd8293a5e57d7f8b",
