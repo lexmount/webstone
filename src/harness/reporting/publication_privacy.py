@@ -1181,20 +1181,23 @@ def _project_json(name, data):
         'original_bytes': len(data), 'published_bytes': len(projected)}
 
 
-def project_result_diagnostics(name, data):
+def project_result_diagnostics(name, data, *, case=None, answer=None):
     """Redact quoted output diagnostics without changing result authority.
 
-    Only passage quotations and resource-URL diagnostics may differ. Original
-    records stay at source; callers must bind this separate presentation receipt
-    and verify its projection against those originals at the report boundary.
+    Passage quotations and resource-URL diagnostics may differ. Native answer
+    fields additionally require their bound scorer and unchanged task acceptance.
+    Original records stay at source; callers bind this separate presentation
+    receipt and verify its projection at the report boundary.
     """
     public, receipt = project_file(name, data)
     if receipt is None:
         return data, None
     before, after = json.loads(data), json.loads(public)
     changed = []
+    acceptance_context_changed = False
 
     def compare(left, right, path=()):
+        nonlocal acceptance_context_changed
         if left == right:
             return
         if isinstance(left, dict) and isinstance(right, dict) and left.keys() == right.keys():
@@ -1210,10 +1213,31 @@ def project_result_diagnostics(name, data):
                     ('metrics', 'resource_candidates', '*', 'url'),
                     ('metrics', 'unexpected_resource_urls', '*')}:
             changed.append('/'.join(map(str, path)))
+        elif (case is not None and answer is not None
+              and isinstance(left, str) and isinstance(right, str)
+              and tuple('*' if isinstance(part, int) else part for part in path) in {
+                  ('provider_metadata', 'links', '*'),
+                  ('provider_metadata', 'links', '*', 'href'),
+                  ('provider_metadata', 'images', '*', 'src'),
+                  ('provider_metadata', 'page_information', 'paragraphs', '*'),
+                  ('final_url',)}):
+            acceptance_context_changed = True
+            changed.append('/'.join(map(str, path)))
         else:
             raise ValueError('Public result diagnostics would change non-diagnostic authority')
 
     compare(before, after)
+    if acceptance_context_changed:
+        from lexbench_webfetch.metrics import task_passed
+        from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
+        if before['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256:
+            raise ValueError('Changed native view requires its bound scoring version')
+        metrics = score_attempt(case, answer, ok=before['ok'], status_code=before.get('status_code'),
+            metadata=after.get('provider_metadata'), previous_metrics=before['metrics'],
+            title=after.get('title'), final_url=after.get('final_url'))
+        if task_passed(before['ok'], metrics, case.get('task_kind', 'body')) != task_passed(
+                before['ok'], before['metrics'], case.get('task_kind', 'body')):
+            raise ValueError('Public native projection changes task acceptance')
     return public, {**receipt, 'kind': 'post_score_result_diagnostics_view',
         'changed_fields': changed, 'measurements_unchanged': True,
         'original_retained_privately': True, 'provider_calls_added': 0}

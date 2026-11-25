@@ -372,8 +372,11 @@ def test_changed_final_public_answer_requires_current_scoring_version(tmp_path):
         _record_public_views(source, record, case)
 
 
-@pytest.mark.parametrize('mode', ['unchanged', 'changed', 'language_invariant', 'language_ambiguous', 'tampered'])
-def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_path, mode):
+@pytest.mark.parametrize('mode', ['unchanged', 'changed', 'language_invariant', 'language_ambiguous',
+                                  'tampered', 'missing_events', 'status_mismatch',
+                                  'redacted_redirect', 'wrong_redirect'])
+@pytest.mark.parametrize('transport', ['worker', 'direct'])
+def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_path, mode, transport):
     from harness.web_fetch.native_projection import native_projection_policy, native_projection_source
     from harness.web_fetch.report_saved_matrix import _record_public_views
     from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
@@ -389,38 +392,63 @@ def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_pa
     answer = ('meta-csrf-token: '+secret+'\nanswer').encode()
     early = source/'artifacts/early.txt'
     early.write_bytes(answer)
-    record.update(provider_type='kimi_fetch')
+    provider_type = 'lexmount' if transport == 'direct' else 'kimi_fetch'
+    record.update(provider_type=provider_type)
     record['metrics']['scoring_source_sha256'] = SCORING_SOURCE_SHA256
-    policy = native_projection_policy('kimi_fetch')
+    policy = native_projection_policy(provider_type)
     policy_path = source/policy['source_path']
     policy_path.parent.mkdir()
-    policy_path.write_bytes(native_projection_source('kimi_fetch'))
+    policy_path.write_bytes(native_projection_source(provider_type))
+    payload = ({'result':{'main_text':answer.decode(),'title':'Example','url':case['url']}}
+               if transport == 'direct' else {'markdown':answer.decode(),'title':'Example','url':case['url']})
+    if mode == 'redacted_redirect':
+        (payload['result'] if transport == 'direct' else payload)['url'] += '?token=synthetic-secret'
     raw = write(source/'private_artifacts/early.response.bin',
-                {'markdown':answer.decode(),'title':'Example','url':case['url']})
+                payload)
     events = write(source/'private_artifacts/early.stderr.log',
-                   {'event':'http_response_received','status':200})
+                   {'event':'other' if mode == 'missing_events' else 'http_response_received',
+                    'status':200.0 if mode == 'status_mismatch' else 200})
     digest = hashlib.sha256(answer).hexdigest()
-    log = write(source/'call-logs/early.json', {'output':{'sha256':digest},
+    call_log = {'output':{'sha256':digest},
         'timing':{'elapsed_ms':1,'deadline_budget_ms':30000,'deadline_overrun':False},
-        'response':{'final_url':case['url']}})
+        'response':{'final_url':case['url']}}
+    if mode == 'redacted_redirect':
+        from harness.web_fetch.runner import _public_url
+        call_log['response']['final_url'] = _public_url(case['url']+'?token=synthetic-secret')
+    elif mode == 'wrong_redirect':
+        call_log['response']['final_url'] = 'https://unrelated.test/'
+    if transport == 'direct':
+        call_log.update(capture={'diagnostic_log':'not_retained'}, request={'route':'v1_extract_native'},
+                        events=[{'stage':'response_received','status_code':200}])
+        call_log['response']['status_code'] = 200
+        if mode == 'missing_events':
+            call_log['events'] = []
+        elif mode == 'status_mismatch':
+            call_log['events'][0]['status_code'] = 201
+    log = write(source/'call-logs/early.json', call_log)
     for binding in (raw,events,log):
         binding['bytes'] = Path(binding['path']).stat().st_size
         binding['path'] = Path(binding['path']).relative_to(source).as_posix()
     call = {'artifact_path':'artifacts/early.txt','content_sha256':digest,
         'artifact_paths':['artifacts/early.txt'],'artifact_sha256':{'artifacts/early.txt':digest},
-        'elapsed_ms':1,'task_pass':False,'ok':True,'status_code':None,'private_artifacts':[raw,events],
+        'elapsed_ms':1,'task_pass':False,'ok':True,'status_code':200 if transport == 'direct' else None,
+        'private_artifacts':[raw] if transport == 'direct' else [raw,events],
         'call_log':log,'native_route_receipt':{'answer_selection_policy':policy,
-            'answer_fields':['markdown','title','url'],
-            'requests':[{'signature':{'interface':'fetch'}}]}}
+            'answer_fields':(['result.main_text','result.final_url','result.url','result.title',
+                              'result.links','result.images','result.extra','result.author','result.publish_time']
+                             if transport == 'direct' else ['markdown','title','url']),
+            'requests':[{'signature':({'interface':'/v1/extract','transport':'http','parameters':{'method':'POST'}}
+                                     if transport == 'direct' else {'interface':'fetch'})}]}}
     record['provider_metadata']['retry'] = {'attempts':[call]}
     if mode == 'tampered':
         (source/raw['path']).write_bytes(b'altered response')
-    if mode in {'unchanged', 'language_invariant'}:
+    if mode in {'unchanged', 'language_invariant', 'redacted_redirect'}:
         views = _record_public_views(source,record,case)
         assert secret.encode() not in next(public for binding,public,_ in views if binding['path']==call['artifact_path'])
     else:
         reason = {'changed':'changes task acceptance','language_ambiguous':'unretained language',
-                  'tampered':'original scoring inputs'}[mode]
+                  'tampered':'original scoring inputs','missing_events':'original scoring inputs',
+                  'status_mismatch':'original scoring inputs','wrong_redirect':'original scoring inputs'}[mode]
         with pytest.raises(ValueError,match=reason):
             _record_public_views(source,record,case)
     assert early.read_bytes() == answer

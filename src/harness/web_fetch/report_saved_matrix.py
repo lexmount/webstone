@@ -1657,7 +1657,7 @@ def _native_retry_scoring_record(source, record, call, case, approved_policies=N
     private = call.get('private_artifacts', [])
     responses = [item for item in private if item['path'].endswith('.response.bin')]
     logs = [item for item in private if item['path'].endswith('.stderr.log')]
-    if len(responses) != 1 or len(logs) != 1 or not call.get('call_log'):
+    if len(responses) != 1 or len(logs) > 1 or not call.get('call_log'):
         reject()
     def read(binding):
         raw = contained_path(source, binding['path'], reject_symlinks=True).read_bytes()
@@ -1665,15 +1665,31 @@ def _native_retry_scoring_record(source, record, call, case, approved_policies=N
             reject()
         return raw
     native = read(responses[0])
+    log = json.loads(read(call['call_log']))
     events = []
-    for line in read(logs[0]).splitlines():
+    for line in read(logs[0]).splitlines() if logs else []:
         try:
             event = json.loads(line)
         except (ValueError, UnicodeError):
             continue
         if isinstance(event, dict) and str(event.get('event', '')).endswith('http_response_received'):
             events.append(event)
-    log = json.loads(read(call['call_log']))
+    if not logs:
+        signature = receipt['requests'][0]['signature']
+        # The direct Lexmount adapter records the API HTTP status as its result
+        # status. It has a hash-bound call log instead of worker stderr.
+        if (record['provider_type'] != 'lexmount'
+                or signature.get('transport') != 'http'
+                or signature.get('interface') != '/v1/extract'
+                or signature.get('parameters', {}).get('method') != 'POST'
+                or log.get('request', {}).get('route') != 'v1_extract_native'
+                or log.get('capture', {}).get('diagnostic_log') != 'not_retained'):
+            reject()
+        events = [{'status': event.get('status_code')} for event in log.get('events', [])
+                  if event.get('stage') == 'response_received']
+        if (len(events) != 1 or events[0]['status'] != call.get('status_code')
+                or events[0]['status'] != log.get('response', {}).get('status_code')):
+            reject()
     if (len(events) != 1 or type(events[0].get('status')) is not int
             or log.get('output', {}).get('sha256') != call['content_sha256']
             or log.get('timing', {}).get('elapsed_ms') != call['elapsed_ms']
@@ -1691,7 +1707,8 @@ def _native_retry_scoring_record(source, record, call, case, approved_policies=N
     if content.encode('utf-8') != answer:
         reject()
     fields = project_native_result_fields(payload, declaration, request_url=case['url'])
-    if fields['final_url'] != log.get('response', {}).get('final_url'):
+    from harness.web_fetch.runner import _public_url
+    if log.get('response', {}).get('final_url') not in (fields['final_url'], _public_url(fields['final_url'])):
         reject()
     metadata.update(native_answer_projection=declaration, native_route_receipt=receipt,
                     raw_response_sha256=responses[0]['sha256'])
@@ -1783,11 +1800,14 @@ def _record_public_views(source, record, case, approved_policies=None):
     return views
 
 
-def _display_record_bytes(settings, name, raw):
+def _display_record_bytes(settings, name, raw, *, case=None, root=None):
     if not settings.get('public_evidence_views'):
         return raw
     from harness.reporting.publication_privacy import project_result_diagnostics
-    return project_result_diagnostics(name, raw)[0]
+    record = json.loads(raw)
+    answer = (contained_path(root, record['artifact_path'], reject_symlinks=True).read_bytes()
+              if root is not None and record.get('artifact_path') else None)
+    return project_result_diagnostics(name, raw, case=case, answer=answer)[0]
 
 
 def _require_public_fixed_selection(inputs, candidates, adoptions):
@@ -1846,7 +1866,8 @@ def _materialize_record_public_views(source, destination, record, case, original
     _write(destination / 'presentation-binding.json',
            {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
     from harness.reporting.publication_privacy import project_result_diagnostics
-    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    public_record, receipt = project_result_diagnostics(record_name, original_record,
+        case=case, answer=(destination/record['artifact_path']).read_bytes())
     if receipt:
         target = destination/record_name
         if target.read_bytes() != original_record:
@@ -1885,7 +1906,8 @@ def _validate_record_public_views(source, destination, record, case, original_re
     if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
         raise ValueError('Public evidence view inventory differs from original sources')
     from harness.reporting.publication_privacy import project_result_diagnostics
-    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    public_record, receipt = project_result_diagnostics(record_name, original_record,
+        case=case, answer=(destination/record['artifact_path']).read_bytes())
     path = destination/'result-diagnostics-view.json'
     if ((destination/record_name).read_bytes() != public_record
             or bool(receipt) != path.is_file()
@@ -2420,7 +2442,8 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
         if (row.get('receipt_path') != prefix+'/receipt.json'
                 or _json(output/row['receipt_path']) != json.loads(json.dumps(expected_receipt))
                 or (output/row['record_path']).read_bytes() != _display_record_bytes(
-                    inputs['spec'], Path(row['record_path']).name, raw)):
+                    inputs['spec'], Path(row['record_path']).name, raw,
+                    case=inputs['cases'][key[0]][key[2]], root=(output/row['record_path']).parent)):
             raise ValueError('Saved result receipt differs from validated source')
 
     if key in inputs['historical']:
@@ -2784,7 +2807,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                 expected_record = adoptions[identity]['selected'][1]
             if expected_record is not None:
                 if not row.get('record_path') or record != json.loads(_display_record_bytes(
-                        model, Path(row['record_path']).name, json_bytes(expected_record))):
+                        model, Path(row['record_path']).name, json_bytes(expected_record),
+                        case=case, root=(output/row['record_path']).parent)):
                     raise ValueError('Saved record differs from validated source selection')
             elif (row.get('record_path') or row['status'] != inputs['missing'][identity][0]['status']
                     or receipt != _json(inputs['missing'][identity][1])
@@ -2828,7 +2852,9 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                                               approved_policies)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
-            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):
+            suite, _, case_id = Path(relative).parts[1:4]
+            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record,
+                    case=inputs['cases'][suite][case_id], root=path.parent):
                 raise ValueError('Published provenance record differs from validated source: '+relative)
             _validate_record_artifacts(path)
     projected_dataset, projected_records, projected_identities, projected_scope = _saved_renderer_projection(

@@ -837,18 +837,21 @@ def _configuration_comparisons(content, output, comparisons, *, language):
         if table is None or len(table.select('tbody > tr')) != len(model['providers']):
             raise ValueError('Configuration comparison omitted saved participants')
         section = page.new_tag('section', attrs={
-            'id': 'configuration-' + identifier, 'data-configuration-comparison': identifier})
+            'id': 'configuration-' + identifier, 'class': 'section',
+            'data-configuration-comparison': identifier})
+        body = page.new_tag('div', attrs={'class': 'wrap'})
+        section.append(body)
         heading = page.new_tag('h2')
         heading.string = entry['title'][language]
-        section.append(heading)
+        body.append(heading)
         paragraph = page.new_tag('p')
         paragraph.string = entry['description'][language]
-        section.append(paragraph)
+        body.append(paragraph)
         prefix = ('../' if language == 'en' else '') + entry['path'] + '/' + edition
         link = page.new_tag('a', href=prefix + 'index.html')
         link.string = ('Open task results, settings and evidence →' if language == 'en'
                        else '查看逐题结果、配置与证据 →')
-        section.append(link)
+        body.append(link)
         table = deepcopy(table)
         original_id = table['id']
         table['id'] = 'configuration-' + identifier + '-overall'
@@ -862,7 +865,7 @@ def _configuration_comparisons(content, output, comparisons, *, language):
                 table_link['href'] = prefix + href
         wrapper = page.new_tag('div', attrs={'class': 'table-wrap'})
         wrapper.append(table)
-        section.append(wrapper)
+        body.append(wrapper)
         if anchor is not None:
             anchor.insert_after(section)
             anchor = section
