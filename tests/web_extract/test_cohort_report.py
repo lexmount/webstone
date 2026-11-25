@@ -334,10 +334,17 @@ def test_current_collector_hash_only_run_builds_progress_and_certified_reports(
     source = home / "runs/fresh"
     if completed:
         certification.run(home, plan, "cloudflare-json", source)
+        # A completed cohort verifies its stored copies, not today's modules.
+        live = certification.registry_sha256
+        monkeypatch.setattr(certification, "registry_sha256", lambda: "f" * 64)
+        assert certification.run(home, plan, "cloudflare-json", source)["cases"] == 3
+        with pytest.raises(ValueError, match="Frozen benchmark registry changed"):
+            certification.run(home, plan, "cloudflare-json", home / "runs/another")
+        monkeypatch.setattr(certification, "registry_sha256", live)
     else:
         with pytest.raises(KeyboardInterrupt):
             certification.run(home, plan, "cloudflare-json", source)
-    assert not (source / "execution/pipeline.py").exists()
+    assert (source / "execution/pipeline.py").read_bytes() == Path(pipeline.__file__).read_bytes()
     content = read_json(home / "content.json")
     content["cohort_plan"] = {"path": str(plan), "sha256": digest(plan.read_bytes())}
     content["evidence_runs"] = [

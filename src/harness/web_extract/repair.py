@@ -321,7 +321,7 @@ def collect(home, profile, method, destination):
         "access_policy": ACCESS_POLICY,
         "fixture_verification": "served-bytes/1",
         "code_sha256": code,
-        "code_snapshots": False,
+        "code_snapshots": True,
         **bindings,
     }
     if participant.get("execution_policy") is not None:
@@ -351,17 +351,22 @@ def collect(home, profile, method, destination):
     )
     if not target.exists():
         save_json(target, contract, exclusive=True)
-    snapshot = destination / "execution/benchmark_execution.py"
-    if snapshot.exists():
-        if snapshot.is_symlink() or digest(snapshot.read_bytes()) != code["benchmark_execution.py"]:
-            raise ValueError("Repair execution source changed before dispatch")
-    else:
-        atomic_create(snapshot, code_files["benchmark_execution.py"].read_bytes())
-        descriptor = os.open(snapshot.parent, os.O_RDONLY)
-        try:
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+    # The repair keeps copies of the code it ran; verify_repair reads these copies.
+    for name, source in code_files.items():
+        snapshot = destination / "execution" / name
+        if snapshot.exists():
+            if snapshot.is_symlink() or digest(snapshot.read_bytes()) != code[name]:
+                raise ValueError("Repair execution source changed before dispatch")
+        else:
+            raw = source.read_bytes()
+            if digest(raw) != code[name]:
+                raise ValueError("Repair execution source changed before dispatch")
+            atomic_create(snapshot, raw)
+    descriptor = os.open(destination / "execution", os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     receipt = destination / "fixture-before.json"
     if receipt.exists():
         if fixture_identity(read_json(receipt)) != fixture_identity(before):

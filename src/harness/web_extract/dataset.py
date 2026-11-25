@@ -369,8 +369,13 @@ def adapter_sha256(home):
     return bytes_sha256(Path(adapter.__file__).read_bytes()) if adapter else None
 
 
+def registry_source():
+    """The module declaring every benchmark; runs keep a copy of it with their evidence."""
+    return Path(__file__)
+
+
 def registry_sha256():
-    return bytes_sha256(Path(__file__).read_bytes())
+    return bytes_sha256(registry_source().read_bytes())
 
 
 def task_bindings(home):

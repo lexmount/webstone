@@ -41,6 +41,7 @@ from harness.web_extract.dataset import (
     fixed_field_benchmark,
     input_mode,
     registry_sha256,
+    registry_source,
 )
 from lexbench_webfetch.paths import validate_http_url
 
@@ -1586,6 +1587,7 @@ def probe(home: Path, methods: list[str], **options):
         "execution.lock",
         "calls",
         "execution/pipeline.py",
+        "execution/dataset.py",
         "execution/benchmark_execution.py",
         "calls.journal.jsonl",
         "contract.json",
@@ -2205,6 +2207,9 @@ def _probe_unlocked(
     scheduler_source = Path(__file__).parents[1] / "benchmark_execution.py"
     requested["execution_scheduler_sha256"] = digest(scheduler_source.read_bytes())
     requested["execution_scheduler_snapshot"] = "execution/benchmark_execution.py"
+    # The run keeps copies of the code it ran; later verification reads these copies.
+    requested["pipeline_snapshot"] = "execution/pipeline.py"
+    requested["dataset_registry_snapshot"] = "execution/dataset.py"
     if continuing:
         contract = read_json(run / "contract.json")
         if contract.get("snapshot_manifest") != requested.get("snapshot_manifest"):
@@ -2251,7 +2256,11 @@ def _probe_unlocked(
             return run
     else:
         contract = requested
-        for source, relative in ((scheduler_source, contract["execution_scheduler_snapshot"]),):
+        for source, relative in (
+            (scheduler_source, contract["execution_scheduler_snapshot"]),
+            (Path(__file__), contract["pipeline_snapshot"]),
+            (registry_source(), contract["dataset_registry_snapshot"]),
+        ):
             target = run / relative
             require_external_output(target)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -2319,6 +2328,7 @@ def verify_execution_snapshot(run, contract):
     for field, identity in (
         ("pipeline_snapshot", "pipeline_sha256"),
         ("execution_scheduler_snapshot", "execution_scheduler_sha256"),
+        ("dataset_registry_snapshot", "dataset_registry_sha256"),
     ):
         relative = contract.get(field)
         if not relative:
