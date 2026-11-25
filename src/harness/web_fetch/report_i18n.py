@@ -762,7 +762,9 @@ def _header(source: PurePosixPath, english: PurePosixPath, *, primary_english=Fa
     if primary_english:
         chinese += '?report-language=zh'
     links = [(html.escape(_relative(english, PurePosixPath("en") / path), quote=True), label) for path, label in NAV]
-    current = html.escape(_relative(english, english), quote=True)
+    # The open page is the entry whose route is this page, in the links' own relative form.
+    current = next((href for (path, _), (href, _) in zip(NAV, links, strict=True)
+                    if PurePosixPath("en") / path == english), None)
     return shell.header(language="en", brand="Web Fetch", home=brand, links=links, current=current,
                         switch=(chinese, "zh"))
 

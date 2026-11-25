@@ -55,8 +55,19 @@ from harness.web_fetch.report_model import RenderContext
 
 
 def _extension_controls() -> bytes:
-    """The extension's page script: the shared shell (theme, table cues) and the report controls."""
-    return (shell.SCRIPT + (Path(__file__).parent / 'assets/report.js').read_text(encoding='utf-8')).encode('utf-8')
+    """The extension's page script: the shared shell (theme, table cues) and the report controls.
+
+    An extension keeps its baseline's stylesheet and older pages, so the script also brings the
+    shell styles and the ``theme()`` handler that pages from before the shared header call.
+    """
+    styles = ("(function(){if(document.querySelector('style[data-shell-css]'))return;"
+              "const style=document.createElement('style');style.dataset.shellCss='';"
+              f"style.textContent={json.dumps(shell.CSS)};document.head.prepend(style)}})();\n")
+    legacy = ("function theme(){const root=document.documentElement,next=root.dataset.theme==='dark'?'light':'dark';"
+              "root.dataset.theme=next;try{localStorage.setItem('report-theme',next)}catch(e){}}\n")
+    report = (Path(__file__).parent / 'assets/report.js').read_text(encoding='utf-8')
+    return (styles + shell.SCRIPT + legacy + report).encode('utf-8')
+
 
 def _require(condition, detail):
     if not condition:

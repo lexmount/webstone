@@ -136,3 +136,16 @@ def test_accessible_names_resolve_labelledby_and_comments_are_not_labels():
 def test_chinese_pages_reject_english_counts_in_both_forms(text):
     with pytest.raises(ValueError, match="Untranslated English count"):
         check_labels(page(f"<p>{text}</p>", lang="zh-CN"))
+
+
+def test_web_fetch_extension_controls_serve_pre_shell_pages(tmp_path):
+    from harness.web_fetch.report_package import _extension_controls
+    from harness.web_fetch.report_i18n import localize_html
+    from pathlib import PurePosixPath
+
+    script = _extension_controls().decode("utf-8")
+    assert "function theme()" in script and "data-shell-css" in script and shell.SCRIPT in script
+    english = localize_html(page(lang="zh-CN").replace(
+        '<header class="shell-top"', '<header class="shell-top" data-x', 1), PurePosixPath("datasets/index.html"))
+    current = BeautifulSoup(english, "html.parser").select_one('.shell-top a[aria-current="page"]')
+    assert current is not None and current.get_text() == "Dataset"
