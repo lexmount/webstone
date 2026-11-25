@@ -3,6 +3,12 @@ function minifyJson(text){let out='',quoted=false,escaped=false;for(const c of t
 function losslessJson(text){if(text.length>64*1024)return text;try{const value=JSON.parse(text);if(JSON.stringify(value)!==minifyJson(text))return text;const indented=JSON.stringify(value,null,2);return indented.length>256*1024?text:indented}catch(error){return text}}
 
 function tr(zh,en){return document.documentElement?.lang==='en'?en:zh}
+function prepareMethodPage(page,path){
+ if(!/(?:^|\/)providers\/[^/]+\.html$/.test(path))return;
+ page.querySelectorAll('main > [data-saved-completion],main > [data-evidence-state="saved_diagnostic"],main > [data-evidence-state="saved_results"],main > [data-evidence-state="local_measurement"]').forEach(node=>node.remove());
+}
+window.addEventListener('report-ready',()=>prepareMethodPage(document,new URLSearchParams(location.hash.slice(1)).get('page')||location.pathname));
+window.addEventListener('DOMContentLoaded',()=>prepareMethodPage(document,location.pathname));
 function filterValues(r,key){return key==='issue'?(r.dataset[key]||'').split(' '):[r.dataset[key]]}
 function filterMatch(r,s){return !s.value||(s.dataset.filter==='query'?(r.textContent+' '+(r.dataset.search||'')).toLowerCase().includes(s.value.trim().toLowerCase()):filterValues(r,s.dataset.filter).includes(s.value))}
 function filterRows(){let count=0;document.querySelectorAll('#rows tr').forEach(r=>{let show=[...document.querySelectorAll('[data-filter]')].every(s=>filterMatch(r,s));r.hidden=!show;if(show)count++});let c=document.querySelector('#count');if(c)c.textContent=tr(`显示 ${count} 条`,`Showing ${count}`)}

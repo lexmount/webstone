@@ -489,11 +489,15 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
                 assert row.locator('td').first.inner_text() == expected
             table = page.locator('#ranking-overall')
             assert table.locator('.method-price-note').count() == 2
+            heights = [row.bounding_box()['height'] for row in table.locator('tbody tr').all()]
+            assert max(heights) - min(heights) <= 1
+            assert table.locator('tbody td').evaluate_all(
+                'cells => cells.every(cell => getComputedStyle(cell).verticalAlign === "middle")')
             for amount in table.locator('.method-price-amount').all():
                 assert amount.bounding_box()['width'] >= 100
-            if display['viewport']['width'] >= 640:
-                for note in table.locator('.method-price-note').all():
-                    assert note.bounding_box()['height'] < 20
+                assert amount.bounding_box()['height'] < 30
+            for note in table.locator('.method-price-note').all():
+                assert note.bounding_box()['height'] < 20
             coordinates = '''table => {
                 const cells = [...table.tBodies[0].rows[0].cells];
                 return cells.slice(0, 3).map(cell => cell.getBoundingClientRect().left);
@@ -815,5 +819,38 @@ def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, disp
             assert page.locator('tbody td').all_text_contents() == ['2 ms', '1 ms']
             assert page.locator('th').get_attribute('aria-sort') == 'descending'
             assert errors == []
+        finally:
+            page.close()
+
+
+def test_method_details_omit_repeated_status_banners(tmp_path, browser):
+    from harness.web_fetch.report import JS
+
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    markup = ('<html><head><script defer src="/app.js"></script></head><body><main>'
+              '<div data-saved-completion>Coverage</div>'
+              '<div data-evidence-state="saved_diagnostic">Saved diagnostic</div>'
+              '<div role="alert">Incomplete evidence alert</div>'
+              '<p data-report-content-scope="full">Full content</p>'
+              '<h1>Method</h1></main></body></html>')
+    for route in ('providers/sample.html', 'methodology/index.html'):
+        target = tmp_path/route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(markup, encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **DESKTOP_LIGHT)
+        try:
+            page.goto(origin + '/providers/sample.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
+            expect(page.locator('[data-report-content-scope]')).to_have_text('Full content')
+            page.goto(origin + '/methodology/index.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(1)
+            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(1)
+            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
         finally:
             page.close()
