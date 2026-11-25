@@ -98,11 +98,22 @@ def test_web_search_rejects_a_malformed_call_record_on_read(tmp_path):
 
 
 def test_web_extract_rejects_a_malformed_call_record_on_read(monkeypatch, tmp_path):
-    from harness.web_extract import call_records, pipeline
+    from harness.web_extract import pipeline, repair
 
-    monkeypatch.setattr(pipeline, "load_run", lambda run: ({}, [{"method": "m", "case_id": "c"}]))
+    monkeypatch.setattr(pipeline, "verify_execution_snapshot", lambda *args: None)
+    monkeypatch.setattr(pipeline, "verify_retry_history", lambda *args: None)
+    call = tmp_path / "calls/m-c.json"
+    call.parent.mkdir()
+    call.write_text(json.dumps({"method": "m", "case_id": "c"}), encoding="utf-8")
+    entry = {"path": "calls/m-c.json", "sha256": pipeline.digest(call.read_bytes())}
+    contract = tmp_path / "contract.json"
+    contract.write_text(json.dumps({"methods": ["m"], "case_ids": ["c"]}), encoding="utf-8")
+    (tmp_path / "manifest.json").write_text(json.dumps(
+        {"contract_sha256": pipeline.digest(contract.read_bytes()), "calls": [entry]}), encoding="utf-8")
     with pytest.raises(RecordSchemaError, match="webextract.call_record/1 record lacks 'state'"):
-        call_records.load_run(tmp_path)
+        pipeline.load_run(tmp_path)
+    with pytest.raises(RecordSchemaError, match="webextract.call_record/1 record lacks 'state'"):
+        repair.artifact(tmp_path, entry)
 
 
 def test_browser_use_rejects_a_malformed_attempt_on_read(tmp_path):

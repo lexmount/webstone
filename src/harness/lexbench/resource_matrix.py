@@ -17,11 +17,20 @@ import time
 import traceback
 from pathlib import Path
 
+from harness.environments.browser import BROWSERS
 from harness.record_io import load_jsonl
 
 
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def protocol_engine(protocol: dict) -> str:
+    """The registered browser engine whose builds the frozen protocol measures."""
+    engine = protocol.get("engine")
+    if not isinstance(engine, str) or engine not in BROWSERS:
+        raise ValueError("resource protocol must name a registered browser engine")
+    return engine
 
 
 def schedule(task_ids: list[str], attempts: int, methods: list[str]):
@@ -53,6 +62,7 @@ def worker(channel, protocol: dict, method_id: str, output: str) -> None:
     root = Path(protocol["runner_root"])
     out = Path(output)
     method = protocol["methods"][method_id]
+    engine = protocol_engine(protocol)
     try:
         with (out / f"{method_id}.log").open("w") as log:
             os.dup2(log.fileno(), 1)
@@ -61,7 +71,7 @@ def worker(channel, protocol: dict, method_id: str, output: str) -> None:
             sys.path.insert(0, str(root))
             from runner import run
 
-            meta = run.ENGINE_DEFS["moli"]
+            meta = run.ENGINE_DEFS[engine]
             meta.update(
                 binary=Path(method["binary"]),
                 version=method["version"],
@@ -72,7 +82,7 @@ def worker(channel, protocol: dict, method_id: str, output: str) -> None:
             run.ACTIVE_ENGINE_SET = {
                 "name": protocol["id"],
                 "engines": {
-                    "moli": {
+                    engine: {
                         key: str(value) if isinstance(value, Path) else value
                         for key, value in meta.items()
                         if key in {"binary", "version", "sha256", "sha256_12"}
@@ -129,8 +139,8 @@ def worker(channel, protocol: dict, method_id: str, output: str) -> None:
                 "run",
                 *(value for task in protocol["task_ids"] for value in ("--task", task)),
                 "--engines",
-                "moli",
-                "--moli-layout",
+                engine,
+                f"--{engine}-layout",
                 method["layout"],
                 "--chrome-baseline",
                 "off",
@@ -180,6 +190,7 @@ def receive(connection, expected: str) -> dict:
 def execute(protocol_path: Path, output: Path) -> None:
     protocol = json.loads(protocol_path.read_text())
     planned = list(schedule(protocol["task_ids"], protocol["attempts"], list(protocol["methods"])))
+    protocol_engine(protocol)
     if protocol["selected_round"] != 1:
         raise ValueError("this protocol selects exactly one round before execution")
     if sha(Path(__file__)) != protocol["orchestrator_sha256"]:

@@ -100,6 +100,7 @@ def main(argv):
                 "id": "test",
                 "selected_round": 1,
                 "seed": "fixed",
+                "engine": "moli",
                 "orchestrator_sha256": matrix.sha(Path(matrix.__file__)),
                 "input_files": {"runner/run.py": matrix.sha(root / "runner/run.py")},
                 "methods": {

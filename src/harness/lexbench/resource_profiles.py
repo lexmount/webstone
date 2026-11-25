@@ -20,6 +20,7 @@ from pathlib import Path
 
 from lexbench_webfetch.paths import contained_path, safe_identifier
 
+from harness.environments.browser import BROWSERS
 from harness.lexbench.resource_summary import validate_population
 from harness.record_io import load_jsonl
 
@@ -30,7 +31,16 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def protocol_engine(protocol: dict) -> str:
+    """The registered browser engine whose builds the frozen protocol measures."""
+    engine = protocol.get("engine")
+    if not isinstance(engine, str) or engine not in BROWSERS:
+        raise ValueError("resource protocol must name a registered browser engine")
+    return engine
+
+
 def validate_protocol(protocol: dict, source: Path) -> None:
+    protocol_engine(protocol)
     configs = protocol.get("configs")
     tasks = protocol.get("task_ids")
     order = protocol.get("order")
@@ -100,19 +110,24 @@ def verify_inputs(protocol: dict, runner: Path) -> None:
             raise ValueError(f"runner input changed: {relative}")
     for config in protocol["configs"].values():
         if sha256(Path(config["binary"])) != config["sha256"]:
-            raise ValueError("Moli binary changed")
+            raise ValueError("Engine binary changed")
     if sha256(Path(protocol["node_modules_lock"])) != protocol["node_modules_lock_sha256"]:
         raise ValueError("Node dependency lock changed")
     if sha256(Path(protocol["agent_browser_binary"])) != protocol["agent_browser_sha256"]:
         raise ValueError("agent-browser binary changed")
 
 
-def active_set(method: str, config: dict) -> dict:
+def engine_binary(engine: str) -> str:
+    """Where the runner image expects the measured engine's binary."""
+    return f"build_artifacts/{engine}/bin/{engine}"
+
+
+def active_set(engine: str, method: str, config: dict) -> dict:
     return {
-        "name": f"moli-linux-resource-{method}",
+        "name": f"{engine}-linux-resource-{method}",
         "engines": {
-            "moli": {
-                "binary": "build_artifacts/moli/bin/moli",
+            engine: {
+                "binary": engine_binary(engine),
                 "version": config["version"],
                 "sha256": config["sha256"],
                 "sha256_12": config["sha256"][:12],
@@ -123,12 +138,13 @@ def active_set(method: str, config: dict) -> dict:
 
 def run_one(protocol: dict, output: Path, method: str, phase: str) -> dict:
     config = protocol["configs"][method]
+    engine = protocol_engine(protocol)
     run_id = f"{method}_{phase}"
     run_dir = contained_path(output, run_id, reject_symlinks=True)
     if run_dir.exists():
         raise ValueError(f"run already exists: {run_dir}")
     active_path = contained_path(output, f"{method}-active-set.json", reject_symlinks=True)
-    payload = active_set(method, config)
+    payload = active_set(engine, method, config)
     if active_path.exists() and json.loads(active_path.read_text()) != payload:
         raise ValueError("active set changed")
     active_path.write_text(json.dumps(payload, indent=2) + "\n")
@@ -154,7 +170,7 @@ def run_one(protocol: dict, output: Path, method: str, phase: str) -> dict:
         "--mount",
         f"type=bind,src={active_path},dst=/work/build_artifacts/active-set.json,readonly",
         "--mount",
-        (f"type=bind,src={config['binary']},dst=/work/build_artifacts/moli/bin/moli,readonly"),
+        f"type=bind,src={config['binary']},dst=/work/{engine_binary(engine)},readonly",
         "-w",
         "/work",
         "-e",
@@ -181,8 +197,8 @@ def run_one(protocol: dict, output: Path, method: str, phase: str) -> dict:
         "runner/run.py",
         "run",
         "--engines",
-        "moli",
-        "--moli-layout",
+        engine,
+        f"--{engine}-layout",
         config["layout"],
         "--k",
         str(protocol["attempts"]),

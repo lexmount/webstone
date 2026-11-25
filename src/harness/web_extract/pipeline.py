@@ -22,7 +22,6 @@ from collections.abc import Callable
 from concurrent.futures import CancelledError
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import InvalidOperation
 from functools import wraps
 from pathlib import Path
 from urllib.parse import quote, quote_plus, urlsplit
@@ -35,6 +34,7 @@ from harness.http_client import request
 from harness.record_io import bytes_sha256 as digest
 from harness.record_io import read_json as shared_read_json
 from harness.runtime_env import load_runtime_env
+from harness.web_extract.call_records import validate_calls
 from harness.web_extract.dataset import (
     EXPORTED_EVALUATOR,
     benchmark_config,
@@ -2442,7 +2442,7 @@ def load_run(run: Path):
     expected = {(m, c) for m in contract["methods"] for c in contract["case_ids"]}
     if len(rows) != len(expected) or {(r["method"], r["case_id"]) for r in rows} != expected:
         raise ValueError("Incomplete or duplicate compatibility matrix")
-    return contract, rows
+    return contract, validate_calls(rows, f"{Path(run).name} calls")
 
 
 PROJECTION_REGRESSIONS = (
@@ -2492,7 +2492,9 @@ def score_run(
     validate_dataset(home)
     if contract["dataset_manifest_sha256"] != digest((home / "dataset/manifest.json").read_bytes()):
         raise ValueError("Scoring input does not match call contract")
-    all_truth = read_json(home / "dataset/dataset/ground-truth.json")
+    from harness.web_extract.benchmark_adapter import adapter as benchmark_hooks
+
+    all_truth = benchmark_hooks(home).truth()
     original_truth = all_truth
     reference_policy = None
     if reference_revision is not None:
@@ -2638,42 +2640,21 @@ def score_run(
 
 
 def score_rows(home, truth, rows, methods, *, reference_policy=None):
-    """Use the same upstream scoring boundary for original and repaired views."""
+    """Use the same benchmark scoring hook for original and repaired views."""
+    from harness.web_extract.benchmark_adapter import adapter
 
-    if benchmark_config(home)["adapter"] is not None:
-        score = benchmark_config(home)["adapter"].score
-
-        return {
-            method: score(
-                truth,
-                {
-                    r["case_id"]: (r.get("normalized_fields") or {})
-                    if r.get("http_status") == 200
-                    else {}
-                    for r in rows
-                    if r["method"] == method
-                },
-                **(reference_policy or {}),
-            )
-            for method in methods
-        }
-    scorer = official_scorer(home)
-    original_decimal = scorer["decimal_matching"]
-
-    def price_match(gold, prediction):
-        try:
-            return original_decimal(gold, prediction)
-        except InvalidOperation:
-            return scorer["hard_matching"](gold, prediction)
-
-    scores = {}
-    for method in methods:
-        predictions = {
-            r["case_id"]: (r.get("normalized_fields") or {}) if r.get("http_status") == 200 else {}
-            for r in rows
-            if r["method"] == method
-        }
-        scores[method] = evaluate_predictions(
-            truth, predictions, {**scorer, "decimal_matching": price_match}
+    hooks = adapter(home)
+    return {
+        method: hooks.score(
+            truth,
+            {
+                r["case_id"]: (r.get("normalized_fields") or {})
+                if r.get("http_status") == 200
+                else {}
+                for r in rows
+                if r["method"] == method
+            },
+            **(reference_policy or {}),
         )
-    return scores
+        for method in methods
+    }
