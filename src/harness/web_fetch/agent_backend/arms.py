@@ -185,31 +185,61 @@ def builtin_markdown(raw: str) -> tuple[str, int, int | None]:
     return inner[:marker.start()], len(inner) - marker.start(), int(marker.group(2))
 
 
-def assemble_page(reads: list[dict]) -> tuple[str, int]:
-    """Join the verbatim parts of every read of the first URL by their offsets. Returns (text, parts used).
+def _u16(text: str) -> int:
+    """Length in UTF-16 code units: WebFetch is JavaScript, so its offsets and its "N of T" count these."""
+    return len(text.encode("utf-16-le")) // 2
 
-    WebFetch reads on through a long page with ``offset``, a character position in the same cached page text, so the
-    verbatim parts of several calls are slices of one text. Model-written summaries are never included. A gap that no
-    call read verbatim stays missing: the parts on either side are joined with a blank line.
+
+def _u16_slice(text: str, start: int, end: int | None = None) -> str:
+    data = text.encode("utf-16-le", "surrogatepass")
+    return data[start * 2:None if end is None else end * 2].decode("utf-16-le", "surrogatepass")
+
+
+def verbatim_parts(reads: list[dict]) -> list[tuple[int, str, int | None]]:
+    """(offset, verbatim text, page length) for every successful read of the first URL, in call order.
+
+    A cut part ends exactly where WebFetch's "N of T" line says, so it is taken as the first ``N - offset`` units of
+    the result: the blank lines WebFetch puts before that line are not page text, but a newline that ends the page
+    slice is.
     """
-    if not reads:
-        return "", 0
-    parts = {}
+    found = []
     for read in reads:
         if read["url"] != reads[0]["url"] or fetch_failed(read["text"], read["is_error"]):
             continue
-        verbatim = builtin_markdown(read["text"])[0]
-        if verbatim and len(verbatim) > len(parts.get(read["offset"], "")):
-            parts[read["offset"]] = verbatim
+        match = WRAPPER.search(read["text"])
+        inner = match.group(1) if match else read["text"]
+        marker = SUMMARY_MARKER.search(inner)
+        if marker:
+            stop, total = int(marker.group(1)), int(marker.group(2))
+            head = inner[:marker.start()]
+            text = _u16_slice(inner, 0, stop - read["offset"]) if 0 < stop - read["offset"] <= _u16(inner) else head
+        else:
+            text, total = builtin_markdown(read["text"])[0], None
+        if text:
+            found.append((read["offset"], text, total))
+    return found
+
+
+def assemble_page(reads: list[dict]) -> tuple[str, int]:
+    """Join the verbatim parts of every read of the first URL by their offsets. Returns (text, parts used).
+
+    WebFetch reads on through a long page with ``offset``, a position (UTF-16 units) in the same cached page text, so
+    the verbatim parts of several calls are slices of one text. Model-written summaries are never included. A gap
+    that no call read verbatim stays missing: the parts on either side are joined with a blank line.
+    """
+    parts: dict[int, str] = {}
+    for offset, text, _ in verbatim_parts(reads):
+        if _u16(text) > _u16(parts.get(offset, "")):
+            parts[offset] = text
     text, end = "", 0
     for offset in sorted(parts):
         piece = parts[offset]
         if offset < end:  # overlaps what is already assembled
-            piece = piece[end - offset:]
+            piece = _u16_slice(piece, end - offset)
         elif offset > end and text:
             text += "\n\n"
         text += piece
-        end = max(end, offset + len(parts[offset]))
+        end = max(end, offset + _u16(parts[offset]))
     return text, len(parts)
 
 
@@ -254,20 +284,15 @@ def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: l
 
 
 def coverage(reads: list[dict]) -> tuple[int, int, int | None]:
-    """Return (characters read verbatim, end of the furthest verbatim part, page length WebFetch stated).
+    """Return (units read verbatim, end of the furthest verbatim part, page length WebFetch stated), in UTF-16 units.
 
     Computed from the offsets of the calls, not from the model's account: each verbatim part covers
-    ``[offset, offset + len(part))`` of the one cached page text. The page length is the ``T`` of WebFetch's
-    "N of T characters" line; a page that fits one call has no such line and its length is the first part's.
+    ``[offset, offset + length)`` of the one cached page text. The page length is the ``T`` of WebFetch's
+    "N of T characters" line; a page that fits one call has no such line and its length is that call's text.
     """
-    spans, total = [], None
-    for read in reads:
-        if read["url"] != reads[0]["url"] or fetch_failed(read["text"], read["is_error"]):
-            continue
-        verbatim, _, stated = builtin_markdown(read["text"])
-        total = total or stated
-        if verbatim:
-            spans.append((read["offset"], read["offset"] + len(verbatim)))
+    parts = verbatim_parts(reads)
+    spans = [(offset, offset + _u16(text)) for offset, text, _ in parts]
+    total = next((t for _, _, t in parts if t), None)
     covered, cursor = 0, 0
     for start, end in sorted(spans):
         start = max(start, cursor)
@@ -285,6 +310,12 @@ MARKUP = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
 
 def _words(text: str) -> str:
     return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
+def ending_found(ending_text: str, text: str, chars: int = TAIL_WORD_CHARS) -> bool:
+    """Is the end of ``ending_text`` (its last ``chars`` letters and digits) in ``text``, markup copied or rendered?"""
+    end = _words(ending_text)[-chars:]
+    return bool(end) and (end in _words(text) or end in _words(MARKUP.sub(r"\1", text)))
 
 
 def tail_quoted(page: str, report: str) -> bool:
@@ -311,24 +342,40 @@ def _full_read_evidence(out: pathlib.Path, reads: list[dict], reports: list[str]
     covered, furthest, total = coverage(reads)
     reached = bool(text) and total is not None and furthest >= total
     report = "\n".join(reports or [])
+    first = verbatim_parts(reads)[:1]
     return {"fetch_calls": len(reads), "verbatim_parts": parts, "full_text_chars": len(text),
+            "first_part_units": _u16(first[0][1]) if first and first[0][0] == 0 else 0,
             "page_chars": total, "covered_chars": covered, "reached_end": reached,
             "read_complete": reached and covered >= total,
             "tail_quoted": reached and tail_quoted(text, report), "report": report}
+
+
+def read_evidence(out: pathlib.Path, arm: str, delegated: dict, rows: list[dict]) -> dict:
+    """Everything measured about the reading from the saved stream; ``score`` recomputes it, so a corrected rule
+    applies to finished runs without running them again."""
+    found = {"usage_reports": len(delegated["reported"]), "agent_launches": delegated["agent_launches"],
+             **_full_read_evidence(out, delegated["reads"], delegated["reports"])}
+    own = [r for r in rows if r.get("ok") and r.get("file")]
+    if ARMS[arm]["backend"] != "builtin" and found["read_complete"] and own:  # offset assembly vs the backend's own text
+        backend_text = (out / "backend_outputs" / own[0]["file"]).read_text(encoding="utf-8")
+        found["assembly_matches_backend"] = (out / "full_text.txt").read_text(encoding="utf-8").strip() == backend_text.strip()
+    return found
 
 
 def validate(record: dict, arm: str) -> list[str]:
     """Protocol conformance of one run. A run that fails any check is invalid, never repaired.
 
     The comparison is only fair when every run follows the same chain: exactly one subagent launch that
-    Claude Code reports usage for, and that subagent called the arm's fetch tool.
+    Claude Code reports usage for, and that subagent called the arm's fetch tool. When one subagent runs out of
+    turns on a very long page the main session may delegate again to read on; that is Claude Code's own behaviour,
+    the same in every arm, so several launches are allowed (and counted) as long as each one reports usage.
     """
     reasons = []
     if record["exit_code"] != 0 or record["timed_out"] or record.get("is_error"):
         reasons.append("execution_failed")
-    if record["agent_launches"] != 1:
-        reasons.append(f"agent_launches={record['agent_launches']}")
-    if record["subagent_tokens"] is None:
+    if record["agent_launches"] < 1:
+        reasons.append("agent_launches=0")
+    if record["subagent_tokens"] is None or record.get("usage_reports", record["agent_launches"]) != record["agent_launches"]:
         reasons.append("no_subagent_usage_report")
     if record["route"] != "delegated_WebFetch":
         reasons.append(f"route={record['route']}")
@@ -388,6 +435,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
         "subagent_tokens": sum(r["tokens"] for r in reported) if reported else None,
         "subagent_duration_ms": sum(r["duration_ms"] for r in reported) if reported else None,
         "subagent_tool_uses": sum(r["tool_uses"] for r in reported) if reported else None,
+        "usage_reports": len(reported),
         "agent_launches": delegated["agent_launches"],
         "haiku_model_cost_usd": haiku,  # includes small auxiliary calls made by the main session
         "arm": arm, "case_id": case_id, "url": url, "model": model,
@@ -407,12 +455,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     log = out / "backend_calls.jsonl"
     rows = [json.loads(x) for x in log.read_text(encoding="utf-8").split("\n") if x.strip()] if log.exists() else []
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
-    record.update(_full_read_evidence(out, delegated["reads"], delegated["reports"]))
-    if ARMS[arm]["backend"] != "builtin" and record["read_complete"] and rows:  # offset assembly vs the backend's own text
-        own = [r for r in rows if r.get("ok") and r.get("file")]
-        if own:
-            backend_text = (out / "backend_outputs" / own[0]["file"]).read_text(encoding="utf-8")
-            record["assembly_matches_backend"] = (out / "full_text.txt").read_text(encoding="utf-8").strip() == backend_text.strip()
+    record.update(read_evidence(out, arm, delegated, rows))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
     record["fetch_failed"] = record["fetch_failed_backend"]  # WebFetch reported a failure or delivered nothing

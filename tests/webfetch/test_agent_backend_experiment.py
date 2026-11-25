@@ -21,13 +21,16 @@ def agent(i): emit({{"type": "assistant", "message": {{"content": [{{"type": "to
 USAGE = "report\nagentId: x\n<usage>subagent_tokens: 321\ntool_uses: 1\nduration_ms: 4500</usage>"
 emit({{"type": "system", "subtype": "init", "claude_code_version": "9.9.9"}})
 agent("a1")
-if route in ("delegated", "double", "fetcherror"):
+if route in ("delegated", "double", "continued", "fetcherror"):
     emit({{"type": "assistant", "parent_tool_use_id": "a1", "message": {{"content": [{{"type": "tool_use", "id": "w1", "name": "WebFetch", "input": {{}}}}]}}}})
     emit({{"type": "user", "parent_tool_use_id": "a1", "message": {{"content": [{{"type": "tool_result", "tool_use_id": "w1", "is_error": route == "fetcherror", "content": "boom" if route == "fetcherror" else "Fetched x\n<fetched-web-content>\nPAGE BODY\n</fetched-web-content>"}}]}}}})
     open(debug, "w").write("[INFO] [Stall] tool_dispatch_end tool=WebFetch toolUseId=w1 outcome=ok durationMs=1234\n")
     emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": "a1", "content": USAGE}}]}}}})
     if route == "double":
         agent("a2")
+    if route == "continued":  # a second subagent reads on and reports usage too
+        agent("a2")
+        emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": "a2", "content": USAGE}}]}}}})
 elif route == "async":  # Claude Code launched the subagent in the background: no usage report
     emit({{"type": "user", "message": {{"content": [{{"type": "tool_result", "tool_use_id": "a1", "content": "Async agent launched successfully."}}]}}}})
 elif route == "bash":
@@ -137,7 +140,7 @@ def test_fetch_failure_rule_is_the_same_for_every_arm(raw, flagged, expected):
     assert arms.fetch_failed(raw, flagged) is expected
 
 
-@pytest.mark.parametrize("route,reason", [("async", "no_subagent_usage_report"), ("double", "agent_launches=2"),
+@pytest.mark.parametrize("route,reason", [("async", "no_subagent_usage_report"), ("double", "no_subagent_usage_report"),
                                           ("bash", "route=bash_network"), ("none", "route=none")])
 def test_a_run_that_breaks_the_protocol_is_invalid_with_no_substitute_measurement(tmp_path, fake_claude, monkeypatch, route, reason):
     monkeypatch.setenv("FAKE_ROUTE", route)
@@ -560,7 +563,7 @@ def test_a_run_records_the_first_read_and_the_full_read_separately(tmp_path):
     found = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True), _read(40, page[40:], 100)],
                                      ["100 characters, all read.\n" + page[-30:]])
     assert (tmp_path / "full_text.txt").read_text(encoding="utf-8") == page
-    assert found == {"fetch_calls": 2, "verbatim_parts": 2, "full_text_chars": 100, "page_chars": 100, "covered_chars": 100,
+    assert found == {"fetch_calls": 2, "verbatim_parts": 2, "full_text_chars": 100, "first_part_units": 40, "page_chars": 100, "covered_chars": 100,
                      "reached_end": True, "read_complete": True, "tail_quoted": True,
                      "report": "100 characters, all read.\n" + page[-30:]}
     partial = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True)], ["read all\n" + page[-30:]])
@@ -589,3 +592,19 @@ def test_the_subagent_report_is_taken_without_the_harness_frame():
               "The report follows:\n  The page has 52,629 characters.\n  \n  - Call 2 read to the end.\nagentId: a1\n"
               "<usage>subagent_tokens: 43969\ntool_uses: 2\nduration_ms: 20784</usage>")
     assert arms.subagent_report(result) == "The page has 52,629 characters.\n\n- Call 2 read to the end."
+
+
+def test_a_main_session_that_delegates_again_to_read_on_is_valid(tmp_path, fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_ROUTE", "continued")
+    record = arms.run_one("builtin", "c00", "https://example.com/", "p", tmp_path / "r", claude_bin=fake_claude)
+    assert record["valid"] and record["agent_launches"] == 2 and record["usage_reports"] == 2 and record["subagent_tokens"] == 642
+
+
+def test_offsets_count_utf16_units_and_a_cut_part_keeps_its_closing_newline(tmp_path):
+    page = "ab😀c\n" + "x" * 10  # the emoji is two UTF-16 units: the page is 16 units, 15 code points
+    first = {"url": "https://x/p", "offset": 0, "is_error": False, "text": "Fetched\n<fetched-web-content>\nab😀c\n\n\n"
+             "[The verbatim page text stops here, 6 of 16 characters in; re-fetching returns the same split.]\nS\n</fetched-web-content>"}
+    rest = {"url": "https://x/p", "offset": 6, "is_error": False, "text": "Fetched\n<fetched-web-content>\n" + "x" * 10 + "\n</fetched-web-content>"}
+    found = arms._full_read_evidence(tmp_path, [first, rest], [])
+    assert (tmp_path / "full_text.txt").read_text(encoding="utf-8") == page
+    assert found["page_chars"] == 16 and found["covered_chars"] == 16 and found["read_complete"] is True

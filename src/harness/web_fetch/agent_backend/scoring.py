@@ -10,7 +10,7 @@ from collections import Counter
 
 from lexbench_webfetch.evaluation import evaluate_response
 
-from harness.web_fetch.agent_backend.arms import fetch_dispatch
+from harness.web_fetch.agent_backend.arms import ending_found, fetch_dispatch, parse_stream, read_evidence, validate
 
 WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
 PAIRS = (("builtin", "lexmount"), ("builtin", "moli"), ("moli", "lexmount"))
@@ -65,9 +65,20 @@ def controls(cases: dict, case_ids: list[str]) -> dict:
     return {"cases": len(case_ids), "empty_fails": failed}
 
 
+def content_ending(case: dict) -> str | None:
+    """The last line of the task's human-reviewed main content: the same target for every arm, whoever fetched the page."""
+    lines = [line for line in (case.get("ground_truth_main_content") or "").strip().split("\n") if any(ch.isalnum() for ch in line)]
+    return lines[-1] if lines else None
+
+
+def _read(directory: pathlib.Path, name: str) -> str:
+    path = directory / name
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
 def _long(r) -> bool:
     """The page was longer than one call delivers, so reading it to the end needs further calls."""
-    return not r.get("fetch_failed") and bool(r.get("page_chars")) and r["page_chars"] > (r.get("markdown_chars") or 0)
+    return not r.get("fetch_failed") and bool(r.get("page_chars")) and r["page_chars"] > (r.get("first_part_units") or 0)
 
 
 def _tail(runs: list[dict]) -> dict:
@@ -82,6 +93,14 @@ def _tail(runs: list[dict]) -> dict:
             "subagent_tokens": _stats([r.get("subagent_tokens") for r in long]),
             "subagent_duration_ms": _stats([r.get("subagent_duration_ms") for r in long]),
             "assembly_mismatch": sum(r.get("assembly_matches_backend") is False for r in long)}
+
+
+def _content_end(runs: list[dict]) -> dict:
+    """The end of the main content, on tasks with a reference: delivered at all, in the first read, and reported."""
+    target = [r for r in runs if r.get("content_end_target")]
+    return {"tasks": len(target), "delivered": sum(r["content_end_delivered"] for r in target),
+            "first_read": sum(r["content_end_first_read"] for r in target),
+            "reported": sum(r["content_end_reported"] for r in target)}
 
 
 def _percentile(values, q):
@@ -104,6 +123,13 @@ def _load(directory: pathlib.Path, attempt: int) -> dict:
     debug = directory / "debug.log"
     if debug.exists():  # derive from saved evidence so every record uses the same measurement point
         record["fetch_tool_outcome"], record["fetch_tool_ms"] = fetch_dispatch(debug.read_text(errors="replace", encoding="utf-8"))
+    stream, log = directory / "stream.jsonl", directory / "backend_calls.jsonl"
+    if stream.exists():  # reading evidence and validity are recomputed from the raw stream with the current rules
+        delegated = parse_stream(stream.read_text(encoding="utf-8"))[5]
+        rows = [json.loads(x) for x in log.read_text(encoding="utf-8").split("\n") if x.strip()] if log.exists() else []
+        record.update(read_evidence(directory, record["arm"], delegated, rows))
+        record["invalid_reasons"] = validate(record, record["arm"])
+        record["valid"] = not record["invalid_reasons"]
     record["attempt"] = attempt
     return record
 
@@ -133,6 +159,12 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         # The same rules on the first read alone: what one ordinary call delivers.
         record["passed_first_read"] = record["valid"] and verdict(
             case, scoring_input(directory, record["arm"], case, source="markdown.txt"), unscorable)
+        # Is the end of the page's main content (independent reference) in what was delivered, and in the report?
+        ending = content_ending(case)
+        record["content_end_target"] = ending is not None
+        record["content_end_delivered"] = bool(ending) and record["valid"] and ending_found(ending, _read(directory, "full_text.txt"))
+        record["content_end_first_read"] = bool(ending) and record["valid"] and ending_found(ending, _read(directory, "markdown.txt"))
+        record["content_end_reported"] = bool(ending) and record["valid"] and ending_found(ending, record.get("report") or "")
         rows.append(record)
         earlier.extend(previous)
     # Every task counts for every arm. Usage and timing statistics use the valid runs only, because an invalid run has
@@ -168,6 +200,7 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "read_complete_runs": sum(bool(r.get("read_complete")) for r in used),
             # Reading to the end: the question is whether the subagent sees that characters remain and goes on.
             "tail": _tail(used),
+            "content_end": _content_end(counted),
             "fetch_calls_per_run": dict(Counter(r.get("fetch_calls") for r in used)),
             "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
             "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
@@ -201,6 +234,14 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         "fetch_tool_ms": _stats([v[arm]["fetch_tool_ms"] for v in fetched_by_all])} for arm in arm_names}}
     # Like-for-like view of the reading question: tasks whose page was longer than one call in every arm.
     long_all = [v for k, v in sorted(by_key.items()) if k in included and all(x["valid"] and _long(x) for x in v.values())]
+    summary["paired_content_end"] = {}
+    for x, y in PAIRS:
+        both = [by_key[k] for k in sorted(included) if x in by_key[k] and y in by_key[k] and by_key[k][x].get("content_end_target")]
+        if both:
+            summary["paired_content_end"][f"{x}|{y}"] = {
+                "tasks": len(both), f"only_{x}": sum(v[x]["content_end_delivered"] and not v[y]["content_end_delivered"] for v in both),
+                f"only_{y}": sum(v[y]["content_end_delivered"] and not v[x]["content_end_delivered"] for v in both),
+                "both": sum(v[x]["content_end_delivered"] and v[y]["content_end_delivered"] for v in both)}
     summary["long_for_every_arm"] = {"tasks": len(long_all), "arms": {arm: _tail([v[arm] for v in long_all]) for arm in arm_names}}
     summary["by_suite"] = {}
     for arm in arm_names:  # tasks and passes per task category, the first part of the task id
@@ -250,6 +291,11 @@ def render_markdown(summary: dict) -> str:
         t = s["tail"]
         lines.append(f"| {arm} | {t['fetched']} | {t['tail_quoted']} | {t['long_pages']} | {t['reached_end']} | {t['read_complete']} | "
                      f"{t['tail_quoted_long']} | {t['fetch_calls']['mean'] or 0:.1f} | {t['page_chars']['p50'] or 0:.0f} |")
+    lines += ["", "End of the main content (tasks with a human-reviewed main-content reference; the same target in every arm):", "",
+              "| Arm | Tasks | Delivered | In the first read | Reported by the subagent |", "| --- | ---: | ---: | ---: | ---: |"]
+    for arm, s in summary["arms"].items():
+        e = s["content_end"]
+        lines.append(f"| {arm} | {e['tasks']} | {e['delivered']} | {e['first_read']} | {e['reported']} |")
     every = summary["long_for_every_arm"]
     lines += ["", f"Tasks long in every arm: {every['tasks']}. "
               + "; ".join(f"{a}: reached end {t['reached_end']}, tail quoted {t['tail_quoted_long']}" for a, t in every["arms"].items()) + "."]

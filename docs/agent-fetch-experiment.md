@@ -16,13 +16,15 @@ Claude Code's `CLAUDE_CODE_WEBFETCH_MCP_TOOL` setting (`{"server": ..., "tool": 
 
 The Lexmount text is rendered by Lexmount's official `webfetch-cli` (`LEXMOUNT_WEBFETCH_CLI`): the MCP server calls the API once with the harness's parameters and replays that response to the CLI on a local address, so the format is Lexmount's own and the API is not called twice. The MCP server (`agent_backend/fetch_mcp.py`, standard library only) also saves each backend's complete output as evidence.
 
-Every arm gets the same task: the content wanted is at the very end of the page, so the subagent has to notice that characters remain and keep reading until it reaches the last one (`--prompt`, recorded in `plan.json`):
+Every arm gets the same task: what is wanted is at the end of the page, so the subagent has to notice that characters remain and keep reading until it reaches the last one (`--prompt`, recorded in `plan.json`):
 
 ```text
-Read the complete text of {url}. The part we need is at the very end of the page. The fetch tool shows a long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with two lines: how many characters the page has and whether you read all of it; then the last 80 characters of the page text, copied exactly.
+Read the complete text of {url}. What we need is at the end of the page. The fetch tool shows a long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with three lines: how many characters the page has and whether you read all of it; the last sentence of the page's main content (the article or body text, not navigation, related links or footer), copied exactly; the last 80 characters of the page text, copied exactly.
 ```
 
-The task is the same for every arm, and so is the page end it refers to: the end of the text WebFetch holds for that page in that arm. A page that fits one call needs no further call; for a longer page the subagent must read on. The stock subagent has at most 15 turns, so a page needing more than about 14 calls (about 550,000 characters) cannot be finished in any arm.
+Two targets are checked. The page's own last characters differ between arms (each backend turns the page into its own text: Lexmount returns extracted main text, the others the whole page), so they measure only whether the subagent kept reading. The end of the page's main content is the same target in every arm: the last line of the task's human-reviewed `ground_truth_main_content` (275 of the 530 tasks have one). On the first 530-task run this check found the ending in every built-in output that passed the benchmark and was delivered whole (83 of 83), 129 of 134 for moli and 54 of 63 for Lexmount; the misses were real differences (a changed commit id on a live page, a line the extraction dropped).
+
+A page that fits one call needs no further call. The stock subagent has at most 15 turns; when one subagent runs out on a very long page the main session may delegate again to read on. That is Claude Code's own behaviour and the same in every arm, so several launches are allowed and counted, provided each reports its usage.
 
 WebFetch keeps the page text it retrieved in a per-process cache (15 minutes) and `offset` is a character position in that text, so reading on never contacts the site again and works the same whoever retrieved the page: the backend is called once per page. WebFetch only suggests an offset for text beyond what it summarized (about 140,000 characters in); the task therefore states the rule for the stretch in between.
 
@@ -81,14 +83,16 @@ Reading to the end is measured by code from the calls, never from what the model
 
 | Field | Meaning |
 | --- | --- |
-| `page_chars` | the page length WebFetch stated ("N of T characters"); for a page that fits one call, the length of that call's text |
+| `page_chars` | the page length WebFetch stated ("N of T characters"); for a page that fits one call, the length of that call's text. Lengths and offsets are UTF-16 units, as WebFetch (JavaScript) counts them |
 | `covered_chars` | characters delivered verbatim, from the offsets and lengths of the calls (overlaps counted once) |
 | `reached_end` | a verbatim part ends at the page's last character |
 | `read_complete` | `reached_end` and no gap: every character was delivered verbatim |
 | `tail_quoted` | `reached_end`, and the subagent's report (the text it handed back, taken from the Agent result) contains the page's real ending: its last 24 letters and digits, compared without punctuation, spacing or case, with link and image markup either copied or rendered as its text |
+| `content_end_delivered` | the end of the main-content reference is in the verbatim text delivered (all reads joined); `content_end_first_read`: in the first read alone |
+| `content_end_reported` | the end of the main-content reference is in the subagent's report |
 | `assembly_matches_backend` | moli and Lexmount arms: the text joined by offset equals the backend's own complete output, a check of the assembly |
 
-`summary.json` reports these per arm under `tail`, on every fetched page and on pages longer than one call (`long_pages`, where reading on is required), with fetch calls, page length, tokens and duration on those pages. `long_for_every_arm` repeats them on the tasks whose page was longer than one call in every arm, the like-for-like view of the reading question. Page lengths differ between arms because each backend turns the page into its own text; a longer text needs more calls, and that cost belongs to the backend.
+`score` recomputes all of these, and each run's validity, from the saved stream with the current rules, so a corrected rule applies to finished runs without running them again. `summary.json` reports them per arm under `tail` and `content_end` (with `paired_content_end` per pair of arms), on every fetched page and on pages longer than one call (`long_pages`, where reading on is required), with fetch calls, page length, tokens and duration on those pages. `long_for_every_arm` repeats them on the tasks whose page was longer than one call in every arm, the like-for-like view of the reading question. Page lengths differ between arms because each backend turns the page into its own text; a longer text needs more calls, and that cost belongs to the backend.
 
 ## Metrics
 
