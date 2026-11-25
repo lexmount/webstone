@@ -240,7 +240,7 @@ def _page(
     detail_nav = (
         explorer.detail_navigation(f"{REPORT_STEM}-analysis.html#{back_anchor}", back=t("curated.back_to_analysis", "Back to per-task analysis"),
                                    previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result"))
-        +         f'<a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
+        + f'<p class="muted"><a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a> · <span>{t("replay.run", "Run {run_id}", run_id=run_id)}</span></p>'
         if detail_title
         else ""
     )

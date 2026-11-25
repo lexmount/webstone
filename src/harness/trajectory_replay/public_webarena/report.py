@@ -250,7 +250,7 @@ def _page(
     detail_nav = (
         explorer.detail_navigation(f"{REPORT_STEM}-results.html#{back_anchor}", back=t("public.back_to_results", "Back to evaluation results"),
                                    previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result"))
-        +         f'<a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
+        + f'<p class="muted"><a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a> · <span>{t("replay.run", "Run {run_id}", run_id=run_id)}</span></p>'
         if detail_title
         else ""
     )

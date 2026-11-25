@@ -495,7 +495,7 @@
    "en/evidence-viewer.html": {
     "headings": [
      "h1: Evidence viewer",
-     "h2: "
+     "h2: Raw evidence"
     ]
    },
    "en/index.html": {
@@ -617,7 +617,7 @@
     "tables": [
      [
       "Round | Scope | Finding | Correction | Open",
-      "Trajectory qualification | 1 tasks: 1 autonomous successes and 0 repaired trajectories. | 0 candidate trajectories required repair before use as frozen inputs. | Recorded per-task acceptance yielded 1/1 passes on Chromium. Frozen trajectories contain no Agent or model decisions. | Method-specific frozen inputs and official evaluations are available on each result page.",
+      "Trajectory qualification | 1 task: 1 autonomous success and 0 repaired trajectories. | 0 candidate trajectories required repair before use as frozen inputs. | Recorded per-task acceptance yielded 1/1 passes on Chromium. Frozen trajectories contain no Agent or model decisions. | Method-specific frozen inputs and official evaluations are available on each result page.",
       "Failure evidence review | 1 final failed outcomes. | 0 browser-session setup failures; 1 browser-action failures; 0 evidence-finalization failures; 0 evaluator-execution failures; 0 network-acceptance failures. | 1/1 reviews are bound to the current evidence hash. Program errors, action locators, reviewed causes and treatment states are separate; official scores did not change. | Failure causes and treatment status appear on each failed result page."
      ]
     ]
@@ -660,7 +660,7 @@
    "evidence-viewer.html": {
     "headings": [
      "h1: 证据查看器",
-     "h2: "
+     "h2: 原始证据"
     ]
    },
    "index.html": {
@@ -809,9 +809,9 @@
    }
   },
   "routes": [
-   "article.html fbe2d23d875a26d1eaad",
-   "assets/app.js 0a46de002cd5e1853fdb",
-   "assets/report.css 0490e449aed92dc9f3d5",
+   "article.html 5446a71838311c1a2cc3",
+   "assets/app.js f992f3fc2406e6c90696",
+   "assets/report.css ce83f381976b1f7454d4",
    "data/evidence/chromium-29.json 7af41bab3cc4a2417d33",
    "data/evidence/moli-fixed-29.json d12c19c0ec05c0651285",
    "data/evidence/moli-old-29.json 9825a8e65f76172b61ee",
@@ -821,30 +821,30 @@
    "data/trajectory/chromium-29.json 4dbd87bb8442b8983070",
    "data/trajectory/moli-fixed-29.json 4eebb464e35447d582ff",
    "data/trajectory/moli-old-29.json e23ca9b49bdc27567ec3",
-   "dataset.html 3bf9a73f4e9018a40ce3",
-   "en/article.html aa2c70752e6784396835",
-   "en/dataset.html 5716489e8aef7e1ab043",
-   "en/environment.html d93ed0c843fb0c881aa1",
-   "en/evidence-viewer.html 7d3e24f38684a1ccf7dd",
-   "en/index.html 5a318ea5b69d7f613eec",
-   "en/interpretation.html 766331b3c65bf9aff3a8",
-   "en/result/chromium-29.html 0f76ee1edffcc2303331",
-   "en/result/moli-fixed-29.html 0bccef358bbc3da47917",
-   "en/result/moli-old-29.html 15e2838551286e774a59",
-   "en/results.html d63ba0a6c4986eb30e25",
-   "en/review.html 511e4f9079f64867b39e",
-   "en/task/29.html 5f67fed038777e427d47",
-   "environment.html 07a788af80be4b175594",
-   "evidence-viewer.html 1b3faebc023ed3d629d4",
-   "index.html be7d589189cf269c0255",
-   "interpretation.html 131a4d4d871538cc82ea",
+   "dataset.html e3b2d47aa7f2976459b4",
+   "en/article.html bd7546059c8b49131654",
+   "en/dataset.html cd1408f6f7b0834ede35",
+   "en/environment.html 76ffed44db6f7fe361b7",
+   "en/evidence-viewer.html 9efe88b9668811e8d430",
+   "en/index.html eb437ea163b5b7a263cd",
+   "en/interpretation.html dc006933c168186e584c",
+   "en/result/chromium-29.html c1ed4d574b2a326e4004",
+   "en/result/moli-fixed-29.html 83d26ec869ac8127cf5d",
+   "en/result/moli-old-29.html 69a6a719f28a27461981",
+   "en/results.html 5472580ccff6aca83193",
+   "en/review.html 3d7700f48498b31910cf",
+   "en/task/29.html 0ffa6d1101b0f3fd3573",
+   "environment.html c6f1edbf4396facccc3c",
+   "evidence-viewer.html 7ffb910475987a3d3e76",
+   "index.html 1cd0d5b32188b013ffdf",
+   "interpretation.html 6cfe3b324cd2f51892f8",
    "report-manifest.json 1df797612d17917282c3",
-   "result/chromium-29.html 5f35ef30fe2047a292ce",
-   "result/moli-fixed-29.html fe5969f840100b3357aa",
-   "result/moli-old-29.html f8e62ad072fc45100431",
-   "results.html 80cba59838808a1c2237",
-   "review.html cdcaa53bf65218b1af47",
-   "task/29.html 62d09c5bec9e0c61ced6",
+   "result/chromium-29.html 5e336cd13c43aca36316",
+   "result/moli-fixed-29.html bc20f4b9cbab59f6d2e3",
+   "result/moli-old-29.html 4b078608fac197e68451",
+   "results.html e6386f909f4ccd88c6eb",
+   "review.html 0038559547e95459507e",
+   "task/29.html 751b1e6a72a357fa19a8",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  },
