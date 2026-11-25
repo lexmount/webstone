@@ -142,10 +142,11 @@ def report_method(name, record=None, *, language="zh", scope):
     if metadata.get("engine"):
         if metadata["engine"] in methods:
             return methods[metadata["engine"]]
-        named = methods.get(name, {})
-        if metadata["engine"] in named.get("runtime_engines", []):
-            return named
-        return {}
+        matches = [item for item in methods.values()
+                   if metadata["engine"] in item.get("runtime_engines", [])]
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous report method for runtime engine {metadata['engine']!r}")
+        return matches[0] if matches else {}
     execution = browser_method_registry(scope=scope).get(name, {})
     for key in (execution.get("engine"), name):
         if key in methods:
