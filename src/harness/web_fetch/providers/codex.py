@@ -10,11 +10,28 @@ import signal
 import subprocess
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
 from harness.web_fetch.models import ProviderResult
 from harness.web_fetch.providers.base import Provider
+
+
+_BRIDGE = Path(__file__).with_name("codex_capture.cjs")
+
+LEXMOUNT_CLI_PROMPT = (
+    "Use lexmount_fetch once to fetch the complete content of the URL below. "
+    "The tool saves the response. After it returns, end the turn without writing a message. "
+    "URL: "
+)
+
+def capture_event(path, event, **fields):
+    row = {"event": event, "timestamp": datetime.now(UTC).isoformat(), **fields}
+    with path.open("a", encoding="utf-8") as stream:
+        stream.write(json.dumps(row) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def parse_returns(url, mode, events, session):

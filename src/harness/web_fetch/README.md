@@ -1853,3 +1853,32 @@ For continuation, select `--providers codex-same-page` and use its output
 directory for both commands. The run saves the original tool evidence, usage
 and scores. To recompute scores from saved evidence, run
 `webstone rescore RUN_DIR --dataset dataset.json --no-report`.
+
+
+## Receipt-only local Moli subagents
+
+Use `uv run --frozen python -m harness.web_fetch.lexmount_collection` with
+`moli-init`, `moli-reserve`, `moli-sync`, and `moli-admit` for credential-free
+local Moli. It uses the existing frozen 530-case export in the data home.
+Initialize a new external
+`moli-local-530-*` run with `--binary` and `--binary-sha256`. Reserve two
+outside-cohort URLs with `--url` for fresh-subagent preflight, synchronize their
+terminal usage, and admit the measured execution plan before reserving formal
+cases. `--wall-time-budget-seconds` explicitly selects the execution budget.
+The parent dispatches the returned prompts with `fork_turns="none"`; the collector
+does not create agents. Each generated `--moli-url` command executes exactly one
+`moli fetch --dump markdown --log-level debug URL`, preserving native readiness
+defaults and system DNS. This entry accepts no credential-file argument. It saves
+all stdout and stderr, including failed calls, and returns only status and path;
+an exclusive claim prevents duplicate provider execution. The parent must finish
+all declared subagents before scoring their saved answers.
+Run `moli-score --run /absolute/run --jobs 4` through the same module after
+collection. It requires complete, unique call and terminal evidence, verifies
+the frozen scorer and saved response hashes, and writes the shared report inputs
+under the run's new `scored/` directory without invoking a provider.
+
+The dispatch prompt keeps process polling inside one tool script and waits up to
+30 seconds per process observation. Only the final receipt returns to the model;
+long-running tool scripts resume through the same cell. This avoids model rounds
+whose only purpose is checking a still-running process. New runs must still pass
+the fresh-subagent preflight before formal collection.
