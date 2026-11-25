@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import re
@@ -2917,6 +2918,193 @@ def report_shape(mode):
     return REPORT_SHAPES.get(mode if mode in REPORT_SHAPES else "compatibility")
 
 
+@dataclass
+class ExtractEvidence:
+    """One Web Extract report's verified evidence, assembled once by its report body.
+
+    Both the product and the record-cohort bodies fill the same fields; ``details``
+    carries what only one body's pages read, and ``manifest`` the fields only that
+    body publishes. The shared renderer writes every page and the manifest from it.
+    """
+
+    output: Path
+    mode: str
+    model: dict
+    content: Path | None
+    profile: Path
+    home: Path
+    language: str
+    languages: tuple[str, ...]
+    methods: list[str]
+    labels: dict[str, str]
+    truth: dict
+    rows: list[dict]
+    prices: dict
+    audit: dict | None
+    completion: dict | None
+    input_profile: dict
+    public_receipts: list
+    observations: int
+    planned_methods: list[str] | None
+    title: str | None = None
+    site_prefix: str = ""
+    page_options: dict = dataclasses.field(default_factory=dict)
+    details: dict = dataclasses.field(default_factory=dict)
+    manifest: dict = dataclasses.field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ReportBody:
+    """The hooks one task shape supplies to the shared Web Extract renderer.
+
+    ``assemble(output, content, *, home, run, language, profile)`` verifies the inputs,
+    publishes the public evidence views and returns an ``ExtractEvidence``;
+    ``pages(evidence, language, write)`` composes one language edition through
+    ``write(language, route, heading, body, *, detail_file=None)``; ``entry(evidence)``
+    returns the root redirect page. ``manifest_keys`` declares the shape's published
+    manifest fields in their published order; optional fields may be absent.
+    """
+
+    assemble: Callable
+    pages: Callable
+    entry: Callable
+    manifest_keys: tuple[str, ...]
+
+
+def render(body: ReportBody, output, content, *, home, run, language, profile):
+    """Assemble one evidence model, then write every page, the entry and the manifest."""
+    evidence = body.assemble(
+        output, content, home=home, run=run, language=language, profile=profile
+    )
+    model = evidence.model
+    page_intros = {}
+
+    def write(lang, route, heading, html, *, detail_file=None):
+        detail = detail_file is not None or route not in PAGES
+        intro = "" if detail else authored_intro(model, route, lang)
+        if not detail and route == "interpretation":
+            html = bind_model_tables(output, model.get("model_comparison"), lang, html)
+        rendered = page(
+            lang, route, heading, html, detail=detail, languages=evidence.languages,
+            state=evidence.mode, intro=intro, site_prefix=evidence.site_prefix,
+            **evidence.page_options,
+        )
+        directory = output / lang
+        directory.mkdir(exist_ok=True)
+        (directory / ((detail_file or route) + ".html")).write_text(rendered, encoding="utf-8")
+        if intro:
+            page_intros[lang + "/" + route + ".html"] = page_intro_hash(rendered)
+
+    for lang in evidence.languages:
+        body.pages(evidence, lang, write)
+    if "en" not in evidence.languages:
+        (output / "en").mkdir(exist_ok=True)
+        (output / "en/index.html").write_text(
+            scope_record_html(message("english_not_generated_notice", "en"), evidence.site_prefix),
+            encoding="utf-8",
+        )
+    (output / "index.html").write_text(body.entry(evidence), encoding="utf-8")
+    version = bind_build_version(output)
+    files = rendered_files(output)
+    profile_model = read_json(evidence.profile)
+    fields = {
+        "mode": evidence.mode,
+        "template": template_record(evidence.mode),
+        "template_version": VERSION,
+        "webstone": version,
+        **report_dependencies(),
+        "renderer_sha256": digest(Path(__file__).read_bytes()),
+        "page_intros": page_intros,
+        "model_comparison": model.get("model_comparison"),
+        "dataset_kind": "local-example"
+        if profile_model.get("local_example", False)
+        else "published-upstream",
+        "input_profile": evidence.input_profile,
+        "profile_sha256": digest(evidence.profile.read_bytes()),
+        "content_sha256": digest(evidence.content.read_bytes())
+        if evidence.content is not None
+        else None,
+        "dataset_manifest_sha256": digest((evidence.home / "dataset/manifest.json").read_bytes()),
+        "primary_language": evidence.language,
+        "languages": list(evidence.languages),
+        "planned_methods": evidence.planned_methods,
+        "method_labels": evidence.labels,
+        "method_examples": model.get("method_examples"),
+        "prices": evidence.prices,
+        "case_count": len(evidence.truth),
+        "observations": evidence.observations,
+        "public_evidence_views": evidence.public_receipts,
+        "required_review_scope": profile_model.get("independent_result_review_scope"),
+        **evidence.manifest,
+        "files": files,
+    }
+    if set(fields) - set(body.manifest_keys):
+        raise ValueError("Report manifest has a field its shape does not declare")
+    save_json(
+        output / "report-manifest.json",
+        {key: fields[key] for key in body.manifest_keys if key in fields},
+        exclusive=True,
+    )
+    _check_rendered_report(output)
+
+
+def _product_entry(evidence):
+    language = evidence.language
+    return (
+        f'<!doctype html><html lang="{language}"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={language}/index.html"><title>Web Extract</title></head><body><a href="{language}/index.html">Web Extract</a></body></html>'
+    )
+
+
+def _record_entry(evidence):
+    site_prefix = evidence.site_prefix
+    entry = (site_prefix + "/" if site_prefix else "") + "zh/index.html"
+    entry_base = '<base href="../">' if site_prefix else ""
+    return (
+        "<!doctype html><html><head>"
+        + entry_base
+        + '<meta http-equiv="refresh" content="0;url='
+        + entry
+        + '"></head><body><a href="'
+        + entry
+        + '">'
+        + esc(evidence.title)
+        + "</a></body></html>"
+    )
+
+
+PRODUCT_BODY = ReportBody(
+    assemble=lambda *args, **kwargs: _assemble_product(*args, **kwargs),
+    pages=lambda *args: _product_pages(*args),
+    entry=_product_entry,
+    manifest_keys=(
+        "template", "page_intros", "model_comparison", "template_version", "methods", "webstone",
+        "asset_sha256", "messages_sha256", "interaction_sha256", "analysis_sha256",
+        "dataset_kind", "mode", "planned_methods", "method_labels", "prices", "method_examples",
+        "renderer_sha256", "review", "required_review_scope", "audited_scores",
+        "completion_reference_exclusions", "completion_audit", "content_sha256",
+        "profile_sha256", "input_profile", "dataset_manifest_sha256", "dataset_distribution",
+        "primary_language", "languages", "reference_populations", "case_count", "observations",
+        "source_runs", "source_metadata_view", "public_evidence_views", "files",
+    ),
+)
+RECORD_BODY = ReportBody(
+    assemble=lambda *args, **kwargs: _assemble_record(*args, **kwargs),
+    pages=lambda *args: _record_pages(*args),
+    entry=_record_entry,
+    manifest_keys=(
+        "mode", "site_prefix", "page_intros", "model_comparison", "asset_sha256",
+        "messages_sha256", "interaction_sha256", "analysis_sha256", "local_example",
+        "dataset_kind", "input_profile", "template", "template_version", "webstone",
+        "renderer_sha256", "profile_sha256", "content_sha256", "dataset_manifest_sha256",
+        "dataset_benchmark", "dataset_input_mode", "primary_language", "languages",
+        "planned_methods", "comparison_methods", "skipped_methods", "method_labels",
+        "navigation", "method_examples", "preview_snapshot", "prices", "case_count",
+        "observations", "complete_methods", "metrics_sha256", "public_evidence_views", "audit",
+        "reference_policy", "required_review_scope", "files",
+    ),
+)
+
+
 def build(output: Path, content: Path | None = None, *, home: Path, run=None, language=None, profile=PROFILE):
     """Render any Web Extract report; the content's mode selects the task-shape hook.
 
@@ -2939,7 +3127,8 @@ def rendered_files(output):
     }
 
 
-def _build_product(output, content, *, home, run, language, profile):
+def _assemble_product(output, content, *, home, run, language, profile):
+    """Verify the product run evidence and publish its public views."""
     from harness.web_extract.dataset import require_product_reference
 
     require_product_reference(home)
@@ -3170,532 +3359,10 @@ def _build_product(output, content, *, home, run, language, profile):
             excluded_fields=audit.get("excluded_fields", {}) if audit else None,
         )
         save_json(output / "data/completion-metrics.json", completion)
-    page_intros = {}
-    for lang in languages:
-        lab = LABELS[lang]
-        directory = output / lang
-        directory.mkdir()
-        bodies = {p: model["pages"].get(p, {}).get("body", {}).get(lang, "") for p in PAGES}
-        bodies["protocol"] += method_examples(output, model.get("method_examples"), lang)
-        configurations = selected_execution_contracts(bindings)
-        titles = {
-            p: model["pages"]
-            .get(p, {})
-            .get("title", {})
-            .get(lang, EXTRA_LABELS[p][lang] if p in EXTRA_LABELS else lab[i])
-            for i, p in enumerate(PAGES)
-        }
-        # Scope and observed current interfaces lead; historical scores remain separate.
-        methods = (
-            list(cohort_plan["participants"]) if cohort else sorted({r["method"] for r in rows})
-        )
-        bodies["protocol"] += execution_settings(configurations, methods, names, lang)
-        summary = []
-        for method in methods:
-            subset = [r for r in rows if r["method"] == method]
-            called = sum(r["state"] in ("response_received", "call_error") for r in subset)
-            structured = sum(r.get("compatibility") == "structured_output" for r in subset)
-            summary.append(
-                [
-                    esc(method),
-                    str(len(subset)),
-                    str(called),
-                    str(structured),
-                    '<a href="results.html">' + lab[2] + "</a>",
-                ]
-            )
-        bodies["index"] = (
-            table(
-                [
-                    lab[15],
-                    message("planned_cases", lang),
-                    message("api_calls", lang),
-                    lab[12],
-                    lab[9],
-                ],
-                summary,
-                attrs='data-core-metrics="compatibility"',
-                pin_method=True,
-            )
-            + bodies["index"]
-        )
-        if not cohort:
-            bodies["index"] += operating_metrics(
-                methods, rows, model.get("prices", {}), lang, names, execution=configurations
-            )
-            bodies["accounts"] += price_table(methods, model.get("prices", {}), lang, names)
-        if cohort:
-            core, timings = cohort_metrics(
-                methods, rows, bindings, len(truth), lang, names, truth=truth
-            )
-            core = with_completion_columns(core, completion, methods, lang)
-            bodies["index"] = (
-                core
-                + report_metric_guide(lang, records=False)
-                + operating_metrics(methods, rows, model.get("prices", {}), lang, names,
-                                    execution=configurations)
-                + model["pages"].get("index", {}).get("body", {}).get(lang, "")
-            )
-            bodies["protocol"] += "<h2>" + (message("call_latency", lang)) + "</h2>" + timings
-            bodies["accounts"] += (
-                "<h2>"
-                + (message("prices_by_method", lang))
-                + "</h2>"
-                + price_table(methods, model.get("prices", {}), lang, names)
-            )
-        if audit:
-            review_body, interpretation_body = audit_explanation(
-                audit, rows, methods, names, lang, reference_view=completion["reference_view"] if completion else None, core_html=core if cohort else None,
-                authored_html=bodies["interpretation"],
-            )
-            bodies["review"] = review_body
-            bodies["interpretation"] = interpretation_body
-            bodies["index"] += (
-                '<p><a href="interpretation.html">'
-                + (message("read_the_interpretation", lang))
-                + '</a> · <a href="review.html">'
-                + (message("inspect_complete_audit_and_reference_changes", lang))
-                + "</a></p>"
-            )
-        resources = worker_resources(methods, rows, names, lang)
-        for route in ("index", "interpretation"):
-            bodies[route] += resources
-        if cohort:
-            if not audit:
-                interpretation_core = BeautifulSoup(core, "html.parser")
-                interpretation_core.table["data-interpretation-comparison"] = "true"
-                bodies["interpretation"] = str(interpretation_core) + bodies["interpretation"]
-            bodies["protocol"] += "<p>" + message("completion_protocol", lang) + "</p>"
-            bodies["protocol"] += (
-                "<h2>"
-                + (message("reported_usage", lang))
-                + "</h2>"
-                + usage_table(methods, rows, lang, names)
-            )
-            bodies["protocol"] += message(
-                "usage_comes_from_native_response_metadata_or_billing_headers_incl", lang
-            )
-        hr = []
-        fields = DECLARED
-        historical_fields = REPORTED
-        for method, scores in history["scores"].items():
-            cells = [esc(method)]
-            for field in historical_fields:
-                v = scores[field]["f1"]
-                best = max(s[field]["f1"] for s in history["scores"].values())
-                text = f"{v:.3f}"
-                if v == best:
-                    text = '<span class="comparison-winner">' + text + "</span>"
-                cells.append(f'<span data-history="{field}">{text}</span>')
-            hr.append(cells)
-        historical_names = [*lab[23:26], message("out_of_stock_f1", lang)]
-        headers = [
-            lab[15],
-            *[
-                f"{name}<br><small>{sum(bool(gt.get(field)) for gt in truth.values())}/{len(truth)} annotated</small>"
-                for name, field in zip(historical_names, historical_fields, strict=True)
-            ],
-        ]
-        if lang == "zh":
-            headers = [x.replace("annotated", message("annotated", lang)) for x in headers]
-        hist = table(headers, hr, attrs='data-history-table="true"', pin_method=True)
-        soup = BeautifulSoup(hist, "html.parser")
-        for row in soup.select("tbody tr"):
-            method = row.select_one("td").get_text()
-            for field, cell in zip(historical_fields, row.select("td")[1:], strict=True):
-                cell.attrs.update(
-                    {
-                        "data-metric": field,
-                        "data-metric-direction": "max",
-                        "data-sort": str(history["scores"][method][field]["f1"]),
-                    }
-                )
-        historical_title = message("historical_reproduction", lang, case_count=len(truth))
-        bodies["research" if cohort else "index"] += (
-            "<section><h2>" + historical_title + "</h2>" + str(soup) + "</section>"
-        )
-        dr = []
-        case_bodies = {}
-        pin = read_json(profile)["dataset"]
-        for cid, gt in sorted(truth.items()):
-            url = f"https://github.com/{pin['repository']}/blob/{pin['commit']}/dataset/html/{cid}.html.gz"
-            ref = {f: gt.get(f, []) for f in fields}
-            dr.append(
-                [
-                    f'<a href="source-{cid}.html"><code>{cid}</code></a>',
-                    f'<a href="{esc(gt["url"], quote=True)}">{esc(urlsplit(gt["url"]).netloc)}</a>',
-                    f'<a href="{url}">HTML.gz</a>',
-                    f"<details><summary>{lab[19]}</summary><pre>{esc(json.dumps(ref, ensure_ascii=False, indent=2))}</pre></details>",
-                ]
-            )
-            raw_html = (home / "dataset/html" / (cid + ".html")).read_text(encoding="utf-8")
-            source_soup = BeautifulSoup(raw_html, "html.parser")
-            structured = [
-                str(e)
-                for e in source_soup.select('script[type="application/ld+json"],meta[content]')
-            ]
-            outline = source_soup.get_text("\n", strip=True) + "\n\n" + "\n".join(structured)
-            source_body = (
-                f'<article data-source-case="{cid}"><p><code>{cid}</code></p>'
-                f'<p><a href="{esc(gt["url"], quote=True)}">{esc(gt["url"])}</a> · '
-                f'<a href="{url}">HTML.gz</a> · <a href="case-{cid}.html">'
-                + (message("compare_all_methods", lang))
-                + "</a></p>"
-                + (
-                    message(
-                        "original_annotations_follow_an_empty_array_contains_no_accepted_v", lang
-                    )
-                )
-                + "<pre data-source-reference>"
-                + esc(json.dumps(ref, ensure_ascii=False, indent=2))
-                + "</pre>"
-            )
-            image = model.get("source_screenshots", {}).get(cid)
-            if image:
-                source = content.parent / image["source"]
-                target = output / "source-images" / (cid + ".jpeg")
-                if source.is_symlink() or digest(source.read_bytes()) != image["sha256"]:
-                    raise ValueError("Source screenshot changed")
-                if not target.exists():
-                    target.parent.mkdir(exist_ok=True)
-                    target.write_bytes(source.read_bytes())
-                source_body += (
-                    "<details><summary>"
-                    + (message("author_screenshot_captured_before_html", lang))
-                    + "</summary>"
-                )
-                source_body += f'<figure><img class="source-screenshot" loading="lazy" src="../source-images/{cid}.jpeg" alt="'
-                source_body += (
-                    message("product_screenshot_saved_by_the_dataset_author", lang)
-                ) + '"><figcaption>'
-                source_body += (
-                    message(
-                        "the_author_captured_this_screenshot_before_the_html_snapshot_it_m", lang
-                    )
-                ) + "</figcaption></figure></details>"
-            if audit:
-                source_review = audit["sources"][cid]
-                source_body += (
-                    "<section data-source-audit><h2>"
-                    + (message("source_evidence_and_reference_audit", lang))
-                    + "</h2>"
-                )
-                source_body += table(
-                    message("field_audited_values_source_quote_reference_adjudication", lang),
-                    [
-                        [
-                            FIELD_LABELS[field][0 if lang == "zh" else 1],
-                            esc(
-                                json.dumps(
-                                    audit["audited_reference"][cid].get(field, []),
-                                    ensure_ascii=False,
-                                )
-                            ),
-                            "<blockquote>"
-                            + esc(source_review["source_fields"][field]["source_quote"])
-                            + "</blockquote>",
-                            esc(source_review["reference_review"][field]["reason"]),
-                        ]
-                        for field in fields
-                    ],
-                )
-                source_body += "</section>"
-            source_body += message(
-                "frozen_html_text_and_structured_data_includes_hidden_dom_text_not", lang
-            )
-            source_body += (
-                '<pre class="source-preview" data-source-outline>'
-                + esc(outline)
-                + "</pre></article>"
-            )
-            (directory / ("source-" + cid + ".html")).write_text(
-                page(
-                    lang,
-                    "dataset",
-                    (message("source_and_annotations", lang)) + cid[:12],
-                    source_body,
-                    detail=True,
-                    languages=languages,
-                    state=state,
-                ),
-                encoding="utf-8",
-            )
-            compared = []
-            case_rows = []
-            for method in methods:
-                row = next((r for r in rows if r["case_id"] == cid and r["method"] == method), None)
-                if row is None:
-                    continue
-                case_rows.append(row)
-                cells = [f'<a href="case-{cid}.html#{method}">{esc(names.get(method, method))}</a>']
-                for field in fields:
-                    result = row["field_results"][field]
-                    cells.append(
-                        '<span class="field-'
-                        + result["status"]
-                        + '">'
-                        + esc(json.dumps(result["actual"], ensure_ascii=False))
-                        + "</span><br><small>"
-                        + OUTCOMES[result["status"]][0 if lang == "zh" else 1]
-                        + "</small>"
-                    )
-                cells.extend(
-                    [
-                        esc(STAGES[row["failure_stage"]][0 if lang == "zh" else 1]),
-                        f"{row['elapsed_seconds']:.2f}"
-                        if row.get("elapsed_seconds") is not None
-                        else "—",
-                    ]
-                )
-                compared.append(cells)
-            case_body = (
-                f'<article data-same-case="{cid}"><p><a href="source-{cid}.html">'
-                + (message("source_and_annotations_a71c1ae7", lang))
-                + "</a></p>"
-            )
-            case_body += "<pre>" + esc(json.dumps(ref, ensure_ascii=False, indent=2)) + "</pre>"
-            case_body += (
-                table(
-                    [
-                        lab[15],
-                        *(message(label_key("field_labels", field), lang) for field in DECLARED),
-                        message("stage", lang),
-                        message("seconds", lang),
-                    ],
-                    compared,
-                    attrs='data-case-comparison="true" data-sortable',
-                    pin_method=True,
-                    sort_values={5: [row.get("elapsed_seconds") for row in case_rows]},
-                )
-                + "</article>"
-            )
-            case_bodies[cid] = case_body
-        bodies["dataset"] += table(
-            [lab[14], message("source", lang), message("snapshot", lang), lab[19]],
-            dr,
-            attrs="data-dataset-inventory data-sortable",
-            inventory=True,
-        )
-        bodies["dataset"] = dataset_controls(lang) + bodies["dataset"]
-        if distribution:
-            bodies["dataset"] = (
-                '<p data-dataset-distribution><a href="'
-                + esc(distribution["url"])
-                + '">'
-                + esc(
-                    message("download_pinned_dataset", lang, revision=distribution["revision"][:12])
-                )
-                + "</a></p>"
-                + bodies["dataset"]
-            )
-        inventory = []
-        for r in rows:
-            cid = r["case_id"]
-            key = r["method"] + "-" + cid
-            ok = r.get("compatibility") == "structured_output"
-            status = lab[12] if ok else lab[11]
-            url = f"case-{cid}.html#{r['method']}"
-            error = (
-                ""
-                if ok
-                else (r["native_error"] or message("no_recognizable_product_fields_returned", lang))
-            )
-            evidence = "../public-evidence/" + (r["method"] if cohort else key) + ".json"
-            evidence_key = f' data-key="{cid}"' if cohort else ""
-            detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p><code>{cid}</code></p></div>'
-            detail += (
-                f'<p class="case-links"><a href="case-{cid}.html">'
-                + (message("compare_all_methods", lang))
-                + f'</a><a href="source-{cid}.html">'
-                + (message("source_and_annotations_cf191383", lang))
-                + "</a></p>"
-            )
-            detail += (
-                (
-                    "<details><summary>"
-                    + message("original_field_judgments", lang)
-                    + "</summary>"
-                    + field_table(r, lang)
-                    + "</details>"
-                )
-                if r.get("review")
-                else field_table(r, lang)
-            )
-            if r.get("review"):
-                reviewed = {**r, "field_results": r["review"]["audited_fields"]}
-                detail += (
-                    "<section data-audited-result><h2>"
-                    + (message("field_diagnosis_after_reference_audit", lang))
-                    + "</h2>"
-                )
-                detail += (
-                    "<p>"
-                    + (
-                        message(
-                            "original_scores_remain_unchanged_this_diagnostic_uses_adjudicated",
-                            lang,
-                        )
-                    )
-                    + "</p>"
-                    + field_table(reviewed, lang).replace(
-                        'data-field-diagnostics="true"', 'data-audited-fields="true"'
-                    )
-                    + "</section>"
-                )
-            if r.get("review"):
-                findings = r["review"]
-                review_rows = []
-                for field, assessment in findings["reviewer_fields"].items():
-                    review_rows.append(
-                        [
-                            esc(field),
-                            esc(assessment["status"]),
-                            esc(assessment["reason"]),
-                            esc(assessment["source_quote"]),
-                            esc(findings["field_reconciliation"][field]["matcher_status"]),
-                        ]
-                    )
-                detail += (
-                    "<details data-reviewer-findings><summary>"
-                    + message("reviewer_findings", lang)
-                    + "</summary>"
-                )
-                detail += "<p>" + message("reviewer_reconciliation", lang) + "</p>"
-                detail += table(message("reviewer_findings_columns", lang), review_rows)
-                detail += "<p>" + esc(findings["reviewer_projection_issue"]) + "</p></details>"
-            if r.get("diagnosis") and r.get("compatibility") != "structured_output":
-                diagnosis = r["diagnosis"]
-                detail += (
-                    "<section data-reviewed-diagnosis><h2>"
-                    + (message("original_failure_and_treatment", lang))
-                    + "</h2><p>"
-                    + esc(diagnosis["cause"])
-                    + "</p><p>"
-                    + esc(diagnosis["treatment"])
-                    + "</p></section>"
-                )
-            if not ok:
-                detail += '<p data-failure-diagnosis>{part0}</p><details data-result-logs open><summary>{part1}</summary><pre data-kind="error">{part2}</pre></details>'.format(
-                    part0=message("no_scoreable_fields_returned_see_the_program_error_below", lang),
-                    part1=lab[21],
-                    part2=esc(error),
-                )
-            dialog_id = "evidence-" + r["method"]
-            detail += f'<p><button data-call-log-open="{dialog_id}" data-src="{evidence}"{evidence_key}>{message("developer_record", lang)}</button></p><dialog id="{dialog_id}" aria-labelledby="{dialog_id}-title"><h2 id="{dialog_id}-title">{message("developer_record", lang)}</h2><button data-call-log-close>{lab[10]}</button><pre></pre></dialog></article>'
-            case_bodies[cid] += (
-                f'<details data-result-panel id="{r["method"]}"><summary>'
-                + esc(names.get(r["method"], r["method"]))
-                + " · "
-                + status
-                + "</summary>"
-                + detail
-                + "</details>"
-            )
-            elapsed = f"{r['elapsed_seconds']:.2f}" if r.get("elapsed_seconds") is not None else "—"
-            field_cells = ""
-            outcomes = {
-                "correct": message("compact_outcome_correct", "zh"),
-                "missing": message("compact_outcome_missing", "zh"),
-                "unexpected": message("compact_outcome_unexpected", "zh"),
-                "wrong": message("compact_outcome_wrong", "zh"),
-            }
-            for field in fields:
-                outcome = r["field_results"][field]["status"]
-                field_cells += (
-                    f'<td><button class="field-button field-{outcome}" data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key} data-field="{field}">'
-                    + (outcomes[outcome] if lang == "zh" else outcome)
-                    + "</button></td>"
-                )
-            data_fields = " ".join(
-                f'data-{field.lower()}="{value["status"]}"'
-                for field, value in r["field_results"].items()
-            )
-            correct = all(v["status"] == "correct" for v in r["field_results"].values())
-            search = cid + " " + truth[cid]["url"] + " " + error
-            inventory.append(
-                f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}>{lab[9]}</button> · <a href="{url}">'
-                + (message("full_result", lang))
-                + "</a></td></tr>"
-            )
-        for cid, case_body in case_bodies.items():
-            (directory / ("case-" + cid + ".html")).write_text(
-                page(
-                    lang,
-                    "results",
-                    message("same_case_comparison", lang) + cid[:12],
-                    case_body,
-                    detail=True,
-                    languages=languages,
-                    state=state,
-                ),
-                encoding="utf-8",
-            )
-        if cohort:
-            observed = {(r["method"], r["case_id"]) for r in rows}
-            for method in methods:
-                for cid in sorted(truth):
-                    if (method, cid) not in observed:
-                        search = esc(cid + " " + truth[cid].get("url", ""), quote=True)
-                        inventory.append(
-                            f'<tr data-case="{cid}" data-status="pending" data-method="{method}" data-outcome="pending" data-search="{search}"'
-                            + "".join(
-                                " data-" + field + '="pending"' for field in (*FIELDS, *REPORTED_DERIVED)
-                            )
-                            + f"><td>{esc(names.get(method, method))}</td><td><code>{cid[:12]}</code></td><td>{message('not_executed', lang)}</td>"
-                            + "<td>—</td>" * 6
-                            + "</tr>"
-                        )
-        if not cohort:
-            bodies["index"] = report_metric_guide(lang, records=False) + bodies["index"]
-        bodies["results"] += (
-            result_controls(methods, rows, names, lang)
-            + '<div class="table-wrap inventory" tabindex="0"><table data-sortable data-method-column="true"><thead><tr>'
-            + "".join(
-                "<th>" + x + "</th>"
-                for x in [
-                    lab[15],
-                    lab[14],
-                    lab[16],
-                    *(message(label_key("field_labels", field), lang) for field in DECLARED),
-                    lab[17],
-                    lab[18],
-                    lab[9],
-                ]
-            )
-            + "</tr></thead><tbody>"
-            + "".join(inventory)
-            + "</tbody></table></div>"
-            + '<dialog id="diagnosis" aria-labelledby="diagnosis-title"><h2 id="diagnosis-title">'
-            + (message("field_and_call_evidence", lang))
-            + "</h2><button data-call-log-close>"
-            + lab[10]
-            + "</button><div data-diagnosis-body></div></dialog>"
-        )
-        for p in PAGES:
-            intro = authored_intro(model, p, lang)
-            if p == "interpretation":
-                bodies[p] = bind_model_tables(
-                    output, model.get("model_comparison"), lang, bodies[p])
-            rendered = page(
-                lang, p, titles[p], bodies[p], languages=languages, state=state, intro=intro
-            )
-            (directory / (p + ".html")).write_text(
-                rendered,
-                encoding="utf-8",
-            )
-            if intro:
-                page_intros[lang + "/" + p + ".html"] = page_intro_hash(rendered)
-    if "en" not in languages:
-        (output / "en").mkdir()
-        (output / "en/index.html").write_text(
-            message("english_not_generated_notice", "en"), encoding="utf-8"
-        )
-    (output / "index.html").write_text(
-        f'<!doctype html><html lang="{language}"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={language}/index.html"><title>Web Extract</title></head><body><a href="{language}/index.html">Web Extract</a></body></html>',
-        encoding="utf-8",
+    # Scope and observed current interfaces lead; historical scores remain separate.
+    methods = (
+        list(cohort_plan["participants"]) if cohort else sorted({r["method"] for r in rows})
     )
-    build_version = bind_build_version(output)
-    files = rendered_files(output)
     public_bindings, metadata_receipt = project_evidence_view(
         "public-evidence/metadata.json",
         json.dumps(bindings, ensure_ascii=False).encode(),
@@ -3703,25 +3370,34 @@ def _build_product(output, content, *, home, run, language, profile):
         content_format="json",
         host_names=publication_host_names(),
     )
-    save_json(
-        output / "report-manifest.json",
-        {
-            "template": template_record(state),
-            "page_intros": page_intros,
-            "model_comparison": model.get("model_comparison"),
-            "template_version": VERSION,
+    return ExtractEvidence(
+        output=output,
+        mode=state,
+        model=model,
+        content=content,
+        profile=profile,
+        home=home,
+        language=language,
+        languages=languages,
+        methods=methods,
+        labels=names,
+        truth=truth,
+        rows=rows,
+        prices=model.get("prices", {}),
+        audit=audit,
+        completion=completion,
+        input_profile=input_profile,
+        public_receipts=public_receipts,
+        observations=len(rows),
+        planned_methods=list(cohort_plan["participants"]) if cohort else None,
+        details={
+            "cohort": cohort,
+            "bindings": bindings,
+            "history": history,
+            "distribution": distribution,
+        },
+        manifest={
             "methods": methods,
-            "webstone": build_version,
-            **report_dependencies(),
-            "dataset_kind": "published-upstream"
-            if not read_json(profile).get("local_example", False)
-            else "local-example",
-            "mode": state,
-            "planned_methods": list(cohort_plan["participants"]) if cohort else None,
-            "method_labels": names,
-            "prices": model.get("prices", {}),
-            "method_examples": model.get("method_examples"),
-            "renderer_sha256": digest(Path(__file__).read_bytes()),
             "review": {
                 k: audit[k]
                 for k in (
@@ -3736,28 +3412,500 @@ def _build_product(output, content, *, home, run, language, profile):
             }
             if audit
             else None,
-            "required_review_scope": read_json(profile).get("independent_result_review_scope"),
             "audited_scores": audit.get("audited_scores") if audit else None,
             "completion_reference_exclusions": audit.get("excluded_fields", {}) if audit else {},
             "completion_audit": completion_audit,
-            "content_sha256": digest(content.read_bytes()) if content is not None else None,
-            "profile_sha256": digest(profile.read_bytes()),
-            "input_profile": input_profile,
-            "dataset_manifest_sha256": history["dataset_manifest_sha256"],
             "dataset_distribution": distribution,
-            "primary_language": language,
-            "languages": list(languages),
             "reference_populations": reference_populations(truth),
-            "case_count": len(truth),
-            "observations": len(rows),
             "source_runs": json.loads(public_bindings),
             "source_metadata_view": metadata_receipt,
-            "public_evidence_views": public_receipts,
-            "files": files,
         },
-        exclusive=True,
     )
-    _check_rendered_report(output)
+
+
+def _product_pages(evidence, lang, write):
+    """Compose one language edition of the product report from its evidence."""
+    output, model, rows, truth = evidence.output, evidence.model, evidence.rows, evidence.truth
+    names, audit, completion = evidence.labels, evidence.audit, evidence.completion
+    home, profile, content = evidence.home, evidence.profile, evidence.content
+    methods, cohort = evidence.methods, evidence.details["cohort"]
+    bindings, history = evidence.details["bindings"], evidence.details["history"]
+    distribution = evidence.details["distribution"]
+    lab = LABELS[lang]
+    bodies = {p: model["pages"].get(p, {}).get("body", {}).get(lang, "") for p in PAGES}
+    bodies["protocol"] += method_examples(output, model.get("method_examples"), lang)
+    configurations = selected_execution_contracts(bindings)
+    titles = {
+        p: model["pages"]
+        .get(p, {})
+        .get("title", {})
+        .get(lang, EXTRA_LABELS[p][lang] if p in EXTRA_LABELS else lab[i])
+        for i, p in enumerate(PAGES)
+    }
+    bodies["protocol"] += execution_settings(configurations, methods, names, lang)
+    summary = []
+    for method in methods:
+        subset = [r for r in rows if r["method"] == method]
+        called = sum(r["state"] in ("response_received", "call_error") for r in subset)
+        structured = sum(r.get("compatibility") == "structured_output" for r in subset)
+        summary.append(
+            [
+                esc(method),
+                str(len(subset)),
+                str(called),
+                str(structured),
+                '<a href="results.html">' + lab[2] + "</a>",
+            ]
+        )
+    bodies["index"] = (
+        table(
+            [
+                lab[15],
+                message("planned_cases", lang),
+                message("api_calls", lang),
+                lab[12],
+                lab[9],
+            ],
+            summary,
+            attrs='data-core-metrics="compatibility"',
+            pin_method=True,
+        )
+        + bodies["index"]
+    )
+    if not cohort:
+        bodies["index"] += operating_metrics(
+            methods, rows, model.get("prices", {}), lang, names, execution=configurations
+        )
+        bodies["accounts"] += price_table(methods, model.get("prices", {}), lang, names)
+    if cohort:
+        core, timings = cohort_metrics(
+            methods, rows, bindings, len(truth), lang, names, truth=truth
+        )
+        core = with_completion_columns(core, completion, methods, lang)
+        bodies["index"] = (
+            core
+            + report_metric_guide(lang, records=False)
+            + operating_metrics(methods, rows, model.get("prices", {}), lang, names,
+                                execution=configurations)
+            + model["pages"].get("index", {}).get("body", {}).get(lang, "")
+        )
+        bodies["protocol"] += "<h2>" + (message("call_latency", lang)) + "</h2>" + timings
+        bodies["accounts"] += (
+            "<h2>"
+            + (message("prices_by_method", lang))
+            + "</h2>"
+            + price_table(methods, model.get("prices", {}), lang, names)
+        )
+    if audit:
+        review_body, interpretation_body = audit_explanation(
+            audit, rows, methods, names, lang, reference_view=completion["reference_view"] if completion else None, core_html=core if cohort else None,
+            authored_html=bodies["interpretation"],
+        )
+        bodies["review"] = review_body
+        bodies["interpretation"] = interpretation_body
+        bodies["index"] += (
+            '<p><a href="interpretation.html">'
+            + (message("read_the_interpretation", lang))
+            + '</a> · <a href="review.html">'
+            + (message("inspect_complete_audit_and_reference_changes", lang))
+            + "</a></p>"
+        )
+    resources = worker_resources(methods, rows, names, lang)
+    for route in ("index", "interpretation"):
+        bodies[route] += resources
+    if cohort:
+        if not audit:
+            interpretation_core = BeautifulSoup(core, "html.parser")
+            interpretation_core.table["data-interpretation-comparison"] = "true"
+            bodies["interpretation"] = str(interpretation_core) + bodies["interpretation"]
+        bodies["protocol"] += "<p>" + message("completion_protocol", lang) + "</p>"
+        bodies["protocol"] += (
+            "<h2>"
+            + (message("reported_usage", lang))
+            + "</h2>"
+            + usage_table(methods, rows, lang, names)
+        )
+        bodies["protocol"] += message(
+            "usage_comes_from_native_response_metadata_or_billing_headers_incl", lang
+        )
+    hr = []
+    fields = DECLARED
+    historical_fields = REPORTED
+    for method, scores in history["scores"].items():
+        cells = [esc(method)]
+        for field in historical_fields:
+            v = scores[field]["f1"]
+            best = max(s[field]["f1"] for s in history["scores"].values())
+            text = f"{v:.3f}"
+            if v == best:
+                text = '<span class="comparison-winner">' + text + "</span>"
+            cells.append(f'<span data-history="{field}">{text}</span>')
+        hr.append(cells)
+    historical_names = [*lab[23:26], message("out_of_stock_f1", lang)]
+    headers = [
+        lab[15],
+        *[
+            f"{name}<br><small>{sum(bool(gt.get(field)) for gt in truth.values())}/{len(truth)} annotated</small>"
+            for name, field in zip(historical_names, historical_fields, strict=True)
+        ],
+    ]
+    if lang == "zh":
+        headers = [x.replace("annotated", message("annotated", lang)) for x in headers]
+    hist = table(headers, hr, attrs='data-history-table="true"', pin_method=True)
+    soup = BeautifulSoup(hist, "html.parser")
+    for row in soup.select("tbody tr"):
+        method = row.select_one("td").get_text()
+        for field, cell in zip(historical_fields, row.select("td")[1:], strict=True):
+            cell.attrs.update(
+                {
+                    "data-metric": field,
+                    "data-metric-direction": "max",
+                    "data-sort": str(history["scores"][method][field]["f1"]),
+                }
+            )
+    historical_title = message("historical_reproduction", lang, case_count=len(truth))
+    bodies["research" if cohort else "index"] += (
+        "<section><h2>" + historical_title + "</h2>" + str(soup) + "</section>"
+    )
+    dr = []
+    case_bodies = {}
+    pin = read_json(profile)["dataset"]
+    for cid, gt in sorted(truth.items()):
+        url = f"https://github.com/{pin['repository']}/blob/{pin['commit']}/dataset/html/{cid}.html.gz"
+        ref = {f: gt.get(f, []) for f in fields}
+        dr.append(
+            [
+                f'<a href="source-{cid}.html"><code>{cid}</code></a>',
+                f'<a href="{esc(gt["url"], quote=True)}">{esc(urlsplit(gt["url"]).netloc)}</a>',
+                f'<a href="{url}">HTML.gz</a>',
+                f"<details><summary>{lab[19]}</summary><pre>{esc(json.dumps(ref, ensure_ascii=False, indent=2))}</pre></details>",
+            ]
+        )
+        raw_html = (home / "dataset/html" / (cid + ".html")).read_text(encoding="utf-8")
+        source_soup = BeautifulSoup(raw_html, "html.parser")
+        structured = [
+            str(e)
+            for e in source_soup.select('script[type="application/ld+json"],meta[content]')
+        ]
+        outline = source_soup.get_text("\n", strip=True) + "\n\n" + "\n".join(structured)
+        source_body = (
+            f'<article data-source-case="{cid}"><p><code>{cid}</code></p>'
+            f'<p><a href="{esc(gt["url"], quote=True)}">{esc(gt["url"])}</a> · '
+            f'<a href="{url}">HTML.gz</a> · <a href="case-{cid}.html">'
+            + (message("compare_all_methods", lang))
+            + "</a></p>"
+            + (
+                message(
+                    "original_annotations_follow_an_empty_array_contains_no_accepted_v", lang
+                )
+            )
+            + "<pre data-source-reference>"
+            + esc(json.dumps(ref, ensure_ascii=False, indent=2))
+            + "</pre>"
+        )
+        image = model.get("source_screenshots", {}).get(cid)
+        if image:
+            source = content.parent / image["source"]
+            target = output / "source-images" / (cid + ".jpeg")
+            if source.is_symlink() or digest(source.read_bytes()) != image["sha256"]:
+                raise ValueError("Source screenshot changed")
+            if not target.exists():
+                target.parent.mkdir(exist_ok=True)
+                target.write_bytes(source.read_bytes())
+            source_body += (
+                "<details><summary>"
+                + (message("author_screenshot_captured_before_html", lang))
+                + "</summary>"
+            )
+            source_body += f'<figure><img class="source-screenshot" loading="lazy" src="../source-images/{cid}.jpeg" alt="'
+            source_body += (
+                message("product_screenshot_saved_by_the_dataset_author", lang)
+            ) + '"><figcaption>'
+            source_body += (
+                message(
+                    "the_author_captured_this_screenshot_before_the_html_snapshot_it_m", lang
+                )
+            ) + "</figcaption></figure></details>"
+        if audit:
+            source_review = audit["sources"][cid]
+            source_body += (
+                "<section data-source-audit><h2>"
+                + (message("source_evidence_and_reference_audit", lang))
+                + "</h2>"
+            )
+            source_body += table(
+                message("field_audited_values_source_quote_reference_adjudication", lang),
+                [
+                    [
+                        FIELD_LABELS[field][0 if lang == "zh" else 1],
+                        esc(
+                            json.dumps(
+                                audit["audited_reference"][cid].get(field, []),
+                                ensure_ascii=False,
+                            )
+                        ),
+                        "<blockquote>"
+                        + esc(source_review["source_fields"][field]["source_quote"])
+                        + "</blockquote>",
+                        esc(source_review["reference_review"][field]["reason"]),
+                    ]
+                    for field in fields
+                ],
+            )
+            source_body += "</section>"
+        source_body += message(
+            "frozen_html_text_and_structured_data_includes_hidden_dom_text_not", lang
+        )
+        source_body += (
+            '<pre class="source-preview" data-source-outline>'
+            + esc(outline)
+            + "</pre></article>"
+        )
+        write(lang, "dataset", (message("source_and_annotations", lang)) + cid[:12], source_body,
+              detail_file="source-" + cid)
+        compared = []
+        case_rows = []
+        for method in methods:
+            row = next((r for r in rows if r["case_id"] == cid and r["method"] == method), None)
+            if row is None:
+                continue
+            case_rows.append(row)
+            cells = [f'<a href="case-{cid}.html#{method}">{esc(names.get(method, method))}</a>']
+            for field in fields:
+                result = row["field_results"][field]
+                cells.append(
+                    '<span class="field-'
+                    + result["status"]
+                    + '">'
+                    + esc(json.dumps(result["actual"], ensure_ascii=False))
+                    + "</span><br><small>"
+                    + OUTCOMES[result["status"]][0 if lang == "zh" else 1]
+                    + "</small>"
+                )
+            cells.extend(
+                [
+                    esc(STAGES[row["failure_stage"]][0 if lang == "zh" else 1]),
+                    f"{row['elapsed_seconds']:.2f}"
+                    if row.get("elapsed_seconds") is not None
+                    else "—",
+                ]
+            )
+            compared.append(cells)
+        case_body = (
+            f'<article data-same-case="{cid}"><p><a href="source-{cid}.html">'
+            + (message("source_and_annotations_a71c1ae7", lang))
+            + "</a></p>"
+        )
+        case_body += "<pre>" + esc(json.dumps(ref, ensure_ascii=False, indent=2)) + "</pre>"
+        case_body += (
+            table(
+                [
+                    lab[15],
+                    *(message(label_key("field_labels", field), lang) for field in DECLARED),
+                    message("stage", lang),
+                    message("seconds", lang),
+                ],
+                compared,
+                attrs='data-case-comparison="true" data-sortable',
+                pin_method=True,
+                sort_values={5: [row.get("elapsed_seconds") for row in case_rows]},
+            )
+            + "</article>"
+        )
+        case_bodies[cid] = case_body
+    bodies["dataset"] += table(
+        [lab[14], message("source", lang), message("snapshot", lang), lab[19]],
+        dr,
+        attrs="data-dataset-inventory data-sortable",
+        inventory=True,
+    )
+    bodies["dataset"] = dataset_controls(lang) + bodies["dataset"]
+    if distribution:
+        bodies["dataset"] = (
+            '<p data-dataset-distribution><a href="'
+            + esc(distribution["url"])
+            + '">'
+            + esc(
+                message("download_pinned_dataset", lang, revision=distribution["revision"][:12])
+            )
+            + "</a></p>"
+            + bodies["dataset"]
+        )
+    inventory = []
+    for r in rows:
+        cid = r["case_id"]
+        key = r["method"] + "-" + cid
+        ok = r.get("compatibility") == "structured_output"
+        status = lab[12] if ok else lab[11]
+        url = f"case-{cid}.html#{r['method']}"
+        error = (
+            ""
+            if ok
+            else (r["native_error"] or message("no_recognizable_product_fields_returned", lang))
+        )
+        evidence = "../public-evidence/" + (r["method"] if cohort else key) + ".json"
+        evidence_key = f' data-key="{cid}"' if cohort else ""
+        detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p><code>{cid}</code></p></div>'
+        detail += (
+            f'<p class="case-links"><a href="case-{cid}.html">'
+            + (message("compare_all_methods", lang))
+            + f'</a><a href="source-{cid}.html">'
+            + (message("source_and_annotations_cf191383", lang))
+            + "</a></p>"
+        )
+        detail += (
+            (
+                "<details><summary>"
+                + message("original_field_judgments", lang)
+                + "</summary>"
+                + field_table(r, lang)
+                + "</details>"
+            )
+            if r.get("review")
+            else field_table(r, lang)
+        )
+        if r.get("review"):
+            reviewed = {**r, "field_results": r["review"]["audited_fields"]}
+            detail += (
+                "<section data-audited-result><h2>"
+                + (message("field_diagnosis_after_reference_audit", lang))
+                + "</h2>"
+            )
+            detail += (
+                "<p>"
+                + (
+                    message(
+                        "original_scores_remain_unchanged_this_diagnostic_uses_adjudicated",
+                        lang,
+                    )
+                )
+                + "</p>"
+                + field_table(reviewed, lang).replace(
+                    'data-field-diagnostics="true"', 'data-audited-fields="true"'
+                )
+                + "</section>"
+            )
+        if r.get("review"):
+            findings = r["review"]
+            review_rows = []
+            for field, assessment in findings["reviewer_fields"].items():
+                review_rows.append(
+                    [
+                        esc(field),
+                        esc(assessment["status"]),
+                        esc(assessment["reason"]),
+                        esc(assessment["source_quote"]),
+                        esc(findings["field_reconciliation"][field]["matcher_status"]),
+                    ]
+                )
+            detail += (
+                "<details data-reviewer-findings><summary>"
+                + message("reviewer_findings", lang)
+                + "</summary>"
+            )
+            detail += "<p>" + message("reviewer_reconciliation", lang) + "</p>"
+            detail += table(message("reviewer_findings_columns", lang), review_rows)
+            detail += "<p>" + esc(findings["reviewer_projection_issue"]) + "</p></details>"
+        if r.get("diagnosis") and r.get("compatibility") != "structured_output":
+            diagnosis = r["diagnosis"]
+            detail += (
+                "<section data-reviewed-diagnosis><h2>"
+                + (message("original_failure_and_treatment", lang))
+                + "</h2><p>"
+                + esc(diagnosis["cause"])
+                + "</p><p>"
+                + esc(diagnosis["treatment"])
+                + "</p></section>"
+            )
+        if not ok:
+            detail += '<p data-failure-diagnosis>{part0}</p><details data-result-logs open><summary>{part1}</summary><pre data-kind="error">{part2}</pre></details>'.format(
+                part0=message("no_scoreable_fields_returned_see_the_program_error_below", lang),
+                part1=lab[21],
+                part2=esc(error),
+            )
+        dialog_id = "evidence-" + r["method"]
+        detail += f'<p><button data-call-log-open="{dialog_id}" data-src="{evidence}"{evidence_key}>{message("developer_record", lang)}</button></p><dialog id="{dialog_id}" aria-labelledby="{dialog_id}-title"><h2 id="{dialog_id}-title">{message("developer_record", lang)}</h2><button data-call-log-close>{lab[10]}</button><pre></pre></dialog></article>'
+        case_bodies[cid] += (
+            f'<details data-result-panel id="{r["method"]}"><summary>'
+            + esc(names.get(r["method"], r["method"]))
+            + " · "
+            + status
+            + "</summary>"
+            + detail
+            + "</details>"
+        )
+        elapsed = f"{r['elapsed_seconds']:.2f}" if r.get("elapsed_seconds") is not None else "—"
+        field_cells = ""
+        outcomes = {
+            "correct": message("compact_outcome_correct", "zh"),
+            "missing": message("compact_outcome_missing", "zh"),
+            "unexpected": message("compact_outcome_unexpected", "zh"),
+            "wrong": message("compact_outcome_wrong", "zh"),
+        }
+        for field in fields:
+            outcome = r["field_results"][field]["status"]
+            field_cells += (
+                f'<td><button class="field-button field-{outcome}" data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key} data-field="{field}">'
+                + (outcomes[outcome] if lang == "zh" else outcome)
+                + "</button></td>"
+            )
+        data_fields = " ".join(
+            f'data-{field.lower()}="{value["status"]}"'
+            for field, value in r["field_results"].items()
+        )
+        correct = all(v["status"] == "correct" for v in r["field_results"].values())
+        search = cid + " " + truth[cid]["url"] + " " + error
+        inventory.append(
+            f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}>{lab[9]}</button> · <a href="{url}">'
+            + (message("full_result", lang))
+            + "</a></td></tr>"
+        )
+    for cid, case_body in case_bodies.items():
+        write(lang, "results", message("same_case_comparison", lang) + cid[:12], case_body,
+              detail_file="case-" + cid)
+    if cohort:
+        observed = {(r["method"], r["case_id"]) for r in rows}
+        for method in methods:
+            for cid in sorted(truth):
+                if (method, cid) not in observed:
+                    search = esc(cid + " " + truth[cid].get("url", ""), quote=True)
+                    inventory.append(
+                        f'<tr data-case="{cid}" data-status="pending" data-method="{method}" data-outcome="pending" data-search="{search}"'
+                        + "".join(
+                            " data-" + field + '="pending"' for field in (*FIELDS, *REPORTED_DERIVED)
+                        )
+                        + f"><td>{esc(names.get(method, method))}</td><td><code>{cid[:12]}</code></td><td>{message('not_executed', lang)}</td>"
+                        + "<td>—</td>" * 6
+                        + "</tr>"
+                    )
+    if not cohort:
+        bodies["index"] = report_metric_guide(lang, records=False) + bodies["index"]
+    bodies["results"] += (
+        result_controls(methods, rows, names, lang)
+        + '<div class="table-wrap inventory" tabindex="0"><table data-sortable data-method-column="true"><thead><tr>'
+        + "".join(
+            "<th>" + x + "</th>"
+            for x in [
+                lab[15],
+                lab[14],
+                lab[16],
+                *(message(label_key("field_labels", field), lang) for field in DECLARED),
+                lab[17],
+                lab[18],
+                lab[9],
+            ]
+        )
+        + "</tr></thead><tbody>"
+        + "".join(inventory)
+        + "</tbody></table></div>"
+        + '<dialog id="diagnosis" aria-labelledby="diagnosis-title"><h2 id="diagnosis-title">'
+        + (message("field_and_call_evidence", lang))
+        + "</h2><button data-call-log-close>"
+        + lab[10]
+        + "</button><div data-diagnosis-body></div></dialog>"
+    )
+    for p in PAGES:
+        write(lang, p, titles[p], bodies[p])
 
 
 def report_dependencies():
@@ -4892,10 +5040,8 @@ def record_preview(home, model, *, local_example, audit=False):
     return receipt
 
 
-def build_record_cohort(output, content, *, home, run, language, profile):
-    """Render registered record schemas through the shared report layout and controls."""
-    from collections import Counter
-
+def _assemble_record(output, content, *, home, run, language, profile):
+    """Verify a record cohort's evidence and publish its public views."""
     from harness.web_extract.dataset import benchmark_config
 
     require_external_output(output)
@@ -5039,29 +5185,82 @@ def build_record_cohort(output, content, *, home, run, language, profile):
     )
     (output / "public-evidence/sources.json").write_bytes(source_raw)
     public_receipts.append(source_receipt)
+    preview_snapshot = record_preview(
+        home, model, local_example=bound_profile.get("local_example", False)
+    )
+    dataset_manifest = read_json(home / "dataset/manifest.json")
+    return ExtractEvidence(
+        output=output,
+        mode="field-extraction-cohort",
+        model=model,
+        content=content,
+        profile=profile,
+        home=home,
+        language=language,
+        languages=("zh",),
+        methods=methods,
+        labels=labels,
+        truth=truth,
+        rows=[row for m in methods for row in data["methods"][m]["results"].values()],
+        prices=prices,
+        audit=data["audit"],
+        completion=completion,
+        input_profile=input_profile,
+        public_receipts=public_receipts,
+        observations=sum(s["executed"] for s in stats.values()),
+        planned_methods=methods,
+        title=title,
+        site_prefix=site_prefix,
+        page_options={
+            "navigation": model.get("navigation"),
+            "notice": t("reviewed_notice") if audit_binding else None,
+        },
+        details={
+            "data": data,
+            "stats": stats,
+            "compared": compared,
+            "skipped": skipped,
+            "scoring_truth": scoring_truth,
+            "audit_binding": audit_binding,
+            "adapter": adapter,
+            "preview_snapshot": preview_snapshot,
+        },
+        manifest={
+            **({"site_prefix": site_prefix} if site_prefix else {}),
+            "local_example": bound_profile.get("local_example", False),
+            "dataset_benchmark": dataset_manifest.get("benchmark"),
+            "dataset_input_mode": dataset_manifest.get("input_mode", "snapshot"),
+            "comparison_methods": compared,
+            "skipped_methods": skipped,
+            "navigation": model.get("navigation"),
+            "preview_snapshot": preview_snapshot,
+            "complete_methods": [m for m in methods if stats[m]["certified"]],
+            "metrics_sha256": digest((output / "data/metrics.json").read_bytes()),
+            "audit": audit_binding,
+            "reference_policy": data["reference_policy"],
+        },
+    )
+
+
+def _record_pages(evidence, language, writer):
+    """Compose the record cohort report from its evidence."""
+    output, model, home, truth = evidence.output, evidence.model, evidence.home, evidence.truth
+    methods, labels, prices = evidence.methods, evidence.labels, evidence.prices
+    completion, title = evidence.completion, evidence.title
+    data, stats = evidence.details["data"], evidence.details["stats"]
+    compared, skipped = evidence.details["compared"], evidence.details["skipped"]
+    scoring_truth, adapter = evidence.details["scoring_truth"], evidence.details["adapter"]
+    audit_binding = evidence.details["audit_binding"]
+    preview_snapshot = evidence.details["preview_snapshot"]
+
+    def t(key):
+        return message("records_" + key, language)
 
     def route_link(route, label):
         return '<a href="' + route + '.html">' + esc(label) + "</a>"
 
-    page_intros = {}
-
     def write(route, heading, body):
-        intro = authored_intro(model, route, language) if route in PAGES else ""
-        if route == "interpretation":
-            body = bind_model_tables(output, model.get("model_comparison"), language, body)
-        rendered = page(
-            language, route, heading, body, detail=route not in PAGES,
-            languages=("zh",), state="field-extraction-cohort",
-            navigation=model.get("navigation"),
-            notice=t("reviewed_notice") if audit_binding else None, intro=intro,
-            site_prefix=site_prefix,
-        )
-        (output / "zh" / (route + ".html")).write_text(
-            rendered,
-            encoding="utf-8",
-        )
-        if intro:
-            page_intros[language + "/" + route + ".html"] = page_intro_hash(rendered)
+        writer(language, route, heading, body)
 
     def value(value):
         return esc(json.dumps(value, ensure_ascii=False))
@@ -5330,13 +5529,10 @@ def build_record_cohort(output, content, *, home, run, language, profile):
         + '"></form><p data-result-count></p>'
     )
     inventory_rows = []
-    preview_snapshot = record_preview(
-        home, model, local_example=bound_profile.get("local_example", False)
-    )
     snapshot_base = preview_snapshot.get("fixture_base")
     for cid, ref in sorted(truth.items()):
         data_route, comparison = record_route("d", cid), record_route("c", cid)
-        schema = benchmark_config(home)["adapter"].task_schema(home, ref)
+        schema = adapter.task_schema(home, ref)
         source = (
             '<article data-source-case="'
             + esc(cid)
@@ -5689,74 +5885,6 @@ def build_record_cohort(output, content, *, home, run, language, profile):
             ),
             bodies[route],
         )
-    (output / "en/index.html").write_text(
-        scope_record_html(message("english_not_generated_notice", "en"), site_prefix),
-        encoding="utf-8",
-    )
-    entry = (site_prefix + "/" if site_prefix else "") + "zh/index.html"
-    entry_base = '<base href="../">' if site_prefix else ""
-    (output / "index.html").write_text(
-        "<!doctype html><html><head>"
-        + entry_base
-        + '<meta http-equiv="refresh" content="0;url='
-        + entry
-        + '"></head><body><a href="'
-        + entry
-        + '">'
-        + esc(title)
-        + "</a></body></html>",
-        encoding="utf-8",
-    )
-    version = bind_build_version(output)
-    files = rendered_files(output)
-    save_json(
-        output / "report-manifest.json",
-        {
-            "mode": "field-extraction-cohort",
-            **({"site_prefix": site_prefix} if site_prefix else {}),
-
-            "page_intros": page_intros,
-            "model_comparison": model.get("model_comparison"),
-            **report_dependencies(),
-            "local_example": bound_profile.get("local_example", False),
-            "dataset_kind": "local-example"
-            if bound_profile.get("local_example", False)
-            else "published-upstream",
-            "input_profile": input_profile,
-            "template": template_record("field-extraction-cohort"),
-            "template_version": VERSION,
-            "webstone": version,
-            "renderer_sha256": digest(Path(__file__).read_bytes()),
-            "profile_sha256": digest(profile.read_bytes()),
-            "content_sha256": digest(content.read_bytes()),
-            "dataset_manifest_sha256": digest((home / "dataset/manifest.json").read_bytes()),
-            "dataset_benchmark": read_json(home / "dataset/manifest.json").get("benchmark"),
-            "dataset_input_mode": read_json(home / "dataset/manifest.json").get(
-                "input_mode", "snapshot"
-            ),
-            "primary_language": "zh",
-            "languages": ["zh"],
-            "planned_methods": methods,
-            "comparison_methods": compared,
-            "skipped_methods": skipped,
-            "method_labels": labels,
-            "navigation": model.get("navigation"),
-            "method_examples": model.get("method_examples"),
-            "preview_snapshot": preview_snapshot,
-            "prices": prices,
-            "case_count": len(truth),
-            "observations": sum(s["executed"] for s in stats.values()),
-            "complete_methods": [m for m in methods if stats[m]["certified"]],
-            "metrics_sha256": digest((output / "data/metrics.json").read_bytes()),
-            "public_evidence_views": public_receipts,
-            "audit": audit_binding,
-            "reference_policy": data["reference_policy"],
-            "required_review_scope": bound_profile.get("independent_result_review_scope"),
-            "files": files,
-        },
-        exclusive=True,
-    )
-    _check_rendered_report(output)
 
 
 def _check_record_cohort(output, *, release=False, visual_receipt=None):
@@ -6230,13 +6358,13 @@ def _check_suite(output, *, release=False, visual_receipt=None):
 
 # Resolved at call time so a composed report and its tests reach the current hooks.
 _PRODUCT_SHAPE = ReportShape(
-    build=lambda *args, **kwargs: _build_product(*args, **kwargs),
+    build=lambda *args, **kwargs: render(PRODUCT_BODY, *args, **kwargs),
     check=lambda *args, **kwargs: _check_product(*args, **kwargs),
 )
 for _mode in ("compatibility", "full-cohort-progress"):
     REPORT_SHAPES.register(_mode, _PRODUCT_SHAPE)
 REPORT_SHAPES.register("field-extraction-cohort", ReportShape(
-    build=lambda *args, **kwargs: build_record_cohort(*args, **kwargs),
+    build=lambda *args, **kwargs: render(RECORD_BODY, *args, **kwargs),
     check=lambda *args, **kwargs: _check_record_cohort(*args, **kwargs),
 ))
 REPORT_SHAPES.register("field-extraction-suite", ReportShape(
