@@ -6135,6 +6135,138 @@
       "capabilities": {
         "scope": "POST https://api.anthropic.com/v1/messages"
       }
+    },
+    "firecrawl-local": {
+      "label": {
+        "en": "Firecrawl Local",
+        "zh": "Firecrawl Local"
+      },
+      "kind": "adapter",
+      "source_url": "https://github.com/firecrawl/firecrawl/tree/main/apps/local",
+      "adapter_types": [],
+      "label_template": "{label} {version}",
+      "profile": {
+        "kind": {
+          "en": "Local Rust service",
+          "zh": "本地 Rust 服务"
+        },
+        "description": {
+          "en": "Native local web fetching with automatic HTTP/browser selection. Cloud fallback is a configurable product option.",
+          "zh": "本地抓取网页，由产品自动选择 HTTP 或浏览器；云端回退是可配置选项。"
+        }
+      },
+      "report": {
+        "contract": {
+          "en": "Known URL → native Markdown and links",
+          "zh": "已知 URL → 原生 Markdown 和链接"
+        },
+        "endpoint": "POST <local-service>/v2/scrape",
+        "freshness": {
+          "en": "Native local fetching; cloud use is selected by FIRECRAWL_CLOUD at startup.",
+          "zh": "本地获取网页；是否使用云端由启动时的 FIRECRAWL_CLOUD 决定。"
+        },
+        "configuration": {
+          "en": "Local natively produces Markdown and links. Output selection and content scope follow saved requests; startup cloud/browser settings are documented in the report reproduction settings. Hosted-only parameters are not assumed to work locally.",
+          "zh": "Local 原生生成 Markdown 和链接。输出格式、内容范围以保存的请求为准，启动时的云端和浏览器配置见环境与复现。不会把云端 API 参数当成本地有效参数。"
+        },
+        "pricing_anchor": "method-guide-pricing"
+      },
+      "access": {
+        "account": {
+          "en": "No cloud account required for local-only fetching",
+          "zh": "仅本地抓取不需要云端账号"
+        },
+        "env_vars": [
+          "FIRECRAWL_CLOUD",
+          "FIRECRAWL_LOCAL_BROWSER",
+          "FIRECRAWL_CHROME_PATH"
+        ],
+        "configuration": {
+          "en": "Run the official Local binary. Chrome is discovered automatically or selected with FIRECRAWL_CHROME_PATH; cloud access is optional.",
+          "zh": "运行官方 Local 程序。Chrome 可自动寻找，也可用 FIRECRAWL_CHROME_PATH 指定；云端访问为可选项。"
+        },
+        "links": [
+          [
+            "Source",
+            "https://github.com/firecrawl/firecrawl/tree/main/apps/local"
+          ]
+        ]
+      },
+      "interface": {
+        "entry": "POST <local-service>/v2/scrape",
+        "auth": {
+          "en": "Local server authentication depends on its listen/token settings; cloud credentials are separate.",
+          "zh": "本地服务认证取决于监听和 token 设置；云端凭据单独配置。"
+        },
+        "params": [
+          [
+            "url",
+            "string",
+            {
+              "en": "Target URL",
+              "zh": "目标网址"
+            }
+          ],
+          [
+            "formats",
+            "array",
+            "markdown, links"
+          ],
+          [
+            "onlyMainContent",
+            "boolean",
+            {
+              "en": "Select main content or the full page",
+              "zh": "选择主体内容或完整网页"
+            }
+          ]
+        ],
+        "fields": [
+          [
+            "data.markdown",
+            "string",
+            {
+              "en": "Native Markdown",
+              "zh": "产品生成的 Markdown"
+            }
+          ],
+          [
+            "data.links",
+            "array",
+            {
+              "en": "Native links",
+              "zh": "产品提取的链接"
+            }
+          ],
+          [
+            "data.metadata",
+            "object",
+            {
+              "en": "Native response metadata",
+              "zh": "原生响应元数据"
+            }
+          ]
+        ],
+        "request": {
+          "url": "https://example.com/",
+          "formats": [
+            "markdown",
+            "links"
+          ],
+          "onlyMainContent": false
+        },
+        "source": "https://github.com/firecrawl/firecrawl/tree/main/apps/local",
+        "notes": {
+          "en": "This is an interface example. The recorded run owns cloud mode, address policy, waiting, deadlines and retries.",
+          "zh": "这里是接口示例；云端模式、地址限制、等待、超时和重试以本次运行记录为准。"
+        }
+      },
+      "runtime_engines": [
+        "local-fetch",
+        "local-browser",
+        "local-pdf",
+        "local-document"
+      ]
     }
   },
   "sources": {

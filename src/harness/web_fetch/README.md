@@ -1628,6 +1628,20 @@ suite), the same selected cases and one result per method and case, and writes
 specification. Optional keys stay unset; add them by hand when needed. Ordinary runs
 carry their transport evidence in the hash-bound public call log.
 
+When composing `saved_reports`, set `retain_source_reviews: true` to keep each
+source's review page and protocol under its own method labels in the combined
+review page. This preserves prior review coverage without assigning it to newly
+added methods; the original source pages remain bound evidence.
+For already published snapshots, `frozen_sources: true` verifies the complete
+file inventories and pinned audit hashes using the published-extension boundary,
+rather than applying a newer acquisition or rendering contract to historical
+sources. This mode retains historical scores and supports audit presentation;
+it does not grant final certification.
+`retain_source_task_contracts: true` additionally retains each frozen result's
+own task rules when URL, task name and deliverable kind match across editions.
+It requires frozen-source audit mode; differing task rules are not rewritten or
+presented as a common-scoring certification.
+
 The specification may bind `result_review` with an explicit path and SHA-256.
 It must use the shared result-review schema, bind the projected dataset and
 results, and include validated coverage counts. The builder checks the review
@@ -1852,3 +1866,24 @@ hash from the exact ordered source list in that revision's `scoring.py` and
 verify the projection source hash. A matching saved output alone is insufficient.
 The source-bound replay and rejection controls are in
 `tests/test_native_answer_projection.py`.
+
+### Firecrawl Local
+
+The `firecrawl-local` entry in `configs/providers.example.json` uses the existing
+Firecrawl adapter against a separately started official Local service. It requests
+native Markdown and links for every task kind, with full-page content, and omits
+unsupported cloud request fields. `max_age: null` omits `maxAge`; this cannot change
+Local's own cache behavior. The adapter does not synthesize missing native outputs.
+
+For a local-only service, start the official binary with:
+
+```bash
+FIRECRAWL_CLOUD=off FIRECRAWL_LOCAL_BROWSER=auto firecrawl-local serve --host 127.0.0.1 --port 3002
+```
+
+Service environment settings belong to that process; the provider JSON alone does
+not disable cloud fallback. Leave `FIRECRAWL_LOCAL_SCROLL` unset, omit `actions`
+and `waitFor`, and omit `--allow-private` for the default public-target policy.
+Local uses system DNS and automatically discovers an installed browser. Browser
+rendering is a product fetch capability; this configuration supplies no scripted
+browser interactions. Freeze timeouts, retries and concurrency in the run plan.

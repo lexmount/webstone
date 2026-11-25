@@ -1277,3 +1277,82 @@ def test_extension_preserves_each_source_review_scope(tmp_path):
     assert check_published_extension(output)['valid']
     assert (output/'extension-base-pages/review/index.html').read_bytes() == originals[0]
     assert (output/'additional/review/index.html').read_bytes() == originals[1]
+
+
+def test_composition_retains_source_review_pages_under_shared_navigation(tmp_path):
+    from bs4 import BeautifulSoup
+    spec_path, entries = reports(tmp_path)
+    spec = json.loads(spec_path.read_bytes())
+    spec['retain_source_reviews'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    page = BeautifulSoup((output/'review/index.html').read_text(), 'html.parser')
+    sections = page.select('[data-source-review]')
+    assert len(sections) == 2
+    for index, (section, entry) in enumerate(zip(sections, entries, strict=True)):
+        original = BeautifulSoup((Path(entry['root'])/'review/index.html').read_text(), 'html.parser')
+        assert f'method-{index}' in section.h2.get_text()
+        for paragraph in original.select('main p'):
+            assert paragraph.get_text(' ', strip=True) in section.get_text(' ', strip=True)
+    (output/'review/index.html').write_text('<html><main>Missing source review scopes</main></html>')
+    with pytest.raises(ValueError):
+        check_saved_matrix(output)
+
+
+
+def test_frozen_source_composition_accepts_published_audit_and_rejects_changed_bytes(tmp_path):
+    spec_path, entries = reports(tmp_path)
+    source = Path(entries[0]['root'])
+    audit = source/'saved-matrix-audit.json'
+    original = json.loads(audit.read_bytes())
+    binding = write(audit, {'files': original['files']})
+    spec = json.loads(spec_path.read_bytes())
+    spec['saved_reports'][0]['audit'] = binding
+    spec['frozen_sources'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    (source/'index.html').write_text('changed frozen source')
+    with pytest.raises(ValueError, match='Frozen report file changed'):
+        build_saved_matrix(spec_path, tmp_path/'changed')
+
+
+
+def test_frozen_revision_stays_source_history_without_inventing_private_attachments(tmp_path):
+    spec_path, entries = reports(tmp_path)
+    source = Path(entries[0]['root'])
+    model = json.loads((source/'matrix.json').read_bytes())
+    model['rows'][0]['score_revision'] = {'receipt_path': 'historical-revision.json'}
+    matrix = write(source/'matrix.json', model)
+    revision = write(source/'historical-revision.json', {'review_files': {'private': 'private-unpublished.json'}})
+    audit = json.loads((source/'saved-matrix-audit.json').read_bytes())
+    audit['files']['matrix.json'] = matrix['sha256']
+    audit['files']['historical-revision.json'] = revision['sha256']
+    audit_binding = write(source/'saved-matrix-audit.json', {'files': audit['files']})
+    spec = json.loads(spec_path.read_bytes())
+    spec['saved_reports'][0]['audit'] = audit_binding
+    spec['frozen_sources'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    current = json.loads((output/'matrix.json').read_bytes())
+    row = current['rows'][0]
+    assert row['source_score_revision']['receipt_path'].endswith('/historical-revision.json')
+    assert 'score_revision' not in row and current['scores_changed'] is True
+    assert not (output/'private-unpublished.json').exists()
+
+
+
+def test_frozen_comparison_keeps_each_saved_task_contract(tmp_path):
+    spec_path, entries = reports(tmp_path, different_task=True)
+    spec = json.loads(spec_path.read_bytes())
+    spec.update(frozen_sources=True, retain_source_task_contracts=True)
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    records = [json.loads(line) for line in (output/'results.jsonl').read_text().splitlines()]
+    assert json.loads((output/records[1]['report_source_case_path']).read_bytes())['expected_any'] == ['different']
+    assert json.loads((output/records[0]['report_source_case_path']).read_bytes())['expected_any'] != ['different']
+    assert all('report_source_case' not in record for record in records)
+    assert all(row['passed'] for row in json.loads((output/'matrix.json').read_bytes())['rows'])

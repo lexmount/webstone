@@ -140,7 +140,12 @@ def report_method(name, record=None, *, language="zh", scope):
     record = record or scope.records.get(name, {})
     metadata = record.get("provider_metadata") or {}
     if metadata.get("engine"):
-        return methods.get(metadata["engine"], {})
+        if metadata["engine"] in methods:
+            return methods[metadata["engine"]]
+        named = methods.get(name, {})
+        if metadata["engine"] in named.get("runtime_engines", []):
+            return named
+        return {}
     execution = browser_method_registry(scope=scope).get(name, {})
     for key in (execution.get("engine"), name):
         if key in methods:
@@ -385,8 +390,8 @@ def method_page_model(name: str, label: str, records: list[dict[str, Any]], *, l
     if not records:
         raise ValueError("method page requires at least one record")
     info = method_info(records[0].get("provider_type", ""), language=language)
-    report = info.get("report", {})
     registered = report_method(name, records[0], language=language, scope=scope)
+    report = {**info.get("report", {}), **registered.get("report", {})}
     versions = {method_version(row, language=language, scope=scope) for row in records}
     title = label
     if len(versions) == 1 and None not in versions:
@@ -395,9 +400,9 @@ def method_page_model(name: str, label: str, records: list[dict[str, Any]], *, l
             title = versioned_method_label(registered, label, version)
     model = {
         "title": title,
-        "contract": info["contract"],
-        "endpoint": info["endpoint"],
-        "freshness": info["freshness"],
+        "contract": report.get("contract", info["contract"]),
+        "endpoint": report.get("endpoint", info["endpoint"]),
+        "freshness": report.get("freshness", info["freshness"]),
         "configuration": report.get(
             "configuration",
             report_method_catalog(language)["messages"]["configuration_default"],

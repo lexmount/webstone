@@ -2250,3 +2250,51 @@ def test_family_rerun_compares_native_requests_by_input_class():
     assert all(d['selected_new'] for d in _parameter_group_decisions(inputs, candidates).values())
     inputs['parameter_settings'][keys[1]]['candidate'][0]['dns_mode'] = 'different'
     assert not any(d['selected_new'] for d in _parameter_group_decisions(inputs, candidates).values())
+
+
+def test_scored_http_operation_paths_are_source_content_not_host_paths():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    def record(path):
+        return {'metrics': {'stable_records': [{'fields': {'method': 'GET', 'path': path}}]}}
+    _require_public_json(record('/pet/{petId}'))
+    for path in ['/Users/private/run', '//internal-host/file']:
+        with pytest.raises(ValueError, match='private content'):
+            _require_public_json(record(path))
+    with pytest.raises(ValueError, match='private content'):
+        _require_public_json({'provider_metadata': {'method': 'GET', 'path': '/pet'}})
+
+
+
+def test_page_path_must_match_a_public_web_canonical_url():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    _require_public_json({'canonical_url': 'https://example.test/docs', 'page_path': '/docs'})
+    for value in [
+        {'canonical_url': 'file:///docs', 'page_path': '/docs'},
+        {'canonical_url': 'https://example.test/docs', 'page_path': '/other'},
+        {'canonical_url': 'https://example.test/Users/private/run', 'page_path': '/Users/private/run'},
+    ]:
+        with pytest.raises(ValueError, match='private content'):
+            _require_public_json(value)
+
+
+
+@pytest.mark.parametrize("field,value", [
+    ("frozen_source_prefixes", ["sources"]),
+    ("retain_source_task_contracts", True),
+])
+def test_plain_matrix_rejects_forged_frozen_source_exceptions(report, field, value):
+    output, _ = report
+    matrix = output / 'matrix.json'
+    audit_path = output / 'saved-matrix-audit.json'
+    original, original_audit = matrix.read_bytes(), audit_path.read_bytes()
+    try:
+        model = json.loads(original)
+        model[field] = value
+        audit = json.loads(original_audit)
+        audit['files']['matrix.json'] = write(matrix, model)['sha256']
+        write(audit_path, audit)
+        with pytest.raises(ValueError, match='require a verified composition'):
+            check_saved_matrix(output)
+    finally:
+        matrix.write_bytes(original)
+        audit_path.write_bytes(original_audit)

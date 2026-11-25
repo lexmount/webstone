@@ -835,7 +835,7 @@ def result_view(record, *, ctx):
 
 def result_case(record,fallback, *, ctx):
  """Keep each saved result's own rules separate from its comparison identity."""
- return result_view(record, ctx=ctx).get('case',fallback)
+ return result_view(record, ctx=ctx).get('case',record.get('report_source_case') or fallback)
 
 def result_href(record,kind,base='', *, ctx):
  """Resolve a retained evidence route relative to the report root."""

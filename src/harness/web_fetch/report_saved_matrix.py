@@ -66,18 +66,30 @@ def _require_public_json(receipt, *, label="Missing receipt"):
     from harness.reporting.publication_privacy import publication_risk
     risk = publication_risk(json_bytes(receipt))
 
-    def local_path(value):
+    def local_path(value, path=()):
         if isinstance(value, dict):
             # Task rules and their provenance pair entry_path with hosts to
             # describe a web route. It is not an evidence-file location; the shared privacy
             # scan above still rejects actual home paths and secrets there.
             web_route = (isinstance(value.get('hosts'), list) and bool(value['hosts'])
                          and all(isinstance(host, str) and host for host in value['hosts']))
-            return any((key.endswith('path') and not (key == 'entry_path' and web_route) and isinstance(item, str)
+            operation_route = (tuple('*' if isinstance(part, int) else part for part in path)
+                               == ('metrics', 'stable_records', '*', 'fields')
+                               and value.get('method') in ('GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE', 'CONNECT'))
+            try:
+                canonical = urlsplit(value.get('canonical_url') or '') if isinstance(value.get('canonical_url'), str) else None
+            except ValueError:
+                canonical = None
+            page_route = bool(canonical and canonical.scheme in {'http', 'https'} and canonical.hostname)
+            return any((key.endswith('path') and not (key == 'entry_path' and web_route)
+                        and not (key == 'page_path' and page_route and item == canonical.path)
+                        and not (key == 'path' and operation_route and isinstance(item, str)
+                                 and item.startswith('/') and not item.startswith('//') and chr(92) not in item)
+                        and isinstance(item, str)
                         and (item.startswith(('/', '~', '\\')) or re.match(r'^[A-Za-z]:', item)))
-                       or local_path(item) for key, item in value.items())
+                       or local_path(item, (*path, key)) for key, item in value.items())
         if isinstance(value, list):
-            return any(local_path(item) for item in value)
+            return any(local_path(item, (*path, index)) for index, item in enumerate(value))
         return False
 
     if risk or local_path(receipt):
@@ -1783,11 +1795,34 @@ def _record_public_views(source, record, case, approved_policies=None):
     return views
 
 
-def _display_record_bytes(settings, name, raw):
+def project_record_diagnostics(name, data, *, case=None, answer=None):
+    """Project saved URL fields only when the original task verdict survives."""
+    from harness.reporting.publication_privacy import project_result_diagnostics
+    def validate(before, after, paths):
+        allowed = {('provider_metadata', 'links', '*'),
+                   ('metrics', 'stable_records', '*', 'fields', 'url'), ('final_url',)}
+        if any(tuple('*' if isinstance(part, int) else part for part in path) not in allowed for path in paths):
+            raise ValueError('Public result diagnostics would change non-diagnostic authority')
+        from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
+        if before['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256:
+            raise ValueError('Changed native URL view requires its bound scoring version')
+        metrics = score_attempt(case, answer, ok=before['ok'], status_code=before.get('status_code'),
+            metadata=after.get('provider_metadata'), previous_metrics=before['metrics'],
+            title=after.get('title'), final_url=after.get('final_url'))
+        kind = case.get('task_kind', 'body')
+        if task_passed(before['ok'], metrics, kind) != task_passed(before['ok'], before['metrics'], kind):
+            raise ValueError('Public native URL projection changes task acceptance')
+    return project_result_diagnostics(name, data,
+        validate_additional=validate if case is not None and answer is not None else None)
+
+
+def _display_record_bytes(settings, name, raw, *, case=None, root=None):
     if not settings.get('public_evidence_views'):
         return raw
-    from harness.reporting.publication_privacy import project_result_diagnostics
-    return project_result_diagnostics(name, raw)[0]
+    record = json.loads(raw)
+    answer = (contained_path(root, record['artifact_path']).read_bytes()
+              if root is not None and record.get('artifact_path') else None)
+    return project_record_diagnostics(name, raw, case=case, answer=answer)[0]
 
 
 def _require_public_fixed_selection(inputs, candidates, adoptions):
@@ -1845,8 +1880,8 @@ def _materialize_record_public_views(source, destination, record, case, original
                    'provider_calls_added': 0, 'files': files})
     _write(destination / 'presentation-binding.json',
            {'publication_evidence_views': {'path': index.name, 'sha256': _sha(index)}})
-    from harness.reporting.publication_privacy import project_result_diagnostics
-    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    public_record, receipt = project_record_diagnostics(record_name, original_record,
+        case=case, answer=(destination / record['artifact_path']).read_bytes())
     if receipt:
         target = destination/record_name
         if target.read_bytes() != original_record:
@@ -1884,8 +1919,8 @@ def _validate_record_public_views(source, destination, record, case, original_re
                          'view_receipt': {'path': name, 'sha256': _sha(destination/name)}})
     if index != {'kind': 'post_score_public_evidence_view_inventory', 'provider_calls_added': 0, 'files': expected}:
         raise ValueError('Public evidence view inventory differs from original sources')
-    from harness.reporting.publication_privacy import project_result_diagnostics
-    public_record, receipt = project_result_diagnostics(record_name, original_record)
+    public_record, receipt = project_record_diagnostics(record_name, original_record,
+        case=case, answer=(destination / record['artifact_path']).read_bytes())
     path = destination/'result-diagnostics-view.json'
     if ((destination/record_name).read_bytes() != public_record
             or bool(receipt) != path.is_file()
@@ -2420,7 +2455,8 @@ def _validate_revision_and_authority_proofs(output, row, inputs, candidates, dec
         if (row.get('receipt_path') != prefix+'/receipt.json'
                 or _json(output/row['receipt_path']) != json.loads(json.dumps(expected_receipt))
                 or (output/row['record_path']).read_bytes() != _display_record_bytes(
-                    inputs['spec'], Path(row['record_path']).name, raw)):
+                    inputs['spec'], Path(row['record_path']).name, raw,
+                    case=inputs['cases'][key[0]][key[2]], root=(output/row['record_path']).parent)):
             raise ValueError('Saved result receipt differs from validated source')
 
     if key in inputs['historical']:
@@ -2624,11 +2660,13 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
     audit = _json(output / 'saved-matrix-audit.json')
     source_count = 0
     inputs = None
+    frozen_composition = False
     if (output / 'saved-composition.json').is_file():
         from harness.web_fetch.report_saved_composition import check_composition
         if spec_path is not None and _sha(Path(spec_path)) != audit['spec_sha256']:
             raise ValueError('Saved composition specification changed')
         check_composition(output, spec_path)
+        frozen_composition = True
         spec_path = None
     if spec_path is not None:
         if _sha(_path(Path(spec_path).parent, Path(spec_path).name)) != audit['spec_sha256']:
@@ -2681,6 +2719,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                 except ValueError as exc:
                     raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if not frozen_composition and (model.get('frozen_source_prefixes') or model.get('retain_source_task_contracts')):
+        raise ValueError('Frozen source exceptions require a verified composition')
     if inputs is not None:
         pricing = inputs['spec'].get('pricing')
         expected = ({'path':'report-assets/provider-pricing.json','sha256':pricing['sha256']}
@@ -2745,13 +2785,14 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
     for row in model['rows']:
         identity = row['suite'], row['provider'], row['case_id']
         case = _json(contained_path(output, row['case_path'], reject_symlinks=True))
-        if case['id'] != row['case_id']:
+        if case['id'] != row['case_id'] and not model.get('retain_source_task_contracts'):
             raise ValueError('Saved case identity differs from matrix')
         if row.get('url') != case['url'] or row.get('name') != case.get('name', row['case_id']):
             raise ValueError('Saved case metadata differs from matrix')
         if row.get('record_path'):
             record = _json(contained_path(output, row['record_path'], reject_symlinks=True))
-            if (record['provider'], record['case_id']) != identity[1:]:
+            source_identity = (row['provider'], case['id']) if model.get('retain_source_task_contracts') else identity[1:]
+            if (record['provider'], record['case_id']) != source_identity:
                 raise ValueError('Saved record identity differs from matrix')
             values = _saved_row_values(record, case)
             if row.get('retry_continuation'):
@@ -2783,7 +2824,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                 expected_record = adoptions[identity]['selected'][1]
             if expected_record is not None:
                 if not row.get('record_path') or record != json.loads(_display_record_bytes(
-                        model, Path(row['record_path']).name, json_bytes(expected_record))):
+                        model, Path(row['record_path']).name, json_bytes(expected_record),
+                        case=case, root=(output/row['record_path']).parent)):
                     raise ValueError('Saved record differs from validated source selection')
             elif (row.get('record_path') or row['status'] != inputs['missing'][identity][0]['status']
                     or receipt != _json(inputs['missing'][identity][1])
@@ -2794,7 +2836,11 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
         _validate_record_links(output, row)
         for relative in set(record_paths(row)):
             path = contained_path(output, relative, reject_symlinks=True)
-            _validate_record_artifacts(path)
+            # Published snapshots can contain post-score public views whose
+            # bytes deliberately differ from private acquisition hashes. Their
+            # complete file inventory is verified by the frozen-source owner.
+            if not any(relative.startswith(prefix + '/') for prefix in model.get('frozen_source_prefixes', [])):
+                _validate_record_artifacts(path)
         if row.get('score_revision'):
             receipt = _json(contained_path(output, row['score_revision']['receipt_path'], reject_symlinks=True))
             for target in receipt.get('review_files', {}).values():
@@ -2823,7 +2869,9 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                                               approved_policies)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
-            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):
+            suite, _, case_id = Path(relative).parts[1:4]
+            if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record,
+                    case=inputs['cases'][suite][case_id], root=path.parent):
                 raise ValueError('Published provenance record differs from validated source: '+relative)
             _validate_record_artifacts(path)
     projected_dataset, projected_records, projected_identities, projected_scope = _saved_renderer_projection(
@@ -2831,7 +2879,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
     saved_records = [json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines() if line.strip()]
     execution = _json(output/'execution.json')
     scores_changed = (bool(inputs['revision']) or any(adoptions[key]['revision'] for key in keys if key in adoptions)
-                      if inputs is not None else bool(model.get('offline_revision')) or any(row.get('score_revision') for row in model['rows']))
+                      if inputs is not None else bool(model.get('offline_revision')) or any(
+                          row.get('score_revision') or row.get('source_score_revision') for row in model['rows']))
     scores_changed = bool(scores_changed)
     if any(value.get('scores_changed') is not scores_changed for value in (audit, model, execution)):
         raise ValueError('Saved scoring-change flags differ from revision evidence')
@@ -2915,7 +2964,8 @@ def _saved_renderer_projection(output, model, admission=None):
                 before = _json(contained_path(output, proof['before_case_path'], reject_symlinks=True))
                 if not _same_task_rules(before, case):
                     raise ValueError('Changed task contracts cannot enter a portable final report')
-        if case['id'] != row['case_id']:
+        source_case_id = case['id']
+        if case['id'] != row['case_id'] and not model.get('retain_source_task_contracts'):
             raise ValueError('Saved case identity differs from matrix')
         if row.get('url') != case['url'] or row.get('name') != case.get('name', row['case_id']):
             raise ValueError('Saved case metadata differs from matrix')
@@ -2923,12 +2973,13 @@ def _saved_renderer_projection(output, model, admission=None):
         family = _presentation_family(case, row['suite'], groups) if 'report_families' in model else row['suite']
         case['report_family'] = family
         case['report_family_label'] = labels[family]
-        if cases.setdefault(route, case) != case:
+        if cases.setdefault(route, case) != case and not model.get('retain_source_task_contracts'):
             raise ValueError(f"Conflicting saved case definitions for {route}")
         if not row.get('record_path'):
             continue
         raw = _json(contained_path(output, row['record_path']))
-        if raw['case_id'] != row['case_id'] or raw['provider'] != row['provider']:
+        expected_case_id = source_case_id if model.get('retain_source_task_contracts') else row['case_id']
+        if raw['case_id'] != expected_case_id or raw['provider'] != row['provider']:
             raise ValueError('Saved record identity differs from matrix')
         if _saved_row_values(raw, case)['passed'] != row['passed']:
             raise ValueError('Saved verdict differs from matrix')
@@ -2944,6 +2995,8 @@ def _saved_renderer_projection(output, model, admission=None):
                     return candidate
             return value
         record = project(raw)
+        if model.get('retain_source_task_contracts'):
+            record['report_source_case_path'] = row['case_path']
         if model.get('public_evidence_views'):
             from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose
@@ -3047,10 +3100,18 @@ def _render_projection(output, model, admission=None):
     _write(output/'summary.json', scope)
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})
-    return render_report(output, report_model(
+    # Keep source contracts in memory for rendering; persist only their bound paths.
+    for record in records:
+        if record.get('report_source_case_path'):
+            record['report_source_case'] = _json(contained_path(output, record['report_source_case_path'], reject_symlinks=True))
+    entry = render_report(output, report_model(
         dataset, records, participants=model['providers'], suites=dataset['report_suites'],
         source_admission=admission.get('projection') if admission and admission['output'] == Path(output).resolve() else None,
         authored_interpretation=False, frozen_scores=True))
+    if model.get('source_review_pages'):
+        from harness.web_fetch.report_saved_composition import render_source_reviews
+        render_source_reviews(output, model)
+    return entry
 
 
 def generate_saved_matrix(out: Path, model: dict, *, admission=None) -> Path:
