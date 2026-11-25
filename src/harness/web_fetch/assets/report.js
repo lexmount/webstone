@@ -5,7 +5,7 @@ function losslessJson(text){if(text.length>64*1024)return text;try{const value=J
 function tr(zh,en){return document.documentElement?.lang==='en'?en:zh}
 function prepareMethodPage(page,path){
  if(!/(?:^|\/)providers\/[^/]+\.html$/.test(path))return;
- page.querySelectorAll('main > [data-saved-completion],main > [data-evidence-state="saved_diagnostic"],main > [data-evidence-state="saved_results"],main > [data-evidence-state="local_measurement"]').forEach(node=>node.remove());
+ page.querySelectorAll('main > [data-saved-completion]').forEach(node=>node.remove());
 }
 window.addEventListener('report-ready',()=>prepareMethodPage(document,new URLSearchParams(location.hash.slice(1)).get('page')||location.pathname));
 window.addEventListener('DOMContentLoaded',()=>prepareMethodPage(document,location.pathname));

@@ -823,13 +823,14 @@ def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, disp
             page.close()
 
 
-def test_method_details_omit_repeated_status_banners(tmp_path, browser):
+@pytest.mark.parametrize('evidence_state', ['saved_diagnostic', 'saved_results', 'local_measurement'])
+def test_method_details_omit_repeated_coverage_and_preserve_evidence_state(tmp_path, browser, evidence_state):
     from harness.web_fetch.report import JS
 
     (tmp_path/'app.js').write_text(JS, encoding='utf-8')
-    markup = ('<html><head><script defer src="/app.js"></script></head><body><main>'
+    markup = ('<html><head><meta charset="utf-8"><script defer src="/app.js"></script></head><body><main>'
               '<div data-saved-completion>Coverage</div>'
-              '<div data-evidence-state="saved_diagnostic">Saved diagnostic</div>'
+              f'<div data-evidence-state="{evidence_state}">Evidence state</div>'
               '<div role="alert">Incomplete evidence alert</div>'
               '<p data-report-content-scope="full">Full content</p>'
               '<h1>Method</h1></main></body></html>')
@@ -842,15 +843,15 @@ def test_method_details_omit_repeated_status_banners(tmp_path, browser):
         try:
             page.goto(origin + '/providers/sample.html')
             expect(page.locator('[data-saved-completion]')).to_have_count(0)
-            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
             expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
             expect(page.locator('[data-report-content-scope]')).to_have_text('Full content')
             page.goto(origin + '/methodology/index.html')
             expect(page.locator('[data-saved-completion]')).to_have_count(1)
-            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(1)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
             page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
             expect(page.locator('[data-saved-completion]')).to_have_count(0)
-            expect(page.locator('[data-evidence-state="saved_diagnostic"]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
             expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
         finally:
             page.close()
