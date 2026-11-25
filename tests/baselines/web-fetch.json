@@ -217,7 +217,7 @@
      [
       "序号 | 方法 | 案例 | 类型 | 结果 | 失败分类 | 耗时 | 运行 ID",
       "1 | fixture | 合成正文示例 | 普通网页正文 | 通过 | — | 0 ms | run-e9187371511e120c1ea7",
-      "2 | fixture | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 | 0 ms | run-e218b9eb6ebcfd765677"
+      "2 | fixture | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 定位合成失败示例失败环节请求失败 · 服务取页失败具体错误fixture_failure Configured fixture failure Fixture failure: configured test failure. [] fixture_failure · Configured fixture failure打开完整结果查看运行日志与证据 | 0 ms | run-e218b9eb6ebcfd765677"
      ]
     ]
    },
@@ -383,7 +383,7 @@
      [
       "No. | Method | Task | Family | Result | Failure class | Elapsed time | Run ID",
       "1 | fixture | 合成正文示例 | Ordinary web-page body | Pass | — | 0 ms | run-e9187371511e120c1ea7",
-      "2 | fixture | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed | 0 ms | run-e218b9eb6ebcfd765677"
+      "2 | fixture | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed Diagnose合成失败示例Failure stageRequest failure · Provider fetch failedExact errorfixture_failure Configured fixture failure Fixture failure: configured test failure. [] fixture_failure · Configured fixture failureOpen the full resultView run logs and evidence | 0 ms | run-e218b9eb6ebcfd765677"
      ]
     ]
    },
@@ -633,7 +633,7 @@
      [
       "No. | Task | Family | Result | Failure class | Elapsed time | Run ID",
       "1 | 合成正文示例 | Ordinary web-page body | Pass | — | 0 ms | run-e9187371511e120c1ea7",
-      "2 | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed | 0 ms | run-e218b9eb6ebcfd765677"
+      "2 | 合成失败示例 | Ordinary web-page body | Fail | Provider fetch failed Diagnose合成失败示例Failure stageRequest failure · Provider fetch failedExact errorfixture_failure Configured fixture failure Fixture failure: configured test failure. [] fixture_failure · Configured fixture failureOpen the full resultView run logs and evidence | 0 ms | run-e218b9eb6ebcfd765677"
      ]
     ]
    },
@@ -788,7 +788,7 @@
      [
       "序号 | 案例 | 类型 | 结果 | 失败分类 | 耗时 | 运行 ID",
       "1 | 合成正文示例 | 普通网页正文 | 通过 | — | 0 ms | run-e9187371511e120c1ea7",
-      "2 | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 | 0 ms | run-e218b9eb6ebcfd765677"
+      "2 | 合成失败示例 | 普通网页正文 | 未通过 | 服务取页失败 定位合成失败示例失败环节请求失败 · 服务取页失败具体错误fixture_failure Configured fixture failure Fixture failure: configured test failure. [] fixture_failure · Configured fixture failure打开完整结果查看运行日志与证据 | 0 ms | run-e218b9eb6ebcfd765677"
      ]
     ]
    },
@@ -824,55 +824,55 @@
   },
   "routes": [
    ".generated-report 58f1d8109f6621022ad7",
-   "accounts/index.html 464dff1d170175b11904",
-   "adoption/index.html 1ff3526e0e5a41df5de6",
-   "analysis/index.html c192bfac1a1750d85830",
+   "accounts/index.html 3ee0565c08edbc89db5f",
+   "adoption/index.html 545d6c38256e18b10d48",
+   "analysis/index.html a4e2611f687ea3ebe8ba",
    "artifacts/fixture/fixture-body/run-001-physical-001.txt 3cc1bcd96fa85d877a2f",
    "artifacts/fixture/fixture-failure/run-001-physical-001.txt 6117969f2b18de8feeb5",
    "artifacts/fixture/fixture-failure/run-001-physical-002.txt 6117969f2b18de8feeb5",
    "assets/methodology/annotation.png ca37357825ee094e1aee",
    "assets/methodology/scoring.png 76a05e398ac6d49513a9",
    "assets/methodology/validation.png 45141f56838bd4416c5a",
-   "assets/report.js 8ebf7562980e1b7b3a00",
-   "assets/style.css d2df61ccfa2c2feebd2a",
-   "attempts/fixture__fixture-body__r001.html f69f660cb3ec8a09a07f",
-   "attempts/fixture__fixture-failure__r001.html adce567c2d9cd30b8c20",
+   "assets/report.js 4db5ee4f95f147d8269d",
+   "assets/style.css 7127996856868c3283f4",
+   "attempts/fixture__fixture-body__r001.html 88ea2c8fae2de3a3f360",
+   "attempts/fixture__fixture-failure__r001.html 56c2937490a0b0eef886",
    "call-logs/fixture/fixture-body/run-001-physical-001.json 254342b035c9740f344c",
    "call-logs/fixture/fixture-failure/run-001-physical-001.json da19785be0ed9c0ce774",
    "call-logs/fixture/fixture-failure/run-001-physical-002.json 38c2c42d1846f99e3927",
-   "changes/index.html a6dc63ecc2ed27e9f797",
+   "changes/index.html 1f890debe7da94d79952",
    "dataset.json 8c8a952ccb27cd99d884",
-   "datasets/fixture-body.html 502cb2480bc713a26939",
-   "datasets/fixture-failure.html 279f35a1580ef9f9d1c6",
-   "datasets/index.html ce6a698b798bfd7bc354",
-   "en/accounts/index.html e6aa7bc629f78f93edbb",
-   "en/adoption/index.html d6018bf08ecc5a90e480",
-   "en/analysis/index.html 966e70ff972871c1e2ca",
-   "en/attempts/fixture__fixture-body__r001.html ff15c85fe1f73d18548d",
-   "en/attempts/fixture__fixture-failure__r001.html 403a24ccc54682fab7c2",
-   "en/changes/index.html 628a6e39c7aa7d8cb4a0",
-   "en/datasets/fixture-body.html c60ca3228f1d4a817c58",
-   "en/datasets/fixture-failure.html 6bd495559c33ef189d3d",
-   "en/datasets/index.html 2c038cb3d64bfdefb0c3",
-   "en/guide/index.html 87cdc1be3afbe431753d",
-   "en/index.html 372b12ef2be2cf1559c0",
-   "en/methodology/index.html 6f69169a792674e2c6f4",
-   "en/providers/fixture.html 5dd0aba0ffa8b1ca890f",
-   "en/reproduce/index.html d0476ce06a127ed047eb",
-   "en/review/index.html 179f27567156f7f9b2dd",
+   "datasets/fixture-body.html 66cf0aca00dee69c8375",
+   "datasets/fixture-failure.html 1b977e0de8bc56495f39",
+   "datasets/index.html 22e1fffb6f90f6891dd3",
+   "en/accounts/index.html d2aa201aa2dafdfed08a",
+   "en/adoption/index.html c44b95e8857977099ce7",
+   "en/analysis/index.html 12ecb5a9090b809aa0cc",
+   "en/attempts/fixture__fixture-body__r001.html 13617616d0945bf4a353",
+   "en/attempts/fixture__fixture-failure__r001.html 39999966a5f003e258d3",
+   "en/changes/index.html 6df4e21b61aff6c9acb9",
+   "en/datasets/fixture-body.html c091292272c75d026de7",
+   "en/datasets/fixture-failure.html c15a85633b13208a866f",
+   "en/datasets/index.html b1fde2a44d1f781533fa",
+   "en/guide/index.html 56b25fb06f9473171faf",
+   "en/index.html bb8ae2b89135e25e9433",
+   "en/methodology/index.html b23067342e6270b32165",
+   "en/providers/fixture.html 255daf5256a58b0965c9",
+   "en/reproduce/index.html 23c2b80fec66f643129d",
+   "en/review/index.html 58462a7769349d75a5ab",
    "execution.json c217a0f8a42b1166f1aa",
-   "guide/index.html f2f33c741beaf81cbf59",
-   "index.html b8598ecadc7daffd3a26",
-   "methodology/index.html ddbdeccf346e7986da26",
-   "providers/fixture.html 0e026f967a1ccf4292d4",
+   "guide/index.html cae39202208181b4ee27",
+   "index.html f645333eeea4937d3e84",
+   "methodology/index.html 5db5185b31631bb92f25",
+   "providers/fixture.html 8f2cb73f6e1aafd05eed",
    "references/fixture-body.txt 1bdcf2f4d6204108d756",
    "references/fixture-failure.txt 1bdcf2f4d6204108d756",
    "reliability.json ac4bb4a385747cc85ad7",
    "report-languages.json 157feaf364b79467aabe",
    "report-manifest.json 5cc3da2b3a5f8e929305",
-   "reproduce/index.html ca4ba70963985b4e9c64",
+   "reproduce/index.html 099d3d0e2067bb65a035",
    "results.jsonl d4cf1167e81ce1cf51f5",
-   "review/index.html 3439f5d69cbffaac2a4f",
+   "review/index.html 59da1fae22ec587c1802",
    "summary.json 7e7be63a178bb3e35f48",
    "webstone-version.json 561aadb67df5738a512b"
   ]
