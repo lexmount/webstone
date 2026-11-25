@@ -71,12 +71,16 @@ def test_explicit_all_ties_policy_requires_every_extremum_without_extra_labels()
 
 def test_frozen_cell_tie_policy_requires_complete_consistent_declaration():
     import pytest
-    html = '<table><tr>' + ''.join(
+    cell = (
         '<td data-metric="quality" data-metric-direction="max" data-sort="1" '
-        'data-metric-ties="all"><b class="comparison-winner">1</b></td>'
-        for _ in range(2)) + '</tr></table>'
+        'data-metric-ties="all"><b class="comparison-winner">1</b></td>')
+    html = '<table><tr>' + cell * 2 + '</tr></table>'
     check_presentation(html)
     with pytest.raises(ValueError, match='highlight'):
         check_presentation(html.replace('class="comparison-winner"', '', 1))
     with pytest.raises(ValueError, match='tie policy'):
         check_presentation(html.replace(' data-metric-ties="all"', '', 1))
+    single = '<table><tr>' + cell + '</tr></table>'
+    with pytest.raises(ValueError, match='single available value'):
+        check_presentation(single)
+    check_presentation(single.replace('<b class="comparison-winner">1</b>', '1'))

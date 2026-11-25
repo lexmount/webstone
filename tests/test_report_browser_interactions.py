@@ -726,6 +726,7 @@ def test_method_details_omit_repeated_banners(tmp_path, browser, evidence_state)
 def test_method_details_preserve_local_measurement_warning(tmp_path, browser, language, reviewed):
     from pathlib import PurePosixPath
 
+    from harness.reporting import shell
     from harness.web_fetch.report import JS, local_audit_banner
     from harness.web_fetch.report_i18n import localize_html
 
@@ -734,8 +735,9 @@ def test_method_details_preserve_local_measurement_warning(tmp_path, browser, la
                              'independent_review': reviewed}}
     banner = local_audit_banner(dataset)
     (tmp_path/'app.js').write_text(JS, encoding='utf-8')
-    markup = (f'<html lang="{language}"><head><meta charset="utf-8">'
-              '<script defer src="/app.js"></script></head><body><main>'
+    header = shell.header(language=language, brand='Web Fetch', home='/index.html', links=[])
+    markup = (f'<html lang="{language}"><head><meta charset="utf-8">' + shell.HEAD
+              + '<script defer src="/app.js"></script></head><body>' + header + '<main>'
               '<div data-saved-completion>Coverage</div>' + banner
               + '<h1>Method</h1></main></body></html>')
     for route in ('providers/sample.html', 'methodology/index.html'):
