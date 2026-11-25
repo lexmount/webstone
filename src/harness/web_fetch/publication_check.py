@@ -43,6 +43,27 @@ def scored_output_hash(row: dict) -> str:
     return expected
 
 
+def scored_public_view(source: Path, row: dict, expected_hash: str):
+    """Resolve a saved answer against its original, already validated profile."""
+    binding = {'path': row['artifact_path'], 'sha256': expected_hash}
+    public = bound_public_view(source, binding)
+    if public is not None or not (source/'saved-composition.json').is_file():
+        return public
+    view = row.get('provider_metadata', {}).get('publication_views', {}).get('scored_answer')
+    if not view:
+        return None
+    receipt = contained_path(source, view['receipt'], reject_symlinks=True)
+    profile_root = receipt.parent.parent
+    answer = contained_path(source, binding['path'], reject_symlinks=True)
+    if not answer.is_relative_to(profile_root):
+        raise ValueError('Composed public answer escapes its original profile')
+    public = bound_public_view(profile_root, {
+        'path': answer.relative_to(profile_root).as_posix(), 'sha256': expected_hash})
+    if public is not None and public[0] != contained_path(source, view['path'], reject_symlinks=True):
+        raise ValueError('Composed public answer differs from its original profile')
+    return public
+
+
 def diagnostic_scored_views(source: Path) -> list[dict]:
     """Read scored first-answer bindings from a validated diagnostic report."""
     model = json.loads((source/'report.json').read_text(encoding='utf-8'))
@@ -289,7 +310,7 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             retained_view = False
             if hashlib.sha256(original).hexdigest() != expected_hash:
                 binding={'path':row['artifact_path'],'sha256':expected_hash}
-                public = bound_public_view(source,binding)
+                public = scored_public_view(source,row,expected_hash)
                 if public is None and snapshot_audit:
                     from harness.web_fetch.published_snapshot import read_snapshot_public_file
                     retained=read_snapshot_public_file(source,binding)
