@@ -2447,7 +2447,7 @@ def _diagnosis_dialog(
     dialog_id = f"diagnosis-{result_id}"
     detail_url = f"results/{result_id}.html"
     return (
-        (f'<dialog class="diagnosis-dialog" id="{_e(dialog_id)}" aria-labelledby="{_e(dialog_id)}-title"><div class="diagnosis-dialog-head"><div><span class="table-kicker">' + t("diagnosis_dialog.failure_diagnosis", "Failure diagnosis") + f'</span><h2 id="{_e(dialog_id)}-title">Task #{task_id} · {_e(configuration)}</h2></div><button class="dialog-close" type="button" onclick="closeDiagnosis(\'{_e(dialog_id)}\')" aria-label="' + t("diagnosis_dialog.close", "Close") + '">×</button></div><div class="diagnosis-dialog-grid"><div><b>' + t("diagnosis_dialog.location", "Location") + f'</b><a href="{_e(step_link)}">{_e(failure_point)}</a></div><div><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(automatic_failure or t('failure_cause_table.unclassified', 'Unclassified'))}</div><div><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f"</b>{_e(owner)}</div></div>")
+        (f'<dialog class="diagnosis-dialog" id="{_e(dialog_id)}" aria-labelledby="{_e(dialog_id)}-title"><div class="diagnosis-dialog-head"><div><span class="table-kicker">' + t("diagnosis_dialog.failure_diagnosis", "Failure diagnosis") + f'</span><h2 id="{_e(dialog_id)}-title">' + t("common.task_number", "Task #{task_id}", task_id=_e(task_id)) + f' · {_e(configuration)}</h2></div><button class="dialog-close" type="button" onclick="closeDiagnosis(\'{_e(dialog_id)}\')" aria-label="' + t("diagnosis_dialog.close", "Close") + '">×</button></div><div class="diagnosis-dialog-grid"><div><b>' + t("diagnosis_dialog.location", "Location") + f'</b><a href="{_e(step_link)}">{_e(failure_point)}</a></div><div><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(automatic_failure or t('failure_cause_table.unclassified', 'Unclassified'))}</div><div><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f"</b>{_e(owner)}</div></div>")
         + (
             f'<div class="dialog-step"><b>{_e(step_context_label)}</b><a href="{_e(step_link)}">{_raw(step_context)}</a></div>'
             if step_context
@@ -3085,7 +3085,7 @@ def _write_task_pages(stage: Path, inputs: ReportInputs) -> None:
             + ('<a href="analysis/#same-task">' + t("task_pages.compare_all_browsers", "Compare all browsers") + "</a></div>"),
         )
         _write_page(stage, f"datasets/{task_id}.html", title=t("task_pages.task", "Task {task_id}", task_id=task_id),
-                    active="datasets", eyebrow=f"Task #{task_id}", heading=_rationale(task),
+                    active="datasets", eyebrow=t("common.task_number", "Task #{task_id}", task_id=_e(task_id)), heading=_rationale(task),
                     body=compose("datasets", {"lead": lead, "definition": definition, "inventory": inventory}))
 
 
@@ -3308,7 +3308,7 @@ def _evidence_index_entry(
 
 
 def _result_heading(public: dict[str, Any], participants: Participants) -> str:
-    return f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · Task #{public['task_id']}"
+    return f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · " + t("common.task_number", "Task #{task_id}", task_id=public['task_id'])
 
 
 def _result_hero(public: dict[str, Any], failure_point: str) -> str:

@@ -133,6 +133,9 @@ def check_presentation(html):
     soup = BeautifulSoup(html, 'html.parser') if isinstance(html, str) else html
     if soup.select_one('header.shell-top'):
         check_shell(soup)
+        # Imported here: names.py stands alone and presentation stays import-light.
+        from harness.reporting.names import check_interface_language
+        check_interface_language(soup)
     for table in soup.select('table'):
         if table.get('data-significance') == 'paired-query-bootstrap/1':
             count = table.get('data-query-count', '')

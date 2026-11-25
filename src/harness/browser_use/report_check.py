@@ -37,6 +37,7 @@ from harness.record_io import file_sha256, load_jsonl, optional_file_sha256, rea
 from harness.report_languages import check_language_contract, generated_languages
 from harness.reporting.assets import bound_json_asset
 from harness.reporting.locales import catalog_text
+from harness.reporting.names import check_display_names
 from harness.reporting.presentation import check_one_language
 from harness.reporting.presentation import visible_text as _visible_text
 from harness.reporting.privacy import BROWSER_USE_CHECK_SOURCE
@@ -72,7 +73,8 @@ def _forbidden_public_text() -> re.Pattern[str]:
     )
 
 
-def _check_reader_facing_ux(report_dir: Path, rendered_pages: dict[Path, str]) -> None:
+def _check_reader_facing_ux(report_dir: Path, rendered_pages: dict[Path, str],
+                            display_labels: dict[str, str] | None = None) -> None:
     """Enforce stable, data-independent report presentation contracts."""
 
     for page, text in rendered_pages.items():
@@ -82,6 +84,7 @@ def _check_reader_facing_ux(report_dir: Path, rendered_pages: dict[Path, str]) -
         if "data-report-en=" in _visible_text(text):
             raise ValueError(f"formal report shows escaped interface markup as text: {page}")
         check_one_language(text)
+        check_display_names(text, display_labels or {})
     for homepage in (
         report_dir / "index.html",
         *([report_dir / "en/index.html"] if "en" in generated_languages(report_dir) else []),
@@ -537,7 +540,7 @@ def check(
     rendered_pages = {
         page: page.read_text(encoding="utf-8") for page in (*chinese_pages, *english_pages)
     }
-    _check_reader_facing_ux(report_dir, rendered_pages)
+    _check_reader_facing_ux(report_dir, rendered_pages, {**participants.models, **participants.engines})
     if any('<html lang="en">' not in rendered_pages[page] for page in english_pages):
         raise ValueError("every Chinese report route must have an English mirror")
     cjk = re.compile(r"[\u3400-\u9fff]")

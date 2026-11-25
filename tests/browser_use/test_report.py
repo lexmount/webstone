@@ -462,7 +462,7 @@ def test_fix_log_missing_source_diff_is_explicit_and_binary_bound(
             report_module._load_fix_log(profile)
 
 
-def test_cross_track_control_localizes_measured_contract_counts_and_evidence() -> None:
+def test_cross_track_control_localizes_measured_contract_counts_and_evidence(monkeypatch) -> None:
     bridge = json.loads(
         Path("research/browser-use-trajectory-replay-bridge.json").read_text(encoding="utf-8")
     )
@@ -473,7 +473,10 @@ def test_cross_track_control_localizes_measured_contract_counts_and_evidence() -
         for tasks in bridge["original_contract_task_groups"].values() for task_id in tasks
     ]
     chinese = report_module._trajectory_replay_control(bridge, CURRENT, attempts)
-    english = localize_html(chinese, PurePosixPath("analysis/index.html"))
+    monkeypatch.setattr(report_module, "t", report_module._EN)
+    english = localize_html(report_module._trajectory_replay_control(bridge, CURRENT, attempts),
+                            PurePosixPath("analysis/index.html"))
+    assert "data-report-en" not in chinese + english
     assert "recorded_response" in english and "HAR" in english
     assert "<td>59</td><td>1</td>" in chinese
     assert "<td>22</td><td>8</td>" in chinese
@@ -835,12 +838,16 @@ def test_reader_facing_ux_rejects_unexplained_internal_terms(tmp_path: Path) -> 
 
 def test_reader_facing_ux_rejects_escaped_bilingual_markup(tmp_path: Path) -> None:
     pages = {
-        tmp_path / "index.html": (
-            '<table id="home-core-metrics"><th><span data-report-en="Pass">通过</span></th></table>'
-        ),
+        tmp_path / "index.html": '<table id="home-core-metrics"><th>通过</th></table>',
         tmp_path / "en/index.html": '<table id="home-core-metrics"></table>',
     }
     _check_reader_facing_ux(tmp_path, pages)
+
+    pages[tmp_path / "index.html"] = (
+        '<table id="home-core-metrics"><th><span data-report-en="Pass">通过</span></th></table>'
+    )
+    with pytest.raises(ValueError, match="embeds the other language"):
+        _check_reader_facing_ux(tmp_path, pages)
 
     pages[tmp_path / "index.html"] = (
         '<table id="home-core-metrics"><th>'
@@ -1516,9 +1523,7 @@ def test_report_renders_measured_runtime_identities(tmp_path: Path, monkeypatch)
     assert "90 题核心指标" in home_text
     assert "不能视为统一视口下的资源效率结论" in home_text
     assert "共同成功子集仍保留各配置记录的运行环境" in home_text
-    english_home = localize_html(home_text, PurePosixPath("index.html"))
-    assert "resource efficiency at a common viewport" in english_home
-    assert "common-success subset retains each configuration" in english_home
+    assert "data-report-en" not in home_text
     methodology_text = (output / "methodology/index.html").read_text(encoding="utf-8")
     assert "webarena-autonomous-evaluation-flow.png" in methodology_text
     assert "环境准备回执" in methodology_text
@@ -1531,9 +1536,8 @@ def test_report_renders_measured_runtime_identities(tmp_path: Path, monkeypatch)
     assert "计划与实际对照" in methodology_text
     assert "每题执行上限：3" in methodology_text
     assert "冻结配置及实际执行记录" in methodology_text
-    english_methodology = localize_html(methodology_text, PurePosixPath("methodology/index.html"))
-    assert "frozen configuration and recorded executions" in english_methodology
-    assert "execution limit per task: 3" in english_methodology
+    # Each page holds one language; the English edition renders its own pages.
+    assert "data-report-en" not in methodology_text
     for name in (
         "changes/index.html",
         "datasets/index.html",

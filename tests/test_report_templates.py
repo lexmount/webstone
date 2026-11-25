@@ -33,7 +33,7 @@ def diagnostic_example(root):
     model={'schema':'webfetch_cohort_diagnostic/1','certified':False,'title':'Diagnostic example',
            'subtitle':'Two scenarios','scope_note':'Diagnostic observations','metric_note':'One pass per task',
            'cohorts':[{'id':'articles','label':'Articles','case_count':2}],
-           'cause_labels':{'passed':'Passed','challenge':'Challenge'},'source_labels':{},
+           'cause_labels':{'passed':'通过','challenge':'验证页'},'source_labels':{},
            'metrics':{'articles':[1,2],'overall':[1,2]},'rows':rows,
            'success_audit':{'audited_passes':0,'source_state_counts':{}},'pages':{}}
     (root/'report.json').write_text(json.dumps(model), encoding='utf-8')

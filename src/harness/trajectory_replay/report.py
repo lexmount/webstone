@@ -55,6 +55,11 @@ PAGE_LABELS = {
 _table = replay_table
 
 
+
+def _dataset_text(value: str) -> str:
+    """Task titles come from the dataset and keep their own language."""
+    return f'<span data-verbatim>{_e(value)}</span>'
+
 def _engines(summary: dict[str, Any]) -> tuple[str, ...]:
     """Participants in evidence order; a summary with no results keeps the registry's."""
     return summary_engines(summary) or container_engines()
@@ -248,7 +253,7 @@ def _page(
     return flat_page(
         VARIANT, key, fills,
         title=t("curated.shell.title", "{title} | {names} evaluation", title=detail_title or PAGE_LABELS[key], names=names),
-        heading=_e(detail_title) if detail_title else t("curated.shell.heading", "{names} browser tool-call evaluation", names=names),
+        heading=_dataset_text(detail_title) if detail_title else t("curated.shell.heading", "{names} browser tool-call evaluation", names=names),
         eyebrow="" if detail_title else t("curated.shell.page_info", "Run ID: {run_id} · Page {page}/{pages}", run_id=run_id, page=index + 1, pages=len(VARIANT.pages)),
         style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav, brand=t("nav.brand", "Trajectory Replay"),
         footer="Lexmount Browser Provider Evaluation · " + t("replay.edition.chinese_only", "This report is available in Chinese only."),
@@ -515,7 +520,7 @@ def _suite_page(manifest: dict[str, Any]) -> str:
             + expected_inline
         )
         cards.append(
-            f'<section class="card suite-task" data-difficulty="{_e(task.get("complexity"))}" data-site="{_e(urlparse(target_url).hostname or t("replay.unlabeled", "Unlabeled"))}" data-actions="{_e(",".join(sorted({str(c.get("action")) for c in calls})))}" data-search="{_e(search_text)}"><div class="eyebrow">{t("replay.suite.task_eyebrow", "Task {index:02d}", index=index)}</div><h2>{_e(title)}</h2><span class="chip">{_difficulty(str(task.get("complexity")))}</span><span class="chip">{t("replay.suite.tool_calls", "{count} tool calls", count=len(calls))}</span>{chips}'
+            f'<section class="card suite-task" data-difficulty="{_e(task.get("complexity"))}" data-site="{_e(urlparse(target_url).hostname or t("replay.unlabeled", "Unlabeled"))}" data-actions="{_e(",".join(sorted({str(c.get("action")) for c in calls})))}" data-search="{_e(search_text)}"><div class="eyebrow">{t("replay.suite.task_eyebrow", "Task {index:02d}", index=index)}</div><h2>{_dataset_text(title)}</h2><span class="chip">{_difficulty(str(task.get("complexity")))}</span><span class="chip">{t("replay.suite.tool_calls", "{count} tool calls", count=len(calls))}</span>{chips}'
             '<div class="task-verification">'
             f"<div><strong>{t('replay.suite.public_web_page', 'Public-web test page')}</strong><span>{source_html}</span></div>"
             f"<div><strong>{t('replay.suite.reference_path', 'Reference path')}</strong><span><code>{_e(reference_path)}</code></span></div>"
@@ -1019,7 +1024,7 @@ def _execution_explorer(
         if attempts
     )
     task_options = "".join(
-        f'<option value="{_e(task_id)}">{_e(task.get("title") or task_id)}</option>'
+        f'<option value="{_e(task_id)}" data-verbatim>{_e(task.get("title") or task_id)}</option>'
         for task_id, task in (summary.get("by_task") or {}).items()
     )
     action_values = sorted(
