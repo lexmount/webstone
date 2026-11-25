@@ -221,12 +221,12 @@ def test_lexmount_backend_calls_the_api_once_and_returns_the_official_markdown(t
            "LEXMOUNT_WEBFETCH_CLI": str(cli)}
     options = {"engine_preference": "lightmount_domstable", "timeout_ms": 30000}
     _Stub.seen.clear()
-    replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options})
+    replies, rows = _mcp("lexmount", env, tmp_path, ["http://x/good", "http://x/bad"], params={"options": options, "use_proxy": True})
     server.shutdown()
     official = "# WebFetch Extract Result\n\n- **Title:** T\n\n## Main Text\n\nstub markdown\n"
     assert replies[3]["content"][0]["text"] == official and replies[3]["isError"] is False  # what WebFetch receives
     assert (tmp_path / "out" / rows[0]["file"]).read_text(encoding="utf-8") == official and rows[0]["ok"] is True
-    assert len(_Stub.seen) == 2 and _Stub.seen[0]["extract"] == {"url": "http://x/good", "options": options}  # one API call per fetch; the CLI only replays it
+    assert len(_Stub.seen) == 2 and _Stub.seen[0] == {"extract": {"url": "http://x/good", "options": options}, "use_proxy": True}  # one API call per fetch; the CLI only replays it
     assert replies[2]["tools"][0]["name"] == "web_fetch"
     assert replies[4]["isError"] is True and "status 502" in replies[4]["content"][0]["text"] and rows[1]["sha256"] is None
     assert json.loads((tmp_path / "out" / rows[1]["payload"]).read_text(encoding="utf-8")) == {"error": {"message": "nope"}}
@@ -311,7 +311,7 @@ def test_lexmount_parameters_match_what_the_provider_sends(monkeypatch):
             assert sent["body"]["extract"] == {"url": task["url"]} and mine["options"] == {"timeout_ms": 40500}
     native = backend_params.params_for("lexmount", _task("dynamic", retrieval_hints={"version": 3, "mode": "native"}),
                                        timeout_seconds=45)
-    assert native == {"timeout_seconds": 45, "options": {"engine_preference": "lightmount_domstable", "timeout_ms": 40500}}
+    assert native == {"timeout_seconds": 45, "use_proxy": True, "options": {"engine_preference": "lightmount_domstable", "timeout_ms": 40500}}
     assert backend_params.params_for("builtin", _task("web"), timeout_seconds=45) == {"timeout_seconds": 45}
 
 

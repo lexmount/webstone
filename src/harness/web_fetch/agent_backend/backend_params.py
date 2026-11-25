@@ -6,7 +6,8 @@ the same rules the Web Fetch providers use, so a backend is configured exactly a
 * ``moli``: ``MoliWebFetchProvider.native_cli_command``; dynamic tasks use ``--wait-until domstable``, other
   web tasks ``--wait-until done``.
 * ``lexmount``: dynamic tasks request ``engine_preference: lightmount_domstable``, mirroring
-  ``LexmountProvider.fetch``; a dynamic task that declares per-task hints keeps its own shorter timeout.
+  ``LexmountProvider.fetch``; a dynamic task that declares per-task hints keeps its own shorter timeout. Every
+  request sets the API's top-level ``use_proxy: true``.
 * ``builtin``: Claude Code's WebFetch takes no request parameters; its deadline is set through the environment.
 
 One fetch time limit applies to every backend and every task family (``timeout_seconds``, default the Webstone
@@ -85,6 +86,7 @@ def params_for(arm_backend: str, case: dict, *, timeout_seconds: float, moli: Mo
             raise ValueError("unexpected moli command shape")
         return {**limit, "argv": command[1:-1] + moli_timeouts}
     if arm_backend == "lexmount":
+        limit = {**limit, "use_proxy": True}  # the API's top-level switch: fetch through Lexmount's proxy
         if eval_case.track != "dynamic":
             return {**limit, "options": {"timeout_ms": inner_ms}}
         timeout_ms = inner_ms

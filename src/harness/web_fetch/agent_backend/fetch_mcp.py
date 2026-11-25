@@ -42,7 +42,7 @@ def lexmount(url, timeout, params):
     extract = {"url": url, **({"options": params["options"]} if params.get("options") else {})}
     request = urllib.request.Request(
         os.environ.get("LEXMOUNT_BASE_URL", "https://api.lexmount.com").rstrip("/") + "/v1/extract", method="POST",
-        data=json.dumps({"extract": extract}).encode(),
+        data=json.dumps({"extract": extract, **({"use_proxy": True} if params.get("use_proxy") else {})}).encode(),
         headers={"X-API-Key": os.environ.get("LEXMOUNT_API_KEY", ""), "X-Project-Id": os.environ.get("LEXMOUNT_PROJECT_ID", ""),
                  "content-type": "application/json"})
     status, payload = None, {}
