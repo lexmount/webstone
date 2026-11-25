@@ -116,7 +116,7 @@
     "search": "Search",
     "aria_label_search_case_domain_or_error": " aria-label=\"Search case, domain or error\"",
     "complete_audit_scope": "Complete audit scope",
-    "all_pages_and_current_results_are_covered_the_original_results_we": "<p>All {value0} {value0|page|pages} and {value1} current results are covered. The original {value2} {value2|result|results} were reviewed field by field, with {value3} changed responses audited separately. No unreviewed passes were accepted.</p>",
+    "all_pages_and_current_results_are_covered_the_original_results_we": "<p>All {value0} {value0|page|pages} and {value1} current results are covered. The original {value2} {value2|result|results} {value2|was|were} reviewed field by field, with {value3} changed responses audited separately. No unreviewed passes were accepted.</p>",
     "the_model_audited_frozen_sources_annotations_and_complete_native": "The model audited frozen sources, annotations and complete native responses, followed by original-rule adjudication. This is not dual human annotation. Quotations are checked against frozen bytes; literal excerpts are retained separately from original opinions.",
     "diagnostic_f1_after_reference_audit": "Diagnostic F1 after reference audit",
     "each_method_still_covers_pages_the_same_native_outputs_and_offici": "Each method still covers {value0} {value0|page|pages}. The same native outputs and official scorer use only source-qualified reference amendments. This post-hoc diagnostic does not replace the original-reference scores on the home page.",

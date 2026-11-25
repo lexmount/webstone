@@ -1214,8 +1214,8 @@ def _quote_field_issue(metrics):
   compact+=bool(left and left==right)
  contaminated=len(comparisons)-compact
  parts=[t('quotes_and_authors_of_failed_checks_match', 'Quotes and authors of {count} failed checks match the reference', count=len(comparisons))]
- if compact:parts.append(t('records_have_complete_tag_text_but_no', '{compact} {compact|record|records} have complete tag text but no readable separator between tags', compact=compact))
- if contaminated:parts.append(t('records_have_tag_fields_mixed_with_extra', '{contaminated} {contaminated|record|records} have tag fields mixed with extra text or missing text', contaminated=contaminated))
+ if compact:parts.append(t('records_have_complete_tag_text_but_no', '{compact} {compact|record|records} {compact|has|have} complete tag text but no readable separator between tags', compact=compact))
+ if contaminated:parts.append(t('records_have_tag_fields_mixed_with_extra', '{contaminated} {contaminated|record|records} {contaminated|has|have} tag fields mixed with extra text or missing text', contaminated=contaminated))
  return (f"{'；'.join(parts)}" + t('the_task_requires_the_tag_list_to', '. The task requires the tag list to keep field boundaries, so it still fails'))
 
 def _returned_answer_fields(metadata):
@@ -1373,7 +1373,7 @@ def stable_failure_summary(metrics):
  minimum=metrics.get('stable_minimum_records')
  complete=metrics.get('stable_unique_record_count')
  if isinstance(minimum,int) and isinstance(complete,int) and complete < minimum:
-  parts.append(t('only_records_are_both_complete_and_non', 'Only {complete} {complete|record|records} are both complete and non-duplicate, fewer than the required {minimum}', complete=complete, minimum=minimum))
+  parts.append(t('only_records_are_both_complete_and_non', 'Only {complete} {complete|record|records} {complete|is|are} both complete and non-duplicate, fewer than the required {minimum}', complete=complete, minimum=minimum))
  quote_issue=_quote_field_issue(metrics)
  if quote_issue:return quote_issue
  missing=[]
@@ -2091,9 +2091,9 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
        and not any(reliability[key] for key in ('missing','extra','duplicates'))):
   excluded=[r for r in records if r['metrics'].get('evaluation_excluded')]
   if len(excluded)==len(reliability['unjudged']):
-   reliability_banner='<div class="wrap callout">'+model_text(*pair('results_are_excluded_across_all_methods_for', '{count} {count|result|results} are excluded across all methods for a verified evaluation-environment defect; original calls and outputs are retained.', count=len(excluded)))+'</div>'
+   reliability_banner='<div class="wrap callout">'+model_text(*pair('results_are_excluded_across_all_methods_for', '{count} {count|result|results} {count|is|are} excluded across all methods for a verified evaluation-environment defect; original calls and outputs are retained.', count=len(excluded)))+'</div>'
   else:
-   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('calls_are_complete_but_some_results_are', 'Calls are complete, but some results are undecidable') + f"</strong><span>{esc(t('all_calls_have_records_lack_sufficient_acceptance', 'All {present_calls} {present_calls|call|calls} have records; {count} lack sufficient acceptance evidence. The pass rate uses decidable results, with the denominator and undecidable count shown separately. A local report is not full acceptance or formal publication.', present_calls=reliability['present_calls'], count=len(reliability['unjudged'])))}</span></div>")
+   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('calls_are_complete_but_some_results_are', 'Calls are complete, but some results are undecidable') + f"</strong><span>{esc(t('all_calls_have_records_lack_sufficient_acceptance', 'All {present_calls} {present_calls|call|calls} {present_calls|has|have} records; {count} lack sufficient acceptance evidence. The pass rate uses decidable results, with the denominator and undecidable count shown separately. A local report is not full acceptance or formal publication.', present_calls=reliability['present_calls'], count=len(reliability['unjudged'])))}</span></div>")
  else:
   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('report_unreliable_evaluation_incomplete', 'Report unreliable: evaluation incomplete') + f"</strong><span>{esc('；'.join(reliability['errors']))}。本页排名不得用于结论或发布。</span></div>")
  if not show_local_status_banners and dataset.get('comparison',{}).get('publication_state')=='local_audit_only_not_for_release' and not any(reliability[key] for key in ('missing','extra','duplicates')):
@@ -2654,7 +2654,7 @@ def write_saved_changes(out, *, ctx):
  revision_path=out/'score-revision.json'
  if revision_path.is_file():
   count,results=saved_current_revision_scope(out,matrix)
-  updates+='<article class="review-round"><div class="round-label">'+model_text(*pair('report_offline_revision_d6fff2', 'Offline revision'))+'</div><div><h3>'+model_text(*pair('report_rule_and_scorer_revisions_9bfdf8', 'Rule and scorer revisions'))+'</h3><p>'+model_text(*pair('report_value_cases_have_revised_rules_and_value_saved_5b3e4a', '{value0} {value0|case|cases} have revised rules and {value1} saved results were rescored. Original rules, results and call evidence are retained; no provider calls were added.', value0=count, value1=results))+'</p><p>'+link('../review/index.html',(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p></div></article>'
+  updates+='<article class="review-round"><div class="round-label">'+model_text(*pair('report_offline_revision_d6fff2', 'Offline revision'))+'</div><div><h3>'+model_text(*pair('report_rule_and_scorer_revisions_9bfdf8', 'Rule and scorer revisions'))+'</h3><p>'+model_text(*pair('report_value_cases_have_revised_rules_and_value_saved_5b3e4a', '{value0} {value0|case|cases} {value0|has|have} revised rules and {value1} saved results were rescored. Original rules, results and call evidence are retained; no provider calls were added.', value0=count, value1=results))+'</p><p>'+link('../review/index.html',(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p></div></article>'
  if not updates:
   updates='<p>'+model_text(*pair('report_no_result_revisions_are_registered_for_this_report_87a325', 'No result revisions are registered for this report.'))+'</p>'
  write(out,'changes/index.html',(t('report_changelog_6a4481', 'Changelog')),hero((t('report_changelog_6a4481', 'Changelog')),saved_matrix_text('changes_scope'), ctx=ctx)+section((t('report_corrections_to_this_run_ff4ddd', 'Corrections to this run')),'<div class="review-rounds">'+updates+'</div>')+section((t('report_supporting_evidence_f9035c', 'Supporting evidence')),'<p>'+link('../review/index.html',(t('report_review_scope_and_corrections_e82445', 'Review scope and corrections')))+' · '+link('../analysis/index.html',(t('report_per_task_results_and_evidence_ddad92', 'Per-task results and evidence')))+' · '+link('../reproduce/index.html',(t('report_run_parameters_and_versions_be2f2a', 'Run parameters and versions')))+'</p>'), ctx=ctx)

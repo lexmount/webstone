@@ -347,7 +347,7 @@ def _recommendation(summary: dict[str, Any], engines: tuple[str, ...]) -> str:
         return t("curated.recommendation.single", "This run has only one provider, {engines}, with {top} correct results; there is nothing to compare, so no default is recommended.", engines=engine_names(engines), top=top)
     if len(leaders) > 1:
         if leaders == engines:
-            return t("curated.recommendation.tied_all", "In this run, {count} {count|provider|providers} have the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", count=_provider_count(engines), top=top, parties=parties)
+            return t("curated.recommendation.tied_all", "In this run, {count} {count|provider|providers} {count|has|have} the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", count=_provider_count(engines), top=top, parties=parties)
         return t("curated.recommendation.tied", "In this run, {leaders} have the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", leaders=engine_names(leaders), top=top, parties=parties)
     leader = leaders[0]
     others = tuple(engine for engine in engines if engine != leader)

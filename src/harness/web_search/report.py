@@ -4249,7 +4249,7 @@ def dataset_context(profile, content, zh, *, reference_profile=None):
     if exact:
         parts.append(report_text("{exact} original queries have traceable public sources", zh, exact=exact))
     if screenshots:
-        parts.append(report_text("{screenshots} {screenshots|query|queries} were transcribed from user screenshots; their original authors and posts are unconfirmed", zh, screenshots=screenshots))
+        parts.append(report_text("{screenshots} {screenshots|query|queries} {screenshots|was|were} transcribed from user screenshots; their original authors and posts are unconfirmed", zh, screenshots=screenshots))
     note = report_text("; ", zh).join(parts)
     if note:
         note += report_text(". ", zh)

@@ -3043,7 +3043,7 @@ def _write_dataset_index(stage: Path, inputs: ReportInputs) -> None:
         )
         + _section(
             t("dataset_index.dataset_scope", "Dataset scope"),
-            ("<p>" + t("dataset_index.all_tasks_were_fixed_before_model", "All {task_count} {task_count|task|tasks} were fixed before model execution, covering four deployed sites and RETRIEVE, NAVIGATE and MUTATE outcome contracts. This page describes tasks and acceptance rules. Pass rates, timings, trajectories and feasibility observations belong in results analysis.", task_count=task_count) + "</p>"),
+            ("<p>" + t("dataset_index.all_tasks_were_fixed_before_model", "All {task_count} {task_count|task|tasks} {task_count|was|were} fixed before model execution, covering four deployed sites and RETRIEVE, NAVIGATE and MUTATE outcome contracts. This page describes tasks and acceptance rules. Pass rates, timings, trajectories and feasibility observations belong in results analysis.", task_count=task_count) + "</p>"),
         )
     )
     inventory = _section(t("dataset_index.tasks", "{task_count} {task_count|task|tasks}", task_count=task_count), _task_table(tasks, participants))
@@ -3126,7 +3126,7 @@ def _methodology_deployment(inputs: ReportInputs) -> str:
     selected_sites = Counter(site for task in tasks for site in task.get("sites", []))
     site_images = environment.get("site_images") or config.get("site_images") or {}
     return _section(
-        t("methodology_deployment.how_the_tasks_were_deployed_and", "How the {task_count} {task_count|task|tasks} were deployed and run by the agent", task_count=task_count),
+        t("methodology_deployment.how_the_tasks_were_deployed_and", "How the {task_count} {task_count|task|tasks} {task_count|was|were} deployed and run by the agent", task_count=task_count),
         '<figure id="deployment-flow" class="method-figure"><img src="assets/webarena-autonomous-evaluation-flow.png" alt="Browser Use evaluation flow: tasks, recorded environment, autonomous actions, registered browsers and official evaluators"><figcaption>'
         + _translated("methodology_deployment.the_diagram_explains_responsibilities_the_recorded", "The diagram explains responsibilities. The recorded deployment and preparation coverage are specified below and in each execution's evidence.")
         + '</figcaption></figure><p>'
@@ -3249,7 +3249,7 @@ def _write_analysis_page(stage: Path, inputs: ReportInputs) -> None:
     )
     inventory = _section(
         t("analysis_page.results_and_failure_diagnoses", "{result_count} {result_count|result|results} and failure diagnoses", result_count=result_count),
-        ("<p>" + t("analysis_page.all_official_results_for_the_preregistered", "All official results for the {task_count} preregistered tasks are retained; {excluded_task_ids_count} {excluded_task_ids_count|task|tasks} are marked as affected by external interference. Failures are shown by default. Open a diagnosis to inspect the failure stage, program error, reviewed cause, trajectory, screenshots and logs.", task_count=task_count, excluded_task_ids_count=len(excluded_task_ids)) + "</p>")
+        ("<p>" + t("analysis_page.all_official_results_for_the_preregistered", "All official results for the {task_count} preregistered tasks are retained; {excluded_task_ids_count} {excluded_task_ids_count|task|tasks} {excluded_task_ids_count|is|are} marked as affected by external interference. Failures are shown by default. Open a diagnosis to inspect the failure stage, program error, reviewed cause, trajectory, screenshots and logs.", task_count=task_count, excluded_task_ids_count=len(excluded_task_ids)) + "</p>")
         + _attempt_table(attempts, tasks, participants, verified_causes),
     )
     _write_page(stage, "analysis/index.html", title=t("nav.results_analysis", "Results analysis"), active="analysis",
