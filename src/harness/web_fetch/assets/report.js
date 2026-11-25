@@ -56,6 +56,8 @@ window.addEventListener('load',()=>{if(location.hash.startsWith('#inspect?'))set
 window.addEventListener('report-ready',initReport);
 window.addEventListener('DOMContentLoaded',initReport);
 let wmbMermaidModule;
+// The Mermaid runtime is installed beside this script.
+const wmbScriptURL=document.currentScript?.src;
 function wmbLoadMermaid(){if(!wmbMermaidModule)wmbMermaidModule=new Promise((resolve,reject)=>{let script=document.createElement('script');/*mermaid-script-attributes*/;script.onload=()=>resolve(window.mermaid);script.onerror=()=>{script.remove();wmbMermaidModule=null;reject(new Error('Diagram library unavailable'))};document.head.appendChild(script)});return wmbMermaidModule}
 async function wmbRenderFlow(){let node=document.querySelector('.wmb-flow .mermaid');if(!node||node.dataset.rendering||window.innerWidth<=700)return;node.dataset.rendering='1';try{let mermaid=await wmbLoadMermaid();mermaid.initialize({startOnLoad:false,theme:document.documentElement.dataset.theme==='dark'?'dark':'neutral',flowchart:{htmlLabels:true}});let rendered=await mermaid.render('wmb-evaluation-flow',node.textContent);if(!node.isConnected)return;node.innerHTML=rendered.svg;node.hidden=false;node.closest('.wmb-flow').querySelector('[data-wmb-flow-fallback]').hidden=true}catch(error){node.hidden=true;delete node.dataset.rendering}}
 window.addEventListener('report-ready',wmbRenderFlow);

@@ -70,6 +70,14 @@ def report_method_catalog(language="zh"):
     return _catalog_value(_raw_report_method_catalog(), language=language)
 
 
+def method_display_labels(profile=None):
+    """Registered display labels by method id: the method catalog, then a profile's participant labels."""
+    labels = {name: row['label'] for name, row in report_method_catalog()['methods'].items() if row.get('label')}
+    labels.update({name: row['label'] for name, row in ((profile or {}).get('participants') or {}).items()
+                   if isinstance(row, dict) and row.get('label')})
+    return labels
+
+
 def frozen_execution_configs(manifests):
     """Read installation bindings only from bytes named by execution manifests.
 

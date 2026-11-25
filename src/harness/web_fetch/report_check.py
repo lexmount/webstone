@@ -16,7 +16,8 @@ from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 
 from harness.record_io import file_sha256, load_jsonl, read_json
 from harness.report_languages import check_language_contract, generated_languages, visible_numbers
-from harness.reporting.presentation import check_presentation
+from harness.reporting.names import check_display_names
+from harness.reporting.presentation import check_one_language, check_presentation
 from harness.reporting.release_check import language_editions, open_report, read_page
 from harness.web_fetch.template import check_template_pages
 from harness.web_fetch.adjudication_evidence import (
@@ -28,7 +29,7 @@ from harness.web_fetch.local_audit import (
     require_local_measurement,
 )
 from harness.web_fetch.local_execution_contract import local_measurement_cases
-from harness.web_fetch.methods import native_browser_engine
+from harness.web_fetch.methods import method_display_labels, native_browser_engine
 from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
 from harness.web_fetch.reference_lifecycle import validate_resource_source_evidence
 from harness.web_fetch.reliability import require_reliable
@@ -657,10 +658,15 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
         ):
             raise ValueError(c["id"])
     check_report_language_parity(root, d)
+    display_labels = method_display_labels()
+    bilingual = 'en' in generated_languages(root)
     pages = ((page, root, rs, case_by_id, local_measurement) for page in root.rglob('*.html'))
     for p, page_root, page_records, page_cases, page_diagnostic in pages:
         text = p.read_text(encoding="utf-8")
-        check_presentation(text)
+        page_soup = check_presentation(text)
+        if bilingual:
+            check_one_language(page_soup)
+        check_display_names(page_soup, display_labels)
         reader = VisibleText()
         reader.feed(text)
         visible = " ".join(reader.parts)

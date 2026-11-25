@@ -112,10 +112,30 @@ def check_labels(soup):
                 raise ValueError(f'{message}: {match.group(0)!r}')
 
 
+# A renderer may keep a label's English form beside the Chinese text while it derives
+# the English edition; a published page carries only its own language.
+_OTHER_EDITION = re.compile(r"""\sdata-report-en=(?:"[^"]*"|'[^']*')""")
+
+
+def drop_other_edition(page):
+    """Remove the other edition's text kept beside this page's labels."""
+    return _OTHER_EDITION.sub("", page)
+
+
+def check_one_language(html):
+    """A page holds one language: no element carries the other edition's text."""
+    soup = BeautifulSoup(html, 'html.parser') if isinstance(html, str) else html
+    if soup.select_one('[data-report-en]') is not None:
+        raise ValueError('Report page embeds the other language edition')
+
+
 def check_presentation(html):
     soup = BeautifulSoup(html, 'html.parser') if isinstance(html, str) else html
     if soup.select_one('header.shell-top'):
         check_shell(soup)
+        # Imported here: names.py stands alone and presentation stays import-light.
+        from harness.reporting.names import check_interface_language
+        check_interface_language(soup)
     for table in soup.select('table'):
         if table.get('data-significance') == 'paired-query-bootstrap/1':
             count = table.get('data-query-count', '')

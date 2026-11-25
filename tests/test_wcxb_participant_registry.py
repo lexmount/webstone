@@ -68,14 +68,15 @@ def test_public_wcxb_build_check_package_accept_external_nonhistorical_cohort(tm
                       'they do not measure browser capability or support an adoption recommendation.</p>')
         body += '<section id="' + anchor + '"><h2>' + anchor + '</h2>' + detail + '</section>'
     content_path = evidence / 'report-assets/report-content.json'
-    write_json(content_path, {'schema_version': 1, 'guide': {'zh': body, 'en': body}})
+    chinese = body.replace('<th>Method</th>', '<th>方法</th>').replace('<th>Latency</th>', '<th>耗时</th>')
+    write_json(content_path, {'schema_version': 1, 'guide': {'zh': chinese, 'en': body}})
     profile_path = tmp_path / 'instance/profile.json'
     write_json(profile_path, profile)
     binding = {'schema_version': 1, 'relative_path': 'report-content.json',
         'sha256': hashlib.sha256(content_path.read_bytes()).hexdigest(),
         'evidence': {'wcxb-score-summary.json': hashlib.sha256((evidence / 'wcxb-score-summary.json').read_bytes()).hexdigest()},
         'authority': {'configs/report-templates.json': hashlib.sha256((repository / 'configs/report-templates.json').read_bytes()).hexdigest()},
-        'rendered_sha256': {'guide': {lang: hashlib.sha256(body.encode()).hexdigest() for lang in ('zh', 'en')}}}
+        'rendered_sha256': {'guide': {lang: hashlib.sha256(text.encode()).hexdigest() for lang, text in (('zh', chinese), ('en', body))}}}
     write_json(profile_path.with_name('report-content-binding.json'), binding)
     output = tmp_path / 'report'
     commands = [

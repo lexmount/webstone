@@ -7,3 +7,5 @@ evaluation/headless/artifacts/** -diff -text -whitespace
 evaluation/headless/sources/** -diff -text -whitespace
 evaluation/headless/diagnostics/**/artifacts/** -diff -text -whitespace
 evaluation/sources/** -diff -text -whitespace
+# The vendored Mermaid runtime is byte-exact upstream release output, pinned by digest.
+src/harness/reporting/vendor/** -diff -text -whitespace

@@ -42,7 +42,6 @@ from harness.browser_use.publication import (
 )
 from harness.browser_use.report_i18n import (
     MESSAGES,
-    bilingual_text,
     english_rationale,
     write_english_report,
 )
@@ -99,8 +98,13 @@ def _language() -> str:
 
 
 def _translated(key: str, source: str, /, **values: Any) -> Safe:
-    """Keep dynamic text and its English form beside the same values."""
-    return Safe(bilingual_text(_ZH(key, source, **values), _EN(key, source, **values)))
+    """Dynamic catalog text in the edition being rendered; a page carries one language."""
+    return Safe(_e(_edition_text(_ZH(key, source, **values), _EN(key, source, **values))))
+
+
+def _edition_text(zh: str, en: str) -> str:
+    """Pick the text of the edition being rendered."""
+    return en if _language() == "en" else zh
 
 
 def _rationale(task: dict[str, Any]) -> str:
@@ -2262,10 +2266,10 @@ def _article_body(
         specimen = next(iter(causes), _attempt_id(failures[0]))
         cause = causes.get(specimen) or {}
         reason = cause.get('reason') or {}
-        explanation = bilingual_text(
+        explanation = _e(_edition_text(
             str(reason.get('zh') or _ZH('article_body.no_verified_cause', 'This result has no verified root cause.')),
             str(reason.get('en') or _EN('article_body.no_verified_cause', 'This result has no verified root cause.')),
-        )
+        ))
         chapters.append(
             f'<section data-browser-failure-profile="{_e(model)}-{_e(engine)}"><h3>{_e(label)}</h3>'
             + _translated("article_body.failed_results_have_a_verified_cause", "{failures_count} failed results; {causes_count} have a verified cause.", failures_count=len(failures), causes_count=len(causes))
@@ -2366,7 +2370,7 @@ def _filters(participants: Participants, *, attempts: bool = False, dataset: boo
             "<label>" + t("filters.result", "Result") + ' <select data-filter="result"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="pass">' + t("same_task_comparison.pass", "Pass") + f"</option><option value=\"fail\"{' selected' if attempts else ''}>" + t("same_task_comparison.fail", "Fail") + "</option></select></label>"
         )
     )
-    placeholder = t("filters.task_intent_or_acceptance_contract", "Task, intent, or acceptance contract") if dataset else t("filters.task_intent_answer_or_error", "Task, intent, answer, or error")
+    placeholder = t("filters.task_intent_site_or_rationale", "Task, intent, site, or rationale") if dataset else t("filters.task_intent_answer_or_error", "Task, intent, answer, or error")
     return (
         ('<div class="filters"><label>' + t("filters.full_text_search", "Full-text search") + f' <input data-search type="search" placeholder="{placeholder}"></label><label>' + t("same_task_comparison.tier", "Tier") + ' <select data-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option>' + _site_options() + '</select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + "</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label>")
         + result_filter
@@ -2395,9 +2399,11 @@ def _task_table(tasks: list[dict[str, Any]], participants: Participants) -> str:
             str(x)
             for x in (
                 task_id,
+                _tier_label(task["tier"]),
+                SITE_LABELS.get(site, site),
+                kind,
                 task.get("intent"),
                 _searchable_rationale(task),
-                json.dumps(task.get("contract") or {}, ensure_ascii=False),
             )
         )
         rows.append(
@@ -2441,7 +2447,7 @@ def _diagnosis_dialog(
     dialog_id = f"diagnosis-{result_id}"
     detail_url = f"results/{result_id}.html"
     return (
-        (f'<dialog class="diagnosis-dialog" id="{_e(dialog_id)}" aria-labelledby="{_e(dialog_id)}-title"><div class="diagnosis-dialog-head"><div><span class="table-kicker">' + t("diagnosis_dialog.failure_diagnosis", "Failure diagnosis") + f'</span><h2 id="{_e(dialog_id)}-title">Task #{task_id} · {_e(configuration)}</h2></div><button class="dialog-close" type="button" onclick="closeDiagnosis(\'{_e(dialog_id)}\')" aria-label="' + t("diagnosis_dialog.close", "Close") + '">×</button></div><div class="diagnosis-dialog-grid"><div><b>' + t("diagnosis_dialog.location", "Location") + f'</b><a href="{_e(step_link)}">{_e(failure_point)}</a></div><div><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(automatic_failure or t('failure_cause_table.unclassified', 'Unclassified'))}</div><div><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f"</b>{_e(owner)}</div></div>")
+        (f'<dialog class="diagnosis-dialog" id="{_e(dialog_id)}" aria-labelledby="{_e(dialog_id)}-title"><div class="diagnosis-dialog-head"><div><span class="table-kicker">' + t("diagnosis_dialog.failure_diagnosis", "Failure diagnosis") + f'</span><h2 id="{_e(dialog_id)}-title">' + t("common.task_number", "Task #{task_id}", task_id=_e(task_id)) + f' · {_e(configuration)}</h2></div><button class="dialog-close" type="button" onclick="closeDiagnosis(\'{_e(dialog_id)}\')" aria-label="' + t("diagnosis_dialog.close", "Close") + '">×</button></div><div class="diagnosis-dialog-grid"><div><b>' + t("diagnosis_dialog.location", "Location") + f'</b><a href="{_e(step_link)}">{_e(failure_point)}</a></div><div><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(automatic_failure or t('failure_cause_table.unclassified', 'Unclassified'))}</div><div><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f"</b>{_e(owner)}</div></div>")
         + (
             f'<div class="dialog-step"><b>{_e(step_context_label)}</b><a href="{_e(step_link)}">{_raw(step_context)}</a></div>'
             if step_context
@@ -3079,7 +3085,7 @@ def _write_task_pages(stage: Path, inputs: ReportInputs) -> None:
             + ('<a href="analysis/#same-task">' + t("task_pages.compare_all_browsers", "Compare all browsers") + "</a></div>"),
         )
         _write_page(stage, f"datasets/{task_id}.html", title=t("task_pages.task", "Task {task_id}", task_id=task_id),
-                    active="datasets", eyebrow=f"Task #{task_id}", heading=_rationale(task),
+                    active="datasets", eyebrow=t("common.task_number", "Task #{task_id}", task_id=_e(task_id)), heading=_rationale(task),
                     body=compose("datasets", {"lead": lead, "definition": definition, "inventory": inventory}))
 
 
@@ -3169,9 +3175,9 @@ def _methodology_protocol(inputs: ReportInputs) -> str:
                 [t("methodology_protocol.logical_results", "Logical results"), _translated("methodology_protocol.one_retained_logical_result_per_task", "One retained logical result per task, model and browser; binary acceptance and task-paired comparison.")],
                 [
                     t("methodology_protocol.execution_limit", "Execution limit"),
-                    Safe(bilingual_text(
+                    Safe(_e(_edition_text(
                         _ZH('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or _ZH('protocol.limit_not_recorded', 'not recorded')),
-                        _EN('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or 'not recorded'))),
+                        _EN('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or 'not recorded')))),
                 ],
                 [
                     t("methodology_protocol.exclusions", "Exclusions"),
@@ -3302,7 +3308,7 @@ def _evidence_index_entry(
 
 
 def _result_heading(public: dict[str, Any], participants: Participants) -> str:
-    return f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · Task #{public['task_id']}"
+    return f"{participants.models[public['model']]} · {participants.engines[public['engine']]} · " + t("common.task_number", "Task #{task_id}", task_id=public['task_id'])
 
 
 def _result_hero(public: dict[str, Any], failure_point: str) -> str:

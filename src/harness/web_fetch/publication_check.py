@@ -14,6 +14,7 @@ from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import parse_jsonl
 from harness.reporting.links import validate_virtual_links
+from harness.reporting.mermaid import MERMAID_RUNTIME, mermaid_file
 from harness.reporting.packs import (
     DecompressedPackCache,
     read_packed_manifest,
@@ -27,7 +28,7 @@ from harness.reporting.publication_privacy import (
     publication_file_risk,
     publication_risk,
 )
-from harness.web_fetch.report_package import DATA_ATTACHMENT_HTML, home_catalog, validate_release
+from harness.web_fetch.report_package import DATA_ATTACHMENT_HTML, MERMAID_SOURCE, home_catalog, validate_release
 from harness.safety import evidence_tree_identity
 from harness.web_fetch.webmainbench_diagnostics import (
     require_valid_teds_for_release,
@@ -134,9 +135,10 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
         if overlay and set(overlay_files) - {'index.html','manifest.json','loader.js','update-receipt.json'} - home_assets:
             raise ValueError('Incremental overlay contains undeclared home assets')
         catalog_files = ({"manifest.json.gz", "catalog.bin.gz"} if manifest['schema_version'] == 3 else set())
+        runtime_files = {MERMAID_RUNTIME} if MERMAID_SOURCE in source_files else set()
         if (
             set(physical)
-            != {"index.html", "style.css", "report.js", "loader.js", "manifest.json"} | (packs-set(external)) | catalog_files | (home_assets if not overlay else {name for name in physical if name.startswith("home-assets/")})
+            != {"index.html", "style.css", "report.js", "loader.js", "manifest.json"} | (packs-set(external)) | catalog_files | runtime_files | (home_assets if not overlay else {name for name in physical if name.startswith("home-assets/")})
         ):
             raise ValueError("Publication contains an undeclared physical file")
         for name in set(physical) - packs:
@@ -144,6 +146,10 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
                 loader = Path(__file__).parent / "assets/report-loader.js"
                 if read(name) != loader.read_bytes():
                     raise ValueError("Publication loader differs from the installed resource")
+                continue
+            if name == MERMAID_RUNTIME:
+                if read(name) != mermaid_file(MERMAID_RUNTIME):
+                    raise ValueError("Publication diagram runtime differs from the vendored copy")
                 continue
             if name == 'catalog.bin.gz':
                 continue  # Typed integer catalog; its complete ranges are checked below.
@@ -169,7 +175,7 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
                 offset += block["size"]
             if offset != len(pack(name)):
                 raise ValueError("Publication content pack contains undeclared bytes")
-        expected_files = set(source_files) - {".generated-report"}
+        expected_files = set(source_files) - {".generated-report", MERMAID_SOURCE}
         if set(manifest["files"]) != expected_files | {"publication-privacy.json"}:
             raise ValueError("Publication virtual files differ from the source report")
 

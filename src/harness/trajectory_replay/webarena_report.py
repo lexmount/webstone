@@ -1734,7 +1734,7 @@ def build_webarena_replay_report(
                     f'<section id="overview" class="presentation-slide"><h2>{t("interpretation.complete_results", "Complete results")}</h2><p>{overview}</p>'
                     + _metrics_table(method_rows, lang, show_valid_reference=bool(unverifiable_ids)) + '</section>'
                     f'<section id="scoring" class="presentation-slide"><h2>{t("interpretation.scoring", "Scoring")}</h2><p>{scoring}</p>'
-                    f'<a href="task/{task_id}.html">Task {task_id}</a></section>'
+                    f'<a href="task/{task_id}.html">{t("interpretation.task_link", "Task #{task}", task=task_id)}</a></section>'
                     f'<section id="browser-diagnoses" class="presentation-slide"><h2>{t("interpretation.failures", "Failures by method")}</h2>'
                     + ''.join(browser_failure_profile(methods, public_rows, lang, name) for name in failed_participants)
                     + '</section><section id="scope" class="presentation-slide"><h2>'

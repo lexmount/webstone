@@ -123,6 +123,11 @@ def table(headers, rows, sortable=True, *, bounded=False, primary_column=None, s
     )
 
 
+def spread(mean, p50, p95):
+    """A summary cell's folded Mean/P50/P95: the mean leads; the exact P50 and P95 stay beside it."""
+    return f'{mean}<small class="shell-spread">P50 {p50} · P95 {p95}</small>'
+
+
 def cells(values):
     """One table row of already-rendered cell HTML."""
     return "<tr>" + "".join("<td>" + v + "</td>" for v in values) + "</tr>"

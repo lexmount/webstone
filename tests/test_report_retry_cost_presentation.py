@@ -19,11 +19,11 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     doc = BeautifulSoup(overall_ranking(rows, cases, ctx=RenderContext()), 'html.parser')
     main = doc.select_one('#ranking-overall')
     passed = next(row for row in main.select('tbody tr') if 'passes' in row.get_text())
-    assert '15 ms' in passed.select('td')[-3].get_text()
+    assert passed.select('td')[-1].get_text(' ', strip=True).startswith('15 ms P50')
     assert '15,015 ms' not in main.get_text()
     assert '累计执行耗时' not in main.get_text()
     assert all(not cell.select('.comparison-winner') for row in main.select('tbody tr')
-               for cell in row.select('td')[-3:])
+               for cell in row.select('td')[-1:])
     conditional = doc.select_one('#successful-final-call-latency')
     failed = next(row for row in conditional.select('tbody tr') if 'fails-fast' in row.get_text())
     assert '0/2' in failed.get_text()
@@ -40,7 +40,7 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     passed, failed = main.select('tbody tr')
     # The failing method shows no passing latency, so the passing method has no contest.
     assert not passed.select('[data-metric-direction="min"] strong.good')
-    assert '15 ms' in passed.select('td')[-3].get_text()
+    assert passed.select('td')[-1].get_text(' ', strip=True).startswith('15 ms P50')
     assert not failed.select('[data-metric-direction="min"] strong.good')
     assert '1 ms' not in failed.get_text()
 
@@ -65,8 +65,8 @@ def test_missing_prior_cost_is_unavailable_not_a_fast_partial_mean():
     cases = {'a': {'id': 'a', 'track': 'web', 'task_kind': 'body'}}
     rows = [result('method', 'a', 10, report_retry_continuation={'execution_cost_ms': None})]
     doc = BeautifulSoup(overall_ranking(rows, cases, ctx=RenderContext()), 'html.parser')
-    timing = doc.select_one('#ranking-overall tbody tr').select('td')[-3:]
-    assert [cell.get_text(' ', strip=True) for cell in timing] == ['10 ms'] * 3
+    timing = doc.select_one('#ranking-overall tbody tr').select('td')[-1]
+    assert timing.get_text(' ', strip=True) == '10 ms P50 10 ms · P95 10 ms'
     assert logical_execution_cost_ms(rows[0]) is None
 
 

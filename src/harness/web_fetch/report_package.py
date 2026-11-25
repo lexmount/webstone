@@ -25,6 +25,7 @@ from lexbench_webfetch.paths import contained_path
 from harness.record_io import file_sha256, load_jsonl
 from harness.reporting import shell
 from harness.reporting.links import validate_virtual_links
+from harness.reporting.mermaid import MERMAID_RUNTIME, mermaid_file
 from harness.reporting.packs import (
     ByteBlockStore,
     DecompressedPackCache,
@@ -52,6 +53,8 @@ from harness.web_fetch.result_review import require_result_review
 from harness.safety import evidence_tree_identity, unlinked_path
 from harness.web_fetch.report_model import RenderContext
 
+# The vendored diagram runtime is served beside the shell script instead of as packed content.
+MERMAID_SOURCE = 'assets/' + MERMAID_RUNTIME
 
 
 def _extension_controls() -> bytes:
@@ -289,6 +292,9 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
         source_sha256 = hashlib.sha256(data).hexdigest()
         if path.is_symlink():
             raise ValueError("Publication source must not contain symlinks: " + name)
+        if name == MERMAID_SOURCE:
+            _require(data == mermaid_file(MERMAID_RUNTIME), name)
+            continue
         data, redaction = project_file(name, data)
         data, footprint_projection = project_redundant_result_streams(name, data)
         if footprint_projection:
@@ -498,6 +504,8 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
                 "window.addEventListener('report-ready',",
             )
     (destination / "report.js").write_text(js, encoding="utf-8")
+    if MERMAID_SOURCE in source_names:
+        (destination / MERMAID_RUNTIME).write_bytes(mermaid_file(MERMAID_RUNTIME))
     (destination / "loader.js").write_bytes(
         (Path(__file__).parent / "assets/report-loader.js").read_bytes()
     )
@@ -664,6 +672,8 @@ def _compact_cached_content(cached: Path, destination: Path, *, source: Path, re
         compact = write_compact_packs(entries(), destination, architecture=manifest.get('architecture'))
     for name in ('index.html','style.css','report.js'):
         shutil.copyfile(cached/name, destination/name)
+    if (cached/MERMAID_RUNTIME).is_file():
+        (destination/MERMAID_RUNTIME).write_bytes(mermaid_file(MERMAID_RUNTIME))
     (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
     with DecompressedPackCache(lambda name:(destination/name).read_bytes()) as pack:
         normalized = read_packed_manifest(lambda name:(destination/name).read_bytes())

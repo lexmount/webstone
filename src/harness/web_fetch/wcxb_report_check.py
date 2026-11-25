@@ -26,6 +26,7 @@ from harness.report_languages import (
     visible_numbers,
 )
 from harness.reporting.assets import authored_main
+from harness.reporting.names import check_display_names
 from harness.reporting.presentation import check_presentation
 from harness.reporting.release_check import language_editions, open_report, read_page
 from harness.reporting.visual import local_report_server
@@ -34,6 +35,7 @@ from harness.data_home import data_home
 from harness.env_file import parse_env_file
 from harness.web_fetch.wcxb_latency import load_full_paired_latency, summarize_full_paired_latency
 from harness.web_fetch.wcxb_scoring import paired_latency_methods
+from harness.web_fetch.methods import method_display_labels
 from harness.web_fetch.template import check_recorded_template
 
 ROOT = repository_root()
@@ -463,10 +465,12 @@ def check(root: Path, *, authority_root: Path | None = None, profile_path: Path 
     localized_routes = localized_report_routes(root, expected)
     language_pairs = language_editions(root)
     shapes = {language: {} for language in localized_routes}
+    display_labels = method_display_labels(profile)
     for lang, prefix in language_pairs:
         for route in expected:
             path = root / prefix / route
             html = path.read_text(encoding='utf-8')
+            check_display_names(html, display_labels)
             page = Page(); page.feed(html)
             shape = ReportShape(); shape.feed(html)
             shapes[lang][route] = shape
@@ -688,8 +692,8 @@ def check_visual(root: Path, browser_binary: str) -> None:
                                                 raise ValueError(f'Guide image did not render: {image.get_attribute("src")}') from error
                                     if route == 'index.html' and not dark:
                                         check_presentation(page.content())
-                                        quality = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(5)').all()]
-                                        if float(page.locator('#wcxb-core tbody tr').first.locator('td').nth(4).get_attribute('data-sort')) != max(quality):
+                                        quality = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(2)').all()]
+                                        if float(page.locator('#wcxb-core tbody tr').first.locator('td').nth(1).get_attribute('data-sort')) != max(quality):
                                             raise ValueError('Core table is not ordered by qualified F1')
                                         page.locator('[data-core-sort="5"]').click()
                                         latency = [float(cell.get_attribute('data-sort')) for cell in page.locator('#wcxb-core tbody td:nth-child(6)').all()]

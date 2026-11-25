@@ -95,16 +95,9 @@ def _rewrite_links(page: str) -> str:
     )
 
 
-def bilingual_text(zh: str, en: str) -> str:
-    """Keep dynamic interface text and its English form beside the same values."""
-    return f'<span data-report-en="{html.escape(en, quote=True)}">{html.escape(zh)}</span>'
-
-
 def localize_html(page: str, source: PurePosixPath) -> str:
     """Place one page of the English pass under `en/`."""
     english = PurePosixPath("en") / source
-    page = re.sub(r'<span data-report-en="([^"]*)">[^<]*</span>',
-                  lambda match: html.escape(html.unescape(match[1])), page)
     page = page.replace('<html lang="zh-CN">', '<html lang="en">', 1)
     had_base = bool(re.search(r'<base\s+href=["\'][^"\']*["\']>', page, flags=re.I))
     page = re.sub(
