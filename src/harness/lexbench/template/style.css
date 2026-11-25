@@ -903,3 +903,9 @@ h1,
 .summary-chart img {
   min-width: 1200px;
 }
+.inventory-notice {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}

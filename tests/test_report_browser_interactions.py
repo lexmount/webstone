@@ -647,3 +647,90 @@ def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
             assert page.locator('html').get_attribute('lang') == 'en'
         finally:
             page.close()
+
+
+def test_shared_inventory_falls_back_pages_keeps_filters_and_walks_details(tmp_path, browser, display):
+    """A late all-pass filter falls back with a notice; pages, URL filters (including All), trail and dialog work."""
+    from harness.reporting import explorer
+
+    # The track filters only after its data arrives, as WebArena does after fetching results.
+    filter_js = ("function f(){const v=document.querySelector('[data-filter]').value;"
+                 "document.querySelectorAll('tbody tr').forEach(r=>{r.hidden=Boolean(v)&&r.dataset.result!==v})}"
+                 "document.addEventListener('DOMContentLoaded',()=>{document.querySelector('[data-filter]')"
+                 ".addEventListener('change',f);setTimeout(f,400)});")
+    rows = "".join(
+        f'<tr data-result="pass"><td><a data-inventory-detail href="r{i}.html">r{i}</a>'
+        + (explorer.diagnosis_button("Diagnose", title="Row 0", stage="request", error="Boom: exact", stage_label="Stage",
+                                     error_label="Error", links=[("r0.html#evidence", "Open")]) if i == 0 else "")
+        + "</td></tr>" for i in range(5))
+    (tmp_path / "inventory.js").write_text(filter_js + explorer.INVENTORY_SCRIPT, encoding="utf-8")
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><html><head><meta charset="utf-8"><script src="inventory.js"></script></head><body>'
+        '<div' + explorer.inventory_attributes(result_control="[data-filter]", page_size=2) + '>'
+        '<select data-filter><option value="fail" selected>Fail</option><option value="pass">Pass</option>'
+        f'<option value="">All</option></select><table><tbody>{rows}</tbody></table>'
+        + explorer.inventory_notice("No failures; showing all.", "Show more") + "</div>"
+        + explorer.diagnosis_dialog(label="Diagnosis", close="Close") + "</body></html>", encoding="utf-8")
+    for i in range(5):
+        (tmp_path / f"r{i}.html").write_text(
+            '<!doctype html><html><head><meta charset="utf-8"><script src="inventory.js"></script></head><body>'
+            + explorer.detail_navigation("index.html", back="Back", previous="Previous", next_label="Next")
+            + "</body></html>", encoding="utf-8")
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        page.goto(origin + "/index.html")
+        expect(page.locator("[data-inventory-notice]")).to_be_visible()
+        assert page.locator("[data-filter]").input_value() == ""
+        expect(page.locator("tbody tr:visible")).to_have_count(2)
+        page.locator("[data-inventory-more]").click()
+        expect(page.locator("tbody tr:visible")).to_have_count(4)
+        # The diagnosis path records the row's trail too.
+        page.locator("[data-inventory-diagnosis]").click()
+        dialog = page.locator("dialog[data-inventory-dialog]")
+        expect(dialog).to_be_visible()
+        expect(dialog.locator("pre")).to_have_text("Boom: exact")
+        dialog.locator('a[href="r0.html#evidence"]').click()
+        expect(page.locator("[data-detail-next]")).to_have_attribute("href", origin + "/r1.html")
+        page.go_back()
+        page.locator("[data-filter]").select_option("pass")
+        assert "f.c0=pass" in page.url
+        page.locator('a[href="r1.html"]').click()
+        expect(page.locator("[data-detail-previous]")).to_have_attribute("href", origin + "/r0.html")
+        page.locator("[data-detail-next]").click()
+        expect(page).to_have_url(origin + "/r2.html")
+        page.locator("[data-detail-back]").click()
+        assert page.locator("[data-filter]").input_value() == "pass"
+        # An explicit All survives the round trip instead of reverting to the failure default.
+        page.locator("[data-filter]").select_option("")
+        page.locator('a[href="r1.html"]').click()
+        page.locator("[data-detail-back]").click()
+        page.wait_for_timeout(600)
+        assert page.locator("[data-filter]").input_value() == ""
+        assert not page.locator("[data-inventory-notice]").is_visible()
+
+
+def test_shared_inventory_initializes_after_a_packaged_route_replaces_the_body(tmp_path, browser, display):
+    """A packaged report swaps the body per hash route and announces report-ready; the inventory and trail follow."""
+    from harness.reporting import explorer
+
+    rows = "".join(f'<tr data-result="fail"><td><a data-inventory-detail href="#page=r{i}.html">r{i}</a></td></tr>'
+                   for i in range(3))
+    inventory = ('<div' + explorer.inventory_attributes(result_control="[data-filter]", page_size=2) + '>'
+                 '<select data-filter><option value="fail" selected>Fail</option><option value="">All</option></select>'
+                 f'<table><tbody>{rows}</tbody></table>' + explorer.inventory_notice("None.", "More") + '</div>')
+    detail = explorer.detail_navigation("#page=index.html", back="Back", previous="Previous", next_label="Next")
+    loader = ("const pages={'index.html':" + json.dumps(inventory) + ",'r1.html':" + json.dumps(detail) + "};"
+              "function show(){const p=new URLSearchParams(location.hash.slice(1)).get('page')||'index.html';"
+              "document.body.innerHTML=pages[p]||pages['r1.html'];window.dispatchEvent(new Event('report-ready'))}"
+              "window.addEventListener('hashchange',show);window.addEventListener('DOMContentLoaded',show);")
+    (tmp_path / "loader.js").write_text(loader + explorer.INVENTORY_SCRIPT, encoding="utf-8")
+    (tmp_path / "index.html").write_text('<!doctype html><html><head><meta charset="utf-8">'
+                                         '<script src="loader.js"></script></head><body></body></html>', encoding="utf-8")
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        page.goto(origin + "/index.html")
+        expect(page.locator("tbody tr:visible")).to_have_count(2)
+        expect(page.locator("[data-inventory-more]")).to_be_visible()
+        page.locator('a[href="#page=r1.html"]').click()
+        expect(page.locator("[data-detail-previous]")).to_have_attribute("href", origin + "/index.html#page=r0.html")
+        expect(page.locator("[data-detail-next]")).to_have_attribute("href", origin + "/index.html#page=r2.html")

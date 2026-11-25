@@ -878,8 +878,10 @@ def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, in
     ):
         raise ValueError("report contains a local path or credential-like token")
     css = (root / "assets/report.css").read_text(encoding="utf-8")
-    if ".inventory{height:" not in css or "overflow:auto" not in css:
-        raise ValueError("result inventory must be fixed-height and horizontally scrollable")
+    # A bounded scroller that shrinks to its rows: max-height, never a fixed height.
+    if (".inventory{max-height:" not in css or ".inventory{height:" in css
+            or "overflow:auto" not in css):
+        raise ValueError("result inventory must be a bounded, horizontally scrollable scroller")
     results_html = (root / "results.html").read_text(encoding="utf-8")
     if '<option value="fail">' not in results_html or 'id="diagnosis-dialog"' not in results_html:
         raise ValueError("result inventory must default to failure and open a diagnosis dialog")

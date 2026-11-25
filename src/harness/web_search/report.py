@@ -29,6 +29,7 @@ from harness.report_languages import (
     select_report_language,
     write_language_contract,
 )
+from harness.reporting import charts, explorer
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import check_presentation
 from harness.reporting.presentation import esc as escape_text
@@ -111,11 +112,11 @@ from lexbench_websearch.scoring import (
 
 CHINESE_SEPARATORS = re.compile("[\u3001\uff1a\uff1b]")
 ASSETS = Path(__file__).with_name("assets")
-STYLE = ASSETS.joinpath("report.css").read_text(encoding="utf-8")
+STYLE = ASSETS.joinpath("report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
 EVIDENCE_SCRIPT = ASSETS.joinpath("native-evidence-result.js").read_text(encoding="utf-8")
 SCRIPT = EVIDENCE_SCRIPT + ASSETS.joinpath("report.js").read_text(encoding="utf-8").replace(
     "/*mermaid-script-attributes*/", mermaid_script_attributes("s")
-)
+) + explorer.INVENTORY_SCRIPT
 
 
 # Search pages keep their established literal rendering of an absent value.
@@ -1078,6 +1079,25 @@ def _known_page_metric(profile: dict[str, Any]) -> str:
     return "anchor_hit_5" if profile["protocol"]["top_k"] == 5 else "anchor_hit_10"
 
 
+def _home_charts(inputs: ReportInputs, edition: ReportEdition) -> str:
+    """Known-page hit rate per method over the queries that declare a known page."""
+    profile, summary, t = inputs.profile, inputs.overview_summary, edition.t
+    hit_key, cutoff = _known_page_metric(profile), profile["protocol"]["top_k"]
+    bars = []
+    for m in inputs.overview_methods:
+        s = summary.get(m["id"])
+        if not s:
+            continue
+        hit = s["metrics"][hit_key]
+        hits = None if hit["mean"] is None else round(hit["mean"] * hit["n"])
+        bars.append(charts.Bar(esc(m["label"]), hit["mean"], f"{hits}/{hit['n']}" if hits is not None else ""))
+    if not bars:
+        return ""
+    return charts.charts(charts.ranked_bars(
+        bars, title=t("Known page@{cutoff}", context="target rank", cutoff=cutoff),
+        caption=t("Ordered by hit rate; n/N is queries whose known page ranked in the top results.")))
+
+
 def _core_metrics_table(inputs: ReportInputs, edition: ReportEdition) -> tuple[list[str], list[str]]:
     """Return the headers and rows of the core comparison over the home page's overview scope."""
     profile, overview_methods, summary = inputs.profile, inputs.overview_methods, inputs.overview_summary
@@ -1315,6 +1335,7 @@ def _write_home_page(inputs: ReportInputs, edition: ReportEdition) -> None:
     else:
         headers, core = _core_metrics_table(inputs, edition)
         fills = (_reading_model_home_fills if authored.get("reading_model") else _default_home_fills)(inputs, edition, headers, core)
+        fills["core-comparison"] = _home_charts(inputs, edition) + fills.get("core-comparison", "")
         if not any(c["key"] == "speed" for c in reading_sections):
             fills["findings"] = fills.get("findings", "") + mode_panel(profile, selected, zh)
         fills["coverage"] = _review_coverage(inputs, edition)
@@ -1579,8 +1600,19 @@ def _result_detail(
     cutoff = profile["protocol"]["top_k"]
     # Relative path from details/ to shared evidence at output root.
     ev = ("../../" if prefix else "../") + r["evidence"]["path"]
+    exact_error = error_evidence(r, payloads.get(r["id"], {}))
+    verdict = ""
+    if status == "fail":
+        verdict = f'<p data-verdict-error><b>{t("Failure reason")}</b> {reason_label}'
+        if exact_error:
+            first = exact_error.strip().splitlines()[0] if exact_error.strip() else ""
+            verdict += f'<br><b>{t("Exact error")}</b> <code>{esc(first[:300])}</code>'
+        verdict += "</p>"
     back_link = '<p class="detail-back"><a data-back-results href="../results.html">← ' + t("Back to query comparison") + "</a></p>"
-    detail = back_link + f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {fmt(r['elapsed_ms'])} ms · {len(r['results'])} {t('results')}</p></section>"
+    navigation = explorer.detail_navigation("../results.html", back=t("Back to query comparison"),
+                                            previous=t("Previous result"), next_label=t("Next result"),
+                                            back_attributes=" data-back-results")
+    detail = navigation + f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {fmt(r['elapsed_ms'])} ms · {len(r['results'])} {t('results')}</p>{verdict}</section>"
     detail += _case_reference_detail(c, query_relevance, cutoff, edition)
     if query_relevance:
         reason_label = t("Useful results: ") + str(query_relevance["useful"]) + f"/{cutoff}"
@@ -1601,7 +1633,6 @@ def _result_detail(
         detail += render_level_detail(inputs.level_views, r, zh)
     else:
         detail += _result_metrics_detail(r, c, _known_page_metric(profile), cutoff, t)
-    exact_error = error_evidence(r, payloads.get(r["id"], {}))
     if exact_error:
         detail += "<h2>" + t("Exact error") + "</h2><pre data-error>" + esc(exact_error) + "</pre>"
     elif status == "fail":
@@ -1688,14 +1719,13 @@ def _write_results_page(inputs: ReportInputs, edition: ReportEdition, inventory:
         ("probe", t("Unjudged queries")),
         ("all", t("All")),
     ]
-    default = "fail" if any('data-state="fail"' in r for r in inventory) else "all"
     controls = (
         "<label>"
         + t("Filter")
         + " <select data-filter>"
         + "".join(
             f'<option value="{v}"'
-            + (" selected" if v == default else "")
+            + (" selected" if v == "fail" else "")
             + ">"
             + label
             + "</option>"
@@ -1715,7 +1745,8 @@ def _write_results_page(inputs: ReportInputs, edition: ReportEdition, inventory:
         + " <input data-query></label>"
     )
     listing = (
-        origin_filter(profile, zh)
+        "<div" + explorer.inventory_attributes(result_control="select[data-filter]", fallback="all") + ">"
+        + origin_filter(profile, zh)
         + cohort_filter(profile, zh)
         + controls
         + table(
@@ -1736,6 +1767,8 @@ def _write_results_page(inputs: ReportInputs, edition: ReportEdition, inventory:
             + t("No authenticated cohort has been collected. Missing credentials are not provider failures.")
             + "</p>"
         )
+        + explorer.inventory_notice(t("No result failed; showing all results."), t("Show more"))
+        + "</div>"
     )
     _write_template_page(inputs, edition, "results", t("Query comparison"), {
         "inventory": listing,

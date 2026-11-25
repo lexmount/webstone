@@ -43,6 +43,7 @@ from harness.report_languages import (
  select_report_language,
  write_language_contract,
 )
+from harness.reporting import charts, explorer
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import esc
 from harness.web_fetch.adjudication_evidence import adjudication_reason
@@ -179,9 +180,9 @@ def provider_page_body(name,records,cases,headers,tracks,*,native_default=False,
   configuration+=f'<p>{field("freshness")}</p><p>{field("configuration")}</p>'
  body=hero(field('title'),field('contract'), ctx=ctx)+section(t('measured_configuration', 'Measured configuration'),configuration)
  body+=section(t('method_resources', 'Method resources'),'<p class="actions">'+link('../adoption/index.html#'+model['pricing_anchor'],t('pricing_billing', 'Pricing & billing →'))+link('../adoption/index.html#interface-'+name,t('interfaces_examples', 'Interfaces & examples →'))+'</p>')
- return body+section(t('execution_records', '{count} execution records', count=len(records)),controls+table(headers,[attempt_row(r,cases[r['case_id']], ctx=ctx) for r in records],'filtered-table'))
-JS=asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('script'))
-EXTRA=asset_text('report-extra.css')
+ return body+section(t('execution_records', '{count} execution records', count=len(records)),inventory(controls+table(headers,[attempt_row(r,cases[r['case_id']],diagnose=True, ctx=ctx) for r in records],'filtered-table')),'all-results')
+JS=asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('script'))+explorer.INVENTORY_SCRIPT
+EXTRA=asset_text('report-extra.css')+explorer.INVENTORY_STYLE
 
 def readable_output(s):
  return re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]',lambda m:'\\x'+format(ord(m[0]),'02x'),s)
@@ -1763,6 +1764,28 @@ def all_final_call_latency(records, *, ctx):
    rows,'all-final-call-latency',metrics=[]),'all-final-call-timing')
 
 
+def home_charts(records,cases, *, ctx):
+ """Task pass rate per method, then request success against task pass, both from the ranking population."""
+ records,cases=comparison_population(records,cases)
+ groups=defaultdict(list)
+ for r in records:groups[r['provider']].append(r)
+ bars=[];pairs=[]
+ for name,rs in sorted(groups.items()):
+  label=model_text(provider_label(name, ctx=ctx),browser_method_label(name,language='en', ctx=ctx))
+  n=sum(measured(r,cases[r['case_id']], ctx=ctx) for r in rs)
+  passed=sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in rs)
+  decidable=[r for r in rs if measured(r,cases[r['case_id']], ctx=ctx)]
+  # Both rates share the decidable results, so their gap counts only returned responses that failed the task.
+  returned=sum(bool(r['ok']) and r.get('report_invocation_status') != 'adapter_rejected' for r in decidable)
+  bars.append(charts.Bar.rate(label,passed,n,f'providers/{name}.html'))
+  pairs.append(charts.Pair(label,returned/n if n else None,passed/n if n else None,f'providers/{name}.html'))
+ ranked=charts.ranked_bars(bars,title=t('chart_task_pass_rate', 'Task pass rate'),caption=t('chart_task_pass_rate_caption', 'Ordered by pass rate; n/N is passed / decidable tasks.'))
+ order={bar.href:i for i,bar in enumerate(sorted(bars,key=lambda b:-(b.value if b.value is not None else -1)))}
+ gap=charts.dumbbell(sorted(pairs,key=lambda p:order[p.href]),title=t('chart_request_vs_task', 'Request success versus task pass'),
+  caption=t('chart_request_vs_task_caption', 'Both rates use the same decidable tasks. A returned response is not yet a passing task; the gap is responses that failed the task requirements.'),
+  first_label=t('request_success', 'Request success'),second_label=t('task_pass', 'Task pass'))
+ return '<div class="wrap">'+charts.charts(ranked,gap)+'</div>'
+
 def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False, ctx):
  records,cases=comparison_population(records,cases)
  has_unknown=any(not measured(r,cases[r["case_id"]], ctx=ctx) for r in records)
@@ -1854,7 +1877,7 @@ def analysis_body(records,cases,headers=None,tracks=None, *, ctx):
  if headers is None:headers=[t('task_2', 'Task'),t('family', 'Family'),t('result', 'Result'),t('failure_class', 'Failure class'),t('elapsed_time', 'Elapsed time'),t('run_id', 'Run ID')]
  controls=filter_controls([('provider',t('method', 'Method'),[(n,provider_label(n, ctx=ctx)) for n in names]),('track',t('family', 'Family'),tracks),('result',t('result', 'Result'),[('pass',t('pass', 'Pass')),('fail',t('fail', 'Fail'))])]+failure_filters(records,cases, ctx=ctx), ctx=ctx)
  comparison=section(t('method_comparison', 'Method comparison'),('<p class="source-note">' + t('methods_are_compared_task_by_task_conclusions', 'Methods are compared task by task; conclusions never splice together different success samples. Pass and fail states use the primary program verdicts. Open a method to inspect its reference, output, and rationale.') + f'</p>{method_comparisons(cases, bycase, names, ctx=ctx)}'),'method-comparison')
- return hero(t('analysis', 'Analysis'),t('compare_methods_on_the_same_tasks_first', 'Compare methods on the same tasks first, then filter the complete execution record.'), ctx=ctx)+comparison+section(t('all_execution_records', 'All execution records'),controls+table([t('method', 'Method')]+headers,[(case_attrs(r,cases[r['case_id']], ctx=ctx),cell(link('../providers/'+r['provider']+'.html',provider_label(r['provider'], ctx=ctx),browser_method_label(r['provider'],language='en', ctx=ctx)))+attempt_row(r,cases[r['case_id']], ctx=ctx)[1]) for r in records],'filtered-table',cls='all-method-results'))
+ return hero(t('analysis', 'Analysis'),t('compare_methods_on_the_same_tasks_first', 'Compare methods on the same tasks first, then filter the complete execution record.'), ctx=ctx)+comparison+section(t('all_execution_records', 'All execution records'),inventory(controls+table([t('method', 'Method')]+headers,[(case_attrs(r,cases[r['case_id']], ctx=ctx),cell(link('../providers/'+r['provider']+'.html',provider_label(r['provider'], ctx=ctx),browser_method_label(r['provider'],language='en', ctx=ctx)))+attempt_row(r,cases[r['case_id']],diagnose=True, ctx=ctx)[1]) for r in records],'filtered-table',cls='all-method-results')),'all-results')
 
 def filter_controls(options,all_first=(), *, ctx):
  controls=''
@@ -1919,11 +1942,30 @@ def case_attrs(r,c, *, ctx):
  if r.get('case_id') and r['case_id']!=identifier:identifier+=' '+r['case_id']
  return dataset_attrs(comparison)+f' data-provider="{esc(r["provider"])}" data-transport="{transport}" data-result="{result}" data-content="{content}" data-resources="{resources}" data-failure-stage="{stage}" data-failure-category="{esc(category)}" data-search="{esc(identifier+" "+str(c.get("name",""))+" "+str(c.get("url",""))+" "+reason(r,c, ctx=ctx))}"'
 
-def attempt_row(r,c,base='../',*,label=None, ctx):
+def inventory(body):
+ """Mark a result inventory for the shared reader path: failures first, pages, dialog and detail trail."""
+ return ('<div'+explorer.inventory_attributes(result_control='select[data-filter="result"]')+'>'+body
+         +explorer.inventory_notice(t('inventory_no_failures_showing_all', 'No result failed; showing all results.'),t('inventory_show_more', 'Show more'))
+         +'</div>'+explorer.diagnosis_dialog(label=t('failure_diagnosis', 'Failure diagnosis'),close=t('close', 'Close')))
+
+def exact_error(r):
+ """The retained program error line a reader needs first, or empty when the call raised none."""
+ if not r.get('error_type') and not r.get('error_message'):return ''
+ return ' · '.join(filter(None,[str(r.get('error_type') or ''),_error_locator(r.get('error_message'))]))
+
+def diagnosis(r,c,base, *, ctx):
+ stage=t('request_failure', 'Request failure') if not r['ok'] else t('request_succeeded_task_failed', 'Request succeeded; task failed')
+ error='\n'.join(filter(None,[reason(r,c, ctx=ctx),exact_error(r)]))
+ return explorer.diagnosis_button(t('diagnose', 'Diagnose'),title=esc(c['name']),stage='<span>'+stage+'</span> · <span>'+esc(failure_category(r,c, ctx=ctx))+'</span>',error=error,
+  stage_label=t('failure_stage', 'Failure stage'),error_label=t('exact_error', 'Exact error'),
+  links=[(result_href(r,'attempt',base, ctx=ctx),t('open_full_result', 'Open the full result')),(result_href(r,'attempt',base, ctx=ctx)+'#run-log',t('view_run_logs_and_evidence', 'View run logs and evidence'))])
+
+def attempt_row(r,c,base='../',*,label=None,diagnose=False, ctx):
  comparison=c
  c=result_case(r,c, ctx=ctx)
  state=result_label(r,c, ctx=ctx)
- values=cell(link(result_href(r,'attempt',base, ctx=ctx),c['name'] if label is None else label))+cell(case_track_label(comparison))+cell(f'<span class="{"muted" if not measured(r,c, ctx=ctx) else "good" if succeeded(r,c, ctx=ctx) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c, ctx=ctx)))+cell(ms(r['elapsed_ms']))
+ failed=measured(r,c, ctx=ctx) and not succeeded(r,c, ctx=ctx)
+ values=cell(link(result_href(r,'attempt',base, ctx=ctx),c['name'] if label is None else label).replace('<a ','<a data-inventory-detail ',1))+cell(case_track_label(comparison))+cell(f'<span class="{"muted" if not measured(r,c, ctx=ctx) else "good" if succeeded(r,c, ctx=ctx) else "bad"}">{state}</span>')+cell(esc(failure_category(r,c, ctx=ctx))+(' '+diagnosis(r,c,base, ctx=ctx) if diagnose and failed else ''))+cell(ms(r['elapsed_ms']))
  values+=cell(f'<code class="tiny break">{esc(r.get("run_id") or execution_id(r))}</code>')
  return case_attrs(r,comparison, ctx=ctx),values
 
@@ -2125,6 +2167,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  combined=dataset.get('comparison',{}).get('presentation',{}).get('combined_ranking',True)
  if not combined:overall_title=(t('report_task_results_b4e30d', 'Task results'))
  budgets={m['timeout_seconds'] for m in manifests if m.get('timeout_seconds') is not None}
+ if combined and not diagnostic:home+=home_charts(records,cases, ctx=ctx)
  home+=section(overall_title,overall_ranking(records,cases,audit,diagnostic=diagnostic,call_budget_seconds=next(iter(budgets)) if len(budgets)==1 else None,combined=combined, ctx=ctx),'overall-ranking')
  home+=input_suite_comparison(dataset,cases,records, ctx=ctx)
  if diagnostic and not score_audit:
@@ -2304,7 +2347,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   actual_summary=(f'实际交付：{len(delivered_summary)} 个文件、{sum(x.get("bytes",0) for x in delivered_summary):,} 字节'
                   if c.get('task_kind')=='file' else f'实际输出：{len(output):,} 字符')
   hero_meta=(('<strong>' + t('task_id_2', 'Task ID: ') + f"""<code>{esc(c['id'])}</code></strong><br>{esc(task_instruction(c))}<span class="meta"><span class="pill">""" + t('method_2', 'Method: {model_text}', model_text=model_text(provider_label(r['provider'], ctx=ctx), browser_method_label(r['provider'], language='en', ctx=ctx))) + '</span><span class="pill">' + t('run_id_2', 'Run ID: {value}', value=esc(r.get('run_id') or execution_id(r))) + '</span></span>'))
-  summary=((f"""<div class="attempt-verdict {('' if passed or not measured(r, c, ctx=ctx) else 'failure')}"><span class="status-line">{esc(state)}</span><p>{esc(reason(r, c, ctx=ctx) if passed or not measured(r, c, ctx=ctx) else (r.get('diagnosis') or {}).get('category') or t('task_requirements_not_met', 'Task requirements not met'))}</p><p class="source-note">""" + t('method_3', 'Method: ') + f"{link('../providers/' + r['provider'] + '.html', provider_label(r['provider'], ctx=ctx), browser_method_label(r['provider'], language='en', ctx=ctx))} · 请求：{(t('succeeded', 'Succeeded') if r['ok'] else t('failed', 'Failed'))} · 耗时：{ms(r['elapsed_ms'])} · {actual_summary}</p></div>"))
+  summary=((f"""<div class="attempt-verdict {('' if passed or not measured(r, c, ctx=ctx) else 'failure')}"><span class="status-line">{esc(state)}</span><p>{esc(reason(r, c, ctx=ctx) if passed or not measured(r, c, ctx=ctx) else (r.get('diagnosis') or {}).get('category') or t('task_requirements_not_met', 'Task requirements not met'))}</p>"""+('' if passed or not measured(r, c, ctx=ctx) else '<p class="verdict-error" data-verdict-error><b>'+t('verdict_failure_reason', 'Failure reason')+'</b> '+esc(reason(r, c, ctx=ctx))+('<br><b>'+t('exact_error', 'Exact error')+'</b> <code class="break">'+esc(exact_error(r))+'</code>' if exact_error(r) else '')+'</p>')+'<p class="source-note">' + t('method_3', 'Method: ') + f"{link('../providers/' + r['provider'] + '.html', provider_label(r['provider'], ctx=ctx), browser_method_label(r['provider'], language='en', ctx=ctx))} · 请求：{(t('succeeded', 'Succeeded') if r['ok'] else t('failed', 'Failed'))} · 耗时：{ms(r['elapsed_ms'])} · {actual_summary}</p></div>"))
   summary+=f'<p class="source-note">{model_text(route_label,route_english)}</p>'
   summary+=(('<p class="actions"><a href="#evidence-reference">' + t('view_the_reference_used_for_scoring', 'View the reference used for scoring') + '</a><a href="#evidence-output">' + t('view_the_complete_saved_output', 'View the complete saved output') + '</a><a href="#decision">' + t('view_item_level_verdicts', 'View item-level verdicts') + '</a><a href="#run-log">' + t('view_run_logs_and_evidence', 'View run logs and evidence') + '</a></p>'))
   if r.get('diagnosis') and not passed and measured(r,c, ctx=ctx):
@@ -2484,6 +2527,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   if delivered:
    file_rows=[('',cell(link('../'+f['artifact_path'],t('download_delivered_file', 'Download delivered file')))+cell(esc(f.get('mime')))+cell(str(f['bytes']))+cell('<code class="break">'+esc(f['sha256'])+'</code>')+cell(t('match', 'Match') if f.get('pass') else t('not_matched_2', 'Not matched'))) for f in delivered]
    body+=section(t('original_file_byte_evidence', 'Original-file byte evidence'),table([t('file', 'File'),t('format_signature', 'Format signature'),t('bytes_2', 'Bytes'),'SHA-256',t('target_check', 'Target check')],file_rows,metrics=[]))
+  body='<div class="wrap">'+explorer.detail_navigation('../analysis/index.html#all-results',back=t('back_to_results', 'Back to results'),previous=t('previous_result', 'Previous result'),next_label=t('next_result', 'Next result'))+'</div>'+body
   write(out,'attempts/'+r['attempt_id']+'.html',c['name']+' · '+r['provider'],body, ctx=ctx)
  write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks, ctx=ctx), ctx=ctx)
  write_support(out,records,manifests,authored_interpretation=authored_interpretation, ctx=ctx)

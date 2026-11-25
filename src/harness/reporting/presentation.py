@@ -62,6 +62,11 @@ def check_presentation(html):
                     (unique or table.get("data-highlight-ties") == "all") and value == extreme
                 ):
                     raise ValueError('Column extremum highlight missing, incorrect, or tied')
+    # Shared charts and inventories carry their own checks; imported here to avoid a cycle.
+    from harness.reporting.charts import check_charts
+    from harness.reporting.explorer import check_inventory
+    check_charts(soup)
+    check_inventory(soup)
     for inventory in soup.select('[data-dataset-inventory]'):
         if not soup.select_one('form[data-dataset-controls] input[type="search"]') or not inventory.has_attr('data-sortable'):
             raise ValueError('Dataset inventory needs independent search and sorting controls')

@@ -68,7 +68,7 @@ from harness.report_languages import (
     select_report_language,
     write_language_contract,
 )
-from harness.reporting import explorer, shell
+from harness.reporting import charts, explorer, shell
 from harness.reporting.assets import bound_json_asset
 from harness.reporting.locales import catalog_text
 from harness.reporting.templates import compose, template_identity
@@ -1260,8 +1260,8 @@ def _resource_comparison_table(
     )
 
 
-REPORT_JS = (Path(__file__).parent / "assets" / "report.js").read_text(encoding="utf-8") + explorer.SCRIPT
-REPORT_STYLE = (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8")
+REPORT_JS = (Path(__file__).parent / "assets" / "report.js").read_text(encoding="utf-8") + explorer.SCRIPT + explorer.INVENTORY_SCRIPT
+REPORT_STYLE = (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
 _HEAD = (REPORT_PAGE_MARKER + '<link rel="stylesheet" href="assets/style.css">'
          '<script defer src="assets/report.js"></script>')
 
@@ -2291,8 +2291,14 @@ def _article_body(
         + _translated("article_body.the_declared_scope_contains_tasks_and", "The declared scope contains {task_count} tasks and {configuration_count} configurations; {attempts_count}/{expected_count} logical results are recorded. Official evaluator results remain unchanged. A separate {clean_count}-task diagnostic subset excludes {excluded_count} tasks with verified external interference.", task_count=task_count, configuration_count=configuration_count, attempts_count=len(attempts), expected_count=expected_count, excluded_count=len(excluded), clean_count=clean_count)
         + ('</p><p class="page-links"><a href="datasets/">' + t("article_body.view_dataset", "View dataset") + '</a><a href="analysis/">' + t("article_body.inspect_all_results", "Inspect all results") + '</a><a href="data/interpretation-evidence.json" download>' + t("article_body.download_claims_and_evidence", "Download claims and evidence") + "</a></p></header>")
     )
+    pass_chart = charts.charts(charts.ranked_bars(
+        [charts.Bar.rate(_e(f"{participants.models[model]} · {participants.engines[engine]}"), value["passed"], value["completed"])
+         for model, group in summary.items() for engine, value in group.items()],
+        title=_translated("chart.task_pass_rate", "Task pass rate"),
+        caption=_translated("chart.task_pass_rate_caption", "Ordered by pass rate; n/N is passed / completed tasks for each model and browser.")))
     core = (
-        '<section><h2>'
+        pass_chart
+        + '<section><h2>'
         + _translated("article_body.core_metrics_across_tasks", "Core metrics across {task_count} tasks", task_count=task_count) + '</h2>'
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), t("article_body.tasks_passed", "Tasks passed"), t("article_body.pass_rate", "Pass rate"), t("article_body.agent_total_time", "Agent total time"), t("article_body.browsertool_latency", "BrowserTool latency"), 'Tokens'],
                  _summary_comparison_rows(summary, participants), table_id='home-core-metrics', classes='core-comparison-table')
@@ -2534,8 +2540,12 @@ def _attempt_table(
         ]
     ]
     return (
-        _filters(participants, attempts=True)
+        "<div" + explorer.inventory_attributes(result_control='select[data-filter="result"]') + ">"
+        + _filters(participants, attempts=True)
         + shell.table(headers, rows, sortable=False, header_html=True, table_id="result-table")
+        + explorer.inventory_notice(t("inventory.no_failures_showing_all", "No result failed; showing all results."),
+                                    t("inventory.show_more", "Show more"))
+        + "</div>"
         + "".join(dialogs)
     )
 
@@ -3446,6 +3456,9 @@ def _write_result_page(
     # Pages declare <base href="../"> so every internal URL is rooted at
     # the report bundle, including same-page fragment links.
     attempt_page = f"results/{public['id']}.html"
+    detail += ('<div class="wrap">' + explorer.detail_navigation(
+        "analysis/index.html", back=t("inventory.back_to_results", "Back to results"),
+        previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result")) + "</div>")
     detail += _result_navigation(public, attempt_page)
     runtime_facts = _result_runtime_facts(public, usage)
     if float(public["score"]) < 1:
