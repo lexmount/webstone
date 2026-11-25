@@ -58,6 +58,7 @@ def test_frozen_public_composition_reuses_full_renderer_with_selected_labels(tmp
     assert not soup.select('#ranking-overall [data-rank]')
     assert 'Web content' in soup.get_text()
     assert not soup.select('[data-evidence-state], #overview .callout')
+    assert '仅供诊断' not in soup.select_one('#overview').get_text()
     for row, entry in zip(model['rows'], entries, strict=True):
         original = json.loads((Path(entry['root'])/'matrix.json').read_text())['rows'][0]
         assert row['passed'] == original['passed']

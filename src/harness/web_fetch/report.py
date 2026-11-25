@@ -882,7 +882,7 @@ def overview_card(records,cases,track,label,names,*,diagnostic=False):
  selected={k:c for k,c in cases.items() if report_family(c)==track}
  if not selected:return ''
  eligible=[r for r in records if r['case_id'] in selected and measured(r,selected[r['case_id']])]
- if diagnostic or not ranking_readiness(records,selected,participants=family_participants(records,selected))[0]:
+ if (diagnostic or not ranking_readiness(records,selected,participants=family_participants(records,selected))[0]) and not (render_context().external_scope_notes and render_context().descriptive_ranks):
   return (f"""<div class="card"><div class="eyebrow">{len(selected)}{t('report_tasks_e5ff3d', ' tasks')}</div><h3>{link('#home-rankings-' + track, label)}</h3><p>{t('report_these_saved_results_are_diagnostic_and_uncertified_543b73', 'These saved results are diagnostic and uncertified.')}</p></div>""")
  rates={n:sum(succeeded(r,cases[r['case_id']]) for r in eligible if r['provider']==n)/sum(r['provider']==n for r in eligible) for n in names if any(r['provider']==n for r in eligible)}
  maximum=max(rates.values(),default=None)
@@ -1632,6 +1632,7 @@ def overview_matched_latency(records,cases):
  names=sorted(set(render_context().labels) | {r['provider'] for r in records})
  keys={(r['provider'],r['case_id']) for r in records}
  if not names or len(keys)!=len(records) or any((name,cid) not in keys for name in names for cid in cases):
+  if render_context().external_scope_notes:return ''
   return ('<p>' + t('the_call_matrix_is_incomplete_so_latency', 'The call matrix is incomplete, so latency on tasks passed by every method is not yet summarized.') + '</p>')
  common=set.intersection(*({r['case_id'] for r in records if r['provider']==name and succeeded(r,cases[r['case_id']])} for name in names))
  if not common:return ('<p>' + t('no_task_is_yet_passed_by_every', 'No task is yet passed by every method, so shared-task latency is not calculated.') + '</p>')
@@ -2163,7 +2164,8 @@ def _render_model(out,dataset,records,manifests,*,model):
  if dataset.get('saved_matrix_scope') and not final_saved:
   home+=saved_matrix_scope_section(dataset['saved_matrix_scope'])
 
- home+=section((t('report_latency_on_tasks_passed_by_every_method_4f37d4', 'Latency on tasks passed by every method')),overview_matched_latency(records,cases),'overall-matched-latency')
+ matched_timing=overview_matched_latency(records,cases)
+ if matched_timing:home+=section((t('report_latency_on_tasks_passed_by_every_method_4f37d4', 'Latency on tasks passed by every method')),matched_timing,'overall-matched-latency')
  if (out/'resource-cohort/resource-comparison.json').is_file():
   home+=section((t('report_cpu_memory_and_network_6ef0eb', 'CPU, memory, and network')),overview_resources(out),'overall-resources')
  home+=section((t('report_results_by_task_family_fc8ac0', 'Results by task family')) if score_audit else (t('report_diagnostic_results_by_task_family_d020c9', 'Diagnostic results by task family')) if diagnostic else model_text(*pair('report_value_family_rankings_886366', '{value1} family rankings', value0=track_label, value1=len(tracks))),(('<p>' + t('report_task_pass_rate_content_quality_and_latency_are_shown_se_2f9439', 'Task pass rate, content quality and latency are shown separately.') + '</p>') if score_audit else ('<p class="ranking-orientation">' + t('report_diagnostic_rows_are_sorted_by_task_pass_rate_for_inspec_6aadb0', 'Diagnostic rows are sorted by task pass rate for inspection; no ranks are assigned. Task judgments, content quality and latency are shown separately.') + '</p>') if diagnostic else ('<p class="ranking-orientation">' + t('report_family_rankings_show_specific_capabilities_they_default_500d5c', 'Family rankings show specific capabilities. They default to task pass rate; select a column heading to sort. Text quality and pass rate are calculated separately.') + '</p>'))+tabs('home-rankings',panels),'results')

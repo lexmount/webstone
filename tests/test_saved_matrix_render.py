@@ -126,6 +126,17 @@ def test_partial_subagent_usage_is_labeled_and_not_highlighted():
         check_token_usage_presentation(str(soup), records)
 
 
+def test_external_scope_omits_unavailable_shared_timing_message():
+    from harness.web_fetch.report import overview_matched_latency
+    from harness.web_fetch.report_model import RenderContext, rendering, set_render_context
+    records = [dict(provider='a', case_id='one')]
+    cases = {'one': {}, 'two': {}}
+    assert overview_matched_latency(records, cases)
+    with rendering():
+        set_render_context(RenderContext(external_scope_notes=True))
+        assert overview_matched_latency(records, cases) == ''
+
+
 @pytest.mark.parametrize('state', ['tie', 'missing', 'unequal'])
 def test_token_usage_leaves_incomparable_or_tied_totals_neutral(state):
     from harness.web_fetch.report import token_usage_comparison
