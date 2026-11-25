@@ -71,7 +71,14 @@ def validate_release(source: Path, *, presentation_binding: Path | None = None, 
     def evidence(root: Path) -> bool:
         return _certified_evidence(root) if kind['certified'] else False
 
-    return gate(source, ReleaseRules(identity=identity, evidence=evidence, links=None))['evidence']
+    # Frozen predecessor pages keep their original renderer. Their hash-bound
+    # bytes are checked by identity; current projections use the shared UI rules.
+    presentation = None
+    if (source/'saved-extension.json').is_file() or (source/'saved-composition.json').is_file():
+        from harness.web_fetch.report_saved_composition import check_saved_presentation
+        presentation = check_saved_presentation
+    return gate(source, ReleaseRules(identity=identity, evidence=evidence, links=None,
+                                    presentation=presentation))['evidence']
 
 
 def _release_identity(source: Path, presentation_binding, snapshot_audit) -> bool:

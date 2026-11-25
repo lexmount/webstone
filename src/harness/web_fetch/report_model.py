@@ -158,8 +158,9 @@ class RenderContext:
     scope_presentation: dict | None = None
     descriptive_ranks: bool = False
     result_views: dict | None = None
-    source_root: Path | None = None
     methods: MethodScope = field(default_factory=MethodScope)
+    source_root: Path | None = None
+    comparison_highlights: bool = True
 
 
 def model_render_context(model=None, *, methods, descriptive_ranks=False, result_views=None, source_root=None):

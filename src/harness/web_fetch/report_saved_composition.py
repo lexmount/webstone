@@ -1032,6 +1032,61 @@ def _check_frozen_configuration_extension(output, proof):
             'providers': len(proof['providers']), 'provider_calls_added': 0, 'frozen_base': True}
 
 
+def check_saved_presentation(output):
+    """Check current views while retaining hash-bound predecessor HTML unchanged.
+
+    The release identity stage verifies these source inventories first. A new
+    comparison and every current detail still use the shared semantic checker.
+    """
+    from bs4 import BeautifulSoup
+    from harness.reporting.presentation import check_presentation
+    frozen, homes, roots = {}, {}, [output]
+    proof_path = output/'saved-extension.json'
+    if proof_path.is_file():
+        proof = _read(proof_path)
+        if proof.get('configuration_base'):
+            base = proof['configuration_base']
+            authority = _read(output/base['path'])
+            frozen.update({name:digest for name,digest in authority['files'].items()
+                           if name not in base['homes']})
+            homes = {route:output/path for route,path in base['homes'].items()}
+        else:
+            authority = _read(output/'saved-matrix-audit.json')
+            frozen.update({name:digest for name,digest in authority['files'].items()
+                           if name != 'index.html' and name not in proof.get('presentation_pages', [])})
+            added = _read(output/'additional/saved-matrix-audit.json')
+            frozen.update({'additional/'+name:digest for name,digest in added['files'].items()})
+            homes['index.html'] = output/'extension-base-home.txt'
+        roots.extend(output/entry['path'] for entry in proof.get('configuration_comparisons', []))
+    for root in roots:
+        composition = root/'saved-composition.json'
+        if not composition.is_file() or composition.relative_to(output).as_posix() in frozen:
+            continue
+        model = _read(root/'matrix.json')
+        for prefix in model.get('frozen_source_prefixes', []):
+            source = root/prefix
+            authority = _read(source/'saved-matrix-audit.json')
+            frozen.update({(source/name).relative_to(output).as_posix():digest
+                           for name,digest in authority['files'].items()})
+    checked = 0
+    for page in sorted(output.rglob('*.html')):
+        relative = page.relative_to(output).as_posix()
+        if relative in frozen:
+            if _hash(page) != frozen[relative]:
+                raise ValueError('Frozen presentation changed: '+relative)
+            continue
+        document = BeautifulSoup(page.read_text(encoding='utf-8'), 'html.parser')
+        if relative in homes:
+            original = BeautifulSoup(homes[relative].read_text(encoding='utf-8'), 'html.parser')
+            for table in original.select('table[id]'):
+                current = document.find('table', id=table['id'])
+                if current is not None and str(current) == str(table):
+                    current.decompose()
+        check_presentation(document)
+        checked += 1
+    return checked
+
+
 def check_published_extension(output):
     from bs4 import BeautifulSoup
     proof = _read(output / 'saved-extension.json')
@@ -1271,6 +1326,7 @@ def _public_spec(spec):
 def composition_model(output, spec, snapshots):
     from harness.web_fetch.report_saved_matrix import _case_identity, _totals, check_saved_matrix
     providers, rows, cases, suites, families = [], [], {}, None, None
+    execution_settings = []
     expected_population = None
     for snapshot in snapshots:
         if snapshot['path'] != 'evidence/saved-reports/' + safe_identifier(snapshot['id']):
@@ -1332,12 +1388,16 @@ def composition_model(output, spec, snapshots):
                 if 'score_revision' in row:
                     row['source_score_revision'] = row.pop('score_revision')
         rows.extend(projected)
+        selected_providers = {provider['id'] for provider in model['providers']}
+        execution_settings.extend(deepcopy(group) for group in model.get('execution_settings', [])
+                                  if group['provider'] in selected_providers)
     if not rows:
         raise ValueError('Saved composition requires reports')
     result = dict(title=spec['title'], providers=providers, suites=suites, rows=rows,
                   totals=_totals(rows), limitations=spec.get('limitations', []),
                   presentation=spec.get('presentation', 'audit'),
                   combined_ranking=spec.get('combined_ranking', True),
+                  execution_settings=execution_settings,
                   source_bindings=[{'name': s['id'], 'sha256': s['sha256']} for s in snapshots],
                   scores_changed=any(row.get('score_revision') or row.get('source_score_revision') for row in rows))
     if families is not None:
@@ -1389,14 +1449,18 @@ def render_source_reviews(output, model):
             elif not urlsplit(href).scheme and not urlsplit(href).netloc:
                 target = urlsplit(urljoin('https://report.invalid/' + source['path'], href))
                 node['href'] = '../' + target.path.lstrip('/') + ('#' + target.fragment if target.fragment else '')
-        section = page.new_tag('section', attrs={'data-source-review': source['path']})
-        heading = page.new_tag('h2')
+        section = page.new_tag('section', attrs={'class':'section', 'data-source-review': source['path']})
+        body = page.new_tag('div', attrs={'class':'wrap'})
+        section.append(body)
+        heading = page.new_tag('h2', attrs={'style':'font-size:1.25rem;line-height:1.5'})
         heading.string = ', '.join(p.get('label', p['id']) for p in source['providers'])
-        section.append(heading)
+        body.append(heading)
+        for inherited in content.select('h2'):
+            inherited['style'] = 'font-size:1.25rem;line-height:1.5'
         for title in content.find_all('h1'):
             title.decompose()
         for child in list(content.children):
-            section.append(child)
+            body.append(child)
         main.append(section)
     path.write_text(str(page), encoding='utf-8')
 

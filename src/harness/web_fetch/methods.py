@@ -139,8 +139,10 @@ def report_method(name, record=None, *, language="zh", scope):
     methods = (report_method_catalog() if language == "zh" else report_method_catalog(language))["methods"]
     record = record or scope.records.get(name, {})
     metadata = record.get("provider_metadata") or {}
-    if metadata.get("engine"):
-        return methods.get(metadata["engine"], {})
+    engine = metadata.get('engine')
+    adapter = report_method_catalog(language)['adapters'].get(record.get('provider_type'), {})
+    if engine and adapter.get('engine_is_method', True):
+        return methods.get(engine, {}) if isinstance(engine, str) else {}
     execution = browser_method_registry(scope=scope).get(name, {})
     for key in (execution.get("engine"), name):
         if key in methods:

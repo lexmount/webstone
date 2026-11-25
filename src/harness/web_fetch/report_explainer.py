@@ -1098,7 +1098,7 @@ def check_current_browser_article(out, cases, records, binding, *, ctx, scope):
 
 def _saved_failure_chapters(cases, records, *, ctx):
     """Explain the full failure population using recorded program evidence only."""
-    from harness.web_fetch.report import provider_label, measured, succeeded, result_case, result_href
+    from harness.web_fetch.report import provider_label, measured, succeeded, result_case, result_href, failure_category
     heading = t('saved_failure_chapters', 'Why each method did not pass')
     note = t('saved_failure_categories_note', 'These categories cover every failed result and come from program checks and returned evidence. One category can have different causes; unreviewed results do not establish a site or provider root cause.')
     chapters = []
@@ -1108,8 +1108,7 @@ def _saved_failure_chapters(cases, records, *, ctx):
         failed = [row for row in eligible if not succeeded(row, cases[row['case_id']], ctx=ctx)]
         grouped = {}
         for row in failed:
-            category = (row.get('diagnosis') or {}).get('category') or t(
-                'failed_without_detailed_diagnosis', 'Failed without a detailed diagnosis')
+            category = failure_category(row, cases[row['case_id']], ctx=ctx)
             grouped.setdefault(category, []).append(row)
         rows, examples = [], []
         for category, members in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
@@ -1173,7 +1172,8 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
             context = '<div role="region" aria-label="'+escape(title)+'">'+report_table(
                 [t('method', 'Method'), t('saved_results', 'Saved results'),
                  t('saved_passed', 'Passed'), t('saved_pass_rate', 'Pass rate')],
-                comparative_rows(rows,{3:('saved-guide-pass-rate','max')}, ctx=ctx),metrics=[])+'</div>'
+                comparative_rows(rows,{} if scope.get('presentation') == 'audit' else {
+                    3:('saved-guide-pass-rate','max')}, ctx=ctx),metrics=[])+'</div>'
             context += '<p>'+t('saved_task_acceptance_note', 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
             context += _saved_failure_chapters(cases, records, ctx=ctx)
             context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'

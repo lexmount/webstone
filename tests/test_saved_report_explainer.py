@@ -36,6 +36,23 @@ def test_unbound_report_does_not_invent_saved_findings(tmp_path):
     assert '0/0' in page
 
 
+def test_saved_failures_use_the_same_program_category_as_result_details(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report import failure_category
+    case = {'id':'one', 'task_kind':'body', 'url':'https://example.test/'}
+    record = {'provider':'api', 'provider_type':'lexmount', 'case_id':'one',
+              'attempt_id':'api-one', 'ok':False, 'status_code':502,
+              'error_type':'api_error', 'error_message':'proxy CONNECT returned HTTP 502',
+              'metrics':{'content_pass':False}}
+    (tmp_path/'dataset.json').write_text(json.dumps({'saved_matrix_scope':{
+        'presentation':'audit', 'limitations':[]}}), encoding='utf-8')
+    page = BeautifulSoup(render_explainer(tmp_path, {'one':case}, [record], authored=False,
+                                         ctx=RenderContext()), 'html.parser')
+    category = failure_category(record, case, ctx=RenderContext())
+    assert category in page.select_one('[data-method-failures]').get_text()
+    assert not page.select('.comparison-winner')
+
+
 def test_saved_failure_chapters_cover_every_method_and_failure_with_exact_evidence(tmp_path):
     from copy import deepcopy
     from bs4 import BeautifulSoup

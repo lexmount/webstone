@@ -417,6 +417,14 @@ def test_explicit_unknown_engine_does_not_inherit_colliding_product(tmp_path, ve
     assert render(tmp_path, {}, [row]) == "new-engine" + (" 2.3.4" if version else "")
 
 
+@pytest.mark.parametrize('engine', ['lightmount_domstable', 'lightmount_lite', 'lightmount_dcl', None])
+def test_service_route_engine_keeps_api_account_requirements(engine):
+    row = {'provider':'renamed-api', 'provider_type':'lexmount', 'provider_metadata':{'engine':engine}}
+    access = method_access('renamed-api', [row], scope=MethodScope())
+    assert access['type'] == 'hosted'
+    assert access['env_vars'] == ['LEXMOUNT_API_KEY', 'LEXMOUNT_PROJECT_ID']
+
+
 @pytest.mark.parametrize("provider, version, expected", [
     ("obscura", "obscura 0.2.2", "Obscura 0.2.2"),
     ("lightpanda", "Lightpanda 0.4.1+build.7", "Lightpanda 0.4.1+build.7"),

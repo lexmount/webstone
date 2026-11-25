@@ -76,6 +76,16 @@ def test_configuration_comparison_keeps_leaderboard_population_and_checks_eviden
     frozen_spec = tmp_path / 'frozen-extension.json'
     previous = tmp_path / 'baseline/extended'
     source_proof = previous / 'saved-extension.json'
+    # An older renderer highlighted all tied extrema without the later HTML
+    # marker. Retain that frozen table while checking every new comparison.
+    legacy = '<table id="legacy-ties"><tr>' + ''.join(
+        '<td data-metric="legacy" data-metric-direction="max" data-sort="1"><strong class="comparison-winner">1</strong></td>'
+        for _ in range(2)) + '</tr></table>'
+    home = previous/'index.html'
+    home.write_text(home.read_text(encoding='utf-8').replace('</body>', legacy+'</body>'), encoding='utf-8')
+    prior = json.loads(source_proof.read_bytes())
+    prior['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+    write(source_proof, prior)
     write(frozen_spec, {'published_base': {'root': str(previous), 'audit': {
         'path': str(source_proof), 'sha256': hashlib.sha256(source_proof.read_bytes()).hexdigest()}},
         'configuration_comparisons': spec['configuration_comparisons']})
@@ -91,6 +101,27 @@ def test_configuration_comparison_keeps_leaderboard_population_and_checks_eviden
         if name != 'index.html':
             assert (frozen / name).read_bytes() == (previous / name).read_bytes()
     assert refresh_published_extension(frozen, spec_path=frozen_spec)['valid']
+    from harness.web_fetch.report_package import validate_release
+    assert validate_release(frozen) is False
+    # A newly embedded comparison is still checked even when its source audit
+    # retains the altered bytes exactly.
+    bad_page = BeautifulSoup((comparison/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    for index, cell in enumerate(bad_page.select('#ranking-overall tbody tr > td:first-child')):
+        cell['data-metric'], cell['data-metric-direction'], cell['data-sort'] = 'control', 'max', str(2-index)
+        if index:
+            marker = bad_page.new_tag('strong', attrs={'class':'comparison-winner'})
+            marker.string = 'wrong'
+            cell.append(marker)
+    (comparison/'index.html').write_text(str(bad_page), encoding='utf-8')
+    changed = json.loads(audit.read_bytes())
+    changed['files']['index.html'] = hashlib.sha256((comparison/'index.html').read_bytes()).hexdigest()
+    new_audit = write(audit, changed)
+    bad_spec = json.loads(frozen_spec.read_bytes())
+    bad_spec['configuration_comparisons'][0]['audit'] = new_audit
+    write(tmp_path/'bad-highlight.json', bad_spec)
+    bad_report = build_saved_matrix(tmp_path/'bad-highlight.json', tmp_path/'bad-highlight').parent
+    with pytest.raises(ValueError, match='highlight'):
+        validate_release(bad_report)
     frozen_content = tmp_path / 'packed-frozen'
     extend_published_content(frozen, packed, frozen_content)
     frozen_archive = tmp_path / 'frozen.zip'
@@ -215,4 +246,25 @@ def test_frozen_comparison_keeps_each_saved_task_contract(tmp_path):
     assert json.loads((output/records[0]['report_source_case_path']).read_bytes())['expected_any'] != ['different']
     assert all('report_source_case' not in record for record in records)
     assert all(row['passed'] for row in json.loads((output/'matrix.json').read_bytes())['rows'])
+
+
+def test_composition_retains_selected_execution_settings_and_review_layout(tmp_path):
+    spec, entries = reports(tmp_path)
+    expected = [group for entry in entries
+                for group in json.loads((Path(entry['root'])/'matrix.json').read_bytes())['execution_settings']]
+    assert expected
+    config = json.loads(spec.read_bytes())
+    config['retain_source_reviews'] = True
+    write(spec, config)
+    output = build_saved_matrix(spec, tmp_path/'combined').parent
+    model = json.loads((output/'matrix.json').read_bytes())
+    assert model['execution_settings'] == expected
+    from bs4 import BeautifulSoup
+    method = BeautifulSoup((output/'methodology/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert method.select_one('#execution-settings')
+    assert not BeautifulSoup((output/'index.html').read_text(encoding='utf-8'), 'html.parser').select('.comparison-winner')
+    review = BeautifulSoup((output/'review/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert len(review.select('section.section[data-source-review] > .wrap')) == 2
+    guide = BeautifulSoup((output/'guide/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert not guide.select('[aria-label] .comparison-winner')
 

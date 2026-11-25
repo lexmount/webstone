@@ -124,6 +124,8 @@ class ReleaseRules:
     ``identity`` and ``evidence`` are the track's own rules. ``languages`` and
     ``links`` default to the shared checks; a track replaces one only when its
     layout differs, and names the replacement's reason where it declares it.
+    Presentation defaults to the shared checker. A frozen-template adapter may
+    retain verified predecessor markup while checking every current view.
     """
 
     identity: Callable[[Path], object]
@@ -131,13 +133,15 @@ class ReleaseRules:
     languages: Callable[[Path], object] | None = check_language_editions
     links: Callable[[Path], object] | None = check_links
     visual: VisualReceipt | None = None
+    presentation: Callable[[Path], object] | None = None
 
 
 def validate_release(report, rules: ReleaseRules) -> dict[str, object]:
     """Run the release gate in its fixed order and return each stage's result.
 
     Order: identity, languages, links, presentation, evidence bindings, visual
-    receipt. The presentation stage is shared and always runs.
+    receipt. Presentation always runs; frozen-source adapters retain old HTML
+    identities while applying the shared checker to current views.
     """
     root = open_report(report)
     results: dict[str, object] = {"identity": rules.identity(root)}
@@ -145,7 +149,7 @@ def validate_release(report, rules: ReleaseRules) -> dict[str, object]:
         results["languages"] = rules.languages(root)
     if rules.links is not None:
         results["links"] = rules.links(root)
-    results["presentation"] = check_report_presentation(root)
+    results["presentation"] = (rules.presentation or check_report_presentation)(root)
     if rules.evidence is not None:
         results["evidence"] = rules.evidence(root)
     if rules.visual is not None:

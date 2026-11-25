@@ -3030,7 +3030,7 @@ def _saved_renderer_projection(output, model, admission=None):
         records.append(record)
         identities.append({'case_route': route, 'attempt_route': record['attempt_id'],
                            'source_record': row['record_path'], 'source_case': row['case_path']})
-    scope = {'providers': [], 'limitations': model.get('limitations', []), 'missing': [r for r in model['rows']
+    scope = {'presentation':model.get('presentation','audit'), 'providers': [], 'limitations': model.get('limitations', []), 'missing': [r for r in model['rows']
                                         if r['passed'] is None or not r['called']]}
     scope['execution_settings'] = model.get('execution_settings', [])
     reruns = [r['parameter_rerun'] for r in model['rows'] if r.get('parameter_rerun')]

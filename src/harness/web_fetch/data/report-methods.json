@@ -157,6 +157,7 @@
       }
     },
     "lexmount": {
+      "engine_is_method": false,
       "endpoint": "POST https://api.lexmount.com/v1/extract",
       "contract": {
         "zh": "已知 URL → 主正文 + 元数据",

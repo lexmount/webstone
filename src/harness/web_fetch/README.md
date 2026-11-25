@@ -1710,6 +1710,9 @@ This appends the separate comparisons and retains every original page and result
 it does not rebuild the leaderboard with a newer renderer. Packaging resolves
 lazy evidence against each frozen report's own file inventory, including nested
 source reports.
+Selected sources retain their verified execution settings. The release gate keeps
+hash-bound predecessor HTML under its original renderer and checks all current
+views and embedded comparisons with the shared semantic presentation rules.
 When composing frozen reports with different task ID namespaces,
 `saved_reports[].case_id_mapping` maps every `suite--source_id` to a unique target
 ID within that suite. This requires `retain_source_task_contracts`; task names,

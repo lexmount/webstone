@@ -457,9 +457,9 @@ def comparative_rows(rows, directions, *, ctx):
    metric,direction=directions[index];column,extreme,unique=numbers[index]
    fragment=cells[index].group();opening,body=fragment.split('>',1)
    if column[row_number] is None:opening=re.sub(r' data-sort="[^"]+"','',opening)
-   opening+=' data-metric="'+metric+'" data-metric-direction="'+direction+'"'
+   opening+=' data-metric="'+metric+'" data-metric-direction="'+(direction if ctx.comparison_highlights else 'neutral')+'"'
    content=body[:-5]
-   if (unique or ctx.descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
+   if ctx.comparison_highlights and (unique or ctx.descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
     content='<strong class="comparison-winner good">'+content+'</strong>'
    values=values[:cells[index].start()]+opening+'>'+content+'</td>'+values[cells[index].end():]
   result.append((attrs,values))
@@ -2076,6 +2076,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  score_binding=dataset.get('comparison',{}).get('score_audit')
  score_audit=json.loads(contained_path(out,score_binding['path']).read_text(encoding='utf-8')) if score_binding else None
  diagnostic=bool(score_audit) or (local_snapshot and not local_pass_rate_ranking(dataset))
+ ctx=replace(ctx,comparison_highlights=not diagnostic)
  if local_snapshot and not show_local_status_banners:
   raise ValueError('Uncertified local diagnostic status cannot be hidden')
  reliability=assess_reliability(dataset,records)
