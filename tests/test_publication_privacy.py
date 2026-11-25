@@ -81,6 +81,56 @@ def test_result_diagnostic_views_reject_changes_outside_quoted_output():
         project_result_diagnostics('record.json',json.dumps({'error_message':'Authorization: Bearer synthetic-secret'}).encode())
 
 
+def test_native_link_public_view_requires_bound_answer_and_preserves_verdict():
+    from harness.web_fetch.report_saved_matrix import project_record_diagnostics as project_result_diagnostics
+    from lexbench_webfetch.models import EvalCase
+    from lexbench_webfetch.scoring import score_attempt
+    case = vars(EvalCase(id='native-link', name='Native link',
+        url='https://example.test/', category='synthetic', expected_any=['Expected body']))
+    answer = b'Expected body'
+    metadata = {'links': ['https://example.test/file?token=synthetic-secret']}
+    metrics = score_attempt(case, answer, ok=True, metadata=metadata)
+    row = {'ok': True, 'status_code': 200, 'metrics': metrics, 'provider_metadata': metadata}
+    raw = json.dumps(row).encode()
+    with pytest.raises(ValueError, match='non-diagnostic authority'):
+        project_result_diagnostics('record.json', raw)
+    public, receipt = project_result_diagnostics('record.json', raw, case=case, answer=answer)
+    decoded = json.loads(public)
+    diagnostics = {'resource_candidate_urls', 'resource_candidates', 'unexpected_resource_urls'}
+    assert {k: v for k, v in decoded['metrics'].items() if k not in diagnostics} == {
+        k: v for k, v in metrics.items() if k not in diagnostics}
+    assert 'synthetic-secret' not in public.decode()
+    assert 'provider_metadata/links/0' in receipt['changed_fields']
+    assert receipt['measurements_unchanged'] is True
+    with pytest.raises(ValueError, match='changes task acceptance'):
+        project_result_diagnostics('record.json', raw, case=case, answer=b'Unrelated body')
+    row['metrics']['scoring_source_sha256'] = '0' * 64
+    with pytest.raises(ValueError, match='bound scoring version'):
+        project_result_diagnostics('record.json', json.dumps(row).encode(), case=case, answer=answer)
+
+
+def test_public_redirect_url_cannot_change_required_page_identity():
+    from harness.web_fetch.report_saved_matrix import project_record_diagnostics as project_result_diagnostics
+    from lexbench_webfetch.models import EvalCase
+    from lexbench_webfetch.scoring import score_attempt
+    url = 'https://example.test/article?token=synthetic-secret'
+    case = vars(EvalCase(id='redirect', name='Redirect', url='https://example.test/',
+        category='synthetic', expected_any=['Expected body']))
+    answer = b'Expected body'
+    for required in (False, True):
+        selected = {**case, 'page_identity_required': required, 'expected_final_url': url}
+        metrics = score_attempt(selected, answer, ok=True, final_url=url)
+        row = {'ok': True, 'final_url': url, 'metrics': metrics, 'provider_metadata': {}}
+        raw = json.dumps(row).encode()
+        if required:
+            with pytest.raises(ValueError, match='changes task acceptance'):
+                project_result_diagnostics('record.json', raw, case=selected, answer=answer)
+        else:
+            public, receipt = project_result_diagnostics('record.json', raw, case=selected, answer=answer)
+            assert json.loads(public)['metrics'] == metrics
+            assert 'final_url' in receipt['changed_fields']
+
+
 def test_mixed_native_diagnostic_views_preserve_text_and_decoded_events():
     from harness.reporting.publication_privacy import project_evidence_view, publication_file_risk
     event = json.dumps({'event':'native_response','body':json.dumps({'token':'synthetic-secret',

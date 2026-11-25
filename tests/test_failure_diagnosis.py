@@ -9,6 +9,19 @@ from harness.web_fetch.report_model import RenderContext
 
 class FailureDiagnosisTests(unittest.TestCase):
  def record(self,**fields):return {'provider':'test','ok':False,'status_code':502,'metrics':{},'provider_metadata':{},**fields}
+ def test_explicit_address_guard_is_not_an_origin_http_denial(self):
+  row=self.record(status_code=403,error_type='api_error',error_message='HTTP 403')
+  native=json.dumps({'success':False,'code':'BLOCKED_TARGET','error':'example.test does not resolve to an address the service may reach'})
+  result=diagnose(row,{},'',native_raw=native)
+  self.assertEqual(result['category'],'方法安全限制')
+  self.assertIn('does not resolve',result['evidence'])
+  ordinary=json.dumps({'error':{'upstream_status_code':403,'message':'unexpected status code: 403'}})
+  self.assertEqual(diagnose(row,{},'',native_raw=ordinary)['category'],'源站拒绝该次访问')
+ def test_native_certificate_failure_is_a_connection_error(self):
+  native=json.dumps({'success':False,'code':'FETCH_FAILED','error':'invalid peer certificate: NotValidForName'})
+  result=diagnose(self.record(error_type='api_error',provider_metadata={'api_http_status':502}),{},'',native_raw=native)
+  self.assertEqual(result['category'],'取页连接失败')
+  self.assertIn('NotValidForName',result['evidence'])
  def test_repeated_headings_do_not_stall_or_hide_article_content(self):
   from harness.web_fetch.failure_diagnosis import _returned_page_failure
   for count in [30,3000]:

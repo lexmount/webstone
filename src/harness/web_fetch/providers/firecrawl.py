@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import ipaddress
 import math
 from urllib.parse import urlsplit
 
@@ -17,6 +18,20 @@ from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 
 class FirecrawlProvider(Provider):
+    @classmethod
+    def launches_local_browser(cls, config):
+        host = urlsplit(str(config.get('base_url', 'https://api.firecrawl.dev'))).hostname
+        if host == 'localhost':
+            return True
+        try:
+            return ipaddress.ip_address(host or '').is_loopback
+        except ValueError:
+            return False
+
+    native_configuration_fields = Provider.native_configuration_fields + (
+        'formats_by_task_kind', 'native_request_fields',
+    )
+
     capability_flags = frozenset({'http_402_is_account_capacity', 'ignores_minimum_text_fragments'})
 
     @staticmethod
@@ -70,12 +85,19 @@ class FirecrawlProvider(Provider):
         formats = ['rawBase64'] if case.task_kind == 'file' else list(self.config.get('formats', ['markdown']))
         if case.track == 'video' and case.task_kind == 'resource' and 'video' not in formats:
             formats.append('video')
-        body = {'url': case.url, 'formats': formats, 'maxAge': int(self.config.get('max_age', 0)),
+        formats = list(self.config.get('formats_by_task_kind', {}).get(case.task_kind, formats))
+        body = {'url': case.url, 'formats': formats,
                 'proxy': str(self.config.get('proxy', 'auto'))}
+        max_age = self.config.get('max_age', 0)
+        if max_age is not None:
+            body['maxAge'] = int(max_age)
         if 'only_main_content' in self.config:
             body['onlyMainContent'] = self.config['only_main_content']
         if case.task_kind == 'file':
             body['parsers'] = []
+        request_fields = self.config.get('native_request_fields')
+        if request_fields is not None:
+            body = {key: value for key, value in body.items() if key in request_fields}
         headers = {'Authorization': 'Bearer '+str(self.config['api_key'])} if self.config.get('api_key') else {}
         return (str(self.config.get('base_url', 'https://api.firecrawl.dev')).rstrip('/') + '/v2/scrape',
                 self.native_http_options(body, headers, timeout))
@@ -87,8 +109,24 @@ class FirecrawlProvider(Provider):
 
     def validate(self) -> list[str]:
         errors = super().validate()
+        if self.launches_local_browser(self.config) and self.config.get('dns_mode', 'system') != 'system':
+            errors.append('A loopback Firecrawl service uses its own system DNS; client DNS cannot configure it')
         if "only_main_content" in self.config and not isinstance(self.config["only_main_content"], bool):
             errors.append("only_main_content must be boolean")
+        formats_by_kind = self.config.get("formats_by_task_kind", {})
+        if (not isinstance(formats_by_kind, dict) or any(
+            not isinstance(kind, str) or not kind or not isinstance(formats, list)
+            or not formats or any(not isinstance(value, str) or not value for value in formats)
+            for kind, formats in formats_by_kind.items()
+        )):
+            errors.append("formats_by_task_kind must map task kinds to nonempty format lists")
+        fields = self.config.get("native_request_fields")
+        if fields is not None and (
+            not isinstance(fields, list) or any(not isinstance(value, str) for value in fields)
+            or not {"url", "formats"}.issubset(fields)
+            or not set(fields).issubset({"url", "formats", "maxAge", "proxy", "onlyMainContent", "parsers"})
+        ):
+            errors.append("native_request_fields must include url and formats and contain supported request fields")
         # Hosted Scrape requires Bearer auth. A separately configured local or
         # self-hosted endpoint may intentionally run without an API key.
         host = urlsplit(str(self.config.get("base_url", "https://api.firecrawl.dev"))).hostname
@@ -435,9 +473,9 @@ class FirecrawlProvider(Provider):
                 "route": route,
                 "wait": wait_metadata,
                 "requested_formats": request_body["formats"],
-                "requested_proxy": request_body["proxy"],
+                "requested_proxy": request_body.get("proxy"),
                 "requested_dynamic_wait_strategy": dynamic_wait_strategy,
-                "requested_cache_max_age_ms": request_body["maxAge"],
+                "requested_cache_max_age_ms": request_body.get("maxAge"),
                 "requested_parsers": request_body.get("parsers"),
                 "service_timeout_ms": request_body.get("timeout"),
                 "client_http_timeout_ms": int(http_timeout * 1000),
@@ -449,6 +487,18 @@ class FirecrawlProvider(Provider):
                     metadata.get("statusCode")
                     if isinstance(metadata.get("statusCode"), int) else None
                 ),
+                "execution_source": (
+                    data.get("source") if data.get("source") in ("local", "firecrawl-cloud") else None
+                ),
+                "engine": (
+                    metadata.get("engine") if metadata.get("engine") in (
+                        "local-fetch", "local-browser", "local-pdf", "local-document",
+                    ) else None
+                ),
+                "blocked": (
+                    data.get("blocked") if isinstance(data.get("blocked"), bool) else None
+                ),
+                "native_warning_present": bool(data.get("warning")) if isinstance(data.get("warning"), str) else False,
                 "cache_state": (
                     metadata.get("cacheState")
                     if isinstance(metadata.get("cacheState"), str) and api_ok else None

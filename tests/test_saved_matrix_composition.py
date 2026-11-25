@@ -67,6 +67,38 @@ def test_composition_retains_exact_source_records(tmp_path, shared_reports):
         check_saved_matrix(output)
 
 
+def test_nested_composition_retains_native_public_views_and_diagnosis(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    record.update(ok=False, error_message='HTTP 403')
+    (source/record['artifact_path']).write_bytes(b'')
+    record['metrics'].update(content_pass=False, request_ok=False,
+                             content_sha256=hashlib.sha256(b'').hexdigest())
+    native = source/'private_artifacts/response.json'
+    native.parent.mkdir()
+    native.write_text(json.dumps({'code':'BLOCKED_TARGET', 'error':'Target resolves to a private address'}), encoding='utf-8')
+    record['provider_metadata'].update(raw_response_path=native.relative_to(source).as_posix(),
+        raw_response_sha256=hashlib.sha256(native.read_bytes()).hexdigest(),
+        raw_response_bytes=native.stat().st_size)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path, spec).parent
+    for level in range(2):
+        audit = output/'saved-matrix-audit.json'
+        path = tmp_path/f'composition-{level}.json'
+        write(path, {'schema_version':1, 'title':'Combined', 'frozen_sources':True, 'saved_reports':[{
+            'id':'source', 'root':str(output), 'retain_public_evidence_views':True, 'audit':{'path':str(audit),
+            'sha256':hashlib.sha256(audit.read_bytes()).hexdigest()}}]})
+        output = build_saved_matrix(path, tmp_path/f'combined-{level}').parent
+        assert check_saved_matrix(output, spec_path=path)['valid']
+        current = json.loads((output/'results.jsonl').read_text(encoding='utf-8'))
+        assert current['metrics'] == record['metrics']
+        assert current['diagnosis']['category'] in {'Method safety restriction', '方法安全限制'}
+        assert current['diagnosis']['evidence'] == 'Target resolves to a private address'
+        assert (output/current['provider_metadata']['public_response_path']).is_file()
+
+
 @pytest.mark.parametrize('option', ['different_task', 'duplicate'])
 def test_composition_rejects_incompatible_reports(tmp_path, option):
     spec, _ = reports(tmp_path, **{option: True})
@@ -324,6 +356,24 @@ def test_extension_updates_only_explicit_population_summary():
     assert result.select_one('#evidence').get_text() == '13 ms, $3, 2023-03-03, task-3; 10 种方法'
 
 
+def test_extension_updates_reproduction_population_and_records_bound_change_note():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    base = {'providers':[{'id':'one'}], 'rows':[{}]*1000}
+    added = {'providers':[{'id':'two'}], 'rows':[{}]*1000}
+    raw = '<html><body><main><section class="hero"></section><p>本报告纳入 1,000 个逻辑结果。运行参数见下表。</p><p id="history">Previous scope: 1,000 results.</p></main></body></html>'
+    result = BeautifulSoup(_extension_page(raw, '<html></html>', 'reproduce/index.html',
+        base, added, [], ''), 'html.parser')
+    assert '本报告纳入 2,000 个逻辑结果。' in result.get_text()
+    assert result.select_one('#history').get_text() == 'Previous scope: 1,000 results.'
+    result = BeautifulSoup(_extension_page(raw, '<html></html>', 'changes/index.html',
+        base, added, [], 'A saved correction <not markup>'), 'html.parser')
+    note = result.select_one('#report-extension-change')
+    assert note.p.get_text() == 'A saved correction <not markup>'
+    assert note.find('not') is None and result.select_one('#history')
+    assert result.select_one('.hero').find_next_sibling() == note
+
+
 
 
 def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports):
@@ -339,9 +389,11 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports)
     rendered = _shared_presentations(output)
     overall = BeautifulSoup(rendered['overall'], 'html.parser')
     assert len(overall.select('#ranking-overall tbody tr')) == 2
-    assert all(cell.select_one('strong.comparison-winner.good') for row in overall.select('#ranking-overall tbody tr') for cell in row.find_all('td')[-3:])
+    # Identical method timings are ties, so neither receives a unique-best marker.
+    assert not overall.select('strong.comparison-winner.good')
+    from harness.reporting.presentation import check_presentation
+    check_presentation(overall)
     assert [r.find('td').get_text() for r in overall.select('#ranking-overall tbody tr')] == ['1', '1']
-    assert overall.select('.comparison-winner')
     timing = BeautifulSoup(rendered['timing'], 'html.parser')
     assert len(timing.select('#overall-matched-latency-table tbody tr')) == 2
     assert not timing.select('#overall-matched-latency-table strong, #overall-matched-latency-table [data-rank]')
@@ -1277,3 +1329,109 @@ def test_extension_preserves_each_source_review_scope(tmp_path):
     assert check_published_extension(output)['valid']
     assert (output/'extension-base-pages/review/index.html').read_bytes() == originals[0]
     assert (output/'additional/review/index.html').read_bytes() == originals[1]
+
+
+def test_composition_retains_source_review_pages_under_shared_navigation(tmp_path):
+    from bs4 import BeautifulSoup
+    spec_path, entries = reports(tmp_path)
+    spec = json.loads(spec_path.read_bytes())
+    spec['retain_source_reviews'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    page = BeautifulSoup((output/'review/index.html').read_text(encoding='utf-8'), 'html.parser')
+    sections = page.select('[data-source-review]')
+    assert len(sections) == 2
+    for index, (section, entry) in enumerate(zip(sections, entries, strict=True)):
+        original = BeautifulSoup((Path(entry['root'])/'review/index.html').read_text(encoding='utf-8'), 'html.parser')
+        assert f'method-{index}' in section.h2.get_text()
+        for paragraph in original.select('main p'):
+            assert paragraph.get_text(' ', strip=True) in section.get_text(' ', strip=True)
+    (output/'review/index.html').write_text('<html><main>Missing source review scopes</main></html>', encoding='utf-8')
+    with pytest.raises(ValueError):
+        check_saved_matrix(output)
+
+
+
+def test_frozen_source_composition_accepts_published_audit_and_rejects_changed_bytes(tmp_path):
+    spec_path, entries = reports(tmp_path)
+    source = Path(entries[0]['root'])
+    audit = source/'saved-matrix-audit.json'
+    original = json.loads(audit.read_bytes())
+    binding = write(audit, {'files': original['files']})
+    spec = json.loads(spec_path.read_bytes())
+    spec['saved_reports'][0]['audit'] = binding
+    spec['frozen_sources'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    (source/'index.html').write_text('changed frozen source', encoding='utf-8')
+    with pytest.raises(ValueError, match='Frozen report file changed'):
+        build_saved_matrix(spec_path, tmp_path/'changed')
+
+
+
+def test_frozen_revision_stays_source_history_without_inventing_private_attachments(tmp_path):
+    spec_path, entries = reports(tmp_path)
+    source = Path(entries[0]['root'])
+    model = json.loads((source/'matrix.json').read_bytes())
+    model['rows'][0]['score_revision'] = {'receipt_path': 'historical-revision.json'}
+    matrix = write(source/'matrix.json', model)
+    revision = write(source/'historical-revision.json', {'review_files': {'private': 'private-unpublished.json'}})
+    audit = json.loads((source/'saved-matrix-audit.json').read_bytes())
+    audit['files']['matrix.json'] = matrix['sha256']
+    audit['files']['historical-revision.json'] = revision['sha256']
+    audit_binding = write(source/'saved-matrix-audit.json', {'files': audit['files']})
+    spec = json.loads(spec_path.read_bytes())
+    spec['saved_reports'][0]['audit'] = audit_binding
+    spec['frozen_sources'] = True
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    current = json.loads((output/'matrix.json').read_bytes())
+    row = current['rows'][0]
+    assert row['source_score_revision']['receipt_path'].endswith('/historical-revision.json')
+    assert 'score_revision' not in row and current['scores_changed'] is True
+    assert not (output/'private-unpublished.json').exists()
+
+
+
+def test_frozen_comparison_keeps_each_saved_task_contract(tmp_path):
+    spec_path, entries = reports(tmp_path, different_task=True)
+    spec = json.loads(spec_path.read_bytes())
+    spec.update(frozen_sources=True, retain_source_task_contracts=True)
+    write(spec_path, spec)
+    output = build_saved_matrix(spec_path, tmp_path/'combined').parent
+    assert check_saved_matrix(output, spec_path=spec_path)['valid']
+    records = [json.loads(line) for line in (output/'results.jsonl').read_text(encoding='utf-8').splitlines()]
+    assert json.loads((output/records[1]['report_source_case_path']).read_bytes())['expected_any'] == ['different']
+    assert json.loads((output/records[0]['report_source_case_path']).read_bytes())['expected_any'] != ['different']
+    assert all('report_source_case' not in record for record in records)
+    assert all(row['passed'] for row in json.loads((output/'matrix.json').read_bytes())['rows'])
+
+
+def test_retained_review_preserves_sorting_and_query_links(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import render_source_reviews
+    source = tmp_path/'evidence/source/review/index.html'
+    source.parent.mkdir(parents=True)
+    source.write_text("""<html><main><h1>Source review</h1>
+        <table id="score-revision-steps"><thead><tr><th><button
+        onclick="sortTable('score-revision-steps', 0)">Result</button></th></tr></thead>
+        <tbody><tr><td>2</td></tr><tr><td>1</td></tr></tbody></table>
+        <a href="../viewer/index.html?path=evidence.json#record">Evidence</a>
+        <a href="?scope=fail#score-revision-steps">Selected scope</a>
+        <a href="#score-revision-steps">Table</a></main></html>""", encoding='utf-8')
+    target = tmp_path/'review/index.html'
+    target.parent.mkdir()
+    target.write_text('<html><main><h1>Combined review</h1></main></html>', encoding='utf-8')
+    render_source_reviews(tmp_path, {'source_review_pages': [
+        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
+    page = BeautifulSoup(target.read_text(encoding='utf-8'), 'html.parser')
+    table = page.find('table')
+    assert table.button['onclick'] == f"sortTable('{table['id']}', 0)"
+    links = page.select('a[href]')
+    assert links[0]['href'] == '../evidence/source/viewer/index.html?path=evidence.json#record'
+    assert links[1]['href'] == '../evidence/source/review/index.html?scope=fail#score-revision-steps'
+    assert links[2]['href'] == '#' + table['id']
+    assert source.read_text(encoding='utf-8').count('source-review-') == 0

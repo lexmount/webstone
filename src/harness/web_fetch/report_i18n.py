@@ -890,6 +890,7 @@ _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · re
  'parameter_rerun_title': 'Parameter reruns and result selection',
  'changes_scope': 'Parameter reruns and offline revisions are recorded separately. Parameter reruns include '
                   'new calls; offline revisions use retained responses only.',
+ 'changes_report_update': 'Report update',
  'offline_review_scope': 'This records rule review of known machine results, scored offline from saved '
                          'answers, not independent blind review. New calls and result selection from '
                          'parameter reruns are documented separately in Changes.',

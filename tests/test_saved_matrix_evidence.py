@@ -882,10 +882,14 @@ def test_explicit_user_skip_is_unscored_and_provider_scoped(tmp_path):
 
 
 @pytest.mark.parametrize('execution_defect', [None, 'missing_policy', 'missing_native'])
-def test_superseded_evidence_preserved_without_double_counting(tmp_path, monkeypatch, execution_defect):
+@pytest.mark.parametrize('current_only', [False, True])
+def test_superseded_evidence_preserved_without_double_counting(tmp_path, monkeypatch, execution_defect, current_only):
     if execution_defect != 'missing_native':
         monkeypatch.setattr('harness.web_fetch.report_saved_matrix._parameter_execution', lambda *args: {'request': 'fixture'})
     spec, root, record, raw = fixture(tmp_path)
+    if current_only:
+        spec['retain_superseded_results'] = False
+        spec['public_evidence_views'] = True
     old = deepcopy(record)
     old.update(attempt_id='old-001', ok=False, error_type='unsupported_task')
     old['metrics'].update(content_pass=False, request_ok=False)
@@ -914,16 +918,24 @@ def test_superseded_evidence_preserved_without_double_counting(tmp_path, monkeyp
     model = json.loads((entry.parent/'matrix.json').read_text(encoding='utf-8'))
     assert model['totals']['saved'] == model['totals']['passed'] == 1
     assert len((entry.parent/'results.jsonl').read_text(encoding='utf-8').splitlines()) == 1
-    history = model['rows'][0]['history'][0]
-    assert (entry.parent/history['record_path']).read_bytes() == old_raw
+    history = model['rows'][0].get('history', [])
+    if current_only:
+        assert not history
+        assert not list(entry.parent.rglob('history'))
+        assert old_copy.read_bytes() == old_raw
+        public_scope = (entry.parent/'replacement-scope.json').read_text(encoding='utf-8')
+    else:
+        history = history[0]
+        assert (entry.parent/history['record_path']).read_bytes() == old_raw
+        public_scope = (entry.parent/history['scope_path']).read_text(encoding='utf-8')
     assert (entry.parent/'evidence/first/method/same/record.json').read_bytes() == raw
-    public_scope = (entry.parent/history['scope_path']).read_text(encoding='utf-8')
     assert str(tmp_path) not in public_scope
-    assert 'superseded-history' in (entry.parent/'attempts/first--run-001.html').read_text(encoding='utf-8')
+    assert ('superseded-history' in (entry.parent/'attempts/first--run-001.html').read_text(encoding='utf-8')) is not current_only
     assert check_saved_matrix(entry.parent, spec_path=tmp_path/'spec.json')['valid']
-    assert_provenance_mutation_rejected(entry.parent, history['record_path'], tmp_path/'spec.json')
-    assert_redirected_answer_rejected(entry.parent, ['history', 0, 'answer_path'], tmp_path/'spec.json')
-    assert_proof_mutations_rejected(entry.parent, tmp_path/'spec.json', 'history', ['redirect_scope'])
+    if not current_only:
+        assert_provenance_mutation_rejected(entry.parent, history['record_path'], tmp_path/'spec.json')
+        assert_redirected_answer_rejected(entry.parent, ['history', 0, 'answer_path'], tmp_path/'spec.json')
+        assert_proof_mutations_rejected(entry.parent, tmp_path/'spec.json', 'history', ['redirect_scope'])
     for timestamp in (None, '2026-10-30T00:00:00Z'):
         invalid = deepcopy(spec)
         invalid['supersession_scope'] = write(tmp_path/'late-scope.json', {**scope, 'created_at': timestamp})
@@ -932,6 +944,11 @@ def test_superseded_evidence_preserved_without_double_counting(tmp_path, monkeyp
     spec['supersession_scope'] = write(tmp_path/'wrong-scope.json', {**scope,'cells':[]})
     with pytest.raises(ValueError, match='complete replacement scope'):
         build(tmp_path,spec,'invalid-scope')
+    if current_only:
+        old_results.write_bytes(b'altered original')
+        spec['supersession_scope'] = write(tmp_path/'scope.json', scope)
+        with pytest.raises(ValueError, match='changed|differs|hash'):
+            build(tmp_path,spec,'altered-private-history')
 
 
 @pytest.mark.parametrize('defect', [None, 'missing_policy', 'late_policy', 'wrong_config', 'budget',
@@ -2250,3 +2267,51 @@ def test_family_rerun_compares_native_requests_by_input_class():
     assert all(d['selected_new'] for d in _parameter_group_decisions(inputs, candidates).values())
     inputs['parameter_settings'][keys[1]]['candidate'][0]['dns_mode'] = 'different'
     assert not any(d['selected_new'] for d in _parameter_group_decisions(inputs, candidates).values())
+
+
+def test_scored_http_operation_paths_are_source_content_not_host_paths():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    def record(path):
+        return {'metrics': {'stable_records': [{'fields': {'method': 'GET', 'path': path}}]}}
+    _require_public_json(record('/pet/{petId}'))
+    for path in ['/Users/private/run', '//internal-host/file']:
+        with pytest.raises(ValueError, match='private content'):
+            _require_public_json(record(path))
+    with pytest.raises(ValueError, match='private content'):
+        _require_public_json({'provider_metadata': {'method': 'GET', 'path': '/pet'}})
+
+
+
+def test_page_path_must_match_a_public_web_canonical_url():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    _require_public_json({'canonical_url': 'https://example.test/docs', 'page_path': '/docs'})
+    for value in [
+        {'canonical_url': 'file:///docs', 'page_path': '/docs'},
+        {'canonical_url': 'https://example.test/docs', 'page_path': '/other'},
+        {'canonical_url': 'https://example.test/Users/private/run', 'page_path': '/Users/private/run'},
+    ]:
+        with pytest.raises(ValueError, match='private content'):
+            _require_public_json(value)
+
+
+
+@pytest.mark.parametrize("field,value", [
+    ("frozen_source_prefixes", ["sources"]),
+    ("retain_source_task_contracts", True),
+])
+def test_plain_matrix_rejects_forged_frozen_source_exceptions(report, field, value):
+    output, _ = report
+    matrix = output / 'matrix.json'
+    audit_path = output / 'saved-matrix-audit.json'
+    original, original_audit = matrix.read_bytes(), audit_path.read_bytes()
+    try:
+        model = json.loads(original)
+        model[field] = value
+        audit = json.loads(original_audit)
+        audit['files']['matrix.json'] = write(matrix, model)['sha256']
+        write(audit_path, audit)
+        with pytest.raises(ValueError, match='require a verified composition'):
+            check_saved_matrix(output)
+    finally:
+        matrix.write_bytes(original)
+        audit_path.write_bytes(original_audit)

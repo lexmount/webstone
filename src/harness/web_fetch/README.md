@@ -1628,6 +1628,26 @@ suite), the same selected cases and one result per method and case, and writes
 specification. Optional keys stay unset; add them by hand when needed. Ordinary runs
 carry their transport evidence in the hash-bound public call log.
 
+When composing `saved_reports`, set `retain_source_reviews: true` to keep each
+source's review page and protocol under its own method labels in the combined
+review page. This preserves prior review coverage without assigning it to newly
+added methods; the original source pages remain bound evidence.
+Set `saved_reports[].retain_public_evidence_views: true` to carry a source's
+public evidence views into its current rows and through nested compositions.
+Generated diagnostic pages belong to the current report's `diagnostics/` directory,
+so rendering never overwrites an imported snapshot's evidence or page wrappers.
+The extension carries its bound comparison note into Changes and updates the
+reproduction population summary; historical evidence counts remain unchanged.
+For already published snapshots, `frozen_sources: true` verifies the complete
+file inventories and pinned audit hashes using the published-extension boundary,
+rather than applying a newer acquisition or rendering contract to historical
+sources. This mode retains historical scores and supports audit presentation;
+it does not grant final certification.
+`retain_source_task_contracts: true` additionally retains each frozen result's
+own task rules when URL, task name and deliverable kind match across editions.
+It requires frozen-source audit mode; differing task rules are not rewritten or
+presented as a common-scoring certification.
+
 The specification may bind `result_review` with an explicit path and SHA-256.
 It must use the shared result-review schema, bind the projected dataset and
 results, and include validated coverage counts. The builder checks the review
@@ -1667,6 +1687,7 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 - `excluded_report_families` removes complete named families from report rows, pages and statistics while retaining the full bound source population and historical parameter-selection scope. Exclusions must be unique known family IDs and cannot remove every family.
 - `excluded_report_providers` similarly removes whole methods from the report while preserving the complete original scoring receipts. Other methods retain their selected records; rankings and totals are recomputed on the reported population. Unknown, duplicate, or all-method exclusions are rejected.
 - All supersessions, including uncommitted replacement calls, require a hash-bound `execution_contract` on the scope or individual cell. The loader checks the authorized native settings and complete retry sequence before admitting a replacement. Uncommitted replacements also require observed configuration/timeout/call-count fields and a hash-bound `execution_log`; each `http_request_started` event identifies the provider, case, start time, configuration digest and timeout. Missing observations or inconsistent logs reject the replacement without inventing scores or elapsed time.
+- When the owner explicitly requests current results only, set `retain_superseded_results: false`. Source checks still verify every original record, its predeclared replacement scope and the new execution contract. The portable report retains compact replacement hashes but omits the superseded result records and answers; private originals stay outside the report. This mode also supports public evidence views of the current calls. It does not authorize deletion of original evidence.
 - `adoptions` binds a saved-matrix specification and `user_selected_complete_report_groups` authority for explicitly selected provider/family pairs. It replaces each complete visible group regardless of pass count, retains the previous calls as history, and verifies task/scorer identity. It cannot overlap parameter candidates or another adoption. Bind `execution_contract` for a shared execution policy, or disjoint `execution_contracts` entries with `suite`, `provider`, `case_ids` and `contract` covering every adopted call. Native settings and retry chronology are checked against the original acquisition records; later offline scoring does not rewrite historical retry decisions.
 - Parameter comparisons require matching scoring provenance, the authorized provider configuration, actual native request receipts, and complete failure-retry sequences. Different scorers require a separate explicit offline revision before comparison. Replacement scopes and split retries must have valid pre-call chronology. The portable checker rejects unlisted files and symlinks, including additions beneath evidence directories.
 - For displayed-category comparisons, set `parameter_reruns.selection` to `replace_family_if_pass_count_improves`. Candidate completeness and pass counts use the same `report_families` partition as the report, including families spanning execution tracks. Verified native settings must be uniform within each eligible group; ineligible groups cannot win by score. Each family is selected independently and ties retain an eligible baseline. Historical `replace_track_if_pass_count_improves` contracts retain their original track-wide population; changing that frozen selection requires an explicitly bound selection amendment.
@@ -1852,3 +1873,31 @@ hash from the exact ordered source list in that revision's `scoring.py` and
 verify the projection source hash. A matching saved output alone is insufficient.
 The source-bound replay and rejection controls are in
 `tests/test_native_answer_projection.py`.
+
+### Firecrawl Local
+
+The `firecrawl-local` entry in `configs/providers.example.json` uses the existing
+Firecrawl adapter against a separately started official Local service. It requests
+native Markdown and links for every task kind, with full-page content, and omits
+unsupported cloud request fields. `max_age: null` omits `maxAge`; this cannot change
+Local's own cache behavior. The adapter does not synthesize missing native outputs.
+
+For a local-only service, start the official binary with:
+
+```bash
+FIRECRAWL_CLOUD=off FIRECRAWL_LOCAL_BROWSER=auto firecrawl-local serve --host 127.0.0.1 --port 3002
+```
+
+Service environment settings belong to that process; the provider JSON alone does
+not disable cloud fallback. Leave `FIRECRAWL_LOCAL_SCROLL` unset, omit `actions`
+and `waitFor`, and omit `--allow-private` for the default public-target policy.
+Local uses system DNS and automatically discovers an installed browser. Browser
+rendering is a product fetch capability; this configuration supplies no scripted
+browser interactions. Freeze timeouts, retries and concurrency in the run plan.
+
+Loopback Firecrawl endpoints participate in the shared public-target DNS preflight.
+Resolve synthetic or private DNS answers in the host environment before collection;
+keep the product's address protection enabled. The separate Local process uses
+system DNS, so its configuration cannot claim that a client `dns_mode` changes
+the service's resolver. The common runner retry budget remains explicit in the
+execution contract; enabling a product's own retry behavior does not change it.

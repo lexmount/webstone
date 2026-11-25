@@ -158,6 +158,12 @@ def check_presentation(html):
             unique = sum(v == extreme for v, _ in values) == 1
             # A winner needs a contest: one available value is never highlighted.
             contested = len(values) >= 2
+            # Frozen reports declared the same tie policy on each metric cell.
+            # Require a complete declaration; a single cell cannot exempt itself.
+            cell_ties = {cell.get('data-metric-ties') for _, cell in values}
+            if cell_ties - {None, 'all'} or ('all' in cell_ties and cell_ties != {'all'}):
+                raise ValueError('Metric tie policy must agree across the comparison population')
+            highlight_ties = table.get('data-highlight-ties') == 'all' or cell_ties == {'all'}
             for value, cell in values:
                 statistical = table.get('data-significance') == 'paired-query-bootstrap/1'
                 marked = cell.select_one('.comparison-extremum' if statistical else '.comparison-winner') is not None
@@ -167,7 +173,7 @@ def check_presentation(html):
                     if star != significant or significant and not marked:
                         raise ValueError('Significance marker differs from its paired comparison')
                 if marked != (
-                    contested and (unique or table.get("data-highlight-ties") == "all") and value == extreme
+                    contested and (unique or highlight_ties) and value == extreme
                 ):
                     raise ValueError(f'Column extremum highlight missing, incorrect, or tied: {metric}'
                                      + ('' if contested else ' (a single available value is never highlighted)'))

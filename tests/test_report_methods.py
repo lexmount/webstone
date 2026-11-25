@@ -8,6 +8,17 @@ from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 class AdoptionTests(unittest.TestCase):
+ def test_local_firecrawl_profile_does_not_inherit_hosted_api_options(self):
+  for language in ('zh','en'):
+   for name in ('firecrawl-local','custom-local'):
+    for engine in ('local-fetch','local-browser','local-pdf','local-document'):
+     record={'provider_type':'firecrawl','provider_metadata':{'engine':engine}}
+     model=method_page_model(name,'Firecrawl Local',[record],language=language,scope=MethodScope())
+     self.assertEqual(model['endpoint'],'POST <local-service>/v2/scrape')
+     self.assertNotIn('maxAge=0',model['freshness'])
+     self.assertNotIn('Actions',model['freshness'])
+     self.assertNotIn('rawBase64',model['configuration'])
+
  def test_product_source_is_owned_by_catalog_not_execution_alias(self):
   import json
   import tempfile

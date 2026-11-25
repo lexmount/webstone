@@ -278,7 +278,9 @@ def _joined_presentation(output, *, ctx):
             key = record['provider'], comparison_id
             if key in views:
                 raise ValueError('Joined presentation repeats a saved task result')
-            views[key] = {'case': source_cases[source_id],
+            case = (_read(contained_path(output, record['report_source_case_path'], reject_symlinks=True))
+                    if record.get('report_source_case_path') else record.get('report_source_case') or source_cases[source_id])
+            views[key] = {'case': case,
                 'task_href': prefix+'datasets/'+source_id+'.html',
                 'attempt_href': prefix+'attempts/'+record['attempt_id']+'.html'}
             record['case_id'] = comparison_id
@@ -524,22 +526,21 @@ def _check_method_presentation(page):
 
 _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
                      'adoption/index.html', 'reproduce/index.html', 'review/index.html',
-                     'guide/index.html', 'accounts/index.html')
+                     'guide/index.html', 'accounts/index.html', 'changes/index.html')
 
 
-def _review_source_sections(old, new, base_model, added_model):
-    # Review scopes and protocols belong to their source, including prose
-    # without a table. Keep complete sections instead of joining by schema.
-    used = {tag['id'] for tag in old.select('[id]')}
+def _namespace_review_ids(content, prefix, *, used=None):
+    """Keep retained controls and accessibility references with their elements."""
+    used = set() if used is None else set(used)
     renamed = {}
-    for tag in new.select('[id]'):
+    for tag in content.select('[id]'):
         original = tag['id']
-        identifier = 'additional-' + original
+        identifier = prefix + original
         while identifier in used:
-            identifier = 'additional-' + identifier
+            identifier = prefix + identifier
         used.add(identifier)
         renamed[original] = tag['id'] = identifier
-    for tag in new.find_all(True):
+    for tag in content.find_all(True):
         if tag.get('href', '').startswith('#'):
             tag['href'] = '#' + renamed.get(tag['href'][1:], tag['href'][1:])
         for attribute in list(tag.attrs):
@@ -548,9 +549,17 @@ def _review_source_sections(old, new, base_model, added_model):
                     lambda m: m[1] + renamed.get(m[2], m[2]) + m[1], tag[attribute])
             elif attribute in {'for', 'aria-controls', 'aria-labelledby', 'aria-describedby'}:
                 tag[attribute] = ' '.join(renamed.get(value, value) for value in tag[attribute].split())
+
+
+def _review_source_sections(old, new, base_model, added_model):
+    # Review scopes and protocols belong to their source, including prose
+    # without a table. Keep complete sections instead of joining by schema.
+    _namespace_review_ids(new, 'additional-', used={tag['id'] for tag in old.select('[id]')})
     for page, model in ((old, base_model), (new, added_model)):
         labels = ', '.join(provider.get('label', provider['id']) for provider in model['providers'])
         for section in page.select('main section'):
+            if section.has_attr('data-source-review') or section.find_parent(attrs={'data-source-review': True}):
+                continue
             heading = section.find('h2')
             if heading:
                 label = page.new_tag('span', attrs={'class': 'source-note'})
@@ -570,6 +579,21 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     from urllib.parse import urljoin, urlsplit
     import posixpath
     old, new = BeautifulSoup(base, 'html.parser'), BeautifulSoup(_namespace_extension_evidence(addition), 'html.parser')
+    if route == 'changes/index.html':
+        if note:
+            section = old.new_tag('section', attrs={'class':'section', 'id':'report-extension-change'})
+            heading = old.new_tag('h2')
+            heading.string = _text('changes_report_update')
+            paragraph = old.new_tag('p')
+            paragraph.string = note
+            section.extend([heading, paragraph])
+            container = old.find('main') or old.body
+            hero = container.select_one('.hero')
+            if hero:
+                hero.insert_after(section)
+            else:
+                container.insert(0, section)
+        return str(old)
     if route == 'accounts/index.html':
         for paragraph in old.find_all('p'):
             if paragraph.get_text().strip().startswith('需要供应商账号的方法：'):
@@ -693,6 +717,12 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     after_methods = before_methods + len(added_model['providers'])
     before_results = len(base_model['rows'])
     after_results = before_results + len(added_model['rows'])
+    if route == 'reproduce/index.html':
+        for paragraph in old.select('p'):
+            text = paragraph.get_text()
+            match = re.match(r'^(本报告纳入 |This report includes )([\d,]+)( 个逻辑结果。| logical results\.)', text)
+            if match and int(match[2].replace(',', '')) == before_results:
+                paragraph.string = text[:match.start(2)] + f'{after_results:,}' + text[match.end(2):]
     for summary in old.select('.hero .lead'):
         for node in list(summary.find_all(string=True)):
             text = re.sub(r'\b' + str(before_methods) + r' 种(已测)?方法',
@@ -1045,7 +1075,7 @@ def _project(value, paths):
 
 
 def _public_spec(spec):
-    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking') if k in spec}
+    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking', 'retain_source_reviews', 'frozen_sources', 'retain_source_task_contracts') if k in spec}
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = True
     return result
@@ -1061,8 +1091,12 @@ def composition_model(output, spec, snapshots):
         root = contained_path(output, snapshot['path'], reject_symlinks=True)
         if _hash(root / 'saved-matrix-audit.json') != snapshot['sha256']:
             raise ValueError('Saved composition source audit changed')
-        check_saved_matrix(root)
-        audit, model = _read(root / 'saved-matrix-audit.json'), _read(root / 'matrix.json')
+        if spec.get('frozen_sources'):
+            model = _frozen_report(root, {'sha256': snapshot['sha256']})
+        else:
+            check_saved_matrix(root)
+            model = _read(root / 'matrix.json')
+        audit = _read(root / 'saved-matrix-audit.json')
         if 'providers' in snapshot:
             selected = snapshot['providers']
             available = {p['id'] for p in model['providers']}
@@ -1085,13 +1119,23 @@ def composition_model(output, spec, snapshots):
             key = row['suite'], row['case_id']
             case = _case_identity(_read(root / row['case_path']))
             if key in cases and cases[key] != case:
-                raise ValueError('Saved comparisons have different frozen tasks')
-            cases[key] = case
+                same_identity = (cases[key].url, cases[key].name, cases[key].task_kind) == (case.url, case.name, case.task_kind)
+                if not spec.get('retain_source_task_contracts') or not same_identity:
+                    raise ValueError('Saved comparisons have different frozen tasks')
+            cases.setdefault(key, case)
             population.add(key)
         if expected_population is not None and population != expected_population:
             raise ValueError('Saved comparisons have different case populations')
         expected_population = population
-        rows.extend(_project(model['rows'], paths))
+        projected = _project(model['rows'], paths)
+        if snapshot.get('retain_public_evidence_views') and model.get('public_evidence_views'):
+            for row in projected:
+                row['public_evidence_views'] = True
+        if spec.get('frozen_sources'):
+            for row in projected:
+                if 'score_revision' in row:
+                    row['source_score_revision'] = row.pop('score_revision')
+        rows.extend(projected)
     if not rows:
         raise ValueError('Saved composition requires reports')
     result = dict(title=spec['title'], providers=providers, suites=suites, rows=rows,
@@ -1099,13 +1143,57 @@ def composition_model(output, spec, snapshots):
                   presentation=spec.get('presentation', 'audit'),
                   combined_ranking=spec.get('combined_ranking', True),
                   source_bindings=[{'name': s['id'], 'sha256': s['sha256']} for s in snapshots],
-                  scores_changed=any(row.get('score_revision') for row in rows))
+                  scores_changed=any(row.get('score_revision') or row.get('source_score_revision') for row in rows))
     if families is not None:
         result['report_families'] = families
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = {'path': 'native-policy-registry.json',
                                            'sha256': _hash(output / 'native-policy-registry.json')}
+    if spec.get('retain_source_reviews'):
+        result['source_review_pages'] = [
+            {'path': snapshot['path'] + '/review/index.html',
+             'providers': _read(output/snapshot['path']/'matrix.json')['providers']}
+            for snapshot in snapshots]
+    if spec.get('retain_source_task_contracts'):
+        result['retain_source_task_contracts'] = True
+    if spec.get('frozen_sources'):
+        result['frozen_source_prefixes'] = [snapshot['path'] for snapshot in snapshots]
     return result
+
+
+def render_source_reviews(output, model):
+    """Retain frozen review scopes beneath the composition's own navigation."""
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin, urlsplit, urlunsplit
+    sources = model.get('source_review_pages')
+    if not sources:
+        return
+    path = output/'review/index.html'
+    page = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
+    main = page.find('main')
+    for child in list(main.children):
+        if not isinstance(child, str) and (child.name == 'h1' or child.find('h1')):
+            continue
+        child.extract()
+    for index, source in enumerate(sources):
+        original = BeautifulSoup((output/source['path']).read_text(encoding='utf-8'), 'html.parser')
+        content = original.find('main')
+        _namespace_review_ids(content, f'source-review-{index}-')
+        for node in content.select('a[href]'):
+            href = node['href']
+            if not href.startswith('#') and not urlsplit(href).scheme and not urlsplit(href).netloc:
+                target = urlsplit(urljoin('https://report.invalid/' + source['path'], href))
+                node['href'] = urlunsplit(('', '', '../' + target.path.lstrip('/'), target.query, target.fragment))
+        section = page.new_tag('section', attrs={'data-source-review': source['path']})
+        heading = page.new_tag('h2')
+        heading.string = ', '.join(p.get('label', p['id']) for p in source['providers'])
+        section.append(heading)
+        for title in content.find_all('h1'):
+            title.decompose()
+        for child in list(content.children):
+            section.append(child)
+        main.append(section)
+    path.write_text(str(page), encoding='utf-8')
 
 
 def build_composition(spec_path, output):
@@ -1114,6 +1202,16 @@ def build_composition(spec_path, output):
     spec = _read(spec_path)
     if spec.get('schema_version') != 1 or not isinstance(spec.get('saved_reports'), list):
         raise ValueError('Unsupported saved composition specification')
+    if 'retain_source_reviews' in spec and type(spec['retain_source_reviews']) is not bool:
+        raise ValueError('Source review retention must be explicitly enabled or disabled')
+    if 'frozen_sources' in spec and type(spec['frozen_sources']) is not bool:
+        raise ValueError('Frozen source selection must be explicitly enabled or disabled')
+    if spec.get('frozen_sources') and spec.get('presentation', 'audit') != 'audit':
+        raise ValueError('Frozen source composition retains historical scores without final certification')
+    if 'retain_source_task_contracts' in spec and type(spec['retain_source_task_contracts']) is not bool:
+        raise ValueError('Source task retention must be explicitly enabled or disabled')
+    if spec.get('retain_source_task_contracts') and not spec.get('frozen_sources'):
+        raise ValueError('Historical task contracts require frozen source imports')
     snapshots, identifiers = [], set()
     output.mkdir()
     for item in spec['saved_reports']:
@@ -1127,18 +1225,25 @@ def build_composition(spec_path, output):
         audit_path = root / 'saved-matrix-audit.json'
         if _hash(audit_path) != item['audit']['sha256']:
             raise ValueError('Saved report audit differs from binding')
-        check_saved_matrix(root)
+        if spec.get('frozen_sources'):
+            _frozen_report(root, item['audit'])
+        else:
+            check_saved_matrix(root)
         relative = 'evidence/saved-reports/' + identifier
         shutil.copytree(root, output / relative)
         snapshot = {'id': identifier, 'path': relative, 'sha256': _hash(audit_path)}
+        if 'retain_public_evidence_views' in item:
+            if type(item['retain_public_evidence_views']) is not bool:
+                raise ValueError('Public evidence retention must be explicitly enabled or disabled')
+            snapshot['retain_public_evidence_views'] = item['retain_public_evidence_views']
         if 'providers' in item:
             snapshot['providers'] = item['providers']
         snapshots.append(snapshot)
         # Revision receipts use report-root review attachment links. Preserve
         # those exact bytes, rejecting ambiguous collisions across sources.
         model = _read(root / 'matrix.json')
-        receipt_paths = {row['score_revision']['receipt_path'] for row in model['rows']
-                         if row.get('score_revision')}
+        receipt_paths = ({row['score_revision']['receipt_path'] for row in model['rows']
+                          if row.get('score_revision')} if not spec.get('frozen_sources') else set())
         for receipt_path in sorted(receipt_paths):
             receipt = _read(root / receipt_path)
             for name in receipt.get('review_files', {}).values():

@@ -305,11 +305,16 @@ def _log_evidence_dialog(relative, label):
     return ((f'''<button type="button" class="call-log-button" data-call-log-open="{target}" aria-haspopup="dialog">{model_text(*pair('open_complete_record', 'Open complete record'))}</button><dialog class="call-log-dialog wmb-detail-dialog" id="{target}" aria-labelledby="{target}-title"><div class="call-log-shell"><header><h2 id="{target}-title">{label}</h2><button type="button" data-call-log-close aria-label="''' + t('close', 'Close') + '">' + t('close', 'Close') + f'</button></header><div class="wmb-dialog-content"><pre data-file="{esc(relative)}" data-readable="1" data-evidence-kind="log"></pre></div></div></dialog>'))
 
 
-def diagnostic_view_page(out, relative, label, note, *, ctx):
+def diagnostic_view_path(relative):
+    """Keep generated viewers outside imported evidence snapshots."""
+    return 'diagnostics/'+hashlib.sha256(relative.encode()).hexdigest()+'.html'
+
+
+def diagnostic_view_page(out, relative, label, note, *, ctx, view=None):
     """Show the real sanitized text in HTML; retain its original download bytes."""
     source=contained_path(out,relative)
     raw=source.read_bytes()
-    view=Path(relative).with_suffix('.html').as_posix()
+    view=view or diagnostic_view_path(relative)
     body=(hero(label,t('actual_saved_records_formatted_for_browsing_without', 'Actual saved records, formatted for browsing without additional product calls.'), ctx=ctx)+
           section(t('record_source', 'Record source'),f"""<p>{esc(note)}</p><p>{link('../' + relative, t('download_original_public_file', 'Download original public file'))} · {str(len(raw))} 字节 · SHA-256：<code class="break">{hashlib.sha256(raw).hexdigest()}</code></p>""")+
           section(model_text(*pair('record_excerpt', 'Record excerpt')),'<pre>'+esc(_diagnostic_log_excerpt(raw.decode('utf-8','replace'))[:6000])+'</pre>')+
@@ -461,7 +466,7 @@ def comparative_rows(rows, directions, *, ctx):
    if column[row_number] is None:opening=re.sub(r' data-sort="[^"]+"','',opening)
    opening+=' data-metric="'+metric+'" data-metric-direction="'+direction+'"'
    content=body[:-5]
-   if (unique or ctx.descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
+   if unique and column[row_number] is not None and column[row_number]==extreme:
     content='<strong class="comparison-winner good">'+content+'</strong>'
    values=values[:cells[index].start()]+opening+'>'+content+'</td>'+values[cells[index].end():]
   result.append((attrs,values))
@@ -835,7 +840,7 @@ def result_view(record, *, ctx):
 
 def result_case(record,fallback, *, ctx):
  """Keep each saved result's own rules separate from its comparison identity."""
- return result_view(record, ctx=ctx).get('case',fallback)
+ return result_view(record, ctx=ctx).get('case',record.get('report_source_case') or fallback)
 
 def result_href(record,kind,base='', *, ctx):
  """Resolve a retained evidence route relative to the report root."""
@@ -2542,11 +2547,13 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   render_changes(out,cases,records,dataset, ctx=ctx)
  for relative in diagnostic_view_paths:
   with (out/relative).open(encoding='utf-8') as source_header:
-   previous=BeautifulSoup(source_header.read(8192),'html.parser')
+   previous=BeautifulSoup(source_header.read(),'html.parser')
   heading=previous.find('h1');source_heading=previous.find('h2',string=t('record_source', 'Record source'))
   if heading is None or source_heading is None:raise ValueError('Saved diagnostic viewer header is unavailable: '+relative)
   note=source_heading.find_next('p')
-  diagnostic_view_page(out,str(Path(relative).with_suffix('.txt')),heading.get_text(),note.get_text() if note else '', ctx=ctx)
+  binding=previous.select_one('pre[data-file]')
+  source_relative=binding['data-file'] if binding else str(Path(relative).with_suffix('.txt'))
+  diagnostic_view_page(out,source_relative,heading.get_text(),note.get_text() if note else '', ctx=ctx,view=relative)
  # Every Chinese route, including declared participants without calls, exists before translation.
  _write_uncalled_participants(out,model, ctx=ctx)
  if include_english:

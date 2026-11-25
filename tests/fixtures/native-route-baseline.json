@@ -81,11 +81,11 @@
   },
   "firecrawl:defaults": {
     "cells": 192,
-    "sha256": "5595eb3f6f076b7c527886d3cc390c5d641d9537bf30fa6a4cfcf55a9e360ee2"
+    "sha256": "b386d7dc2886df2d4ff0fe3c3415fdf1ee642ac21b3a4ec83cc08ba8ced709f1"
   },
   "firecrawl:configured": {
     "cells": 192,
-    "sha256": "5e32a8529dd1bd14ab76eb4e867c191cff24dc852cd8df1dd100a09cabd6bff1"
+    "sha256": "26d12d84b67f7d355dab23b7bf0ff934b25de2da489d012e8b9440604842764a"
   },
   "fixture:defaults": {
     "cells": 192,

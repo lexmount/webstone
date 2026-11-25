@@ -489,11 +489,15 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
                 assert row.locator('td').first.inner_text() == expected
             table = page.locator('#ranking-overall')
             assert table.locator('.method-price-note').count() == 2
+            heights = [row.bounding_box()['height'] for row in table.locator('tbody tr').all()]
+            assert max(heights) - min(heights) <= 1
+            assert table.locator('tbody td').evaluate_all(
+                'cells => cells.every(cell => getComputedStyle(cell).verticalAlign === "middle")')
             for amount in table.locator('.method-price-amount').all():
                 assert amount.bounding_box()['width'] >= 100
-            if display['viewport']['width'] >= 640:
-                for note in table.locator('.method-price-note').all():
-                    assert note.bounding_box()['height'] < 20
+                assert amount.bounding_box()['height'] < 30
+            for note in table.locator('.method-price-note').all():
+                assert note.bounding_box()['height'] < 20
             coordinates = '''table => {
                 const cells = [...table.tBodies[0].rows[0].cells];
                 return cells.slice(0, 3).map(cell => cell.getBoundingClientRect().left);
@@ -646,6 +650,118 @@ def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
             page.locator('#filtered-table tr[data-provider="method-1"] a[href*="attempts/"]').click()
             expect(page).to_have_url(origin+'/additional/en/attempts/first--run-1.html')
             assert page.locator('html').get_attribute('lang') == 'en'
+        finally:
+            page.close()
+
+
+def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, display):
+    from harness.web_fetch.report import JS, cell, table
+    from harness.web_fetch.report_saved_composition import render_source_reviews
+
+    source = tmp_path/'evidence/source/review/index.html'
+    source.parent.mkdir(parents=True)
+    comparison = table(['Value'], [('', cell('2 ms', 2)), ('', cell('1 ms', 1))],
+                       id='score-revision-steps', sortable=True, include_index=False, metrics=[], default_sort=(0, 'desc'))
+    source.write_text('<html><main><h1>Source</h1>' + comparison + '</main></html>', encoding='utf-8')
+    target = tmp_path/'review/index.html'
+    target.parent.mkdir()
+    target.write_text('<html><head><meta charset="utf-8"><script defer src="../app.js"></script></head>'
+                      '<body><main><h1>Combined review</h1></main></body></html>', encoding='utf-8')
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    render_source_reviews(tmp_path, {'source_review_pages': [
+        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack))
+        try:
+            page.goto(origin + '/review/index.html')
+            page.locator('th button').click()
+            assert errors == []
+            assert page.locator('tbody td').all_text_contents() == ['1 ms', '2 ms']
+            page.locator('th button').click()
+            assert page.locator('tbody td').all_text_contents() == ['2 ms', '1 ms']
+            assert page.locator('th').get_attribute('aria-sort') == 'descending'
+            assert errors == []
+        finally:
+            page.close()
+
+
+@pytest.mark.parametrize('evidence_state', ['saved_diagnostic', 'saved_results', 'local_measurement'])
+def test_method_details_omit_repeated_banners(tmp_path, browser, evidence_state):
+    from harness.web_fetch.report import JS
+
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    markup = ('<html><head><meta charset="utf-8"><script defer src="/app.js"></script></head><body><main>'
+              '<div data-saved-completion>Coverage</div>'
+              f'<div data-evidence-state="{evidence_state}">Evidence state</div>'
+              '<div role="alert">Incomplete evidence alert</div>'
+              '<p data-report-content-scope="full">Full content</p>'
+              '<h1>Method</h1></main></body></html>')
+    for route in ('providers/sample.html', 'methodology/index.html'):
+        target = tmp_path/route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(markup, encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **DESKTOP_LIGHT)
+        try:
+            page.goto(origin + '/providers/sample.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
+            expect(page.locator('[data-report-content-scope]')).to_have_text('Full content')
+            page.goto(origin + '/methodology/index.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(1)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
+            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
+        finally:
+            page.close()
+
+
+@pytest.mark.parametrize('language', ['en', 'zh'])
+@pytest.mark.parametrize('reviewed', [False, True])
+def test_method_details_preserve_local_measurement_warning(tmp_path, browser, language, reviewed):
+    from pathlib import PurePosixPath
+
+    from harness.reporting import shell
+    from harness.web_fetch.report import JS, local_audit_banner
+    from harness.web_fetch.report_i18n import localize_html
+
+    dataset = {'comparison': {'kind': 'uniform_native_local_measurement',
+                             'publication_state': 'local_audit_only_not_for_release',
+                             'independent_review': reviewed}}
+    banner = local_audit_banner(dataset)
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    header = shell.header(language=language, brand='Web Fetch', home='/index.html', links=[])
+    markup = (f'<html lang="{language}"><head><meta charset="utf-8">' + shell.HEAD
+              + '<script defer src="/app.js"></script></head><body>' + header + '<main>'
+              '<div data-saved-completion>Coverage</div>' + banner
+              + '<h1>Method</h1></main></body></html>')
+    for route in ('providers/sample.html', 'methodology/index.html'):
+        target = tmp_path/route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(localize_html(markup, PurePosixPath(route)) if language == 'en' else markup,
+                          encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **NARROW_DARK)
+        try:
+            page.goto(origin + '/methodology/index.html')
+            warning = page.get_by_role('alert')
+            expected_warning = warning.inner_text()
+            assert expected_warning
+            expect(warning).to_have_attribute('data-evidence-state', 'local_measurement')
+            page.goto(origin + '/providers/sample.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(warning).to_be_visible()
+            expect(warning).to_have_text(expected_warning, use_inner_text=True)
+            page.goto(origin + '/methodology/index.html')
+            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(warning).to_be_visible()
+            expect(warning).to_have_text(expected_warning, use_inner_text=True)
         finally:
             page.close()
 

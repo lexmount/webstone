@@ -28,6 +28,14 @@ class PresentationContractTests(unittest.TestCase):
 
 
 class SharedRankingPresentationTests(unittest.TestCase):
+    def test_descriptive_ranks_do_not_change_extremum_rules(self):
+        from harness.web_fetch.report import comparative_rows, table
+        rows = [('', '<td data-sort="1">1</td>')]*2
+        rendered = table(['Value'], comparative_rows(rows, {0:('value','max')},
+            ctx=RenderContext(descriptive_ranks=True)))
+        check_presentation(rendered)
+        self.assertNotIn('comparison-winner', rendered)
+
     def test_raw_column_extremes_zero_ties_and_unavailable_values(self):
         from harness.web_fetch.report import cell, comparative_rows, table
         rows=[('',cell('A')+cell('0 ms',0)+cell('50%',0.5)),
@@ -59,3 +67,20 @@ def test_explicit_all_ties_policy_requires_every_extremum_without_extra_labels()
         check_presentation(html.replace('<span class="comparison-winner">0.5</span>', '0.5', 1))
     with pytest.raises(ValueError, match="highlight"):
         check_presentation(html.replace(' data-highlight-ties="all"', ''))
+
+
+def test_frozen_cell_tie_policy_requires_complete_consistent_declaration():
+    import pytest
+    cell = (
+        '<td data-metric="quality" data-metric-direction="max" data-sort="1" '
+        'data-metric-ties="all"><b class="comparison-winner">1</b></td>')
+    html = '<table><tr>' + cell * 2 + '</tr></table>'
+    check_presentation(html)
+    with pytest.raises(ValueError, match='highlight'):
+        check_presentation(html.replace('class="comparison-winner"', '', 1))
+    with pytest.raises(ValueError, match='tie policy'):
+        check_presentation(html.replace(' data-metric-ties="all"', '', 1))
+    single = '<table><tr>' + cell + '</tr></table>'
+    with pytest.raises(ValueError, match='single available value'):
+        check_presentation(single)
+    check_presentation(single.replace('<b class="comparison-winner">1</b>', '1'))

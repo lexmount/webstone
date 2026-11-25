@@ -1181,7 +1181,7 @@ def _project_json(name, data):
         'original_bytes': len(data), 'published_bytes': len(projected)}
 
 
-def project_result_diagnostics(name, data):
+def project_result_diagnostics(name, data, *, validate_additional=None):
     """Redact quoted output diagnostics without changing result authority.
 
     Only passage quotations and resource-URL diagnostics may differ. Original
@@ -1193,6 +1193,7 @@ def project_result_diagnostics(name, data):
         return data, None
     before, after = json.loads(data), json.loads(public)
     changed = []
+    additional = []
 
     def compare(left, right, path=()):
         if left == right:
@@ -1210,10 +1211,15 @@ def project_result_diagnostics(name, data):
                     ('metrics', 'resource_candidates', '*', 'url'),
                     ('metrics', 'unexpected_resource_urls', '*')}:
             changed.append('/'.join(map(str, path)))
+        elif validate_additional is not None and isinstance(left, str) and isinstance(right, str):
+            additional.append(path)
+            changed.append('/'.join(map(str, path)))
         else:
             raise ValueError('Public result diagnostics would change non-diagnostic authority')
 
     compare(before, after)
+    if additional:
+        validate_additional(before, after, additional)
     return public, {**receipt, 'kind': 'post_score_result_diagnostics_view',
         'changed_fields': changed, 'measurements_unchanged': True,
         'original_retained_privately': True, 'provider_calls_added': 0}

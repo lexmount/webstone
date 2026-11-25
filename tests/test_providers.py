@@ -78,6 +78,71 @@ class ProviderTest(unittest.TestCase):
             ["only_main_content must be boolean"],
         )
 
+    @patch("harness.web_fetch.providers.firecrawl.request")
+    def test_firecrawl_cache_age_can_be_omitted_without_changing_default(self, mock_request):
+        mock_request.return_value = HttpResponse(
+            200, "http://127.0.0.1:3002/v2/scrape", {},
+            b'{"success":true,"data":{"markdown":"Example body"}}',
+        )
+        for native in (False, True):
+            for settings, expected in (({}, 0), ({"max_age": None}, None), ({"max_age": 3600000}, 3600000)):
+                with self.subTest(native=native, settings=settings):
+                    provider = FirecrawlProvider("local", {
+                        "base_url": "http://127.0.0.1:3002",
+                        "uniform_native_parameters": native,
+                        **settings,
+                    })
+                    result = provider.fetch(self.case, 30)
+                    body = mock_request.call_args.kwargs["json_body"]
+                    self.assertEqual("maxAge" in body, expected is not None)
+                    self.assertEqual(body.get("maxAge"), expected)
+                    self.assertEqual(result.metadata["requested_cache_max_age_ms"], expected)
+                    self.assertTrue(result.ok)
+                    self.assertEqual(result.content, "Example body")
+
+    @patch("harness.web_fetch.providers.firecrawl.request")
+    def test_firecrawl_endpoint_capabilities_use_supported_requests(self, mock_request):
+        mock_request.return_value = HttpResponse(
+            200, "http://127.0.0.1:3002/v2/scrape", {},
+            b'{"success":true,"data":{"markdown":"Example body","links":["https://example.com/video.mp4"],'
+            b'"source":"local","metadata":{"engine":"local-browser"},"blocked":false,"warning":"Native warning"}}',
+        )
+        provider = FirecrawlProvider("local", {
+            "base_url": "http://127.0.0.1:3002",
+            "uniform_native_parameters": True,
+            "only_main_content": False,
+            "formats": ["markdown", "links"],
+            "formats_by_task_kind": {"file": ["markdown", "links"], "resource": ["markdown", "links"]},
+            "native_request_fields": ["url", "formats", "onlyMainContent"],
+        })
+        self.assertEqual(provider.validate(), [])
+        for track, kind in (("web", "body"), ("video", "resource"), ("image", "file")):
+            with self.subTest(track=track, kind=kind):
+                case = EvalCase(id="native", name="Native", url="https://example.com", category="static",
+                                expected_any=[], track=track, task_kind=kind)
+                result = provider.fetch(case, 30)
+                self.assertEqual(mock_request.call_args.kwargs["json_body"], {
+                    "url": case.url, "formats": ["markdown", "links"], "onlyMainContent": False,
+                })
+                self.assertIsNone(result.metadata["requested_proxy"])
+                self.assertIsNone(result.metadata["requested_cache_max_age_ms"])
+                self.assertEqual(result.metadata["execution_source"], "local")
+                self.assertEqual(result.metadata["engine"], "local-browser")
+                self.assertFalse(result.metadata["blocked"])
+                self.assertTrue(result.metadata["native_warning_present"])
+                if kind == "file":
+                    self.assertFalse(result.ok)
+                    self.assertEqual(result.files, [])
+                else:
+                    self.assertTrue(result.ok)
+
+    def test_firecrawl_rejects_invalid_endpoint_capabilities(self):
+        for settings in ({"native_request_fields": ["formats"]},
+                         {"native_request_fields": ["url", "formats", "unknown"]},
+                         {"formats_by_task_kind": {"file": []}}):
+            with self.subTest(settings=settings):
+                self.assertTrue(FirecrawlProvider("local", {"base_url": "http://127.0.0.1:3002", **settings}).validate())
+
     def setUp(self) -> None:
         self.case = EvalCase(
             id="case", name="Case", url="https://example.com",

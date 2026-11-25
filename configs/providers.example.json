@@ -13,6 +13,32 @@
     "crawl4ai-cloud"
   ],
   "providers": {
+    "firecrawl-local": {
+      "type": "firecrawl",
+      "base_url": "http://127.0.0.1:3002",
+      "formats": [
+        "markdown",
+        "links"
+      ],
+      "only_main_content": false,
+      "max_age": null,
+      "uniform_native_parameters": true,
+      "formats_by_task_kind": {
+        "file": [
+          "markdown",
+          "links"
+        ],
+        "resource": [
+          "markdown",
+          "links"
+        ]
+      },
+      "native_request_fields": [
+        "url",
+        "formats",
+        "onlyMainContent"
+      ]
+    },
     "kimi-fetch": {
       "type": "kimi_fetch",
       "log_level": "debug",

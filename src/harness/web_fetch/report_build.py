@@ -58,6 +58,7 @@ from harness.web_fetch.reliability import assess_reliability
 from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report import (
     TRACKS,
+    diagnostic_view_path,
     failure_category,
     render_report,
     measured,
@@ -1785,10 +1786,17 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
                 routes += ['datasets/' + identifier + '.html', 'references/' + identifier + '.txt']
                 if next(case for case in dataset['cases'] if case['id'] == identifier).get('acceptance_contract'):
                     routes += ['contracts/' + identifier + '.json']
-    diagnostic_view_paths = sorted(path.relative_to(output).as_posix()
+    diagnostic_view_paths = sorted({path.relative_to(output).as_posix()
         for path in (output/'logs').rglob('*.html')
-        if path.with_suffix('.txt').is_file()) if review_only else []
+        if path.with_suffix('.txt').is_file()} | {
+        path.relative_to(output).as_posix() for path in (output/'diagnostics').glob('*.html')
+    }) if review_only else []
     routes += diagnostic_view_paths
+    if review_only:
+        routes += sorted({diagnostic_view_path(relative)
+            for record in records if record['attempt_id'] in detail_attempt_ids
+            for key in ('public_debug_log_path', 'public_response_path')
+            if (relative := record.get('provider_metadata', {}).get(key))} - set(routes))
     include_english = 'en' in manifest['languages']
     if include_english:
         routes += ['en/' + relative for relative in routes if relative.endswith('.html')]
@@ -1827,6 +1835,7 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         selected = Path(scratch) / 'selected'
         shutil.copytree(output, selected, copy_function=copy_evidence_file)
         for relative in changed:
+            (selected / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(staging / relative, selected / relative)
         if review_only:
             shutil.copy2(binding_path, selected / 'presentation-binding.json')
