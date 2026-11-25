@@ -506,7 +506,7 @@ def _docker_suite(tmp_path: Path, monkeypatch, capsys) -> dict:
         diagnostic_engines=engines,
     )
     normal = _Normal(tmp_path)
-    assert normal(receipt) == normal(json.loads((output / "receipt.json").read_text()))
+    assert normal(receipt) == normal(json.loads((output / "receipt.json").read_text(encoding="utf-8")))
     return normal(
         {
             "events": events,
