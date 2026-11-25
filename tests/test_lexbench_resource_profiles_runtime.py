@@ -40,6 +40,7 @@ def experiment(tmp_path, monkeypatch):
     protocol = {
         "schema": "moli_linux_resource_profiles/1",
         "id": "fixture",
+        "engine": "moli",
         "configs": configs,
         "task_ids": tasks,
         "attempts": 5,

@@ -39,6 +39,7 @@ class LinuxResourceProfileTests(unittest.TestCase):
             ],
             "schema": "moli_linux_resource_profiles/1",
             "configs": configs,
+            "engine": "moli",
             "task_ids": [f"task_{i}" for i in range(557)],
             "attempts": 5,
             "jobs": 1,
@@ -63,6 +64,7 @@ class LinuxResourceProfileTests(unittest.TestCase):
             ("memory_metric", "process_tree_rss"),
             ("sample_interval_ms", 500),
             ("orchestrator_sha256", "b" * 64),
+            ("engine", "unregistered-engine"),
         ):
             candidate = {**self.protocol, field: value}
             with self.subTest(field=field), self.assertRaises(ValueError):
