@@ -1,5 +1,6 @@
 import unittest
 from harness.reporting.presentation import check_presentation
+from harness.web_fetch.report_model import RenderContext
 
 class PresentationContractTests(unittest.TestCase):
     def table(self, values, marked):
@@ -32,7 +33,7 @@ class SharedRankingPresentationTests(unittest.TestCase):
         rows=[('',cell('A')+cell('0 ms',0)+cell('50%',0.5)),
               ('',cell('B')+cell('10 ms',10)+cell('50%',0.5)),
               ('',cell('C')+cell('—',-1)+cell('—',-1))]
-        rendered=table(['Method','Mean','Pass rate'],comparative_rows(rows,{1:('mean','min'),2:('pass','max')}))
+        rendered=table(['Method','Mean','Pass rate'],comparative_rows(rows,{1:('mean','min'),2:('pass','max')}, ctx=RenderContext()))
         check_presentation(rendered)
         self.assertEqual(rendered.count('comparison-winner'),1)
         self.assertIn('comparison-winner good">0 ms',rendered)

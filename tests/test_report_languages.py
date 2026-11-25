@@ -9,6 +9,7 @@ from harness.report_languages import (
     generated_languages,
     write_language_contract,
 )
+from harness.web_fetch.report_model import RenderContext
 
 
 @pytest.fixture(autouse=True)
@@ -219,7 +220,7 @@ def test_body_contract_conclusion_is_localized(passed, anchors, expected):
     from harness.web_fetch.report_i18n import localize_html
     record = {'ok': True, 'metrics': {'stable_task_pass': passed,
               'stable_task_schema': 'body_text', 'stable_anchor_results': anchors}}
-    conclusion = reason(record, {'task_kind': 'body'})
+    conclusion = reason(record, {'task_kind': 'body'}, ctx=RenderContext())
     assert localize_html('<p>' + conclusion + '</p>', PurePosixPath('attempts/example.html')) == '<p>' + expected + '</p>'
 
 

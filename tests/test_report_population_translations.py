@@ -6,6 +6,7 @@ import pytest
 
 from harness.web_fetch.report import overall_ranking, overview_all_call_latency
 from harness.web_fetch.report_i18n import localize_html, translate_text
+from harness.web_fetch.report_model import RenderContext
 
 
 @pytest.mark.parametrize("task_count,method_count", [(430, 2), (17, 3)])
@@ -20,7 +21,7 @@ def test_ranking_and_latency_use_the_actual_population(task_count, method_count)
          "elapsed_ms": 100, "metrics": {"content_pass": True}}
         for method in methods for case_id in cases
     ]
-    chinese = overall_ranking(records, cases) + overview_all_call_latency(records, cases)
+    chinese = overall_ranking(records, cases, ctx=RenderContext()) + overview_all_call_latency(records, cases, ctx=RenderContext())
     english = localize_html(chinese, PurePosixPath("index.html"))
     assert f"{task_count} 个计划任务中的通过数 / 可判定数" in chinese
     assert (
@@ -85,7 +86,7 @@ def test_interface_timeout_uses_supplied_evidence_and_translates_arbitrary_value
     from harness.web_fetch.report_interfaces import method_spec
     row = {"provider_type": "moli_webfetch", "provider_metadata": {
         "internal_timeout_policy": "explicit", "http_connect_timeout_ms": inner}}
-    result = method_spec("moli", row, timeout_seconds=budget)
+    result = method_spec("moli", row, timeout_seconds=budget, ctx=RenderContext())
     description = next(value for key, _, value in result["params"] if key == "外层截止")
     english = translate_text(description)
     assert f"{inner:,} ms" in english
@@ -105,7 +106,7 @@ def test_native_capability_budget_is_declared_not_assumed(tmp_path, budget):
     comparison = {} if budget is None else {'timeout_seconds': budget}
     (tmp_path / 'dataset.json').write_text(json.dumps({'cases': [], 'comparison': comparison}), encoding="utf-8")
     rows = [{'provider': 'moli', 'provider_metadata': {'output_contract': 'markdown'}}]
-    chinese = render_capabilities(tmp_path, ['moli'], table=table, cell=cell, link=link, records=rows)
+    chinese = render_capabilities(tmp_path, ['moli'], table=table, cell=cell, link=link, records=rows, ctx=RenderContext())
     english = localize_html(chinese, PurePosixPath('adoption/index.html'))
     assert ('Outer budget not recorded.' if budget is None else f'Outer budget: {budget:g} seconds.') in english
     assert '45 秒' not in chinese
@@ -122,7 +123,7 @@ def test_nonuniform_interface_uses_saved_request_instead_of_registered_example(t
     monkeypatch.setattr('harness.web_fetch.artifacts.verify_public_call_log', lambda root, binding: call)
     row = {'provider': 'tavily', 'provider_type': 'tavily', 'case_id': 'one', 'attempt_id': 'saved',
            'artifact_path': 'answer.txt', 'provider_metadata': {}, 'ok': True}
-    html = render_interfaces(tmp_path, [row])
+    html = render_interfaces(tmp_path, [row], ctx=RenderContext())
     saved = json.loads((tmp_path / 'adoption/interfaces/tavily.json').read_text(encoding="utf-8"))
     assert saved['interface']['request'] == json.loads(call.read_text(encoding="utf-8"))['request']
     assert saved['interface']['params'] == []

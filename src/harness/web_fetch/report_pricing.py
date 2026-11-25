@@ -40,7 +40,7 @@ def _duration_example(example, *, table, cell):
             + '<p class="source-note">' + example['source_note'] + '</p>')
 
 
-def render_pricing(out, names, *, table, cell, link, esc):
+def render_pricing(out, names, *, table, cell, link, esc, ctx):
     source = out / 'report-assets/provider-pricing.json'
     if not source.is_file():
         source = SOURCE
@@ -67,7 +67,7 @@ def render_pricing(out, names, *, table, cell, link, esc):
             if s['label'] in translations else link(s['url'], s['label'] + ' ↗')
             for s in p['sources'])
 
-    if all(native_browser_engine(name) for name in names):
+    if all(native_browser_engine(name, scope=ctx.methods) for name in names):
         rows=[('',cell(esc(p['label']))+cell(esc(p['status']))+cell(esc(p['note']))+cell(sources(p)))
               for p in data['other_methods'] if set(p['ids']) & set(names)]
         return '<h3>本轮执行模式的成本边界</h3><p>这是客户端实测，不是计费或同机 CPU / 内存测试；各方法的资料核验日期见表内说明。</p>'+table(['方法','价格状态','成本边界','官方来源'],rows,cls='pricing-table',metrics=[])

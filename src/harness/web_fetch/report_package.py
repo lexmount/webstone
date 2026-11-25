@@ -49,6 +49,7 @@ from harness.web_fetch.report_version import check_release
 from harness.web_fetch.report_saved_composition import _namespace_extension_evidence, _restore_extension_evidence
 from harness.web_fetch.result_review import require_result_review
 from harness.safety import evidence_tree_identity, unlinked_path
+from harness.web_fetch.report_model import RenderContext
 
 
 def _require(condition, detail):
@@ -123,7 +124,7 @@ def _certified_evidence(source: Path) -> bool:
     content_binding = dataset.get('comparison', {}).get('report_interpretation')
     if content_binding:
         current_browser_article_model(source, {case['id']:case for case in dataset['cases']},
-                                      records, content_binding)
+                                      records, content_binding, ctx=RenderContext())
     from harness.web_fetch.report_variants import variant_for_kind
     if variant_for_kind(dataset.get("comparison", {}).get("kind")).reliability_record:
         reliability = json.loads((source / "reliability.json").read_text(encoding="utf-8"))

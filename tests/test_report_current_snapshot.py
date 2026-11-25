@@ -13,6 +13,7 @@ from harness.web_fetch import report
 from harness.web_fetch.report_model import report_model
 from harness.web_fetch.report_i18n import localize_html
 from tests.test_report_body_scope import case, record
+from harness.web_fetch.report_model import RenderContext
 
 
 def test_concurrent_report_builds_keep_status_and_language_separate(tmp_path, monkeypatch):
@@ -50,7 +51,7 @@ def test_concurrent_report_builds_keep_status_and_language_separate(tmp_path, mo
     assert '合成示例 · 非正式评测' in fixture_html
     assert '合成示例 · 非正式评测' not in other_html
     assert 'href="en/index.html"' in fixture_html
-    report.write(tmp_path, 'standalone.html', 'Standalone', 'body')
+    report.write(tmp_path, 'standalone.html', 'Standalone', 'body', ctx=RenderContext())
     standalone = (tmp_path/'standalone.html').read_text(encoding='utf-8')
     assert '合成示例 · 非正式评测' not in standalone
     assert 'href="en/index.html"' in standalone
@@ -59,7 +60,7 @@ def test_concurrent_report_builds_keep_status_and_language_separate(tmp_path, mo
 def test_call_chain_preserves_authored_log_scope_verbatim():
     note = '新批次启用；旧 17 条不计入本报告。'
     result = report.local_call_chain_section({'comparison': {'call_chain_audit': {
-        'methods': [{'provider': 'fixture', 'native_log_note': note}]}}})
+        'methods': [{'provider': 'fixture', 'native_log_note': note}]}}}, ctx=RenderContext())
     assert note in result
 
 
@@ -69,7 +70,7 @@ def test_call_chain_localizes_saved_log_scope_with_variable_counts():
         dataset = {'comparison': {'call_chain_audit': {'methods': [
             {'provider': 'fixture', 'native_log_note': note}]}}}
         original = json.dumps(dataset)
-        page = report.local_call_chain_section(dataset)
+        page = report.local_call_chain_section(dataset, ctx=RenderContext())
         assert note in page
         english = localize_html(page, PurePosixPath('reproduce/index.html'))
         assert f'{count} earlier records are excluded from this report.' in english
@@ -94,7 +95,7 @@ def test_current_review_does_not_repeat_predecessor_scores(tmp_path, monkeypatch
              'adjudication_revision': {'adjudicated_attempt_ids': ['retained']}}
     (tmp_path/'dataset.json').write_text(json.dumps(dataset), encoding='utf-8')
     (tmp_path/'result-review.json').write_text(json.dumps(audit), encoding='utf-8')
-    report.write_review_page(tmp_path, records)
+    report.write_review_page(tmp_path, records, ctx=RenderContext())
     page = (tmp_path/'review/index.html').read_text(encoding='utf-8')
     text = BeautifulSoup(page, 'html.parser').get_text(' ', strip=True)
     assert '当前通过 1 条，可比较 2 条，排除 0 条' in text
@@ -114,7 +115,7 @@ def test_reproduction_command_runs_through_the_current_public_cli(tmp_path):
         'cases': [c], 'comparison': {'kind': 'uniform_native_local_measurement'}}), encoding='utf-8')
     (tmp_path/'presentation-binding.json').write_text('{}', encoding='utf-8')
     with patch('harness.web_fetch.report_methods.render_methods', return_value='methods'):
-        report.write_support(tmp_path, [r], [], authored_interpretation=False)
+        report.write_support(tmp_path, [r], [], authored_interpretation=False, ctx=RenderContext())
     soup = BeautifulSoup((tmp_path/'reproduce/index.html').read_text(encoding='utf-8'), 'html.parser')
     commands = next(p.get_text() for p in soup.select('pre') if 'scripts/build_report.py' in p.get_text())
     assert '--hide-local-status-banners' not in commands

@@ -7,6 +7,7 @@ from pathlib import Path
 from harness.web_fetch.report import ranking
 from harness.web_fetch.title_quality import add_title_quality, evaluate_titles, reference_title
 from tests.test_report_body_scope import case, record, table_cells
+from harness.web_fetch.report_model import RenderContext
 
 
 def item(title, url='https://movie.douban.com/subject/1/'):
@@ -62,7 +63,7 @@ class TitleQualityTests(unittest.TestCase):
     def test_mixed_body_and_title_measurements_both_remain_visible(self):
         a,b=case('body','body'),case('list'); ra,rb=record(a),record(b)
         rb['title_quality']=evaluate_titles([output('red')],{'items':[item('red')]})
-        rendered=ranking([ra,rb],{'body':a,'list':b},'challenge')
+        rendered=ranking([ra,rb],{'body':a,'list':b},'challenge', ctx=RenderContext())
         row=table_cells(rendered,'ranking-challenge')[0]
         self.assertEqual(row[4:7],['80.0%']*3)
         self.assertEqual(table_cells(rendered,'ranking-challenge-titles')[0][2:5],['100.0%']*3)
@@ -84,7 +85,7 @@ class TitleQualityTests(unittest.TestCase):
     def test_main_table_names_scope_and_preserves_task_failure(self):
         c=case('list'); r=record(c,passed=False)
         r['title_quality']=evaluate_titles([output('red')],{'items':[item('red')]})
-        rendered=ranking([r],{'list':c},'challenge')
+        rendered=ranking([r],{'list':c},'challenge', ctx=RenderContext())
         self.assertIn('标题完整度',rendered)
         self.assertIn('标题参考覆盖',rendered)
         self.assertIn('不衡量榜单召回率、实时性或整页正文质量',rendered)
@@ -101,6 +102,6 @@ class TitleQualityTests(unittest.TestCase):
         ra['title_quality']=evaluate_titles([output('red')],{'items':[item('red')]})
         rb['title_quality']=evaluate_titles([output('bad'),output('bad','https://movie.douban.com/subject/2')],
                                           {'items':[item('blue'),item('blue','https://movie.douban.com/subject/2')]})
-        row=table_cells(ranking([ra,rb],{'a':a,'b':b},'challenge'),'ranking-challenge-titles')[0]
+        row=table_cells(ranking([ra,rb],{'a':a,'b':b},'challenge', ctx=RenderContext()),'ranking-challenge-titles')[0]
         self.assertEqual(row[2:5],['50.0%']*3)
 

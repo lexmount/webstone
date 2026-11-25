@@ -178,7 +178,8 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
 def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), ascending=False):
     """Use the report owner's ranking and extrema implementation on saved cells."""
     from bs4 import BeautifulSoup
-    from harness.web_fetch.report import comparative_rows, rendering, shared_ranks
+    from harness.web_fetch.report import comparative_rows, shared_ranks
+    from harness.web_fetch.report_model import MethodScope, model_render_context
     for emphasis in table.select('strong'):
         emphasis.unwrap()
     rows = table.tbody.find_all('tr', recursive=False)
@@ -186,8 +187,8 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
     scores = [float(row.find_all('td')[score_column]['data-sort']) * (-1 if ascending else 1) for row in rows]
     directions = {c: ('saved_metric_' + str(c), 'min') for c in minimize}
     directions.update({c: ('saved_metric_' + str(c), 'max') for c in maximize})
-    with rendering(descriptive_ranks=True):
-        highlighted = comparative_rows([('', ''.join(str(c) for c in row.find_all('td', recursive=False))) for row in rows], directions)
+    ctx = model_render_context(methods=MethodScope(), descriptive_ranks=True)
+    highlighted = comparative_rows([('', ''.join(str(c) for c in row.find_all('td', recursive=False))) for row in rows], directions, ctx=ctx)
     table.tbody.clear()
     for (_, cells), rank in zip(highlighted, shared_ranks(scores), strict=True):
         row = BeautifulSoup('<tr>' + cells + '</tr>', 'html.parser').tr
@@ -253,7 +254,7 @@ def _extension_case_routes(cases, added):
     return routes
 
 
-def _joined_presentation(output):
+def _joined_presentation(output, *, ctx):
     """Join frozen renderer inputs through a one-to-one task identity mapping."""
     from harness.record_io import load_jsonl
     base = _read(output / 'dataset.json')
@@ -297,7 +298,7 @@ def _joined_presentation(output):
     for record in records:
         row = expected[record['provider'], record['case_id']]
         case = views[record['provider'], record['case_id']]['case']
-        verdict = succeeded(record, case) if measured(record, case) else None
+        verdict = succeeded(record, case, ctx=ctx) if measured(record, case, ctx=ctx) else None
         # Adapter rejection retains its saved failure value without claiming a
         # product call or entering the measurable-result denominator.
         if row.get('status') == 'adapter_rejected':
@@ -311,19 +312,19 @@ def _joined_presentation(output):
 def _shared_presentations(output):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
-    cases, records, providers, suites, views = _joined_presentation(output)
-    from harness.web_fetch.report_model import report_model
+    from harness.web_fetch.report_model import MethodScope, RenderContext, model_render_context, report_model
+    cases, records, providers, suites, views = _joined_presentation(output, ctx=RenderContext())
     model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
     labels = model.labels
-    with renderer.rendering(model, descriptive_ranks=True, result_views=views):
-        overall = renderer.overall_ranking(records, cases, passing_latency=True)
-        return {'overall': overall,
-                'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
-                'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
-                'timing': renderer.overview_matched_latency(records, cases),
-                'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
-                'guide': renderer.render_explainer(output, cases, records, authored=False)}
+    ctx = model_render_context(model, methods=MethodScope(), descriptive_ranks=True, result_views=views)
+    overall = renderer.overall_ranking(records, cases, passing_latency=True, ctx=ctx)
+    return {'overall': overall,
+            'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
+            'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id'], ctx=ctx) for f in suites},
+            'timing': renderer.overview_matched_latency(records, cases, ctx=ctx),
+            'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels), ctx=ctx) for f in suites),
+            'analysis': renderer.analysis_body(records, cases, ctx=ctx) + renderer.all_final_call_latency(records, ctx=ctx),
+            'guide': renderer.render_explainer(output, cases, records, authored=False, ctx=ctx)}
 
 
 def _unified_home(page, base_model, added_model, presentation):

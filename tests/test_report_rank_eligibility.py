@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 
 from harness.web_fetch.report import overall_ranking, ranking
 from tests.test_report_body_scope import case, record
+from harness.web_fetch.report_model import RenderContext
 
 
 @pytest.mark.parametrize('render', ['overall', 'family'])
@@ -30,7 +31,7 @@ def test_ranking_admission_and_ties(render, problem):
     args = [records, {c['id']: c for c in cases}]
     if render == 'family':
         args.append('web')
-    markup = (ranking if render == 'family' else overall_ranking)(*args, diagnostic=problem == 'diagnostic')
+    markup = (ranking if render == 'family' else overall_ranking)(*args, diagnostic=problem == 'diagnostic', ctx=RenderContext())
     soup = BeautifulSoup(markup, 'html.parser')
     table = soup.select_one('table.ranking')
     if problem == 'tie':
@@ -122,13 +123,10 @@ def test_family_participants_do_not_include_other_tracks(declared_missing):
     first['provider'], other['provider'] = 'web-only', 'dynamic-only'
     plan = {'web': ['web-only'] + (['missing-web'] if declared_missing else []),
             'dynamic': ['dynamic-only']}
-    token = report.set_render_context(report.RenderContext(coverage_plan=plan))
-    try:
-        markup = report.ranking([first, other], {'web': web, 'dynamic': dynamic}, 'web')
-        card = report.overview_card([first, other], {'web': web, 'dynamic': dynamic},
-                                    'web', 'Web', ['web-only', 'dynamic-only'])
-    finally:
-        report.reset_render_context(token)
+    ctx = RenderContext(coverage_plan=plan)
+    markup = report.ranking([first, other], {'web': web, 'dynamic': dynamic}, 'web', ctx=ctx)
+    card = report.overview_card([first, other], {'web': web, 'dynamic': dynamic},
+                                'web', 'Web', ['web-only', 'dynamic-only'], ctx=ctx)
     soup = BeautifulSoup(markup, 'html.parser')
     assert bool(soup.select('td[data-rank]')) is (not declared_missing)
     assert ('仅供诊断' in card) is declared_missing
@@ -138,12 +136,8 @@ def test_overall_ranks_require_even_wholly_missing_declared_methods():
     from harness.web_fetch import report
     c = case('example', kind='body', track='web')
     row = record(c)
-    token = report.set_render_context(report.RenderContext(
+    markup = report.overall_ranking([row], {c['id']: c}, ctx=RenderContext(
         coverage_plan={'web': ['fixture', 'missing-method']}))
-    try:
-        markup = report.overall_ranking([row], {c['id']: c})
-    finally:
-        report.reset_render_context(token)
     soup = BeautifulSoup(markup, 'html.parser')
     assert not soup.select('td[data-rank]')
     assert not soup.select('#ranking-overall .comparison-winner')
@@ -158,10 +152,10 @@ def test_overview_and_rankings_exclude_the_same_tasks():
     excluded_row = record(excluded)
     excluded_row['metrics']['evaluation_excluded'] = True
     records = [record(included), excluded_row]
-    assert BeautifulSoup(ranking(records, cases, 'web'), 'html.parser').select_one('td[data-rank]')
-    assert BeautifulSoup(overall_ranking(records, cases), 'html.parser').select_one('td[data-rank]')
-    assert overview_card(records, cases, 'web', 'Web', ['fixture']) == overview_card(
-        records[:1], {'included': included}, 'web', 'Web', ['fixture'])
+    assert BeautifulSoup(ranking(records, cases, 'web', ctx=RenderContext()), 'html.parser').select_one('td[data-rank]')
+    assert BeautifulSoup(overall_ranking(records, cases, ctx=RenderContext()), 'html.parser').select_one('td[data-rank]')
+    assert overview_card(records, cases, 'web', 'Web', ['fixture'], ctx=RenderContext()) == overview_card(
+        records[:1], {'included': included}, 'web', 'Web', ['fixture'], ctx=RenderContext())
 
 
 def test_declared_participant_without_calls_gets_an_english_route(tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from harness.web_fetch.report_components import task_pass_guide, examples, metric_legend, TRACK_CONTEXT
 from harness.web_fetch.report import ranking, TRACKS
 from harness.web_fetch.models import REPORT_FAMILIES
+from harness.web_fetch.report_model import RenderContext
 
 
 class ContentOwnershipTests(unittest.TestCase):
@@ -50,7 +51,7 @@ class ContentOwnershipTests(unittest.TestCase):
         self.assertEqual(present.select_one('a[href*="datasets/"]')['href'],'../datasets/dynamic-quotes-api.html')
 
     def test_home_metric_details_precede_table_and_start_closed(self):
-        soup=BeautifulSoup(ranking([],{},'web',compact=True),'html.parser')
+        soup=BeautifulSoup(ranking([],{},'web',compact=True, ctx=RenderContext()),'html.parser')
         details=soup.select_one('.ranking-metric-help')
         self.assertFalse(details.has_attr('open'))
         self.assertIn('任务通过率',[x.get_text() for x in details.select('dt')])

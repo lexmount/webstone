@@ -45,6 +45,7 @@ from harness.web_fetch.result_ledger import validate_ledger
 from harness.web_fetch.storage import require_canonical_inputs, require_current_report_profile
 from harness.web_fetch.wcxb_report_check import check as check_wcxb
 from harness.web_fetch.report_variants import VARIANTS, comparison_kind, dataset_kind, variant_for_kind
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 
 def require_public_evidence_page(content, relative, views):
@@ -756,7 +757,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
         resource_summary = read_json(root / "resource-cohort/resource-comparison.json")
         guide = (root / "guide/index.html").read_text(encoding="utf-8")
         for page_name, text in [("home", home), ("guide", guide)]:
-            check_resource_presentation(text, resource_summary)
+            check_resource_presentation(text, resource_summary, ctx=RenderContext())
             if "data-resource-winner=" not in text:
                 raise ValueError((page_name, "missing resource winner summary"))
             if not all(label in text for label in (t('cpu_and_compute', 'CPU and compute'), t('memory', 'Memory'), t('network', 'Network'))):
@@ -770,7 +771,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
                     raise ValueError((page_name, "missing resource winner summary"))
                 if not all(label in text for label in ("CPU and compute", "Memory", "Network")):
                     raise ValueError((page_name, "missing grouped resource tables"))
-                check_resource_presentation(text, resource_summary)
+                check_resource_presentation(text, resource_summary, ctx=RenderContext())
     methodology = (root / "methodology/index.html").read_text(encoding="utf-8")
     for phrase in [
         t('included_in_latency', 'Included in latency'),
@@ -840,7 +841,7 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
     binding = dataset.get('comparison', {}).get('report_interpretation')
     if binding:
         check_current_browser_article(out, {case['id']:case for case in dataset['cases']},
-                                      load_jsonl(out/'results.jsonl'), binding)
+                                      load_jsonl(out/'results.jsonl'), binding, ctx=RenderContext(), scope=MethodScope())
     provenance_path = out / "implementation-provenance.json"
     if provenance_path.is_file():
         provenance = read_json(provenance_path)
@@ -848,7 +849,7 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
         home = read_page(out / "index.html")
         for item in provenance.get("implementations", []):
             name = item.get("provider")
-            if native_browser_engine(name) != "moli" or not item.get("version"):
+            if native_browser_engine(name, scope=MethodScope()) != "moli" or not item.get("version"):
                 continue
             hashes = {r.get("provider_metadata", {}).get("binary_sha256")
                       for r in records if r["provider"] == name}
@@ -960,7 +961,7 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
     records = load_jsonl(out / 'results.jsonl')
     synthetic = dataset_kind(dataset).synthetic
     if records and all(row.get('provider_type') == 'fixture' for row in records) and (
-        synthetic or all(not native_browser_engine(row['provider']) for row in records)
+        synthetic or all(not native_browser_engine(row['provider'], scope=MethodScope()) for row in records)
     ):
         methods = read_page(out / 'adoption/index.html')
         for name in {row['provider'] for row in records}:
@@ -977,7 +978,7 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
     interfaces = read_page(out / "adoption/index.html").select(
         '.interface-panel[id^="interface-"]'
     )
-    interface_names = set(SPECS) | {name for name in names if native_browser_engine(name)}
+    interface_names = set(SPECS) | {name for name in names if native_browser_engine(name, scope=MethodScope())}
 
     if not (
         len(interfaces) == len(interface_names)

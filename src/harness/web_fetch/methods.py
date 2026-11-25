@@ -6,12 +6,13 @@ import json
 import re
 from collections import Counter
 from copy import deepcopy
+from dataclasses import replace
 from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Any
 
 from harness.distribution import bundled_data_path
-from harness.web_fetch.report_model import method_scope, with_method_scope
+from harness.web_fetch.report_model import MethodScope
 
 
 def _resolve_catalog_templates(data):
@@ -109,13 +110,12 @@ def frozen_execution_configs(manifests):
     return bindings
 
 
-def _browser_installation_access(name, selected, registered, access, language):
+def _browser_installation_access(name, selected, registered, access, language, *, scope):
     if registered.get("kind") != "browser" or access.get("type") != "local":
         return access
-    scope = method_scope()
     measured = selected or scope.records.get(name)
     config = ((scope.execution_configs.get(name) or scope.registry.get(name)) if measured
-              else browser_method_registry().get(name))
+              else browser_method_registry(scope=scope).get(name))
     engine = (measured or {}).get("provider_metadata", {}).get("engine")
     if config and engine and config.get("engine") != engine:
         config = None
@@ -134,14 +134,14 @@ def _browser_installation_access(name, selected, registered, access, language):
     return {**access, "env_vars": variables, "configuration": explanation}
 
 
-def report_method(name, record=None, *, language="zh"):
+def report_method(name, record=None, *, language="zh", scope):
     """Resolve run IDs through recorded identity and the execution registry."""
     methods = (report_method_catalog() if language == "zh" else report_method_catalog(language))["methods"]
-    record = record or method_scope().records.get(name, {})
+    record = record or scope.records.get(name, {})
     metadata = record.get("provider_metadata") or {}
     if metadata.get("engine"):
         return methods.get(metadata["engine"], {})
-    execution = browser_method_registry().get(name, {})
+    execution = browser_method_registry(scope=scope).get(name, {})
     for key in (execution.get("engine"), name):
         if key in methods:
             return methods[key]
@@ -171,21 +171,21 @@ def versioned_method_label(registered, base, version):
         label=base, version=value)
 
 
-def method_access(name, records, *, language="zh"):
-    bound = method_scope().registry.get(name, {}).get("report_access")
+def method_access(name, records, *, language="zh", scope):
+    bound = scope.registry.get(name, {}).get("report_access")
     if bound is not None:
         return {**bound,
                 "account": bound.get("account_en", bound["account"]) if language == "en" else bound["account"],
                 "configuration": bound.get("configuration_en", bound["configuration"]) if language == "en" else bound["configuration"]}
     selected = next((row for row in records if row.get("provider") == name), None)
-    registered = report_method(name, selected, language=language)
+    registered = report_method(name, selected, language=language, scope=scope)
     access = registered.get("access")
     if access:
-        access = _browser_installation_access(name, selected, registered, access, language)
+        access = _browser_installation_access(name, selected, registered, access, language, scope=scope)
         template = registered.get("release_url_template")
         versions = {normalized_method_version(registered, value) if value else None
                     for row in records if row.get("provider") == name
-                    for value in [method_version(row)]}
+                    for value in [method_version(row, scope=scope)]}
         if template and len(versions) == 1 and None not in versions:
             version = next(iter(versions))
             # A build suffix is not proof that a corresponding release exists.
@@ -206,17 +206,17 @@ def _execution_browser_method_registry():
         return {}
 
 
-def browser_method_registry():
+def browser_method_registry(*, scope):
     """Combine reusable adapters with the selected instance's frozen registry."""
-    return {**_execution_browser_method_registry(), **method_scope().registry}
+    return {**_execution_browser_method_registry(), **scope.registry}
 
 
-def native_browser_engine(name, record=None):
-    record = record or method_scope().records.get(name, {})
+def native_browser_engine(name, record=None, *, scope):
+    record = record or scope.records.get(name, {})
     recorded = (record.get("provider_metadata") or {}).get("engine")
     if recorded:
         return recorded
-    configured = browser_method_registry().get(name, {}).get("engine")
+    configured = browser_method_registry(scope=scope).get(name, {}).get("engine")
     if configured:
         return configured
     if report_method_catalog()["methods"].get(name, {}).get("kind") == "browser":
@@ -224,23 +224,22 @@ def native_browser_engine(name, record=None):
     return None
 
 
-def browser_method_label(name, *, language="zh"):
-    scope = method_scope()
+def browser_method_label(name, *, language="zh", scope):
     measured = scope.labels.get(name)
     if measured:
         return measured[language]
     record = scope.records.get(name, {})
     engine = (record.get("provider_metadata") or {}).get("engine")
     if engine:
-        return report_method(name, record).get("label", {}).get(language, engine)
-    return (browser_method_registry().get(name, {}).get("label")
-            or report_method(name).get("label", {}).get(language, name))
+        return report_method(name, record, scope=scope).get("label", {}).get(language, engine)
+    return (browser_method_registry(scope=scope).get(name, {}).get("label")
+            or report_method(name, scope=scope).get("label", {}).get(language, name))
 
 
-def method_version(record, provenance=None, *, language="zh"):
+def method_version(record, provenance=None, *, language="zh", scope):
     """Prefer the recorded executable version; CDP compatibility is not an identity."""
     metadata = record.get("provider_metadata") or {}
-    registered = report_method(record.get("provider", ""), record, language=language)
+    registered = report_method(record.get("provider", ""), record, language=language, scope=scope)
     policy = registered.get("version_policy")
     if metadata.get("reported_version"):
         return str(metadata["reported_version"])
@@ -252,7 +251,7 @@ def method_version(record, provenance=None, *, language="zh"):
             return str(metadata[key])
     if policy == "hosted":
         return registered.get("version_unavailable")
-    if browser_method_registry().get(record.get("provider"), {}).get("version_source") == "reported":
+    if browser_method_registry(scope=scope).get(record.get("provider"), {}).get("version_source") == "reported":
         return None
     browser_version = metadata.get("browser_version")
     if policy == "native" and re.fullmatch(r"\d+\.\d+\.\d+\.\d+", str(browser_version)):
@@ -260,11 +259,11 @@ def method_version(record, provenance=None, *, language="zh"):
     return str(browser_version) if browser_version else None
 
 
-def method_versions(records, provenance=None):
+def method_versions(records, provenance=None, *, scope):
  """Keep distinct measured binaries visible when their reported versions coincide."""
  versions={}
  for record in records:
-  version=method_version(record,provenance)
+  version=method_version(record,provenance, scope=scope)
   if version:
    versions.setdefault(str(version),set())
    digest=(record.get('provider_metadata') or {}).get('binary_sha256')
@@ -275,83 +274,86 @@ def method_versions(records, provenance=None):
 
 
 def with_measured_method_labels(render):
-    """Scope all participant labels to recorded versions and binary identities."""
+    """Render with every participant label bound to its recorded versions and binary identities.
+
+    ``render`` receives the measured methods as ``scope``; the caller passes the
+    enclosing render's ``scope``, and a page set starts from no measured methods.
+    """
     signature = inspect.signature(render)
-    def render_with_labels(out, dataset, records, *args, **kwargs):
+    def render_with_labels(out, dataset, records, *args, scope, **kwargs):
         path = Path(out) / "implementation-provenance.json"
         provenance = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
         identities = {item["binary_sha256"]: item for item in provenance.get("implementations", [])
                       if item.get("binary_sha256")}
-        arguments = signature.bind(out, dataset, records, *args, **kwargs).arguments
+        arguments = signature.bind_partial(out, dataset, records, *args, **kwargs).arguments
         configs = (frozen_execution_configs(arguments["manifests"]) if "manifests" in arguments
-                   else method_scope().execution_configs)
+                   else scope.execution_configs)
         labels = {}
-        with with_method_scope(records={row["provider"]: row for row in records},
-                               execution_configs=configs):
-            for name in {row["provider"] for row in records}:
-                registered = report_method(name)
-                subset = [row for row in records if row["provider"] == name]
-                versions = [normalized_method_version(registered, value) if value else None
-                            for row in subset for value in [method_version(row, identities)]]
-                if not versions or not all(versions):
-                    continue
-                metadata = subset[0].get("provider_metadata") or {}
-                execution = browser_method_registry().get(name, {})
-                preserve_name = (name not in report_method_catalog()["methods"]
-                                 and not metadata.get("engine") and not execution.get("engine"))
-                channels = {row.get("provider_metadata", {}).get(
-                    "release_channel", execution.get("release_channel")) for row in subset}
-                labels[name] = {}
-                for language in ("zh", "en"):
-                    counts = Counter(normalized_method_version(registered, method_version(
-                        row, identities, language=language)) for row in subset)
-                    releases = [match.group(1) if (match := re.match(
-                        r"^(\d+\.\d+\.\d+)", version)) else None for version in counts]
-                    base = name if preserve_name else registered.get("label", {}).get(
-                        language, metadata.get("engine") or name)
-                    def label(version, registered=registered, base=base):
-                        return versioned_method_label(registered, base, version)
-                    messages = report_method_catalog(language)["messages"]
-                    if len(counts) == 1:
-                        value = label(next(iter(counts)))
-                    elif None not in releases and len(set(releases)) == 1:
-                        qualifier = messages["candidate_suffix"] if channels == {"candidate"} else ""
-                        value = label(releases[0]) + qualifier
-                    else:
-                        parts = [messages["mixed_count_one" if count == 1 else "mixed_count_many"].format(
-                            count=count, version=version) for version, count in sorted(counts.items())]
-                        value = messages["mixed_builds"].format(
-                            label=base, counts=messages["separator"].join(parts))
-                    labels[name][language] = value
-            with with_method_scope(labels=labels):
-                display = {name: {language: browser_method_label(name, language=language)
-                                  for language in ('zh', 'en')}
-                           for name in {row['provider'] for row in records}}
-                for language in ('zh', 'en'):
-                    counts = Counter(value[language] for value in display.values())
-                    for name, value in display.items():
-                        if counts[value[language]] > 1:
-                            value[language] += f' ({name})'
-                labels.update(display)
-                return render(out, dataset, records, *args, **kwargs)
+        scope = replace(scope, records={row["provider"]: row for row in records}, execution_configs=configs)
+        for name in {row["provider"] for row in records}:
+            registered = report_method(name, scope=scope)
+            subset = [row for row in records if row["provider"] == name]
+            versions = [normalized_method_version(registered, value) if value else None
+                        for row in subset for value in [method_version(row, identities, scope=scope)]]
+            if not versions or not all(versions):
+                continue
+            metadata = subset[0].get("provider_metadata") or {}
+            execution = browser_method_registry(scope=scope).get(name, {})
+            preserve_name = (name not in report_method_catalog()["methods"]
+                             and not metadata.get("engine") and not execution.get("engine"))
+            channels = {row.get("provider_metadata", {}).get(
+                "release_channel", execution.get("release_channel")) for row in subset}
+            labels[name] = {}
+            for language in ("zh", "en"):
+                counts = Counter(normalized_method_version(registered, method_version(
+                    row, identities, language=language, scope=scope)) for row in subset)
+                releases = [match.group(1) if (match := re.match(
+                    r"^(\d+\.\d+\.\d+)", version)) else None for version in counts]
+                base = name if preserve_name else registered.get("label", {}).get(
+                    language, metadata.get("engine") or name)
+                def label(version, registered=registered, base=base):
+                    return versioned_method_label(registered, base, version)
+                messages = report_method_catalog(language)["messages"]
+                if len(counts) == 1:
+                    value = label(next(iter(counts)))
+                elif None not in releases and len(set(releases)) == 1:
+                    qualifier = messages["candidate_suffix"] if channels == {"candidate"} else ""
+                    value = label(releases[0]) + qualifier
+                else:
+                    parts = [messages["mixed_count_one" if count == 1 else "mixed_count_many"].format(
+                        count=count, version=version) for version, count in sorted(counts.items())]
+                    value = messages["mixed_builds"].format(
+                        label=base, counts=messages["separator"].join(parts))
+                labels[name][language] = value
+        scope = replace(scope, labels=labels)
+        display = {name: {language: browser_method_label(name, language=language, scope=scope)
+                          for language in ('zh', 'en')}
+                   for name in {row['provider'] for row in records}}
+        for language in ('zh', 'en'):
+            counts = Counter(value[language] for value in display.values())
+            for name, value in display.items():
+                if counts[value[language]] > 1:
+                    value[language] += f' ({name})'
+        labels.update(display)
+        return render(out, dataset, records, *args, scope=scope, **kwargs)
     @wraps(render)
-    def wrapped(out, dataset, records, *args, **kwargs):
+    def wrapped(out, dataset, records, *args, scope=MethodScope(), **kwargs):
         comparison = dataset.get("comparison")
         saved = Path(out) / "dataset.json"
         if comparison is None and saved.is_file():
             comparison = json.loads(saved.read_text(encoding="utf-8")).get("comparison", {})
-        with with_method_scope(registry=(comparison or {}).get("method_registry", method_scope().registry)):
-            return render_with_labels(out, dataset, records, *args, **kwargs)
+        scope = replace(scope, registry=(comparison or {}).get("method_registry", scope.registry))
+        return render_with_labels(out, dataset, records, *args, scope=scope, **kwargs)
     return wrapped
 
 
 METHOD_REGISTRY = report_method_catalog()["adapters"]
 
 
-def is_browser_comparison(records: list[dict[str, Any]]) -> bool:
+def is_browser_comparison(records: list[dict[str, Any]], *, scope) -> bool:
     """Recognize browser cohorts independently of their task-specific adapters."""
     roles = [
-        "primary" if report_method(row.get("provider", ""), row).get("kind") == "browser"
+        "primary" if report_method(row.get("provider", ""), row, scope=scope).get("kind") == "browser"
         else method_info(row.get("provider_type", "")).get("browser_cohort_role")
         for row in records
     ]
@@ -378,14 +380,14 @@ def metadata_matches(metadata: dict[str, Any], expected: dict[str, Any]) -> bool
     return True
 
 
-def method_page_model(name: str, label: str, records: list[dict[str, Any]], *, language="zh") -> dict[str, str]:
+def method_page_model(name: str, label: str, records: list[dict[str, Any]], *, language="zh", scope) -> dict[str, str]:
     """Resolve method-specific evidence into provider-neutral page fields."""
     if not records:
         raise ValueError("method page requires at least one record")
     info = method_info(records[0].get("provider_type", ""), language=language)
     report = info.get("report", {})
-    registered = report_method(name, records[0], language=language)
-    versions = {method_version(row, language=language) for row in records}
+    registered = report_method(name, records[0], language=language, scope=scope)
+    versions = {method_version(row, language=language, scope=scope) for row in records}
     title = label
     if len(versions) == 1 and None not in versions:
         version = normalized_method_version(registered, next(iter(versions)))

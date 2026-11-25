@@ -15,6 +15,7 @@ from harness.web_fetch.report_build import build_report
 from harness.web_fetch.resource_cohort import METRICS, build_summary, package
 from harness.web_fetch.runner import run_evaluation
 from lexbench_webfetch.models import EvalCase
+from harness.web_fetch.report_model import RenderContext
 
 
 def make_run(root, count, resource=False):
@@ -224,7 +225,7 @@ def test_resource_release_checks_populations_measurements_and_unique_highlights(
     )
     dataset, records, batches = resource_population_fixture(tmp_path)
     summary = build_summary(dataset, records, batches)
-    html, _ = render_resource_comparison(summary, summary['providers'])
+    html, _ = render_resource_comparison(summary, summary['providers'], ctx=RenderContext())
     soup = BeautifulSoup(html,'html.parser')
     cpu = soup.select_one('td[data-resource-provider="other"][data-resource-key="cpu_ms"][data-resource-statistic="mean"]')
     assert cpu.select_one('.comparison-winner') is not None
@@ -247,10 +248,10 @@ def test_resource_release_checks_populations_measurements_and_unique_highlights(
             cell['data-metric-direction'] = 'neutral'
         cpu.select_one('.comparison-winner').unwrap()
     if damage is None:
-        check_resource_presentation(str(soup),summary)
+        check_resource_presentation(str(soup),summary, ctx=RenderContext())
     else:
         with pytest.raises(ValueError):
-            check_resource_presentation(str(soup),summary)
+            check_resource_presentation(str(soup),summary, ctx=RenderContext())
 
 
 def test_resource_sampling_note_follows_recorded_interval(runs):

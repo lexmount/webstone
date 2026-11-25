@@ -33,6 +33,7 @@ from harness.web_fetch.reference_lifecycle import (
 from harness.web_fetch.report import failure_category, succeeded
 from harness.safety import validate_report_ids
 from harness.web_fetch.storage import current_evidence_dir
+from harness.web_fetch.report_model import RenderContext
 
 ROOT = repository_root()
 
@@ -40,7 +41,7 @@ ROOT = repository_root()
 def _stored_verdict(r, c):
     """Read a stored verdict, including one from retired forbidden-text fields."""
     try:
-        return succeeded(r, c)
+        return succeeded(r, c, ctx=RenderContext())
     except ValueError as error:
         if not str(error).startswith("Historical scoring metrics"):
             raise
@@ -82,9 +83,9 @@ def _rescore_one(arguments):
     if "run_id" not in r:
         r["run_id"] = execution_id(r)
     r["diagnosis"] = diagnose(r, c, raw.decode("utf-8", errors="replace"))
-    r["failure_category"] = failure_category(r, c)
+    r["failure_category"] = failure_category(r, c, ctx=RenderContext())
     r["scoring"] = {**r.get("scoring", {}), **audit}
-    after = succeeded(r, c)
+    after = succeeded(r, c, ctx=RenderContext())
     change={"attempt_id":r["attempt_id"],"before":before,"after":after} if before!=after else None
     return r,change
 

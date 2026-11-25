@@ -2,8 +2,8 @@
 from bs4 import BeautifulSoup
 import pytest
 
-from harness.web_fetch import report
 from harness.web_fetch.report import logical_execution_cost_ms, overall_ranking
+from harness.web_fetch.report_model import RenderContext
 
 
 def result(method, case, elapsed, passed=True, **extra):
@@ -16,7 +16,7 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     rows = [result('fails-fast', key, 1, False) for key in cases]
     rows += [result('passes', 'a', 10, provider_metadata={'retry': {'execution_cost_ms': 30010}}),
              result('passes', 'b', 20)]
-    doc = BeautifulSoup(overall_ranking(rows, cases), 'html.parser')
+    doc = BeautifulSoup(overall_ranking(rows, cases, ctx=RenderContext()), 'html.parser')
     main = doc.select_one('#ranking-overall')
     passed = next(row for row in main.select('tbody tr') if 'passes' in row.get_text())
     assert '15 ms' in passed.select('td')[-3].get_text()
@@ -32,11 +32,8 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     assert len(passed.select('.comparison-winner')) == 3
     assert '15 ms' in passed.get_text()
 
-    token = report.set_render_context(report.RenderContext(descriptive_ranks=True))
-    try:
-        combined = BeautifulSoup(overall_ranking(rows, cases, passing_latency=True), 'html.parser')
-    finally:
-        report.reset_render_context(token)
+    combined = BeautifulSoup(overall_ranking(rows, cases, passing_latency=True,
+                                             ctx=RenderContext(descriptive_ranks=True)), 'html.parser')
     assert combined.select_one('#successful-final-call-latency') is None
     main = combined.select_one('#ranking-overall')
     passed, failed = main.select('tbody tr')
@@ -65,7 +62,7 @@ def test_execution_cost_uses_complete_saved_evidence(metadata, expected):
 def test_missing_prior_cost_is_unavailable_not_a_fast_partial_mean():
     cases = {'a': {'id': 'a', 'track': 'web', 'task_kind': 'body'}}
     rows = [result('method', 'a', 10, report_retry_continuation={'execution_cost_ms': None})]
-    doc = BeautifulSoup(overall_ranking(rows, cases), 'html.parser')
+    doc = BeautifulSoup(overall_ranking(rows, cases, ctx=RenderContext()), 'html.parser')
     timing = doc.select_one('#ranking-overall tbody tr').select('td')[-3:]
     assert [cell.get_text(' ', strip=True) for cell in timing] == ['10 ms'] * 3
     assert logical_execution_cost_ms(rows[0]) is None
@@ -84,7 +81,7 @@ def test_methodology_settings_disclose_mixed_groups_and_escape_request_data():
          'settings': [{'dns_mode': 'public_doh', 'timeout_seconds': 60, 'max_failure_retries': 0}],
          'errors': []},
     ]
-    rendered = saved_matrix_scope_section({'limitations': [], 'execution_settings': settings}, show_completion=False)
+    rendered = saved_matrix_scope_section({'limitations': [], 'execution_settings': settings}, show_completion=False, ctx=RenderContext())
     doc = BeautifulSoup(rendered, 'html.parser')
     table = doc.select_one('#saved-execution-settings')
     assert len(table.select('tbody tr')) == 2
@@ -102,7 +99,7 @@ def test_new_metric_labels_and_scope_notes_have_english_views():
     from pathlib import PurePosixPath
     from harness.web_fetch.report_i18n import localize_html
     cases = {'a': {'id': 'a', 'track': 'web', 'task_kind': 'body'}}
-    rendered = overall_ranking([result('method', 'a', 10)], cases)
+    rendered = overall_ranking([result('method', 'a', 10)], cases, ctx=RenderContext())
     english = localize_html(rendered, PurePosixPath('index.html'))
     assert 'Mean total execution cost' not in english
     assert 'Final-call latency of task-passing results' in english

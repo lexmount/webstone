@@ -15,6 +15,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import expect, sync_playwright
 
 from harness.reporting.visual import browser_executable, local_report_server, local_page
+from harness.web_fetch.report_model import RenderContext
 
 
 DESKTOP_LIGHT = {"viewport": {"width": 1280, "height": 900}, "color_scheme": "light"}
@@ -454,7 +455,7 @@ def test_webfetch_shared_ranks_survive_sorting(tmp_path, browser, display):
         row = record(c, passed=passed, elapsed=elapsed)
         row['provider'] = provider
         records.append(row)
-    markup = report.overall_ranking(records, {c['id']: c}, passing_latency=True)
+    markup = report.overall_ranking(records, {c['id']: c}, passing_latency=True, ctx=RenderContext())
     overview = '<table id="method-overview"><tbody>' + ''.join(
         f'<tr><td><a href="providers/{provider}.html">{provider}</a><small class="method-execution">API</small></td>'
         '<td>Default</td><td>$2 / 1,000 requests</td></tr>' for provider in ('a', 'b', 'c')) + '</tbody></table>'

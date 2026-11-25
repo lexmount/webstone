@@ -1,31 +1,32 @@
 import unittest
 from harness.web_fetch.report import reason
+from harness.web_fetch.report_model import RenderContext
 
 
 class FileReportReasonTests(unittest.TestCase):
     def test_success_is_not_described_as_missing_bytes(self):
         row={'ok':True,'metrics':{'task_kind':'file','raw_file_pass':True}}
-        self.assertIn('校验通过',reason(row,{'task_kind':'file'}))
-        self.assertNotIn('没有返回',reason(row,{'task_kind':'file'}))
+        self.assertIn('校验通过',reason(row,{'task_kind':'file'}, ctx=RenderContext()))
+        self.assertNotIn('没有返回',reason(row,{'task_kind':'file'}, ctx=RenderContext()))
 
     def test_failed_and_unmeasured_remain_distinct(self):
         row={'ok':True,'metrics':{'task_kind':'file','raw_file_pass':False}}
-        self.assertIn('没有返回',reason(row,{'task_kind':'file'}))
+        self.assertIn('没有返回',reason(row,{'task_kind':'file'}, ctx=RenderContext()))
         row['metrics'].pop('raw_file_pass')
-        self.assertIn('未测',reason(row,{'task_kind':'file'}))
+        self.assertIn('未测',reason(row,{'task_kind':'file'}, ctx=RenderContext()))
 
     def test_late_bytes_do_not_get_success_explanation(self):
         row={'ok':True,'metrics':{'task_kind':'file','raw_file_pass':True,'deadline_overrun':True}}
-        self.assertIn('超过',reason(row,{'task_kind':'file'}))
+        self.assertIn('超过',reason(row,{'task_kind':'file'}, ctx=RenderContext()))
 
     def test_missing_page_identity_is_not_a_file_or_uncalled_result(self):
         from harness.web_fetch.report import failure_category, result_label
         row={'ok':True,'metrics':{'request_ok':True,'page_identity_required':True,
                                 'page_identity_status':'unavailable'}}
-        self.assertEqual(result_label(row,{}),'未通过')
-        self.assertIn('最终网页身份',reason(row,{}))
-        self.assertNotIn('原文件',reason(row,{}))
-        self.assertIn('身份',failure_category(row,{}))
+        self.assertEqual(result_label(row,{}, ctx=RenderContext()),'未通过')
+        self.assertIn('最终网页身份',reason(row,{}, ctx=RenderContext()))
+        self.assertNotIn('原文件',reason(row,{}, ctx=RenderContext()))
+        self.assertIn('身份',failure_category(row,{}, ctx=RenderContext()))
 
     def test_shared_evidence_lines_preserve_complete_exact_matches(self):
         from harness.web_fetch.report import _exact_evidence_lines, _normalized_evidence_lines
@@ -44,7 +45,7 @@ class FileReportReasonTests(unittest.TestCase):
                'metrics':{'content_pass':True}},
               {'provider':'p','case_id':'b','ok':True,'elapsed_ms':1,
                'metrics':{'rule_review_status':'unresolved'}}]
-        rendered=overall_ranking(rows,cases)
+        rendered=overall_ranking(rows,cases, ctx=RenderContext())
         self.assertIn('无法判定',rendered)
         self.assertIn('1/1',rendered)
         self.assertIn('可判定数',rendered)
@@ -57,7 +58,7 @@ class FileReportReasonTests(unittest.TestCase):
                  'metrics': ({'content_pass': True} if key == 'a' else
                     {'page_identity_required': True, 'page_identity_status': 'unavailable'})}
                 for key in cases]
-        self.assertIn('1/2', overall_ranking(rows, cases))
+        self.assertIn('1/2', overall_ranking(rows, cases, ctx=RenderContext()))
 
 
 

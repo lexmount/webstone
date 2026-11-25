@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from harness.web_fetch.report_model import RenderContext
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,8 +42,8 @@ def test_registered_interfaces_and_pricing_have_complete_english(tmp_path):
     from harness.web_fetch.report_i18n import localize_html, published_report_catalog
     from harness.web_fetch.report_check import EnglishNarrative, PageShape
 
-    source = render_pricing(tmp_path, list(SPECS), table=table, cell=cell, link=link, esc=esc)
-    source += render_interfaces(tmp_path, [])
+    source = render_pricing(tmp_path, list(SPECS), table=table, cell=cell, link=link, esc=esc, ctx=RenderContext())
+    source += render_interfaces(tmp_path, [], ctx=RenderContext())
     english = localize_html(source, PurePosixPath('adoption/index.html'), catalog=published_report_catalog(tmp_path))
     zh_shape, en_shape = PageShape(), PageShape()
     zh_shape.feed(source)

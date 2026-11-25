@@ -57,7 +57,7 @@ def _metric(indexed, provider, key, statistic):
     return indexed[provider]['metrics'][key][statistic]
 
 
-def render_resource_comparison(summary, providers):
+def render_resource_comparison(summary, providers, *, ctx):
     """Render grouped comparisons and explicit, mechanically checkable winners."""
     if summary is None:
         return (('<p>' + t('the_current_evidence_has_no_independent_client', 'The current evidence has no independent client resource measurement; CPU or memory is not inferred from latency.') + '</p>'),
@@ -65,7 +65,7 @@ def render_resource_comparison(summary, providers):
     indexed = {row['provider']: row for row in summary['rows']}
     def provider_name(provider):
         # This independent cohort must not borrow versions from the main matrix.
-        label = report_method(provider).get('label', {})
+        label = report_method(provider, scope=ctx.methods).get('label', {})
         return label.get('zh', provider)
     declared = summary.get('providers', list(indexed))
     local = [provider for provider in providers if provider in declared]
@@ -148,7 +148,7 @@ def render_resource_comparison(summary, providers):
         scope_note += bilingual_text(
             (t('methods_outside_this_resource_measurement', 'Methods outside this resource measurement:') + f"{'、'.join((provider_name(provider) for provider in unmeasured))}。"),
             'Methods outside this resource cohort: '+ ', '.join(
-                report_method(provider).get('label', {}).get('en', provider) for provider in unmeasured)+'.')
+                report_method(provider, scope=ctx.methods).get('label', {}).get('en', provider) for provider in unmeasured)+'.')
     caveat = ('<p class="callout"><b>'+bilingual_text(*pair('comparison_scope', 'Comparison scope: '))+
               '</b>'+scope_note+'</p><p class="source-note">'+sampling_note+
               bilingual_text(*pair('cpu_utilization_and_transfer_rates_are_not', 'CPU utilization and transfer rates are not ranked as lower-is-better. See Methodology and Reproduction for full methods and per-call evidence.'))+'</p>')
@@ -161,7 +161,7 @@ def render_resource_comparison(summary, providers):
     }
 
 
-def check_resource_presentation(html, summary):
+def check_resource_presentation(html, summary, *, ctx):
     """Verify complete-population values and unique extrema at release time."""
     soup = check_presentation(html)
     if summary.get('primary_population') != 'all_declared_calls':
@@ -171,7 +171,7 @@ def check_resource_presentation(html, summary):
     if len(sample) != 1 or sample[0].get('data-resource-cases') != str(count):
         raise ValueError('Resource comparison has the wrong population or denominator')
     headline = soup.select('[data-resource-winner]')
-    expected_html, _ = render_resource_comparison(summary, summary['providers'])
+    expected_html, _ = render_resource_comparison(summary, summary['providers'], ctx=ctx)
     expected_leaders = BeautifulSoup(expected_html, 'html.parser').select_one(
         '[data-resource-winner]')['data-resource-winner']
     if len(headline) != 1 or headline[0]['data-resource-winner'] != expected_leaders:

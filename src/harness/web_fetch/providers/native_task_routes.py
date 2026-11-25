@@ -18,6 +18,7 @@ from harness.web_fetch.task_outputs import (
     resource_detail_links,
     resource_expression,
 )
+from harness.web_fetch.report_model import MethodScope
 
 
 def require_native_task_routes(cases, records):
@@ -31,7 +32,7 @@ def require_native_task_routes(cases, records):
         provider = (
             'moli'
             if row.get('provider_type') == 'moli_webfetch'
-            else native_browser_engine(row['provider'])
+            else native_browser_engine(row['provider'], scope=MethodScope())
         )
         if provider not in {'moli','lightpanda','obscura','chromium','kitesurf'}:
             failures.append(row['provider'] + '/' + row['case_id'])

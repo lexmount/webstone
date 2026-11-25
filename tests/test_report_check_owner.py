@@ -11,6 +11,7 @@ import pytest
 from harness.web_fetch.report_check import check
 from tests.report_check_fixture import create_report
 from tests.helpers import write_json
+from harness.web_fetch.report_model import MethodScope, RenderContext
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts/check_report.py"
 
@@ -289,7 +290,7 @@ def test_registered_browser_build_has_its_own_interface_panel(tmp_path, defect):
     from tests.report_check_fixture import create_revision_report
     from harness.web_fetch.methods import browser_method_registry
     from harness.web_fetch.report_interfaces import SPECS
-    provider = next(name for name, spec in browser_method_registry().items()
+    provider = next(name for name, spec in browser_method_registry(scope=MethodScope()).items()
                     if spec.get('engine') == 'moli' and name not in SPECS)
     root, authority = create_revision_report(tmp_path)
     row=json.loads((root/'results.jsonl').read_text(encoding="utf-8"))
@@ -327,7 +328,7 @@ def test_body_family_rankings_reject_resource_columns(tmp_path, family, defect):
     dataset=json.loads((root/'dataset.json').read_text(encoding="utf-8"))
     c=case(family,'body',family)
     dataset['cases'].append(c)
-    rendered=ranking([record(c)],{family:c},family)
+    rendered=ranking([record(c)],{family:c},family, ctx=RenderContext())
     if defect:
         rendered=rendered.replace('完整度','资源命中率')
     path=root/'index.html'

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from pathlib import Path
 from harness.web_fetch.report_changes import render_changes, render_webmainbench_history, webmainbench_history
 from harness.web_fetch.report import overview_card, ranking
+from harness.web_fetch.report_model import RenderContext
 
 class ReportChangesTests(unittest.TestCase):
     def test_report_bound_history_overrides_legacy_registry(self):
@@ -30,7 +31,7 @@ class ReportChangesTests(unittest.TestCase):
             render_changes(
                 out, {}, [{'provider': 'p', 'provider_type': 'headless_markdown'}],
                 {'comparison': {'kind': 'headless_markdown'}},
-            )
+            ctx=RenderContext())
             public = json.loads((out / 'report-changes.json').read_text(encoding='utf-8'))
             self.assertEqual([row['id'] for row in public['releases']], ['bound-release'])
 
@@ -61,7 +62,7 @@ class ReportChangesTests(unittest.TestCase):
         for english in (False, True):
             page = render_webmainbench_history(
                 {'releases': releases}, english,
-                [('latency-corrections.json', '纠正收据', 'Correction receipt')])
+                [('latency-corrections.json', '纠正收据', 'Correction receipt')], ctx=RenderContext())
             self.assertEqual(page.count('data-release-id='), len(releases))
             latest = releases[0]['i18n']['en'] if english else releases[0]
             self.assertIn(latest['summary'], page)
@@ -138,7 +139,7 @@ class ReportChangesTests(unittest.TestCase):
             with patch('harness.web_fetch.storage.research_evidence_dir',
                        return_value=evidence):
                 with self.assertRaisesRegex(FileNotFoundError, 'file-provider-rerun-native'):
-                    render_changes(out,{},[])
+                    render_changes(out,{},[], ctx=RenderContext())
             self.assertFalse((out/'report-changes.json').exists())
             self.assertFalse((out/'file-provider-rerun').exists())
     def test_every_bundled_revision_binds_one_release(self):
@@ -154,7 +155,7 @@ class ReportChangesTests(unittest.TestCase):
     def test_release_history_is_compact_and_reader_facing(self):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory)
-            render_changes(out,{},[])
+            render_changes(out,{},[], ctx=RenderContext())
             page=(out/'changes/index.html').read_text(encoding='utf-8')
             self.assertIn('报告版本说明',page)
             self.assertIn('当前版本',page)
@@ -216,7 +217,7 @@ class ReportChangesTests(unittest.TestCase):
     def test_ranking_uses_planned_judgment_denominator(self):
         c={'id':'file','name':'File','track':'video','task_kind':'file'}
         r={'case_id':'file','provider':'p','ok':True,'elapsed_ms':1,'metrics':{'task_kind':'file'}}
-        page=ranking([r],{'file':c},'media_file')
+        page=ranking([r],{'file':c},'media_file', ctx=RenderContext())
         self.assertIn('判分完整性',page)
         self.assertNotIn('已执行/总案例',page)
         self.assertIn('缺少验收证据的案例',page)
@@ -229,6 +230,6 @@ class ReportChangesTests(unittest.TestCase):
             {'case_id':'a','provider':name,'ok':True,'metrics':{'content_pass':True,'scoring_source_sha256':'a'*64}}
             for name in ['first','second']
         ]
-        page=overview_card(records,cases,'web','网站正文',['first','second'])
+        page=overview_card(records,cases,'web','网站正文',['first','second'], ctx=RenderContext())
         self.assertIn('<p>first、second</p>',page)
         self.assertNotIn('种方法完整判分',page)

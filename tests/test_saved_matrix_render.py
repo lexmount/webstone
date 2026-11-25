@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from bs4 import BeautifulSoup
 from tests.test_saved_matrix_evidence import fixture, build, write
+from harness.web_fetch.report_model import RenderContext
 
 
 @pytest.mark.parametrize('tie', [False, True])
@@ -213,7 +214,7 @@ def test_five_suite_inventory_drives_rankings_and_filters(tmp_path):
     assert {x.get('data-track') for x in provider.select('tr[data-track]')}=={key for key,_ in names}
     projection=json.loads((root/'dataset.json').read_text(encoding='utf-8'))
     assert all(c.get('track','web')=='web' for c in projection['cases'])
-    assert active_tracks({'x':{'id':'x','track':'web'}})==[('web','静态网站正文')]
+    assert active_tracks({'x':{'id':'x','track':'web'}}, ctx=RenderContext())==[('web','静态网站正文')]
 
 
 def test_precall_rejection_preserves_score_but_excludes_product_failure(tmp_path):
@@ -280,20 +281,20 @@ def test_only_precall_rejections_have_no_latency_samples():
     record = {'case_id': 'case', 'provider': 'method', 'ok': False,
               'elapsed_ms': 9000, 'metrics': {'content_pass': False},
               'report_invocation_status': 'adapter_rejected'}
-    soup = BeautifulSoup(overall_ranking([record], {'case': {'id': 'case'}}), 'html.parser')
+    soup = BeautifulSoup(overall_ranking([record], {'case': {'id': 'case'}}, ctx=RenderContext()), 'html.parser')
     assert [c.get_text() for c in soup.select('#ranking-overall tbody td')[-3:]] == ['—', '—', '—']
 
 
 def test_instance_method_labels_reach_full_renderer_and_reset(tmp_path):
     from harness.web_fetch.report import provider_label
-    original = provider_label('method')
+    original = provider_label('method', ctx=RenderContext())
     spec, _, _, _ = fixture(tmp_path)
     label = 'Moli 1.1.19 · 系统 DNS'
     spec['providers'][0]['label'] = label
     root = build(tmp_path, spec).parent
     for path in ['index.html','providers/method.html','attempts/first--run-001.html','analysis/index.html']:
         assert label in BeautifulSoup((root/path).read_text(encoding='utf-8'),'html.parser').get_text()
-    assert provider_label('method') == original
+    assert provider_label('method', ctx=RenderContext()) == original
 
 
 def test_saved_scope_banner_distinguishes_uncommitted_and_user_skip(tmp_path):
@@ -341,7 +342,7 @@ def test_saved_matrix_timing_labels_match_final_call_values(tmp_path):
     assert values==['12 ms','12 ms','12 ms']
     assert '每个逻辑结果只取最终一次调用耗时' in page.get_text()
     assert '总耗时按每题所有物理调用累计' not in page.get_text()
-    legacy=BeautifulSoup(overall_ranking([record],{'same':{'id':'same'}}),'html.parser')
+    legacy=BeautifulSoup(overall_ranking([record],{'same':{'id':'same'}}, ctx=RenderContext()),'html.parser')
     assert [x.get_text().removesuffix(' ↕') for x in legacy.select('#ranking-overall th')][-3:]==['最终调用耗时均值','最终调用耗时 P50','最终调用耗时 P95']
     assert '总耗时按每题所有物理调用累计' not in legacy.get_text()
     assert [x.get_text() for x in legacy.select('#ranking-overall tbody tr td')][-3:]==values
@@ -383,7 +384,8 @@ def test_nested_suite_names_partition_by_identity(tmp_path):
 @pytest.mark.parametrize('diagnostic', [False, True])
 @pytest.mark.parametrize('tie', [False, True])
 def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
-    from harness.web_fetch.report import ranking, rendering
+    from harness.web_fetch.report import ranking
+    from harness.web_fetch.report_model import MethodScope, model_render_context
     from harness.web_fetch.report_model import report_model
     cases = {'a': {'id': 'a', 'report_family': 'suite'},
              'b': {'id': 'b', 'report_family': 'suite'}}
@@ -394,8 +396,8 @@ def test_suite_ranking_orders_final_and_diagnostic_results(diagnostic, tie):
                    ('z-winner','b',True)]]
     model = report_model({'cases': list(cases.values())}, records,
                          suites=[{'id': 'suite', 'label': 'Suite', 'case_ids': list(cases)}])
-    with rendering(model):
-        soup = BeautifulSoup(ranking(records,cases,'suite',diagnostic=diagnostic),'html.parser')
+    soup = BeautifulSoup(ranking(records,cases,'suite',diagnostic=diagnostic,
+                                 ctx=model_render_context(model, methods=MethodScope())),'html.parser')
     table = soup.select_one('#ranking-suite')
     rows = soup.select('tbody tr')
     assert ('alphabetic-first' if tie else 'z-winner') in rows[0].get_text()

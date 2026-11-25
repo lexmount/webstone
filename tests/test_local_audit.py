@@ -9,6 +9,7 @@ import pytest
 
 from harness.web_fetch import local_audit
 from harness.record_io import canonical_json_sha256
+from harness.web_fetch.report_model import RenderContext
 
 
 def _digest(path):
@@ -321,7 +322,7 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     from harness.web_fetch.artifacts import record_public_call_log_bindings
     spec = report_interfaces.SPECS["langchain-webbase"]
     monkeypatch.setattr(report_interfaces, "SPECS", {"fixture": spec})
-    interfaces = report_interfaces.render_interfaces(output, records)
+    interfaces = report_interfaces.render_interfaces(output, records, ctx=RenderContext())
     assert "本轮保存的调用字段" in interfaces
     saved = json.loads((output / record_public_call_log_bindings(records[0])[-1]["path"]).read_text(encoding="utf-8"))
     rendered = json.loads((output / "adoption/interfaces/fixture.json").read_text(encoding="utf-8"))
@@ -331,13 +332,13 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     from harness.web_fetch.report import provider_page_body
     method_records = [{**records[0], "provider_type": "firecrawl"}]
     method_cases = {actual["id"]: actual}
-    page = provider_page_body("firecrawl", method_records, method_cases, [], [], native_default=True)
+    page = provider_page_body("firecrawl", method_records, method_cases, [], [], native_default=True, ctx=RenderContext())
     assert "产品内部超时保留默认值" not in page
     assert "内部参数以保存的请求为准" in page
     assert 'href="../methodology/index.html"' in page
     assert 'href="../reproduce/index.html"' in page
     assert "Actions" not in page
-    assert "Actions" in provider_page_body("firecrawl", method_records, method_cases, [], [])
+    assert "Actions" in provider_page_body("firecrawl", method_records, method_cases, [], [], ctx=RenderContext())
 
     from harness.report_languages import select_report_language
     select_report_language(output, primary_language)
@@ -668,7 +669,7 @@ def test_local_call_chain_section_discloses_real_log_gaps_and_escapes_text():
             "task_pass": 0, "logs": 5, "native_log_note": "2次原生日志缺失；<内部过程未知>",
             "assessment": "<原生内部原因未知>"}],
         "findings": [{"text": "无新增调用"}]}}}
-    html = local_call_chain_section(dataset)
+    html = local_call_chain_section(dataset, ctx=RenderContext())
     assert "2次原生日志缺失" in html
     assert "&lt;内部过程未知&gt;" in html
     assert "调用数" not in html and "题目通过" not in html
@@ -687,7 +688,7 @@ def test_report_real_diagnostics_do_not_claim_missing_debug(tmp_path):
                  "public_log_note": "原生日志缺失，仅保留调用方事件",
                  "diagnostic_log_bytes": len(log.read_bytes()),
                  "diagnostic_log_sha256": _digest(log)}}
-    html = run_log_section(tmp_path, record, "")
+    html = run_log_section(tmp_path, record, "", ctx=RenderContext())
     assert "原生日志缺失，仅保留调用方事件" in html
     assert "已保存文件未截断；原生日志范围见说明" in html
     assert "没有保存 debug 日志" not in html
@@ -1072,7 +1073,7 @@ def test_diagnostic_viewers_share_unchanged_source_across_languages(tmp_path):
     source=tmp_path/'logs/actual.txt';source.parent.mkdir()
     original=('ERROR: exact target failure\n'+'payload ' * 20000+'unique-full-file-tail').encode()
     source.write_bytes(original)
-    relative=diagnostic_view_page(tmp_path,'logs/actual.txt','已保存的诊断日志','仅包含实际观测的日志。')
+    relative=diagnostic_view_page(tmp_path,'logs/actual.txt','已保存的诊断日志','仅包含实际观测的日志。', ctx=RenderContext())
     write_english_report(tmp_path,source_routes=[relative])
     for prefix in ['', 'en/']:
         raw=(tmp_path/prefix/relative).read_bytes()
@@ -1149,7 +1150,7 @@ def test_long_product_and_caller_logs_use_one_existing_source(tmp_path):
          'ok':False,'elapsed_ms':100,'error_type':'NativeError','error_message':'exact native failure',
          'provider_metadata':{'public_debug_log_path':'logs/runtime.txt',
              'public_debug_log_sha256':_digest(source)}}
-    rendered=run_log_section(tmp_path,row,'')
+    rendered=run_log_section(tmp_path,row,'', ctx=RenderContext())
     assert len(rendered)<30000 and 'unique-native-tail'not in rendered
     soup=BeautifulSoup(rendered,'html.parser')
     assert soup.select_one('dialog pre[data-file]')['data-file']=='logs/runtime.txt'

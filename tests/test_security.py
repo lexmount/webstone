@@ -13,6 +13,7 @@ from harness.web_fetch.report_model import report_model
 from harness.web_fetch.runner import load_records, rescore_evaluation, run_evaluation
 from lexbench_webfetch.paths import contained_path, safe_identifier
 from harness.web_fetch.webmainbench_correction import copy_contained_artifact
+from harness.web_fetch.report_model import RenderContext
 
 
 class SecurityTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class SecurityTests(unittest.TestCase):
         class Tags(HTMLParser):
             def __init__(self): super().__init__(); self.tags=[]
             def handle_starttag(self,tag,attrs): self.tags.append((tag,dict(attrs)))
-        for attrs in [dataset_attrs(case),case_attrs(record,case)]:
+        for attrs in [dataset_attrs(case),case_attrs(record,case, ctx=RenderContext())]:
             parser=Tags(); parser.feed('<tr'+attrs+'></tr>')
             self.assertEqual(len(parser.tags),1)
             tag,values=parser.tags[0]
@@ -44,7 +45,7 @@ class SecurityTests(unittest.TestCase):
             (root/'escape').symlink_to(outside, target_is_directory=True)
             for bad in ['../outside', '/tmp/out', 'C:\\out', 'escape/data.txt', '..\\out']:
                 with self.subTest(bad=bad), self.assertRaises(ValueError): contained_path(root,bad)
-            with self.assertRaises(ValueError): write(root,'escape/out.html','x','x')
+            with self.assertRaises(ValueError): write(root,'escape/out.html','x','x', ctx=RenderContext())
             (root/'results.jsonl').symlink_to(outside/'results.jsonl')
             with self.assertRaises(ValueError): load_records(root)
             self.assertFalse((outside/'out.html').exists())

@@ -9,6 +9,7 @@ from harness.report_languages import write_language_contract
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.presentation import esc
 from harness.web_fetch.methods import method_access, native_browser_engine, report_method, versioned_method_label
+from harness.web_fetch.report_model import RenderContext
 from harness.web_fetch.report import readable_output
 from harness.web_fetch.webmainbench_report import _wmb_html_preview
 from harness.web_fetch.report_i18n import report_text, t
@@ -28,6 +29,7 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
                   identities: dict, profile: dict, report_content: dict, *,
                   include_english: bool = False) -> None:
  """Render the current WCXB comparison from one certified semantic model."""
+ ctx=RenderContext();scope=ctx.methods
  languages=('zh','en') if include_english else ('zh',)
  if (report_content.get('schema_version') != 1
      or not isinstance(report_content.get('guide'),dict)
@@ -109,7 +111,7 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
   if profile.get('participants',{}).get(provider,{}).get('label'):
    return profile['participants'][provider]['label']
   record={'provider':provider, 'provider_metadata':identities[provider]}
-  registered=report_method(provider,record)
+  registered=report_method(provider,record, scope=scope)
   base=registered.get('label',{}).get('en',identities[provider].get('engine') or provider)
   version=identities[provider].get('reported_version')
   label=versioned_method_label(registered,base,version) if version else base
@@ -215,8 +217,8 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
   flow_source='flowchart LR\n A["'+flow_labels[0]+'"] --> B["'+flow_labels[1]+'"]\n B --> C["'+flow_labels[2]+'"]\n C --> D["'+flow_labels[3]+'"]\n D --> E["'+flow_labels[4]+'"]\n C -- '+(report_text('zh' if lang == 'zh' else 'en')('failure_retry', 'failure retry'))+' --> B'
   flow='<div class="panel"><h2>'+(report_text('zh' if lang == 'zh' else 'en')('from_one_page_to_one_result', 'From one page to one result'))+'</h2><div class="flow"><div class="flow-fallback">'+' <b class="arrow">→</b> '.join(f'<span class="tag">{esc(label)}</span>' for label in flow_labels)+'</div><pre class="mermaid" hidden>'+esc(flow_source)+'</pre></div></div>'
   measured_records={p:{'provider':p,'provider_metadata':identities[p]} for p in providers}
-  route_descriptions={p:_observed_route(native_browser_engine(p,measured_records[p]),identities[p],language=lang) for p in providers}
-  interface_specs={p:method_spec(p,measured_records[p],language=lang) for p in providers}
+  route_descriptions={p:_observed_route(native_browser_engine(p,measured_records[p], scope=scope),identities[p],language=lang, ctx=ctx) for p in providers}
+  interface_specs={p:method_spec(p,measured_records[p],language=lang, ctx=ctx) for p in providers}
   measured_routes='<ul>'+''.join(f'<li>{esc(browser_label(p))}: {esc(route_descriptions[p])}</li>' for p in providers)+'</ul>'
   if lang=='zh':
    method=('<div class="hero"><h1>' + t('methodology', 'Methodology') + f"""</h1><p>{case_count} 份冻结 HTML、全部执行配置、一套官方词语重合评分。</p></div>{flow}<section class="panel"><h2>输入与运行边界</h2><p>WCXB v1.0 test 分区中，按冻结输入和人工参考核定的 {case_count} 页进入本报告。全部配置读取完全相同的冻结 HTML；本地配置通过隔离的回环 HTTPS 服务读取，远程配置使用 HTML 输入接口。外部子资源被阻断。每页一次逻辑调用；失败最多重试 {profile.get('max_failure_retries', 0)} 次，全部物理调用保留并累计端到端耗时，最后一次响应是唯一正式结果。</p><p>没有共同的主内容选择器。</p>{measured_routes}</section><section class="panel"><h2>分母与评分</h2><p>官方评估器将文本转为小写词语，按词频计算精确率、召回率和 F1。质量比较只使用事前验证的 {quality_count} 页有效参考，逐页等权。F1 不计段落顺序、Markdown 结构或表格行列。应包含和应排除片段另作诊断，不进入 F1。</p><p>质量与耗时都使用同一批 {case_count} 页；正式版与 PR 构建版分别保留原始调用证据。</p></section><section class="panel"><h2>定位与耗时</h2><p>""" + t('request_failures_empty_output_and_error_pages', 'Request failures, empty output and error pages are located separately; with a non-empty reference, precision or recall below 25% shows the matching low value. This threshold is only a filter, not a WCXB official pass mark. Latency includes calls and failure retries and is not browser-engine speed; configurations differ in work route and deployment distance.') + '</p></section>')
@@ -259,7 +261,7 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
   page(lang,'changes/index.html',x['changes'],changes)
   account_rows=[]
   for p in providers:
-   access=method_access(p,access_records,language=lang)
+   access=method_access(p,access_records,language=lang, scope=scope)
    links=' '.join(f'<a href="{esc(url)}">{esc(label)}</a>' for label,url in access['links'])
    account_rows.append(f'<tr><td>{esc(browser_label(p))}</td><td>{esc("、".join(access["env_vars"]))}</td><td>{esc(access["account"])}</td><td>{links}</td><td>{esc(access["configuration"])}</td></tr>')
   accounts=f"""<div class="hero"><h1>{esc(x['accounts'])}</h1><p>{report_text('zh' if lang == 'zh' else 'en')('account_requirements_come_from_the_method_registry', 'Account requirements come from the method registry. Missing installation bindings are disclosed; local paths and credential values are not published.')}</p></div><section class="panel"><div class="scroll"><table><thead><tr><th>{esc(x['provider'])}</th><th>{report_text('zh' if lang == 'zh' else 'en')('environment_variables', 'Environment variables')}</th><th>{report_text('zh' if lang == 'zh' else 'en')('account_requirement', 'Account requirement')}</th><th>{report_text('zh' if lang == 'zh' else 'en')('official_source', 'Official source')}</th><th>{report_text('zh' if lang == 'zh' else 'en')('installation_configuration', 'Installation configuration')}</th></tr></thead><tbody>{''.join(account_rows)}</tbody></table></div></section>"""

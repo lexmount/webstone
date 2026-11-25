@@ -7,6 +7,7 @@ import pytest
 
 from harness.web_fetch.report_saved_matrix import build_saved_matrix, check_saved_matrix
 from tests.test_saved_matrix_evidence import build, fixture, write
+from harness.web_fetch.report_model import RenderContext
 
 
 def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False):
@@ -333,7 +334,7 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports)
     output = tmp_path / 'presentation'
     shutil.copytree(entries[0]['root'], output)
     shutil.copytree(entries[1]['root'], output / 'additional')
-    cases, records, providers, _, _ = _joined_presentation(output)
+    cases, records, providers, _, _ = _joined_presentation(output, ctx=RenderContext())
     assert len(cases) == 1 and len(records) == len(providers) == 2
     rendered = _shared_presentations(output)
     overall = BeautifulSoup(rendered['overall'], 'html.parser')
@@ -856,9 +857,9 @@ def test_extension_join_preserves_repeated_url_name_cases(tmp_path, renamed, ide
     shutil.copytree(roots[1], output/'additional')
     if identical and renamed:
         with pytest.raises(ValueError, match='ambiguous or unmatched task identities'):
-            _joined_presentation(output)
+            _joined_presentation(output, ctx=RenderContext())
         return
-    cases, records, _, _, _ = _joined_presentation(output)
+    cases, records, _, _, _ = _joined_presentation(output, ctx=RenderContext())
     assert len(cases) == 2 and len(records) == 4
     per_method = {p: {r['case_id']: r['elapsed_ms'] for r in records if r['provider'] == p}
                   for p in ('method-0', 'method-1')}
@@ -1128,9 +1129,9 @@ def test_extension_keeps_each_edition_task_rules_and_classification(tmp_path):
     output, path = _real_extension(tmp_path, source_reports=entries)
     native_cases = json.loads((output/'additional/dataset.json').read_bytes())['cases']
     native_record = load_jsonl(output/'additional/results.jsonl')[0]
-    expected_category = renderer.failure_category(native_record, native_cases[0])
+    expected_category = renderer.failure_category(native_record, native_cases[0], ctx=RenderContext())
     base_case = json.loads((output/'dataset.json').read_bytes())['cases'][0]
-    assert expected_category != renderer.failure_category(native_record, base_case)
+    assert expected_category != renderer.failure_category(native_record, base_case, ctx=RenderContext())
     spec = json.loads(path.read_bytes())
     spec['presentation'] = 'ranked'
     write(path, spec)
@@ -1246,7 +1247,7 @@ def test_extension_preserves_each_source_review_scope(tmp_path):
                  'attempts': [{'attempt_id': records[0]['attempt_id'], 'final_verdict': 'pass'}] if not index else [],
                  'review_rounds': []}
         write(root/'result-review.json', audit)
-        write_review_page(root, records)
+        write_review_page(root, records, ctx=RenderContext())
         originals.append((root/'review/index.html').read_bytes())
     output, path = _real_extension(tmp_path, source_reports=entries, source_languages=('bilingual', 'bilingual'))
     spec = json.loads(path.read_bytes())

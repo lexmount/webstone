@@ -24,6 +24,7 @@ from harness.web_fetch.report_components import (
 )
 from lexbench_webfetch.stable_tasks import evaluate_stable_task
 from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+from harness.web_fetch.report_model import RenderContext
 
 
 def case(identifier='list', kind='structure', track='challenge'):
@@ -143,11 +144,11 @@ class ReportBodyScopeTests(unittest.TestCase):
         c=case('body',kind='body')
         rows=[record(c,passed=True,elapsed=100),record(c,passed=False,elapsed=900)]
         rows[1]['provider']='second'
-        rendered=overview_all_call_latency(rows,{c['id']:c})
+        rendered=overview_all_call_latency(rows,{c['id']:c}, ctx=RenderContext())
         self.assertIn('900 ms',rendered)
         self.assertIn('全部调用 P95',rendered)
         with self.assertRaises(ValueError):
-            overview_all_call_latency(rows,{c['id']:c,'missing':case('missing',kind='body')})
+            overview_all_call_latency(rows,{c['id']:c,'missing':case('missing',kind='body')}, ctx=RenderContext())
 
     def test_body_display_uses_visible_body_without_title_or_scripts(self):
         from lexbench_webfetch.scoring import score_attempt
@@ -267,7 +268,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             'diagnostic_log_truncated': False,
         }
         with tempfile.TemporaryDirectory() as directory:
-            rendered = run_log_section(Path(directory), r, 'output')
+            rendered = run_log_section(Path(directory), r, 'output', ctx=RenderContext())
         self.assertIn('完整原始 debug 日志', rendered)
         self.assertIn(
             '../../private_artifacts/moli-1.1.11/debug-log/run-001.stderr.log',
@@ -301,8 +302,8 @@ class ReportBodyScopeTests(unittest.TestCase):
         }
         r = record(c, passed=False)
         r["metrics"].update(metrics, stable_task_pass=True, stable_content_pass=True)
-        self.assertEqual(reason(r, c), "组合规则未满足：articles。")
-        self.assertEqual(failure_category(r, c), "规则不满足")
+        self.assertEqual(reason(r, c, ctx=RenderContext()), "组合规则未满足：articles。")
+        self.assertEqual(failure_category(r, c, ctx=RenderContext()), "规则不满足")
 
     def test_risk_control_failure_categories_are_exclusive_and_output_first(self):
         c = case("risk", "body", "risk_control")
@@ -315,22 +316,22 @@ class ReportBodyScopeTests(unittest.TestCase):
             return r
 
         self.assertEqual(
-            failure_category(failed(blocked_page=True, composite_acceptance_pass=False), c),
+            failure_category(failed(blocked_page=True, composite_acceptance_pass=False), c, ctx=RenderContext()),
             "返回验证或拦截页面",
         )
         for track in ("risk_control", "web", "challenge", "popular"):
             qualified_case = case("qualified", "body", track)
             qualified = record(qualified_case, passed=True)
             qualified["metrics"].update(forbidden_requirement_hits=[], blocked_page=True, stable_blocked_page=True)
-            self.assertEqual(failure_category(qualified, qualified_case), "—")
-        self.assertEqual(failure_category(failed(content_chars=0), c), "完全空返回")
+            self.assertEqual(failure_category(qualified, qualified_case, ctx=RenderContext()), "—")
+        self.assertEqual(failure_category(failed(content_chars=0), c, ctx=RenderContext()), "完全空返回")
         self.assertEqual(
             failure_category(failed(content_chars=37, markdown_headings=0, markdown_links=0,
-                                    stable_anchor_hits=0, content_check_hits=0), c),
+                                    stable_anchor_hits=0, content_check_hits=0), c, ctx=RenderContext()),
             "只返回等待提示或页面外壳",
         )
         self.assertEqual(
-            failure_category(failed(composite_acceptance_pass=False), c),
+            failure_category(failed(composite_acceptance_pass=False), c, ctx=RenderContext()),
             "规则不满足",
         )
 
@@ -339,7 +340,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         r['metrics']['body_region_results']=[{'coverage':0,'target_pass':False}]
         r['metrics']['body_coverage_pass']=False
         r['diagnosis']={'evidence':'CLI 请求失败：curl request failed'}
-        self.assertEqual(reason(r,c),'CLI 请求失败：curl request failed')
+        self.assertEqual(reason(r,c, ctx=RenderContext()),'CLI 请求失败：curl request failed')
 
     def test_quote_inline_whitespace_loss_exposes_invalid_tag_boundaries(self):
         anchor={'id':'fixed','alternatives':['“An independent thought.”\nby Some Author\nTags: first second']}
@@ -364,7 +365,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory);(out/'result-review.json').write_text(json.dumps(audit), encoding='utf-8')
             with patch('harness.web_fetch.report_methods.render_methods',return_value='methods'):
-                write_support(out,[r],[])
+                write_support(out,[r],[], ctx=RenderContext())
             rendered=(out/'review/index.html').read_text(encoding='utf-8')
             for phrase in ['当前状态','核验轮次','第 1 轮','核验协议与执行者']:
                 self.assertIn(phrase,rendered)
@@ -381,7 +382,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         first,second=record(a),record(b)
         second['provider']='other'
         for r in [first,second]:r['metrics']['fact_results']=[{'id':'x','pass':True}]
-        rendered=ranking([first,second],{'a':a,'b':b},'challenge')
+        rendered=ranking([first,second],{'a':a,'b':b},'challenge', ctx=RenderContext())
         self.assertIn('各方法文字核对范围不同',rendered)
         self.assertIn('<summary>文字核对覆盖范围</summary>',rendered)
         for row in table_cells(rendered,'ranking-challenge'):
@@ -394,7 +395,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             c=case('example','body');c['track']=track
             r=record(c,passed=False)
             r['metrics']['fact_results']=[{'id':'a','pass':True},{'id':'b','pass':False}]
-            rendered=ranking([r],{'example':c},track)
+            rendered=ranking([r],{'example':c},track, ctx=RenderContext())
             row=table_cells(rendered,'ranking-'+track)[0]
             self.assertEqual(row[7],'50.0%')
             self.assertIn('文字核对范围：各方法均为 1/1 例',rendered)
@@ -409,7 +410,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                 c=case('example','body',track)
                 c['ground_truth_main_content']=''
                 r=record(c)
-                rendered=ranking([r],{'example':c},track)
+                rendered=ranking([r],{'example':c},track, ctx=RenderContext())
                 row=table_cells(rendered,'ranking-'+track)[0]
                 self.assertEqual(row[4:7],['—']*3)
                 self.assertNotIn('资源命中率',rendered)
@@ -420,7 +421,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         c['acceptance_contract']={'schema':'product','minimum_records':3}
         c['source_benchmark']={'stable_annotation':{'structural_only_fields':['price']}}
         r=record(c)
-        row=table_cells(ranking([r],{'example':c},'dynamic'),'ranking-dynamic')[0]
+        row=table_cells(ranking([r],{'example':c},'dynamic', ctx=RenderContext()),'ranking-dynamic')[0]
         self.assertEqual(row[4:7],['—']*3)
         self.assertEqual(r['metrics']['word_f1'],.8)
 
@@ -434,15 +435,15 @@ class ReportBodyScopeTests(unittest.TestCase):
         self.assertNotIn('前三条名称与详情身份',rendered)
         from harness.web_fetch.report import reason, stable_checks
         r={'ok':True,'metrics':{'stable_task_pass':True}}
-        self.assertIn('未设置稳定文字核对点',reason(r,c))
-        self.assertNotIn('稳定内容与结构检查通过',reason(r,c))
+        self.assertIn('未设置稳定文字核对点',reason(r,c, ctx=RenderContext()))
+        self.assertNotIn('稳定内容与结构检查通过',reason(r,c, ctx=RenderContext()))
         self.assertIn('不作文字内容已核验的结论',stable_checks(r['metrics']))
 
     def test_list_outcomes_and_times_are_main_metrics_without_fake_word_scores(self):
         cases = {str(i):case(str(i)) for i in range(10)}
         records = [record(c) for c in cases.values()]
         before = copy.deepcopy((cases, records))
-        rendered = ranking(records, cases, 'challenge')
+        rendered = ranking(records, cases, 'challenge', ctx=RenderContext())
         self.assertIn('完整参考覆盖 0/10', rendered)
         row = table_cells(rendered, 'ranking-challenge')[0]
         self.assertEqual(row[2], '100.0%')  # Transport remains measured.
@@ -458,7 +459,7 @@ class ReportBodyScopeTests(unittest.TestCase):
     def test_future_body_case_in_challenge_is_measured(self):
         body, auxiliary = case('body', 'body'), case('list')
         rendered = ranking([record(body, elapsed=20), record(auxiliary, elapsed=900)],
-                           {'body':body, 'list':auxiliary}, 'challenge')
+                           {'body':body, 'list':auxiliary}, 'challenge', ctx=RenderContext())
         row = table_cells(rendered, 'ranking-challenge')[0]
         self.assertEqual(row[3:7], ['100.0%', '80.0%', '80.0%', '80.0%'])
         self.assertEqual(row[8], '460 ms')
@@ -467,7 +468,7 @@ class ReportBodyScopeTests(unittest.TestCase):
 
     def test_zero_pass_can_have_nonzero_f1_and_no_pass_latency(self):
         c=case('body','body','web')
-        row=table_cells(ranking([record(c,passed=False)], {'body':c}, 'web'),'ranking-web')[0]
+        row=table_cells(ranking([record(c,passed=False)], {'body':c}, 'web', ctx=RenderContext()),'ranking-web')[0]
         self.assertEqual(row[3:7], ['0.0%', '80.0%', '80.0%', '80.0%'])
         self.assertEqual(row[8:11], ['—']*3)
         self.assertEqual(row[11], '1/1')
@@ -475,31 +476,31 @@ class ReportBodyScopeTests(unittest.TestCase):
     def test_request_failure_zero_and_macro_case_average(self):
         first,second=case('a','body'),case('b','body')
         rs=[record(first,score=1),record(first,ok=False,score=1),record(second,score=.2)]
-        row=table_cells(ranking(rs, {'a':first,'b':second}, 'challenge'),'ranking-challenge')[0]
+        row=table_cells(ranking(rs, {'a':first,'b':second}, 'challenge', ctx=RenderContext()),'ranking-challenge')[0]
         self.assertEqual(row[5], '35.0%')  # mean(mean(1,0), .2), not pooled .4
 
     def test_optional_full_reference_diagnostics_independent_of_task_kind(self):
         a,b=case('a'),case('b','body')
         a['ground_truth_main_content']='complete scoped text reference'
         b['content_score_applicable']=False
-        rendered=ranking([record(a),record(b)],{'a':a,'b':b},'challenge')
+        rendered=ranking([record(a),record(b)],{'a':a,'b':b},'challenge', ctx=RenderContext())
         self.assertIn('完整参考覆盖 2/2',rendered)
         self.assertIn('2 例完整参考',reference_status([a,b]))
         self.assertEqual(table_cells(rendered,'ranking-challenge')[0][4:7],['80.0%']*3)
 
     def test_home_card_uses_genuine_task_result(self):
-        c=case(); rendered=overview_card([record(c)],{'list':c},'challenge',TRACKS['challenge'],['fixture'])
+        c=case(); rendered=overview_card([record(c)],{'list':c},'challenge',TRACKS['challenge'],['fixture'], ctx=RenderContext())
         self.assertNotIn('正文未评测',rendered)
         self.assertIn('本类最高：<b>100.0%</b>',rendered)
         self.assertIn('fixture',rendered)
         self.assertNotIn('种方法完整判分',rendered)
         c=case('body','body')
-        self.assertIn('100.0%',overview_card([record(c)],{'body':c},'challenge',TRACKS['challenge'],['fixture']))
+        self.assertIn('100.0%',overview_card([record(c)],{'body':c},'challenge',TRACKS['challenge'],['fixture'], ctx=RenderContext()))
 
     def test_case_and_attempt_labels_preserve_measured_task(self):
         c=case();r=record(c)
-        self.assertEqual('100.0%',case_rate([r],c))
-        attrs,rendered=attempt_row(r,c)
+        self.assertEqual('100.0%',case_rate([r],c, ctx=RenderContext()))
+        attrs,rendered=attempt_row(r,c, ctx=RenderContext())
         self.assertIn('data-content="na"',attrs)
         self.assertIn('列表任务：通过',rendered)
         self.assertNotIn('未评测',rendered)
@@ -507,7 +508,7 @@ class ReportBodyScopeTests(unittest.TestCase):
     def test_identity_results_not_relabelled_as_mechanical_counts(self):
         c=case();r=record(c,passed=False)
         r['metrics']['structure_pass']=True
-        rendered=ranking([r],{'list':c},'challenge')
+        rendered=ranking([r],{'list':c},'challenge', ctx=RenderContext())
         self.assertEqual(table_cells(rendered,'ranking-challenge')[0][3],'0.0%')
         self.assertIn('独立内容证据',list_rule_description(c))
         c['source_benchmark']={'minimum_entries':5}
@@ -537,7 +538,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             for page in ['index.html', 'datasets/list.html']:
                 self.assertIn('稳定标题、栏目、说明', (out/page).read_text(encoding='utf-8'))
             with patch('harness.web_fetch.report_methods.render_methods',return_value='methods'):
-                write_support(out,[r],[])
+                write_support(out,[r],[], ctx=RenderContext())
             self.assertIn('task-contracts',(out/'methodology/index.html').read_text(encoding='utf-8'))
 
     def test_body_detail_leads_with_exact_reference_and_output_and_explains_positions(self):
@@ -638,7 +639,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                              'call_log':{'path':relative,'sha256':hashlib.sha256(raw).hexdigest(),
                                          'bytes':len(raw)}})
             r['provider_metadata']={'retry':{'attempts':logs}}
-            rendered=run_log_section(out,r,'output')
+            rendered=run_log_section(out,r,'output', ctx=RenderContext())
             for phrase in ('物理调用 1','物理调用 2','ERROR first physical call',
                            'final_url=https://example.com/retried','physical-1.json','physical-2.json'):
                 self.assertIn(phrase,rendered)
@@ -648,7 +649,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         r=record(case());r.update(ok=False,error_type='timeout',error_message='Full runtime error '+('details '*100),
             provider_metadata={'browser_version':'155.0.8059.39','binary_sha256':'actual-hash'})
         with tempfile.TemporaryDirectory() as directory:
-            rendered=run_log_section(Path(directory),r,'')
+            rendered=run_log_section(Path(directory),r,'', ctx=RenderContext())
         self.assertIn(r['error_message'],rendered)
         self.assertIn('<h3>程序错误</h3>',rendered)
         self.assertIn('timeout',rendered)
@@ -660,7 +661,7 @@ class ReportBodyScopeTests(unittest.TestCase):
     def test_run_log_section_uses_supplied_output_when_artifact_path_is_absent(self):
         c=case('unpersisted','body','web');r=record(c);r.pop('artifact_path')
         with tempfile.TemporaryDirectory() as directory:
-            rendered=run_log_section(Path(directory),r,'fallback output')
+            rendered=run_log_section(Path(directory),r,'fallback output', ctx=RenderContext())
         self.assertIn('15 字节',rendered)
         self.assertIn('没有可下载的原始记录',rendered)
 
@@ -815,7 +816,7 @@ class ReportBodyScopeTests(unittest.TestCase):
                                      for url in candidate_urls],
                 unexpected_resource_urls=extra,
             )
-            fallback=reason(r,c)
+            fallback=reason(r,c, ctx=RenderContext())
             self.assertIn(zh_reason,fallback)
             if extra:self.assertIn(unexpected,fallback)
             if not r['metrics']['resource_pass']:
@@ -868,7 +869,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             for index in range(5)
         ])
         r['diagnosis']={'evidence':'body-region-1'}
-        rendered=reason(r,c)
+        rendered=reason(r,c, ctx=RenderContext())
         self.assertIn('开头 10.0%',rendered)
         self.assertNotIn('body-region',rendered)
 
@@ -880,7 +881,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         records=[json.loads(s) for s in (evidence/'results.jsonl').read_text(encoding='utf-8').splitlines()]
         if len({r['provider'] for r in records}) != 12:
             self.skipTest('requires persisted 12-provider general benchmark evidence')
-        rendered=ranking(records,cases,'challenge')
+        rendered=ranking(records,cases,'challenge', ctx=RenderContext())
         self.assertIn('完整参考覆盖 0/10',rendered)
         rows=table_cells(rendered,'ranking-challenge')
         self.assertEqual(len(rows),12)
@@ -889,7 +890,7 @@ class ReportBodyScopeTests(unittest.TestCase):
         from harness.web_fetch.report import succeeded
         for row in rows:
             subset=[r for r in records if r['provider']==row[1] and cases[r['case_id']].get('track')=='challenge']
-            passed=[r for r in subset if succeeded(r,cases[r['case_id']])]
+            passed=[r for r in subset if succeeded(r,cases[r['case_id']], ctx=RenderContext())]
             self.assertEqual(row[3],f'{len(passed)/len(subset)*100:.1f}%')
             self.assertEqual(row[8]=='—',not passed)
 
@@ -912,8 +913,8 @@ class ReportBodyScopeTests(unittest.TestCase):
             stable_records=[dict(fields={'title':'<item>','url':'https://example.com/1'},valid=True,errors=[])])
         r['metrics']['stable_anchor_results'][0]['pass']=r['metrics']['stable_anchor_results'][0].pop('pass_')
         self.assertEqual(scoring_scope([r],{'list':c}),'stable_contract')
-        self.assertIn('结构检查通过',reason(r,c))
-        self.assertEqual(table_cells(ranking([r],{'list':c},'challenge'),'ranking-challenge')[0][3],'100.0%')
+        self.assertIn('结构检查通过',reason(r,c, ctx=RenderContext()))
+        self.assertEqual(table_cells(ranking([r],{'list':c},'challenge', ctx=RenderContext()),'ranking-challenge')[0][3],'100.0%')
         with tempfile.TemporaryDirectory() as directory:
             out=Path(directory);artifact=out/r['artifact_path'];artifact.parent.mkdir(parents=True);artifact.write_text('output', encoding='utf-8')
             with patch('harness.web_fetch.report_explainer.render_explainer',return_value='article'), patch('harness.web_fetch.report.write_support'):
@@ -928,9 +929,9 @@ class ReportBodyScopeTests(unittest.TestCase):
             self.assertIn('稳定文本锚点',(out/'datasets/list.html').read_text(encoding='utf-8'))
         r['metrics'].update(stable_task_pass=False,stable_content_pass=False,
                             stable_task_errors=['missing_stable_anchor:heading'],list_task_pass=True)
-        self.assertEqual(table_cells(ranking([r],{'list':c},'challenge'),'ranking-challenge')[0][3],'0.0%')
-        self.assertIn('稳定文字或记录结构没有满足任务要求',reason(r,c))
-        self.assertNotIn('missing_stable_anchor:heading',reason(r,c))
+        self.assertEqual(table_cells(ranking([r],{'list':c},'challenge', ctx=RenderContext()),'ranking-challenge')[0][3],'0.0%')
+        self.assertIn('稳定文字或记录结构没有满足任务要求',reason(r,c, ctx=RenderContext()))
+        self.assertNotIn('missing_stable_anchor:heading',reason(r,c, ctx=RenderContext()))
 
     def test_stable_failure_categories_preserve_diagnosis_and_filters(self):
         from harness.web_fetch.report import failure_category, failure_filters
@@ -941,11 +942,11 @@ class ReportBodyScopeTests(unittest.TestCase):
             with self.subTest(error=error):
                 r=record(c,passed=False)
                 r['metrics'].update(stable_task_pass=False,stable_task_errors=[error],stable_minimum_records=3)
-                self.assertEqual(failure_category(r,c),label)
+                self.assertEqual(failure_category(r,c, ctx=RenderContext()),label)
                 r['diagnosis']=diagnose(r,c,'')
-                self.assertEqual(failure_category(r,c),label)
-                self.assertIn((label,label),failure_filters([r],{'list':c})[1][2])
-                self.assertIn('data-failure-category="'+label+'"',attempt_row(r,c)[0])
+                self.assertEqual(failure_category(r,c, ctx=RenderContext()),label)
+                self.assertIn((label,label),failure_filters([r],{'list':c}, ctx=RenderContext())[1][2])
+                self.assertIn('data-failure-category="'+label+'"',attempt_row(r,c, ctx=RenderContext())[0])
 
     def test_fixed_contract_rules_survive_absent_historical_attachment(self):
         from harness.web_fetch.report_components import stable_contract_details
@@ -1000,7 +1001,7 @@ class ReportBodyScopeTests(unittest.TestCase):
             for name in ['annotation','validation','scoring']:
                 self.assertEqual((out/f'assets/methodology/{name}.png').read_bytes(),b'fixture image bytes')
             with patch('harness.web_fetch.report_methods.render_methods',return_value='methods'):
-                write_support(out,[],[])
+                write_support(out,[],[], ctx=RenderContext())
             page=(out/'methodology/index.html').read_text(encoding='utf-8')
             for name in ['annotation','validation','scoring']:
                 self.assertIn(f'../assets/methodology/{name}.png',page)

@@ -12,6 +12,7 @@ from lexbench_webfetch.paths import contained_path
 from harness.data_home import data_home
 from harness.record_io import load_jsonl
 from harness.web_fetch.methods import native_browser_engine
+from harness.web_fetch.report_model import MethodScope
 
 
 def current_evidence_dir() -> Path:
@@ -265,7 +266,7 @@ def require_current_report_profile(evidence: Path, profile_path: Path) -> None:
     if any(not identifier for identifier in attempt_ids) or len(attempt_ids) != len(set(attempt_ids)):
         failures.append("attempt_ids")
     route_contract = profile.get("native_task_route_contract")
-    if profile.get("comparison_kind") == "headless_markdown" and any(native_browser_engine(name) for name in providers) and route_contract is None:
+    if profile.get("comparison_kind") == "headless_markdown" and any(native_browser_engine(name, scope=MethodScope()) for name in providers) and route_contract is None:
         raise ValueError("Native browser report requires native_task_route_contract")
     if route_contract is not None:
         if route_contract != 4:

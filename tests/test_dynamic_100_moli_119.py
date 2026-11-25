@@ -11,6 +11,7 @@ from harness.web_fetch.report import local_audit_banner
 from harness.data_home import data_home
 from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 from tests.conftest import read_frozen_dataset_bytes
+from harness.web_fetch.report_model import RenderContext
 
 ROOT = Path(__file__).resolve().parents[1]
 DATASET_PATH = ROOT / "evaluation/dynamic-content-100-moli-webfetch/dataset.json"
@@ -80,7 +81,7 @@ def test_dynamic_100_dataset_matches_the_frozen_local_audit(pytestconfig, tmp_pa
     assert sum(bool((contract := native_contract_for_case(case))
                     and contract.include_subdocuments) for case in typed_cases) == 3
     matrix = browser_task_interface_matrix(
-        {case["id"]: case for case in cases}, ["lightpanda"])
+        {case["id"]: case for case in cases}, ["lightpanda"], ctx=RenderContext())
     dynamic = next(row for row in matrix["rows"] if row["track"] == "dynamic")
     assert dynamic["cells"]["lightpanda"][0]["mode"] == "markdown"
     assert dynamic["cells"]["lightpanda"][0]["count"] == 100

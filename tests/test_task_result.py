@@ -1,6 +1,7 @@
 import unittest
 from lexbench_webfetch.metrics import task_passed
 from harness.web_fetch.report import succeeded
+from harness.web_fetch.report_model import RenderContext
 
 
 class TaskResultTests(unittest.TestCase):
@@ -15,5 +16,5 @@ class TaskResultTests(unittest.TestCase):
         for kind,metrics,expected in examples:
             with self.subTest(kind=kind,metrics=metrics):
                 self.assertEqual(task_passed(True,metrics,kind),expected)
-                self.assertEqual(succeeded({'ok':True,'metrics':metrics},{'task_kind':kind}),expected)
+                self.assertEqual(succeeded({'ok':True,'metrics':metrics},{'task_kind':kind}, ctx=RenderContext()),expected)
                 self.assertFalse(task_passed(False,metrics,kind))

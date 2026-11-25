@@ -2,6 +2,7 @@ import unittest
 from lexbench_webfetch.metrics import evaluate_content, evaluate_resources, word_overlap, summarize
 from harness.web_fetch.report import succeeded,ranking,case_attrs,table,rate,filter_controls
 from harness.web_fetch.report_components import basis_label,reference_label,tabs
+from harness.web_fetch.report_model import RenderContext
 
 def record(ok=True,passed=True):
  return {'provider':'test','provider_type':'fixture','case_id':'c','case_name':'case','category':'test','url':'https://example.com','elapsed_ms':100,'ok':ok,'error_type':None,'metrics':{**evaluate_content('hello world',['hello']), 'content_pass':passed}}
@@ -17,7 +18,7 @@ class ReportMetricsTests(unittest.TestCase):
   self.assertNotIn('conditional_content_pass_rate',summarize([record(ok=False)])['providers']['test'])
  def test_failed_transport_cannot_pass(self):
   self.assertEqual(summarize([record(ok=False)])['providers']['test']['task_pass_rate'],0)
-  self.assertFalse(succeeded(record(ok=False),{'task_kind':'body'}))
+  self.assertFalse(succeeded(record(ok=False),{'task_kind':'body'}, ctx=RenderContext()))
  def test_cjk_and_markdown(self):
   self.assertEqual(word_overlap('[你好](https://example.com) 世界','你好 世界'),(1,1,1))
   self.assertEqual(word_overlap('你好','你好世界')[1],.5)
@@ -45,15 +46,15 @@ class ReportMetricsTests(unittest.TestCase):
   missing_ref=evaluate_content('404 Not Found',[],diagnostic_any=['404 Not Found'])
   self.assertTrue(missing_ref['content_pass']);self.assertEqual(missing_ref['diagnostic_hits'],['404 Not Found'])
  def test_inapplicable_not_failure(self):
-  attrs=case_attrs(record(),{'category':'image','track':'image','task_kind':'file'})
+  attrs=case_attrs(record(),{'category':'image','track':'image','task_kind':'file'}, ctx=RenderContext())
   self.assertIn('data-content="na"',attrs)
   self.assertIn('data-resources="na"',attrs)
  def test_tables_numbered_and_resource_success(self):
   self.assertIn('<th>序号</th>',table(['x'],[('', '<td>y</td>')]))
   r=record(passed=False);r['metrics']['resource_pass']=True
-  self.assertTrue(succeeded(r,{'task_kind':'resource'}))
+  self.assertTrue(succeeded(r,{'task_kind':'resource'}, ctx=RenderContext()))
  def test_denominators_visible_in_ranking(self):
-  value=ranking([record(),record(ok=False,passed=False)],{'c':{'track':'web'}},'web')
+  value=ranking([record(),record(ok=False,passed=False)],{'c':{'track':'web'}},'web', ctx=RenderContext())
   self.assertIn('50.0%',value)
   self.assertNotIn('条件通过率',value);self.assertIn('已测任务',value)
   self.assertIn('data-col="2"',value)
@@ -65,7 +66,7 @@ class ReportMetricsTests(unittest.TestCase):
  def test_dynamic_ranking_is_not_factual_success(self):
   rows=[record(),record(),record(ok=False)]
   for i,r in enumerate(rows):r['metrics'].update(structure_pass=True,list_task_pass=i==0,word_f1=None)
-  value=ranking(rows,{'c':{'track':'challenge','task_kind':'structure'}},'challenge')
+  value=ranking(rows,{'c':{'track':'challenge','task_kind':'structure'}},'challenge', ctx=RenderContext())
   self.assertIn('任务通过率',value);self.assertNotIn('条件达标率',value);self.assertIn('33.3%',value)
   self.assertIn('独立内容证据',value);self.assertNotIn('原规则命中',value)
  def test_zero_facts_are_not_zero_evidence(self):
@@ -76,7 +77,7 @@ class ReportMetricsTests(unittest.TestCase):
   self.assertEqual(reference_label({'id':'challenge-04'}),'未提供完整参考')
   self.assertEqual(reference_label({'id':'video-09','track':'video','required_facts':[{},{}]}),'文字信息')
  def test_first_option_and_panel_default(self):
-  html=filter_controls([('track','类型',[('web','网页'),('image','图片')])])
+  html=filter_controls([('track','类型',[('web','网页'),('image','图片')])], ctx=RenderContext())
   self.assertLess(html.index('value=""'),html.index('value="web"'))
   html=tabs('test',[('web','网页','first'),('image','图片','second')])
   self.assertIn('data-panel="web">first',html)

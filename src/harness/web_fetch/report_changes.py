@@ -117,14 +117,14 @@ def webmainbench_history(data):
     return localized_release_history(data, 'webmainbench_frozen_html_to_markdown')
 
 
-def render_localized_release_history(data, english, evidence_links=(), *, kind='webmainbench_frozen_html_to_markdown'):
+def render_localized_release_history(data, english, evidence_links=(), *, kind='webmainbench_frozen_html_to_markdown', ctx):
     """Render reader-facing release history without embedding release prose in report.py."""
     from harness.web_fetch.report import cell, hero, link, section, table
     releases = localized_release_history(data, kind)
     latest, *older = releases
     def localized(row, key):
         return row['i18n']['en'][key] if english else row[key]
-    body = hero('Changes' if english else '变更记录', localized(latest, 'summary'))
+    body = hero('Changes' if english else '变更记录', localized(latest, 'summary'), ctx=ctx)
     rows = [('', ''.join(cell(esc(value)) for value in change))
             for change in localized(latest, 'changes')]
     headings = (['Measure', 'Prior issue', 'Correction', 'Effect and limits'] if english
@@ -152,11 +152,11 @@ def render_localized_release_history(data, english, evidence_links=(), *, kind='
     return body
 
 
-def render_webmainbench_history(data, english, evidence_links=()):
-    return render_localized_release_history(data, english, evidence_links)
+def render_webmainbench_history(data, english, evidence_links=(), *, ctx):
+    return render_localized_release_history(data, english, evidence_links, ctx=ctx)
 
 
-def render_changes(out, cases, records, dataset=None):
+def render_changes(out, cases, records, dataset=None, *, ctx):
     from harness.web_fetch.report import cell, hero, link, section, table, write
     evidence_root=research_evidence_dir()
     selection=out/'file-rerun-selection.json'
@@ -179,7 +179,7 @@ def render_changes(out, cases, records, dataset=None):
     if not releases:
         raise ValueError('No release history applies to the current report cohort')
     latest,*older=releases
-    body=hero('报告版本说明','每个版本只记录影响读者判断的正式修正；结论与分数影响直接展示，技术证据按需展开。')
+    body=hero('报告版本说明','每个版本只记录影响读者判断的正式修正；结论与分数影响直接展示，技术证据按需展开。', ctx=ctx)
     body+=section('当前版本',
         '<article class="release-current"><div class="eyebrow">'+esc(latest['date'])+'</div><h3>'+esc(latest['title'])+'</h3><p>'+esc(latest['summary'])+'</p>'
         +release_details(latest,table,cell,esc)+'</article>',latest['id'])
@@ -222,4 +222,4 @@ def render_changes(out, cases, records, dataset=None):
     if revision.exists():
         require_revision_release_bindings(json.loads(revision.read_text(encoding='utf-8')),data['releases'])
     body+=section('范围与下载','<p>'+esc(data['history_scope'])+'</p><p>'+link('../report-changes.json','下载结构化版本记录')+' · '+link('../reliability.json','下载完整性状态')+' · '+link('https://github.com/lexmount/webstone/commits/main','查看仓库变更')+'</p>')
-    write(out,'changes/index.html','报告版本说明','<div class="change-log">'+body+'</div>')
+    write(out,'changes/index.html','报告版本说明','<div class="change-log">'+body+'</div>', ctx=ctx)
