@@ -34,7 +34,7 @@ from harness.distribution import repository_root
 from harness.web_fetch.providers.http_client import inner_timeout_budget
 from harness.web_fetch.providers.lexmount import LexmountProvider
 from harness.web_fetch.providers.moli import MoliWebFetchProvider, _family_wait_until
-from harness.web_fetch.retrieval_hints import plan_for_case
+from harness.web_fetch.retrieval_hints import native_default_case, plan_for_case
 
 _FIELDS = {f.name for f in dataclasses.fields(EvalCase)}
 
@@ -90,7 +90,11 @@ def params_for(arm_backend: str, case: dict, *, timeout_seconds: float, moli: Mo
         if eval_case.track != "dynamic":
             return {**limit, "options": {"timeout_ms": inner_ms}}
         timeout_ms = inner_ms
-        if (eval_case.retrieval_hints or {}).get("mode") != "native":  # per-task hints may ask for less time
+        # The provider's native route has no per-task plan: a default case, hints declaring mode "native", or no hints
+        # at all. A task with its own plan may ask for less time.
+        hints = eval_case.retrieval_hints or {}
+        native = native_default_case(eval_case) or not hints or hints.get("mode") == "native"
+        if not native:
             plan = plan_for_case(eval_case)
             if plan is None:
                 raise ValueError("invalid dynamic retrieval_hints")

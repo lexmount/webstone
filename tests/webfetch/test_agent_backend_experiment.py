@@ -608,3 +608,16 @@ def test_offsets_count_utf16_units_and_a_cut_part_keeps_its_closing_newline(tmp_
     found = arms._full_read_evidence(tmp_path, [first, rest], [])
     assert (tmp_path / "full_text.txt").read_text(encoding="utf-8") == page
     assert found["page_chars"] == 16 and found["covered_chars"] == 16 and found["read_complete"] is True
+
+
+def test_every_task_of_the_edition_gets_parameters_for_every_arm(monkeypatch, tmp_path):
+    moli = tmp_path / "moli"
+    moli.write_text("#!/bin/sh\necho moli 0.0.0\n", encoding="utf-8")
+    moli.chmod(0o755)
+    monkeypatch.setenv("MOLI_BINARY", str(moli))
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ.get('PATH', '')}")
+    _, cases, _ = experiment.load_materials()
+    for case in cases.values():
+        for arm in ("builtin", "moli", "lexmount"):
+            params = backend_params.params_for(arm, case, timeout_seconds=60)
+            assert params["timeout_seconds"] == 60
