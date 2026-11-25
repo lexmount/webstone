@@ -1093,7 +1093,7 @@ def check_current_browser_article(out, cases, records, binding):
     return model
 
 
-def _saved_failure_chapters(cases, records):
+def _saved_failure_chapters(cases, records, *, external_scope_notes=False):
     """Explain the full failure population using recorded program evidence only."""
     from harness.web_fetch.report import provider_label, measured, succeeded, result_case, result_href
     heading = t('saved_failure_chapters', 'Why each method did not pass')
@@ -1128,7 +1128,7 @@ def _saved_failure_chapters(cases, records):
             t('complete_failure_distribution', 'Complete failure distribution')) if failed else ''
         chapters.append('<section data-method-failures="'+escape(provider, quote=True)+'"><h3>'
             +escape(provider_label(provider))+'</h3>'+count+distribution+''.join(examples)+'</section>')
-    return '<section data-saved-failure-chapters><h2>'+heading+'</h2><p>'+note+'</p>'+''.join(chapters)+'</section>'
+    return '<section data-saved-failure-chapters><h2>'+heading+'</h2>'+('' if external_scope_notes else '<p>'+note+'</p>')+''.join(chapters)+'</section>'
 
 
 def render_explainer(out, cases, records, *, table=None, cell=None, link=None, authored=True, content_binding=None):
@@ -1144,7 +1144,11 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
     intro = bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
     context = ''
     if dataset_path.is_file():
-        scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
+        dataset = json.loads(dataset_path.read_text(encoding='utf-8'))
+        external_notes = dataset.get('comparison', {}).get('presentation', {}).get('scope_notes') == 'external'
+        if external_notes:
+            intro = bilingual_text(*pair('saved_result_counts', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing.', count=len(cases), count2=len(records), passes=passes))
+        scope = dataset.get('saved_matrix_scope', {})
         if scope:
             from harness.web_fetch.report import provider_label, measured, succeeded, comparative_rows, cell as report_cell, table as report_table
             eligible_results = [row for row in records if measured(row, cases[row['case_id']])]
@@ -1169,10 +1173,12 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
                 [t('method', 'Method'), t('saved_results', 'Saved results'),
                  t('saved_passed', 'Passed'), t('saved_pass_rate', 'Pass rate')],
                 comparative_rows(rows,{3:('saved-guide-pass-rate','max')}),metrics=[])+'</div>'
-            context += '<p>'+t('saved_task_acceptance_note', 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
-            context += _saved_failure_chapters(cases, records)
-            context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'
-            context += ''.join('<p>'+escape(note)+'</p>' for note in scope.get('limitations', []))
+            if not external_notes:
+                context += '<p>'+t('saved_task_acceptance_note', 'Passing requires every applicable task check to succeed. Returned content can still omit required passages, records, resources or files; result details retain the full returned output and frozen reference.')+'</p>'
+            context += _saved_failure_chapters(cases, records, external_scope_notes=external_notes)
+            if not external_notes:
+                context += '<h2>' + bilingual_text('结果说明与限制', 'Findings and limitations') + '</h2>'
+                context += ''.join('<p>'+escape(note)+'</p>' for note in scope.get('limitations', []))
             context += '<p><a href="../review/index.html">' + bilingual_text(
                 '查看逐题核查、实际返回对照及修订证据',
                 'View case audits, actual response comparisons and revision evidence') + '</a></p>'

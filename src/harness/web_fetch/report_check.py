@@ -300,7 +300,7 @@ class VisibleLocalScope(HTMLParser):
             self.visible.update(self.stack[-1][2])
 
 
-def check_local_diagnostic_presentation(root: Path, *, ranked=False):
+def check_local_diagnostic_presentation(root: Path, *, ranked=False, external_scope_notes=False):
     """Track evidence state and scope any explicitly requested sample ranking."""
     from harness.report_languages import english_notice
     for path in root.rglob('*.html'):
@@ -313,14 +313,14 @@ def check_local_diagnostic_presentation(root: Path, *, ranked=False):
         disclosure.feed(page)
         if relative.as_posix() == 'en/index.html' and page == english_notice():
             continue
-        if not disclosure.is_report or 'evidence' not in disclosure.visible:
+        if not disclosure.is_report or (not external_scope_notes and 'evidence' not in disclosure.visible):
             raise ValueError('Local diagnostic disclosure missing: ' + str(path.relative_to(root)))
-        if ranked and 'ranking' not in disclosure.visible:
+        if ranked and not external_scope_notes and 'ranking' not in disclosure.visible:
             raise ValueError('Sample ranking scope missing: ' + str(path.relative_to(root)))
         for table in re.findall(r'<table\b[^>]*\bid="ranking-[^"]+".*?</table>', page, re.S):
             if not ranked and (re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) or 'comparison-winner' in table):
                 raise ValueError('Unrequested diagnostic ranking: ' + str(path.relative_to(root)))
-            if re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) and 'ranking' not in disclosure.visible:
+            if not external_scope_notes and re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) and 'ranking' not in disclosure.visible:
                 raise ValueError('Sample ranking scope missing: ' + str(path.relative_to(root)))
 
 

@@ -46,6 +46,8 @@ Use the shared publisher in `harness.benchmarks.publication` for HF definition u
 
 ## Working contract
 
+When the user explicitly requests scope commentary outside the report, use the saved-matrix `scope_notes: "external"` presentation option and place that commentary in the companion response. Preserve numeric populations, evidence bindings, machine-readable scope and ranking eligibility. This changes presentation only.
+
 `AGENTS.md` owns the version rule; [report languages](../../../docs/report-hosting.md#report-languages) owns language selection.
 
 1. Establish the decision being supported, the measured unit, cohort, versions, execution location, freshness policy, and intended deliverable. Inspect the actual dataset, runner, outputs, scorer, prior review evidence, and current report. Do not infer them from screenshots or prose.

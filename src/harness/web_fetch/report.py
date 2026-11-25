@@ -492,10 +492,13 @@ def write(out,path,title,body,*,root_links=False,show_language=True):
    body+=section(t('acceptance_basis', 'Acceptance basis'),('<div data-score-audit><dl class="diagnostic-fields"><dt>' + t('acceptance_requirement', 'Acceptance requirement') + f"</dt><dd>{esc(reviewed['requirement'])}</dd><dt>" + t('actual_output', 'Actual output') + f"</dt><dd>{esc(reviewed['actual'])}</dd></dl><p>{link('../audit/index.html#' + identifier, t('view_sources_and_judgment_basis', 'View sources and judgment basis'))}</p></div>"))
  counterpart=(base+'en/'+path if context.english_generated else base+'en/index.html')
  language=f'<a href="{safe_href(counterpart)}" hreflang="en">English</a>' if show_language else ''
- footer=t('all_scores_are_computed_from_the_recorded', 'All scores are computed from the recorded calls. Web pages and services may change; conclusions apply only to this sample and configuration.')
+ footer='' if context.external_scope_notes else t('all_scores_are_computed_from_the_recorded', 'All scores are computed from the recorded calls. Web pages and services may change; conclusions apply only to this sample and configuration.')
  evidence_attr=' data-evidence-state="published_snapshot_score_audit"' if context.score_audit else ''
  if context.score_audit:footer=link(base+'methodology/index.html',t('methodology', 'Methodology'))+' · '+link(base+'changes/index.html',t('version_records', 'Version records'))
  banner=context.banner.replace('href="audit/index.html"','href="'+base+'audit/index.html"')
+ if context.external_scope_notes:
+  banner=''
+  evidence_attr+=' data-scope-notes="external"'
  scope_note=''
  if context.scope_presentation:
   from harness.web_fetch.report_version import SCOPE_TEXT, scope_retry_text
@@ -1641,6 +1644,7 @@ def overview_matched_latency(records,cases):
   rows.append(('',values))
  count=population['common_pass_count']
  note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
+ if render_context().external_scope_notes:note=note.split('<p class="source-note">',1)[0]
  dates=[]
  for row in population['rows']:
   observed=row['recorded_start_dates']
@@ -1740,7 +1744,7 @@ def successful_final_call_latency(records,cases):
   rows.append(('',values))
  rows=comparative_rows(rows,{i:('successful_final_latency_'+str(i),'min') for i in (2,3,4)})
  return ('<h3>'+model_text(*pair('report_final_call_latency_of_task_passing_results_c5387b', 'Final-call latency of task-passing results'))+'</h3><p>'+
-  model_text(*pair('report_only_each_method_s_task_passing_results_are_a81e48', 'Only each method’s task-passing results are included; failures cannot win latency highlights. Populations differ, so highlights identify column minima, not a same-task speed ranking.'))+'</p>'+
+  ('' if render_context().external_scope_notes else model_text(*pair('report_only_each_method_s_task_passing_results_are_a81e48', 'Only each method’s task-passing results are included; failures cannot win latency highlights. Populations differ, so highlights identify column minima, not a same-task speed ranking.')))+'</p>'+
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
 
 
@@ -1935,6 +1939,7 @@ def local_pass_rate_ranking(dataset):
 
 
 def local_audit_banner(dataset):
+ if dataset.get('comparison',{}).get('presentation',{}).get('scope_notes')=='external':return ''
  if dataset.get('saved_matrix_scope') and local_pass_rate_ranking(dataset):
   return '<div class="wrap source-note" data-evidence-state="saved_results" data-ranking-scope="saved-task-pass-rate"><strong>'+model_text(*pair('report_saved_result_rankings_not_benchmark_certification_93b684', 'Saved-result rankings · not benchmark certification'))+'</strong><p>'+model_text(*pair('report_ranks_describe_the_listed_results_and_the_acceptance_14faa5', 'Ranks describe the listed results and the acceptance rules recorded with them. Source and execution-setting verification is not benchmark certification; see methodology for configurations and collection dates.'))+'</p></div>'
  if dataset.get('comparison',{}).get('publication_state')!='local_audit_only_not_for_release':
@@ -2057,7 +2062,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  elif dataset.get('comparison', {}).get('publication_state') == 'diagnostic_not_for_release':
   reliability_banner += ('<div class="wrap callout" role="status"><strong>' + t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') + '</strong><p>' + t('these_calls_check_the_selected_tasks_and', 'These calls check the selected tasks and methods without the cohort certification required for a formal benchmark.') + '</p></div>')
  from harness.web_fetch.report_version import content_scope_presentation
- set_render_context(replace(render_context(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests)))
+ set_render_context(replace(render_context(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests),external_scope_notes=dataset.get('comparison',{}).get('presentation',{}).get('scope_notes')=='external'))
  validate_report_ids(dataset,records)
  for path in ['assets/style.css','assets/report.js','references']:
   contained_path(out,path)
@@ -3078,11 +3083,13 @@ def saved_execution_settings_section(settings):
   values+=cell(esc(item.get('collection_start') or '—')+'<br>'+esc(item.get('collection_end') or '—'))+cell(details)
   rows.append(('',values))
  note=model_text(*pair('report_actual_settings_and_collection_times_are_grouped_by_49f6f0', 'Actual settings and collection times are grouped by method and task family. Uniformity describes records within each group only. Differences in DNS, budgets, timeouts, collection dates or execution locations prevent a same-window controlled speed claim.'))
- return section(model_text(*pair('report_execution_settings_by_method_and_task_family_65dad7', 'Execution settings by method and task family')),'<p>'+note+'</p>'+table([
+ return section(model_text(*pair('report_execution_settings_by_method_and_task_family_65dad7', 'Execution settings by method and task family')),('' if render_context().external_scope_notes else '<p>'+note+'</p>')+table([
   model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_task_family_2346c3', 'Task family')),model_text(*pair('report_verified_calls_8249fa', 'Verified / calls')),model_text(*pair('report_within_group_settings_29de0d', 'Within-group settings')),model_text(*pair('report_collection_period_0d19bd', 'Collection period')),model_text(*pair('report_configuration_evidence_879a28', 'Configuration evidence'))],rows,'saved-execution-settings',metrics=[]),'execution-settings')
 
 
 def saved_matrix_scope_section(scope,*,show_completion=True):
+ if render_context().external_scope_notes:
+  return '' if show_completion else saved_execution_settings_section(scope.get('execution_settings',[]))
  limitations=section(saved_matrix_text('limitations'),'<ul>'+''.join('<li>'+esc(note)+'</li>' for note in scope.get('limitations',[]))+'</ul>','saved-limitations')
  if not show_completion:
   quality_note='<p data-acceptance-quality-limit>'+model_text(*pair('report_required_text_and_structure_checks_measure_declared_target_b54265', 'Required-text and structure checks measure declared target coverage, not a complete noise penalty. Passing a task does not establish the absence of navigation, ads or irrelevant text. Full-text precision is computed only where a comparable complete reference exists and does not measure noise for the remaining tasks.'))+'</p>'

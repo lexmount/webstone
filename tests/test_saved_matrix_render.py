@@ -9,6 +9,52 @@ from bs4 import BeautifulSoup
 from tests.test_saved_matrix_evidence import fixture, build, write
 
 
+def test_external_scope_notes_keep_ranked_results_and_source_checks(tmp_path):
+    from harness.web_fetch.report_saved_matrix import check_saved_matrix
+    spec, source, record, raw = fixture(tmp_path)
+    spec.update(ranking='saved_task_pass_rate', scope_notes='external')
+    spec['limitations'] = ['Companion response contains the scope explanation.']
+    other = deepcopy(record)
+    other.update(provider='other', attempt_id='other-run')
+    other['metrics']['content_pass'] = False
+    spec['providers'].append({'id': 'other', 'label': 'Other'})
+    results = source/'results.jsonl'
+    results.write_bytes(raw + (json.dumps(other)+'\n').encode())
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(results.read_bytes()).hexdigest()
+    report = build(tmp_path, spec).parent
+    page = BeautifulSoup((report/'index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert page.select_one('main[data-scope-notes="external"]') is not None
+    assert page.select_one('#ranking-overall [data-rank="1"]') is not None
+    assert page.select_one('[data-saved-completion]') is None
+    assert page.select_one('[data-evidence-state]') is None
+    assert page.select_one('#saved-limitations') is None
+    assert '不代表同题速度排名' not in page.get_text()
+    assert spec['limitations'][0] not in page.get_text()
+    guide = BeautifulSoup((report/'guide/index.html').read_text(encoding='utf-8'), 'html.parser')
+    assert '结论仅适用于' not in guide.get_text()
+    assert '结果说明与限制' not in guide.get_text()
+    assert (source/'results.jsonl').read_bytes() == raw + (json.dumps(other)+'\n').encode()
+    assert check_saved_matrix(report, spec_path=tmp_path/'spec.json')['valid']
+    spec['scope_notes'] = 'report'
+    write(tmp_path/'spec.json', spec)
+    with pytest.raises(ValueError, match='source changed|differs|Source'):
+        check_saved_matrix(report, spec_path=tmp_path/'spec.json')
+
+
+def test_unknown_scope_note_location_is_rejected(tmp_path):
+    spec, _, _, _ = fixture(tmp_path)
+    spec['scope_notes'] = 'silent'
+    with pytest.raises(ValueError, match='scope note location'):
+        build(tmp_path, spec)
+
+
+def test_default_scope_note_policy_keeps_legacy_projection_shape(tmp_path):
+    spec, _, _, _ = fixture(tmp_path)
+    report = build(tmp_path, spec).parent
+    dataset = json.loads((report/'dataset.json').read_text(encoding='utf-8'))
+    assert 'scope_notes' not in dataset['comparison']['presentation']
+
+
 @pytest.mark.parametrize('tie', [False, True])
 def test_saved_ranking_keeps_failed_call_latency_neutral(tmp_path, tie):
     spec, source, record, raw = fixture(tmp_path)
