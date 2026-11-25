@@ -76,7 +76,7 @@ def test_nested_composition_retains_native_public_views_and_diagnosis(tmp_path):
                              content_sha256=hashlib.sha256(b'').hexdigest())
     native = source/'private_artifacts/response.json'
     native.parent.mkdir()
-    native.write_text(json.dumps({'code':'BLOCKED_TARGET', 'error':'Target resolves to a private address'}))
+    native.write_text(json.dumps({'code':'BLOCKED_TARGET', 'error':'Target resolves to a private address'}), encoding='utf-8')
     record['provider_metadata'].update(raw_response_path=native.relative_to(source).as_posix(),
         raw_response_sha256=hashlib.sha256(native.read_bytes()).hexdigest(),
         raw_response_bytes=native.stat().st_size)
@@ -92,7 +92,7 @@ def test_nested_composition_retains_native_public_views_and_diagnosis(tmp_path):
             'sha256':hashlib.sha256(audit.read_bytes()).hexdigest()}}]})
         output = build_saved_matrix(path, tmp_path/f'combined-{level}').parent
         assert check_saved_matrix(output, spec_path=path)['valid']
-        current = json.loads((output/'results.jsonl').read_text())
+        current = json.loads((output/'results.jsonl').read_text(encoding='utf-8'))
         assert current['metrics'] == record['metrics']
         assert current['diagnosis']['category'] in {'Method safety restriction', '方法安全限制'}
         assert current['diagnosis']['evidence'] == 'Target resolves to a private address'
@@ -1339,15 +1339,15 @@ def test_composition_retains_source_review_pages_under_shared_navigation(tmp_pat
     write(spec_path, spec)
     output = build_saved_matrix(spec_path, tmp_path/'combined').parent
     assert check_saved_matrix(output, spec_path=spec_path)['valid']
-    page = BeautifulSoup((output/'review/index.html').read_text(), 'html.parser')
+    page = BeautifulSoup((output/'review/index.html').read_text(encoding='utf-8'), 'html.parser')
     sections = page.select('[data-source-review]')
     assert len(sections) == 2
     for index, (section, entry) in enumerate(zip(sections, entries, strict=True)):
-        original = BeautifulSoup((Path(entry['root'])/'review/index.html').read_text(), 'html.parser')
+        original = BeautifulSoup((Path(entry['root'])/'review/index.html').read_text(encoding='utf-8'), 'html.parser')
         assert f'method-{index}' in section.h2.get_text()
         for paragraph in original.select('main p'):
             assert paragraph.get_text(' ', strip=True) in section.get_text(' ', strip=True)
-    (output/'review/index.html').write_text('<html><main>Missing source review scopes</main></html>')
+    (output/'review/index.html').write_text('<html><main>Missing source review scopes</main></html>', encoding='utf-8')
     with pytest.raises(ValueError):
         check_saved_matrix(output)
 
@@ -1365,7 +1365,7 @@ def test_frozen_source_composition_accepts_published_audit_and_rejects_changed_b
     write(spec_path, spec)
     output = build_saved_matrix(spec_path, tmp_path/'combined').parent
     assert check_saved_matrix(output, spec_path=spec_path)['valid']
-    (source/'index.html').write_text('changed frozen source')
+    (source/'index.html').write_text('changed frozen source', encoding='utf-8')
     with pytest.raises(ValueError, match='Frozen report file changed'):
         build_saved_matrix(spec_path, tmp_path/'changed')
 
@@ -1403,7 +1403,7 @@ def test_frozen_comparison_keeps_each_saved_task_contract(tmp_path):
     write(spec_path, spec)
     output = build_saved_matrix(spec_path, tmp_path/'combined').parent
     assert check_saved_matrix(output, spec_path=spec_path)['valid']
-    records = [json.loads(line) for line in (output/'results.jsonl').read_text().splitlines()]
+    records = [json.loads(line) for line in (output/'results.jsonl').read_text(encoding='utf-8').splitlines()]
     assert json.loads((output/records[1]['report_source_case_path']).read_bytes())['expected_any'] == ['different']
     assert json.loads((output/records[0]['report_source_case_path']).read_bytes())['expected_any'] != ['different']
     assert all('report_source_case' not in record for record in records)

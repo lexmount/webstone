@@ -397,14 +397,23 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     for prefix in ("", "en/"):
         detail = (rebuilt / prefix / "attempts" / (attempt_id + ".html")).read_text(encoding="utf-8")
         assert attempt_id + ".debug.txt" in detail
-        assert attempt_id + ".response.html" in detail
+        from bs4 import BeautifulSoup
+        from urllib.parse import urljoin, urlsplit
+        views = [a['href'] for a in BeautifulSoup(detail, 'html.parser').select('a[href]')
+                 if 'diagnostics/' in a['href']]
+        assert views
+        for view in views:
+            target = urlsplit(urljoin('https://report.invalid/'+prefix+'attempts/'+attempt_id+'.html', view)).path.lstrip('/')
+            assert (rebuilt/target).is_file()
+            assert 'SHA-256' in (rebuilt/target).read_text(encoding='utf-8')
     from harness.web_fetch.report_i18n import untranslated_english_narrative, localize_html
     from pathlib import PurePosixPath
     english_detail = (rebuilt / "en/attempts" / (attempt_id + ".html")).read_text(encoding="utf-8")
     assert "View complete API response (credentials and local paths hidden)" in english_detail
-    for suffix in ("debug", "response"):
-        view = (rebuilt / "en/logs" / (attempt_id + "." + suffix + ".html")).read_text(encoding="utf-8")
-        assert not untranslated_english_narrative(view, {"中文"})
+    for view in views:
+        target = urlsplit(urljoin('https://report.invalid/en/attempts/'+attempt_id+'.html', view)).path.lstrip('/')
+        rendered = (rebuilt/target).read_text(encoding='utf-8')
+        assert not untranslated_english_narrative(rendered, {"中文"})
     sample = ('<p>必需文字组 3（任一写法即可）</p><blockquote>first\n<span>或</span>\nsecond</blockquote><blockquote>引文 first\n或\nsecond</blockquote>'
               '<p>正文没有抓全；低于目标的位置为：位置 1 77.5%。下方会把完整标准答案与实际返回并排展示。</p>'
               '<pre>原始返回：位置 1\n或\n真实正文</pre>')
@@ -693,8 +702,9 @@ def test_report_real_diagnostics_do_not_claim_missing_debug(tmp_path):
     assert "已保存文件未截断；原生日志范围见说明" in html
     assert "没有保存 debug 日志" not in html
     assert "实际诊断日志" in html
-    assert (tmp_path / "logs/real.html").is_file()
-    assert "request_sent" in (tmp_path / "logs/real.html").read_text(encoding="utf-8")
+    pages = list((tmp_path/'diagnostics').glob('*.html'))
+    assert len(pages) == 1
+    assert "request_sent" in pages[0].read_text(encoding="utf-8")
 
 
 def test_local_score_correction_preserves_call_facts_and_original_contract(tmp_path):

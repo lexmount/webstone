@@ -11,7 +11,7 @@ class NetworkPreflightTests(unittest.TestCase):
         from harness.web_fetch.providers.firecrawl import FirecrawlProvider
         for endpoint in ('http://127.0.0.1:3002', 'http://localhost:3002', 'http://[::1]:3002'):
             provider = FirecrawlProvider('local', {'type':'firecrawl', 'base_url':endpoint})
-            for address in ('198.19.0.58', '10.2.0.11', '93.184.216.34'):
+            for address in ('198.19.0.58', '10.0.0.11', '93.184.216.34'):
                 fake = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (address,443))]
                 with self.subTest(endpoint=endpoint,address=address), patch('socket.getaddrinfo',return_value=fake):
                     if address == '93.184.216.34':

@@ -6190,7 +6190,8 @@
             "Source",
             "https://github.com/firecrawl/firecrawl/tree/main/apps/local"
           ]
-        ]
+        ],
+        "type": "local"
       },
       "interface": {
         "entry": "POST <local-service>/v2/scrape",
@@ -6266,7 +6267,93 @@
         "local-browser",
         "local-pdf",
         "local-document"
-      ]
+      ],
+      "capabilities": {
+        "scope": "Local POST /v2/scrape",
+        "sources": [
+          "fire-local-0.1.1"
+        ],
+        "web": {
+          "status": {
+            "en": "Supported",
+            "zh": "支持"
+          },
+          "detail": {
+            "en": "Native Markdown, HTML and links.",
+            "zh": "原生 Markdown、HTML 和链接。"
+          }
+        },
+        "document": {
+          "status": {
+            "en": "Supported",
+            "zh": "支持"
+          },
+          "detail": {
+            "en": "PDF and Office parsing runs locally.",
+            "zh": "PDF 和 Office 文档在本机解析。"
+          }
+        },
+        "image": {
+          "status": {
+            "en": "Link only",
+            "zh": "仅链接"
+          },
+          "detail": {
+            "en": "URLs in native Markdown and links; this interface does not declare an image-download format.",
+            "zh": "原生 Markdown 和链接中的资源网址；此接口未声明图片下载格式。"
+          }
+        },
+        "av": {
+          "status": {
+            "en": "Link only",
+            "zh": "仅链接"
+          },
+          "detail": {
+            "en": "URLs in native Markdown and links; no audio/video-download format is declared here.",
+            "zh": "原生 Markdown 和链接中的资源网址；此处未声明音视频下载格式。"
+          }
+        },
+        "file": {
+          "status": {
+            "en": "Not declared",
+            "zh": "未声明"
+          },
+          "detail": {
+            "en": "The scoped formats are markdown, html, rawHtml and links; no original-file output is registered.",
+            "zh": "此接口声明的格式为 markdown、html、rawHtml、links；未登记原文件输出。"
+          }
+        },
+        "js": {
+          "status": {
+            "en": "Configuration required",
+            "zh": "需配置"
+          },
+          "detail": {
+            "en": "JavaScript rendering requires installed Chrome or Chromium and the native browser option.",
+            "zh": "JavaScript 渲染需要安装 Chrome 或 Chromium，并由产品原生浏览器选项选择。"
+          }
+        },
+        "input": {
+          "en": "Known URL; this entry does not register a local-file upload route.",
+          "zh": "输入已知网址；此条目未登记本地文件上传接口。"
+        },
+        "structure": {
+          "en": "Native output formats only; hosted-only formats are not inferred.",
+          "zh": "仅描述产品原生输出格式；不据云端接口推定本地格式。"
+        },
+        "access": {
+          "en": "Native address protection and site restrictions apply; cloud fallback is selected separately at startup.",
+          "zh": "访问仍受原生地址保护和站点限制；云端回退由启动配置单独决定。"
+        },
+        "notes": {
+          "en": "These are version-bound interface capabilities, not task scores or claims about hosted Firecrawl.",
+          "zh": "这些是指定版本的接口能力说明，不是任务成绩，也不代表 Firecrawl 云端接口。"
+        },
+        "tested": {
+          "en": "The registered Local example requests native Markdown and links. Each saved run owns its exact formats, content scope, cloud mode and browser settings.",
+          "zh": "登记的 Local 示例请求原生 Markdown 和链接；每次保存的运行记录决定实际格式、内容范围、云端模式和浏览器设置。"
+        }
+      }
     }
   },
   "sources": {
@@ -6581,6 +6668,15 @@
       "url": "https://github.com/lexmount/webstone/blob/1c2f5d310700db97968d5f75e9a89c96f9505840/harness/web_fetch/providers/hosted_fetch.py",
       "checked_at": "2026-10-25",
       "checked_version": "1c2f5d310700db97968d5f75e9a89c96f9505840"
+    },
+    "fire-local-0.1.1": {
+      "label": {
+        "en": "Firecrawl Local 0.1.1 · official README",
+        "zh": "Firecrawl Local 0.1.1 · 官方说明"
+      },
+      "url": "https://github.com/firecrawl/firecrawl/blob/db55e2d7a36f2193fb452078e1191decffec7287/apps/local/README.md",
+      "checked_at": "2026-11-25",
+      "checked_version": "0.1.1"
     }
   },
   "output_contract_labels": {
