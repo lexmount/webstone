@@ -95,11 +95,6 @@ def _rewrite_links(page: str) -> str:
     )
 
 
-def chinese_link(route: str) -> str:
-    """The English edition's link to the same Chinese route; `localize_html` keeps it outside `en/`."""
-    return f'<a href="{html.escape(route, quote=True)}" hreflang="zh-CN">中文</a>'
-
-
 def bilingual_text(zh: str, en: str) -> str:
     """Keep dynamic interface text and its English form beside the same values."""
     return f'<span data-report-en="{html.escape(en, quote=True)}">{html.escape(zh)}</span>'

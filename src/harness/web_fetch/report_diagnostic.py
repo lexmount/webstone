@@ -342,8 +342,8 @@ def diagnostic_findings(row, files):
     for check in metrics.get('stable_field_results') or []:
         if check.get('pass') is False:
             add('records', t('records_missing_required_fields', 'Records missing required fields'),
-                t('at_least_records_provide_this_field', '{get}: at least {get2} records provide this field', get=str(check.get('field', t('unnamed_field', 'Unnamed field'))), get2=str(check.get('minimum', t('not_provided_by_the_record', 'Not provided by the record')))),
-                t('records_provide_this_field', '{get} records provide this field', get=str(check.get('count', t('not_provided_by_the_record', 'Not provided by the record')))))
+                t('at_least_records_provide_this_field', '{get}: at least {get2} {get2|record provides|records provide} this field', get=str(check.get('field', t('unnamed_field', 'Unnamed field'))), get2=str(check.get('minimum', t('not_provided_by_the_record', 'Not provided by the record')))),
+                t('records_provide_this_field', '{get} {get|record provides|records provide} this field', get=str(check.get('count', t('not_provided_by_the_record', 'Not provided by the record')))))
     for group in metrics.get('composite_group_results') or []:
         if group.get('pass') is False:
             add('records', t('incomplete_record_group', 'Incomplete record group'), t('at_least_qualifying_records', '{get}: at least {get2} qualifying records', get=str(group.get('id', t('record_group', 'Record group'))), get2=str(group.get('minimum', t('not_provided_by_the_record', 'Not provided by the record')))),
@@ -352,8 +352,8 @@ def diagnostic_findings(row, files):
         if not any(f['kind'] == 'records' for f in findings):
             add('records', t('incomplete_list_or_table', 'Incomplete list or table'), t('meets_the_task_s_record_count_field', "Meets the task's record count, field, link and uniqueness requirements"), row.get('failure') or t('the_combined_record_check_failed_in_saved', 'The combined-record check failed in saved scoring'))
     if metrics.get('length_pass') is False:
-        add('length', t('too_little_content_returned', 'Too little content returned'), t('at_least_characters_3', 'At least {get} characters', get=str(metrics.get('minimum_content_chars', t('not_provided_by_the_record', 'Not provided by the record')))),
-            t('characters_3', '{get} characters', get=str(metrics.get('content_chars', t('not_provided_by_the_record', 'Not provided by the record')))))
+        add('length', t('too_little_content_returned', 'Too little content returned'), t('at_least_characters_3', 'At least {get} {get|character|characters}', get=str(metrics.get('minimum_content_chars', t('not_provided_by_the_record', 'Not provided by the record')))),
+            t('characters_3', '{get} {get|character|characters}', get=str(metrics.get('content_chars', t('not_provided_by_the_record', 'Not provided by the record')))))
     for check in (metrics.get('pattern_results') or []) + (metrics.get('stable_page_pattern_results') or []):
         if check.get('pass') is False:
             add('pattern', t('required_content_structure_missing', 'Required content structure missing'), check.get('pattern') or check.get('id', t('declared_structure_requirement', 'Declared structure requirement')),
@@ -382,8 +382,8 @@ def diagnostic_findings(row, files):
                     t('section_body_below_requirement','Required section text did not meet its minimum'))
         if metrics.get('document_body_chars',0) < metrics.get('document_minimum_body_chars',0):
             add('body',t('document_body_too_short','Document section body too short'),
-                t('at_least_characters_3','At least {get} characters',get=metrics['document_minimum_body_chars']),
-                t('characters_3','{get} characters',get=metrics.get('document_body_chars',0)))
+                t('at_least_characters_3','At least {get} {get|character|characters}',get=metrics['document_minimum_body_chars']),
+                t('characters_3','{get} {get|character|characters}',get=metrics.get('document_body_chars',0)))
     if metrics.get('article_title_pass') is False:
         add('text',t('article_title_requirement_not_met','Article title requirement not met'),
             t('article_title_expected_surface','The expected title in the article or an eligible extracted field'),

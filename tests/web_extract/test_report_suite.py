@@ -37,8 +37,8 @@ def test_suite_uses_each_cohorts_results_and_bound_details(suite_output, damage)
     ]
     assert len(soup.select('[data-cohort="first"] tbody tr')) == 4
     assert not soup.select("main > table")
-    assert soup.select_one("header .report-toolbar nav")
-    assert soup.select_one(".report-tools #theme")
+    assert soup.select_one("header.shell-top .shell-links")
+    assert soup.select_one(".shell-controls [data-shell-theme]")
     if damage is None:
         with pytest.raises(ValueError, match="visual|Synthetic|profile"):
             _check_rendered_report(output, release=True)
@@ -46,7 +46,7 @@ def test_suite_uses_each_cohorts_results_and_bound_details(suite_output, damage)
     if damage == "quality":
         soup.select_one('[data-cohort="first"] [data-metric="micro-f1"]').string = "0.999"
     elif damage == "navigation":
-        soup.select_one("nav a")["href"] = "missing.html"
+        soup.select_one(".shell-links a")["href"] = "missing.html"
     else:
         path = output / "first/report-manifest.json"
         child = read_json(path)
@@ -177,7 +177,8 @@ def test_quality_exclusion_preserves_operational_comparison(tmp_path):
 @pytest.mark.parametrize("limits,compared,winner", [
     ([1, 2], ["scrapegraph-extract", "firecrawl-json"], None),
     ([1, 1], ["scrapegraph-extract", "firecrawl-json"], "firecrawl-json"),
-    ([1, 1], ["scrapegraph-extract"], "scrapegraph-extract"),
+    # A single compared method has no contest, so nothing is highlighted.
+    ([1, 1], ["scrapegraph-extract"], None),
 ])
 def test_suite_latency_uses_execution_scope_without_hiding_measurements(
     suite_output, limits, compared, winner
@@ -394,7 +395,7 @@ def test_suite_scope_is_bound_to_approved_content_after_rehashing(suite_output, 
         suite["cohorts"].pop()
         shutil.rmtree(output / "second")
         soup.select_one('[data-cohort="second"]').decompose()
-        soup.select_one('nav a[href="second/zh/index.html"]').decompose()
+        soup.select_one('.shell-links a[href="second/zh/index.html"]').decompose()
         if damage == "rewrite-authority":
             authority_path = output / manifest["input_profile"]["path"]
             authority = read_json(authority_path)

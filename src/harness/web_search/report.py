@@ -31,7 +31,7 @@ from harness.report_languages import (
 )
 from harness.reporting import charts, explorer
 from harness.reporting.mermaid import mermaid_script_attributes
-from harness.reporting.presentation import check_presentation
+from harness.reporting.presentation import check_presentation, milliseconds, unit_number
 from harness.reporting.presentation import esc as escape_text
 from harness.reporting.publication import atomic_write
 from harness.reporting.publication_privacy import SENSITIVE_KEY, project_file
@@ -41,11 +41,11 @@ from harness.reporting.shell import (
     evidence_dialog,
     evidence_link,
     footer,
-    navigation,
     numeric_cell,
     numeric_winners,
     table,
 )
+from harness.reporting.shell import header as shell_header
 from harness.reporting.shell import page as page_shell
 from harness.reporting.templates import check_page, compose, recorded_variant, template_identity
 from harness.reporting.versions import (
@@ -1037,15 +1037,15 @@ def _write_page(inputs: ReportInputs, edition: ReportEdition, route: str, title:
     path.parent.mkdir(parents=True, exist_ok=True)
     back = "../" if route.startswith("details/") else ""
     depth = "../" * (len(Path(prefix + route).parts) - 1 + bool(site_prefix))
-    links = navigation(edition.nav, route, back=back)
     other = "zh" if lang == "en" else "en"
     language_depth = "../" * (len(Path(prefix + route).parts) - 1)
     # A Chinese-only build links to the English not-generated notice at en/index.html.
     target = ("" if other == "zh" else other + "/") + (route if other in languages else "index.html")
-    links += f'<a href="{language_depth}{target}">' + (zh_text("Chinese") if other == "zh" else "English") + "</a>"
-    links += f"<button data-theme>{t('Theme')}</button>"
+    links = [(back + entry_route, label) for entry_route, label in edition.nav]
     if site_prefix:
-        links += f'<a href="{depth}index.html">' + t("Main comparison") + "</a>"
+        links.append((f"{depth}index.html", t("Main comparison")))
+    header = shell_header(language=lang, brand=t("Web Search"), home=back + "index.html", links=links,
+                          current=back + route, switch=(language_depth + target, other))
     notice_html = f'<p class="notice" data-state>{state}</p>' if state else ''
     proposal = authored.get('assessment_revision', {}).get('reference_dataset', {}).get('proposal')
     if proposal:
@@ -1054,7 +1054,7 @@ def _write_page(inputs: ReportInputs, edition: ReportEdition, route: str, title:
         notice_html += '<p class="notice" data-dataset-proposal><a href="' + esc(url) + '">' + label + '</a></p>'
     document = BeautifulSoup(page_shell(
         lang=lang, base=depth or './', title=f'{title} · {t("Web Search")}', heading=title, style=STYLE,
-        script=SCRIPT, nav=links, eyebrow=t("Webstone / Web Search"), notice=notice_html, role=role, body=body,
+        script=SCRIPT, header=header, eyebrow="", notice=notice_html, role=role, body=body,
         dialog=evidence_dialog(t("Response evidence"), t("Close"), t("Full result")),
         footer_html=footer(_footer_links(inputs, edition, back))), "html.parser")
     # Yours (formerly Artifact Site) injects a root base on every nested route. Local pages use
@@ -1141,7 +1141,7 @@ def _core_metrics_table(inputs: ReportInputs, edition: ReportEdition) -> tuple[l
             if i == 6:
                 label += " " + m["currency"]
             if i == 5 and value is not None:
-                label = t("{value:.1f}% ({n} queries)", value=value * 100, n=summary[m['id']]['metrics'][hit_key]['n'])
+                label = t("{value:.1f}% ({n} {n|query|queries})", value=value * 100, n=summary[m['id']]['metrics'][hit_key]['n'])
             win = i in winners and value == winners[i]
             td.append('<td>' + label + '</td>' if i == 0 else numeric_cell(label, value, ("method", "nonempty", "mean-ms", "p50-ms", "p95-ms", "target-hit", "price-per-1000")[i], directions.get(i, "neutral"), win))
         core.append("<tr>" + "".join(td) + "</tr>")
@@ -1237,10 +1237,10 @@ def _reading_model_home_fills(inputs: ReportInputs, edition: ReportEdition, head
     overview_case_ids = {r["case_id"] for r in overview_rows}
     target_count = sum(bool(c.get("anchors") or c.get("paper_ids") or c.get("repositories"))
                        for c in profile["cases"] if c["id"] in overview_case_ids)
-    core_comparison += '<p class="muted">' + t("Nonempty counts queries with at least one result. Mean, P50 (median) and P95 cover all {overview_cases} queries in this table; 95% finish within the P95 time. Known page@{cutoff} checks whether a target URL appears in the first {cutoff} results, across {target_count} predeclared target-page queries.", overview_cases=len(overview_case_ids), cutoff=cutoff, target_count=target_count) + '</p>'
+    core_comparison += '<p class="muted">' + t("Nonempty counts queries with at least one result. Mean, P50 (median) and P95 cover all {overview_cases} {overview_cases|query|queries} in this table; 95% finish within the P95 time. Known page@{cutoff} checks whether a target URL appears in the first {cutoff} {cutoff|result|results}, across {target_count} predeclared target-page queries.", overview_cases=len(overview_case_ids), cutoff=cutoff, target_count=target_count) + '</p>'
     core_comparison += table(headers, core, True)
     if profile["protocol"].get("retry"):
-        core_comparison += '<p class="lede">' + t("The same {cases} queries went to every provider. Each query has one final result; transport, HTTP or invalid-response failures receive one retry. Latency covers the complete user-visible request, including any retry. Empty valid results are not retried.", cases=len(profile['cases'])) + '</p>'
+        core_comparison += '<p class="lede">' + t("The same {cases} {cases|query|queries} went to every provider. Each query has one final result; transport, HTTP or invalid-response failures receive one retry. Latency covers the complete user-visible request, including any retry. Empty valid results are not retried.", cases=len(profile['cases'])) + '</p>'
     findings = ""
     for chapter in reading_sections:
         findings += (
@@ -1322,7 +1322,7 @@ def _review_coverage(inputs: ReportInputs, edition: ReportEdition) -> str:
     review_data, review_percent, t = inputs.review_data, inputs.review_percent, edition.t
     if not review_data:
         return ""
-    return f'<p data-review-coverage data-review-percent="{review_percent}" data-reviewed-queries="{review_data["case_reviewed"]}/{review_data["case_total"]}" data-reviewed-outputs="{review_data["output_reviewed"]}/{review_data["output_total"]}"><a href="review.html">{review_percent}% · ' + t("Reviewed {case_reviewed}/{case_total} queries and {output_reviewed}/{output_total} outputs", case_reviewed=review_data['case_reviewed'], case_total=review_data['case_total'], output_reviewed=review_data['output_reviewed'], output_total=review_data['output_total']) + '</a></p>'
+    return f'<p data-review-coverage data-review-percent="{review_percent}" data-reviewed-queries="{review_data["case_reviewed"]}/{review_data["case_total"]}" data-reviewed-outputs="{review_data["output_reviewed"]}/{review_data["output_total"]}"><a href="review.html">{review_percent}% · ' + t("Reviewed {case_reviewed}/{case_total} {case_total|query|queries} and {output_reviewed}/{output_total} {output_total|output|outputs}", case_reviewed=review_data['case_reviewed'], case_total=review_data['case_total'], output_reviewed=review_data['output_reviewed'], output_total=review_data['output_total']) + '</a></p>'
 
 
 def _write_home_page(inputs: ReportInputs, edition: ReportEdition) -> None:
@@ -1612,7 +1612,7 @@ def _result_detail(
     navigation = explorer.detail_navigation("../results.html", back=t("Back to query comparison"),
                                             previous=t("Previous result"), next_label=t("Next result"),
                                             back_attributes=" data-back-results")
-    detail = navigation + f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {fmt(r['elapsed_ms'])} ms · {len(r['results'])} {t('results')}</p>{verdict}</section>"
+    detail = navigation + f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {milliseconds(r['elapsed_ms'])} · {t('{count} {count|result|results}', count=len(r['results']))}</p>{verdict}</section>"
     detail += _case_reference_detail(c, query_relevance, cutoff, edition)
     if query_relevance:
         reason_label = t("Useful results: ") + str(query_relevance["useful"]) + f"/{cutoff}"
@@ -1683,7 +1683,7 @@ def _write_result_pages(inputs: ReportInputs, edition: ReportEdition) -> list[st
             [
                 c["query"],
                 reason_label,
-                f"HTTP {r['http_status']}; {len(r['results'])} " + t("results"),
+                f"HTTP {r['http_status']}; " + t("{count} {count|result|results}", count=len(r['results'])),
                 error_evidence(r, payloads.get(r["id"], {}))
                 or (
                     t("Empty results array")
@@ -1832,7 +1832,7 @@ def _write_reproduce_page(inputs: ReportInputs, edition: ReportEdition) -> None:
          + (" --content CONTENT.json" if inputs.content_bytes is not None else "")),
         (t("Check the report against its evidence"), "uv run --frozen webstone web-search check --output REPORT"),
     ]
-    commands = ('<p>' + t("The frozen profile declares {cases} queries and {methods} methods; credentials come from the repository .env.",
+    commands = ('<p>' + t("The frozen profile declares {cases} {cases|query|queries} and {methods} {methods|method|methods}; credentials come from the repository .env.",
                           cases=len(profile["cases"]), methods=len(profile["methods"])) + '</p>'
                 + '<ol data-reproduce>' + "".join(f'<li><p>{label}</p><pre>{esc(command)}</pre></li>' for label, command in steps)
                 + '</ol>')
@@ -2522,7 +2522,7 @@ def check(output, *, return_data=False, evidence_only=False):
                 hit = quality[method["id"]]["metrics"][hit_key]
                 expected = (
                     "—" if hit["mean"] is None else (
-                        report_text("{value:.1f}% ({n} queries)", soup.html["lang"] == "zh", value=hit['mean'] * 100, n=hit['n'])
+                        report_text("{value:.1f}% ({n} {n|query|queries})", soup.html["lang"] == "zh", value=hit['mean'] * 100, n=hit['n'])
                     )
                 )
                 if cell.get_text().replace("★", "").strip() != expected:
@@ -2892,7 +2892,7 @@ def cohort_summary(profile, rows, zh):
         "<section data-cohort-summary><h2>"
         + t("Independent benchmarks, with separate collection cohorts")
         + "</h2><p>"
-        + t("{cases} queries and {rows} final logical results, from {physical_calls} physical requests including retries. The table preserves the selected source scopes; the combined count is not a same-window speed trial.", cases=len(profile['cases']), rows=len(rows), physical_calls=sum(len(r.get('attempts') or [r]) for r in rows), groups=len(profile.get("method_collections", groups)))
+        + t("{cases} {cases|query|queries} and {rows} final logical results, from {physical_calls} physical requests including retries. The table preserves the selected source scopes; the combined count is not a same-window speed trial.", cases=len(profile['cases']), rows=len(rows), physical_calls=sum(len(r.get('attempts') or [r]) for r in rows), groups=len(profile.get("method_collections", groups)))
         + "</p>"
         + table(
             [
@@ -3489,7 +3489,7 @@ def interface_example(profile, rows, case_id, zh):
             raise ValueError("Interface example must include every method")
         row = indexed[method["id"]]
         body += '<article class="specimen" data-interface-method="' + esc(method["id"]) + '"><h3>' + esc(method["label"]) + '</h3>'
-        body += '<p>' + report_text("{results} results returned", zh, results=len(row["results"])) + '</p>'
+        body += '<p>' + report_text("{results} {results|result|results} returned", zh, results=len(row["results"])) + '</p>'
         body += '<details><summary>' + report_text("Complete request parameters", zh) + '</summary><pre>' + esc(json.dumps(row.get("request", {}), ensure_ascii=False, indent=2)) + '</pre></details>'
         body += '<details><summary>' + report_text("All search results", zh) + '</summary><pre>' + esc(json.dumps(row["results"], ensure_ascii=False, indent=2)) + '</pre></details>'
         body += '<button data-evidence="' + esc(row["evidence"]["path"]) + '">' + report_text("Open native response", zh) + '</button></article>'
@@ -3614,7 +3614,7 @@ def relevance_panel(profile, scored, evidence, zh):
     audit = evidence["judge"]
     model = audit["kind"] == "model"
     count = len(evidence["plan"]["case_ids"])
-    title = report_text("In-house relevance: {count} queries", zh, count=count)
+    title = report_text("In-house relevance: {count} {count|query|queries}", zh, count=count)
     definitions = (
         report_text("Ranking quality is nDCG@{cutoff} × 100. Useful-result fraction counts grades 2 and 3 in {cutoff} slots; direct-match rate counts queries with at least one grade-3 result.", zh, cutoff=cutoff)
     )
@@ -3686,7 +3686,7 @@ def known_page_chart(profile, selected, zh):
     output = ['<h3>' + report_text("Known-page discovery", zh) + '</h3>']
     cutoff = profile["protocol"]["top_k"]
     output.append('<p>' + (
-        report_text("Known-page tasks test discovery: a target URL in the first {cutoff} results counts as a hit. Each row shows hits and eligible tasks; questions without a declared target are excluded. Public factual questions have separate source and answer checks.", zh, cutoff=cutoff)
+        report_text("Known-page tasks test discovery: a target URL in the first {cutoff} {cutoff|result|results} counts as a hit. Each row shows hits and eligible tasks; questions without a declared target are excluded. Public factual questions have separate source and answer checks.", zh, cutoff=cutoff)
     ) + '</p>')
     output.append('<div class="metric-bars" data-known-page-chart>')
     for method in profile["methods"]:
@@ -3784,7 +3784,7 @@ def performance_view(profile, diagnostics, zh, evidence_prefix=""):
     t = partial(report_text, zh=zh)
 
     methods = diagnostics["methods"]
-    body = '<section data-timing-decomposition><h2>' + t("Client and server timing: {cases} queries", cases=len(profile['cases'])) + "</h2>"
+    body = '<section data-timing-decomposition><h2>' + t("Client and server timing: {cases} {cases|query|queries}", cases=len(profile['cases'])) + "</h2>"
     rows = []
     for m in profile["methods"]:
         s = methods.get(m["id"])
@@ -3882,7 +3882,7 @@ def performance_view(profile, diagnostics, zh, evidence_prefix=""):
         body += (
             "<p>"
             + t("First upstream results / server completion / additional wait: ")
-            + f"{fmt(specimen['first_results_ms'])} / {fmt(specimen['server_ms'])} / {fmt(specimen['after_first_ms'])} ms</p>"
+            + f"{unit_number(specimen['first_results_ms'], 'ms')} / {unit_number(specimen['server_ms'], 'ms')} / {milliseconds(specimen['after_first_ms'])}</p>"
         )
         maximum = max([a["start"] + a["duration"] for a in specimen["timeline"]] + [1])
         rows = []
@@ -4093,7 +4093,7 @@ def population_summary(profile, selected, content, zh, *, diagnostics=False, rel
     prices = catalog_prices(profile, content)
     roots = [p for p in metric_populations(profile, content) if p.get("benchmark_root")] if independent else []
     heading = report_text("Core results by benchmark", zh)
-    scope = report_text("; ", zh).join(p["label"][lang] + " " + str(len(set(p["case_ids"]) - set(profile.get("factual_quality_exclusions", [])))) + report_text(" queries", zh) for p in roots)
+    scope = report_text("; ", zh).join(p["label"][lang] + " " + report_text("{count} {count|query|queries}", zh, count=len(set(p["case_ids"]) - set(profile.get("factual_quality_exclusions", [])))) for p in roots)
     note = ((scope + report_text(". Benchmarks are reported separately. ", zh)) if scope else "") + (
         report_text("Mean, P50 and P95 cover all requests and retry waits; fees estimate the calls in each population.", zh))
     if prices is not None:
@@ -4183,7 +4183,7 @@ def population_summary(profile, selected, content, zh, *, diagnostics=False, rel
                 html_cells.append('<td>' + label + '</td>' if i == 0 else numeric_cell(label, value, f"population-{i}", directions.get(i, "neutral"), win,
                                   significant=(bool(i == 1 and win and significant_lead) if intervals else None)))
             rendered.append('<tr>' + ''.join(html_cells) + '</tr>')
-        body += '<article data-population="' + esc(population['id']) + '"><h3>' + esc(population['label'][lang]) + f' · {denominator}' + report_text(" queries", zh) + '</h3>'
+        body += '<article data-population="' + esc(population['id']) + '"><h3>' + esc(population['label'][lang]) + ' · ' + report_text("{count} {count|query|queries}", zh, count=denominator) + '</h3>'
         if population.get('description'):
             body += '<p>' + esc(population['description'][lang]) + '</p>'
         headings = [report_text("Queries returning results", zh)]
@@ -4249,7 +4249,7 @@ def dataset_context(profile, content, zh, *, reference_profile=None):
     if exact:
         parts.append(report_text("{exact} original queries have traceable public sources", zh, exact=exact))
     if screenshots:
-        parts.append(report_text("{screenshots} queries were transcribed from user screenshots; their original authors and posts are unconfirmed", zh, screenshots=screenshots))
+        parts.append(report_text("{screenshots} {screenshots|query|queries} were transcribed from user screenshots; their original authors and posts are unconfirmed", zh, screenshots=screenshots))
     note = report_text("; ", zh).join(parts)
     if note:
         note += report_text(". ", zh)

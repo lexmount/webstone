@@ -13,7 +13,7 @@ from harness.trajectory_replay.webarena_report_check import (
     _text_without_verified_embedded_images,
 )
 
-NAV_LINK = 'body > nav > .pages a[href$="interpretation.html"]'
+NAV_LINK = '.shell-links a[href$="interpretation.html"]'
 
 
 def test_interpretation_is_reachable_from_summary_and_nested_evidence(tmp_path):
@@ -147,7 +147,7 @@ def test_release_rejects_inaccessible_interpretation_navigation(tmp_path, mutati
     elif mutation == "wrong_depth":
         link["href"] = "interpretation.html"
     elif mutation == "duplicate":
-        page.select_one("nav .pages").append(BeautifulSoup(str(link), "html.parser"))
+        page.select_one(".shell-links").append(BeautifulSoup(str(link), "html.parser"))
     else:
         link["aria-current"] = "page"
     path.write_text(str(page), encoding="utf-8")

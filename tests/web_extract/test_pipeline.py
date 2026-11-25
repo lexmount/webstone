@@ -412,7 +412,7 @@ class ReportScenarios(unittest.TestCase):
         for lang in ("en", "zh"):
             for path in (self.output / lang).glob("*.html"):
                 soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-                primary = soup.select("nav > a")
+                primary = soup.select(".shell-links > a")
                 self.assertEqual(len(primary), 5, path.name)
                 self.assertEqual(
                     [a["href"] for a in primary],
@@ -421,23 +421,23 @@ class ReportScenarios(unittest.TestCase):
                         for route in ("index", "results", "dataset", "protocol", "interpretation")
                     ],
                 )
-                resources = soup.select_one("nav details.nav-more")
+                resources = soup.select_one("details.shell-more")
                 self.assertIsNotNone(resources, path.name)
                 self.assertEqual(len(resources.select("a")), 4)
-                self.assertEqual(len(soup.select(".report-tools #theme")), 1)
-                self.assertEqual(len(soup.select(".report-tools a")), 1)
+                self.assertEqual(len(soup.select(".shell-controls [data-shell-theme]")), 1)
+                self.assertEqual(len(soup.select(".shell-controls a")), 1)
 
     def test_release_rejects_flat_navigation_even_with_valid_file_hashes(self):
         path = self.output / "en/index.html"
         soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
-        for link in list(soup.select("nav details a")):
-            soup.nav.append(link.extract())
+        for link in list(soup.select(".shell-more a")):
+            soup.select_one(".shell-links").append(link.extract())
         path.write_text(str(soup), encoding="utf-8")
         manifest_path = self.output / "report-manifest.json"
         manifest = read_json(manifest_path)
         manifest["files"]["en/index.html"] = digest(path.read_bytes())
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "Report navigation"):
+        with self.assertRaisesRegex(ValueError, "[Nn]avigation"):
             _check_rendered_report(self.output)
 
     def test_chinese_only_build_keeps_an_actionable_english_notice(self):
@@ -469,9 +469,10 @@ class ReportScenarios(unittest.TestCase):
                 soup = BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser")
                 self.assertEqual(soup.select_one('link[rel="stylesheet"]')["href"], "style.css")
                 self.assertEqual(soup.select_one("script[src]")["src"], "app.js")
-                self.assertIn(f"{lang}/index.html", [a["href"] for a in soup.select("nav a")])
+                pages = [a["href"] for a in soup.select(".shell-links a, .shell-more a")]
+                self.assertIn(f"{lang}/index.html", pages)
                 self.assertTrue(
-                    any(a["href"].startswith(other + "/") for a in soup.select(".report-tools a"))
+                    any(a["href"].startswith(other + "/") for a in soup.select(".shell-controls a"))
                 )
                 for el in soup.select("a[href],link[href],script[src],img[src],[data-src]"):
                     value = el.get("href") or el.get("src") or el.get("data-src")

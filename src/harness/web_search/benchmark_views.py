@@ -51,7 +51,7 @@ def factual_panel(profile, selected, zh, *, compact=False):
                 display = (f'{total/n:.3f}' if i == 1 else f'{int(total)}/{n} · {total/n:.1%}') if n else '—'
                 row += numeric_cell(display, total/n if n else None, f'factual-current-{i}', 'max', n > 0 and best.get(i) == total/n)
             rendered.append('<tr>' + row + '</tr>')
-        return '<section data-factual><h2>' + report_text("Factual evidence retrieval: {cases} queries", zh, cases=len(cases)) + '</h2><p>' + answer_description + '</p>' + table(headers, rendered) + report_text('<p class="muted">Target MRR is available through the per-query reciprocal-rank details.</p>', zh) + ('<p data-quality-exclusions>' + report_text("Reference review excludes {excluded} defective queries for every provider; quality uses {cases} queries. Original responses, timing and cost retain the full collection.", zh, excluded=len(excluded), cases=len(cases)) + '</p>' if excluded else '') + '</section>'
+        return '<section data-factual><h2>' + report_text("Factual evidence retrieval: {cases} {cases|query|queries}", zh, cases=len(cases)) + '</h2><p>' + answer_description + '</p>' + table(headers, rendered) + report_text('<p class="muted">Target MRR is available through the per-query reciprocal-rank details.</p>', zh) + ('<p data-quality-exclusions>' + report_text("Reference review excludes {excluded} defective queries for every provider; quality uses {cases} {cases|query|queries}. Original responses, timing and cost retain the full collection.", zh, excluded=len(excluded), cases=len(cases)) + '</p>' if excluded else '') + '</section>'
     rendered = []
     for label, n, sums in values:
         row = ['<td>' + esc(label) + '</td>', f'<td>{n}</td>']
@@ -202,8 +202,8 @@ def _factual_measures(group, cases, quality_ids, cutoff, content):
 def _factual_note(zh, cutoff, ids, quality_ids, priced):
     body = ''
     if quality_ids != ids:
-        body += '<p data-quality-exclusions>' + (report_text("Quality uses {qualified} qualified queries; latency retains all {total} collected queries.", zh, qualified=len(quality_ids), total=len(ids)) if priced else report_text("Quality uses {qualified} reviewed-reference queries for every method; {defective} defective references are quarantined. Latency and cost retain all {total} queries.", zh, qualified=len(quality_ids), defective=len(ids) - len(quality_ids), total=len(ids))) + '</p>'
-    return body + '<details class="metric-guide"><summary>' + report_text("Metric definitions", zh) + '</summary><p>' + report_text("Hit@{cutoff} checks for a published supporting URL in the first {cutoff} results. MRR@{cutoff} averages reciprocal first-hit rank, with misses scoring zero. Answer Match@{cutoff} checks delivered text for reference-answer phrases after excluding explicit dataset mirrors; it does not measure semantic accuracy.", zh, cutoff=cutoff) + '</p></details>'
+        body += '<p data-quality-exclusions>' + (report_text("Quality uses {qualified} qualified queries; latency retains all {total} collected queries.", zh, qualified=len(quality_ids), total=len(ids)) if priced else report_text("Quality uses {qualified} reviewed-reference queries for every method; {defective} defective references are quarantined. Latency and cost retain all {total} {total|query|queries}.", zh, qualified=len(quality_ids), defective=len(ids) - len(quality_ids), total=len(ids))) + '</p>'
+    return body + '<details class="metric-guide"><summary>' + report_text("Metric definitions", zh) + '</summary><p>' + report_text("Hit@{cutoff} checks for a published supporting URL in the first {cutoff} {cutoff|result|results}. MRR@{cutoff} averages reciprocal first-hit rank, with misses scoring zero. Answer Match@{cutoff} checks delivered text for reference-answer phrases after excluding explicit dataset mirrors; it does not measure semantic accuracy.", zh, cutoff=cutoff) + '</p></details>'
 
 
 def _factual_population(population, profile):
@@ -245,5 +245,5 @@ TARGET_KIND = MetricKind(
 SITE_KIND = MetricKind(
     name='site', measures=_site_measures,
     headings=lambda zh, cutoff, content: [report_text("Site constraint met", zh), report_text("Requested-domain fraction", zh)],
-    note=lambda zh, cutoff, ids, quality_ids, priced: '<p class="population-note">' + report_text("Site satisfied: at least one top-{cutoff} result uses the requested domain. Domain fraction averages the share of top-{cutoff} results from that domain. Neither metric judges page relevance.", zh, cutoff=cutoff) + '</p>',
+    note=lambda zh, cutoff, ids, quality_ids, priced: '<p class="population-note">' + report_text("Site satisfied: at least one top-{cutoff} result uses the requested domain. Domain fraction averages the share of top-{cutoff} {cutoff|result|results} from that domain. Neither metric judges page relevance.", zh, cutoff=cutoff) + '</p>',
     discovery=("Find the requested site", lambda case, row, profile: (row['metrics'].get('domain_precision') or 0) > 0))

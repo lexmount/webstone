@@ -101,7 +101,7 @@ def failure_signature_cards(
         if total == 1
         else t(
             "failure.signature.heading.other",
-            "Dominant failures in {count} browsers",
+            "Dominant failures in {count} {count|browser|browsers}",
             count=total,
         )
     )
@@ -157,7 +157,8 @@ def browser_failure_profile(methods: dict, rows: list[dict], lang: str, particip
         detail = f'result/{escape(str(sample["key"]), quote=True)}.html'
         explanations.append(
             f'<article data-cause-detail="{escape(code)}"><header><h3>{escape(str(label))}</h3>'
-            f"<strong>{count} {t('failure.profile.tasks', 'tasks')}</strong></header><p>"
+            f"<strong>{t('failure.profile.task_count', '{count} {count|task|tasks}', count=count)}"
+            "</strong></header><p>"
             f'{escape(str(reason))}</p>'
             f'<a href="{detail}">'
             f"{t('failure.profile.representative_task', 'Representative task')} #"

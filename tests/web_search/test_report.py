@@ -127,7 +127,7 @@ class ReportScenarios(unittest.TestCase):
         self.assertEqual(len(home.select('[data-executive]')), 1)
         self.assertEqual(len(home.select('[data-populations]')), 1)
         self.assertEqual(len(home.select('[data-executive] tbody tr')), 2)
-        nav = [a['href'] for a in home.select('nav a')]
+        nav = [a['href'] for a in home.select('nav a:not(.shell-brand)')]
         # A Chinese-only build links to the English not-generated notice.
         self.assertEqual(nav, ['index.html', 'capabilities.html', 'quality.html', 'performance.html', 'dataset.html', 'results.html', 'en/index.html'])
         performance = BeautifulSoup((self.out / "performance.html").read_text(encoding="utf-8"), "html.parser")

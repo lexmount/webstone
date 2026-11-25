@@ -133,11 +133,11 @@ def media_population_text(track, cases):
     """Describe the declared population, without assuming a historical cohort."""
     selected = [case for case in (cases or {}).values() if report_family(case) == track]
     if track == 'media_file':
-        return (t('the_input_points_directly_at_a_media', "The input points directly at a media file, {count} tasks in total: the original bytes must be obtained and meet each task's registered format, length and file-fingerprint requirements.", count=len(selected)),
+        return (t('the_input_points_directly_at_a_media', "The input points directly at a media file, {count} {count|task|tasks} in total: the original bytes must be obtained and meet each task's registered format, length and file-fingerprint requirements.", count=len(selected)),
                 f'The input points directly to a media file. Across {len(selected)} tasks, return original bytes satisfying each registered format, length and fingerprint requirement.')
     resources = sum(case.get('task_kind', 'body') == 'resource' for case in selected)
     other = len(selected) - resources
-    return (t('the_input_is_a_web_page_tasks', 'The input is a web page, {count} tasks in total: {resources} require resource URLs and {other} require registered text or structure. Accepting a URL does not mean the media file was downloaded.', count=len(selected), resources=resources, other=other),
+    return (t('the_input_is_a_web_page_tasks', 'The input is a web page, {count} {count|task|tasks} in total: {resources} require resource URLs and {other} require registered text or structure. Accepting a URL does not mean the media file was downloaded.', count=len(selected), resources=resources, other=other),
             f'The input is a webpage. Across {len(selected)} tasks, {resources} require resource URLs and {other} require registered text or structure. URL acceptance does not establish media-file download.')
 
 
@@ -431,7 +431,7 @@ def reference_status(cases):
     full=sum(bool(c.get('ground_truth_main_content')) for c in cases)
     dynamic=sum(c.get('task_kind')=='structure' for c in cases)
     overview=cards([
-        (t('tasks_with_complete_references', '{full} tasks with complete references', full=full),t('full_text_metrics_require_a_complete_comparable', 'Full-text metrics require a complete, comparable body reference. Image and video tasks are checked as resources, files, or text metadata.')),
+        (t('tasks_with_complete_references', '{full} {full|task|tasks} with complete references', full=full),t('full_text_metrics_require_a_complete_comparable', 'Full-text metrics require a complete, comparable body reference. Image and video tasks are checked as resources, files, or text metadata.')),
         (t('list_tasks_2', '{dynamic} list tasks', dynamic=dynamic),t('acceptance_uses_registered_stable_content_anchors_plus', "Acceptance uses registered stable content anchors plus fields, types, counts, and uniqueness. Task pass rate and latency enter the corresponding primary table; the day's list membership is not frozen.")),
         (t('snapshot_scope', 'Snapshot scope'),example_text('challenge', 'snapshot_scope', 'reference_status')),
         (t('volatile_content_validation_boundary', 'Volatile-content validation boundary'),t('stable_headings_sections_and_descriptions_are_checked', 'Stable headings, sections, and descriptions are checked against registered content. Frequently changing lists and prices are checked only for declared field structure, types, count, and uniqueness; this does not establish their factual accuracy or freshness. Missing complete references do not suppress task verdicts.')),

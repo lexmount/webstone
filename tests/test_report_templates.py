@@ -1,5 +1,6 @@
 """A fresh session can locate and build supported report types and diagnostics."""
 import copy
+import re
 import hashlib
 import json
 import os
@@ -333,10 +334,12 @@ class ReportTemplateTests(unittest.TestCase):
             check_diagnostic_report(output)
             home=output/'index.html';original=home.read_text(encoding="utf-8")
             self.assertNotIn('hreflang="en"', original)
+            self.assertNotIn('comparison-winner', original)
             for bad in [original.replace('</nav>', '<a href="en/index.html" hreflang="en">English</a></nav>', 1),
                         original.replace('50.0%', '49.0%'),
                         original.replace('50.0%', ''),
-                        original.replace('comparison-winner good','unmarked')]:
+                        # Each cohort has one method, so a highlight has no contest.
+                        re.sub(r'(<td[^>]*data-metric-direction="max"[^>]*>)', r'\1<strong class="comparison-winner good">x</strong>', original, count=1)]:
                 home.write_text(bad, encoding="utf-8")
                 with self.assertRaises(ValueError):check_diagnostic_report(output)
             home.write_text(original, encoding="utf-8")

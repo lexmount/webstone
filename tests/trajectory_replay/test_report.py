@@ -27,7 +27,9 @@ MOLI_CONTENT = Path(__file__).parents[2] / "examples/trajectory_replay/moli-timi
 
 
 def test_comparisons_are_neutral_for_displayed_ties_and_missing_values():
-    assert "class=" not in _absolute_metric_cell(1.001, (1.002,), 1)
+    assert "class=" not in _absolute_metric_cell(1.001, (1.002,), 1, "MiB")
+    # Milliseconds display whole numbers, so 1,000.2 and 1,000.4 tie as shown.
+    assert "class=" not in _absolute_metric_cell(1000.2, (1000.4,), 1, "ms")
     assert "class=" not in _ratio_metric_cell(1.004)
     assert "class=" not in _ratio_metric_cell(None)
     assert 'class="better"' in _ratio_metric_cell(0.8)
@@ -202,8 +204,8 @@ def test_report_uses_fixed_latest_filename_and_removes_legacy_versions(tmp_path)
     assert rendered.index('<th colspan="2">P95</th>') < rendered.index(
         '<th colspan="2">平均值</th>'
     )
-    assert '<td>100.00</td><td class="better">50.00</td>' in rendered
-    assert '<td class="better">200.00</td><td>300.00</td>' in rendered
+    assert '<td>100</td><td class="better">50</td>' in rendered
+    assert '<td class="better">200</td><td>300</td>' in rendered
     assert "9.90×" in rendered
     assert "边际分位数相除" in rendered
     assert (reports / "trajectory-replay-evaluation-latest-suite.html").exists()
@@ -521,7 +523,7 @@ def test_report_renders_every_registered_participant_of_a_larger_set(tmp_path):
     cpu_label = '<td data-label="指标">CPU 时间'
     cpu_row = next(row for row in home.split("<tr>") if row.startswith(cpu_label))
     assert cpu_row.count('class="better"') == 3
-    assert '<td class="better">100.00</td>' in cpu_row
+    assert '<td class="better">100</td>' in cpu_row
 
     analysis = _route(reports, "-analysis.html")
     for engine in engines:

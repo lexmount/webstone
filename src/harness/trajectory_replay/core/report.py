@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from harness.record_io import write_json
 from harness.reporting import charts, explorer, shell
+from harness.reporting.presentation import unit_number
 from harness.reporting.templates import compose
 
 ASSETS = Path(__file__).parents[1] / "assets"
@@ -29,8 +30,11 @@ def _trace_text(value: Any) -> str:
     return "\n".join(line.rstrip() for line in text.splitlines())
 
 
-def _show(value: Any, divisor: float = 1.0, suffix: str = "") -> str:
-    return f"{value / divisor:,.2f}{suffix}" if isinstance(value, (int, float)) else "无数据"
+def _show(value: Any, divisor: float = 1.0, suffix: str = "", *, unit: str | None = None) -> str:
+    """A metric at its unit's shared precision; ``suffix`` names a unit shown after the number."""
+    if not isinstance(value, (int, float)):
+        return "无数据"
+    return unit_number(value / divisor, unit or suffix.strip()) + suffix
 
 
 def _stat(metric: dict[str, Any], key: str, divisor: float = 1.0) -> str:
@@ -57,11 +61,13 @@ def _numeric_stat(metric: dict[str, Any], key: str) -> float | int | None:
     return value if isinstance(value, (int, float)) else None
 
 
-def _display_number(value: float | int | None, divisor: float = 1.0) -> float | None:
-    """Return the exact two-decimal number shown in an absolute metric cell."""
+def _display_number(
+    value: float | int | None, divisor: float = 1.0, unit: str = ""
+) -> float | None:
+    """Return the exact number shown in an absolute metric cell at its unit's precision."""
     if not isinstance(value, (int, float)):
         return None
-    return float(f"{value / divisor:.2f}")
+    return float(unit_number(value / divisor, unit).replace(",", ""))
 
 
 def _difficulty(value: str) -> str:
@@ -153,21 +159,21 @@ def replay_table(
 
 def flat_page(
     variant, key: str, fills: dict[str, str], *, title: str, heading: str, eyebrow: str,
-    style: str, labels: dict[str, str], footer: str, detail_nav: str = "",
+    style: str, labels: dict[str, str], footer: str, brand: str, detail_nav: str = "",
 ) -> str:
     """One page of a flat (single-directory) replay report in the shared shell.
 
-    ``labels`` translate the variant's page titles by key; a report page lists them
-    with a previous/next pager, while a detail page passes its own ``detail_nav``.
+    ``labels`` translate the variant's page titles by key; a report page ends with a
+    previous/next pager, while a detail page leads with its own ``detail_nav`` links
+    above its heading.
     """
     pages = variant.pages
     owner = variant.page(key)
     pager = ""
-    if detail_nav:
-        nav = detail_nav
-    else:
-        links = [(page.route, f"{n}. {labels[page.key]}") for n, page in enumerate(pages, 1)]
-        nav = shell.navigation(links, owner.route)
+    links = [(page.route, f"{n}. {labels[page.key]}") for n, page in enumerate(pages, 1)]
+    header = shell.header(language="zh", brand=brand, home=pages[0].route, links=links,
+                          current=None if detail_nav else owner.route)
+    if not detail_nav:
         index = pages.index(owner)
         previous = (f'<a href="{pages[index - 1].route}">← {labels[pages[index - 1].key]}</a>'
                     if index else "<span></span>")
@@ -176,8 +182,8 @@ def flat_page(
         pager = f'<div class="pager">{previous}{following}</div>'
     return shell.page(
         lang="zh-CN", base=None, title=title, heading=None, heading_html=heading,
-        style=style + explorer.INVENTORY_STYLE, script=explorer.INVENTORY_SCRIPT, nav=nav,
-        eyebrow=eyebrow, notice="", role=owner.role,
+        style=style + explorer.INVENTORY_STYLE, script=explorer.INVENTORY_SCRIPT, header=header,
+        eyebrow=eyebrow, before_heading=detail_nav, notice="", role=owner.role,
         body=compose(owner.role, fills) + pager, dialog="",
         footer_html=f"<footer>{footer}</footer>",
     )

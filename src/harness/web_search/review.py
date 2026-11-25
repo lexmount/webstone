@@ -1145,7 +1145,7 @@ def render_summary(evidence, zh=True):
     counts = Counter(d["resolution"] for d in evidence["adjudications"].values())
     title = report_text("Result audit", zh) + f" · {coverage_percent(evidence)}%"
     text = (
-        report_text("Reviewed {case_reviewed}/{case_total} queries, {output_reviewed}/{output_total} outputs and {candidate_reviewed}/{candidate_total} pooled candidates.", zh, case_reviewed=evidence['case_reviewed'], case_total=evidence['case_total'], output_reviewed=evidence['output_reviewed'], output_total=evidence['output_total'], candidate_reviewed=evidence['candidate_reviewed'], candidate_total=evidence['candidate_total'])
+        report_text("Reviewed {case_reviewed}/{case_total} {case_total|query|queries}, {output_reviewed}/{output_total} {output_total|output|outputs} and {candidate_reviewed}/{candidate_total} pooled candidates.", zh, case_reviewed=evidence['case_reviewed'], case_total=evidence['case_total'], output_reviewed=evidence['output_reviewed'], output_total=evidence['output_total'], candidate_reviewed=evidence['candidate_reviewed'], candidate_total=evidence['candidate_total'])
     )
     labels = {
         "fixed": report_text("Corrected", zh),

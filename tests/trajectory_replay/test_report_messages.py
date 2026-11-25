@@ -2,10 +2,10 @@
 import ast
 import json
 import re
-import string
 
 import pytest
 
+from harness.reporting.locales import placeholders
 from harness.reporting.source_policy import HAN
 from harness.trajectory_replay.messages import MESSAGES, report_text
 
@@ -26,7 +26,7 @@ def _is_lookup(node: ast.AST) -> bool:
 
 
 def _fields(template: str) -> set[str]:
-    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
+    return placeholders(template)
 
 
 def test_every_lookup_has_a_catalog_translation_with_matching_placeholders():
@@ -46,11 +46,9 @@ def test_every_lookup_has_a_catalog_translation_with_matching_placeholders():
             assert _fields(catalog["zh"][key.value]) <= values, where
     assert sources
     # Keys without a dot belong to the interpretation renderer's two-language catalog.
-    assert {key for key in catalog["zh"] if key != "nav.other_edition" and "." in key} == set(
-        sources
-    )
+    assert {key for key in catalog["zh"] if "." in key} == set(sources)
     undotted = {key for key in catalog["zh"] if "." not in key}
-    assert set(catalog["en"]) == undotted | {"nav.other_edition"}
+    assert set(catalog["en"]) == undotted
 
 
 def test_english_is_source_text_and_chinese_comes_from_the_catalog():

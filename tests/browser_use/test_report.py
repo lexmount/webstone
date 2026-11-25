@@ -1216,7 +1216,7 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
                 page.read_text(encoding="utf-8"), source_text
             ), page
         home = (output / "en/index.html").read_text(encoding="utf-8")
-        assert '<html lang="en">' in home and "切换主题" not in home
+        assert '<html lang="en">' in home and 'aria-label="深色主题"' not in home
         # Every selection rationale has an English reading on English routes.
         task_page = (output / "en/datasets/475.html").read_text(encoding="utf-8")
         assert "Create an empty repository with a specific name" in task_page
@@ -1539,7 +1539,7 @@ def test_report_renders_measured_runtime_identities(tmp_path: Path, monkeypatch)
         page = output / name
         assert page.is_file()
         if name != "en/index.html":
-            assert "切换主题" in page.read_text(encoding="utf-8")
+            assert 'aria-label="深色主题"' in page.read_text(encoding="utf-8")
     expected_tasks = len(load_pilot("evaluation/browser-use/webarena-verified-pilot.json").tasks)
     assert len(list((output / "datasets").glob("[0-9]*.html"))) == expected_tasks
     assert not (output / "guide").exists()

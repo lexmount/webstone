@@ -6,31 +6,15 @@ const tr = (key, values = {}) => {
   const language = document.documentElement.lang.startsWith("en") ? "en" : "zh";
   if (!(key in REPORT_MESSAGES[language]))
     throw Error("Missing report translation: " + language + "/" + key);
-  return REPORT_MESSAGES[language][key].replace(/\{(\w+)\}/g, (_, name) => {
+  // `{name|singular|plural}` picks the noun form, as the Python catalog API does.
+  return REPORT_MESSAGES[language][key]
+    .replace(/\{(\w+)\|([^{}|]*)\|([^{}|]*)\}/g, (_, name, one, many) =>
+      Number(values[name]) === 1 ? one : many)
+    .replace(/\{(\w+)\}/g, (_, name) => {
     if (!(name in values)) throw Error("Missing report value: " + name);
     return String(values[name]);
   });
 };
-try {
-  document.documentElement.classList.toggle(
-    "dark",
-    localStorage.getItem("extract-theme") === "dark",
-  );
-} catch {}
-const themeToggle = document.querySelector("#theme");
-const showTheme = () => themeToggle?.setAttribute(
-  "aria-pressed", String(document.documentElement.classList.contains("dark")));
-showTheme();
-themeToggle?.addEventListener("click", () => {
-  document.documentElement.classList.toggle("dark");
-  showTheme();
-  try {
-    localStorage.setItem(
-      "extract-theme",
-      document.documentElement.classList.contains("dark") ? "dark" : "light",
-    );
-  } catch {}
-});
 const evidenceCache = new Map();
 async function evidence(src, key) {
   const url = new URL(src, document.baseURI).href;

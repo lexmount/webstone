@@ -270,7 +270,7 @@ def test_complete_three_method_report_builds_one_unified_matrix(
     assert manifest["routes"] == 13 + extra_methods
     assert not (output / "en/results.html").exists()
     assert (
-        'class="language" href="../en/index.html"'
+        '<a href="../en/index.html" hreflang="en"'
         in (output / "result/chromium-29.html").read_text(encoding="utf-8")
     )
     assert check_report(output)["html_pages"] == 13 + extra_methods

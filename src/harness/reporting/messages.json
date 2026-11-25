@@ -1,0 +1,12 @@
+{
+  "endonyms": {
+    "en": "English",
+    "zh": "中文"
+  },
+  "zh": {
+    "shell.more": "更多",
+    "shell.navigation": "报告页面",
+    "shell.table_hint": "左右滑动查看完整表格",
+    "shell.theme": "深色主题"
+  }
+}

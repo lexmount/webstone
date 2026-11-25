@@ -29,7 +29,8 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     assert '0/2' in failed.get_text()
     assert not failed.select('.comparison-winner')
     passed = next(row for row in conditional.select('tbody tr') if 'passes' in row.get_text())
-    assert len(passed.select('.comparison-winner')) == 3
+    # Only one method has successful calls, so its latency has no contest.
+    assert not passed.select('.comparison-winner')
     assert '15 ms' in passed.get_text()
 
     combined = BeautifulSoup(overall_ranking(rows, cases, passing_latency=True,
@@ -37,7 +38,8 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     assert combined.select_one('#successful-final-call-latency') is None
     main = combined.select_one('#ranking-overall')
     passed, failed = main.select('tbody tr')
-    assert len(passed.select('[data-metric-direction="min"] strong.good')) == 3
+    # The failing method shows no passing latency, so the passing method has no contest.
+    assert not passed.select('[data-metric-direction="min"] strong.good')
     assert '15 ms' in passed.select('td')[-3].get_text()
     assert not failed.select('[data-metric-direction="min"] strong.good')
     assert '1 ms' not in failed.get_text()

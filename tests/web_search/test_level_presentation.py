@@ -306,7 +306,7 @@ def test_locale_disclosure_counts_saved_requests_instead_of_one_method_default()
     rows += [dict(method='serper', request=dict(q='问题', num=5))]
     rows += [dict(method='bright', request={'url':'https://www.google.com/search?q=Question&gl=us&hl=en'}),
              dict(method='bright', request={'url':'https://www.google.com/search?q=Question'})]
-    assert locale_context(rows, 'serper') == '1 calls: No locale parameters; 3 calls: gl=us, hl=en'
+    assert locale_context(rows, 'serper') == '1 call: No locale parameters; 3 calls: gl=us, hl=en'
     assert locale_context(rows, 'bright', True) == '1 次调用：未设置地区、语言参数; 1 次调用：gl=us, hl=en'
     assert not locale_context(rows, 'other')
 

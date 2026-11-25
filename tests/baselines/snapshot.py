@@ -27,8 +27,10 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 
 from harness.reporting.mermaid import unpinned_mermaid_urls
+from harness.reporting.presentation import check_labels, check_shell
 
 BASELINE_DIR = Path(__file__).parent
 CHECKOUT = BASELINE_DIR.parents[1]
@@ -179,7 +181,8 @@ def route_digests(report: Path, normalizer: Normalizer) -> list[str]:
     as written. Routes are normalized too, so the list is sorted after that and
     keeps routes that differ only by a digest. A 20-digit prefix is ample for change
     detection and, unlike a full digest, survives ``Normalizer.value``. A rendered
-    page must not load an unpinned Mermaid runtime.
+    page must not load an unpinned Mermaid runtime, and a page under the shared
+    header must pass the shell and reader-label checks.
     """
     lines = []
     for route in file_inventory(report):
@@ -191,6 +194,13 @@ def route_digests(report: Path, normalizer: Normalizer) -> list[str]:
         else:
             if route.endswith((".html", ".js")) and (unpinned := unpinned_mermaid_urls(text)):
                 pytest.fail(f"{route} loads an unpinned Mermaid runtime: {unpinned}")
+            if route.endswith(".html") and 'class="shell-top"' in text:
+                try:
+                    page = BeautifulSoup(text, "html.parser")
+                    check_shell(page)
+                    check_labels(page)
+                except ValueError as error:
+                    pytest.fail(f"{route}: {error}")
             content = normalizer.text(text).encode("utf-8")
         lines.append(f"{normalizer.text(route)} {hashlib.sha256(content).hexdigest()[:20]}")
     if not lines:

@@ -480,15 +480,6 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
                 "window.addEventListener('DOMContentLoaded',",
                 "window.addEventListener('report-ready',",
             )
-    if 'function readTheme(' not in js:
-        js = js.replace("localStorage.getItem('webfetch-theme')", "readTheme()").replace(
-            "localStorage.setItem('webfetch-theme',t)", "saveTheme(t)"
-        )
-        js = (
-            "function readTheme(){try{return localStorage.getItem('webfetch-theme')}"
-            "catch{return 'light'}}\n"
-            "function saveTheme(t){try{localStorage.setItem('webfetch-theme',t)}catch{}}\n" + js
-        )
     (destination / "report.js").write_text(js, encoding="utf-8")
     (destination / "loader.js").write_bytes(
         (Path(__file__).parent / "assets/report-loader.js").read_bytes()

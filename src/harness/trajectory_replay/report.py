@@ -88,14 +88,15 @@ def _absolute_metric_cell(
     value: float | int | None,
     others: tuple[float | int | None, ...],
     divisor: float,
+    unit: str,
 ) -> str:
     css_class = ""
-    shown = _display_number(value, divisor)
+    shown = _display_number(value, divisor, unit)
     if others and all(
-        _comparison_class(shown, _display_number(other, divisor)) == "better" for other in others
+        _comparison_class(shown, _display_number(other, divisor, unit)) == "better" for other in others
     ):
         css_class = ' class="better"'
-    return f"<td{css_class}>{_e(_show(value, divisor))}</td>"
+    return f"<td{css_class}>{_e(_show(value, divisor, unit=unit))}</td>"
 
 
 def _ratio_metric_cell(value: float | int | None) -> str:
@@ -121,7 +122,7 @@ def _grouped_resource_table(
             }
             for engine in engines:
                 others = tuple(values[other] for other in engines if other != engine)
-                cells.append(_absolute_metric_cell(values[engine], others, divisor))
+                cells.append(_absolute_metric_cell(values[engine], others, divisor, unit))
         body.append("<tr>" + "".join(cells) + "</tr>")
     group_headers = "".join(
         f'<th colspan="{len(engines)}">{label}</th>' for label in ("P50", "P95", t("replay.stat.mean", "Mean"))
@@ -198,7 +199,7 @@ def _duration_pair_audit(
                         _show(item.get(key), suffix=" ms"),
                         "better"
                         if _comparison_class(
-                            _display_number(item.get(key)), _display_number(item.get(other))
+                            _display_number(item.get(key), unit="ms"), _display_number(item.get(other), unit="ms")
                         )
                         == "better"
                         else "",
@@ -248,8 +249,8 @@ def _page(
         VARIANT, key, fills,
         title=t("curated.shell.title", "{title} | {names} evaluation", title=detail_title or PAGE_LABELS[key], names=names),
         heading=_e(detail_title) if detail_title else t("curated.shell.heading", "{names} browser tool-call evaluation", names=names),
-        eyebrow="" if detail_title else "Lexmount Browser Provider Evaluation · " + t("curated.shell.page_info", "Run ID: {run_id} · Page {page}/{pages}", run_id=run_id, page=index + 1, pages=len(VARIANT.pages)),
-        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav,
+        eyebrow="" if detail_title else t("curated.shell.page_info", "Run ID: {run_id} · Page {page}/{pages}", run_id=run_id, page=index + 1, pages=len(VARIANT.pages)),
+        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav, brand=t("nav.brand", "Trajectory Replay"),
         footer="Lexmount Browser Provider Evaluation · " + t("replay.edition.chinese_only", "This report is available in Chinese only."),
     )
 
@@ -346,7 +347,7 @@ def _recommendation(summary: dict[str, Any], engines: tuple[str, ...]) -> str:
         return t("curated.recommendation.single", "This run has only one provider, {engines}, with {top} correct results; there is nothing to compare, so no default is recommended.", engines=engine_names(engines), top=top)
     if len(leaders) > 1:
         if leaders == engines:
-            return t("curated.recommendation.tied_all", "In this run, {count} providers have the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", count=_provider_count(engines), top=top, parties=parties)
+            return t("curated.recommendation.tied_all", "In this run, {count} {count|provider|providers} have the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", count=_provider_count(engines), top=top, parties=parties)
         return t("curated.recommendation.tied", "In this run, {leaders} have the same number of correct results ({top} each); correctness alone cannot select a default, so decide using resource metrics on tasks {parties} passed and the failure types.", leaders=engine_names(leaders), top=top, parties=parties)
     leader = leaders[0]
     others = tuple(engine for engine in engines if engine != leader)
@@ -401,7 +402,7 @@ def _summary_page(manifest: dict[str, Any], summary: dict[str, Any], content: di
         else ""
     )
     return {
-        "lead": f"""<section class="card note"><h2>{t("curated.summary.conclusion", "Conclusion and product recommendation")}</h2><p><strong>{recommendation}</strong></p><p>{t("curated.summary.scope", "This is a public-web deterministic microbenchmark at the browser tool-call layer, not an LLM Agent ranking. The suite has {count} tasks with unique results.", count=task_count)}</p></section>""",
+        "lead": f"""<section class="card note"><h2>{t("curated.summary.conclusion", "Conclusion and product recommendation")}</h2><p><strong>{recommendation}</strong></p><p>{t("curated.summary.scope", "This is a public-web deterministic microbenchmark at the browser tool-call layer, not an LLM Agent ranking. The suite has {count} {count|task|tasks} with unique results.", count=task_count)}</p></section>""",
         "core-comparison": correctness_chart(summary, engines, t) + f"""<section class="card"><h2>{t("curated.correctness.title", "Task correctness")}</h2>{correctness}</section>""",
         "findings": f"""<section class="card" id="technical-findings"><h2>{t("curated.summary.findings", "Key technical findings")}</h2><ul>
 {_ratio_finding(summary, engines)}{_authored(content.get("findings"), "li")}{_root_cause_finding()}</ul></section>""",
@@ -524,7 +525,7 @@ def _suite_page(manifest: dict[str, Any]) -> str:
         )
     filters = (
         f'<section class="card suite-filter-panel" aria-label="{t("replay.suite.filter_label", "Task filter")}"><div class="section-heading"><h2>{t("replay.suite.find_tasks", "Find tasks")}</h2>'
-        f'<span id="suite-count" class="muted" aria-live="polite">{t("replay.suite.showing", "Showing {shown} / {total} tasks", shown=len(suite), total=len(suite))}</span></div>'
+        f'<span id="suite-count" class="muted" aria-live="polite">{t("replay.suite.showing", "Showing {shown} / {total} {total|task|tasks}", shown=len(suite), total=len(suite))}</span></div>'
         f'<div class="suite-filter-controls"><label class="suite-search">{t("replay.suite.search", "Search tasks")}<input id="suite-query" type="search" placeholder="{t("replay.suite.search_placeholder", "Task name, ID, site or keyword")}"></label>'
         f'<label>{t("replay.filter.difficulty", "Difficulty")}<select id="suite-difficulty"><option value="">{t("replay.filter.all_difficulties", "All difficulties")}</option>'
         + "".join(
@@ -574,14 +575,14 @@ def _method_page(manifest: dict[str, Any], engines: tuple[str, ...]) -> str:
         [t("replay.env.sampling", "Sampling"), t("replay.env.sampling_value", "Memory, PID, CPU and network counters sampled every {interval} ms", interval=p.get('sample_interval_ms', '?'))],
     ]
     alternation = (
-        t("curated.method.alternation", ", alternating the execution order of {count} providers per task", count=_provider_count(engines)) if len(engines) > 1 else ""
+        t("curated.method.alternation", ", alternating the execution order of {count} {count|provider|providers} per task", count=_provider_count(engines)) if len(engines) > 1 else ""
     )
     ratio_definition = (
         f'<li>{t("curated.method.ratio_definition", """The paired ratio definition and per-item computation are in the <a href="trajectory-replay-evaluation-latest.html#performance">home performance tables and audit</a>.""")}</li>'
         if len(engines) > 1
         else ""
     )
-    return f"""<section class="card note"><h2>{t("curated.method.step_title", "Strict definition of a step")}</h2><p>{t("curated.method.step_body", "<strong>One step = one CowAgent BrowserTool-equivalent call</strong>, such as navigate, click, get_text, fill, select, scroll, back or forward. Waiting for page readiness and target values happens inside that tool call and is not listed or counted separately. The arguments, duration, output and status of each call are written to the execution trace.")}</p></section><section class="card" id="scoring"><h2>{t("curated.method.scoring_title", "Success verdict: two independent programmatic metrics")}</h2><ol><li>{t("curated.method.scoring_result", "<strong>Result correct (primary):</strong> each annotated output must exactly equal <code>expected_outputs</code> as a string; no fuzzy matching or model scoring; Codex only took part in annotation review before the evaluation.")}</li><li>{t("curated.method.scoring_combined", "<strong>Result and reference process both correct (secondary):</strong> beyond a correct result, the replayed reference action sequence must match <code>expected_actions</code> and every BrowserTool call must succeed.")}</li></ol><p>{t("curated.method.scoring_boundary", "<strong>Boundary:</strong> <code>expected_actions</code> is the fixed reference path of a tool-layer microbenchmark and does not mean the task has only one solution. To evaluate a freely planning CowAgent, change the process verdict to required milestones, forbidden actions and a step budget instead of requiring the whole sequence to match step by step.")}</p></section><section class="card"><h2>{t("replay.section.environment", "Environment")}</h2>{_table([t("replay.column.item", "Item"), t("replay.column.recorded", "Recorded value")], rows, t("replay.env.this_round", "Environment of this run"))}</section><section class="card"><h2>{t("replay.section.flow", "Execution flow")}</h2><ol><li>{t("curated.method.flow_start", "Start and warm up {count} browsers separately; browser processes and contexts stay running for the whole evaluation.", count=_provider_count(engines))}</li><li>{t("replay.method.flow_clear", "Before each task, clear cookies, permissions, HTTP cache, Cache Storage, Service Workers, IndexedDB, origin storage and history, and create a new page.")}</li><li>{t("curated.method.flow_settle", "Settle for {settle} ms outside timing{alternation}.", settle=p.get("post_reset_settle_ms", "?"), alternation=alternation)}</li><li>{t("curated.method.flow_run", "Run the complete task with sampling; failure review belongs to the same task detail.")}</li><li>{t("curated.method.flow_baseline", "The resource baseline only compares same tasks {parties} passed; failure and review samples are kept out of the normal path.", parties=_all_parties(engines))}</li></ol></section><section class="card"><h2>{t("replay.section.statistics", "Statistical scope")}</h2><ul><li>{t("curated.method.stats_p50", "P50 and the median are the same statistic; cross-task results report P50, mean and nearest-rank P95.")}</li>{ratio_definition}<li>{t("curated.method.stats_single", "Each task has only one formal sample, so no per-task quantiles are computed; the current cross-task points cannot prove a general performance advantage.")}</li><li>{t("curated.method.stats_memory", "Mean memory is time-weighted; task memory P95 comes from time-series samples of one task run.")}</li><li>{t("curated.method.stats_network", "RX = Receive, TX = Transmit; totals include page resources and CDP, and rates come from differences of adjacent samples.")}</li></ul></section>"""
+    return f"""<section class="card note"><h2>{t("curated.method.step_title", "Strict definition of a step")}</h2><p>{t("curated.method.step_body", "<strong>One step = one CowAgent BrowserTool-equivalent call</strong>, such as navigate, click, get_text, fill, select, scroll, back or forward. Waiting for page readiness and target values happens inside that tool call and is not listed or counted separately. The arguments, duration, output and status of each call are written to the execution trace.")}</p></section><section class="card" id="scoring"><h2>{t("curated.method.scoring_title", "Success verdict: two independent programmatic metrics")}</h2><ol><li>{t("curated.method.scoring_result", "<strong>Result correct (primary):</strong> each annotated output must exactly equal <code>expected_outputs</code> as a string; no fuzzy matching or model scoring; Codex only took part in annotation review before the evaluation.")}</li><li>{t("curated.method.scoring_combined", "<strong>Result and reference process both correct (secondary):</strong> beyond a correct result, the replayed reference action sequence must match <code>expected_actions</code> and every BrowserTool call must succeed.")}</li></ol><p>{t("curated.method.scoring_boundary", "<strong>Boundary:</strong> <code>expected_actions</code> is the fixed reference path of a tool-layer microbenchmark and does not mean the task has only one solution. To evaluate a freely planning CowAgent, change the process verdict to required milestones, forbidden actions and a step budget instead of requiring the whole sequence to match step by step.")}</p></section><section class="card"><h2>{t("replay.section.environment", "Environment")}</h2>{_table([t("replay.column.item", "Item"), t("replay.column.recorded", "Recorded value")], rows, t("replay.env.this_round", "Environment of this run"))}</section><section class="card"><h2>{t("replay.section.flow", "Execution flow")}</h2><ol><li>{t("curated.method.flow_start", "Start and warm up {count} {count|browser|browsers} separately; browser processes and contexts stay running for the whole evaluation.", count=_provider_count(engines))}</li><li>{t("replay.method.flow_clear", "Before each task, clear cookies, permissions, HTTP cache, Cache Storage, Service Workers, IndexedDB, origin storage and history, and create a new page.")}</li><li>{t("curated.method.flow_settle", "Settle for {settle} ms outside timing{alternation}.", settle=p.get("post_reset_settle_ms", "?"), alternation=alternation)}</li><li>{t("curated.method.flow_run", "Run the complete task with sampling; failure review belongs to the same task detail.")}</li><li>{t("curated.method.flow_baseline", "The resource baseline only compares same tasks {parties} passed; failure and review samples are kept out of the normal path.", parties=_all_parties(engines))}</li></ol></section><section class="card"><h2>{t("replay.section.statistics", "Statistical scope")}</h2><ul><li>{t("curated.method.stats_p50", "P50 and the median are the same statistic; cross-task results report P50, mean and nearest-rank P95.")}</li>{ratio_definition}<li>{t("curated.method.stats_single", "Each task has only one formal sample, so no per-task quantiles are computed; the current cross-task points cannot prove a general performance advantage.")}</li><li>{t("curated.method.stats_memory", "Mean memory is time-weighted; task memory P95 comes from time-series samples of one task run.")}</li><li>{t("curated.method.stats_network", "RX = Receive, TX = Transmit; totals include page resources and CDP, and rates come from differences of adjacent samples.")}</li></ul></section>"""
 
 
 METRICS = (
@@ -723,7 +724,7 @@ def _task_detail_body(
         '<div class="case-facts">'
         f'<div><span>{t("replay.detail.result", "Result")}</span><strong class="{"ok" if result == "pass" else "bad"}">{status_cell(result)}</strong></div>'
         f'<div><span>{t("curated.detail.reference_process", "Reference process")}</span><strong class="{"ok" if process == "pass" else "bad"}">{status_cell(process)}</strong></div>'
-        f"<div><span>{t('curated.detail.total_duration', 'Total duration · {count} executions', count=len(attempts))}</span><strong>{_show(total, suffix=' ms')}</strong></div></div>"
+        f"<div><span>{t('curated.detail.total_duration', 'Total duration · {count} {count|execution|executions}', count=len(attempts))}</span><strong>{_show(total, suffix=' ms')}</strong></div></div>"
     )
     if diagnostic:
         overview += (
@@ -1085,7 +1086,7 @@ def _execution_explorer(
     provider_list = "[" + ",".join(f"'{engine}'" for engine in engines) + "]"
     script = f"<script>{EXECUTION_FILTER_JS}</script>".replace("__PROVIDER_LIST__", provider_list)
     grid_head = f'<div class="record-grid-head" aria-hidden="true"><span>{t("replay.column.task", "Task")}</span><span>Provider</span><span>{t("replay.detail.result", "Result")}</span><span>{t("curated.analysis.process", "Process")}</span><span>{t("replay.filter.error_category", "Error category")}</span><span>{t("curated.metric.duration", "Total duration")}</span></div>'
-    return f"""<section class="card" id="execution-results"{explorer.inventory_attributes(result_control="#f-status")}><h2>{t("curated.analysis.title", "Per-task analysis and raw evidence")}</h2><p>{t("curated.analysis.body", "{records} task × provider records, {executions} executions. Open a task to see its complete actions, answers, verdicts and trace.", records=logical_executions, executions=physical_attempts)}</p>{_table([t("curated.analysis.rule_category", "Rule category"), t("curated.analysis.failure_groups", "Deduplicated failure groups"), t("curated.analysis.failure_count", "Actual failures")], category_rows, t("curated.analysis.failure_caption", "Programmatic failure distribution"))}{filters}<div id="execution-list" class="record-grid">{grid_head}{_execution_details(manifest, summary, detail_pages)}</div><p id="execution-empty" class="empty-state" role="status" hidden></p>{explorer.inventory_notice(t("inventory.no_failures", "No result failed; showing all results."), t("inventory.show_more", "Show more"))}{script}</section>"""
+    return f"""<section class="card" id="execution-results"{explorer.inventory_attributes(result_control="#f-status")}><h2>{t("curated.analysis.title", "Per-task analysis and raw evidence")}</h2><p>{t("curated.analysis.body", "{records} task × provider records, {executions} {executions|execution|executions}. Open a task to see its complete actions, answers, verdicts and trace.", records=logical_executions, executions=physical_attempts)}</p>{_table([t("curated.analysis.rule_category", "Rule category"), t("curated.analysis.failure_groups", "Deduplicated failure groups"), t("curated.analysis.failure_count", "Actual failures")], category_rows, t("curated.analysis.failure_caption", "Programmatic failure distribution"))}{filters}<div id="execution-list" class="record-grid">{grid_head}{_execution_details(manifest, summary, detail_pages)}</div><p id="execution-empty" class="empty-state" role="status" hidden></p>{explorer.inventory_notice(t("inventory.no_failures", "No result failed; showing all results."), t("inventory.show_more", "Show more"))}{script}</section>"""
 
 
 def _classify(error: str) -> str:

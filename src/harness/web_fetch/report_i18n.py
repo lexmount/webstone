@@ -20,7 +20,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Comment
 
-from harness.reporting.locales import catalog_text, translate
+from harness.reporting import shell
+from harness.reporting.locales import catalog_text, format_message, plural, translate
 from harness.web_fetch.report_reading import archived_translations, render_archived_reading
 
 NAV = [
@@ -65,7 +66,7 @@ def report_text(language: str, *, legacy: str | None = None):
 def t(key: str, source: str, /, **values) -> str:
     """Render one Chinese text node and declare its English for the post-render pass."""
     chinese = translate(MESSAGES, key, "zh", **values)
-    TEXT.setdefault(chinese.strip(), source.format_map(values))
+    TEXT.setdefault(chinese.strip(), format_message(source, values))
     return chinese
 
 
@@ -84,7 +85,7 @@ def published_ranking_basis(case_count: int, track_count: int) -> str | None:
 
 def pair(key: str, source: str, /, **values) -> tuple[str, str]:
     """Return both editions of a text the page itself carries, as `model_text` does."""
-    return translate(MESSAGES, key, "zh", **values), source.format_map(values)
+    return translate(MESSAGES, key, "zh", **values), format_message(source, values)
 
 
 # These strings are presentation copy shared by the overview, methodology,
@@ -130,6 +131,11 @@ def _body_region_summary(match, catalog):
             + ". The complete reference and actual output are shown side by side below.")
 
 
+
+def _count(number: str, singular: str, plural_form: str) -> str:
+    """A translated count with its English noun form."""
+    return f"{number} {plural(int(number), singular, plural_form)}"
+
 REGEX = [
     (re.compile(r"^新批次启用自身 DEBUG 并捕获网络库日志；旧 (\d+) 条不计入本报告。$"), r"The new batch enabled native DEBUG output and captured network-library logs; \1 earlier records are excluded from this report."),
     (re.compile(r"^(\$[\d,.]+)/月$"), r"\1/month"),
@@ -162,12 +168,15 @@ REGEX = [
      lambda match, catalog: f"The evaluation does not cover its plan; {match.group(1)} unplanned calls are present"
                    + (f"; {match.group(2)} calls have no pass/fail judgement" if match.group(2) else "")
                    + ". Rankings on this page must not be used for conclusions or publication."),
-    (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · 本地未认证诊断快照。$"), r"\1 tasks · \2 methods · local uncertified diagnostic snapshot."),
-    (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · (\d+)\s*类分榜与一个综合通过率总榜。$"), r"\1 tasks · \2 methods · \3 family rankings and one overall coverage ranking."),
-    (re.compile(r"^(\d+)\s*类任务概览$"), r"\1 task families"),
-    (re.compile(r"^(\d+)\s*类分榜$"), r"Rankings for \1 task families"),
-    (re.compile(r"^(\d+)\s*类通过数$"), r"Passes across \1 task families"),
-    (re.compile(r"^每种方法都执行当前评测集计划的 (\d+) 个任务，每题计一次通过或失败，直接相加；耗时单列展示，不参与通过率排序。总榜适合看整体交付覆盖，具体能力仍应回到 (\d+) 个分榜。$"), r"Every method runs the current dataset's \1 planned tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the \2 family rankings."),
+    (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · 本地未认证诊断快照。$"),
+     lambda match, catalog: f"{_count(match[1], 'task', 'tasks')} · {_count(match[2], 'method', 'methods')} · local uncertified diagnostic snapshot."),
+    (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · (\d+)\s*类分榜与一个综合通过率总榜。$"),
+     lambda match, catalog: f"{_count(match[1], 'task', 'tasks')} · {_count(match[2], 'method', 'methods')} · "
+                            f"{_count(match[3], 'family ranking', 'family rankings')} and one overall coverage ranking."),
+    (re.compile(r"^(\d+)\s*类任务概览$"), lambda match, catalog: _count(match[1], "task family", "task families")),
+    (re.compile(r"^(\d+)\s*类分榜$"), lambda match, catalog: "Rankings for " + _count(match[1], "task family", "task families")),
+    (re.compile(r"^(\d+)\s*类通过数$"), lambda match, catalog: "Passes across " + _count(match[1], "task family", "task families")),
+    (re.compile(r"^每种方法都执行当前评测集计划的 (\d+) 个任务，每题计一次通过或失败，直接相加；耗时单列展示，不参与通过率排序。总榜适合看整体交付覆盖，具体能力仍应回到 (\d+) 个分榜。$"), lambda match, catalog: f"Every method runs the current dataset's {_count(match[1], 'planned task', 'planned tasks')}. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the {_count(match[2], 'family ranking', 'family rankings')}."),
     (re.compile(r"^每种方法在同一组 (\d+) 个计划任务上的端到端耗时，包含通过与失败；三项不参与通过率排名。主矩阵调用跨日期、跨批次，不等同于同窗受控速度比较。$"), r"End-to-end latency for each method across the same \1 planned tasks, including both passes and failures. These metrics do not affect pass-rate ranking. Primary-matrix calls span dates and batches and are not a same-window controlled speed comparison."),
     (re.compile(r"^供应商明确声明返回内容已截断：(.*)$"), r"The provider explicitly declares that the returned body is truncated: \1"),
     (re.compile(r"^当前报告共 (\d+) 个案例、(\d+) 种方法和 ([\d,]+) 条权威逻辑结果；其中其他 ([\d,]+) 条未被本次文件补测改写。$"), r"The current report contains \1 tasks, \2 methods, and \3 authoritative logical results; the other \4 results were not changed by this file-task rerun."),
@@ -752,13 +761,10 @@ def _header(source: PurePosixPath, english: PurePosixPath, *, primary_english=Fa
     chinese = _relative(english, source)
     if primary_english:
         chinese += '?report-language=zh'
-    links = "".join(
-        f'<a href="{html.escape(_relative(english, PurePosixPath("en") / path), quote=True)}">{label}</a>'
-        for path, label in NAV
-    )
-    return (f'<header class="top"><nav class="wrap"><a href="{brand}">Web Fetch</a>'
-            f'{links}<a href="{chinese}" hreflang="zh-CN">中文</a>'
-            '<button class="theme-toggle" onclick="theme()">Toggle theme</button></nav></header>')
+    links = [(html.escape(_relative(english, PurePosixPath("en") / path), quote=True), label) for path, label in NAV]
+    current = html.escape(_relative(english, english), quote=True)
+    return shell.header(language="en", brand="Web Fetch", home=brand, links=links, current=current,
+                        switch=(chinese, "zh"))
 
 
 def localize_html(page: str, source: PurePosixPath, *, catalog: Catalog | None = None, route_targets=None) -> str:
@@ -766,7 +772,7 @@ def localize_html(page: str, source: PurePosixPath, *, catalog: Catalog | None =
     page = page.replace('<html lang="zh-CN">', '<html lang="en">', 1)
     primary_english = bool(re.search(r'<script\b[^>]*\bdata-report-language-entry\b', page))
     page = re.sub(r'<script\b[^>]*\bdata-report-language-entry\b[^>]*>.*?</script>', '', page, flags=re.S)
-    page = re.sub(r'<header class="top">.*?</header>', _header(source, english, primary_english=primary_english), page, count=1, flags=re.S)
+    page = re.sub(r'<header class="shell-top".*?</header>', _header(source, english, primary_english=primary_english), page, count=1, flags=re.S)
     # Raw evidence and executable/style blocks are preserved, never translated.
     # Mask them before parsing so large responses do not incur entity-by-entity work.
     preserved = []
