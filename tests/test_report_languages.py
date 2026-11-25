@@ -293,3 +293,13 @@ def test_rendering_a_published_message_does_not_leak_into_other_reports(tmp_path
     (tmp_path / 'report-changes.json').write_text(
         json.dumps({'releases': [{'id': sorted(_historical_release_ids())[0]}]}), encoding='utf-8')
     assert translate_text(chinese, published_report_catalog(tmp_path)) == message['en']
+
+
+def test_published_release_identity_is_packaged_with_the_frozen_text():
+    """Installed builds identify published reports without the checkout's research history."""
+    import json
+    from harness.distribution import repository_root
+    from harness.web_fetch.report_i18n import LEGACY_REPORT_TEXT, _historical_release_ids
+    assert LEGACY_REPORT_TEXT.parent.name == 'data'  # packaged as harness.web_fetch data/*.json
+    history = json.loads((repository_root() / 'research/report-changes.json').read_text(encoding='utf-8'))
+    assert _historical_release_ids() == {row['id'] for row in history['releases']}

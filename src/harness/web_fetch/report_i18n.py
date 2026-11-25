@@ -20,7 +20,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Comment
 
-from harness.distribution import repository_root
 from harness.reporting.locales import catalog_text, translate
 from harness.web_fetch.report_reading import archived_translations, render_archived_reading
 
@@ -508,15 +507,15 @@ def legacy_report_text(report: str) -> dict:
 
 
 def _historical_release_ids() -> set[str]:
-    path = repository_root() / 'research/report-changes.json'
-    return {row['id'] for row in json.loads(path.read_text(encoding='utf-8')).get('releases', [])} if path.is_file() else set()
+    """Releases of the frozen Web Fetch history; packaged with the frozen text, not read from a checkout."""
+    return set(legacy_report_text('web-fetch-published')['release_ids'])
 
 
 def published_report_catalog(out: Path, exact=None) -> Catalog:
     """The English-pass catalog for the report in ``out``.
 
     A report whose bound release history names a release of the frozen Web Fetch
-    history is one of the already-published reports; only it reads their legacy
+    history (``release_ids``) is one of the already-published reports; only it reads their legacy
     text. Any other report localizes with the shared interface catalog alone.
     """
     exact = dict(exact or {})
