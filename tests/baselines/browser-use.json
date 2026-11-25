@@ -340,7 +340,7 @@
       "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0% | Mean0.8 secondsBestP500.8 secondsBestP950.8 secondsBest | Mean0.1 secondsBestP500.1 secondsBestP950.1 secondsBest | Mean80BestP5080BestP9580Best"
      ],
      [
-      "Model | Baseline browser | Comparison browser | Matched tasks | Both passed | Only baseline passed | Only comparison passed | Both failed",
+      "Model | Baseline browser | Comparison browser | Matched tasks | Both passed | Passed on the baseline browser only | Passed on the comparison browser only | Both failed",
       "GPT-5.6 Sol | Chromium | Moli 1.1.3 | 1 | 0 | 1 | 0 | 0"
      ],
      [
@@ -608,7 +608,7 @@
       "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0% | 均值0.8 秒优P500.8 秒优P950.8 秒优 | 均值0.1 秒优P500.1 秒优P950.1 秒优 | 均值80优P5080优P9580优"
      ],
      [
-      "模型 | 基线浏览器 | 对比浏览器 | 同题数 | 两边都通过 | 仅基线通过 | 仅对比通过 | 两边都失败",
+      "模型 | 基线浏览器 | 对比浏览器 | 同题数 | 两边都通过 | 只有基线浏览器通过 | 只有对比浏览器通过 | 两边都失败",
       "GPT-5.6 Sol | Chromium | Moli 1.1.3 | 1 | 0 | 1 | 0 | 0"
      ],
      [
@@ -1020,7 +1020,7 @@
    "en/engines/moli.html 41aa87d37f01d6b25b7a",
    "en/evidence-viewer.html da13d2845998f8f18591",
    "en/fixes/index.html 0f19a6ceb0deb40a6d0c",
-   "en/index.html 083a4711e0b1113ecd8e",
+   "en/index.html b4eb8a63646721a54e3f",
    "en/methodology/index.html ea12f57e3aa43ec95ce9",
    "en/reproduce/index.html 397c25838e86e1f4b60c",
    "en/results/gpt-5.6-sol-chromium-44.html c8522d0d870743356e7b",
@@ -1030,7 +1030,7 @@
    "engines/moli.html 72e8f113e15d7066742f",
    "evidence-viewer.html aca42d3eed8263676ba8",
    "fixes/index.html 31c90c29286bbbd17671",
-   "index.html 6f87db3ab8961bde2b53",
+   "index.html 68c203d4e4e74839bb22",
    "methodology/index.html ed4d36e20208f877e720",
    "report-changes.json ca3d163bab0553818272",
    "report-data.json ad3771be435b22624c9a",

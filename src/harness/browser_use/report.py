@@ -2300,7 +2300,7 @@ def _article_body(
     )
     pairs_section = (
         ("<section><h2>" + t("article_body.compare_browsers_task_by_task", "Compare browsers task by task") + "</h2>")
-        + _table([t("resource_comparison_table.model", "Model"), t("article_body.baseline_browser", "Baseline browser"), t("article_body.comparison_browser", "Comparison browser"), t("article_body.matched_tasks", "Matched tasks"), t("article_body.both_passed", "Both passed"), t("article_body.only_baseline_passed", "Only baseline passed"), t("article_body.only_comparison_passed", "Only comparison passed"), t("article_body.both_failed", "Both failed")], comparison_rows)
+        + _table([t("resource_comparison_table.model", "Model"), t("article_body.baseline_browser", "Baseline browser"), t("article_body.comparison_browser", "Comparison browser"), t("article_body.matched_tasks", "Matched tasks"), t("article_body.both_passed", "Both passed"), t("article_body.only_baseline_passed", "Passed on the baseline browser only"), t("article_body.only_comparison_passed", "Passed on the comparison browser only"), t("article_body.both_failed", "Both failed")], comparison_rows)
         + _trajectory_replay_control(trajectory_replay_bridge, participants, attempts) + '</section>'
     )
     findings = (
