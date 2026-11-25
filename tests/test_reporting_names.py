@@ -23,7 +23,8 @@ def test_body_cells_show_display_names():
     # Ids stay in links, attributes and verbatim evidence.
     check_display_names(page('<table><tr><td><a href="providers/moli-pr643.html" data-id="chromium">Moli PR 643</a>'
                              '</td><td><code>moli-pr643</code></td></tr></table>'), LABELS)
-    for cell in ("moli-pr643", "Model A · chromium", "<a href='x'>chromium</a>"):
+    check_display_names(page("<table><tr><td><!--moli-pr643-->Moli PR 643</td></tr></table>"), LABELS)
+    for cell in ("moli-pr643", "Model A · chromium", "<a href='x'>chromium</a>", "<span>chrom</span>ium"):
         with pytest.raises(ValueError, match="raw id"):
             check_display_names(page(f"<table><tr><td>{cell}</td></tr></table>"), LABELS)
 

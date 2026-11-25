@@ -3,7 +3,7 @@
 import re
 from collections.abc import Mapping
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 
 def display_name(labels: Mapping[str, object], name: str, language: str = "en") -> str:
@@ -40,10 +40,14 @@ def check_display_names(html, labels: Mapping[str, object]) -> None:
     if not raw:
         return
     for cell in soup.select("main td, main tbody th"):
-        for text in cell.find_all(string=True):
-            if text.find_parent(["pre", "code"]) is not None or text.find_parent(attrs={"data-verbatim": True}):
-                continue
-            for part in _CELL_PARTS.split(str(text).strip()):
+        # Visible text only: comments and other non-rendered nodes are not names.
+        texts = [str(text) for text in cell.find_all(string=True)
+                 if type(text) is NavigableString
+                 and text.find_parent(["pre", "code", "script", "style", "template"]) is None
+                 and text.find_parent(attrs={"data-verbatim": True}) is None]
+        # Each text node, and the cell read across inline elements, so a split id is still seen.
+        for text in (*texts, "".join(texts)):
+            for part in _CELL_PARTS.split(text.strip()):
                 if part in raw:
                     table = cell.find_parent("table")
                     where = (table.get("id") or "") if table is not None else ""
