@@ -8,6 +8,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
 [![Leaderboard](https://img.shields.io/badge/Leaderboard-webstone.lexmount.io-51735b)](https://webstone.lexmount.io)
+[![Datasets](https://img.shields.io/badge/%F0%9F%A4%97-Datasets-ffd21e)](https://huggingface.co/Lexmount)
 
 [快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
 
