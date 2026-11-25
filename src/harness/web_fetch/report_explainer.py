@@ -1165,8 +1165,10 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
                 label = f'{rate:.1%}' if rate is not None else '—'
                 if eligible and len(eligible) != len(selected):
                     label += f' ({passed}/{len(eligible)})'
-                rows.append(('',report_cell(escape(provider_label(name, ctx=ctx)))+report_cell(str(len(selected)))
-                    +report_cell(str(passed))+report_cell(label,rate)))
+                rows.append((rate,name,('',report_cell(escape(provider_label(name, ctx=ctx)))+report_cell(str(len(selected)))
+                    +report_cell(str(passed))+report_cell(label,rate))))
+            # Same order as the home ranking: highest pass rate first, unavailable rates last.
+            rows = [row for _, _, row in sorted(rows, key=lambda item: (item[0] is None, -(item[0] or 0), item[1]))]
             title=t('method_comparison_for_this_round', 'Method comparison for this round')
             context = '<div role="region" aria-label="'+escape(title)+'">'+report_table(
                 [t('method', 'Method'), t('saved_results', 'Saved results'),

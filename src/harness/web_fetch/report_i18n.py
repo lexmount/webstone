@@ -936,7 +936,7 @@ _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · re
  'receipt_link': 'Evidence receipt',
  'completion_title': 'Completion and incomplete positions',
  'completion_note': 'Identically named tasks are distinguished by their original suite. Saved scores remain '
-                    'unchanged; uncommitted calls have no score. Adapter rejections are not product calls or '
+                    'unchanged; unsaved calls have no score. Adapter rejections are not product calls or '
                     'failures and do not enter pass-rate denominators. Suite prefixes on detail-page IDs '
                     'only avoid link collisions; original tasks and results remain in evidence files.',
  'completion_headers': ['Method',
@@ -985,7 +985,7 @@ _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · re
  'final_call_count': 'Saved calls',
  'final_call_timing_title': 'Mean / P50 / P95 final-call latency',
  'final_call_timing_help': 'All three statistics use the final call of each retained result, including '
-                           'passes and failures. Uncommitted, uncalled and adapter-rejected entries are '
+                           'passes and failures. Unsaved, uncalled and adapter-rejected entries are '
                            'excluded; sample sizes can differ. Latency does not affect pass-rate ordering. '
                            'Calls from different dates and batches are not a controlled same-window speed '
                            'comparison.',

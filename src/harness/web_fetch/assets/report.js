@@ -28,7 +28,8 @@ async function loadDiagnosticEvidence(dialog){
     const source=pre.dataset.file?new URL(pre.dataset.file,new URL('../',script.src)):new URL(pre.dataset.evidenceFile,document.baseURI);
     const response=await fetch(source);if(!response.ok)throw Error('HTTP '+response.status);
     text=await response.text();
-   }if(pre.dataset.readable)text=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,c=>'\\x'+c.charCodeAt(0).toString(16).padStart(2,'0'));
+   }if(/\.json$/i.test((pre.dataset.file||pre.dataset.evidenceFile||'').split(/[?#]/)[0])){try{text=JSON.stringify(JSON.parse(text),null,2)}catch(error){}}
+   if(pre.dataset.readable)text=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,c=>'\\x'+c.charCodeAt(0).toString(16).padStart(2,'0'));
    if(text.length>256*1024){const box=document.createElement('textarea');box.className='large-evidence-output';box.readOnly=true;box.value=text;box.setAttribute('aria-label',tr('完整日志与响应','Complete logs and responses'));pre.replaceWith(box)}else pre.textContent=text;
    pre.dataset.loaded='1';
   }catch(error){pre.textContent=tr('完整记录读取失败：','Complete record could not be loaded: ')+error.message+tr('；可使用下载链接，并重新打开重试。','; use the download link or reopen to retry.')}

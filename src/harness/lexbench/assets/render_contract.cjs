@@ -332,6 +332,10 @@ if (site) {
       if (versionNet < 0) assert.ok(html.includes("#page=fixed%2Fdirection-2"));
       assert.ok(!html.includes(lang === "zh" ? "固定开启布局显著扩大" : "Fixed layout on substantially expands"));
     }
+    for (const key of Object.keys(measured.runs || {})) {
+      const label = render(measured, lang, `runLabel(${JSON.stringify(key)})`);
+      assert.ok(!label.includes("_") && !label.includes(measured.runs[key].run_id), "Run labels must be reader-facing");
+    }
     const linuxIntro = render({ ...measured, linux_resource_profiles: {} }, lang, "reproduceIntro()");
     assert.ok(linuxIntro.includes("Linux"));
     assert.ok(!linuxIntro.includes("macOS"));
