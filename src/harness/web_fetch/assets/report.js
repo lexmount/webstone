@@ -1,6 +1,6 @@
-// Indent JSON only when reserializing preserves every token (large integers, duplicate keys, escapes); otherwise show the saved bytes.
+// Indent small JSON only when reserializing preserves every token (large integers, duplicate keys, escapes); otherwise show the saved bytes.
 function minifyJson(text){let out='',quoted=false,escaped=false;for(const c of text){if(quoted){out+=c;if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')quoted=false}else if(c==='"'){quoted=true;out+=c}else if(!/\s/.test(c))out+=c}return out}
-function losslessJson(text){try{const value=JSON.parse(text);return JSON.stringify(value)===minifyJson(text)?JSON.stringify(value,null,2):text}catch(error){return text}}
+function losslessJson(text){if(text.length>64*1024)return text;try{const value=JSON.parse(text);if(JSON.stringify(value)!==minifyJson(text))return text;const indented=JSON.stringify(value,null,2);return indented.length>256*1024?text:indented}catch(error){return text}}
 function readTheme(){try{return localStorage.getItem('webfetch-theme')}catch{return 'light'}}
 function saveTheme(t){try{localStorage.setItem('webfetch-theme',t)}catch{}}
 
