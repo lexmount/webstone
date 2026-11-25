@@ -540,7 +540,7 @@ class _Page:
 
 
 def _remote_task(tmp_path: Path, monkeypatch, case: str) -> dict:
-    from harness.trajectory_replay import remote_execution
+    from harness.trajectory_replay import catalog_evaluators, remote_execution
     from tests.trajectory_replay.test_remote_execution_contracts import _retrieval_contract
 
     events: list = []
@@ -655,7 +655,7 @@ def _remote_task(tmp_path: Path, monkeypatch, case: str) -> dict:
         remote_execution, "apply_correction", lambda official, catalog: correction
     )
     monkeypatch.setattr(
-        remote_execution, "evaluate_corrected_contract", evaluate_corrected_contract
+        catalog_evaluators, "evaluate_corrected_contract", evaluate_corrected_contract
     )
     monkeypatch.setattr(remote_execution, "check_replay_assertions", check_replay_assertions)
     calls = [observe_call]

@@ -1,10 +1,16 @@
-"""The one Docker-isolated Trajectory Replay runner loop.
+"""The one Trajectory Replay runner loop and its Docker-isolated run.
 
-A replay benchmark supplies the steps that differ through a ``ReplayBenchmark``
-adapter: its tasks, its input environment, one measured attempt, its manifest
-protocol, its aggregation and its report. The loop owns engine start-up, the
-fixture server, the balanced task/engine/retry order, record writing and
-cleanup, so every replay benchmark runs through the same skeleton.
+``replay_attempts`` is the attempt loop every replay benchmark shares: the
+balanced task/engine/retry order. An execution backend runs each physical
+attempt and owns the browser runtime around it: Docker engines started here
+(``run_replay``), or the WebArena catalog's local browser process, hosted CDP
+browser and Docker site stack, which keep their own evidence formats.
+
+A Docker-isolated replay benchmark supplies the steps that differ through a
+``ReplayBenchmark`` adapter: its tasks, its input environment, one measured
+attempt, its manifest protocol, its aggregation and its report. ``run_replay``
+owns engine start-up, the fixture server, record writing and cleanup, so every
+such benchmark runs through the same skeleton.
 """
 
 from __future__ import annotations
@@ -14,12 +20,12 @@ import json
 import threading
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import docker
 from playwright.sync_api import Page, sync_playwright
@@ -47,6 +53,36 @@ from harness.trajectory_replay.core.suite import (
 )
 
 DEFAULT_VIEWPORT = {"width": 1280, "height": 900}
+
+T = TypeVar("T")
+# One physical attempt on an execution backend: (engine, task, attempt number) -> row.
+RunAttempt = Callable[[str, T, int], dict[str, Any]]
+
+
+def replay_attempts(
+    tasks: Iterable[T],
+    engines: tuple[str, ...],
+    run_attempt: RunAttempt[T],
+    *,
+    max_retries: int,
+    record: Callable[[dict[str, Any]], None],
+) -> list[dict[str, Any]]:
+    """Run every task on every engine in the balanced order and record each attempt.
+
+    Engines rotate by task so each takes every position. A failed attempt is
+    retried up to ``max_retries`` times; a pass ends the task on that engine.
+    ``tasks`` is consumed lazily, so per-task preparation happens in order.
+    """
+    rows: list[dict[str, Any]] = []
+    for task_index, task in enumerate(tasks):
+        for engine in rotated_engine_order(engines, task_index):
+            for attempt in range(1, max_retries + 2):
+                row = run_attempt(engine, task, attempt)
+                rows.append(row)
+                record(row)
+                if row.get("status") == "pass":
+                    break
+    return rows
 
 
 @dataclass(frozen=True)
@@ -238,7 +274,6 @@ def run_replay(benchmark: ReplayBenchmark, options: ReplayOptions) -> dict[str, 
     run_id = uuid.uuid4().hex[:12]
     runtime = EngineRuntime()
     context = ReplayContext(options=options, runtime=runtime, run_id=run_id, output=output)
-    rows: list[dict[str, Any]] = []
     with benchmark.inputs(client):
         playwright = sync_playwright().start()
         try:
@@ -262,15 +297,18 @@ def run_replay(benchmark: ReplayBenchmark, options: ReplayOptions) -> dict[str, 
                     raise ValueError(
                         "Output must be a new directory; existing evidence is immutable"
                     ) from error
-                for task_index, declared in enumerate(runnable):
-                    task = benchmark.prepare_task(materialize_task(declared, fixture_origin))
-                    for engine in rotated_engine_order(engines, task_index):
-                        for attempt in range(1, options.max_retries + 2):
-                            row = benchmark.attempt(context, engine, task, attempt)
-                            rows.append(row)
-                            print_attempt_progress(row)
-                            if row["status"] == "pass":
-                                break
+                rows = replay_attempts(
+                    (
+                        benchmark.prepare_task(materialize_task(declared, fixture_origin))
+                        for declared in runnable
+                    ),
+                    engines,
+                    lambda engine, task, attempt: benchmark.attempt(
+                        context, engine, task, attempt
+                    ),
+                    max_retries=options.max_retries,
+                    record=print_attempt_progress,
+                )
             summary = benchmark.summarize(rows, engines)
             suite_sha256 = hashlib.sha256(Path(suite_path).read_bytes()).hexdigest()
             declared = benchmark.manifest(
