@@ -1379,9 +1379,9 @@ def _task_contract_html(task: dict[str, Any]) -> str:
 
 def _failure_diagnosis(result: dict[str, Any] | None, row: dict[str, Any]) -> str:
     failed = [item for item in evaluator_summary(result) if float(item.get("score") or 0) < 1]
-    if not failed:
-        return t("failure_diagnosis.all_official_evaluators_passed", "All official evaluators passed.")
     parts = []
+    if _evaluation_error(result):
+        parts.append(_evaluation_error(result))
     for item in failed:
         messages: list[str] = []
         for assertion in item.get("assertions") or []:
@@ -1418,13 +1418,26 @@ def _failure_diagnosis(result: dict[str, Any] | None, row: dict[str, Any]) -> st
     response = row.get("agent_response") or {}
     if response.get("error_details"):
         parts.append(str(sanitize(response["error_details"])))
-    return "；".join(dict.fromkeys(x.strip() for x in parts if x.strip())).rstrip("。.;； ") + "。"
+    text = "；".join(dict.fromkeys(x.strip() for x in parts if x.strip())).rstrip("。.;； ")
+    return text + "。" if text else _no_failure_detail()
+
+
+def _evaluation_error(result: dict[str, Any] | None) -> str:
+    """Return the evaluation's top-level error, which is not attached to any one rule."""
+
+    return str(sanitize((result or {}).get("error") or "")).strip()
+
+
+def _no_failure_detail() -> str:
+    return t("failure_diagnosis.no_failure_detail", "The evaluator scored this result below 1 without a rule-level or program error.")
 
 
 def _evaluator_error_text(result: dict[str, Any] | None, row: dict[str, Any]) -> str:
     """Return the exact sanitized evaluator/runtime error without inferring a cause."""
 
     lines: list[str] = []
+    if _evaluation_error(result):
+        lines.append(t("evaluator_error_text.evaluation_error", "Evaluation error: {error}", error=_evaluation_error(result)))
     for item in evaluator_summary(result):
         if float(item.get("score") or 0) == 1:
             continue
@@ -1547,9 +1560,11 @@ def _failure_brief(result: dict[str, Any] | None, row: dict[str, Any]) -> str:
     if labels:
         joined = t("list.separator", ", ").join(labels)
         return t("failure_brief.rules_failed", "{labels_count} rules failed: {joined}.", labels_count=len(labels), joined=joined)
+    if _evaluation_error(result):
+        return t("failure_brief.evaluation_error", "Evaluation failed: {error}", error=_evaluation_error(result))
     if row.get("error"):
         return t("failure_brief.execution_did_not_complete_see_runtime", "Execution did not complete; see runtime and evidence for the error.")
-    return t("failure_diagnosis.all_official_evaluators_passed", "All official evaluators passed.")
+    return _no_failure_detail()
 
 
 def _rule_purpose(name: str) -> str:
@@ -2282,7 +2297,7 @@ def _article_body(
         + _translated("article_body.programmatic_findings_identify_failed_rules_cause", "Programmatic findings identify failed rules; cause reviews explain the evidence-supported cause. They serve different purposes.")
         + _automatic_failure_figure(automatic_failure_counts) + _failure_scope_figure(verified_causes)
         + ''.join(chapters) + '<h3>' + _translated("article_body.official_results_and_post_hoc_diagnostics", "Official results and post-hoc diagnostics") + '</h3>'
-        + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), bilingual_text(t("article_body.passes_on_tasks", "Passes on {clean_count} tasks", clean_count=clean_count), f'Passes across {clean_count} tasks'), t("article_body.pass_rate", "Pass rate")], clean_rows,
+        + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), _translated("article_body.passes_on_tasks", "Passes on {clean_count} tasks", clean_count=clean_count), t("article_body.pass_rate", "Pass rate")], clean_rows,
                  table_id='home-qualified-results', classes='core-comparison-table')
         + '<p class="source-note">' + _translated("article_body.the_diagnostic_subset_does_not_replace", "The diagnostic subset does not replace official scores. Original failure evidence remains available.") + '</p></section>'
     )
@@ -3348,7 +3363,7 @@ def _result_failure_section(
 def _result_success_section(evaluation_record: Any, row: dict[str, Any], runtime_facts: str) -> str:
     return _section(
         t("filters.result", "Result"),
-        ('<article class="failure-lead success-lead"><span class="status-line">' + t("same_task_comparison.pass", "Pass") + f"</span><h3>{_e(_failure_brief(evaluation_record, row))}</h3></article>")
+        ('<article class="failure-lead success-lead"><span class="status-line">' + t("same_task_comparison.pass", "Pass") + "</span><h3>" + t("failure_diagnosis.all_official_evaluators_passed", "All official evaluators passed.") + "</h3></article>")
         + runtime_facts,
     )
 

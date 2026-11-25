@@ -78,6 +78,8 @@ def _check_reader_facing_ux(report_dir: Path, rendered_pages: dict[Path, str]) -
         term = next((term for term in FORBIDDEN_READER_TERMS if term in text), None)
         if term:
             raise ValueError(f"formal report contains unexplained internal term {term}: {page}")
+        if "data-report-en=" in _visible_text(text):
+            raise ValueError(f"formal report shows escaped interface markup as text: {page}")
     for homepage in (
         report_dir / "index.html",
         *([report_dir / "en/index.html"] if "en" in generated_languages(report_dir) else []),
