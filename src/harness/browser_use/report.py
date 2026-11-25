@@ -1323,7 +1323,7 @@ def _lead(lead: Any) -> str:
 def _evidence_viewer_page() -> str:
     body = _lead(t("evidence_viewer_page.shows_the_sanitized_response_evaluator_record", "Shows the sanitized response, evaluator record, event stream, trajectory, measurements, and public-frame index for this physical execution in their original structure."))
     body += (
-        ('<section class="section evidence-viewer-shell"><div class="wrap"><div class="evidence-viewer-head"><h2>' + t("evidence_viewer_page.execution_evidence_json", "Execution evidence JSON") + '</h2><a id="evidence-raw-link" class="button-link" hidden download>' + t("evidence_viewer_page.download_raw_json", "Download raw JSON") + '</a></div><p id="evidence-viewer-status" class="fine" role="status">' + t("evidence_viewer_page.loading_evidence", "Loading evidence…") + '</p><pre id="evidence-viewer-content" class="json-view" tabindex="0"></pre></div></section><script>')
+        ('<section class="section evidence-viewer-shell"><div class="wrap"><div class="evidence-viewer-head"><h2>' + t("evidence_viewer_page.execution_evidence_json", "Execution evidence JSON") + '</h2><a id="evidence-raw-link" class="button-link" hidden download>' + t("evidence_viewer_page.download_raw_json", "Download raw JSON") + '</a></div><p id="evidence-viewer-status" class="fine" role="status">' + t("evidence_viewer_page.loading_evidence", "Loading evidence…") + '</p><div id="evidence-viewer-sections" class="evidence-sections" role="group" aria-label="' + t("evidence_viewer_page.evidence_sections", "Evidence sections") + '" hidden></div><pre id="evidence-viewer-content" class="json-view" tabindex="0"></pre></div></section><script>')
         + (Path(__file__).parent / "assets" / "evidence-viewer.js").read_text(encoding="utf-8")
         + "</script>"
     )
@@ -2275,8 +2275,19 @@ def _article_body(
     reviewed = int(coverage.get('reviewed_attempts') or 0)
     recorded = int(coverage.get('recorded_attempts') or 0)
     heading = _translated("article_body.browser_use_results_across_declared_tasks", "Browser Use results across {task_count} declared tasks", task_count=task_count, scope=scope)
+    passed_count = len(attempts) - len(failed)
+    separator = t("list.separator", ", ")
     lead = (
-        '<header class="essay-head"><p class="lead">'
+        '<header class="essay-head"><p class="lead" data-home-lead>'
+        + _translated(
+            "article_body.system_population_and_rate",
+            "CowAgent drives {browsers} with {models} through {task_count} website tasks; {passed_count} of {attempts_count} recorded results pass ({rate}).",
+            browsers=separator.join(dict.fromkeys(participants.engines[engine] for _, engine in sorted(configurations))),
+            models=separator.join(dict.fromkeys(participants.models[model] for model, _ in sorted(configurations))),
+            task_count=task_count, passed_count=passed_count, attempts_count=len(attempts),
+            rate=_pct(passed_count / len(attempts)) if attempts else "—",
+        )
+        + '</p><p class="lead-scope">'
         + _translated("article_body.the_declared_scope_contains_tasks_and", "The declared scope contains {task_count} tasks and {configuration_count} configurations; {attempts_count}/{expected_count} logical results are recorded. Official evaluator results remain unchanged. A separate {clean_count}-task diagnostic subset excludes {excluded_count} tasks with verified external interference.", task_count=task_count, configuration_count=configuration_count, attempts_count=len(attempts), expected_count=expected_count, excluded_count=len(excluded), clean_count=clean_count)
         + ('</p><p class="page-links"><a href="datasets/">' + t("article_body.view_dataset", "View dataset") + '</a><a href="analysis/">' + t("article_body.inspect_all_results", "Inspect all results") + '</a><a href="data/interpretation-evidence.json" download>' + t("article_body.download_claims_and_evidence", "Download claims and evidence") + "</a></p></header>")
     )
@@ -2289,7 +2300,7 @@ def _article_body(
     )
     pairs_section = (
         ("<section><h2>" + t("article_body.compare_browsers_task_by_task", "Compare browsers task by task") + "</h2>")
-        + _table([t("resource_comparison_table.model", "Model"), t("article_body.browser_a", "Browser A"), t("article_body.browser_b", "Browser B"), t("article_body.matched_tasks", "Matched tasks"), t("article_body.both_passed", "Both passed"), t("article_body.a_passed_b_failed", "A passed, B failed"), t("article_body.a_failed_b_passed", "A failed, B passed"), t("article_body.both_failed", "Both failed")], comparison_rows)
+        + _table([t("resource_comparison_table.model", "Model"), t("article_body.baseline_browser", "Baseline browser"), t("article_body.comparison_browser", "Comparison browser"), t("article_body.matched_tasks", "Matched tasks"), t("article_body.both_passed", "Both passed"), t("article_body.only_baseline_passed", "Only baseline passed"), t("article_body.only_comparison_passed", "Only comparison passed"), t("article_body.both_failed", "Both failed")], comparison_rows)
         + _trajectory_replay_control(trajectory_replay_bridge, participants, attempts) + '</section>'
     )
     findings = (
