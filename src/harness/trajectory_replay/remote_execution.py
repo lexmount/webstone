@@ -903,6 +903,11 @@ def cohort_reference_hashes(args: argparse.Namespace) -> dict[str, str]:
         "retrieval_acceptance": Path(__file__).with_name("retrieval_acceptance.py"),
         "correction_logic": Path(__file__).with_name("webarena_corrections.py"),
         "remote_runtime": Path(__file__).with_name("remote_runtime.py"),
+        # The cohort loop and its scoring run through these shared modules, so a
+        # change to them during a run must also block certification.
+        "replay_loop": Path(__file__).with_name("core") / "runner.py",
+        "evaluator_registry": Path(__file__).with_name("core") / "evaluators.py",
+        "catalog_evaluators": Path(__file__).with_name("catalog_evaluators.py"),
     }
     catalog = load_corrections()
     for task_id, record in catalog.records.items():

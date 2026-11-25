@@ -495,3 +495,19 @@ def test_exiting_browser_that_denies_inspection_is_reported_as_exited(monkeypatc
         remote_execution._kernel_assigned_port(
             SimpleNamespace(pid=1, returncode=3, poll=lambda: next(polls))
         )
+
+
+def test_cohort_reference_hashes_cover_the_shared_replay_loop_and_evaluators(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(remote_execution, "checked_file_sha256",
+                        lambda path, name: seen.setdefault(name, Path(path)) and "hash")
+    monkeypatch.setattr(remote_execution, "load_corrections",
+                        lambda: SimpleNamespace(records={}))
+    args = SimpleNamespace(manifest=Path("m"), binary=Path("b"), site_map=Path("s"),
+                           cohort_reset_hook=Path("h"), cowagent=Path("c"),
+                           selection=Path("sel"), dataset=Path("d"))
+    remote_execution.cohort_reference_hashes(args)
+    package = Path(remote_execution.__file__).resolve().parent
+    assert seen["replay_loop"] == package / "core" / "runner.py"
+    assert seen["evaluator_registry"] == package / "core" / "evaluators.py"
+    assert seen["catalog_evaluators"] == package / "catalog_evaluators.py"
