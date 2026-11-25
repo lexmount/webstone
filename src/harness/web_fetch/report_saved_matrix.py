@@ -6,8 +6,6 @@ and debug files are verified but are not copied into the portable public views.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
-from contextvars import ContextVar
 from copy import deepcopy
 from datetime import datetime, timedelta
 import hashlib
@@ -36,21 +34,12 @@ from harness.record_io import canonical_json_sha256, file_sha256 as _sha, json_b
 
 # Only source validation can establish final-render admission. Serialized summaries
 # remain useful diagnostics but cannot authorize their own publication state.
-_FINAL_ADMISSION = ContextVar('saved_matrix_final_admission', default=None)
+def _source_admission(output, model):
+    """The admission a source-validated build hands to the render of ``model`` into ``output``."""
+    return {'output': Path(output).resolve(), 'model': canonical_json_sha256(model)}
 
 
-@contextmanager
-def _source_validated_render(output, model):
-    token = _FINAL_ADMISSION.set({'output': Path(output).resolve(),
-                                  'model': canonical_json_sha256(model)})
-    try:
-        yield
-    finally:
-        _FINAL_ADMISSION.reset(token)
-
-
-def _require_source_admission(output, model):
-    admission = _FINAL_ADMISSION.get()
+def _require_source_admission(output, model, admission):
     if (admission is None or admission['output'] != Path(output).resolve()
             or admission['model'] != canonical_json_sha256(model)):
         raise ValueError('A portable final report requires source-backed admission; use the saved-matrix builder')
@@ -2204,8 +2193,7 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         for relative, source, record, case, raw in _public_view_sources(inputs, keys):
             _materialize_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
     _write(output / 'matrix.json', model)
-    with _source_validated_render(output, model):
-        entry = generate_saved_matrix(output, model)
+    entry = generate_saved_matrix(output, model, admission=_source_admission(output, model))
     # Bind every portable byte after generation; source files remain immutable.
     for path in output.rglob('*'):
         if path.is_file():
@@ -2577,8 +2565,7 @@ def _validate_rendered_pages(output, model):
                 raise ValueError('Bound result review changed')
             shutil.copy2(source, expected/review['path'])
         _write(expected/'matrix.json', model)
-        with _source_validated_render(expected, model):
-            _render_projection(expected, model)
+        _render_projection(expected, model, _source_admission(expected, model))
         pages = {path.relative_to(expected) for path in expected.rglob('*.html')
                  if path.relative_to(expected).parts[0] != 'evidence'}
         actual = {path.relative_to(output) for path in output.rglob('*.html')
@@ -2828,8 +2815,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):
                 raise ValueError('Published provenance record differs from validated source: '+relative)
             _validate_record_artifacts(path)
-    with _source_validated_render(output, model):
-        projected_dataset, projected_records, projected_identities, projected_scope = _saved_renderer_projection(output, model)
+    projected_dataset, projected_records, projected_identities, projected_scope = _saved_renderer_projection(
+        output, model, _source_admission(output, model))
     saved_records = [json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines() if line.strip()]
     execution = _json(output/'execution.json')
     scores_changed = (bool(inputs['revision']) or any(adoptions[key]['revision'] for key in keys if key in adoptions)
@@ -2882,7 +2869,7 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
             'portable_files_verified': len(audit['files']), 'html_routes_verified': len(routes), 'provider_calls_added': 0, 'scores_changed': scores_changed}
 
 
-def _saved_renderer_projection(output, model):
+def _saved_renderer_projection(output, model, admission=None):
     """Adapt immutable multi-suite inputs to the existing full report renderer.
 
     Only report route IDs and local evidence paths are projected. Original case
@@ -3027,16 +3014,16 @@ def _saved_renderer_projection(output, model):
             {(record['provider'], cases[record['case_id']]['report_family']) for record in records})
         _require_common_scoring(records, 'Final report requires one valid scoring identity for all selected results')
         require_reliable(dataset, records)
-        admission = _require_source_admission(output, model)
+        _require_source_admission(output, model, admission)
         admission['projection'] = canonical_json_sha256([dataset, records])
     return dataset, records, identities, scope
 
 
-def _render_projection(output, model):
+def _render_projection(output, model, admission=None):
     """Render the verified route/path projection through the shared generator."""
     from harness.web_fetch.report import render_report
     from harness.web_fetch.report_model import report_model
-    dataset, records, identities, scope = _saved_renderer_projection(output, model)
+    dataset, records, identities, scope = _saved_renderer_projection(output, model, admission)
     _write(output/'dataset.json', dataset)
     (output/'results.jsonl').write_text(''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in records), encoding='utf-8')
     if model.get('result_review'):
@@ -3049,14 +3036,13 @@ def _render_projection(output, model):
     _write(output/'summary.json', scope)
     _write(output/'execution.json', {'kind':'saved_report_projection', 'provider_calls_added':0,
            'scores_changed':model.get('scores_changed', bool(model.get('offline_revision'))), 'identities':identities, 'source_bindings':model['source_bindings']})
-    admission = _FINAL_ADMISSION.get()
     return render_report(output, report_model(
         dataset, records, participants=model['providers'], suites=dataset['report_suites'],
         source_admission=admission.get('projection') if admission and admission['output'] == Path(output).resolve() else None,
         authored_interpretation=False, frozen_scores=True))
 
 
-def generate_saved_matrix(out: Path, model: dict) -> Path:
+def generate_saved_matrix(out: Path, model: dict, *, admission=None) -> Path:
     """Render a suite-qualified saved matrix without interpreting or changing scores.
 
     Evidence links refer to retained files inside the new report directory. Missing
@@ -3104,4 +3090,4 @@ def generate_saved_matrix(out: Path, model: dict) -> Path:
                 raise ValueError('Missing or escaping matrix evidence link: ' + field)
     if not rows:
         raise ValueError('Empty saved matrix')
-    return _render_projection(out, model)
+    return _render_projection(out, model, admission)
