@@ -30,12 +30,12 @@ def test_saved_ranking_keeps_failed_call_latency_neutral(tmp_path, tie):
     assert [row.select_one('a')['href'] for row in rows] == [
         'providers/method.html', 'providers/alphabetic-first.html']
     assert ranking.get('data-row-index') != 'false'
-    assert (ranking['data-col'], ranking['data-dir']) == ('3', 'desc')
+    assert (ranking['data-col'], ranking['data-dir']) == ('2', 'desc')
     assert ranking.select('.comparison-winner')
-    assert len(ranking.select('thead button')) >= 6
+    assert len(ranking.select('thead button')) >= 5
     for row in rows:
         assert not row.select('[data-metric-direction="min"]')
-        values = row.select('td')[-3:]
+        values = row.select('td')[-1:]
         elapsed = 12 if row.select_one('a')['href'] == 'providers/method.html' or tie else 6
         assert all(float(cell['data-sort']) == elapsed for cell in values)
         assert not any(cell.select('.comparison-winner') for cell in values)
@@ -259,8 +259,8 @@ def test_precall_rejection_preserves_score_but_excludes_product_failure(tmp_path
     assert [c.get_text() for c in suite_cells[1:4]] == ['3', '3', '1']
     overall = home.select_one('#ranking-overall')
     assert '无法判定（含未调用）' in overall.get_text()
-    timing_cells = overall.select('tbody tr td')[-3:]
-    assert timing_cells[0].get_text() == '18 ms'
+    timing_cells = overall.select('tbody tr td')[-1:]
+    assert timing_cells[0].get_text(' ', strip=True).startswith('18 ms P50')
     assert '9,000' not in ''.join(c.get_text() for c in timing_cells)
     assert '未调用·适配器提前拒绝' in home.select_one('#saved-missing').get_text()
     provider = BeautifulSoup((root/'providers/method.html').read_text(encoding='utf-8'), 'html.parser')
@@ -282,7 +282,7 @@ def test_only_precall_rejections_have_no_latency_samples():
               'elapsed_ms': 9000, 'metrics': {'content_pass': False},
               'report_invocation_status': 'adapter_rejected'}
     soup = BeautifulSoup(overall_ranking([record], {'case': {'id': 'case'}}, ctx=RenderContext()), 'html.parser')
-    assert [c.get_text() for c in soup.select('#ranking-overall tbody td')[-3:]] == ['—', '—', '—']
+    assert soup.select('#ranking-overall tbody td')[-1].get_text(' ', strip=True) == '— P50 — · P95 —'
 
 
 def test_instance_method_labels_reach_full_renderer_and_reset(tmp_path):
@@ -337,15 +337,15 @@ def test_saved_matrix_timing_labels_match_final_call_values(tmp_path):
     root=build(tmp_path,spec).parent
     page=BeautifulSoup((root/'index.html').read_text(encoding='utf-8'),'html.parser')
     heads=[x.get_text().removesuffix(' ↕') for x in page.select('#ranking-overall th')]
-    assert heads[-3:]==['最终调用耗时均值','最终调用耗时 P50','最终调用耗时 P95']
-    values=[x.get_text() for x in page.select('#ranking-overall tbody tr td')][-3:]
-    assert values==['12 ms','12 ms','12 ms']
+    assert heads[-1]=='最终调用耗时：均值（P50 · P95）'
+    values=[x.get_text(' ', strip=True) for x in page.select('#ranking-overall tbody tr td')][-1:]
+    assert values==['12 ms P50 12 ms · P95 12 ms']
     assert '每个逻辑结果只取最终一次调用耗时' in page.get_text()
     assert '总耗时按每题所有物理调用累计' not in page.get_text()
     legacy=BeautifulSoup(overall_ranking([record],{'same':{'id':'same'}}, ctx=RenderContext()),'html.parser')
-    assert [x.get_text().removesuffix(' ↕') for x in legacy.select('#ranking-overall th')][-3:]==['最终调用耗时均值','最终调用耗时 P50','最终调用耗时 P95']
+    assert [x.get_text().removesuffix(' ↕') for x in legacy.select('#ranking-overall th')][-1]=='最终调用耗时：均值（P50 · P95）'
     assert '总耗时按每题所有物理调用累计' not in legacy.get_text()
-    assert [x.get_text() for x in legacy.select('#ranking-overall tbody tr td')][-3:]==values
+    assert [x.get_text(' ', strip=True) for x in legacy.select('#ranking-overall tbody tr td')][-1:]==values
 
 
 def test_entirely_missing_method_stays_in_both_rankings(tmp_path):
@@ -422,7 +422,7 @@ def test_ordinary_english_generation_localizes_all_final_call_timing_text(tmp_pa
              authored_interpretation=False, frozen_scores=True))
     page = BeautifulSoup((source/'en/index.html').read_text(encoding='utf-8'), 'html.parser')
     overview = page.select_one('#overall-ranking').get_text(' ', strip=True)
-    strings = [*saved_matrix_text('final_call_timing_headers'),
+    strings = [saved_matrix_text('final_call_timing_summary'),
                *(saved_matrix_text(key) for key in
                  ('final_call_timing_title', 'final_call_timing_help', 'final_call_timing_note'))]
     for original in strings:

@@ -17,11 +17,12 @@ def test_diagnostic_tables_do_not_rank_without_explicit_selection():
     high['provider'] = 'z-high'
     low = record(c, passed=False)
     low['provider'] = 'a-low'
-    for rendered in (overall_ranking([high, low], {c['id']: c}, diagnostic=True, ctx=RenderContext()),
-                     ranking([high, low], {c['id']: c}, 'web', diagnostic=True, ctx=RenderContext())):
+    # The overall table leads with its pass rate after the method; a family table keeps its order.
+    for rendered, column in ((overall_ranking([high, low], {c['id']: c}, diagnostic=True, ctx=RenderContext()), '1'),
+                             (ranking([high, low], {c['id']: c}, 'web', diagnostic=True, ctx=RenderContext()), '2')):
         soup = BeautifulSoup(rendered, 'html.parser')
         table = soup.select_one('table.ranking')
-        assert table.get('data-col') == '2'
+        assert table.get('data-col') == column
         assert table.get('data-dir') == 'desc'
         assert table.get('data-row-index') == 'false'
         assert not table.select('.comparison-winner')

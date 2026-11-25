@@ -68,7 +68,7 @@ class ReportRevisionTests(unittest.TestCase):
   rendered=overall_ranking(records,cases,call_budget_seconds=45, ctx=RenderContext())
   from bs4 import BeautifulSoup
   headers=[cell.get_text(' ',strip=True) for cell in BeautifulSoup(rendered,'html.parser').select('#ranking-overall thead th')]
-  self.assertEqual(headers[-3:],['最终调用耗时均值 ↕','最终调用耗时 P50 ↕','最终调用耗时 P95 ↕'])
+  self.assertEqual(headers[-1],'最终调用耗时：均值（P50 · P95） ↕')
   self.assertNotIn('累计执行耗时均值', ' '.join(headers))
   self.assertNotIn('全调用', ' '.join(headers))
   self.assertIn('最终调用耗时均值 / P50 / P95',rendered)
@@ -88,11 +88,12 @@ class ReportRevisionTests(unittest.TestCase):
             'metrics':{'content_pass':key=='a' or name=='z-high','scoring_source_sha256':'a'*64}}
            for name in ('a-low','z-high','b-low') for key in cases]
   for diagnostic in (False,True):
-   for render in (lambda diagnostic=diagnostic:overall_ranking(records,cases,diagnostic=diagnostic, ctx=RenderContext()),
-                  lambda diagnostic=diagnostic:ranking(records,cases,'web',diagnostic=diagnostic, ctx=RenderContext())):
+   # The overall table puts its pass rate right after the method; a family table keeps its order.
+   for render,lead in ((lambda diagnostic=diagnostic:overall_ranking(records,cases,diagnostic=diagnostic, ctx=RenderContext()),1),
+                       (lambda diagnostic=diagnostic:ranking(records,cases,'web',diagnostic=diagnostic, ctx=RenderContext()),2)):
     with self.subTest(diagnostic=diagnostic,render=render):
      doc=BeautifulSoup(render(),'html.parser');table=doc.select_one('table.ranking')
-     column=2 if diagnostic else 3
+     column=lead if diagnostic else lead+1
      self.assertEqual(table.get('data-col'),str(column))
      self.assertEqual(table.get('data-dir'),'desc')
      rows=table.select('tbody tr')
