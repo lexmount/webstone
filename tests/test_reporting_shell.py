@@ -130,3 +130,9 @@ def test_accessible_names_resolve_labelledby_and_comments_are_not_labels():
         with pytest.raises(ValueError, match="accessible name"):
             check_presentation(page(broken))
     check_labels(page("<!-- 1 tasks --><p>1 task</p>"))
+
+
+@pytest.mark.parametrize("text", ["1 task", "1 call", "1 result", "2 queries", "1 family ranking"])
+def test_chinese_pages_reject_english_counts_in_both_forms(text):
+    with pytest.raises(ValueError, match="Untranslated English count"):
+        check_labels(page(f"<p>{text}</p>", lang="zh-CN"))

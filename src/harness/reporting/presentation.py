@@ -48,7 +48,10 @@ COUNTED_NOUNS = ("calls", "tasks", "methods", "queries", "failures", "steps", "r
                  "configurations", "browsers", "rankings", "family rankings", "task families", "characters",
                  "attempts", "records", "rounds", "errors", "providers", "outputs")
 _SINGULAR_PLURAL = re.compile(r"(?<![\d.,/])\b1 (" + "|".join(COUNTED_NOUNS) + r")\b")
-_ENGLISH_COUNT = re.compile(r"(?<![\d.,])\b\d[\d,]* (" + "|".join(COUNTED_NOUNS) + r")\b")
+# Singular forms too: a Chinese page should carry neither "1 task" nor "3 tasks".
+_SINGULAR = {"queries": "query", "task families": "task family", "family rankings": "family ranking"}
+_COUNT_NOUNS = sorted({*COUNTED_NOUNS, *(_SINGULAR.get(n, n[:-1]) for n in COUNTED_NOUNS)}, key=len, reverse=True)
+_ENGLISH_COUNT = re.compile(r"(?<![\d.,])\b\d[\d,]* (" + "|".join(_COUNT_NOUNS) + r")\b")
 _ESCAPED_MARKUP = re.compile(r"</?(?:span|a|strong|b|div|p|br)\b[^<>]*>")
 _MISSING_SPACE = re.compile(r"\b[a-z]{2,}:[A-Z]")
 

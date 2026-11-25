@@ -23,6 +23,7 @@ from bs4 import BeautifulSoup
 from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import file_sha256, load_jsonl
+from harness.reporting import shell
 from harness.reporting.links import validate_virtual_links
 from harness.reporting.packs import (
     ByteBlockStore,
@@ -51,6 +52,11 @@ from harness.web_fetch.result_review import require_result_review
 from harness.safety import evidence_tree_identity, unlinked_path
 from harness.web_fetch.report_model import RenderContext
 
+
+
+def _extension_controls() -> bytes:
+    """The extension's page script: the shared shell (theme, table cues) and the report controls."""
+    return (shell.SCRIPT + (Path(__file__).parent / 'assets/report.js').read_text(encoding='utf-8')).encode('utf-8')
 
 def _require(condition, detail):
     if not condition:
@@ -1090,7 +1096,7 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
         shutil.copyfile(baseline/name, target)
     for name in ('index.html', 'style.css'):
         shutil.copyfile(baseline/name, destination/name)
-    (destination/'report.js').write_bytes((Path(__file__).parent/'assets/report.js').read_bytes())
+    (destination/'report.js').write_bytes(_extension_controls())
     (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
     if sys.byteorder != 'little':
         sizes.byteswap()
@@ -1232,7 +1238,7 @@ def check_extension_archive(archive, source, *, baseline, replace_site=None,
         _require(set(physical) == expected, 'Extension archive has undeclared physical files')
         _require((content/'loader.js').read_bytes() == (Path(__file__).parent/'assets/report-loader.js').read_bytes(),
                  'Extension archive loader differs')
-        _require((content/'report.js').read_bytes() == (Path(__file__).parent/'assets/report.js').read_bytes(),
+        _require((content/'report.js').read_bytes() == _extension_controls(),
                  'Extension archive controls differ')
         expected_catalog = home_catalog(manifest, lambda name:(source/name).read_bytes())
         _require(catalog == expected_catalog, 'Extension home snapshot differs from report')
