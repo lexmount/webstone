@@ -25,6 +25,8 @@ Copy this into your agent:
 Install and use the Webstone evaluation skill at https://github.com/lexmount/webstone/blob/main/.agents/skills/webstone/SKILL.md to evaluate [what you want to compare].
 ```
 
+For manual setup, see [installing the software and skill](docs/agent-workflows.md#install-software-and-skill).
+
 ## Quickstart
 
 With Python 3.11 or newer, install Webstone from [PyPI](https://pypi.org/project/webstone/) and run the offline example:
@@ -41,23 +43,15 @@ Open the report path printed in the terminal. The example has one expected pass 
 
 Next, [try HTTP, Moli or Chromium on a local article](examples/web_fetch/README.md). The track guides cover adapters, credentials, and live evaluation commands.
 
-Install the evaluation skill for Codex. For another agent, use its skills directory.
-
-```sh
-webstone skills install --directory "$HOME/.codex/skills"
-```
-
-If your installed package lacks the `skills` command, see the [source installation instructions](docs/agent-workflows.md#install-software-and-skill).
-
 ### Commands
 
-Every track offers the same stage verbs; `--help` at each level lists what a track supports and its own preparation commands:
+Tracks share stage names, but each exposes only the stages it supports. Use `webstone <track> --help` for its commands and preparation steps:
 
 ```text
 webstone <track> run | score | report | check | package | publish | export
 ```
 
-Tracks are `webfetch`, `web-search`, `web-extract`, `trajectory-replay` and `browser-use` (`webstone tracks` prints them as JSON). Web Fetch is the default track, so its stages also run at the top level (`webstone run` is `webstone webfetch run`). `score` recomputes scores from saved evidence and replaces the former `rescore` command; `webstone webfetch compose` writes a saved-matrix specification from several run directories. `make <stage> TRACK=<track> ARGS="..."` runs the same verbs. The [repository specification](docs/spec.md#command-surface) defines the stages and their artifacts.
+Tracks are `webfetch`, `web-search`, `web-extract`, `trajectory-replay` and `browser-use` (`webstone tracks` prints them as JSON). Web Fetch is the default track, so its stages also run at the top level (`webstone run` is `webstone webfetch run`). `score` recomputes scores from saved evidence; `webstone webfetch compose` writes a saved-matrix specification from several run directories. `make <stage> TRACK=<track> ARGS="..."` runs the same verbs. The [repository specification](docs/spec.md#command-surface) defines the stages and their artifacts.
 
 ## Evaluation tracks
 
@@ -165,13 +159,13 @@ Webstone aims for stable, reproducible results and a controlled, trustworthy eva
 
     When a task has clear answers and acceptance criteria, use code to check the result and reduce variation from model judgment. This does not exclude LLM judges entirely: graded Web Search relevance is a suitable use, with an explicit rubric and retained scoring evidence and grades.
 
-2. **Do not introduce LLMs or Agents to execute the evaluation**
+2. **Use direct tool calls and fixed actions for replay**
 
     Web Fetch and Web Search call tools directly; trajectory replay follows predetermined actions to check browser compatibility or website task completion. Participants follow the same task contracts, avoiding extra variation from LLM decisions and Agent planning. Each run retains its task inputs, code revisions and execution settings.
 
 3. **Make results easy to review and verify**
 
-    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling. Upload to Yours only when publication is requested and authorized.
+    Use an LLM as a verifier to add a check of programmatic verdicts and their supporting evidence. Trigger verification only on request; it does not run by default. Generate local HTML reports with drilldown from aggregate metrics to every individual result, including raw responses, action traces, logs and scoring evidence. Reviewing every result manually is expensive, so reports must also support human sampling.
 
 See [evaluation design](docs/benchmarks.md#evaluation-design) for detailed scoring and verification requirements.
 
@@ -181,14 +175,14 @@ Published benchmark results and comparison reports are on the [Webstone leaderbo
 
 Results and evidence are saved locally under `~/.webstone/runs/`; use `--output ./fixture-run` to choose a new directory. HTML reports include comparisons, task results, full responses and failure evidence. Local evaluation, scoring and HTML inspection need no Yours account or publishing authorization.
 
-The `run` command builds a local report by default. Add `--no-report` to save results without HTML; `score --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
+In the Quickstart’s Web Fetch workflow, `run` builds a local report by default. Add `--no-report` to save results without HTML; `score --no-report` updates scores without rebuilding HTML. Save to a new directory, then build or rebuild the report from saved evidence without repeating calls:
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
 webstone report ./fixture-run
 ```
 
-English is the default; add `--language zh` when running or rebuilding for Chinese. A rebuild without that option keeps the saved language.
+This example defaults to English; add `--language zh` for Chinese. A rebuild keeps the saved language unless overridden. See [report languages](docs/report-hosting.md#report-languages) for other formats.
 
 ### Optional sharing
 
@@ -212,7 +206,7 @@ flowchart LR
     classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
 ```
 
-Rebuild from valid saved evidence without new participant calls. Verification adds review findings and does not automatically replace scores.
+Verification adds review findings and does not automatically replace scores.
 
 </details>
 
