@@ -575,3 +575,26 @@ def test_incremental_home_refresh_includes_its_images_and_rejects_substitution(t
     (overlay/home['files']['assets/chart.png']['asset_path']).write_bytes(b'wrong chart')
     with pytest.raises(ValueError,match='home image differs'):
         check(archive, source, overlay)
+
+
+def test_package_serves_the_vendored_diagram_runtime_beside_the_shell_script(tmp_path):
+    from harness.reporting.mermaid import MERMAID_RUNTIME, install_mermaid, mermaid_file
+    from harness.reporting.packs import read_packed_manifest
+    from harness.web_fetch.publication_check import check
+
+    source, archive = report_tree(tmp_path)
+    install_mermaid(source / "assets")
+    report_package.build(source, archive)
+    check(archive, source)
+    with zipfile.ZipFile(archive) as bundle:
+        assert bundle.read(MERMAID_RUNTIME) == mermaid_file(MERMAID_RUNTIME)
+        files = read_packed_manifest(bundle.read)["files"]
+        entries = [(entry, bundle.read(entry.filename)) for entry in bundle.infolist()]
+    assert "assets/" + MERMAID_RUNTIME not in files
+    assert "assets/mermaid-LICENSE.txt" in files
+    damaged = tmp_path / "damaged.zip"
+    with zipfile.ZipFile(damaged, "w") as bundle:
+        for entry, data in entries:
+            bundle.writestr(entry, data + b"\n" if entry.filename == MERMAID_RUNTIME else data)
+    with pytest.raises(ValueError, match="diagram runtime"):
+        check(damaged, source)

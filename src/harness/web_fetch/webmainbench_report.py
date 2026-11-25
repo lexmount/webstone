@@ -16,6 +16,7 @@ from harness.report_languages import write_language_contract
 from harness.reporting.presentation import esc
 from harness.reporting import shell
 from harness.reporting.locales import plural
+from harness.reporting.mermaid import install_mermaid
 from harness.reporting.style import STYLE
 from harness.safety import safe_href
 from harness.web_fetch.methods import browser_method_registry, method_access, native_browser_engine, report_method, report_method_catalog, with_measured_method_labels
@@ -466,7 +467,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
  ctx=RenderContext(methods=scope)
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA,encoding='utf-8')
- (out/'assets/report.js').write_text(JS,encoding='utf-8')
+ (out/'assets/report.js').write_text(JS,encoding='utf-8');install_mermaid(out/'assets')
  # Presentation-only classification: do not change provider status, scores or evidence.
  classified=[]
  for record in records:

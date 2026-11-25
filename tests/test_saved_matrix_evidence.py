@@ -1904,7 +1904,7 @@ def test_source_checker_rejects_rendered_content_mutation(report):
 @pytest.mark.parametrize('extension', ['js', 'css'])
 def test_source_checker_rejects_modified_executable_assets(report, extension):
     output, spec = report
-    asset = next((output/'assets').glob('*.'+extension))
+    asset = output/'assets'/{'js': 'report.js', 'css': 'style.css'}[extension]
     asset.write_text(asset.read_text(encoding='utf-8')+'\n/* changed presentation */\n', encoding='utf-8')
     audit = json.loads((output/'saved-matrix-audit.json').read_text(encoding='utf-8'))
     audit['files'][asset.relative_to(output).as_posix()] = hashlib.sha256(asset.read_bytes()).hexdigest()

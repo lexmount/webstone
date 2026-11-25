@@ -44,7 +44,7 @@ from harness.report_languages import (
  write_language_contract,
 )
 from harness.reporting import charts, explorer
-from harness.reporting.mermaid import mermaid_script_attributes
+from harness.reporting.mermaid import install_mermaid, mermaid_script_source
 from harness.reporting.presentation import esc
 from harness.web_fetch.adjudication_evidence import adjudication_reason
 from harness.web_fetch.report_model import (
@@ -183,7 +183,7 @@ def provider_page_body(name,records,cases,headers,tracks,*,native_default=False,
  body=hero(field('title'),field('contract'), ctx=ctx)+section(t('measured_configuration', 'Measured configuration'),configuration)
  body+=section(t('method_resources', 'Method resources'),'<p class="actions">'+link('../adoption/index.html#'+model['pricing_anchor'],t('pricing_billing', 'Pricing & billing →'))+link('../adoption/index.html#interface-'+name,t('interfaces_examples', 'Interfaces & examples →'))+'</p>')
  return body+section(t('execution_records', '{count} execution records', count=len(records)),inventory(controls+table(headers,[attempt_row(r,cases[r['case_id']],diagnose=True, ctx=ctx) for r in records],'filtered-table')),'all-results')
-JS=shell.SCRIPT+asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('script'))+explorer.INVENTORY_SCRIPT
+JS=shell.SCRIPT+asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_source('script','wmbScriptURL'))+explorer.INVENTORY_SCRIPT
 EXTRA=asset_text('report-extra.css')+explorer.INVENTORY_STYLE
 
 def readable_output(s):
@@ -535,7 +535,7 @@ def _diagnostic_pages(out, model):
  ctx=RenderContext(methods=MethodScope(),banner=('<div class="wrap callout"><strong>' + esc(model.get('diagnostic_label') or t('live_page_diagnostic', 'Live page diagnostic')) + f"</strong><p>{esc(model['scope_note'])}</p></div>"),scope_presentation={'scope':model['content_scope'],'retry_scopes':[]} if model.get('content_scope') in {'main','full'} else None)
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA+asset_text('cohort-diagnostic.css'),encoding='utf-8')
- (out/'assets/report.js').write_text(JS+asset_text('cohort-diagnostic.js'),encoding='utf-8')
+ (out/'assets/report.js').write_text(JS+asset_text('cohort-diagnostic.js'),encoding='utf-8');install_mermaid(out/'assets')
  groups={g['id']:g for g in model['cohorts']};rows=model['rows'];labels=model['cause_labels']
  files={r[field]['path']:(out/r[field]['path']).read_bytes() for r in rows for field in ('log','reference')}
  findings={r['id']:diagnostic_findings(r,files) for r in rows}
@@ -713,7 +713,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   raise ValueError('Public benchmark research must explicitly contain zero measured results')
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(STYLE+EXTRA,encoding='utf-8')
- (out/'assets/report.js').write_text(JS,encoding='utf-8')
+ (out/'assets/report.js').write_text(JS,encoding='utf-8');install_mermaid(out/'assets')
  release_history=localized_release_history(
   json.loads(((ROOT / 'research/report-changes.json')).read_text(encoding='utf-8')),
   'public_benchmark_research')
@@ -2120,7 +2120,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  for c in dataset['cases']:
   contained_path(out,'references/'+c['id']+'.txt')
  out.mkdir(parents=True,exist_ok=True);(out/'assets').mkdir(exist_ok=True)
- (out/'assets/style.css').write_text(STYLE+EXTRA, encoding='utf-8');(out/'assets/report.js').write_text(JS, encoding='utf-8')
+ (out/'assets/style.css').write_text(STYLE+EXTRA, encoding='utf-8');(out/'assets/report.js').write_text(JS, encoding='utf-8');install_mermaid(out/'assets')
  cases={c['id']:c for c in dataset['cases']};names=sorted(set(ctx.labels) | {r['provider'] for r in records})
  tracks=active_tracks(cases, ctx=ctx);track_count=len(tracks);track_label=track_count_label(track_count)
  audit=json.loads((out/'result-review.json').read_text(encoding='utf-8')) if (out/'result-review.json').is_file() else None

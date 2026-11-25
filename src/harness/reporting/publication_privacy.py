@@ -17,6 +17,7 @@ from threading import Lock
 from urllib.parse import unquote_plus, urlsplit
 
 from harness.record_io import file_sha256
+from harness.reporting.mermaid import MERMAID_SHA256
 from harness.reporting.privacy import WEB_FETCH_RETAINED_DIAGNOSTIC, WEB_FETCH_USER_SEGMENT
 from lexbench_webfetch.paths import contained_path
 
@@ -568,10 +569,17 @@ _publication_risks = OrderedDict()
 _publication_risks_lock = Lock()
 
 
+# Exact upstream third-party files that reports ship unchanged. Their digests are pinned by
+# their owners, so the bytes carry no measured or private content to scan or project.
+VENDORED_PUBLIC_FILES = frozenset({bytes.fromhex(MERMAID_SHA256)})
+
+
 def publication_risk(data):
     """Cache decisions by actual bytes, retaining no payloads or file metadata."""
     data = bytes(data)
     key = (len(data), hashlib.sha256(data).digest())
+    if key[1] in VENDORED_PUBLIC_FILES:
+        return None
     # Hold the lock through a miss so concurrent identical inputs scan once.
     # File readers still read and verify their bytes before reaching this owner.
     with _publication_risks_lock:
@@ -592,6 +600,8 @@ def project_file(name, data):
         raise ValueError('Private evidence is not publishable: ' + name)
     if any(part.startswith('.') for part in path.parts):
         raise ValueError('Private/hidden file is not publishable: ' + name)
+    if hashlib.sha256(data).digest() in VENDORED_PUBLIC_FILES:
+        return data, None
     if OTHER_SECRET.search(data):
         raise ValueError('Potential credential-shaped value in publication file: ' + name)
     if name.endswith(('.json', '.jsonl')) or data.lstrip().startswith((b'{',b'[',b'"')):

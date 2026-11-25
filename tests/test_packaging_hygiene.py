@@ -50,8 +50,10 @@ def test_every_report_asset_is_declared_for_the_wheel():
     tree = ROOT / "src/harness"
     assets = {path for path in tree.rglob("*")
               if path.is_file() and path.suffix not in {".py", ".pyc"} and not path.name.startswith(".")
-              and ("assets" in path.parts or "templates" in path.parts)}
+              and {"assets", "templates", "vendor"} & set(path.parts)}
     assert tree / "browser_use/assets/webarena-autonomous-evaluation-flow.png" in assets
+    assert tree / "reporting/vendor/mermaid.min.js" in assets
+    assert tree / "licenses/Mermaid-MIT.txt" in declared
     assert assets <= declared, sorted(map(str, assets - declared))
 
 

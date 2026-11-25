@@ -29,10 +29,11 @@ from pathlib import Path
 import pytest
 from bs4 import BeautifulSoup
 
-from harness.reporting.mermaid import unpinned_mermaid_urls
+from harness.reporting.mermaid import MERMAID_RUNTIME, mermaid_file, unpinned_mermaid_urls
 from harness.reporting.presentation import check_labels, check_shell
 
 BASELINE_DIR = Path(__file__).parent
+VENDORED_RUNTIME = mermaid_file(MERMAID_RUNTIME)
 CHECKOUT = BASELINE_DIR.parents[1]
 UPDATE_VARIABLE = "WEBSTONE_UPDATE_BASELINES"
 _TIMESTAMP = re.compile(
@@ -181,12 +182,16 @@ def route_digests(report: Path, normalizer: Normalizer) -> list[str]:
     as written. Routes are normalized too, so the list is sorted after that and
     keeps routes that differ only by a digest. A 20-digit prefix is ample for change
     detection and, unlike a full digest, survives ``Normalizer.value``. A rendered
-    page must not load an unpinned Mermaid runtime, and a page under the shared
-    header must pass the shell and reader-label checks.
+    page must not load an unpinned Mermaid runtime (the vendored runtime itself is
+    hashed as written), and a page under the shared header must pass the shell and
+    reader-label checks.
     """
     lines = []
     for route in file_inventory(report):
         content = (report / route).read_bytes()
+        if content == VENDORED_RUNTIME:
+            lines.append(f"{normalizer.text(route)} {hashlib.sha256(content).hexdigest()[:20]}")
+            continue
         try:
             text = content.decode("utf-8")
         except UnicodeDecodeError:

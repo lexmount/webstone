@@ -10,7 +10,7 @@ from collections import Counter as WordCounter, defaultdict
 from harness.report_languages import write_language_contract
 from harness.reporting import charts, shell
 from harness.reporting.explorer import INVENTORY_SCRIPT, INVENTORY_STYLE, detail_navigation, inventory_attributes, inventory_notice
-from harness.reporting.mermaid import mermaid_script_attributes
+from harness.reporting.mermaid import install_mermaid, mermaid_script_source
 from harness.reporting.presentation import esc
 from harness.web_fetch.methods import method_access, native_browser_engine, report_method, versioned_method_label
 from harness.web_fetch.report_model import RenderContext
@@ -77,7 +77,7 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
  cloudflare_repo_count=len({repo for repo,_ in cloudflare_matches})
  cloudflare_file_count=len(set(cloudflare_matches))
  style=shell.CSS+asset_text('wcxb.css')+INVENTORY_STYLE
- script=shell.SCRIPT+asset_text('wcxb.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('loader'))+INVENTORY_SCRIPT
+ script=shell.SCRIPT+asset_text('wcxb.js').replace('/*mermaid-script-attributes*/',mermaid_script_source('loader','wcxbScriptURL'))+INVENTORY_SCRIPT
  L={
   'zh':{'results':t('analysis', 'Analysis'),'method':t('methodology', 'Methodology'),'guide':t('interpretation', 'Interpretation'),'repro':t('reproduction', 'Reproduction'),'headline':'WCXB 主内容提取对比','core':'核心结果','provider':t('browser', 'Browser'),'delivered':'生成非空内容','precision':'精确率','recall':'召回率','f1':'F1','latency':'平均端到端耗时','type':'页面类型','case':'网页','diagnosis':'定位','detail':'查看同页证据','all':t('all', 'All'),'issues':'待查问题','query':'搜索网页或错误','count':'条结果','reference':'人工主内容参考','output':'完整浏览器输出','error':'原始程序错误','missing':'参考中未匹配的高频词','extra':'输出中多出的高频词','summary':t('all_method_results_for_the_same_page', 'All method results for the same page'),'note':'低精确率通常表示输出夹带较多参考外文字；低召回率表示参考词语大量缺失。这是定位线索，不能仅凭词袋分数确定程序故障。','scope':t('counting_methodology', 'Counting methodology'),'limit':'边界与已知标注问题','source':'冻结来源','version':'实测版本或服务身份','no_review':f'典型异常审查覆盖 {reviewed_cases} 页、{reviewed_results} 条输出；其余 {unreviewed_results:,} 条尚未逐项人工审查。定位分类由确定性规则产生，不等同于根因。'},
   'en':{'results':'Results analysis','method':'Method','guide':'Interpretation','repro':'Reproduce','headline':'WCXB main-content extraction comparison','core':'Core results','provider':'Browser','delivered':'Nonempty outputs','precision':'Precision','recall':'Recall','f1':'F1','latency':'Mean end-to-end latency','type':'Page type','case':'Page','diagnosis':'Locator','detail':'Same-page evidence','all':'All','issues':'Issues to inspect','query':'Search page or error','count':'results','reference':'Human main-content reference','output':'Complete browser output','error':'Exact program error','missing':'Frequent unmatched reference words','extra':'Frequent extra output words','summary':'All method results for this page','note':'Low precision often means output contains much text outside the reference; low recall means much reference text is missing. These are locators, not proof of a program defect.','scope':'Population and calculation','limit':'Limits and annotation issues','source':'Frozen source','version':'Measured version or service identity','no_review':f'Targeted anomaly review covers {reviewed_cases} pages and {reviewed_results} outputs; the other {unreviewed_results:,} results have not been individually reviewed. Deterministic locators are not root causes.'}}
@@ -93,6 +93,7 @@ def render_pages(out: Path, rows: list[dict], summary: dict, ground_truth: dict,
  (out/'assets').mkdir(exist_ok=True)
  (out/'assets/style.css').write_text(style,encoding='utf-8')
  (out/'assets/report.js').write_text(script,encoding='utf-8')
+ install_mermaid(out/'assets')
  def href(lang,path):return ('en/' if lang=='en' else '')+path
  def page(lang,path,title,body):
   x=L[lang]
