@@ -11,7 +11,7 @@
    },
    "zh/accounts.html": {
     "headings": [
-     "h1: 合成示例 · accounts",
+     "h1: 合成示例 · 价格与接入",
      "h2: 各方法价格"
     ],
     "tables": [
@@ -24,12 +24,12 @@
    },
    "zh/candidates.html": {
     "headings": [
-     "h1: 合成示例 · candidates"
+     "h1: 合成示例 · 服务目录"
     ]
    },
    "zh/case-<sha256>.html": {
     "headings": [
-     "h1: 同题方法比较 · 333333333333",
+     "h1: 同题方法比较 · example.org/product/3",
      "h2: 返回结构化字段",
      "h2: 开发者记录：请求、响应与调用历史"
     ],
@@ -49,7 +49,7 @@
    },
    "zh/dataset.html": {
     "headings": [
-     "h1: 合成示例 · dataset"
+     "h1: 合成示例 · 数据集"
     ],
     "tables": [
      [
@@ -62,7 +62,7 @@
    },
    "zh/index.html": {
     "headings": [
-     "h1: 合成示例 · index",
+     "h1: 合成示例 · 总览",
      "h2: 耗时与价格"
     ],
     "tables": [
@@ -93,7 +93,7 @@
    },
    "zh/interpretation.html": {
     "headings": [
-     "h1: 合成示例 · interpretation"
+     "h1: 合成示例 · 结果解读"
     ],
     "tables": [
      [
@@ -105,7 +105,7 @@
    },
    "zh/protocol.html": {
     "headings": [
-     "h1: 合成示例 · protocol",
+     "h1: 合成示例 · 评测方法",
      "h2: 实际调用配置",
      "h2: 调用耗时",
      "h2: 接口用量"
@@ -132,7 +132,7 @@
    },
    "zh/research.html": {
     "headings": [
-     "h1: 合成示例 · research",
+     "h1: 合成示例 · 研究参考",
      "h2: 历史结果复现 · 3 页"
     ],
     "tables": [
@@ -145,7 +145,7 @@
    },
    "zh/results.html": {
     "headings": [
-     "h1: 合成示例 · results",
+     "h1: 合成示例 · 评测结果",
      "h2: 字段与调用证据"
     ],
     "tables": [
@@ -154,7 +154,7 @@
       "synthetic-success | 111111111111 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
       "synthetic-success | 222222222222 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
       "synthetic-success | 333333333333 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
-      "synthetic-blocked | 111111111111 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 111111111111 | 受阻 | 未返回 | 未返回 | 未返回 | — | 1.00 | 查看证据 · 完整结果",
       "synthetic-blocked | 222222222222 | 待执行 | — | — | — | — | — | —",
       "synthetic-blocked | 333333333333 | 待执行 | — | — | — | — | — | —"
      ]
@@ -162,18 +162,18 @@
    },
    "zh/review.html": {
     "headings": [
-     "h1: 合成示例 · review"
+     "h1: 合成示例 · 标注与复核"
     ]
    },
    "zh/source-<sha256>.html": {
     "headings": [
-     "h1: 页面与标注 · 333333333333",
+     "h1: 页面与标注 · example.org/product/3",
      "h2: 冻结 HTML 的文本与结构化数据"
     ]
    }
   },
   "routes": [
-   "app.js 675a47df17496c730267",
+   "app.js 8f28da9eb683daa936dd",
    "data/completion-metrics.json b31afef92931dcd30a9b",
    "en/index.html 0e651d4ae11591aad043",
    "index.html 4df7b9d217d9cb156d68",
@@ -183,21 +183,21 @@
    "report-manifest.json 14e8361140770aa600b2",
    "style.css 7b6049d240fd9b08e4f1",
    "webstone-version.json 561aadb67df5738a512b",
-   "zh/accounts.html 22669012f674e760edc5",
-   "zh/candidates.html d9d9f42a1d5050ae60b4",
-   "zh/case-<sha256>.html 31d576f66b5fb9bb0a49",
-   "zh/case-<sha256>.html 5112cceca0ee97e38817",
-   "zh/case-<sha256>.html a1231733a3f10e9d74d7",
-   "zh/dataset.html 560891b4aeea72d5aeed",
-   "zh/index.html 08dfd6a9bed53395ea33",
-   "zh/interpretation.html 8f9564875fa08c01d307",
-   "zh/protocol.html ac76d2a78fb8920e4d98",
-   "zh/research.html ddd2cf63bc349f9b7e8a",
-   "zh/results.html e13f2f2117e523151122",
-   "zh/review.html 20899014e7d9ab49dad9",
-   "zh/source-<sha256>.html 696d40bbd7a62c376919",
-   "zh/source-<sha256>.html c5238385fa209396bb4b",
-   "zh/source-<sha256>.html c5e4693578b84b69baf8"
+   "zh/accounts.html a5b9a012d7dc41ed1171",
+   "zh/candidates.html 4969d323328878e28a37",
+   "zh/case-<sha256>.html 2daa6c8729f07deccd47",
+   "zh/case-<sha256>.html 858a91db4cb18200d0fc",
+   "zh/case-<sha256>.html fc29c72d8c46b7297dce",
+   "zh/dataset.html 197a104601bd7d5cbe61",
+   "zh/index.html 7865bdd0218d134ab5d5",
+   "zh/interpretation.html de1bdea53f6b1b40f680",
+   "zh/protocol.html 2637e63751b92844106f",
+   "zh/research.html 63088b6c234a2ececea8",
+   "zh/results.html 7117943a1dc6111adb41",
+   "zh/review.html 953c634509512ca11e5f",
+   "zh/source-<sha256>.html 2998f2a9651060c59883",
+   "zh/source-<sha256>.html 35d534bde145904afbb8",
+   "zh/source-<sha256>.html f0698587980bf485b323"
   ]
  },
  "scored": {

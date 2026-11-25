@@ -57,7 +57,11 @@ const outcomeNames = {
   partial: tr("outcomes_partial"),
   invalid: tr("outcomes_invalid"),
   unavailable: tr("outcomes_unavailable"),
+  not_returned: tr("outcomes_not_returned"),
 };
+// A call without structured output has nothing to match, whatever the reference says.
+const shownOutcome = (row, status) =>
+  outcomeNames[row.compatibility === "structured_output" ? status : "not_returned"] || status;
 const stageNames = {
   client_transport: tr("stages_client_transport"),
   model_capacity: tr("stages_model_capacity"),
@@ -98,7 +102,7 @@ function show(dialog, button) {
   dialog.showModal();
   dialog.querySelector("[data-call-log-close]")?.focus();
 }
-function diagnosisContent(container, row, field, technical = false) {
+function diagnosisContent(container, row, field, technical = false, caseLabel = row.case_id) {
   if (technical) {
     container.replaceChildren(node("h3", tr("complete_request_response_and_repair_history")),
       node("pre", JSON.stringify(row, null, 2)));
@@ -106,14 +110,14 @@ function diagnosisContent(container, row, field, technical = false) {
   }
   if (row.record_schema) {
     container.replaceChildren();
-    container.append(node("p", `${row.method_label} · ${row.case_id} · HTTP ${row.http_status ?? "—"}`));
+    container.append(node("p", `${row.method_label} · ${caseLabel} · HTTP ${row.http_status ?? "—"}`));
     const table = document.createElement("table");
     const header = document.createElement("tr");
     for (const label of [tr("field"), tr(row.review ? "records_qualified_reference" : "reference"), tr("output"), tr("outcome_243a87d2")]) header.append(node("th", label));
     table.append(header);
     for (const [field, result] of Object.entries(row.field_results || {})) {
       const line = document.createElement("tr");
-      for (const value of [row.field_labels?.[field] || field, valueText(result.expected), valueText(result.actual), outcomeNames[result.status] || result.status]) line.append(node("td", value));
+      for (const value of [row.field_labels?.[field] || field, valueText(result.expected), valueText(result.actual), shownOutcome(row, result.status)]) line.append(node("td", value));
       table.append(line);
     }
     container.append(table);
@@ -132,7 +136,7 @@ function diagnosisContent(container, row, field, technical = false) {
   container.append(
     node(
       "p",
-      `${row.method_label || row.method} · ${row.case_id} · HTTP ${row.http_status ?? "—"}`,
+      `${row.method_label || row.method} · ${caseLabel} · HTTP ${row.http_status ?? "—"}`,
     ),
   );
   const facts = document.createElement("dl");
@@ -189,7 +193,7 @@ function diagnosisContent(container, row, field, technical = false) {
       fieldNames[key],
       valueText(item.expected),
       valueText(item.actual),
-      outcomeNames[item.status],
+      shownOutcome(row, item.status),
     ])
       r.append(node("td", text));
     table.append(r);
@@ -258,7 +262,8 @@ document.addEventListener("click", async (event) => {
     const row = await evidence(button.dataset.src, button.dataset.key);
     if (!dialog.open || dialog.dataset.generation !== generation) return;
     if (dialog.querySelector("[data-diagnosis-body]"))
-      diagnosisContent(container, row, button.dataset.field, button.dataset.technicalRecord === "true");
+      diagnosisContent(container, row, button.dataset.field, button.dataset.technicalRecord === "true",
+        button.dataset.caseLabel || row.case_id);
     else container.textContent = JSON.stringify(row, null, 2);
   } catch (error) {
     if (!dialog.open || dialog.dataset.generation !== generation) return;

@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from harness.web_extract.pipeline import digest, read_json, require_external_output, save_json
-from harness.web_extract.report import PAGES, build
+from harness.web_extract.report import PAGES, build, page_label
 
 
 def create(output: Path, *, language="zh", mode="compatibility"):
@@ -135,7 +135,10 @@ def evaluate(truth, predictions, field, matcher, **options):
             "evidence_runs": [{"run": "example-v1"}],
             "pages": {
                 p: {
-                    "title": {"en": "Synthetic example · " + p, "zh": "合成示例 · " + p},
+                    "title": {
+                        "en": "Synthetic example · " + page_label(p, "en"),
+                        "zh": "合成示例 · " + page_label(p, "zh"),
+                    },
                     "body": {
                         "en": "<p>Synthetic evidence for renderer testing only.</p>",
                         "zh": "<p>用于测试报告展示的合成数据。</p>",

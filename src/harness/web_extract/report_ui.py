@@ -37,6 +37,7 @@ CLIENT_MESSAGE_KEYS = (
     "outcomes_partial",
     "outcomes_invalid",
     "outcomes_unavailable",
+    "outcomes_not_returned",
     "output",
     "stages_provider_schema",
     "reference",

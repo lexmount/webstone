@@ -82,8 +82,8 @@
      ],
      [
       "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
-      "title | Example | 未返回值 | 漏提取 | 否 | 否",
-      "author | AB | 未返回值 | 漏提取 | 否 | 否"
+      "title | Example | 未返回值 | 未返回 | 否 | 否",
+      "author | AB | 未返回值 | 未返回 | 否 | 否"
      ]
     ]
    },
@@ -265,7 +265,7 @@
    }
   },
   "routes": [
-   "app.js 675a47df17496c730267",
+   "app.js 8f28da9eb683daa936dd",
    "data/completion-metrics.json c8e2b3094cc80c003df7",
    "data/metrics.json 45138b1e45f5db1eacb7",
    "en/index.html 0e651d4ae11591aad043",
@@ -281,7 +281,7 @@
    "zh/accounts.html 0bcdaeaf0fa8a3492ff3",
    "zh/c-3fc4ccfe745870e2c0d99f71.html 12fe7cb9f66a3d1d6dc6",
    "zh/c-7692c3ad3540bb803c020b3a.html 2333094a002d3b4f3b6a",
-   "zh/c-8b5b9db0c13db24256c829aa.html c62f918b2ec764194be4",
+   "zh/c-8b5b9db0c13db24256c829aa.html afb690dff07bb62e641d",
    "zh/candidates.html 80534cde3a968967a0ca",
    "zh/d-3fc4ccfe745870e2c0d99f71.html 847e84a776f8bd34a73c",
    "zh/d-7692c3ad3540bb803c020b3a.html 9cb53b9cd4b0d292143a",

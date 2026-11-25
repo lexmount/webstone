@@ -258,6 +258,21 @@ assert.equal(selectedStock.children[0].textContent, catalog.zh.field_labels_OutO
 assert.match(selectedStock.textContent, new RegExp(catalog.zh.outcomes_missing));
 console.log('PASS: out-of-stock-only mismatch is displayed and selected automatically');
 
+// A call that returned no output never matches, even where the reference is empty.
+context.blockedBody = new Element('div');
+context.blockedRow = {method_label: 'Blocked', case_id: 'f'.repeat(64), http_status: null,
+  compatibility: 'no_structured_output', field_results: {
+    price: {expected: [], actual: null, status: 'correct'},
+    sku: {expected: ['1'], actual: null, status: 'missing'},
+  }};
+vm.runInContext("diagnosisContent(blockedBody, blockedRow, undefined, false, 'example.org/product/1')", context);
+const blockedTable = descendants(context.blockedBody).find(e => e.tagName === 'TABLE');
+assert.deepEqual(blockedTable.children.slice(1).map(line => line.children[3].textContent),
+  [catalog.zh.outcomes_not_returned, catalog.zh.outcomes_not_returned]);
+assert.match(context.blockedBody.textContent, /example\.org\/product\/1/);
+assert.doesNotMatch(context.blockedBody.children[0].textContent, /f{12}/);
+console.log('PASS: a call without output shows every field as not returned under a readable case label');
+
 // A page failing another field must still appear as a pass for the selected field.
 rows.push({dataset: {method: 'a', status: 'fail', stage: 'fields', price: 'correct', title: 'wrong', domain: 'book', site: 'amazon'}});
 rows.push({dataset: {method: 'a', status: 'fail', stage: 'fields', engine: 'wrong', domain: 'auto', site: 'aol'}});
