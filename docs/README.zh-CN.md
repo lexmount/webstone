@@ -7,16 +7,15 @@
 [![CI](https://github.com/lexmount/webstone/actions/workflows/ci.yml/badge.svg)](https://github.com/lexmount/webstone/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/code-Apache--2.0-51735b)](../LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-356a91)](../pyproject.toml)
+[![Leaderboard](https://img.shields.io/badge/Leaderboard-webstone.lexmount.io-51735b)](https://webstone.lexmount.io)
 
-[排行榜](https://webstone.lexmount.io) · [快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
+[快速开始](#快速开始) · [评测流程](#评测流程) · [设计原则](#设计原则) · [报告](#报告) · [提交结果](#提交评测结果) · [数据集与代码](#数据集与代码) · [版本](#版本) · [参与贡献](../CONTRIBUTING.md)
 
 </div>
 
 **Agent Web Tools 的试金石。**
 
 Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
-
-公开评测结果、工具对比和评测报告见 [Webstone 官方排行榜](https://webstone.lexmount.io)。本仓库用于运行评测和评分；已有实测结果可通过 [webstone-site](https://github.com/lexmount/webstone-site#for-agents) 提交到排行榜。
 
 ## 面向 Agent 的入口
 
@@ -177,6 +176,8 @@ flowchart LR
 评分与复核的详细要求见[评测设计](benchmarks.md#evaluation-design)。
 
 ## 报告
+
+已发布的评测结果和对比报告见 [Webstone Leaderboard](https://webstone.lexmount.io)。
 
 结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Yours 账号或发布授权。
 
