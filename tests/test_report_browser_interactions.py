@@ -786,3 +786,34 @@ def test_shared_inventory_follows_sorting_inline_filters_buttons_and_multi_selec
         expect(page.locator("[data-filter]")).to_have_value("fail")
         page.wait_for_function("[...document.querySelector('[data-many]').selectedOptions].map(o=>o.value).join()==='a'")
         expect(page.locator("tbody tr:visible")).to_have_count(2)
+def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, display):
+    from harness.web_fetch.report import JS, cell, table
+    from harness.web_fetch.report_saved_composition import render_source_reviews
+
+    source = tmp_path/'evidence/source/review/index.html'
+    source.parent.mkdir(parents=True)
+    comparison = table(['Value'], [('', cell('2 ms', 2)), ('', cell('1 ms', 1))],
+                       id='score-revision-steps', sortable=True, include_index=False, metrics=[], default_sort=(0, 'desc'))
+    source.write_text('<html><main><h1>Source</h1>' + comparison + '</main></html>', encoding='utf-8')
+    target = tmp_path/'review/index.html'
+    target.parent.mkdir()
+    target.write_text('<html><head><meta charset="utf-8"><script defer src="../app.js"></script></head>'
+                      '<body><main><h1>Combined review</h1></main></body></html>', encoding='utf-8')
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    render_source_reviews(tmp_path, {'source_review_pages': [
+        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack))
+        try:
+            page.goto(origin + '/review/index.html')
+            page.locator('th button').click()
+            assert errors == []
+            assert page.locator('tbody td').all_text_contents() == ['1 ms', '2 ms']
+            page.locator('th button').click()
+            assert page.locator('tbody td').all_text_contents() == ['2 ms', '1 ms']
+            assert page.locator('th').get_attribute('aria-sort') == 'descending'
+            assert errors == []
+        finally:
+            page.close()

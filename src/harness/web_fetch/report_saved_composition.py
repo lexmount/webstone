@@ -529,19 +529,18 @@ _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
                      'guide/index.html', 'accounts/index.html', 'changes/index.html')
 
 
-def _review_source_sections(old, new, base_model, added_model):
-    # Review scopes and protocols belong to their source, including prose
-    # without a table. Keep complete sections instead of joining by schema.
-    used = {tag['id'] for tag in old.select('[id]')}
+def _namespace_review_ids(content, prefix, *, used=None):
+    """Keep retained controls and accessibility references with their elements."""
+    used = set() if used is None else set(used)
     renamed = {}
-    for tag in new.select('[id]'):
+    for tag in content.select('[id]'):
         original = tag['id']
-        identifier = 'additional-' + original
+        identifier = prefix + original
         while identifier in used:
-            identifier = 'additional-' + identifier
+            identifier = prefix + identifier
         used.add(identifier)
         renamed[original] = tag['id'] = identifier
-    for tag in new.find_all(True):
+    for tag in content.find_all(True):
         if tag.get('href', '').startswith('#'):
             tag['href'] = '#' + renamed.get(tag['href'][1:], tag['href'][1:])
         for attribute in list(tag.attrs):
@@ -550,6 +549,12 @@ def _review_source_sections(old, new, base_model, added_model):
                     lambda m: m[1] + renamed.get(m[2], m[2]) + m[1], tag[attribute])
             elif attribute in {'for', 'aria-controls', 'aria-labelledby', 'aria-describedby'}:
                 tag[attribute] = ' '.join(renamed.get(value, value) for value in tag[attribute].split())
+
+
+def _review_source_sections(old, new, base_model, added_model):
+    # Review scopes and protocols belong to their source, including prose
+    # without a table. Keep complete sections instead of joining by schema.
+    _namespace_review_ids(new, 'additional-', used={tag['id'] for tag in old.select('[id]')})
     for page, model in ((old, base_model), (new, added_model)):
         labels = ', '.join(provider.get('label', provider['id']) for provider in model['providers'])
         for section in page.select('main section'):
@@ -1159,7 +1164,7 @@ def composition_model(output, spec, snapshots):
 def render_source_reviews(output, model):
     """Retain frozen review scopes beneath the composition's own navigation."""
     from bs4 import BeautifulSoup
-    from urllib.parse import urljoin, urlsplit
+    from urllib.parse import urljoin, urlsplit, urlunsplit
     sources = model.get('source_review_pages')
     if not sources:
         return
@@ -1173,21 +1178,12 @@ def render_source_reviews(output, model):
     for index, source in enumerate(sources):
         original = BeautifulSoup((output/source['path']).read_text(encoding='utf-8'), 'html.parser')
         content = original.find('main')
-        identifiers = {}
-        for node in content.select('[id]'):
-            old = node['id']
-            identifiers[old] = node['id'] = f'source-review-{index}-' + old
-        for node in content.find_all(True):
-            for attribute in ('for', 'aria-controls', 'aria-labelledby', 'aria-describedby'):
-                if node.has_attr(attribute):
-                    node[attribute] = ' '.join(identifiers.get(value, value) for value in node[attribute].split())
+        _namespace_review_ids(content, f'source-review-{index}-')
         for node in content.select('a[href]'):
             href = node['href']
-            if href.startswith('#'):
-                node['href'] = '#' + identifiers.get(href[1:], href[1:])
-            elif not urlsplit(href).scheme and not urlsplit(href).netloc:
+            if not href.startswith('#') and not urlsplit(href).scheme and not urlsplit(href).netloc:
                 target = urlsplit(urljoin('https://report.invalid/' + source['path'], href))
-                node['href'] = '../' + target.path.lstrip('/') + ('#' + target.fragment if target.fragment else '')
+                node['href'] = urlunsplit(('', '', '../' + target.path.lstrip('/'), target.query, target.fragment))
         section = page.new_tag('section', attrs={'data-source-review': source['path']})
         heading = page.new_tag('h2')
         heading.string = ', '.join(p.get('label', p['id']) for p in source['providers'])

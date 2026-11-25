@@ -349,6 +349,11 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     frozen_rows = [json.loads(line) for line in (output / "results.jsonl").read_text(encoding="utf-8").splitlines()]
     historical_scorer = "f" * 64
     for row in frozen_rows:
+        row['provider_metadata'].update(
+            public_debug_log_path='logs/' + row['attempt_id'] + '.debug.txt',
+            public_debug_log_sha256=hashlib.sha256(b'actual library event\n').hexdigest(),
+            public_response_path='logs/' + row['attempt_id'] + '.response.txt',
+            public_response_sha256=hashlib.sha256(b'{"observed": "actual API response"}\n').hexdigest())
         row["metrics"]["scoring_source_sha256"] = historical_scorer
     (output / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in frozen_rows), encoding="utf-8")
     manifest = json.loads((output / "report-manifest.json").read_text(encoding="utf-8"))
@@ -572,16 +577,46 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
             "path": "local-evidence/fresh-review.json", "sha256": _digest(supplement_path)}]})
     binding["evidence_bindings"].append({"path": "result-review.json", "sha256": _digest(review_path)})
     _write(binding_path, binding)
+    from bs4 import BeautifulSoup
+    diagnostic_sources = {current_record['provider_metadata'][key]
+        for key in ('public_debug_log_path', 'public_response_path')}
+    # Emulate a historical sibling viewer, then require refreshed details to
+    # resolve to the new directory while the old viewer remains usable.
+    from harness.web_fetch.report import diagnostic_view_page
+    legacy_routes = set()
+    for relative in diagnostic_sources:
+        current_view = diagnostic_view_page(output, relative, 'Saved diagnostic logs',
+            'Contains only observed logs.', ctx=RenderContext())
+        legacy = Path(relative).with_suffix('.html').as_posix()
+        (output/legacy).write_bytes((output/current_view).read_bytes())
+        (output/current_view).unlink()
+        legacy_routes.add(legacy)
+    measured_logs = {relative: (output/relative).read_bytes() for relative in diagnostic_sources}
     before_review = {path.relative_to(output).as_posix(): _digest(path)
                      for path in output.rglob("*") if path.is_file()}
     refresh_local_presentation(output, binding_path, review_only=True)
     permitted = allowed | {"review/index.html", "attempts/" + attempt_id + ".html",
                            "presentation-binding.json"}
+    diagnostic_routes = {path.relative_to(output).as_posix()
+        for path in (output/'diagnostics').glob('*.html')}
+    assert len(diagnostic_routes) == len(diagnostic_sources)
+    permitted |= diagnostic_routes | legacy_routes
     if include_english:
+        permitted |= {'en/' + route for route in diagnostic_routes | legacy_routes}
         permitted |= {"en/review/index.html", "en/attempts/" + attempt_id + ".html"}
     for relative, digest in before_review.items():
         if relative not in permitted:
             assert _digest(output / relative) == digest
+    for relative, raw in measured_logs.items():
+        assert (output/relative).read_bytes() == raw
+    for prefix in (['', 'en/'] if include_english else ['']):
+        detail = BeautifulSoup((output/prefix/'attempts'/f'{attempt_id}.html').read_text(encoding='utf-8'), 'html.parser')
+        for link in detail.select('a[href]'):
+            if '../diagnostics/' in link['href']:
+                assert (output/prefix/link['href'][3:]).is_file()
+        for route in legacy_routes:
+            viewer = BeautifulSoup((output/prefix/route).read_text(encoding='utf-8'), 'html.parser')
+            assert viewer.select_one('pre[data-file]')['data-file'] in diagnostic_sources
     assert "1/1" in (output / "review/index.html").read_text(encoding="utf-8")
     for prefix in (["", "en/"] if include_english else [""]):
         assert opinion["reason"] in (output / prefix / "attempts" / (attempt_id + ".html")).read_text(encoding="utf-8")

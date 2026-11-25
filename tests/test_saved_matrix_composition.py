@@ -1408,3 +1408,30 @@ def test_frozen_comparison_keeps_each_saved_task_contract(tmp_path):
     assert json.loads((output/records[0]['report_source_case_path']).read_bytes())['expected_any'] != ['different']
     assert all('report_source_case' not in record for record in records)
     assert all(row['passed'] for row in json.loads((output/'matrix.json').read_bytes())['rows'])
+
+
+def test_retained_review_preserves_sorting_and_query_links(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import render_source_reviews
+    source = tmp_path/'evidence/source/review/index.html'
+    source.parent.mkdir(parents=True)
+    source.write_text("""<html><main><h1>Source review</h1>
+        <table id="score-revision-steps"><thead><tr><th><button
+        onclick="sortTable('score-revision-steps', 0)">Result</button></th></tr></thead>
+        <tbody><tr><td>2</td></tr><tr><td>1</td></tr></tbody></table>
+        <a href="../viewer/index.html?path=evidence.json#record">Evidence</a>
+        <a href="?scope=fail#score-revision-steps">Selected scope</a>
+        <a href="#score-revision-steps">Table</a></main></html>""", encoding='utf-8')
+    target = tmp_path/'review/index.html'
+    target.parent.mkdir()
+    target.write_text('<html><main><h1>Combined review</h1></main></html>', encoding='utf-8')
+    render_source_reviews(tmp_path, {'source_review_pages': [
+        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
+    page = BeautifulSoup(target.read_text(encoding='utf-8'), 'html.parser')
+    table = page.find('table')
+    assert table.button['onclick'] == f"sortTable('{table['id']}', 0)"
+    links = page.select('a[href]')
+    assert links[0]['href'] == '../evidence/source/viewer/index.html?path=evidence.json#record'
+    assert links[1]['href'] == '../evidence/source/review/index.html?scope=fail#score-revision-steps'
+    assert links[2]['href'] == '#' + table['id']
+    assert source.read_text(encoding='utf-8').count('source-review-') == 0

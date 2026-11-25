@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="220" viewBox="0 0 1040 220" role="img" aria-labelledby="title desc">
+  <title id="title">Firecrawl Local evaluation and saved-report composition</title>
+  <desc id="desc">Local native requests use the shared adapter. Verified saved evidence feeds report composition while original snapshots remain unchanged.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/></marker></defs>
+  <rect width="1040" height="220" rx="16" fill="#f8fafc"/>
+  <g fill="#fff" stroke="#94a3b8" stroke-width="1.5">
+    <rect x="24" y="58" width="218" height="100" rx="12"/>
+    <rect x="282" y="58" width="218" height="100" rx="12"/>
+    <rect x="540" y="58" width="218" height="100" rx="12"/>
+    <rect x="798" y="58" width="218" height="100" rx="12"/>
+  </g>
+  <g stroke="#475569" stroke-width="2" marker-end="url(#arrow)"><path d="M242 108H278"/><path d="M500 108H536"/><path d="M758 108H794"/></g>
+  <g font-family="Arial, sans-serif" text-anchor="middle" fill="#0f172a">
+    <text x="520" y="30" font-size="19" font-weight="bold">One adapter, verified evidence, shared report pipeline</text>
+    <g font-size="17" font-weight="bold"><text x="133" y="91">Firecrawl Local</text><text x="391" y="91">Shared adapter</text><text x="649" y="91">Saved evidence</text><text x="907" y="91">Combined report</text></g>
+    <g font-size="14" fill="#475569"><text x="133" y="119">Native Markdown + links</text><text x="133" y="140">Public-target DNS preflight</text><text x="391" y="119">Explicit request fields</text><text x="391" y="140">No synthesized output</text><text x="649" y="119">Hashes + replacement scope</text><text x="649" y="140">Private originals retained</text><text x="907" y="119">Native public evidence</text><text x="907" y="140">Source reviews + diagnostics</text><text x="520" y="194">Imported snapshots stay immutable; new diagnostic viewers belong to the current report.</text></g>
+  </g>
+</svg>
