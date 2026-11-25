@@ -360,12 +360,16 @@ def run(
             raise ValueError("Frozen extraction instructions differ from the dataset")
     if records and plan.get("schema") != "archived-extraction-full-cohort/1":
         raise ValueError("Frozen plan schema differs from the selected record benchmark")
-    if plan.get("dataset_registry_sha256", registry_sha256()) != registry_sha256():
-        raise ValueError("Frozen benchmark registry changed")
-    if records or plan.get("task_adapter_sha256"):
-        bindings = task_bindings(home)
-        if not bindings or any(plan.get(key) != value for key, value in bindings.items()):
-            raise ValueError("Frozen task adapter or dataset profile changed")
+    # A completed cohort verifies its certificate chain and the execution copies stored
+    # with its run; only a collection still to come must run the code its plan pinned.
+    completed = (run_dir / "certificate.json").exists()
+    if not completed:
+        if plan.get("dataset_registry_sha256", registry_sha256()) != registry_sha256():
+            raise ValueError("Frozen benchmark registry changed")
+        if records or plan.get("task_adapter_sha256"):
+            bindings = task_bindings(home)
+            if not bindings or any(plan.get(key) != value for key, value in bindings.items()):
+                raise ValueError("Frozen task adapter or dataset profile changed")
     validate_dataset(home)
     if live != (input_mode(home) == "live"):
         raise ValueError("Frozen input mode differs from the selected dataset")
@@ -380,14 +384,16 @@ def run(
         raise ValueError("Frozen plan scorer differs")
     if len(truth) != plan["case_count"] or case_hash != plan["case_ids_sha256"]:
         raise ValueError("Full cohort population differs from the frozen plan")
-    if sample_case_ids is None:
+    if sample_case_ids is None and not completed:
         verify_execution_assessment(plan, method)
-    if sample_case_ids is not None and (run_dir / "certificate.json").exists():
+    if sample_case_ids is not None and completed:
         raise ValueError("A preflight must not reuse a certified full cohort directory")
-    if (run_dir / "certificate.json").exists():
+    if completed:
         if read_json(binding).get("fixture_base") != fixture_base:
             raise ValueError("Certified resume inputs changed: fixture_base")
         contract, rows = load_run(run_dir)
+        # The collection's own contract names the code it ran, as in the report build.
+        verify_execution_assessment(plan, method, execution_sources=contract)
         certificate = read_json(run_dir / "certificate.json")
         for field, path in (
             ("profile_sha256", profile),

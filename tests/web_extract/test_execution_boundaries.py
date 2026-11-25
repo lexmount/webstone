@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from harness.http_client import HttpResponse
+from harness.record_io import bytes_sha256 as digest
 from harness.web_extract.certification import run as certified_run
 from harness.web_extract.example import create
 from harness.web_extract.pipeline import access_blocker, load_run, probe, save_json
@@ -604,9 +605,18 @@ def test_initialization_resumes_after_snapshot_before_contract(tmp_path, snapsho
         collection_context(),
         patch("harness.web_extract.pipeline.provider_call", side_effect=accepted) as call,
     ):
+        if snapshot_state == "changed":
+            with pytest.raises(ValueError, match="changed before initialization"):
+                probe(home, ["cloudflare-json"], full=True, run_dir=target)
+            assert not call.called
+            return
         probe(home, ["cloudflare-json"], full=True, run_dir=target)
         assert call.call_count == 3
-        assert "pipeline_snapshot" not in pipeline.read_json(target / "contract.json")
+        contract = pipeline.read_json(target / "contract.json")
+        # The run keeps the copies of the code it ran beside its evidence.
+        for snapshot, identity in (("pipeline_snapshot", "pipeline_sha256"),
+                                   ("dataset_registry_snapshot", "dataset_registry_sha256")):
+            assert digest((target / contract[snapshot]).read_bytes()) == contract[identity]
 
 
 @pytest.mark.parametrize("transport", ["requests", "urllib", "fixture"])

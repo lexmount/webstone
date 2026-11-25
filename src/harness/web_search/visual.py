@@ -11,11 +11,13 @@ from harness.reporting import visual as shared_visual
 from harness.reporting.visual import (
     browser_executable,
     file_sha256,
+    keep_sources,
     layout_passes,
     local_page,
     local_report_server,
     prepare_check,
     settle_theme,
+    sources_are_frozen,
     validate_routes,
     write_receipt,
 )
@@ -26,14 +28,18 @@ SCHEMA = 'web-search-reader-capture/2'
 WIDTH, HEIGHT = 1280, 900
 
 
-def producer_sources() -> dict[str, str]:
+def producer_paths() -> dict[str, Path]:
     """Qualify same-named modules so neither producer binding is overwritten."""
 
     return {
-        'harness/web_search/visual.py': file_sha256(Path(__file__)),
-        'harness/web_search/template.py': file_sha256(Path(template.__file__)),
-        'harness/reporting/visual.py': file_sha256(Path(shared_visual.__file__)),
+        'harness/web_search/visual.py': Path(__file__),
+        'harness/web_search/template.py': Path(template.__file__),
+        'harness/reporting/visual.py': Path(shared_visual.__file__),
     }
+
+
+def producer_sources() -> dict[str, str]:
+    return {name: file_sha256(path) for name, path in producer_paths().items()}
 
 
 def routes(report: Path) -> list[tuple[str, str, str]]:
@@ -59,7 +65,8 @@ def verify(report: Path, receipt: Path) -> bool:
     """Reject stale/legacy claims; accept only the maintained producer contract."""
     prepare_check(report, receipt)
     proof = json.loads(receipt.read_text())
-    if (proof.get('schema') != SCHEMA or proof.get('producer_sources') != producer_sources()):
+    if (proof.get('schema') != SCHEMA
+            or not sources_are_frozen(receipt, proof.get('producer_sources'), list(producer_paths()))):
         raise ValueError('Incomplete visual producer proof; regenerate with check_search_report_visual.py')
     if proof.get('manifest_sha256') != file_sha256(report / 'manifest.json'):
         raise ValueError('Visual check belongs to a different build')
@@ -92,7 +99,7 @@ def capture(report: Path, receipt: Path) -> Path:
     prepare_check(report, receipt)
     selected_routes = routes(report)
     manifest_hash = file_sha256(report / 'manifest.json')
-    sources = producer_sources()
+    sources = keep_sources(receipt, producer_paths())
     executable = browser_executable()
     binary_hash = file_sha256(Path(executable))
     images = receipt.parent / (receipt.stem + '-captures')

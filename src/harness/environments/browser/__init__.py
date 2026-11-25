@@ -60,6 +60,10 @@ class BrowserAdapter:
     # Command that prints the version inside the container image.
     version_command: tuple[str, ...] | None = None
     local_command: LocalCommand | None = None
+    # Local binary discovery: an environment variable naming the binary, then
+    # absolute paths or command names tried in order.
+    binary_env: str | None = None
+    local_executables: tuple[str, ...] = ()
     hosted_cdp: HostedCdp | None = None
     values: dict[str, Any] = field(default_factory=dict)
 

@@ -30,12 +30,10 @@ RETIRED_NAMES = {
     'text_digest',
 }
 # These bytes are part of a live hash binding, so their private copy stays:
-# the resource orchestrators must equal the `orchestrator_sha256` their protocol declares,
-# and reporting/visual.py is named by report visual-proof `checker_sources`.
+# the resource orchestrators must equal the `orchestrator_sha256` their protocol declares.
 FROZEN_SOURCE_COPIES = {
     ('lexbench/resource_matrix.py', 'sha'),
     ('lexbench/resource_profiles.py', 'sha256'),
-    ('reporting/visual.py', 'file_sha256'),
 }
 # The one atomic JSON document writer; every other wrapper of this form is a copy.
 ATOMIC_JSON_OWNER = ('web_search/core.py', 'write_json')

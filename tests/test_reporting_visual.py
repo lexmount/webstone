@@ -1,5 +1,8 @@
 """Offline scenarios for visual input binding and receipt installation."""
 
+import hashlib
+import json
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,7 +10,10 @@ from types import SimpleNamespace
 import pytest
 
 from harness.browser_use import report_visual
+from harness.reporting import visual
 from harness.reporting.visual import browser_executable, prepare_check, write_receipt
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_invalid_explicit_browser_does_not_select_another(tmp_path, monkeypatch):
@@ -138,3 +144,50 @@ def test_local_rendering_does_not_request_remote_resources(url, allowed):
     )
     handlers[0](route)
     assert actions == ["continued" if allowed else "aborted"]
+
+
+def test_receipts_verify_against_kept_checker_copies_not_live_modules(tmp_path):
+    receipt = tmp_path / "visual.json"
+    checker = tmp_path / "checker.py"
+    checker.write_text("first checker", encoding="utf-8")
+    names = list(visual.checker_paths(checker))
+    kept = visual.keep_sources(receipt, visual.checker_paths(checker))
+    checker.write_text("evolved checker", encoding="utf-8")
+    assert visual.sources_are_frozen(receipt, kept, names)
+    assert not visual.sources_are_frozen(receipt, kept, ["checker.py"])
+    copy = receipt.parent / visual.SOURCE_COPIES / (kept["checker.py"] + ".py.txt")
+    copy.write_text("tampered", encoding="utf-8")
+    assert not visual.sources_are_frozen(receipt, kept, names)
+    assert not visual.sources_are_frozen(receipt, {**kept, "checker.py": "0" * 64}, names)
+
+
+def test_receipts_written_before_kept_copies_resolve_in_the_git_store(tmp_path):
+    index = json.loads((visual.FROZEN_SOURCES / "index.json").read_text(encoding="utf-8"))
+    stored = {row["path"].rsplit("/", 1)[1]: row["sha256"] for row in index["sources"]}
+    recorded = {"report_visual.py": stored["report_visual.py"], "visual.py": stored["visual.py"]}
+    assert visual.sources_are_frozen(tmp_path / "visual.json", recorded,
+                                     ["report_visual.py", "visual.py"])
+
+
+def test_git_store_holds_the_listed_historical_bytes():
+    index = json.loads((visual.FROZEN_SOURCES / "index.json").read_text(encoding="utf-8"))
+    listed = {row["source_artifact"] for row in index["sources"]}
+    assert listed == {path.name for path in visual.FROZEN_SOURCES.glob("*.py.txt")}
+    for row in index["sources"]:
+        raw = (visual.FROZEN_SOURCES / row["source_artifact"]).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == row["sha256"]
+        shown = subprocess.run(["git", "show", f"{row['git_commit']}:{row['path']}"], cwd=ROOT,
+                               capture_output=True, check=False)
+        if shown.returncode == 0:  # shallow checkouts may lack the commit
+            assert shown.stdout == raw
+
+
+def test_visual_browser_comes_from_the_reference_adapter(tmp_path, monkeypatch):
+    from harness.environments.browser import browser_adapter, reference_engine
+
+    adapter = browser_adapter(reference_engine())
+    binary = tmp_path / "reference-browser"
+    binary.write_text("binary", encoding="utf-8")
+    monkeypatch.delenv("BROWSER_USE_VISUAL_BROWSER", raising=False)
+    monkeypatch.setenv(adapter.binary_env, str(binary))
+    assert browser_executable() == str(binary)

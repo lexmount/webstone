@@ -13,8 +13,10 @@ from harness.reporting.visual import (
     browser_executable as _browser_executable,
 )
 from harness.reporting.visual import (
+    checker_paths,
     checker_sources,
     file_sha256,
+    keep_sources,
     layout_passes,
     local_page,
     prepare_check,
@@ -220,7 +222,7 @@ def check(report: Path, receipt: Path) -> None:
     prepare_check(report, receipt)
     from playwright.sync_api import sync_playwright
 
-    source_hashes = checker_sources(Path(__file__))
+    source_hashes = keep_sources(receipt, checker_paths(Path(__file__)))
     before = _tree_sha256(report)
     executable = _browser_executable()
     browser_hash = file_sha256(Path(executable))

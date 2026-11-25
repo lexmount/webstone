@@ -211,7 +211,7 @@ def test_chinese_visual_matrix_includes_english_notice(tmp_path):
     ],
 )
 def test_current_replay_receipt_binds_full_visual_scope(tmp_path, monkeypatch, damage):
-    from harness.reporting.visual import checker_sources, file_sha256
+    from harness.reporting.visual import checker_paths, file_sha256, keep_sources
 
     report = tmp_path / "report"
     report.mkdir()
@@ -236,7 +236,7 @@ def test_current_replay_receipt_binds_full_visual_scope(tmp_path, monkeypatch, d
     value = {
         "schema": "lex_webarena_replay_visual_qa/4",
         "report_tree_sha256": _MODULE._tree_sha256(report),
-        "checker_sources": checker_sources(Path(_MODULE.__file__)),
+        "checker_sources": keep_sources(receipt, checker_paths(Path(_MODULE.__file__))),
         "browser_executable": str(binary),
         "browser_sha256": file_sha256(binary),
         "route_classes": 6,

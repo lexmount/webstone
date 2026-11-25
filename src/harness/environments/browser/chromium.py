@@ -54,5 +54,12 @@ ADAPTER = register_browser(
         image="lex-webstone-chromium:local",
         cdp_port=9223,
         local_command=local_command,
+        binary_env="CHROMIUM_BINARY",
+        local_executables=(
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+        ),
     )
 )
