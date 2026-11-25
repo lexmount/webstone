@@ -13,7 +13,7 @@ from lexbench_webfetch.evaluation import evaluate_response
 from harness.web_fetch.agent_backend.arms import fetch_dispatch
 
 WRAPPER = re.compile(r"<fetched-web-content>\n?(.*)</fetched-web-content>", re.S)
-PAIRS = (("builtin", "lexmount"), ("builtin", "moli"))
+PAIRS = (("builtin", "lexmount"), ("builtin", "moli"), ("moli", "lexmount"))
 ATTEMPT = re.compile(r"^(?P<base>.+)__a(?P<n>\d+)$")
 
 
@@ -63,6 +63,25 @@ def controls(cases: dict, case_ids: list[str]) -> dict:
         except ValueError:
             failed += 1
     return {"cases": len(case_ids), "empty_fails": failed}
+
+
+def _long(r) -> bool:
+    """The page was longer than one call delivers, so reading it to the end needs further calls."""
+    return not r.get("fetch_failed") and bool(r.get("page_chars")) and r["page_chars"] > (r.get("markdown_chars") or 0)
+
+
+def _tail(runs: list[dict]) -> dict:
+    """How far the subagent read: on every fetched page and on pages longer than one call."""
+    fetched = [r for r in runs if not r.get("fetch_failed")]
+    long = [r for r in fetched if _long(r)]
+    count = lambda rs, key: sum(bool(r.get(key)) for r in rs)
+    return {"fetched": len(fetched), "tail_quoted": count(fetched, "tail_quoted"),
+            "long_pages": len(long), "reached_end": count(long, "reached_end"), "read_complete": count(long, "read_complete"),
+            "tail_quoted_long": count(long, "tail_quoted"),
+            "page_chars": _stats([r["page_chars"] for r in long]), "fetch_calls": _stats([r.get("fetch_calls") for r in long]),
+            "subagent_tokens": _stats([r.get("subagent_tokens") for r in long]),
+            "subagent_duration_ms": _stats([r.get("subagent_duration_ms") for r in long]),
+            "assembly_mismatch": sum(r.get("assembly_matches_backend") is False for r in long)}
 
 
 def _percentile(values, q):
@@ -147,6 +166,8 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "passed": sum(r["passed"] for r in counted),
             "passed_first_read": sum(r["passed_first_read"] for r in counted),
             "read_complete_runs": sum(bool(r.get("read_complete")) for r in used),
+            # Reading to the end: the question is whether the subagent sees that characters remain and goes on.
+            "tail": _tail(used),
             "fetch_calls_per_run": dict(Counter(r.get("fetch_calls") for r in used)),
             "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
             "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
@@ -178,6 +199,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         "markdown_chars": _stats([v[arm].get("markdown_chars") for v in fetched_by_all]),
         "subagent_duration_ms": _stats([v[arm]["subagent_duration_ms"] for v in fetched_by_all]),
         "fetch_tool_ms": _stats([v[arm]["fetch_tool_ms"] for v in fetched_by_all])} for arm in arm_names}}
+    # Like-for-like view of the reading question: tasks whose page was longer than one call in every arm.
+    long_all = [v for k, v in sorted(by_key.items()) if k in included and all(x["valid"] and _long(x) for x in v.values())]
+    summary["long_for_every_arm"] = {"tasks": len(long_all), "arms": {arm: _tail([v[arm] for v in long_all]) for arm in arm_names}}
     summary["by_suite"] = {}
     for arm in arm_names:  # tasks and passes per task category, the first part of the task id
         table: dict = {}
@@ -219,4 +243,14 @@ def render_markdown(summary: dict) -> str:
                      f"{s['subagent_tokens']['mean'] or 0:.0f} | "
                      f"{(s['subagent_duration_ms']['p50'] or 0) / 1000:.1f} | {(s['fetch_tool_ms']['p50'] or 0) / 1000:.1f} | "
                      f"{s['fetch_api_cost_usd']:.4f} | {s['subagent_cost_usd_upper_bound']:.4f} |")
+    lines += ["", "Reading to the end of the page (pages longer than one call; reached and complete are computed from call offsets):", "",
+              "| Arm | Fetched | Tail quoted | Long pages | Reached end | No gap | Tail quoted (long) | Calls mean | Page chars P50 |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    for arm, s in summary["arms"].items():
+        t = s["tail"]
+        lines.append(f"| {arm} | {t['fetched']} | {t['tail_quoted']} | {t['long_pages']} | {t['reached_end']} | {t['read_complete']} | "
+                     f"{t['tail_quoted_long']} | {t['fetch_calls']['mean'] or 0:.1f} | {t['page_chars']['p50'] or 0:.0f} |")
+    every = summary["long_for_every_arm"]
+    lines += ["", f"Tasks long in every arm: {every['tasks']}. "
+              + "; ".join(f"{a}: reached end {t['reached_end']}, tail quoted {t['tail_quoted_long']}" for a, t in every["arms"].items()) + "."]
     return "\n".join(lines) + "\n"

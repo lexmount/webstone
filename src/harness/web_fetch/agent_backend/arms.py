@@ -84,6 +84,21 @@ def arm_env(arm: str, params: dict | None) -> dict:
     return env
 
 
+REPORT_START = "The report follows:\n"
+REPORT_END = re.compile(r"\n(?:agentId: \S+\n)?<usage>")
+
+
+def subagent_report(text: str) -> str:
+    """The subagent's own report from an Agent tool result, without the harness frame, notes and usage block.
+
+    Claude Code puts its notes and a hand-back frame before the report and indents every report line.
+    """
+    body = text.split(REPORT_START, 1)[1] if REPORT_START in text else text
+    end = REPORT_END.search(body)
+    body = body[:end.start()] if end else body
+    return "\n".join(line[2:] if line.startswith("  ") else line for line in body.split("\n")).strip()
+
+
 def parse_stream(text: str):
     """Return (init, result, tool_calls, raw_fetch_result, bash_commands, subagent) from stream-json output.
 
@@ -93,6 +108,7 @@ def parse_stream(text: str):
     """
     uses, calls, bash = {}, [], []
     reported = []
+    reports: list[str] = []  # what each delegated subagent returned to the main session, usage block removed
     fetch_error = False
     init = result = raw = None
     saved: list[str] = []
@@ -122,6 +138,7 @@ def parse_stream(text: str):
                 text = block["content"] if isinstance(block["content"], str) else "".join(
                     x.get("text", "") for x in block["content"] if isinstance(x, dict))
                 found = AGENT_USAGE.search(text)
+                reports.append(subagent_report(text))
                 saved.extend(SAVED_FILE.findall(text.split("Harness note", 1)[1]) if "Harness note" in text else [])
                 if found:
                     reported.append({"tokens": int(found.group(1)), "tool_uses": int(found.group(2)),
@@ -135,7 +152,7 @@ def parse_stream(text: str):
                 if raw is None:  # the first fetch result is the page the task asked for
                     fetch_error, raw = bool(block.get("is_error")), text_
     summary = {"agent_launches": sum(1 for c in calls if c["tool"] == "Agent" and not c["sub"]), "reported": reported,
-               "fetch_error": fetch_error, "saved_files": saved, "reads": reads}
+               "fetch_error": fetch_error, "saved_files": saved, "reads": reads, "reports": reports}
     return init, result, calls, raw, bash, summary
 
 
@@ -236,13 +253,68 @@ def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: l
     return {"markdown_chars": len(markdown), "fetch_failed_backend": failed, **evidence}
 
 
-def _full_read_evidence(out: pathlib.Path, reads: list[dict], first_page_chars: int | None, first_chars: int) -> dict:
-    """Write ``full_text.txt``: the verbatim text of every read joined by offset, and say how much of the page it is."""
+def coverage(reads: list[dict]) -> tuple[int, int, int | None]:
+    """Return (characters read verbatim, end of the furthest verbatim part, page length WebFetch stated).
+
+    Computed from the offsets of the calls, not from the model's account: each verbatim part covers
+    ``[offset, offset + len(part))`` of the one cached page text. The page length is the ``T`` of WebFetch's
+    "N of T characters" line; a page that fits one call has no such line and its length is the first part's.
+    """
+    spans, total = [], None
+    for read in reads:
+        if read["url"] != reads[0]["url"] or fetch_failed(read["text"], read["is_error"]):
+            continue
+        verbatim, _, stated = builtin_markdown(read["text"])
+        total = total or stated
+        if verbatim:
+            spans.append((read["offset"], read["offset"] + len(verbatim)))
+    covered, cursor = 0, 0
+    for start, end in sorted(spans):
+        start = max(start, cursor)
+        if end > start:
+            covered, cursor = covered + end - start, end
+    furthest = max((end for _, end in spans), default=0)
+    if total is None and spans:
+        total = furthest
+    return covered, furthest, total
+
+
+TAIL_WORD_CHARS = 24
+MARKUP = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+
+
+def _words(text: str) -> str:
+    return "".join(ch for ch in text.casefold() if ch.isalnum())
+
+
+def tail_quoted(page: str, report: str) -> bool:
+    """Does the subagent's report contain the page's real ending? Code-checked, never model-judged.
+
+    The ending is the last ``TAIL_WORD_CHARS`` letters and digits of the page text, compared with punctuation,
+    spacing and case removed, so a faithful copy passes whether or not it kept markdown punctuation. Link and
+    image markup may be copied or rendered as its text: both endings are accepted.
+    """
+    said = _words(report)
+    endings = {_words(page)[-TAIL_WORD_CHARS:], _words(MARKUP.sub(r"\1", page))[-TAIL_WORD_CHARS:]}
+    return any(e and e in said for e in endings)
+
+
+def _full_read_evidence(out: pathlib.Path, reads: list[dict], reports: list[str] | None = None) -> dict:
+    """Write ``full_text.txt`` (every verbatim read joined by offset) and measure how far the subagent read.
+
+    ``reached_end``: a verbatim part ends at the page's last character. ``read_complete``: every character from the
+    first to the last was delivered verbatim (no gap). ``tail_quoted``: the page was read to its end and the report
+    contains its real ending.
+    """
     text, parts = assemble_page(reads)
     (out / "full_text.txt").write_text(text, encoding="utf-8")
-    total = first_page_chars or first_chars  # WebFetch states the page length only when it cuts the page
+    covered, furthest, total = coverage(reads)
+    reached = bool(text) and total is not None and furthest >= total
+    report = "\n".join(reports or [])
     return {"fetch_calls": len(reads), "verbatim_parts": parts, "full_text_chars": len(text),
-            "read_complete": bool(text) and len(text) >= total}
+            "page_chars": total, "covered_chars": covered, "reached_end": reached,
+            "read_complete": reached and covered >= total,
+            "tail_quoted": reached and tail_quoted(text, report), "report": report}
 
 
 def validate(record: dict, arm: str) -> list[str]:
@@ -335,7 +407,12 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     log = out / "backend_calls.jsonl"
     rows = [json.loads(x) for x in log.read_text(encoding="utf-8").split("\n") if x.strip()] if log.exists() else []
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
-    record.update(_full_read_evidence(out, delegated["reads"], record["page_chars_reported"], record["markdown_chars"]))
+    record.update(_full_read_evidence(out, delegated["reads"], delegated["reports"]))
+    if ARMS[arm]["backend"] != "builtin" and record["read_complete"] and rows:  # offset assembly vs the backend's own text
+        own = [r for r in rows if r.get("ok") and r.get("file")]
+        if own:
+            backend_text = (out / "backend_outputs" / own[0]["file"]).read_text(encoding="utf-8")
+            record["assembly_matches_backend"] = (out / "full_text.txt").read_text(encoding="utf-8").strip() == backend_text.strip()
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
     record["fetch_failed"] = record["fetch_failed_backend"]  # WebFetch reported a failure or delivered nothing

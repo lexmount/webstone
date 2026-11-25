@@ -1,6 +1,6 @@
 # Agent fetch backend experiment
 
-Compare ways of retrieving the page behind Claude Code's `web-fetch` subagent: the built-in WebFetch (a plain HTTP GET converted with Turndown) and a local moli binary (a headless browser engine). A Lexmount `POST /v1/extract` arm is also available (`--arms builtin,lexmount,moli`); the default comparison is `builtin,moli`. The experiment runs the real `claude` CLI as a subprocess, so it works from any shell, CI job or session and never reads the session that starts it.
+Compare ways of retrieving the page behind Claude Code's `web-fetch` subagent: the built-in WebFetch (a plain HTTP GET converted with Turndown) and a local moli binary (a headless browser engine). and Lexmount `POST /v1/extract` (a hosted extraction service). The default is all three (`--arms builtin,moli,lexmount`). The experiment runs the real `claude` CLI as a subprocess, so it works from any shell, CI job or session and never reads the session that starts it.
 
 ## What is compared
 
@@ -16,11 +16,13 @@ Claude Code's `CLAUDE_CODE_WEBFETCH_MCP_TOOL` setting (`{"server": ..., "tool": 
 
 The Lexmount text is rendered by Lexmount's official `webfetch-cli` (`LEXMOUNT_WEBFETCH_CLI`): the MCP server calls the API once with the harness's parameters and replays that response to the CLI on a local address, so the format is Lexmount's own and the API is not called twice. The MCP server (`agent_backend/fetch_mcp.py`, standard library only) also saves each backend's complete output as evidence.
 
-Every arm gets the same task, to read the whole page (`--prompt`, recorded in `plan.json`):
+Every arm gets the same task: the content wanted is at the very end of the page, so the subagent has to notice that characters remain and keep reading until it reaches the last one (`--prompt`, recorded in `plan.json`):
 
 ```text
-Read the complete text of {url}. The fetch tool shows a long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with one line: how many characters the page has and whether you read all of it.
+Read the complete text of {url}. The part we need is at the very end of the page. The fetch tool shows a long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with two lines: how many characters the page has and whether you read all of it; then the last 80 characters of the page text, copied exactly.
 ```
+
+The task is the same for every arm, and so is the page end it refers to: the end of the text WebFetch holds for that page in that arm. A page that fits one call needs no further call; for a longer page the subagent must read on. The stock subagent has at most 15 turns, so a page needing more than about 14 calls (about 550,000 characters) cannot be finished in any arm.
 
 WebFetch keeps the page text it retrieved in a per-process cache (15 minutes) and `offset` is a character position in that text, so reading on never contacts the site again and works the same whoever retrieved the page: the backend is called once per page. WebFetch only suggests an offset for text beyond what it summarized (about 140,000 characters in); the task therefore states the rule for the stretch in between.
 
@@ -73,7 +75,20 @@ The pass verdict is the benchmark's own `score_attempt` and task predicate, appl
 
 Binary content is scored as the delivered file: the bytes WebFetch saved in the built-in arm (`saved_files/`, listed in Claude Code's harness note) and the bytes moli returned in the moli arm. Nothing a model wrote is scored, and the harness never extracts text from files or converts formats.
 
-Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`. The empty-output control must fail every selected task. The backends' complete outputs saved by the MCP server are diagnostic evidence; they are not scored. `summary.json` also gives, per arm, how many runs read the page to its end (`read_complete_runs`) and the number of fetch calls per run.
+Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`. The empty-output control must fail every selected task. The backends' complete outputs saved by the MCP server are diagnostic evidence; they are not scored.
+
+Reading to the end is measured by code from the calls, never from what the model says it did:
+
+| Field | Meaning |
+| --- | --- |
+| `page_chars` | the page length WebFetch stated ("N of T characters"); for a page that fits one call, the length of that call's text |
+| `covered_chars` | characters delivered verbatim, from the offsets and lengths of the calls (overlaps counted once) |
+| `reached_end` | a verbatim part ends at the page's last character |
+| `read_complete` | `reached_end` and no gap: every character was delivered verbatim |
+| `tail_quoted` | `reached_end`, and the subagent's report (the text it handed back, taken from the Agent result) contains the page's real ending: its last 24 letters and digits, compared without punctuation, spacing or case, with link and image markup either copied or rendered as its text |
+| `assembly_matches_backend` | moli and Lexmount arms: the text joined by offset equals the backend's own complete output, a check of the assembly |
+
+`summary.json` reports these per arm under `tail`, on every fetched page and on pages longer than one call (`long_pages`, where reading on is required), with fetch calls, page length, tokens and duration on those pages. `long_for_every_arm` repeats them on the tasks whose page was longer than one call in every arm, the like-for-like view of the reading question. Page lengths differ between arms because each backend turns the page into its own text; a longer text needs more calls, and that cost belongs to the backend.
 
 ## Metrics
 

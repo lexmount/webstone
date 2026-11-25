@@ -557,8 +557,35 @@ def test_reads_of_one_page_are_joined_by_offset_and_summaries_are_left_out():
 
 def test_a_run_records_the_first_read_and_the_full_read_separately(tmp_path):
     page = "".join(chr(65 + i % 26) for i in range(100))
-    found = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True), _read(40, page[40:], 100)], 100, 40)
+    found = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True), _read(40, page[40:], 100)],
+                                     ["100 characters, all read.\n" + page[-30:]])
     assert (tmp_path / "full_text.txt").read_text(encoding="utf-8") == page
-    assert found == {"fetch_calls": 2, "verbatim_parts": 2, "full_text_chars": 100, "read_complete": True}
-    partial = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True)], 100, 40)
+    assert found == {"fetch_calls": 2, "verbatim_parts": 2, "full_text_chars": 100, "page_chars": 100, "covered_chars": 100,
+                     "reached_end": True, "read_complete": True, "tail_quoted": True,
+                     "report": "100 characters, all read.\n" + page[-30:]}
+    partial = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True)], ["read all\n" + page[-30:]])
     assert partial["read_complete"] is False and partial["full_text_chars"] == 40
+    assert partial["reached_end"] is False and partial["tail_quoted"] is False  # a right guess without reading counts for nothing
+
+
+def test_reaching_the_end_with_a_gap_is_not_a_complete_read(tmp_path):
+    page = "".join(chr(65 + i % 26) for i in range(100))
+    found = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True), _read(60, page[60:], 100)], [page[-30:]])
+    assert found["reached_end"] is True and found["read_complete"] is False and found["covered_chars"] == 80
+    one = arms._full_read_evidence(tmp_path, [_read(0, page[:50], 50)], [])
+    assert one["page_chars"] == 50 and one["reached_end"] and one["read_complete"] and not one["tail_quoted"]
+
+
+def test_the_tail_check_ignores_punctuation_and_accepts_rendered_links():
+    page = "Intro text.\n\nThe final paragraph ends with a link to the [Privacy notice](https://example.com/privacy)."
+    assert arms.tail_quoted(page, "Last 80: ...ends with a link to the [Privacy notice](https://example.com/privacy).")
+    assert arms.tail_quoted(page, "the final paragraph ends with a link to the Privacy notice")
+    assert not arms.tail_quoted(page, "The final paragraph ends with a link")
+
+
+def test_the_subagent_report_is_taken_without_the_harness_frame():
+    result = ("  <tools-used-before-summary>WebFetch</tools-used-before-summary>\n  \n  [Harness note, not part of the agent's "
+              "report: WebFetch saved no files during this run.]\n[Subagent hand-back] The text below is the final report. "
+              "The report follows:\n  The page has 52,629 characters.\n  \n  - Call 2 read to the end.\nagentId: a1\n"
+              "<usage>subagent_tokens: 43969\ntool_uses: 2\nduration_ms: 20784</usage>")
+    assert arms.subagent_report(result) == "The page has 52,629 characters.\n\n- Call 2 read to the end."

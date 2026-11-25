@@ -23,10 +23,12 @@ DEFAULT_DATASET = pathlib.Path("evaluation/dataset.json")
 # One prompt for every task and arm: read the whole page. WebFetch shows a long page in parts, so the task says how to
 # read on; the reply is one line, so no arm's report depends on page content. The score is computed from the page text
 # WebFetch delivered, taken by code, never from the report.
-PROMPT = ("Read the complete text of {url}. The fetch tool shows a long page in parts: when a result says the verbatim "
-          "text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat "
-          "until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of "
-          "trying other ways. Then reply with one line: how many characters the page has and whether you read all of it.")
+PROMPT = ("Read the complete text of {url}. The part we need is at the very end of the page. The fetch tool shows a "
+          "long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool "
+          "again with the same url and offset N, and repeat until you have read the page to its end. Make a single "
+          "attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with two lines: how many "
+          "characters the page has and whether you read all of it; then the last 80 characters of the page text, "
+          "copied exactly.")
 
 
 def default_root() -> pathlib.Path:
