@@ -115,7 +115,7 @@ from harness.web_fetch.report_explainer import (
  load_browser_failure_review,
  render_explainer,
 )
-from harness.web_fetch.report_i18n import pair, report_text, t, write_english_report
+from harness.web_fetch.report_i18n import legacy_t, pair, report_text, t, write_english_report
 from harness.web_fetch.report_interfaces import method_provenance
 from harness.web_fetch.report_methods import render_methods
 from harness.web_fetch.report_quality import render_quality_observations
@@ -716,7 +716,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   encoding='utf-8')
  direct=research['direct_benchmarks'];adjacent=research['adjacent_browser_benchmarks']
  for english in ((False,True) if include_english else (False,)):
-  h=report_text('en' if english else 'zh')
+  h=report_text('en' if english else 'zh', legacy='public-benchmark-research')
   sample_size=research['sampling_contract']['size']
   parent_pages=next(x for x in direct if x['id']=='webmainbench-545')['pages']
   current_cases=sum(research['current_benchmark']['tracks'].values())
@@ -762,7 +762,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   sampling=research['sampling_contract']
   sample_text=(f'{sampling["size"]} · {esc(sampling["seed"])} · '+esc(sampling['reason' if english else 'reason_zh']))
   method+=section(h('case_sampling_contract', '{sample_size}-case sampling contract', sample_size=sample_size),f"<p><b>{sample_text}</b></p><p>{h('official_axes', 'Official axes: ')}<code>{esc(', '.join(sampling['official_axes']))}</code></p><p>{h('algorithm', 'Algorithm: ')}{esc(sampling['algorithm'])}</p>")
-  no_combined=h('the_public_cases_use_webmainbench_545_s', "The public {sample_size} cases use WebMainBench-545's official components; the current {current_cases} cases continue to measure live access, resources, dynamic rendering and latency. Show both without a rescaled combined score.", sample_size=sample_size, current_cases=current_cases)
+  no_combined=h('the_public_cases_use_webmainbench_545_s', sample_size=sample_size, current_cases=current_cases)
   method+=section(h('no_synthetic_combined_score', 'No synthetic combined score'),'<p>'+no_combined+'</p>')
   _research_write(out,'methodology/index.html',h('methodology', 'Methodology'),method,english)
 
@@ -793,7 +793,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   _research_write(out,'review/index.html',h('review_record', 'Verification'),review,english)
 
   guide=_research_hero(h('interpretation', 'Guide'),h('this_edition_answers_what_to_test_not', 'This edition answers what to test, not which method wins.'),english)
-  guide+=section(h('reading_order', 'Reading order'),f"""<div class="guide-grid"><article class="guide-card"><h3>1 · {h('selection', 'Selection')}</h3><p>{h('see_why_webmainbench_545_is_the_sole', 'See why WebMainBench-545 is the sole selection.')}</p></article><article class="guide-card"><h3>2 · {h('sampling', 'Sampling')}</h3><p>{h('see_how_cases_cover_official_categories', 'See how {sample_size} cases cover official categories.', sample_size=sample_size)}</p></article><article class="guide-card"><h3>3 · {h('adoption_2', 'Adoption')}</h3><p>{h('separate_execution_integration_and_mere_mentions', 'Separate execution, integration and mere mentions.')}</p></article><article class="guide-card"><h3>4 · {h('measurement', 'Measurement')}</h3><p>{h('rank_only_after_complete_denominators_and_review', 'Rank only after complete denominators and review.')}</p></article></div>""")
+  guide+=section(h('reading_order', 'Reading order'),f"""<div class="guide-grid"><article class="guide-card"><h3>1 · {h('selection', 'Selection')}</h3><p>{h('see_why_webmainbench_545_is_the_sole')}</p></article><article class="guide-card"><h3>2 · {h('sampling', 'Sampling')}</h3><p>{h('see_how_cases_cover_official_categories', 'See how {sample_size} cases cover official categories.', sample_size=sample_size)}</p></article><article class="guide-card"><h3>3 · {h('adoption_2', 'Adoption')}</h3><p>{h('separate_execution_integration_and_mere_mentions', 'Separate execution, integration and mere mentions.')}</p></article><article class="guide-card"><h3>4 · {h('measurement', 'Measurement')}</h3><p>{h('rank_only_after_complete_denominators_and_review', 'Rank only after complete denominators and review.')}</p></article></div>""")
   _research_write(out,'guide/index.html',h('interpretation', 'Guide'),guide,english)
 
   adoption=_research_hero(h('adoption', 'Adoption'),h('adoption_is_evidenced_by_papers_executable_benchmark', 'Adoption is evidenced by papers, executable benchmark repositories and framework integrations; stars are context only.'),english)
@@ -1797,7 +1797,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  if audit:heads+=[(t('report_review_coverage_9466e9', 'Review coverage'))]
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  if case_count==150 and track_count==6:
-  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + t('every_method_runs_the_same_150_tasks', 'Every method runs the same 150 tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the six family rankings.') + '</p>')
+  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + legacy_t('web-fetch-published', 'every_method_runs_the_same_150_tasks') + '</p>')
  else:
   intro=(('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + t('every_method_runs_the_current_dataset_s', "Every method runs the current dataset's {case_count} planned tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the {track_label} family rankings.", case_count=case_count, track_label=track_label) + '</p>'))
  if has_unknown:

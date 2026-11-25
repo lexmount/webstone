@@ -166,13 +166,15 @@ def test_only_browser_only_cohorts_get_the_cost_boundary_table(tmp_path, names, 
 
 
 def test_firecrawl_current_route_and_billing_boundaries_are_localized_one_to_one():
+    from harness.web_fetch.report_i18n import published_report_catalog
     with tempfile.TemporaryDirectory() as directory:
         rendered = render_pricing(
             Path(directory), ['firecrawl'], table=table, cell=cell, link=link, esc=esc
         )
+        catalog = published_report_catalog(Path(directory))
     english = localize_html(
         '<html lang="zh-CN"><body>' + rendered + '</body></html>',
-        PurePosixPath('adoption/index.html'),
+        PurePosixPath('adoption/index.html'), catalog=catalog,
     )
     for text in [
         'Under the current official rules',

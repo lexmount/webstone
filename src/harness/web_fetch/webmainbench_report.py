@@ -51,16 +51,16 @@ def _wmb_html_preview(source,english=False):
     del node.attrs[attr]
  for img in soup.find_all('img'):
   placeholder=soup.new_tag('span')
-  placeholder.string=(report_text('en' if english else 'zh')('image_not_loaded', '[Image not loaded'))+(': '+img.get('alt','') if img.get('alt') else '')+(']' if english else '］')
+  placeholder.string=(report_text('en' if english else 'zh', legacy='webmainbench')('image_not_loaded', '[Image not loaded'))+(': '+img.get('alt','') if img.get('alt') else '')+(']' if english else '］')
   img.replace_with(placeholder)
  policy="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; form-action 'none'; base-uri 'none'"
  document='<meta http-equiv="Content-Security-Policy" content="'+html.escape(policy,quote=True)+'"><style>body{margin:20px;color:#172331;background:white;overflow-wrap:anywhere}img,table{max-width:100%}pre{white-space:pre-wrap}</style>'+str(soup)
- title=report_text('en' if english else 'zh')('frozen_html_reading_view', 'Frozen HTML reading view')
+ title=report_text('en' if english else 'zh', legacy='webmainbench')('frozen_html_reading_view', 'Frozen HTML reading view')
  return '<iframe class="wmb-html-preview" sandbox="" referrerpolicy="no-referrer" loading="lazy" title="'+title+'" srcdoc="'+html.escape(document,quote=True)+'"></iframe>'
 
 
 def _wmb_table_example(english=False):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  examples=[
   (h('recognized_complete', 'Recognized, complete'), '| Name | Value |\n| --- | --- |\n| A | 10 |\n| B | 20 |', '<table><tr><th>Name</th><th>Value</th></tr><tr><td>A</td><td>10</td></tr><tr><td>B</td><td>20</td></tr></table>',h('enters_table_comparison_an_exact_reference_match', 'Enters table comparison; an exact reference match scores full marks.')),
   (h('recognized_one_row_missing', 'Recognized, one row missing'), '| Name | Value |\n| --- | --- |\n| A | 10 |', '<table><tr><th>Name</th><th>Value</th></tr><tr><td>A</td><td>10</td></tr></table>',h('still_scored_missing_content_and_structure_reduce', 'Still scored; missing content and structure reduce the score. Complete recovery is not a prerequisite.')),
@@ -70,7 +70,7 @@ def _wmb_table_example(english=False):
 
 
 def _wmb_denominator_example(records, english, case_count, provider=None):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  if not records:return ''
  provider=provider or records[0]['provider']
  selected=[row for row in records if row['provider']==provider]
@@ -115,7 +115,7 @@ def _wmb_latency_summary(records,names):
 
 
 def _wmb_table_population(records,names,labels,english=False,prefix='../'):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  reference_pages={r['case_id'] for r in records if r.get('metrics',{}).get('table_edit',{}).get('details',{}).get('groundtruth_table_length',0)>0}
  rows=[]
  for name in names:
@@ -127,7 +127,7 @@ def _wmb_table_population(records,names,labels,english=False,prefix='../'):
    eligible+=gt
    if pred and not gt:extra+=1;example=example or r['attempt_id']
   rows.append(('',cell(link(prefix+'providers/'+name+'.html',labels[name]))+cell(str(eligible),eligible)+cell(str(extra),extra)+cell('<b>'+str(eligible+extra)+'</b>',eligible+extra)+cell(link(prefix+'attempts/'+example+'.html',h('inspect_output_only_tables', 'Inspect output-only tables')) if example else '—')))
- return '<div class="wmb-table-population"><h3>'+h('why_do_table_scoring_counts_differ', 'Why do table-scoring counts differ?')+'</h3><p>'+h('every_page_has_a_human_reference_but', 'Every page has a human reference, but only {count} references contain recognizable tables. After a successful call, every reference-table page is scored. A page with tables only in the output also enters the average at zero. Only pages with no tables on either side are skipped.', count=len(reference_pages))+'</p>'+table([h('method', 'Method'),h('reference_table_successful_call', 'Reference table, successful call'),h('output_only_table', 'Output-only table'),h('scored_pages_sum', 'Scored pages (sum)'),h('raw_evidence', 'Raw evidence')],rows,cls='wmb-table-population-table',metrics=[])+'<p class="source-note">'+h('output_only_tables_may_come_from_page', 'Output-only tables may come from page regions excluded from the main-content reference, or structures parsed as tables; the human reference is not missing. Two Kitesurf calls on reference-table pages failed and were excluded before scoring.')+'</p></div>'
+ return '<div class="wmb-table-population"><h3>'+h('why_do_table_scoring_counts_differ', 'Why do table-scoring counts differ?')+'</h3><p>'+h('every_page_has_a_human_reference_but', 'Every page has a human reference, but only {count} references contain recognizable tables. After a successful call, every reference-table page is scored. A page with tables only in the output also enters the average at zero. Only pages with no tables on either side are skipped.', count=len(reference_pages))+'</p>'+table([h('method', 'Method'),h('reference_table_successful_call', 'Reference table, successful call'),h('output_only_table', 'Output-only table'),h('scored_pages_sum', 'Scored pages (sum)'),h('raw_evidence', 'Raw evidence')],rows,cls='wmb-table-population-table',metrics=[])+'<p class="source-note">'+h('output_only_tables_may_come_from_page')+'</p></div>'
 
 
 def _wmb_timing_cell(stats,name,key):
@@ -141,12 +141,12 @@ def _wmb_timing_cell(stats,name,key):
 
 
 def _wmb_timing_note(english=False,matched=False):
- if matched:return (report_text('en' if english else 'zh')('green_marks_the_unique_minimum_in_each', 'Green marks the unique minimum in each column. P50 is the median; P95 is the time within which 95% finish.'))
- return (report_text('en' if english else 'zh')('green_marks_the_unique_maximum_score_or', 'Green marks the unique maximum score or minimum duration in this column. Timing uses final successful fetches only. P50: half finish within this time; P95: 95% finish within this time. Success counts define the timing population; scoring counts do not.'))
+ if matched:return (report_text('en' if english else 'zh', legacy='webmainbench')('green_marks_the_unique_minimum_in_each', 'Green marks the unique minimum in each column. P50 is the median; P95 is the time within which 95% finish.'))
+ return (report_text('en' if english else 'zh', legacy='webmainbench')('green_marks_the_unique_maximum_score_or', 'Green marks the unique maximum score or minimum duration in this column. Timing uses final successful fetches only. P50: half finish within this time; P95: 95% finish within this time. Success counts define the timing population; scoring counts do not.'))
 
 
 def _wmb_matched_latency(records,names,labels,english=False,prefix='../'):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  data=_wmb_latency_summary(records,names);common=data['common_cases']
  excluded=sorted({r['case_id'] for r in records}-common)
  rows=[]
@@ -157,7 +157,7 @@ def _wmb_matched_latency(records,names,labels,english=False,prefix='../'):
 
 def _wmb_latency_rerun(diagnostic,english=False,prefix='',formal_round=None):
  """Render recorded crossover summaries without assuming versions or cohort size."""
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  if not diagnostic:return ''
  runs=diagnostic['balanced_200']['runs']
  rows=[]
@@ -200,7 +200,7 @@ def _wmb_latency_rerun(diagnostic,english=False,prefix='',formal_round=None):
 
 def _wmb_guide(*, english, names, labels, cases, bycase, case_count, score, denom,
                failures, out=None, latency_diagnostic=None, formal_round=None):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  records=[row for rows in bycase.values() for row in rows]
  metrics=['overall','text_edit','code_edit','formula_edit','table_edit','table_TEDS']
  def chapter(key,title,body):return '<section id="'+key+'"><h2>'+title+'</h2>'+body+'</section>'
@@ -280,8 +280,8 @@ def _wmb_write(out,path,title,body,english=False):
  brand=link(base+('en/index.html' if english else 'index.html'),'Web Fetch')
  counterpart=base+path if english else base+'en/'+path
  language=f'''<a href="{safe_href(counterpart)}">{('中文' if english else 'English')}</a>'''
- footer=(report_text('en' if english else 'zh')('scores_apply_to_the_frozen_inputs_and', 'Scores apply to the frozen inputs and methods declared in this report. They do not represent the live web or the official WebMainBench leaderboards.'))
- page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main{role_attribute(path)}>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
+ footer=(report_text('en' if english else 'zh', legacy='webmainbench')('scores_apply_to_the_frozen_inputs_and', 'Scores apply to the frozen inputs and methods declared in this report. They do not represent the live web or the official WebMainBench leaderboards.'))
+ page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh', legacy='webmainbench')('toggle_theme', 'Theme')}</button></nav></header><main{role_attribute(path)}>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
  page=page.replace(f'href="{base}assets/style.css"',f'href="{base}assets/style.css?v={hashlib.sha256((STYLE+EXTRA).encode()).hexdigest()[:16]}"').replace(f'src="{base}assets/report.js"',f'src="{base}assets/report.js?v={hashlib.sha256(JS.encode()).hexdigest()[:16]}"')
  target=contained_path(out,local);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
@@ -297,7 +297,7 @@ def _wmb_inspect(base='analysis/index.html',**filters):
 
 
 def _wmb_controls(cases,method_labels,english=False,include_method=True,include_metric=True,default_request='',failure_types=(),include_delivery=True):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  axes=('language','level','table','code','equation')
  axis_labels={'language':h('language', 'Language'),'level':h('difficulty', 'Difficulty'),'table':h('table_type', 'Table type'),'code':h('code_type', 'Code type'),'equation':h('formula_type', 'Formula type')}
  categories=sorted({_wmb_category(case,axis) for case in cases.values() for axis in axes})
@@ -354,26 +354,26 @@ def _wmb_error_page(text):
 
 def _wmb_output_label(record,text,english=False):
  chars=len(text)
- if _wmb_error_page(text):return (report_text('en' if english else 'zh')('error_page_in_output', 'Error page in output'))+f' · {chars:,}'
+ if _wmb_error_page(text):return (report_text('en' if english else 'zh', legacy='webmainbench')('error_page_in_output', 'Error page in output'))+f' · {chars:,}'
  if not record.get('ok'):
-  return ((report_text('en' if english else 'zh')('error_response', 'Error response'))+f' · {chars:,}' if chars else (report_text('en' if english else 'zh')('no_readable_response', 'No readable response')))
- if not chars:return report_text('en' if english else 'zh')('empty_body_text', 'Empty body text')
- return report_text('en' if english else 'zh')('body_text_characters', 'Body text · {chars:,} characters', chars=chars)
+  return ((report_text('en' if english else 'zh', legacy='webmainbench')('error_response', 'Error response'))+f' · {chars:,}' if chars else (report_text('en' if english else 'zh', legacy='webmainbench')('no_readable_response', 'No readable response')))
+ if not chars:return report_text('en' if english else 'zh', legacy='webmainbench')('empty_body_text', 'Empty body text')
+ return report_text('en' if english else 'zh', legacy='webmainbench')('body_text_characters', 'Body text · {chars:,} characters', chars=chars)
 
 
 def _wmb_body_state(record,text,english=False):
- if _wmb_error_page(text):return report_text('en' if english else 'zh')('error_page_not_target_content', 'Error page, not target content')
- if not record.get('ok') or not text.strip():return report_text('en' if english else 'zh')('no_body_text', 'No body text')
- return report_text('en' if english else 'zh')('body_text_produced_3', 'Body text produced')
+ if _wmb_error_page(text):return report_text('en' if english else 'zh', legacy='webmainbench')('error_page_not_target_content', 'Error page, not target content')
+ if not record.get('ok') or not text.strip():return report_text('en' if english else 'zh', legacy='webmainbench')('no_body_text', 'No body text')
+ return report_text('en' if english else 'zh', legacy='webmainbench')('body_text_produced_3', 'Body text produced')
 
 
 def _wmb_filter_table(headers,rows,id,english=False):
- result=table(headers,rows,id,True,metrics=[],index_header=report_text('en' if english else 'zh')('no', 'No.'))
+ result=table(headers,rows,id,True,metrics=[],index_header=report_text('en' if english else 'zh', legacy='webmainbench')('no', 'No.'))
  return result.replace('<div class="table-wrap">','<div class="table-wrap wmb-table-wrap">',1).replace('<table class=""','<table class="wmb-table" data-wmb-table',1)
 
 
 def _wmb_comparison(cases,bycase,names,labels,english=False):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  default_a=names[0]
  options=''.join(f'<option value="{esc(name)}"'+(' selected' if name==default_a else '')+f'>{esc(labels[name])}</option>' for name in names)
  relations=[('mixed',h('body_text_outcome_differs', 'Body-text outcome differs')),('a_success_others_fail',h('a_produced_body_text_others_did_not', 'A produced body text; others did not')),('a_fail_others_success',h('a_produced_no_body_text_others_did', 'A produced no body text; others did')),('all_success',h('all_selected_methods_produced_body_text', 'All selected methods produced body text')),('all_fail',h('no_selected_method_produced_body_text', 'No selected method produced body text')),('exact_success',h('only_selected_methods_produced_body_text', 'Only selected methods produced body text'))]
@@ -401,7 +401,7 @@ def _wmb_comparison(cases,bycase,names,labels,english=False):
 
 
 def _wmb_result_detail(r,c,output,reference,labels,metric_labels,failure_notes,corrected,english=False):
- h=report_text('en' if english else 'zh')
+ h=report_text('en' if english else 'zh', legacy='webmainbench')
  dialogs=[]
  def button(target,label):
   return '<button type="button" class="call-log-button" data-call-log-open="'+target+'" aria-haspopup="dialog">'+esc(label)+'</button>'
@@ -501,7 +501,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   content=f'<span class="metric-value">{value}</span>'
   if n is not None:
    count=case_count if population is None else population
-   label=report_text('en' if english else 'zh')('scored_on_pages', 'scored on {n}/{count} pages', n=n, count=count)
+   label=report_text('en' if english else 'zh', legacy='webmainbench')('scored_on_pages', 'scored on {n}/{count} pages', n=n, count=count)
    content+=f'<span class="tiny">{label}</span>'
   return f'<span class="comparison-winner">{content}</span>' if winner else content
  def core_rows(english=False):
@@ -517,14 +517,14 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    rows.append(('',values))
   return rows
  for english in ((False,True) if include_english else (False,)):
-  h=lambda key,source,/,text_=report_text('en' if english else 'zh'),**values:scope(text_(key,source,**values))
+  h=lambda key,source=None,/,text_=report_text('en' if english else 'zh', legacy='webmainbench'),**values:scope(text_(key,source,**values))
   corrected_label=h('recomputed_after_correction', 'recomputed after correction')
   corrected_suffix=(f' ({corrected_label})' if english else f'（{corrected_label}）')
   metric_labels={name:name+(corrected_suffix if corrected and name in ('overall','table_TEDS') else '') for name in metric_order}
   status=(h('pages_methods_results_evidence_and_arithmetic_checks', '{case_count} pages × {count} methods = {result_count:,} results; evidence and arithmetic checks passed, but table-structure score validity did not.', case_count=case_count, count=len(names), result_count=result_count) if review and review.get('status')=='passed' else h('measurement_complete_independent_review_has_not_passed', 'Measurement complete; independent review has not passed, so this build is not publishable.'))
   if corrected:
    status=h('pages_methods_the_official_repository_and_leaderboard', '{case_count} pages × {count} methods. The official repository and leaderboard remain unchanged. An independent recomputation corrects the demonstrated TEDS defect on the same saved outputs.', case_count=case_count, count=len(names))
-  home=hero(h('webmainbench_545_preselected_measured_methods', 'WebMainBench-545 · preselected {case_count} · {count} measured methods', case_count=case_count, count=len(names)),h('methods_read_the_same_frozen_html_and', '{count} methods read the same frozen HTML and are compared with the same human-calibrated Markdown; page-level responses, empty body text and causes live in result details.', count=len(names)))
+  home=hero(h('webmainbench_545_preselected_measured_methods', case_count=case_count, count=len(names)),h('methods_read_the_same_frozen_html_and', '{count} methods read the same frozen HTML and are compared with the same human-calibrated Markdown; page-level responses, empty body text and causes live in result details.', count=len(names)))
   home+='<div class="wrap reliability'+('' if review and review.get('status')=='passed' else ' failure')+'"><strong>'+esc(status)+'</strong></div>'
   home+=section(h('what_this_ranking_measures', 'What this ranking measures'),'<div class="wmb-scope-map"><article><b>'+h('input_identical_archived_html', 'Input: identical archived HTML')+'</b><p>'+h('pages_methods_no_live_origin_fetch', '{case_count} pages × {count} methods; no live origin fetch.', case_count=case_count, count=len(names))+'</p></article><article><b>'+h('target_main_content_not_every_page_element', 'Target: main content, not every page element')+'</b><p>'+h('body_text_code_formulas_and_tables_navigation', 'Body text, code, formulas and tables; navigation, ads and recommendations are outside the target.')+'</p></article><article><b>'+h('score_similarity_to_the_human_main_content', 'Score: similarity to the human main-content reference')+'</b><p>'+h('extra_boilerplate_and_lost_table_structure_reduce', 'Extra boilerplate and lost table structure reduce scores. A low score does not mean the page was not retrieved.')+'</p></article></div><p class="actions">'+link('guide/index.html#content',h('see_a_real_scored_page', 'See a real scored page →'))+' · '+link('methodology/index.html#input-routes',h('how_all_methods_read_the_same_html', 'How all {count} methods read the same HTML →', count=len(names)))+'</p><p class="source-note">'+h('this_is_not_a_live_fetch_success', 'This is not a live-fetch success rate or an overall browser-capability ranking.')+'</p>','benchmark-scope')
   core_headers=[h('method', 'Method'),metric_labels['overall'] if corrected else h('overall_under_review', 'overall (under review)'),'text_edit','code_edit','formula_edit','table_edit',metric_labels['table_TEDS'] if corrected else h('table_teds_under_review', 'table_TEDS (under review)'),h('successful_all_pages', 'Successful / all pages'),h('mean_latency_2', 'Mean latency'),h('p50_latency', 'P50 latency'),h('p95_latency', 'P95 latency')]
@@ -590,14 +590,14 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
   method+=section(h('from_one_page_to_one_result', 'How one page becomes one result'),'<p class="source-note">'+h('start_with_the_full_path_then_open', 'Start with the full path, then open implementation details only when needed. Whether body text exists, whether the interface responded and why it is empty belong to the page result; quality scores only describe similarity to the human reference.')+'</p>'+flow)
   input_text=h('every_method_receives_the_same_selected_frozen', 'Every method receives the same selected frozen HTML bytes. Submission interfaces, isolation controls and physical calls follow the execution evidence; the current scope is not inferred from historical batches.')
   cue_text=h('the_dataset_html_contains_public_code_cc', 'The dataset HTML contains public <code>cc-select</code> annotation attributes. None of the {{method_count}} generic configurations is customized to use them, but they remain an inherent benchmark cue.')
-  method+=section(h('input_and_runtime_boundary', 'Input and runtime boundary'),'<div class="wmb-input-routes"><article><b>'+h('kitesurf_cloudflare_api', 'Kitesurf · Cloudflare API')+'</b><code>'+h('frozen_html_api_html_field_markdown', 'Frozen HTML → API html field → Markdown')+'</code><span>'+h('the_same_html_bytes_are_submitted_directly', 'The same HTML bytes are submitted directly; the remote service does not refetch the source URL.')+'</span></article><article><b>Lightpanda · Moli · Obscura · Chromium</b><code>'+h('frozen_html_local_https_browser_markdown', 'Frozen HTML → local HTTPS → browser → Markdown')+'</code><span>'+h('the_browser_opens_a_local_url_whose', 'The browser opens a local URL whose server returns the same HTML.')+'</span></article></div><p>'+h('each_page_has_frozen_html_and_a', 'Each page has frozen HTML and a human-calibrated Markdown reference. All {{method_count}} methods convert the same HTML; the original URL records provenance and is not fetched live in this run.')+'</p><details><summary>'+h('network_isolation_local_https_server_and_batch', 'Network isolation, local HTTPS server and batch details')+'</summary><p>'+input_text+'</p><p class="callout">'+cue_text+'</p></details><p class="actions">'+link('../datasets/index.html',h('open_a_page_with_full_input_and', 'Open a page with full input and reference'))+'</p>','input-routes')
+  method+=section(h('input_and_runtime_boundary', 'Input and runtime boundary'),'<div class="wmb-input-routes"><article><b>'+h('kitesurf_cloudflare_api')+'</b><code>'+h('frozen_html_api_html_field_markdown', 'Frozen HTML → API html field → Markdown')+'</code><span>'+h('the_same_html_bytes_are_submitted_directly', 'The same HTML bytes are submitted directly; the remote service does not refetch the source URL.')+'</span></article><article><b>Lightpanda · Moli · Obscura · Chromium</b><code>'+h('frozen_html_local_https_browser_markdown', 'Frozen HTML → local HTTPS → browser → Markdown')+'</code><span>'+h('the_browser_opens_a_local_url_whose', 'The browser opens a local URL whose server returns the same HTML.')+'</span></article></div><p>'+h('each_page_has_frozen_html_and_a', 'Each page has frozen HTML and a human-calibrated Markdown reference. All {{method_count}} methods convert the same HTML; the original URL records provenance and is not fetched live in this run.')+'</p><details><summary>'+h('network_isolation_local_https_server_and_batch', 'Network isolation, local HTTPS server and batch details')+'</summary><p>'+input_text+'</p><p class="callout">'+cue_text+'</p></details><p class="actions">'+link('../datasets/index.html',h('open_a_page_with_full_input_and', 'Open a page with full input and reference'))+'</p>','input-routes')
   method+=section(h('how_tables_enter_scoring', 'How tables enter scoring'),_wmb_table_example(english),'table-scoring')
   formulas=[('text_edit',h('full_markdown_against_the_human_reference', 'Full Markdown against the human reference'),h('character_edit_distance_divided_by_the_longer', 'Character edit distance divided by the longer text; extra navigation and footer content can lower the score.')),('code_edit',h('code_blocks_found_in_the_two_markdown', 'Code blocks found in the two Markdown files'),h('compare_extracted_code_characters_normalized_by_the', 'Compare extracted code characters, normalized by the longer code length.')),('formula_edit',h('formulas_found_in_the_two_markdown_files', 'Formulas found in the two Markdown files'),h('compare_extracted_formula_characters_normalized_by_the', 'Compare extracted formula characters, normalized by the longer formula length.')),('table_edit',h('tables_found_in_the_two_markdown_files', 'Tables found in the two Markdown files'),h('compare_normalized_table_characters_table_words_in', 'Compare normalized table characters; table words in a paragraph do not form a recognized table.')),('table_TEDS',h('the_table_row_cell_structure_reconstructed_from', 'The table–row–cell structure reconstructed from Markdown'),h('reconstruct_tables_rows_and_cells_from_markdown', 'Reconstruct tables, rows and cells from Markdown, then count the insertions, deletions and changes needed to turn the output structure into the reference structure. Cell text without recognizable Markdown table syntax cannot be reconstructed as a table.'))]
-  method+=section(h('how_component_scores_are_produced', 'How component scores are produced'),'<p>'+h('the_scorer_first_extracts_code_formulas_and', 'The scorer first extracts code, formulas and tables from the output and reference; text_edit instead keeps the entire Markdown. For character metrics, score = 1 − edit distance / longer length: identical content scores 100%, while content on only one side scores 0%. The table-structure component is recomputed after correcting the calculation defect documented below.')+'</p>'+table([h('metric', 'Metric'),h('compared_content', 'Compared content'),h('calculation_and_reading', 'Calculation and reading')],[('',cell(k)+cell(subject)+cell(explanation)) for k,subject,explanation in formulas],cls='wide-prose-table',metrics=[])+f"<p>{h('the_pinned_official_commit_is_code_9d991bd', 'The pinned official commit is <code>9d991bd</code> with deterministic <code>use_llm=false</code>. When code, formulas or tables are absent on both sides, the official edit-distance metric returns a failed result and the component is excluded from the mean. When content exists on only one side, edit distance succeeds with a zero score and the page enters the mean.')}</p>")
+  method+=section(h('how_component_scores_are_produced', 'How component scores are produced'),'<p>'+h('the_scorer_first_extracts_code_formulas_and', 'The scorer first extracts code, formulas and tables from the output and reference; text_edit instead keeps the entire Markdown. For character metrics, score = 1 − edit distance / longer length: identical content scores 100%, while content on only one side scores 0%. The table-structure component is recomputed after correcting the calculation defect documented below.')+'</p>'+table([h('metric', 'Metric'),h('compared_content', 'Compared content'),h('calculation_and_reading', 'Calculation and reading')],[('',cell(k)+cell(subject)+cell(explanation)) for k,subject,explanation in formulas],cls='wide-prose-table',metrics=[])+f"<p>{h('the_pinned_official_commit_is_code_9d991bd')}</p>")
   denominator_rows=[('',cell(h('absent_on_both_sides', 'Absent on both sides'))+cell(h('no_score_outside_the_component_mean', 'No score; outside the component mean'))),('',cell(h('reference_only', 'Reference only'))+cell(h('zero_score_included', 'Zero score; included'))),('',cell(h('output_only', 'Output only'))+cell(h('zero_score_included', 'Zero score; included'))),('',cell(h('present_on_both_sides', 'Present on both sides'))+cell(h('similarity_score_included', 'Similarity score; included')))]
-  method+=section(h('which_pages_enter_each_component_mean', 'Which pages enter each component mean'),'<p>'+h('each_method_receives_fixed_pages_failed_final', 'Each method receives {{case_count}} fixed pages. Failed final calls are not scored. Successful calls are scored from output and reference content; calculated scores remain even when the output is later classified as an error page. “Not calculated” is different from zero. A metric execution error also excludes the page from that component mean.')+'</p>'+table([h('component_content', 'Component content'),h('official_treatment', 'Official treatment')],denominator_rows,metrics=[])+f"""<p class="actions">{link('../index.html#denominator-example', h('see_the_actual_page_moli_formula_split', 'See the actual {{case_count}}-page Moli formula split'))}</p>""",'denominator-rules')
-  method+=section(h('why_the_table_structure_score_is_recomputed', 'Why the table-structure score is recomputed'),'<p>'+h('the_pinned_official_version_first_serializes_the', 'The pinned official version first serializes the table–row–cell structure into one bracketed string and then passes the string directly to APTED. APTED needs a tree whose children can be traversed; with the string it does not see the real rows and cells. In one measured page, the output has 5 structural items and the reference has 570, yet the official recorded edit distance is below 1 and the TEDS score is 99.8%. Adding the 565 missing structural items alone cannot cost less than 565 edits.')+'</p><p class="callout failure">'+h('this_report_does_not_modify_the_official', 'This report does not modify the official repository or leaderboard. An independent recomputation passes the same table to APTED as an explicit table–row–cell tree while retaining the official Markdown parsing, text handling and edit costs. Browser outputs, scored-page counts and latency are unchanged; original official scores and recomputed values are both retained. Table_edit still compares normalized table HTML strings.')+'</p><p class="actions">'+link('../attempts/obscura__949e1468-eed2-43ab-96e6-5dcb07c52d4b__r001.html',h('inspect_the_complete_5_versus_570_item', 'Inspect the complete 5-versus-570-item case'))+' · '+link('https://github.com/opendatalab/WebMainBench/blob/9d991bdc00c57b57521499494d96be85c31317ba/webmainbench/metrics/teds_metrics.py',h('official_teds_source', 'Official TEDS source'))+'</p>')
-  method+=section(h('aggregation_timing_and_non_comparable_fields', 'Aggregation, timing and non-comparable fields'),'<p>'+h('each_component_aggregate_is_the_sum_of', 'Each component aggregate is the sum of successfully calculated page scores divided by its actual scored-page count; leaderboard overall is the arithmetic mean of the five aggregates. Per-page overall averages only that page’s calculated components, so it cannot replace leaderboard overall. A page-level component is marked “not calculated” for exactly two reasons: the content type is absent from both the reference and output, or the scorer failed. The result detail identifies which reason applies.')+'</p><p>'+h('successful_fetch_time_is_the_final_successful', 'Successful-fetch time is the final successful call from request start to converted response, excluding earlier failures. Accumulated time across all calls is retained separately as execution cost. Calls are serial within a browser batch, but method batches may overlap; Cloudflare remote time and local CLI time come from different execution environments. Body-text outcome, quality and latency are reported separately, not folded into one score.')+'</p>','calculation')
+  method+=section(h('which_pages_enter_each_component_mean', 'Which pages enter each component mean'),'<p>'+h('each_method_receives_fixed_pages_failed_final', 'Each method receives {{case_count}} fixed pages. Failed final calls are not scored. Successful calls are scored from output and reference content; calculated scores remain even when the output is later classified as an error page. “Not calculated” is different from zero. A metric execution error also excludes the page from that component mean.')+'</p>'+table([h('component_content', 'Component content'),h('official_treatment', 'Official treatment')],denominator_rows,metrics=[])+f"""<p class="actions">{link('../index.html#denominator-example', h('see_the_actual_page_moli_formula_split'))}</p>""",'denominator-rules')
+  method+=section(h('why_the_table_structure_score_is_recomputed', 'Why the table-structure score is recomputed'),'<p>'+h('the_pinned_official_version_first_serializes_the')+'</p><p class="callout failure">'+h('this_report_does_not_modify_the_official', 'This report does not modify the official repository or leaderboard. An independent recomputation passes the same table to APTED as an explicit table–row–cell tree while retaining the official Markdown parsing, text handling and edit costs. Browser outputs, scored-page counts and latency are unchanged; original official scores and recomputed values are both retained. Table_edit still compares normalized table HTML strings.')+'</p><p class="actions">'+link('../attempts/obscura__949e1468-eed2-43ab-96e6-5dcb07c52d4b__r001.html',h('inspect_the_complete_5_versus_570_item'))+' · '+link('https://github.com/opendatalab/WebMainBench/blob/9d991bdc00c57b57521499494d96be85c31317ba/webmainbench/metrics/teds_metrics.py',h('official_teds_source', 'Official TEDS source'))+'</p>')
+  method+=section(h('aggregation_timing_and_non_comparable_fields', 'Aggregation, timing and non-comparable fields'),'<p>'+h('each_component_aggregate_is_the_sum_of', 'Each component aggregate is the sum of successfully calculated page scores divided by its actual scored-page count; leaderboard overall is the arithmetic mean of the five aggregates. Per-page overall averages only that page’s calculated components, so it cannot replace leaderboard overall. A page-level component is marked “not calculated” for exactly two reasons: the content type is absent from both the reference and output, or the scorer failed. The result detail identifies which reason applies.')+'</p><p>'+h('successful_fetch_time_is_the_final_successful')+'</p>','calculation')
   cost_rows=[('',cell(labels[name])+cell(str(case_count))+''.join(cell(ms(timing['cost'][name][key])) for key in ('mean','p50','p95'))) for name in names]
   method+=section(h('successful_timing_matched_diagnosis_and_execution_cost', 'Successful timing, matched diagnosis and execution cost'),'<p>'+h('the_primary_table_uses_elapsed_ms_from', 'The primary table uses elapsed_ms from the final successful fetch with target content, alongside the success count, mean, P50 and P95. Error pages, empty content and failed final calls are excluded. A retry does not create a separate logical result or add the previous call’s time to the successful fetch.')+'</p><p>'+h('the_matched_diagnosis_uses_the_intersection_of', 'The matched diagnosis uses the intersection of successful pages across all {{method_count}} configurations. Every method uses identical pages. This post-execution subset is not a speed ranking for all {{case_count}} pages and does not remove any other results. Original call chains and accumulated execution cost remain available for audit, separately from successful-fetch latency.')+'</p><details><summary>'+h('previous_measure_accumulated_execution_cost_on_all', 'Previous measure: accumulated execution cost on all {{case_count}} pages (not successful-fetch speed)')+'</summary><p>'+h('this_retains_total_elapsed_ms_sum_all', 'This retains total_elapsed_ms: sum all physical-call durations per page, then calculate mean, P50 and P95 over the fixed {{case_count}} pages. It describes execution cost for this run.')+'</p>'+table([h('method', 'Method'),h('pages_3', 'Pages'),h('mean', 'Mean'),'P50','P95'],cost_rows,metrics=[])+'</details>','latency-policy')
   _wmb_write(out,'methodology/index.html',h('methodology', 'Methodology'),method,english)
@@ -755,7 +755,7 @@ def sample_pages(out:Path,dataset:dict,records:list,summaries:dict,manifests:lis
    access=method_access(name,records)
 
    account_rows.append(('',cell(labels[name])+cell(esc(access['account']))+cell('<br>'.join('<code>'+esc(v)+'</code>' for v in access['env_vars']))+cell('<br>'.join(link(url,label) for label,url in access['links']))))
-  accounts=hero(h('access_setup', 'Accounts and setup'),h('only_the_kitesurf_cloudflare_route_needs_account', 'Only the Kitesurf Cloudflare route needs account credentials; values are never published.'))
+  accounts=hero(h('access_setup', 'Accounts and setup'),h('only_the_kitesurf_cloudflare_route_needs_account'))
   accounts+=section(h('configuration', 'Configuration'),table([h('method', 'Method'),h('account', 'Account'),h('variables', 'Variables'),h('official_source', 'Official source')],account_rows,cls='accounts-table',metrics=[]))
   _wmb_write(out,'accounts/index.html',h('access_setup', 'Accounts and setup'),accounts,english)
 

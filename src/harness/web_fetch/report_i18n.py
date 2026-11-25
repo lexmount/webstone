@@ -11,12 +11,16 @@ import json
 import posixpath
 import re
 import shutil
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from functools import partial
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Comment
 
+from harness.distribution import repository_root
 from harness.reporting.locales import catalog_text, translate
 from harness.web_fetch.report_reading import archived_translations, render_archived_reading
 
@@ -41,15 +45,36 @@ TEXT = dict(_TRANSLATIONS['TEXT'])
 MESSAGES = Path(__file__).with_name("messages.json")
 
 
-def report_text(language: str):
-    """Return `t(id, english, **values)` for a renderer that writes one edition directly."""
-    return catalog_text(MESSAGES, language)
+def report_text(language: str, *, legacy: str | None = None):
+    """Return `t(id, english, **values)` for a renderer that writes one edition directly.
+
+    A page set that renders one already-published report names it as ``legacy``;
+    `t(id, **values)` then reads that report's frozen messages in both languages.
+    """
+    shared = catalog_text(MESSAGES, language)
+    if legacy is None:
+        return shared
+    frozen = legacy_report_text(legacy)['messages']
+
+    def text(key: str, source: str | None = None, /, **values) -> str:
+        if source is None:
+            return frozen[key][language].format_map(values)
+        return shared(key, source, **values)
+    return text
 
 
 def t(key: str, source: str, /, **values) -> str:
     """Render one Chinese text node and declare its English for the post-render pass."""
     chinese = translate(MESSAGES, key, "zh", **values)
     TEXT.setdefault(chinese.strip(), source.format_map(values))
+    return chinese
+
+
+def legacy_t(report: str, key: str, /, **values) -> str:
+    """`t` for one already-published report's frozen message."""
+    message = legacy_report_text(report)['messages'][key]
+    chinese = message['zh'].format_map(values)
+    TEXT.setdefault(chinese.strip(), message['en'].format_map(values))
     return chinese
 
 
@@ -90,7 +115,7 @@ PHRASES.update({
 # the shared localization engine remains reviewable.
 
 
-def _body_region_summary(match):
+def _body_region_summary(match, catalog):
     regions = match[1]
     for source, target in (("开头", "Opening"), ("前部", "Early section"),
                            ("中部", "Middle"), ("后部", "Late section"),
@@ -102,13 +127,15 @@ def _body_region_summary(match):
 
 
 REGEX = [
+    (re.compile(r"^新批次启用自身 DEBUG 并捕获网络库日志；旧 (\d+) 条不计入本报告。$"), r"The new batch enabled native DEBUG output and captured network-library logs; \1 earlier records are excluded from this report."),
+    (re.compile(r"^(\$[\d,.]+)/月$"), r"\1/month"),
+    (re.compile(r"^(\$[\d,.]+)/年；月均 (\$[\d,.]+)（较月付省 ([\d.]+%)）$"), r"\1/year; monthly average \2 (\3 less than monthly billing)"),
+    (re.compile(r"^([\d,]+) 页/月总支出$"), r"Total monthly spend at \1 pages"),
+    (re.compile(r"^官方 (.+) 文档 ↗$"), r"Official \1 documentation ↗"),
     (re.compile(r"^参数重测 (\d+) 项，已整组采用 (\d+) 项新结果。先检查整类配置是否一致，再比较符合条件的完整组通过数；不逐题拼接。两组还须遵守各自冻结的失败重试规则。配置不一致的组不能因通过数更高而入选。本轮不能证明参数导致速度提升。$"),
      r"Parameter reruns evaluated \1 cases; \2 new results were selected as complete groups. Check configuration uniformity across each family before comparing eligible complete groups by pass count; do not combine individual cases. Both groups must also follow their frozen failure-retry policies. A group with inconsistent settings cannot qualify through a higher pass count. These runs do not establish that parameter changes improved speed."),
-    (re.compile(r"^新批次启用自身 DEBUG 并捕获网络库日志；旧 (\d+) 条不计入本报告。$"), r"The new batch enabled native DEBUG output and captured network-library logs; \1 earlier records are excluded from this report."),
     (re.compile(r"^每次物理调用预算为 ([\d.]+) 秒，重试后的累计耗时可能超过该预算。$"), r"Each physical call has a \1-second budget; accumulated latency after retries can exceed it."),
     (re.compile(r"^本报告包含 (\d+) 个任务、(\d+) 个逻辑结果，任务通过 (\d+)/(\d+)。结论仅适用于已登记的任务和规则。$"), r"This report contains \1 tasks and \2 logical results, with \3/\4 task passes. Conclusions apply only to the registered tasks and rules."),
-    (re.compile(r"^的 F1 为 ([\d.]+%)，但没有满足该例任务规则。零通过表示没有一次满足全部任务门槛，不表示输出与参考毫无词语重合。这里的 F1 对照已保存的样本文本，只诊断文字重合，不承担实时事实核验。词频相似度允许部分文字得分，任务规则检查指定的内容或字段结构；二者应保留各自的含义。$"),
-     r" has F1 \1 but does not satisfy its task rules. Zero passes means no call met every threshold, not zero textual overlap. This F1 compares saved sample text only and does not verify live facts. Token-frequency similarity can award partial text credit, while task rules check required content or field structure; the two retain distinct meanings."),
     (re.compile(r"^目标资源已命中，但答案字段还返回了非目标资源：(.+)$"),
      r"The target resource was found, but answer-bearing fields also returned unexpected resources: \1"),
     (re.compile(r"^未命中资源：(.+)；同时返回非目标资源：(.+)$"),
@@ -116,48 +143,19 @@ REGEX = [
     (re.compile(r"^已找到目标资源，但答案字段还返回了非目标资源：(.+)$"),
      r"The target resource was found, but answer-bearing fields also returned unexpected resources: \1"),
     (re.compile(r"^最终报告纳入 ([\d,]+) 次调用。任务与参考冻结后执行；每个方法内部串行，不复用个人登录状态。$"), r"The final report includes \1 calls. Execution began after tasks and references were frozen; calls were sequential within each method and did not reuse personal login state."),
-    (re.compile(r"^初始源文档审计进一步缩小了这批样本的解释范围：静态网站正文 (\d+) 例中，(\d+) 例的冻结参考，可以从已保存的初始 HTML 经参考提取与规范化后精确复现。这是对参考文本可恢复性的检查，既不意味着它们都是可见静态正文，也不意味着 CowAgent 使用了同样的提取器。嵌入脚本的载荷仍需要正确解析。高网页通过率因此不能直接外推到初始响应之外才到达的内容。$"), r"The initial-source audit further narrows how this sample can be interpreted: for \1 general-web body tasks, \2 frozen references can be reproduced exactly from the saved initial HTML after reference extraction and normalization. This checks reference-text recoverability; it neither means that all of the text was statically visible nor that CowAgent used the same extractor. Embedded script payloads still require correct parsing. High web pass rates therefore cannot be extrapolated to content that arrives only after the initial response."),
-    (re.compile(r"^这组另有 (\d+)/(\d+) 条返回标题能按详情链接对应到独立名称参考，据此计算标题完整度、纯净度和 F1。例如一部电影从第三名移到第十名，只要仍返回同一详情链接，就比较这部电影的名称，不比较名次，也不要求旧榜单里的电影继续出现。只返回电影名称可能取得很高的标题分，却仍不足以完成至少三条结果的任务。因此这三个分数须与任务通过率和参考覆盖量一起读，不能当作整页正文质量。新条目没有独立名称参考时不计文字分；同一条目的标题也可能改写，重合度只是相对已记录名称的诊断，不认证当前内容真假。$"), r"For this group, \1/\2 returned titles can be joined by detail URL to independent name references, enabling title recall, precision, and F1. If a film moves from third to tenth while retaining the same detail URL, its name is compared without comparing rank or requiring old list membership. Returning names alone can score highly on title overlap while still failing the task's minimum of three complete records. Read these three diagnostics together with task pass rate and reference coverage; they are not whole-page body-quality metrics. New entries without independent name references are excluded, and titles may be rewritten, so overlap is only a diagnostic against recorded names, not proof that current content is true."),
-    (re.compile(r"^获取原图：(.+)$"), lambda match: "Download original: " + translate_text(match.group(1))),
+    (re.compile(r"^获取原图：(.+)$"), lambda match, catalog: "Download original: " + translate_text(match.group(1), catalog)),
     (re.compile(r"^图 (\d+) · (.+?)。(.+) 点击图像获取原图。$"),
-     lambda match: f"Figure {match.group(1)} · {translate_text(match.group(2))}. "
-                   f"{translate_text(match.group(3))} Select the image to download the original."),
+     lambda match, catalog: f"Figure {match.group(1)} · {translate_text(match.group(2), catalog)}. "
+                   f"{translate_text(match.group(3), catalog)} Select the image to download the original."),
     (re.compile(r"^同窗速度子集：预先声明 (\d+) 题，(\d+) 种方法使用同一完整任务样本。全调用耗时包含成功、失败和截止超时；通过调用耗时按各方法自己的成功子集计算，分母必须同时阅读。每种方法最多 (\d+) 个单次观察，P95 只作本次样本诊断。$"), r"Same-window latency cohort: \1 tasks were declared in advance and all \2 methods use the same complete task sample. All-call latency includes successes, failures, and deadline timeouts; successful-call latency uses each method's own successful subset, so its denominator must be read alongside it. Each method has at most \3 single observations; P95 is only a diagnostic for this sample."),
     (re.compile(r"^同窗速度子集：预先声明 (\d+) 题，(\d+) 种方法共同通过 (\d+) 题；所有方法使用完全相同的成功样本。P95 只作本次样本诊断。$"), r"Same-window latency cohort: \1 tasks were declared in advance and all \2 methods jointly passed \3; every method uses exactly the same successful sample. P95 is only a diagnostic for this sample."),
-    (re.compile(r"^这份旧版测速汇总只使用 (\d+)/(\d+) 个全部 (\d+) 种方法共同通过的同窗任务；它保留原报告的共同成功样本口径，不能补充解释失败等待，也不能与跨批次主结果直接排名。$"), r"This legacy latency summary uses only the \1/\2 same-window tasks jointly passed by all \3 methods. It preserves the original report's shared-pass denominator, cannot account for time spent on failures, and cannot be ranked directly against cross-batch primary results."),
     (re.compile(r"^全部 (\d+) 种方法共同通过 (\d+)/(\d+) 题；共同通过数只作诊断，不用于筛选测速样本。报告保留预声明的全部 ([\d,]+) 次调用，不按结果重新选题；全调用耗时可在相同分母下阅读，通过调用耗时只描述各方法的条件分布，不能解释为同题速度排名。$"), r"All \1 methods jointly pass \2/\3 tasks; the shared-pass count is diagnostic only and is not used to select the latency sample. The report retains all \4 predeclared calls without reselecting tasks after observing outcomes. All-call latency uses a common denominator; successful-call latency only describes each method's conditional distribution and is not a matched-task speed ranking."),
     (re.compile(r"^全部 (\d+) 种受测配置共同通过$"), r"All \1 tested configurations pass"),
-    (re.compile(r"^(\d+) 个普通网页中，GitHub 与 Python 官方文档占 (\d+) 个，样本偏向技术文档$"), r"Of \1 general-web tasks, \2 are from GitHub or the official Python documentation, so the sample is weighted toward technical documentation"),
-    (re.compile(r"^统计按实际调用记录计算，未运行和缺少验收证据的项目不记为失败。静态网站正文、动态网站正文与热门网站正文分别陈述，文档、资源地址和原文件按各自契约验收。(\d+) 个普通网页中，GitHub 与 Python 官方文档占 (\d+) 个，样本偏向技术文档；每个方法与案例组合只有一次观察，不能估计波动或外推为全网成功率。调用日期相邻不构成同时间对照，公开练习站也不能代表生产网站分布。$"), r"Statistics use the calls actually run; items that were not run or lack acceptance evidence are not counted as failures. General-web, dynamic-web, and popular-site body text are reported separately, while documents, resource URLs, and original files follow their own contracts. Of \1 general-web tasks, \2 are from GitHub or the official Python documentation, so the sample is weighted toward technical documentation. Each method–task pair has only one observation, which cannot estimate variation or be extrapolated to a web-wide success rate. Nearby call dates are not a simultaneous control, and public practice sites do not represent the distribution of production websites."),
-    (re.compile(r"^静态网页通过数：(.+)。综合榜按 (\d+) 个任务等权计数；(\d+) 类分榜仍分别解释，耗时和文字质量不混入综合通过率。$"), r"General-web passes: \1. The overall ranking counts \2 tasks equally. Each of the \3 family rankings is interpreted separately, and neither latency nor text quality is blended into overall task pass rate."),
-    (re.compile(r"^数据截至 (.+)（UTC） · 正文、文档与媒体交付实测 ·$"), r"Data through \1 (UTC) · measured body-text, document, and media delivery ·"),
-    (re.compile(r"^先看静态网站正文：([\d,]+) 个任务、([\d,]+) 种方法，共 ([\d,]+) 次调用。“请求成功”指接口正常返回，“任务通过”还要求正文满足该例验收规则。$"), r"Start with general-web text: \1 tasks, \2 methods, and \3 calls. “Request succeeded” means the interface returned normally; “Task passed” also requires the body to satisfy that task's acceptance contract."),
-    (re.compile(r"^静态网站正文调用的互斥状态分解；(.+)。正常返回不等于源站 HTTP 200。$"), lambda match: f"Mutually exclusive outcomes for general-web calls; {translate_text(match.group(1))}. A normal provider response does not imply origin HTTP 200."),
-    (re.compile(r"^(\d+) 个任务覆盖异步取数、客户端呈现与子文档获取。实际运行 (\d+) 种方法、([\d,]+) 次调用，([\d,]+) 次请求正常返回，([\d,]+) 次任务通过。任务难度、源站状态和调用日期没有与静态网站正文任务构成受控对照；两类结果分别比较。$"), r"The \1 tasks cover asynchronous retrieval, client-side presentation, and subdocument fetching. \2 methods made \3 calls; \4 returned normally and \5 passed. Task difficulty, origin state, and call date were not controlled against general-web tasks, so the two groups are compared separately."),
-    (re.compile(r"^动态网站正文：([\d,]+) 个任务、([\d,]+) 种已运行方法；分母按每个任务实际运行数计算$"), r"Rendered web text: \1 tasks and \2 measured methods; each task uses its actual run count as denominator."),
-    (re.compile(r"^CowAgent 在静态网站正文中请求成功 ([\d,]+)/([\d,]+)，任务通过 ([\d,]+)/([\d,]+)。一个以 HTTP 取页、再去除标签的实现，在这批网页上已能满足大部分关键内容规则。这使它值得作为正文入口的基线，但还不足以解释全部成功来自哪里。$"), r"CowAgent returned normally on \1/\2 general-web calls and passed \3/\4 tasks. An implementation that fetches via HTTP and strips tags satisfies most key content rules in this sample. It is worth considering as a body-text baseline, but this does not explain every success."),
-    (re.compile(r"^同一配置的 Moli，在静态网站正文任务中通过 ([\d,]+)/([\d,]+)，在动态网站正文中通过 ([\d,]+)/([\d,]+)。网页高分为什么没有自然延伸到动态内容？关键在于目标内容在哪里、何时到达，以及接口最终保留了什么。$"), r"With the same configuration, Moli passes \1/\2 general-web tasks and \3/\4 rendered-web tasks. Why does strong general-web performance not extend automatically to dynamic content? The answer depends on where and when target content arrives and what the interface ultimately retains."),
-    (re.compile(r"^(?:失败集中在正常返回之后|请求状态没有覆盖全部任务失败)：正常返回但任务未通过，占静态网站正文全部失败的 ([^。]+)。单看接口错误率，会漏掉相当一部分未交付任务。返回错误页面、正文缺失或内容规则不满足，都可能落在这里。接入服务后，应检查下游所需的内容，并保留可定位的失败原因。$"), lambda match: f"Normal responses that fail task acceptance account for {translate_text(match.group(1))} of all general-web failures. Interface error rate alone misses part of the undelivered workload. Error pages, missing body text, and unmet content rules can all fall here. After integration, validate downstream-required content and retain actionable failure reasons."),
-    (re.compile(r"^Cloudflare Markdown 在 ([\d,]+) 次网页调用中通过 ([\d,]+) 次，Exa 为 ([\d,]+)/([\d,]+)。(按全文 F1 看，次序却倒过来了。|全文 F1 给出另一种观察角度。)任务验收关心指定内容是否交付，F1 关心输出与参考正文的词频重合。同一个“最好”，在这两个目标下可能指向不同方法。$"), lambda match: f"Cloudflare Markdown passes {match.group(2)} of {match.group(1)} web calls; Exa passes {match.group(3)}/{match.group(4)}. " + ("By full-text F1, the order reverses. " if match.group(5).startswith('按') else "Full-text F1 provides another perspective. ") + "Task acceptance asks whether specified content was delivered; F1 measures token-frequency overlap with reference body text. “Best” can name different methods for these two goals."),
-    (re.compile(r"^在两者都有一次记录的 ([\d,]+) 个网页任务上，CowAgent 通过 ([\d,]+) 例，Moli 通过 ([\d,]+) 例。按案例 ID 对齐后，Moli 能补上 CowAgent 未通过的 ([\d,]+) 例；反方向，CowAgent 也能补上 Moli 未通过的 ([\d,]+) 例。只看单方法分数，会丢掉这层信息。$"), r"Across \1 web tasks with one result from each method, CowAgent passes \2 and Moli passes \3. After aligning task IDs, Moli recovers \4 CowAgent failures, while CowAgent recovers \5 Moli failures. A single-method score hides this complementarity."),
-    (re.compile(r"^二者成功集的离线并集为 ([\d,]+)/([\d,]+)。这给出的决策是开展一次有内容校验的候选 fallback 试验。它尚未测试串行调用、失败识别与实时重试，更不构成线上全覆盖保证。$"), r"The offline union of their passing sets is \1/\2. This supports running a candidate fallback experiment with content validation. It has not tested sequential calls, failure detection, or live retries, and does not guarantee complete production coverage."),
-    (re.compile(r"^在共同通过且都有耗时的 ([\d,]+) 例中，CowAgent 的客户端墙钟耗时中位数为 ([\d.]+) ms，Moli 为 ([\d.]+) ms。对齐成功任务后，这个比较排除了各自成功集不同的影响；失败等待仍未计入，不同时间批次、页面状态和网络条件也没有被消除。它不能用来相加计算生产 fallback 延迟，本轮也没有实测金额，不能据此推出成本节省。$"), r"Among \1 jointly passed tasks with latency, median client wall time is \2 ms for CowAgent and \3 ms for Moli. Aligning successful tasks removes differing success sets, but still excludes failure waits and does not control batch timing, page state, or network conditions. These values cannot be added to estimate production fallback latency; no cost was measured, so they do not imply savings."),
-    (re.compile(r"^热门网站正文的 ([\d,]+) 个任务有 ([\d,]+) 次调用，其中 ([\d,]+) 次满足各例任务规则。单方法最好通过 ([\d,]+)/([\d,]+)，各方法成功集的离线并集为 ([\d,]+)/([\d,]+)。这里的通过指任务声明的内容与结构契约，并不认证全部文字与某份实时快照一致。$"), r"The \1 popular-site tasks have \2 calls, of which \3 satisfy their task rules. The best single method passes \4/\5; the offline union of method success sets is \6/\7. Passing means satisfying the declared content-and-structure contract, not certifying every word against a live snapshot."),
-    (re.compile(r"^原文件任务尤其需要区分缺测与产品失败。本轮共有 ([\d,]+) 条记录，([\d,]+) 条没有写入$"), r"Original-file tasks especially require distinguishing unmeasured cases from product failures. This run has \1 records; \2 do not contain "),
-    (re.compile(r"^，只有 ([\d,]+) 条形成已验证通过记录。缺失验收的记录显示为未测，不进入任务通过率分母或失败数；不能据此宣称参评产品不支持文件下载。后续调用通过统一文件入口核验返回字节、格式特征、长度及 SHA-256，已有独立文件哈希时还须匹配目标。历史调用没有这些证据，不能补认证为测过。$"), r"; only \1 are verified passes. Records without acceptance evidence are shown as unmeasured and excluded from pass-rate denominators and failure counts; they do not establish that the evaluated product lacks file-download support. Subsequent calls validate returned bytes, format signatures, length, and SHA-256 through the shared file path, and must match an independent target hash when available. Historical calls without this evidence cannot be retroactively certified as measured."),
-    (re.compile(r"^其中 ([\d,]+)/([\d,]+) 个案例还登记了任务相关的固定文字：例如 IMDb 的榜单说明、JustWatch 的观看方式说明，以及商品或餐馆的字段标签。这些文字与列表条目共同决定任务是否通过，不能只拿到三个链接就算完成。每例命中多少必需文字组，由文字核对覆盖率回答；没有文字依据的案例不计入这项均值。少量核对句不是整页参考，因此不能拿它们计算整页纯净度和 F1，否则完整返回的其它正文反而会被当成杂文扣分。$"), r"Of these, \1/\2 tasks also register task-relevant stable text, such as IMDb ranking explanations, JustWatch viewing information, and product or restaurant field labels. This text and the records jointly determine acceptance; three links alone are insufficient. Required-text coverage reports matched groups per task, excluding tasks without textual evidence. A few check sentences are not a whole-page reference and must not be used for whole-page precision or F1, which would penalize other correctly returned text as noise."),
-    (re.compile(r"^延迟名言页把等待条件的问题暴露得更直接。页面可以已经完成初始请求，网络暂时空闲，正文却还要等计时器触发。本次延迟页的 ([\d,]+) 次调用中，([\d,]+) 次满足完整内容规则。浏览器启动成功或 network-idle 到达，都不能单独充当内容完成的证据。应按目标条目出现、数量与关键内容稳定来判断何时取结果；本轮没有对各种等待策略做消融，不能从一次失败计算换策略后的收益。$"), r"The delayed-quote page exposes completion criteria directly. Its initial request may finish and the network may go idle while body text still awaits a timer. Of \1 calls, \2 satisfy the complete-content rule. Browser startup or network-idle alone is not evidence of completion. Results should be taken only after target records, counts, and key content stabilize. This run did not ablate waiting strategies, so one failure cannot estimate the benefit of another strategy."),
-    (re.compile(r"^(.+) 在动态网站正文中通过 ([\d,]+)/([\d,]+)，平均 F1 却为 ([\d.]+%)。其中$"), lambda m: f"{translate_text(m.group(1))} passes {m.group(2)}/{m.group(3)} rendered-web tasks but has mean F1 {m.group(4)}. Among them, "),
-    (re.compile(r"^的 F1 为 ([\d.]+%)，但没有满足该例任务规则。零通过表示没有一次满足全部任务门槛，不表示输出与参考毫无词语重合。这里的 F1 对照已保存的样本文本，只诊断文字重合，不承担实时事实核验。这份输出仍有$"), r"has F1 \1 but does not satisfy its task rules. Zero passes means no call met every threshold, not zero textual overlap. This F1 compares saved sample text only and does not verify live facts. The output still contains "),
-    (re.compile(r"^：完整度 ([\d.]+%)，纯净度 ([\d.]+%)，F1 ([\d.]+%)。这些指标描述输出与该例参考的重合程度。参考外文字可能是导航，也可能是有用的目录或附录，仅凭低纯净度不能认定它们全是噪声，应先核对任务的正文范围。$"), r": recall \1, precision \2, and F1 \3. These metrics describe overlap with the task reference. Text outside the reference may be navigation or useful contents and appendices; low precision alone does not prove it is all noise. Check the task's body scope first."),
-    (re.compile(r"^CSS 2\.1 标准是一个具体例子：文档目录属于本例要求保留的正文，CowAgent 这次输出相对完整范围的 F1 为 ([\d.]+%)。若参考剔除长目录，保留目录的方法会被大量扣分；这样的分差反映参考范围不一致，不能用来证明方法提取了大量噪声。$"), r"CSS 2.1 is a concrete example: its contents belong to the required body, and CowAgent's output has F1 \1 against the complete scope. Removing a long contents section from the reference would heavily penalize methods that retain it; such a difference reflects inconsistent reference scope, not proof of noisy extraction."),
-    (re.compile(r"^要求书名、价格和库存核对点满足，返回长度至少为 ([\d,]+) 字符。$"), r"requires its title, price, and stock checks and at least \1 returned characters."),
+    (re.compile(r"^静态网站正文调用的互斥状态分解；(.+)。正常返回不等于源站 HTTP 200。$"), lambda match, catalog: f"Mutually exclusive outcomes for general-web calls; {translate_text(match.group(1), catalog)}. A normal provider response does not imply origin HTTP 200."),
     (re.compile(r"^有 ([\d,]+) 字符。$"), r"contains \1 characters."),
-    (re.compile(r"^。原文正文规则通过；替换后长度规则通过，价格核对点未通过，正文规则未通过。请求状态没有改变，但内容验收改变了。这个离线反事实只改副本，不改实测记录、不进入排名。$"), r". The original passes the body rule; after replacement, length still passes but the price and body checks fail. Request status is unchanged while content acceptance changes. This offline counterfactual changes only a copy, not measured records or rankings."),
     (re.compile(r"^([\d]{4}-[\d]{2}-[\d]{2} [\d:]+) 至 ([\d]{4}-[\d]{2}-[\d]{2} [\d:]+) UTC$"), r"\1 to \2 UTC"),
-    (re.compile(r"^离线成功集分解，分母 ([\d,]+) 个配对网页任务；每例只进入一个分组$"), r"Offline success-set partition over \1 paired web tasks; each task appears in exactly one group"),
     (re.compile(r"^评测集没有覆盖计划；存在 ([\d,]+) 个计划外调用(?:；存在 ([\d,]+) 个无法判定通过或失败的调用)?。本页排名不得用于结论或发布。$"),
-     lambda match: f"The evaluation does not cover its plan; {match.group(1)} unplanned calls are present"
+     lambda match, catalog: f"The evaluation does not cover its plan; {match.group(1)} unplanned calls are present"
                    + (f"; {match.group(2)} calls have no pass/fail judgement" if match.group(2) else "")
                    + ". Rankings on this page must not be used for conclusions or publication."),
     (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · 本地未认证诊断快照。$"), r"\1 tasks · \2 methods · local uncertified diagnostic snapshot."),
@@ -183,9 +181,7 @@ REGEX = [
     (re.compile(r"^区域 (\d+)$"), r"Region \1"),
     (re.compile(r"^文件获取 ([\d.]+) 秒；解析 ([\d.]+) 秒；端到端 ([\d.]+) 秒$"), r"File retrieval: \1 seconds; parsing: \2 seconds; end to end: \3 seconds"),
     (re.compile(r"^([\d,]+) / ([\d,]+) 个任务$"), r"\1 / \2 tasks"),
-    (re.compile(r"^(Moli|pypdf) · ([\d.]+) 秒$"), r"\1 · \2 seconds"),
     (re.compile(r"^端到端 ([\d.]+) 秒$"), r"End to end: \1 seconds"),
-    (re.compile(r"^输入《Attention Is All You Need》的 PDF 地址，目标是取得论文正文。Moli 获取文件约用 ([\d.]+) 秒，本地 pypdf 提取文字约用 ([\d.]+) 秒，整条路线共 ([\d.]+) 秒，返回 ([\d,]+) 个字符。五段参考正文全部覆盖，本题词级 Precision、Recall、F1 均为 100%。$"), r"The Attention Is All You Need PDF task requires the paper's body text. Moli retrieves the file in about \1 seconds, local pypdf extracts text in about \2 seconds, and the complete path takes \3 seconds, returning \4 characters. All five reference body regions are covered, with word-level precision, recall, and F1 each at 100%."),
     (re.compile(r"^代表案例：(.*)$"), r"Representative cases: \1"),
     (re.compile(r"^([\d,]+) 个字符$"), r"\1 characters"),
     (re.compile(r"^([\d,]+) 字节$"), r"\1 bytes"),
@@ -195,10 +191,8 @@ REGEX = [
     (re.compile(r"^提取文字 · ([\d.]+) 秒$"), r"Text extraction · \1 seconds"),
     (re.compile(r"^整条路线 ([\d.]+) 秒$"), r"Complete path: \1 seconds"),
     (re.compile(r"^([\d,]+) 个字符 · ([\d.]+) 秒$"), r"\1 characters · \2 seconds"),
-    (re.compile(r"^(\d+) 个案例 · (\d+) 种方法 · 六类分榜与一个综合通过率总榜。$"), r"\1 tasks · \2 methods · six family rankings and one overall coverage ranking."),
     (re.compile(r"^(\d+) 个任务$"), r"\1 tasks"),
     (re.compile(r"^(\d+) 个案例 · (\d+) 种已测方法$"), r"\1 tasks · \2 measured methods"),
-    (re.compile(r"^(\d+)/(\d+) · Codex 已核验$"), r"\1/\2 · reviewed by Codex"),
     (re.compile(r"^方法：(.*)$"), r"Method: \1"),
     (re.compile(r"^任务 ID：(.*)$"), r"Task ID: \1"),
     (re.compile(r"^运行 ID：(.*)$"), r"Run ID: \1"),
@@ -216,7 +210,6 @@ REGEX = [
     (re.compile(r"^独立核验：机器失败 ([\d,]+)/([\d,]+)；未决 (\d+)$"), r"Independent review: machine failures \1/\2; \3 unresolved"),
     (re.compile(r"^主结果机器失败 ([\d,]+)/([\d,]+)；机器通过未逐条审查 ([\d,]+)；代理分歧 ([\d,]+)；已裁定 ([\d,]+)；未决 ([\d,]+)。$"), r"Primary machine failures reviewed: \1/\2; machine passes not reviewed individually: \3; reviewer disagreements: \4; adjudicated: \5; unresolved: \6."),
     (re.compile(r"^主结果全量 ([\d,]+)/([\d,]+)；代理分歧 ([\d,]+)；已裁定 ([\d,]+)；未决 ([\d,]+)。$"), r"Full primary-matrix review: \1/\2; reviewer disagreements: \3; adjudicated: \4; unresolved: \5."),
-    (re.compile(r"^十二种方法主矩阵的 ([\d,]+) 条机器失败结果；([\d,]+) 条机器通过结果和 ([\d,]+) 条同窗测速结果未逐条独立审查。$"), r"Machine failures in the twelve-method primary matrix: \1. The \2 machine passes and \3 same-window latency results were not independently reviewed item by item."),
     (re.compile(r"^从结构化结果中读取标题与详情链接，共 ([\d,]+) 个标题。$"), r"Read titles and detail URLs from structured results: \1 returned titles."),
     (re.compile(r"^([\d,]+)/([\d,]+) 个标题找到独立名称证据；没有对应证据的不评分。$"), r"\1/\2 titles join to independent name evidence; titles without matching evidence are not scored."),
     (re.compile(r"^覆盖 (\d+)/(\d+) 个案例；这是标题诊断，不参与任务通过判定。$"), r"Coverage: \1/\2 tasks. This is a title diagnostic and does not determine task acceptance."),
@@ -261,14 +254,14 @@ REGEX = [
     (re.compile(r"^(.+) · (\d+) 个仓库$"), r"\1 · \2 repositories"),
     (re.compile(r"^(.+) · 范围与官方依据$"), r"\1 · scope and official basis"),
     (re.compile(r"^(.+) · 官方文档（(\d{4}-\d{2}-\d{2}) 核对） ↗$"), r"\1 · official documentation (checked \2) ↗"),
-    (re.compile(r"^(Moli [\d.]+) · 官方发布 ↗$"), r"\1 · official release ↗"),
+    (re.compile(r"^(.+ [\d.]+) · 官方发布 ↗$"), r"\1 · official release ↗"),
     (re.compile(r"^取得至少 (\d+) 条完整、不重复的记录，每条包含(.+)。同时核对下方列明的稳定文字与页面要求。变化字段按声明的格式核验，不固定旧值。$"), r"Return at least \1 complete, unique records, each containing\2. Also satisfy the stable-text and page requirements below. Volatile fields are checked by their declared format, not frozen values."),
     (re.compile(r"^取得至少 (\d+) 条完整、不重复的记录，每条包含(.+)。变化字段按声明的格式核验，不固定旧值。$"), r"Return at least \1 complete, unique records, each containing\2. Volatile fields are checked by their declared format, not frozen values."),
     (re.compile(r"^检出 (\d+) 条，字段完整 (\d+) 条，完整且唯一 (\d+) 条，要求至少 (\d+) 条。稳定内容与结构检查通过。$"), r"Detected \1 records; \2 have complete fields and \3 are complete and unique, against a minimum of \4. Stable-content and structure checks passed."),
     (re.compile(r"^检出 (\d+) 条，字段完整 (\d+) 条，完整且唯一 (\d+) 条，要求至少 (\d+) 条。条目结构检查通过；本例未设置稳定文字核对点。$"), r"Detected \1 records; \2 have complete fields and \3 are complete and unique, against a minimum of \4. Record structure passed; this task has no stable-text checks."),
     (re.compile(r"^实际解析出 (\d+) 条完整且不重复的记录，要求至少 (\d+) 条；结构检查通过，稳定文字检查通过。$"), r"Parsed \1 complete, unique records against a minimum of \2; structure and stable-text checks passed."),
     (re.compile(r"^实际解析出 (\d+) 条完整且不重复的记录，要求至少 (\d+) 条；结构检查未通过，稳定文字检查未通过。$"), r"Parsed \1 complete, unique records against a minimum of \2; structure and stable-text checks failed."),
-    (re.compile(r"^实际解析出 (\d+) 条完整且不重复的记录，要求至少 (\d+) 条；结构检查(通过|未通过)，稳定文字检查(通过|未通过)。$"), lambda m: f"Parsed {m.group(1)} complete, unique records against a minimum of {m.group(2)}; structure {'passed' if m.group(3) == '通过' else 'failed'} and stable-text checks {'passed' if m.group(4) == '通过' else 'failed'}."),
+    (re.compile(r"^实际解析出 (\d+) 条完整且不重复的记录，要求至少 (\d+) 条；结构检查(通过|未通过)，稳定文字检查(通过|未通过)。$"), lambda m, catalog: f"Parsed {m.group(1)} complete, unique records against a minimum of {m.group(2)}; structure {'passed' if m.group(3) == '通过' else 'failed'} and stable-text checks {'passed' if m.group(4) == '通过' else 'failed'}."),
     (re.compile(r"^完整度 / 纯净度 / F1 为 ([^。]+)。$"), r"Recall / precision / F1: \1."),
     (re.compile(r"^正文没有抓全；低于目标的位置为：(.+)。下方会把完整标准答案与实际返回并排展示。$"), _body_region_summary),
     (re.compile(r"^这一段标准答案产生 ([\d,]+) 个连续六字符片段；在上方完整实际返回（([\d,]+) 字符）中命中 ([\d,]+) 个，所以覆盖率为 ([\d,]+) ÷ ([\d,]+) = ([\d.]+%)。目标 ([\d.]+%)，硬下限 ([\d.]+%)。$"), r"This reference region produces \1 contiguous six-character shingles. \3 are found in the complete output above (\2 characters), so coverage is \4 ÷ \5 = \6. Target: \7; hard floor: \8."),
@@ -288,11 +281,10 @@ def release_translations(history: dict) -> dict[str, str]:
             raise ValueError('Conflicting English release translation for ' + repr(source))
         translations[source] = target
 
+    # Releases of these published comparisons carry no English records to localize.
+    untranslated = set(legacy_report_text('web-fetch-published')['release_kinds_without_english'])
     for release in history['releases']:
-        if any(kind in release.get('comparison_kinds', []) for kind in (
-                'webmainbench_frozen_html_to_markdown', 'public_benchmark_research',
-                'wcxb_frozen_html_to_markdown', 'moli_historical_failure_retest',
-                'moli_process_tree_resource_profile')):
+        if untranslated & set(release.get('comparison_kinds', [])):
             continue
         english = release.get('i18n', {}).get('en', {})
         if (not english.get('title') or not english.get('summary')
@@ -311,14 +303,10 @@ def release_translations(history: dict) -> dict[str, str]:
 
 REGEX.insert(0, (
     re.compile(r"^(?:.+：)?\d{4}-\d{2}-\d{2}（\d+ 题）(?:、\d{4}-\d{2}-\d{2}（\d+ 题）)*$"),
-    lambda m: m.group().replace("：", ": ").replace("（", " (").replace(" 题）", " tasks)").replace("、", "; "),
+    lambda m, catalog: m.group().replace("：", ": ").replace("（", " (").replace(" 题）", " tasks)").replace("、", "; "),
 ))
 
 
-REGEX.insert(0, (
-    re.compile(r"^相对 Chromium，Moli 的平均耗时减少 ([\d.]+)%，P50 减少 ([\d.]+)%，P95 减少 ([\d.]+)%。这三项在五款中均最低；跨批次条件下，尚不能确定差距有多少来自浏览器实现。$"),
-    r"Compared with Chromium, Moli reduces mean latency by \1%, P50 by \2%, and P95 by \3%. All three are the lowest of the five; with collection across batches, the share of the difference attributable to browser implementation remains uncertain.",
-))
 
 
 REGEX.insert(0, (
@@ -392,14 +380,14 @@ REGEX.insert(0, (
 ))
 REGEX.insert(0, (
     re.compile(r"^(成功|失败) · HTTP (.+)$"),
-    lambda match: (("Success" if match.group(1) == "成功" else "Failure") + " · HTTP "
+    lambda match, catalog: (("Success" if match.group(1) == "成功" else "Failure") + " · HTTP "
                    + ("not provided" if match.group(2) == "未提供" else match.group(2))),
 ))
 
 
 REGEX.insert(0, (
     re.compile(r"^资源表覆盖预先确定的全部 (\d+) 个普通网页，包含失败调用。这组任务的通过数：(.*)。各项平均值、P50、P95 使用同一完整范围。$"),
-    lambda match: (
+    lambda match, catalog: (
         f"The resource table covers all {match.group(1)} predeclared general pages, including failed calls. "
         "Pass counts: " + match.group(2).replace("，", ", ")
         + ". Mean, P50, and P95 share this complete population."
@@ -416,12 +404,8 @@ REGEX.insert(0, (
 ))
 REGEX.insert(0, (
     re.compile(r"^接收 (.+) / 发送 (.+)$"),
-    lambda match: "Received " + match.group(1).replace("、", ", ")
+    lambda match, catalog: "Received " + match.group(1).replace("、", ", ")
     + " / sent " + match.group(2).replace("、", ", "),
-))
-REGEX.insert(0, (
-    re.compile(r"^(?:Chromium|Lightpanda|Moli(?: \d+(?:\.\d+)*)?(?: · 独立资源批次)?|Obscura)(?:、(?:Chromium|Lightpanda|Moli(?: \d+(?:\.\d+)*)?(?: · 独立资源批次)?|Obscura))+$"),
-    lambda match: match.group(0).replace("、", ", "),
 ))
 REGEX.insert(0, (
     re.compile(r"^(.+) 是本轮资源效率领先者，在 (\d+) 个可按低消耗比较的指标中取得 (\d+) 项最低。这里的资源领先不等于综合任务通过率领先。$"),
@@ -444,26 +428,6 @@ REGEX.insert(0, (
     re.compile(r"^(\d+)/(\d+) 个标题找到独立名称证据；没有对应证据的不评分。$"),
     r"\1/\2 titles join to independent name evidence; titles without matching evidence are not scored.",
 ))
-REGEX.insert(0, (
-    re.compile(r"^独立资源 cohort：四种本地配置共同成功的 (\d+)/(\d+) 个普通网页。失败任务不进入资源汇总。$"),
-    r"Independent resource cohort: \1/\2 general pages passed by all four local configurations. Failed tasks are excluded from resource aggregates.",
-))
-REGEX.insert(0, (
-    re.compile(r"^在四种可完整观测的本地浏览器中，(.+) 的平均 CPU 时间最低，(.+) 的平均峰值内存最低。这两个最低值可能属于不同浏览器；CPU、内存和任务通过率也不能合成一个总分。Kitesurf 在远端运行，其服务端 CPU、内存和上游流量不可见，因此不进入资源表，也不与本地浏览器容器作引擎资源排名。$"),
-    r"Among the four fully observable local browsers, \1 has the lowest mean CPU time and \2 the lowest mean peak memory. These minima may belong to different browsers; CPU, memory, and task pass rate must not be blended into a composite score. Kitesurf runs remotely; its server-side CPU, memory, and upstream traffic are invisible, so it is excluded from the resource table and local-browser resource ranking.",
-))
-REGEX.insert(0, (
-    re.compile(r"^独立资源 cohort：五款展示配置共同成功的 (\d+)/(\d+) 个普通网页。失败任务不进入资源汇总。$"),
-    r"Independent resource cohort: \1/\2 general pages passed by all five displayed configurations. Failed tasks are excluded from resource aggregates.",
-))
-REGEX.insert(0, (
-    re.compile(r"^在四种可完整观测的本地浏览器中，(.+) 的平均 CPU 时间最低，(.+) 的平均峰值内存最低。这两个最低值可能属于不同浏览器；CPU、内存和任务通过率也不能合成一个总分。Kitesurf 在远端运行，表中只包含本机请求客户端；其远端上游流量也不可见，不能与本地浏览器容器作引擎资源排名。$"),
-    r"Among the four fully observable local browsers, \1 has the lowest mean CPU time and \2 the lowest mean peak memory. These minima may belong to different browsers; CPU, memory, and task pass rate must not be blended into a composite score. Kitesurf runs remotely, so its row includes only the local request client; its remote upstream traffic is also unavailable, and it cannot enter an engine-resource ranking against local browser containers.",
-))
-REGEX.insert(0, (
-    re.compile(r"^在四种可完整观测的本地浏览器中，(.+) 的平均 CPU 时间最低，(.+) 的平均峰值内存最低。这两个最低值可能属于不同浏览器；CPU、内存和任务通过率也不能合成一个总分。Kitesurf 在远端运行，表中只包含本机请求客户端；其远端上游流量也不可见，不能与本地浏览器进程树作引擎资源排名。$"),
-    r"Among the four fully observable local browsers, \1 has the lowest mean CPU time and \2 the lowest mean peak memory. These minima may belong to different browsers; CPU, memory, and task pass rate must not be blended into a composite score. Kitesurf runs remotely, so its row includes only the local request client; its remote upstream traffic is also unavailable, and it cannot enter an engine-resource ranking against local browser process trees.",
-))
 
 
 REGEX[:0] = [
@@ -474,48 +438,125 @@ REGEX[:0] = [
 REGEX.extend([
     (re.compile(r"^核验于 (\d{4}-\d{2}-\d{2})。算力、网络、存储、代理和维护成本自担；没有测量这些成本，不把本地调用等同于零成本。官方托管产品或服务价格不属于本地执行模式。$"),
      r"Checked on \1. The caller pays compute, network, storage, proxy, and maintenance costs. These costs were not measured, so local calls are not treated as free. Official managed-product or service prices do not apply to local execution."),
-    (re.compile(r"^本方法只使用官方 (\d+(?:\.\d+)+) 发行二进制，与其他 Moli 版本分开计分。网页正文、文档正文、结构题和网页内嵌媒体题统一使用原生 Markdown；动态网站正文整类统一启用 --layout、--with-frames 和 domstable，不按题目设置 selector。网页媒体只核对这份输出中的目标地址，不下载，也不切换 HTML、JSON 或网络跟踪接口。直接 PDF/DOCX 没有交付可读正文时按失败记录；直接媒体文件验收原始字节。评测端不使用外部 PDF/DOCX 解析器补正文，也不在失败后切换引擎或输出模式。$"),
-     r"This method uses only the official \1 release binary and is scored separately from other Moli versions. Webpage body text, document body text, structured tasks, and webpage media tasks use native Markdown. Every dynamic-body task enables --layout, --with-frames, and domstable, without task-specific selectors. Webpage media tasks check only target URLs in that output; they do not download media or switch to HTML, JSON, or network-tracing interfaces. Direct PDF/DOCX tasks fail without readable body text; direct media files are evaluated as original bytes. The benchmark does not supply external PDF/DOCX parsing or switch engines or output modes after a failure."),
     (re.compile(r"^必需文字组 (\d+)（任一写法即可）$"), r"Required text group \1 (any alternative may match)"),
     (re.compile(r"^· 原始采集记录 ([\d,]+) 字节（可含协议返回） · 原始 SHA-256：$"), r"· Original capture: \1 bytes (may include protocol responses) · Original SHA-256:"),
     (re.compile(r"^本报告纳入 ([\d,]+) 个逻辑结果。运行参数见下表；保留的物理调用与输出见各结果详情。$"),
      r"This report includes \1 logical results. Run parameters are listed below; each result detail contains its retained physical calls and outputs."),
     (re.compile(r"^· 请求：(成功|失败) · 耗时：([\d,.]+) ms · 实际输出：([\d,]+) 字符$"),
-     lambda m: f"· Request: {'success' if m[1] == '成功' else 'failure'} · Duration: {m[2]} ms · Actual output: {m[3]} characters"),
+     lambda m, catalog: f"· Request: {'success' if m[1] == '成功' else 'failure'} · Duration: {m[2]} ms · Actual output: {m[3]} characters"),
 ])
 
 
-def _timeout_translation(match):
-    budget = (f"{match['seconds']}-second outer deadline" if match['seconds'] else
-              "Outer deadline not recorded")
-    suffix = match['suffix']
-    if suffix == 'Moli 总等待、HTTP 和连接超时保留该二进制默认值':
-        return budget + "; Moli's total-wait, HTTP, and connection timeouts retain the measured binary's defaults"
-    if suffix == 'Moli 内部超时以逐次调用记录为准':
-        return budget + "; Moli's internal timeout policy is taken from each saved call record"
-    milliseconds = re.search(r' ([\d,]+) 毫秒$', suffix)
-    return budget + "; the measured command explicitly set Moli's total-wait, HTTP, and connection timeouts" + (f" to {milliseconds[1]} ms" if milliseconds else " (value not recorded)")
+@dataclass(frozen=True)
+class Catalog:
+    """What one English pass may use beyond the shared interface catalog.
+
+    ``exact`` holds a report's own bound translations (release history, an archived
+    article). ``text``, ``phrases`` and ``patterns`` hold the frozen text of an
+    already-published report, present only when the build is identified as that report.
+    """
+
+    exact: Mapping[str, str] = field(default_factory=dict)
+    text: Mapping[str, str] = field(default_factory=dict)
+    phrases: Mapping[str, str] = field(default_factory=dict)
+    patterns: tuple = ()
 
 
-REGEX.append((re.compile(r"^(?:(?P<seconds>[\d.]+) 秒外层截止|外层截止时间未记录)；(?P<suffix>Moli 总等待、HTTP 和连接超时保留该二进制默认值|Moli 内部超时以逐次调用记录为准|实测命令同时显式传入 Moli 总等待、HTTP 和连接超时(?: [\d,]+ 毫秒)?)$"), _timeout_translation))
+LEGACY_REPORT_TEXT = Path(__file__).with_name('data') / 'legacy-report-text.json'
 
 
-def translate_text(value: str, translations=None) -> str:
+def _legacy_pattern(row):
+    pattern = re.compile(row['pattern'])
+    if 'replacement' in row:
+        return pattern, row['replacement']
+
+    def replace(match, catalog):
+        values = _GroupValues(match, catalog)
+        result = row['format'].format_map(values)
+        for source, target in row.get('replace', ()):
+            result = result.replace(source, target)
+        return result
+    return pattern, replace
+
+
+class _GroupValues(dict):
+    """``g<n>``/``<name>`` give a match group as written; ``t<n>`` gives it translated."""
+
+    def __init__(self, match, catalog):
+        super().__init__()
+        self.match, self.catalog = match, catalog
+
+    def __missing__(self, key):
+        if key[0] in 'gt' and key[1:].isdigit():
+            value = self.match.group(int(key[1:])) or ''
+            return translate_text(value, self.catalog) if key[0] == 't' else value
+        return self.match.group(key)
+
+
+def legacy_report_text(report: str) -> dict:
+    """The frozen content of one already-published report, keyed by its identity."""
+    reports = json.loads(LEGACY_REPORT_TEXT.read_text(encoding='utf-8'))['reports']
+    if report not in reports:
+        raise ValueError('Unregistered legacy report text: ' + report)
+    return reports[report]
+
+
+def _historical_release_ids() -> set[str]:
+    path = repository_root() / 'research/report-changes.json'
+    return {row['id'] for row in json.loads(path.read_text(encoding='utf-8')).get('releases', [])} if path.is_file() else set()
+
+
+def published_report_catalog(out: Path, exact=None) -> Catalog:
+    """The English-pass catalog for the report in ``out``.
+
+    A report whose bound release history names a release of the frozen Web Fetch
+    history is one of the already-published reports; only it reads their legacy
+    text. Any other report localizes with the shared interface catalog alone.
+    """
+    exact = dict(exact or {})
+    # The price catalog the report ships owns the English of the text it renders.
+    pricing = out / 'adoption/pricing.json'
+    bound = json.loads(pricing.read_text(encoding='utf-8')).get('english_pass', {}) if pricing.is_file() else {}
+    history = out / 'report-changes.json'
+    releases = ({row.get('id') for row in json.loads(history.read_text(encoding='utf-8')).get('releases', [])}
+                if history.is_file() else set())
+    if not releases & _historical_release_ids():
+        return Catalog(exact=exact, text=bound)
+    legacy = legacy_report_text('web-fetch-published')
+    return Catalog(exact=exact, text={**bound, **legacy['text']}, phrases=legacy['phrases'],
+                   patterns=tuple(_legacy_pattern(row) for row in legacy['patterns']))
+
+
+def _registered_patterns():
+    """English-pass rules a registered method declares for the text its registry entry renders."""
+    from harness.web_fetch.methods import report_method_catalog
+    return tuple(_legacy_pattern(row) for method in report_method_catalog()['methods'].values()
+                 for row in method.get('english_pass', ()))
+
+
+REGISTERED_PATTERNS = _registered_patterns()
+_SHARED = Catalog()
+
+
+def translate_text(value: str, catalog: Catalog | None = None) -> str:
+    catalog = catalog or _SHARED
     leading = value[:len(value) - len(value.lstrip())]
     trailing = value[len(value.rstrip()):]
     core = value.strip()
     if not core:
         return value
-    translated = (translations or {}).get(core, TEXT.get(core))
+    translated = next((source[core] for source in (catalog.exact, catalog.text, TEXT) if core in source), None)
     if translated is None:
         for marker in (" ↕", " ↑", " ↓"):
-            if core.endswith(marker) and core[:-len(marker)] in TEXT:
-                translated = TEXT[core[:-len(marker)]] + marker
+            stem = core[:-len(marker)]
+            if core.endswith(marker) and (stem in catalog.text or stem in TEXT):
+                translated = catalog.text.get(stem, TEXT.get(stem)) + marker
                 break
     if translated is None:
-        for pattern, replacement in REGEX:
+        for pattern, replacement in (*catalog.patterns, *REGEX, *REGISTERED_PATTERNS):
             if pattern.fullmatch(core):
-                translated = pattern.sub(replacement, core)
+                translated = pattern.sub(replacement if isinstance(replacement, str)
+                                         else partial(replacement, catalog=catalog), core)
                 break
     if translated is None:
         translated = re.sub(
@@ -527,7 +568,7 @@ def translate_text(value: str, translations=None) -> str:
             r"文字核对范围：各方法均为 ([\d,]+/[\d,]+) 例。",
             r"Text-check coverage: \1 cases for every method. ", translated,
         )
-        for source, target in sorted(PHRASES.items(), key=lambda item: len(item[0]), reverse=True):
+        for source, target in sorted({**PHRASES, **catalog.phrases}.items(), key=lambda item: len(item[0]), reverse=True):
             translated = translated.replace(source, target)
         if translated == core:
             translated = None
@@ -535,12 +576,12 @@ def translate_text(value: str, translations=None) -> str:
 
 
 class Localizer(HTMLParser):
-    def __init__(self, source: PurePosixPath | None = None, translations=None) -> None:
+    def __init__(self, source: PurePosixPath | None = None, catalog: Catalog | None = None) -> None:
         super().__init__(convert_charrefs=False)
         self.parts: list[str] = []
         self.stack: list[str] = []
         self.source = source
-        self.translations = translations
+        self.catalog = catalog
         self.translate_stack = []
         self.model_text_stack = []
 
@@ -578,7 +619,7 @@ class Localizer(HTMLParser):
         for name in ("aria-label", "alt", "placeholder", "title"):
             label = values.get(name)
             if label is not None:
-                original = replace_attribute(original, name, translate_text(label, self.translations))
+                original = replace_attribute(original, name, translate_text(label, self.catalog))
         return original
 
     def handle_decl(self, decl: str) -> None:
@@ -611,7 +652,7 @@ class Localizer(HTMLParser):
                 or any(tag in self.stack for tag in ("pre", "code", "script", "style"))):
             self.parts.append(data)
         else:
-            self.parts.append(translate_text(data, self.translations))
+            self.parts.append(translate_text(data, self.catalog))
 
     def handle_entityref(self, name: str) -> None:
         if any(self.model_text_stack):
@@ -711,7 +752,7 @@ def _header(source: PurePosixPath, english: PurePosixPath, *, primary_english=Fa
             '<button class="theme-toggle" onclick="theme()">Toggle theme</button></nav></header>')
 
 
-def localize_html(page: str, source: PurePosixPath, *, translations=None, route_targets=None) -> str:
+def localize_html(page: str, source: PurePosixPath, *, catalog: Catalog | None = None, route_targets=None) -> str:
     english = PurePosixPath("en") / source
     page = page.replace('<html lang="zh-CN">', '<html lang="en">', 1)
     primary_english = bool(re.search(r'<script\b[^>]*\bdata-report-language-entry\b', page))
@@ -724,7 +765,7 @@ def localize_html(page: str, source: PurePosixPath, *, translations=None, route_
         preserved.append(match.group(0))
         return f"<!--LOCALIZATION-PRESERVED-{len(preserved)-1}-->"
     page = re.sub(r"<(pre|script|style)\b[^>]*>.*?</\1>", preserve, page, flags=re.S | re.I)
-    parser = Localizer(source, translations)
+    parser = Localizer(source, catalog)
     parser.feed(page)
     parser.close()
     localized = "".join(parser.parts)
@@ -760,7 +801,8 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
             sources.append(out / str(route))
     history_path = out / "report-changes.json"
     translations = release_translations(json.loads(history_path.read_text(encoding="utf-8"))) if history_path.is_file() else {}
-    article_translations = archived_translations(out)
+    catalog = published_report_catalog(out, translations)
+    article_catalog = replace(catalog, exact=archived_translations(out))
     english_root = out / "en"
     if source_routes is None and english_root.exists():
         shutil.rmtree(english_root)
@@ -785,12 +827,12 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
             if article is None:
                 raise ValueError('Historical article route lacks its scoped wrapper')
             article.replace_with(Comment('ARCHIVED-ARTICLE'))
-            shell = localize_html(str(parsed), source, translations=translations)
+            shell = localize_html(str(parsed), source, catalog=catalog)
             body = localize_html(render_archived_reading(out,'en'), source,
-                                 translations=article_translations)
+                                 catalog=article_catalog)
             localized = shell.replace('<!--ARCHIVED-ARTICLE-->', body)
         else:
-            localized=localize_html(raw,source,translations=translations)
+            localized=localize_html(raw,source,catalog=catalog)
         if source in {PurePosixPath("guide/index.html"), PurePosixPath("guide/article.html")}:
             untranslated = untranslated_english_narrative(localized, allowed_source_text)
             if untranslated:
@@ -981,10 +1023,13 @@ def _register_saved_matrix_fallbacks():
         pattern = re.escape(chinese)
         for name in fields:
             pattern = pattern.replace(re.escape('{' + name + '}'), '(?P<' + name + '>.+?)', 1)
-        def replacement(match, english=english):
-            return english.format_map({name: translate_text(value)
+        def replacement(match, catalog, english=english):
+            return english.format_map({name: translate_text(value, catalog)
                                        for name, value in match.groupdict().items()})
         REGEX.append((re.compile('^' + pattern + '$'), replacement))
 
 
 _register_saved_matrix_fallbacks()
+# Registered names listed with the Chinese enumeration comma; tried after every other rule.
+REGEX.append((re.compile(r"^[A-Za-z][\w.\- ]*(?:、[A-Za-z][\w.\- ]*)+$"),
+              lambda match, catalog: match.group(0).replace("、", ", ")))

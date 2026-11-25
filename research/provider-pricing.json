@@ -454,5 +454,13 @@
   "计算、浏览器、网络及代理成本自担；商业云服务价格不能当成本地调用的费用。": "The caller pays compute, browser, network, and proxy costs. Commercial cloud prices do not represent local-call costs.",
   "内置或本地实现": "Built-in or local implementation",
   "没有调用其聊天模型或付费回退 API；不引用模型 token 价格。运行与维护成本不等于零。": "Its chat model and paid fallback API were not called, so model token pricing is not cited. Operation and maintenance costs are not zero."
-}
+},
+  "english_pass": {
+    "Firecrawl · Scrape · 月套餐 + 年付优惠 + $5 批次追加": "Firecrawl · Scrape · Monthly plans + annual-billing discounts + $5 batch add-ons",
+    "Tavily · Extract · 按成功 URL 累积扣积分": "Tavily · Extract · Credits accrue by successful URL",
+    "Exa · Contents · 正文、摘录、摘要分别计费": "Exa · Contents · Text, highlights, and summaries are billed separately",
+    "Cloudflare · Markdown · 按浏览器时间，不按请求数": "Cloudflare · Markdown · Billed by browser time, not request count",
+    "：年付套餐积分加倍一年；融资少于 $10M、少于 50 人、成立未满五年，既有客户也可申请。赠送价值上限 $2,500/月、$30,000/年。若满额使用且获批，套餐折算单价再减半，不意味着追加积分也打五折。": ": Annual-plan credits are doubled for one year; companies with less than $10M in funding, fewer than 50 employees, and less than five years in operation may apply, including existing customers. The benefit is capped at $2,500/month and $30,000/year. If approved and fully used, the plan's effective unit price is halved again; this does not mean additional credits are also discounted by half.",
+    "：合资格学生使用学校邮箱申请 10,000 免费积分，用于教育或个人项目；不是已确认的每月赠送。优惠是否可叠加不作假设。": ": Eligible students can apply with a school email for 10,000 free credits for educational or personal projects; this is not confirmed as a monthly grant. No assumption is made that discounts can be combined."
+  }
 }

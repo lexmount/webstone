@@ -3728,6 +3728,40 @@
         "en": "Moli"
       },
       "kind": "browser",
+      "english_pass": [
+        {
+          "pattern": "^(?P<seconds>[\\d.]+) 秒外层截止；Moli 总等待、HTTP 和连接超时保留该二进制默认值$",
+          "format": "{seconds}-second outer deadline; Moli's total-wait, HTTP, and connection timeouts retain the measured binary's defaults"
+        },
+        {
+          "pattern": "^(?P<seconds>[\\d.]+) 秒外层截止；Moli 内部超时以逐次调用记录为准$",
+          "format": "{seconds}-second outer deadline; Moli's internal timeout policy is taken from each saved call record"
+        },
+        {
+          "pattern": "^(?P<seconds>[\\d.]+) 秒外层截止；实测命令同时显式传入 Moli 总等待、HTTP 和连接超时 (?P<milliseconds>[\\d,]+) 毫秒$",
+          "format": "{seconds}-second outer deadline; the measured command explicitly set Moli's total-wait, HTTP, and connection timeouts to {milliseconds} ms"
+        },
+        {
+          "pattern": "^(?P<seconds>[\\d.]+) 秒外层截止；实测命令同时显式传入 Moli 总等待、HTTP 和连接超时$",
+          "format": "{seconds}-second outer deadline; the measured command explicitly set Moli's total-wait, HTTP, and connection timeouts (value not recorded)"
+        },
+        {
+          "pattern": "^外层截止时间未记录；Moli 总等待、HTTP 和连接超时保留该二进制默认值$",
+          "format": "Outer deadline not recorded; Moli's total-wait, HTTP, and connection timeouts retain the measured binary's defaults"
+        },
+        {
+          "pattern": "^外层截止时间未记录；Moli 内部超时以逐次调用记录为准$",
+          "format": "Outer deadline not recorded; Moli's internal timeout policy is taken from each saved call record"
+        },
+        {
+          "pattern": "^外层截止时间未记录；实测命令同时显式传入 Moli 总等待、HTTP 和连接超时 (?P<milliseconds>[\\d,]+) 毫秒$",
+          "format": "Outer deadline not recorded; the measured command explicitly set Moli's total-wait, HTTP, and connection timeouts to {milliseconds} ms"
+        },
+        {
+          "pattern": "^外层截止时间未记录；实测命令同时显式传入 Moli 总等待、HTTP 和连接超时$",
+          "format": "Outer deadline not recorded; the measured command explicitly set Moli's total-wait, HTTP, and connection timeouts (value not recorded)"
+        }
+      ],
       "source_url": "https://github.com/lexmount/moli",
       "profile": {
         "kind": {
@@ -5789,6 +5823,7 @@
       }
     },
     "deepseek-fetch-api": {
+      "report_badges": ["model_fetch"],
       "extends": "hosted_fetch",
       "label": {
         "zh": "DeepSeek Fetch API",
@@ -5876,6 +5911,7 @@
       }
     },
     "kimi-fetch": {
+      "report_badges": ["model_fetch"],
       "extends": "hosted_fetch",
       "label": {
         "zh": "Kimi Fetch API",
@@ -5918,6 +5954,7 @@
       }
     },
     "zai-reader": {
+      "report_badges": ["model_fetch"],
       "extends": "hosted_fetch",
       "label": {
         "zh": "Z.AI Web Reader",
@@ -5960,6 +5997,8 @@
       }
     },
     "claude-web-fetch": {
+      "report_badges": ["model_fetch"],
+      "report_label_variants": ["Claude Web Fetch · Haiku 5.5"],
       "extends": "hosted_fetch",
       "label": {
         "zh": "Claude Web Fetch",

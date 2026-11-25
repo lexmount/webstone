@@ -195,9 +195,9 @@ def test_evidence_translate_no_preserves_nested_text_and_attributes(monkeypatch)
     raw = "记录来源" * 1000
     original = report_i18n.translate_text
 
-    def translate(value, translations=None):
+    def translate(value, catalog=None):
         assert raw not in value, "Raw evidence reached narrative translation"
-        return original(value, translations)
+        return original(value, catalog)
 
     monkeypatch.setattr(report_i18n, "translate_text", translate)
     page = ('<p translate="no" title="记录来源"><span>' + raw + '</span><br/>'
@@ -264,3 +264,19 @@ def test_nested_header_navigation_rewrites_every_chinese_home_link(tmp_path):
     from bs4 import BeautifulSoup
     page = BeautifulSoup((tmp_path / "en/index.html").read_text(encoding="utf-8"), "html.parser")
     assert [a["href"] for a in page.select("header a")] == ["../index.html?report-language=zh"] * 2
+
+
+def test_published_report_text_is_read_only_for_that_report(tmp_path):
+    """Frozen sentences of a published report translate only when the build is that report."""
+    import json
+    from harness.web_fetch.report_i18n import _historical_release_ids, legacy_report_text, published_report_catalog, translate_text
+    sentence, english = next(iter(legacy_report_text('web-fetch-published')['text'].items()))
+    other = tmp_path / 'other'
+    other.mkdir()
+    (other / 'report-changes.json').write_text(json.dumps({'releases': [{'id': 'new-report-release'}]}), encoding='utf-8')
+    assert translate_text(sentence, published_report_catalog(other)) == sentence
+    published = tmp_path / 'published'
+    published.mkdir()
+    release = sorted(_historical_release_ids())[0]
+    (published / 'report-changes.json').write_text(json.dumps({'releases': [{'id': release}]}), encoding='utf-8')
+    assert translate_text(sentence, published_report_catalog(published)) == english
