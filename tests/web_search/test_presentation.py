@@ -107,19 +107,28 @@ def test_factual_reciprocal_rank_is_directional_and_highlighted(tmp_path):
     assert not cells[1].select_one('.comparison-winner')
 
 
-@pytest.mark.parametrize("damage", ["summary", "error", "evidence"])
+@pytest.mark.parametrize("damage", ["summary", "error", "spurious-error", "back-link", "evidence"])
 def test_public_report_check_rejects_broken_detail_contract(tmp_path, damage):
     from harness.web_search.example import example
     from harness.web_search.report import check
     example(tmp_path)
     output = tmp_path / "report"
-    detail = next((output / "details").glob("*.html"))
-    doc = BeautifulSoup(detail.read_text(encoding='utf-8'), "html.parser")
+    pages = {path: BeautifulSoup(path.read_text(encoding='utf-8'), "html.parser") for path in (output / "details").glob("*.html")}
+    failed = next(path for path, page in pages.items() if page.select_one("[data-error]"))
+    passed = next(path for path, page in pages.items() if not page.select_one("[data-error]"))
+    detail = passed if damage in ("spurious-error", "back-link") else failed
+    doc = pages[detail]
     if damage == "summary":
         import copy
         doc.main.append(copy.copy(doc.select_one("[data-result-summary]")))
     elif damage == "error":
         doc.select_one("[data-error]").decompose()
+    elif damage == "spurious-error":
+        error = doc.new_tag("pre", attrs={"data-error": ""})
+        error.string = "No API error reported"
+        doc.select_one("[data-report-detail]").append(error)
+    elif damage == "back-link":
+        doc.select("a[data-back-results]")[-1].decompose()
     else:
         doc.select_one("[data-evidence]")["data-evidence"] = "missing-response.json"
     detail.write_text(str(doc), encoding='utf-8')
