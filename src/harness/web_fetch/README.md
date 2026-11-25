@@ -1636,6 +1636,8 @@ Set `saved_reports[].retain_public_evidence_views: true` to carry a source's
 public evidence views into its current rows and through nested compositions.
 Generated diagnostic pages belong to the current report's `diagnostics/` directory,
 so rendering never overwrites an imported snapshot's evidence or page wrappers.
+The extension carries its bound comparison note into Changes and updates the
+reproduction population summary; historical evidence counts remain unchanged.
 For already published snapshots, `frozen_sources: true` verifies the complete
 file inventories and pinned audit hashes using the published-extension boundary,
 rather than applying a newer acquisition or rendering contract to historical

@@ -356,6 +356,24 @@ def test_extension_updates_only_explicit_population_summary():
     assert result.select_one('#evidence').get_text() == '13 ms, $3, 2023-03-03, task-3; 10 种方法'
 
 
+def test_extension_updates_reproduction_population_and_records_bound_change_note():
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import _extension_page
+    base = {'providers':[{'id':'one'}], 'rows':[{}]*1000}
+    added = {'providers':[{'id':'two'}], 'rows':[{}]*1000}
+    raw = '<html><body><main><section class="hero"></section><p>本报告纳入 1,000 个逻辑结果。运行参数见下表。</p><p id="history">Previous scope: 1,000 results.</p></main></body></html>'
+    result = BeautifulSoup(_extension_page(raw, '<html></html>', 'reproduce/index.html',
+        base, added, [], ''), 'html.parser')
+    assert '本报告纳入 2,000 个逻辑结果。' in result.get_text()
+    assert result.select_one('#history').get_text() == 'Previous scope: 1,000 results.'
+    result = BeautifulSoup(_extension_page(raw, '<html></html>', 'changes/index.html',
+        base, added, [], 'A saved correction <not markup>'), 'html.parser')
+    note = result.select_one('#report-extension-change')
+    assert note.p.get_text() == 'A saved correction <not markup>'
+    assert note.find('not') is None and result.select_one('#history')
+    assert result.select_one('.hero').find_next_sibling() == note
+
+
 
 
 def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports):

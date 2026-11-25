@@ -526,7 +526,7 @@ def _check_method_presentation(page):
 
 _EXTENSION_ROUTES = ('analysis/index.html', 'methodology/index.html',
                      'adoption/index.html', 'reproduce/index.html', 'review/index.html',
-                     'guide/index.html', 'accounts/index.html')
+                     'guide/index.html', 'accounts/index.html', 'changes/index.html')
 
 
 def _review_source_sections(old, new, base_model, added_model):
@@ -574,6 +574,21 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     from urllib.parse import urljoin, urlsplit
     import posixpath
     old, new = BeautifulSoup(base, 'html.parser'), BeautifulSoup(_namespace_extension_evidence(addition), 'html.parser')
+    if route == 'changes/index.html':
+        if note:
+            section = old.new_tag('section', attrs={'class':'section', 'id':'report-extension-change'})
+            heading = old.new_tag('h2')
+            heading.string = _text('changes_report_update')
+            paragraph = old.new_tag('p')
+            paragraph.string = note
+            section.extend([heading, paragraph])
+            container = old.find('main') or old.body
+            hero = container.select_one('.hero')
+            if hero:
+                hero.insert_after(section)
+            else:
+                container.insert(0, section)
+        return str(old)
     if route == 'accounts/index.html':
         for paragraph in old.find_all('p'):
             if paragraph.get_text().strip().startswith('需要供应商账号的方法：'):
@@ -697,6 +712,12 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
     after_methods = before_methods + len(added_model['providers'])
     before_results = len(base_model['rows'])
     after_results = before_results + len(added_model['rows'])
+    if route == 'reproduce/index.html':
+        for paragraph in old.select('p'):
+            text = paragraph.get_text()
+            match = re.match(r'^(本报告纳入 |This report includes )([\d,]+)( 个逻辑结果。| logical results\.)', text)
+            if match and int(match[2].replace(',', '')) == before_results:
+                paragraph.string = text[:match.start(2)] + f'{after_results:,}' + text[match.end(2):]
     for summary in old.select('.hero .lead'):
         for node in list(summary.find_all(string=True)):
             text = re.sub(r'\b' + str(before_methods) + r' 种(已测)?方法',
