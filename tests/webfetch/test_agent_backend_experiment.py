@@ -9,7 +9,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 
-from harness.web_fetch.agent_backend import fetch_mcp
 from harness.web_fetch.agent_backend import arms, backend_params, experiment, scoring
 
 FAKE_CLAUDE = r'''#!{python}
@@ -345,7 +344,7 @@ def test_one_chance_per_run_every_task_counts_and_invalid_runs_are_never_average
         bad = case == "b"
         _save(tmp_path, _record(case, "lexmount", route="l", subagent_tokens=None if bad else 300, valid=not bad,
                                 invalid_reasons=["no_subagent_usage_report"] if bad else []))
-    monkeypatch.setattr(scoring, "scoring_input", lambda directory, arm, case: {
+    monkeypatch.setattr(scoring, "scoring_input", lambda directory, arm, case, source="full_text.txt": {
         "response": (directory / "markdown.txt").read_bytes(), "files": [], "metadata": {}})
     # task c, lexmount: the first attempt hit a network failure; it was retried once and the retry is the only result
     c_dir = tmp_path / "runs" / "c__lexmount__r1__a1"
@@ -442,7 +441,7 @@ def test_builtin_markdown_excludes_the_model_written_summary_tail():
     wrapped = "Fetched x\n<fetched-web-content>\n" + body + tail + "\n</fetched-web-content>"
     markdown, tail_chars, page_chars = arms.builtin_markdown(wrapped)
     assert markdown == body and tail_chars > 0 and page_chars == 9000  # only the verbatim part is scored
-    assert arms.builtin_markdown("Fetched x\n<fetched-web-content>\nshort page\n</fetched-web-content>") == ("short page\n", 0, None)
+    assert arms.builtin_markdown("Fetched x\n<fetched-web-content>\nshort page\n</fetched-web-content>") == ("short page", 0, None)
 
 
 @pytest.mark.parametrize("backend", ["builtin", "lexmount", "moli"])
@@ -471,7 +470,7 @@ def test_builtin_markdown_drops_tool_rules_and_tolerates_missing_closing_tag():
     from harness.web_fetch.agent_backend.arms import builtin_markdown
     rules = "These reporting rules come from the tool:\n - quote limit\n"
     assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\ntext")[0] == "PAGE\ntext"
-    assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\n</fetched-web-content>\nnote")[0] == "PAGE\n"
+    assert builtin_markdown(rules + "<fetched-web-content>\nPAGE\n</fetched-web-content>\nnote")[0] == "PAGE"
     assert builtin_markdown("plain")[0] == "plain"
 
 
@@ -529,3 +528,37 @@ def test_a_staged_run_takes_the_first_tasks_of_every_suite_and_resume_finishes_w
     assert ran == ["a--t0", "a--t1", "b--t0", "b--t1"]
     run(None)
     assert ran[4:] == ["a--t2", "b--t2"]
+
+
+def _read(offset, verbatim, total, summary=False, error=False):
+    if error:
+        return {"url": "https://x/p", "offset": offset, "is_error": True, "text": "The server returned HTTP 500."}
+    tail = (f"\n\n[The verbatim page text stops here, {offset + len(verbatim)} of {total} characters in; re-fetching this URL "
+            "returns the same split. What follows is a model-extracted summary]\nSUMMARY") if summary else ""
+    return {"url": "https://x/p", "offset": offset, "is_error": False,
+            "text": f"Fetched https://x/p (HTTP 200 OK, text/html, {total} characters).\n<fetched-web-content>\n{verbatim}{tail}\n</fetched-web-content>"}
+
+
+def test_reads_of_one_page_are_joined_by_offset_and_summaries_are_left_out():
+    page = "".join(chr(65 + i % 26) for i in range(100))
+    # read on from where the verbatim text stopped: the whole page, nothing a model wrote
+    text, parts = arms.assemble_page([_read(0, page[:40], 100, summary=True), _read(40, page[40:], 100)])
+    assert (text, parts) == (page, 2)
+    # following the tool's hint skips the summarized stretch: the gap stays missing and is not papered over
+    text, parts = arms.assemble_page([_read(0, page[:40], 100, summary=True), _read(70, page[70:], 100)])
+    assert text == page[:40] + "\n\n" + page[70:] and "SUMMARY" not in text
+    # a repeated or overlapping read adds nothing twice; a failed read and another URL's read are ignored
+    other = {**_read(0, "OTHER PAGE", 10), "url": "https://x/other"}
+    text, _ = arms.assemble_page([_read(0, page[:40], 100, summary=True), _read(30, page[30:], 100), _read(30, page[30:], 100),
+                                  _read(40, "", 100, error=True), other])
+    assert text == page
+    assert arms.assemble_page([]) == ("", 0)
+
+
+def test_a_run_records_the_first_read_and_the_full_read_separately(tmp_path):
+    page = "".join(chr(65 + i % 26) for i in range(100))
+    found = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True), _read(40, page[40:], 100)], 100, 40)
+    assert (tmp_path / "full_text.txt").read_text(encoding="utf-8") == page
+    assert found == {"fetch_calls": 2, "verbatim_parts": 2, "full_text_chars": 100, "read_complete": True}
+    partial = arms._full_read_evidence(tmp_path, [_read(0, page[:40], 100, summary=True)], 100, 40)
+    assert partial["read_complete"] is False and partial["full_text_chars"] == 40

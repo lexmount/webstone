@@ -17,15 +17,18 @@ PAIRS = (("builtin", "lexmount"), ("builtin", "moli"))
 ATTEMPT = re.compile(r"^(?P<base>.+)__a(?P<n>\d+)$")
 
 
-def scoring_input(directory: pathlib.Path, arm: str, case: dict) -> dict | None:
+def scoring_input(directory: pathlib.Path, arm: str, case: dict, *, source: str = "full_text.txt") -> dict | None:
     """What the benchmark scores for one run, the same rule in every arm; None when nothing was delivered.
 
-    The response is ``markdown.txt``: the verbatim page text WebFetch delivered to the subagent, taken from the stream
-    by code (a model-written summary of a long page's remainder is excluded). Binary content is scored as the
+    The response is the verbatim page text WebFetch delivered to the subagent, taken from the stream by code (a
+    model-written summary of a long page's remainder is excluded): ``full_text.txt`` joins every read of the page by
+    offset, ``markdown.txt`` is the first read alone. Binary content is scored as the
     delivered file: the bytes WebFetch saved in the built-in arm (``saved_files/``), the bytes moli returned in the
     moli arm. Nothing is extracted from files or converted.
     """
-    text = (directory / "markdown.txt").read_text(encoding="utf-8") if (directory / "markdown.txt").exists() else ""
+    if not (directory / source).exists():  # a run recorded before the full read was kept
+        source = "markdown.txt"
+    text = (directory / source).read_text(encoding="utf-8") if (directory / source).exists() else ""
     files = [p.read_bytes() for p in sorted((directory / "saved_files").glob("*"))]
     log = directory / "backend_calls.jsonl"
     rows = [json.loads(line) for line in log.read_text(encoding="utf-8").split("\n") if line.strip()] if log.exists() else []
@@ -108,6 +111,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
         # The agent's final answer is rewritten text and has no annotation, so it is stored but never scored.
         # An invalid final run has no trustworthy result and counts as not passed; its task stays in every arm's count.
         record["passed"] = record["valid"] and verdict(case, scoring_input(directory, record["arm"], case), unscorable)
+        # The same rules on the first read alone: what one ordinary call delivers.
+        record["passed_first_read"] = record["valid"] and verdict(
+            case, scoring_input(directory, record["arm"], case, source="markdown.txt"), unscorable)
         rows.append(record)
         earlier.extend(previous)
     # Every task counts for every arm. Usage and timing statistics use the valid runs only, because an invalid run has
@@ -139,6 +145,9 @@ def score_run(root: pathlib.Path, cases: dict, *, price_per_1000_usd: float = 0.
             "failed_fetch_after_retry": sum(r["fetch_failed"] for r in mine),
             "tasks": len(counted), "valid_runs": len(used), "routes": dict(Counter(r["route"] for r in mine)),
             "passed": sum(r["passed"] for r in counted),
+            "passed_first_read": sum(r["passed_first_read"] for r in counted),
+            "read_complete_runs": sum(bool(r.get("read_complete")) for r in used),
+            "fetch_calls_per_run": dict(Counter(r.get("fetch_calls") for r in used)),
             "fetch_failed_runs": sum(bool(r["fetch_failed"]) for r in mine),
             "summarized_tail_runs": sum(bool(r.get("summarized_tail")) for r in mine),
             "markdown_chars": _stats([r.get("markdown_chars") for r in used]),

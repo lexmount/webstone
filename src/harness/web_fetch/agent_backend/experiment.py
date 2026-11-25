@@ -20,10 +20,13 @@ from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.config import load_dataset, read_dataset_bytes
 
 DEFAULT_DATASET = pathlib.Path("evaluation/dataset.json")
-# One prompt for every task and arm: a bounded summary, the ordinary use of the web-fetch subagent. The score is computed
-# from the page text WebFetch delivered, taken by code, never from the report.
-PROMPT = ("Read {url} and tell me what the page is about: its title and a summary of its main content in at most "
-          "150 words. Make a single fetch attempt; if it fails, say so instead of trying other ways.")
+# One prompt for every task and arm: read the whole page. WebFetch shows a long page in parts, so the task says how to
+# read on; the reply is one line, so no arm's report depends on page content. The score is computed from the page text
+# WebFetch delivered, taken by code, never from the report.
+PROMPT = ("Read the complete text of {url}. The fetch tool shows a long page in parts: when a result says the verbatim "
+          "text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat "
+          "until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of "
+          "trying other ways. Then reply with one line: how many characters the page has and whether you read all of it.")
 
 
 def default_root() -> pathlib.Path:

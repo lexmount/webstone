@@ -96,6 +96,7 @@ def parse_stream(text: str):
     fetch_error = False
     init = result = raw = None
     saved: list[str] = []
+    reads: list[dict] = []  # every fetch result in order: the offset it was asked from and its text
     for line in text.split("\n"):  # JSON strings may hold U+2028 or form feeds, which splitlines() breaks on
         try:
             event = json.loads(line)
@@ -125,15 +126,16 @@ def parse_stream(text: str):
                 if found:
                     reported.append({"tokens": int(found.group(1)), "tool_uses": int(found.group(2)),
                                      "duration_ms": int(found.group(3))})
-            elif (block.get("type") == "tool_result" and raw is None
-                  and uses.get(block["tool_use_id"], {}).get("name") in FETCH_TOOLS):
-                # The first fetch result is the page the task asked for; a later call (reading on with an offset)
-                # is counted in usage but does not change what was delivered for the URL.
-                fetch_error = bool(block.get("is_error"))
+            elif block.get("type") == "tool_result" and uses.get(block["tool_use_id"], {}).get("name") in FETCH_TOOLS:
                 body = block["content"]
-                raw = body if isinstance(body, str) else "".join(x.get("text", "") for x in body if isinstance(x, dict))
+                text_ = body if isinstance(body, str) else "".join(x.get("text", "") for x in body if isinstance(x, dict))
+                call = uses[block["tool_use_id"]].get("input") or {}
+                reads.append({"url": call.get("url"), "offset": int(call.get("offset") or 0),
+                              "is_error": bool(block.get("is_error")), "text": text_})
+                if raw is None:  # the first fetch result is the page the task asked for
+                    fetch_error, raw = bool(block.get("is_error")), text_
     summary = {"agent_launches": sum(1 for c in calls if c["tool"] == "Agent" and not c["sub"]), "reported": reported,
-               "fetch_error": fetch_error, "saved_files": saved}
+               "fetch_error": fetch_error, "saved_files": saved, "reads": reads}
     return init, result, calls, raw, bash, summary
 
 
@@ -161,9 +163,37 @@ def builtin_markdown(raw: str) -> tuple[str, int, int | None]:
     match = WRAPPER.search(raw)
     inner = match.group(1) if match else raw
     marker = SUMMARY_MARKER.search(inner)
-    if not marker:
-        return inner, 0, None
+    if not marker:  # WebFetch puts one line break between the page text and the closing tag
+        return (inner[:-1] if match and inner.endswith("\n") else inner), 0, None
     return inner[:marker.start()], len(inner) - marker.start(), int(marker.group(2))
+
+
+def assemble_page(reads: list[dict]) -> tuple[str, int]:
+    """Join the verbatim parts of every read of the first URL by their offsets. Returns (text, parts used).
+
+    WebFetch reads on through a long page with ``offset``, a character position in the same cached page text, so the
+    verbatim parts of several calls are slices of one text. Model-written summaries are never included. A gap that no
+    call read verbatim stays missing: the parts on either side are joined with a blank line.
+    """
+    if not reads:
+        return "", 0
+    parts = {}
+    for read in reads:
+        if read["url"] != reads[0]["url"] or fetch_failed(read["text"], read["is_error"]):
+            continue
+        verbatim = builtin_markdown(read["text"])[0]
+        if verbatim and len(verbatim) > len(parts.get(read["offset"], "")):
+            parts[read["offset"]] = verbatim
+    text, end = "", 0
+    for offset in sorted(parts):
+        piece = parts[offset]
+        if offset < end:  # overlaps what is already assembled
+            piece = piece[end - offset:]
+        elif offset > end and text:
+            text += "\n\n"
+        text += piece
+        end = max(end, offset + len(parts[offset]))
+    return text, len(parts)
 
 
 def classify_route(calls: list[dict], bash: list[str]) -> str:
@@ -204,6 +234,15 @@ def _markdown_evidence(out: pathlib.Path, backend: str, raw: str | None, rows: l
                 "backend_output_chars": good[-1].get("chars") if good else None}
     (out / "markdown.txt").write_text(markdown, encoding="utf-8")
     return {"markdown_chars": len(markdown), "fetch_failed_backend": failed, **evidence}
+
+
+def _full_read_evidence(out: pathlib.Path, reads: list[dict], first_page_chars: int | None, first_chars: int) -> dict:
+    """Write ``full_text.txt``: the verbatim text of every read joined by offset, and say how much of the page it is."""
+    text, parts = assemble_page(reads)
+    (out / "full_text.txt").write_text(text, encoding="utf-8")
+    total = first_page_chars or first_chars  # WebFetch states the page length only when it cuts the page
+    return {"fetch_calls": len(reads), "verbatim_parts": parts, "full_text_chars": len(text),
+            "read_complete": bool(text) and len(text) >= total}
 
 
 def validate(record: dict, arm: str) -> list[str]:
@@ -296,6 +335,7 @@ def run_one(arm: str, case_id: str, url: str, prompt: str, out_dir, *, claude_bi
     log = out / "backend_calls.jsonl"
     rows = [json.loads(x) for x in log.read_text(encoding="utf-8").split("\n") if x.strip()] if log.exists() else []
     record.update(_markdown_evidence(out, ARMS[arm]["backend"], raw, rows, delegated["fetch_error"]))
+    record.update(_full_read_evidence(out, delegated["reads"], record["page_chars_reported"], record["markdown_chars"]))
     record["backend_calls"] = len(rows)
     record["backend_wall_ms"] = sum(row["wall_ms"] for row in rows)
     record["fetch_failed"] = record["fetch_failed_backend"]  # WebFetch reported a failure or delivered nothing

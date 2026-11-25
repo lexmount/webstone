@@ -1,6 +1,6 @@
 # Agent fetch backend experiment
 
-Compare the fetch backend behind Claude Code's `web-fetch` subagent: the built-in WebFetch, Lexmount `POST /v1/extract` and a local moli binary. The experiment runs the real `claude` CLI as a subprocess, so it works from any shell, CI job or session and never reads the session that starts it.
+Compare ways of retrieving the page behind Claude Code's `web-fetch` subagent: the built-in WebFetch (a plain HTTP GET converted with Turndown) and a local moli binary (a headless browser engine). A Lexmount `POST /v1/extract` arm is also available (`--arms builtin,lexmount,moli`); the default comparison is `builtin,moli`. The experiment runs the real `claude` CLI as a subprocess, so it works from any shell, CI job or session and never reads the session that starts it.
 
 ## What is compared
 
@@ -16,11 +16,13 @@ Claude Code's `CLAUDE_CODE_WEBFETCH_MCP_TOOL` setting (`{"server": ..., "tool": 
 
 The Lexmount text is rendered by Lexmount's official `webfetch-cli` (`LEXMOUNT_WEBFETCH_CLI`): the MCP server calls the API once with the harness's parameters and replays that response to the CLI on a local address, so the format is Lexmount's own and the API is not called twice. The MCP server (`agent_backend/fetch_mcp.py`, standard library only) also saves each backend's complete output as evidence.
 
-Every arm gets the same task:
+Every arm gets the same task, to read the whole page (`--prompt`, recorded in `plan.json`):
 
 ```text
-Read {url} and tell me what the page is about: its title and a summary of its main content in at most 150 words. Make a single fetch attempt; if it fails, say so instead of trying other ways.
+Read the complete text of {url}. The fetch tool shows a long page in parts: when a result says the verbatim text stops at character N of a longer page, call the tool again with the same url and offset N, and repeat until you have read the page to its end. Make a single attempt per part; if a fetch fails, say so instead of trying other ways. Then reply with one line: how many characters the page has and whether you read all of it.
 ```
+
+WebFetch keeps the page text it retrieved in a per-process cache (15 minutes) and `offset` is a character position in that text, so reading on never contacts the site again and works the same whoever retrieved the page: the backend is called once per page. WebFetch only suggests an offset for text beyond what it summarized (about 140,000 characters in); the task therefore states the rule for the stretch in between.
 
 Each task starts one `claude -p` process per arm, at the same time, each with its own working directory (empty), MCP configuration and no saved session, user instructions, memory or skills. Tasks run one after another by default (`--parallel-tasks N` runs N at once); the arms of a task always share the same time window. The arm order inside a task rotates. `CLAUDE_CODE_WEB_FETCH_AGENT=1` and `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` are set in every arm: the first pins Claude Code's web-fetch-agent mode, which otherwise follows a remotely served feature flag (when it is off the main agent calls WebFetch itself, and WebFetch answers with a small model instead of returning the page); a background subagent gives no usage report. The task text is `--prompt` (default below), recorded in `plan.json`.
 
@@ -62,13 +64,20 @@ uv run --frozen python scripts/agent_fetch_experiment.py score  --run <run dir> 
 
 ## What is scored
 
-The pass verdict is the benchmark's own `score_attempt` and task predicate, applied to the same thing in every arm: the verbatim page text WebFetch delivered to the subagent, taken from the stream by code (`markdown.txt`). WebFetch's leading line, rules and tags are removed, and so is the model-written summary of a long page's remainder. Binary content is scored as the delivered file: the bytes WebFetch saved in the built-in arm (`saved_files/`, listed in Claude Code's harness note) and the bytes moli returned in the moli arm. Nothing a model wrote is scored, and the harness never extracts text from files or converts formats.
+The pass verdict is the benchmark's own `score_attempt` and task predicate, applied to the same thing in every arm: the verbatim page text WebFetch delivered to the subagent, taken from the stream by code. WebFetch's leading line, rules and tags are removed, and so is every model-written summary. Two texts are scored for each run:
 
-Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`. The empty-output control must fail every selected task. The backends' complete outputs saved by the MCP server are diagnostic evidence (for example, how much of a long output fell outside the verbatim window); they are not scored.
+| File | What it is | Reported as |
+| --- | --- | --- |
+| `full_text.txt` | the verbatim parts of every read of the page, joined by offset (`assemble_page`); a stretch no call read verbatim stays missing | `passed`, the primary pass count |
+| `markdown.txt` | the first read alone: what one ordinary call delivers (the first 40,000 characters or so of a long page) | `passed_first_read` |
+
+Binary content is scored as the delivered file: the bytes WebFetch saved in the built-in arm (`saved_files/`, listed in Claude Code's harness note) and the bytes moli returned in the moli arm. Nothing a model wrote is scored, and the harness never extracts text from files or converts formats.
+
+Scoring goes through the benchmark's public boundary `lexbench_webfetch.evaluation.evaluate_response`. The empty-output control must fail every selected task. The backends' complete outputs saved by the MCP server are diagnostic evidence; they are not scored. `summary.json` also gives, per arm, how many runs read the page to its end (`read_complete_runs`) and the number of fetch calls per run.
 
 ## Metrics
 
-The primary time metric is the subagent's duration, from receiving the task to delivering its report, as Claude Code reports it; the fetch tool's own duration is reported beside it. The subagent reads what WebFetch delivered, so its tokens grow with the delivered text in every arm. `summary.json` gives subagent tokens over all valid runs, over each arm's fetched runs (`subagent_tokens_fetched`), and, as a diagnostic, over the tasks every arm fetched (`fetched_by_every_arm`; selected after the outcome, it never ranks the arms).
+The primary time metric is the subagent's duration, from receiving the task to delivering its report, as Claude Code reports it; the fetch tool's own duration is reported beside it. The subagent reads what WebFetch delivered, so its tokens grow with the delivered text in every arm, and every further read sends the earlier context again. Compare cost only where both arms passed, by page length. `summary.json` gives subagent tokens over all valid runs, over each arm's fetched runs (`subagent_tokens_fetched`), and, as a diagnostic, over the tasks every arm fetched (`fetched_by_every_arm`; selected after the outcome, it never ranks the arms).
 
 Per run: subagent tokens and duration exactly as Claude Code reports them (a run without the report is invalid, never filled in), fetch tool duration from the tool dispatch log (the same measurement point in every arm), backend calls, the route taken, and the fetch tool's raw result. Fetch API cost is calls × `--price-per-1000` / 1000; the subagent model cost is the haiku usage cost and includes small auxiliary calls of the main session, so it is an upper bound. `summary.json` also carries pass counts per task category.
 

@@ -12,7 +12,7 @@ from harness.web_fetch.agent_backend import arms as arm_module
 from harness.web_fetch.agent_backend import backend_params, experiment, scoring
 from harness.web_fetch.config import DEFAULT_CALL_TIMEOUT_SECONDS
 
-DEFAULT_ARMS = "builtin,lexmount,moli"
+DEFAULT_ARMS = "builtin,moli"  # the current comparison; lexmount stays selectable with --arms
 
 
 def _common(parser):
