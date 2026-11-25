@@ -4069,7 +4069,7 @@ def check_page_titles(output, manifest):
             text = node.get_text(" ", strip=True)
             parts = {part.strip() for part in text.split("·")}
             if (
-                re.search(r"[0-9a-f]{12,}", text)
+                re.search(r"(?<![\w/.-])[0-9a-f]{12,}(?![\w/.-])", text)
                 or parts & set(PAGES)
                 or any(re.fullmatch(r"(?:case|source|c|d)-\S+", part) for part in parts)
             ):

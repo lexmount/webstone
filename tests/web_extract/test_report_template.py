@@ -107,9 +107,12 @@ def test_titles_name_pages_and_cases_and_unreturned_calls_never_match(tmp_path):
         rebind(output, route, lambda _, raw=raw: raw)
         with pytest.raises(ValueError, match="hash or route name"):
             _check_rendered_report(output)
-    rebind(output, case, lambda _: original_case)
+    # A numeric product path in a page address is a reader label, not an internal hash.
+    rebind(output, case, lambda _: original_case.replace(
+        "example.org/product/1", "example.org/product/123456789012"))
     rebind(output, "zh/index.html", lambda _: original_index)
     _check_rendered_report(output)
+    rebind(output, case, lambda _: original_case)
 
     rebind(output, case, lambda raw: raw.replace("<td>未返回</td>", "<td>符合标注</td>", 1))
     with pytest.raises(ValueError, match="other than not returned"):
