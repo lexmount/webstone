@@ -9,11 +9,13 @@ from harness.web_fetch.report_saved_matrix import build_saved_matrix, check_save
 from tests.test_saved_matrix_evidence import build, fixture, write
 
 
-def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False):
+def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False, public=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
         spec, source, record, _ = fixture(folder)
+        if public:
+            spec['public_evidence_views'] = True
         if families:
             spec['report_families'] = [{'id': 'web', 'label': 'Static websites'}]
         provider = 'method' if duplicate else 'method-' + str(i)
@@ -36,6 +38,52 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
     path = tmp_path / 'combined.json'
     write(path, spec)
     return path, entries
+
+
+def test_frozen_public_composition_reuses_full_renderer_with_selected_labels(tmp_path):
+    from bs4 import BeautifulSoup
+    path, entries = reports(tmp_path, families=True, public=True, undecidable=True)
+    spec = json.loads(path.read_text())
+    spec.update(scope_notes='external', ranking='saved_task_pass_rate',
+                report_families=[{'id': 'web', 'label': 'Web content'}])
+    write(path, spec)
+    root = build_saved_matrix(path, tmp_path/'joined').parent
+    assert check_saved_matrix(root, spec_path=path)['valid']
+    model = json.loads((root/'matrix.json').read_text())
+    assert all(row['frozen_public_evidence_views'] for row in model['rows'])
+    assert model['totals']['undecidable'] == 1
+    soup = BeautifulSoup((root/'index.html').read_text(), 'html.parser')
+    assert soup.select_one('main[data-scope-notes="external"]')
+    assert len(soup.select('#ranking-overall tbody tr')) == 2
+    assert not soup.select('#ranking-overall [data-rank]')
+    assert 'Web content' in soup.get_text()
+    assert not soup.select('[data-evidence-state], #overview .callout')
+    assert '仅供诊断' not in soup.select_one('#overview').get_text()
+    for row, entry in zip(model['rows'], entries, strict=True):
+        original = json.loads((Path(entry['root'])/'matrix.json').read_text())['rows'][0]
+        assert row['passed'] == original['passed']
+        assert (root/row['record_path']).read_bytes() == (Path(entry['root'])/original['record_path']).read_bytes()
+    # Frozen snapshots remain bound even when someone rebinds the outer audit.
+    original = root/model['rows'][0]['record_path']
+    binding = write(original, {'changed': True})
+    audit = json.loads((root/'saved-matrix-audit.json').read_text())
+    audit['files'][original.relative_to(root).as_posix()] = binding['sha256']
+    write(root/'saved-matrix-audit.json', audit)
+    with pytest.raises(ValueError, match='Frozen report file changed'):
+        check_saved_matrix(root)
+
+
+def test_frozen_view_flag_cannot_replace_source_admission(tmp_path):
+    spec, _, _, _ = fixture(tmp_path)
+    root = build(tmp_path, spec).parent
+    model = json.loads((root/'matrix.json').read_text())
+    model['rows'][0]['frozen_public_evidence_views'] = True
+    binding = write(root/'matrix.json', model)
+    audit = json.loads((root/'saved-matrix-audit.json').read_text())
+    audit['files']['matrix.json'] = binding['sha256']
+    write(root/'saved-matrix-audit.json', audit)
+    with pytest.raises(ValueError, match='bound saved composition'):
+        check_saved_matrix(root)
 
 
 @pytest.fixture(scope='module')

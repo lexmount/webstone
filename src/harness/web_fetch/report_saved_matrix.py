@@ -496,6 +496,8 @@ def _load_saved_matrix(spec_path):
         raise ValueError('Unsupported saved-matrix ranking selection')
     if spec.get('presentation', 'audit') not in {'audit', 'final'}:
         raise ValueError('Unknown saved-matrix presentation')
+    if spec.get('scope_notes', 'report') not in {'report', 'external'}:
+        raise ValueError('Unknown saved-matrix scope note location')
     _declared_review_scope(spec)
     if 'public_evidence_views' in spec and type(spec['public_evidence_views']) is not bool:
         raise ValueError('Public evidence views must be explicitly enabled or disabled')
@@ -2194,6 +2196,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     if spec.get('presentation') == 'final':
         model['presentation'] = 'final'
     model['ranking'] = spec.get('ranking', 'diagnostic')
+    if 'scope_notes' in spec:
+        model['scope_notes'] = spec['scope_notes']
     model['combined_ranking'] = spec.get('combined_ranking', True)
     if revision:
         model['offline_revision'] = revision['receipt']
@@ -2285,6 +2289,7 @@ def _validate_source_disclosures(output, model, inputs, adoptions, keys):
                       if p['id'] not in spec.get('excluded_report_providers', [])],
         'suites': [{'id': p['id'], 'label': p['label']} for p in spec['suites']],
         'limitations': spec.get('limitations', []), 'ranking': spec.get('ranking', 'diagnostic'), 'combined_ranking': spec.get('combined_ranking', True),
+        'scope_notes': spec.get('scope_notes'),
         'independent_result_review_scope': _declared_review_scope(spec),
         'report_families': ([g for g in spec['report_families']
                             if g['id'] not in spec.get('excluded_report_families', [])]
@@ -2684,6 +2689,9 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 except ValueError as exc:
                     raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if (any(row.get('frozen_public_evidence_views') for row in model['rows'])
+            and not (output/'saved-composition.json').is_file()):
+        raise ValueError('Frozen public views require a bound saved composition')
     if inputs is not None:
         pricing = inputs['spec'].get('pricing')
         expected = ({'path':'report-assets/provider-pricing.json','sha256':pricing['sha256']}
@@ -2843,11 +2851,14 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         raise ValueError('Saved renderer projection differs from validated rows')
     if inputs is not None:
         _validate_rendered_pages(output, model)
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    check_token_usage_presentation((output/'index.html').read_text(encoding='utf-8'), projected_records)
     # Source HTML captures are immutable evidence, not generated navigation routes.
     routes = sorted(p for p in output.rglob('*.html')
                     if p.relative_to(output).parts[0] != 'evidence')
     from harness.web_fetch.report_check import VisibleLocalScope, check_local_diagnostic_presentation
-    check_local_diagnostic_presentation(output, ranked=model.get('presentation') == 'final' or model.get('ranking') == 'saved_task_pass_rate')
+    external_notes = model.get('scope_notes') == 'external'
+    check_local_diagnostic_presentation(output, ranked=model.get('presentation') == 'final' or model.get('ranking') == 'saved_task_pass_rate', external_scope_notes=external_notes)
     from harness.report_languages import english_notice
     virtual_root = 'https://saved-matrix.invalid/__report__/'
     for page in routes:
@@ -2858,8 +2869,10 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         disclosure = VisibleLocalScope()
         disclosure.feed(content)
         is_notice = relative == 'en/index.html' and content == english_notice()
-        if not is_notice and (not disclosure.is_report or not ({'evidence', 'ranking'} if model.get('presentation') == 'final' or model.get('ranking') == 'saved_task_pass_rate' else {'evidence'}) <= disclosure.visible):
+        if not is_notice and (not disclosure.is_report or (not external_notes and not ({'evidence', 'ranking'} if model.get('presentation') == 'final' or model.get('ranking') == 'saved_task_pass_rate' else {'evidence'}) <= disclosure.visible)):
             raise ValueError('Saved-result evidence/ranking scope disclosure missing: ' + relative)
+        if external_notes and not is_notice and 'data-scope-notes="external"' not in content:
+            raise ValueError('External scope note selection missing: ' + relative)
         parser = _Links()
         parser.feed(content)
         page_url = virtual_root + relative
@@ -2946,7 +2959,7 @@ def _saved_renderer_projection(output, model):
                     return candidate
             return value
         record = project(raw)
-        if model.get('public_evidence_views'):
+        if model.get('public_evidence_views') or row.get('frozen_public_evidence_views'):
             from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose
             local_root = contained_path(output, prefix, reject_symlinks=True)
@@ -3012,6 +3025,10 @@ def _saved_renderer_projection(output, model):
                        'presentation': {'ranking': 'saved_task_pass_rate' if final else model.get('ranking', 'diagnostic'),
                                         'combined_ranking': model.get('combined_ranking', True)}},
         'saved_matrix_scope': scope}
+    if 'scope_notes' in model:
+        dataset['comparison']['presentation']['scope_notes'] = model['scope_notes']
+    if model.get('descriptive_comparison'):
+        dataset['comparison']['presentation']['descriptive_comparison'] = True
     if model.get('offline_revision'):
         dataset['comparison']['offline_revision'] = model['offline_revision']
     if _declared_review_scope(model) is not None:

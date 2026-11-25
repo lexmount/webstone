@@ -87,6 +87,52 @@ def check_public_evidence_pages(root, records):
             require_public_evidence_page(path.read_text(encoding="utf-8"), relative, selected)
 
 
+def check_token_usage_presentation(content, records):
+    """Reject missing receipts, double-counted cache, or misleading extrema."""
+    from harness.web_fetch.report_usage import token_usage
+    expected = token_usage(records)
+    expected.sort(key=lambda item: (item['total_tokens'] is None,
+                                   item['total_tokens'] or 0, item['provider']))
+    soup = BeautifulSoup(content, 'html.parser')
+    table = soup.select_one('#token-usage')
+    if not expected:
+        if table is not None:
+            raise ValueError('Token usage table has no native receipts')
+        return
+    if table is None or len(table.select('thead button')) != 6:
+        raise ValueError('Token usage comparison or sorting is missing')
+    rows = table.select('tbody tr')
+    if len(rows) != len(expected):
+        raise ValueError('Token usage participant coverage differs')
+    comparable = (len({item['count'] for item in expected}) == 1
+                  and all(item['observed'] == item['count'] for item in expected))
+    totals = [item['total_tokens'] for item in expected]
+    minimum = min(totals) if comparable else None
+    for item, row in zip(expected, rows, strict=True):
+        if row.get('data-provider') != item['provider']:
+            raise ValueError('Token usage participant differs')
+        cells = row.select('td')
+        if len(cells) != 6 or cells[1].get_text() != f"{item['observed']}/{item['count']}":
+            raise ValueError('Token usage receipt coverage differs')
+        for index, key in enumerate(('total_tokens', 'uncached_input_tokens',
+                                     'cached_input_tokens', 'output_tokens'), start=2):
+            value = item[key]
+            cell = cells[index]
+            partial = cell.select_one('[data-partial-usage]')
+            needs_partial = index == 2 and value is not None and item['observed'] < item['count']
+            if bool(partial) != needs_partial:
+                raise ValueError('Token usage subset label differs from receipt coverage')
+            if partial is not None:
+                partial.decompose()
+            if (cell.get('data-sort') != (None if value is None else str(value))
+                    or cell.get_text() != ('—' if value is None else f'{value:,}')):
+                raise ValueError('Token usage value differs from native receipts')
+            winner = (index == 2 and comparable and totals.count(minimum) == 1
+                      and value == minimum)
+            if bool(cell.select('.comparison-winner.good')) != winner:
+                raise ValueError('Token usage highlight differs from its metric direction')
+
+
 class Tables(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -300,7 +346,7 @@ class VisibleLocalScope(HTMLParser):
             self.visible.update(self.stack[-1][2])
 
 
-def check_local_diagnostic_presentation(root: Path, *, ranked=False):
+def check_local_diagnostic_presentation(root: Path, *, ranked=False, external_scope_notes=False):
     """Track evidence state and scope any explicitly requested sample ranking."""
     from harness.report_languages import english_notice
     for path in root.rglob('*.html'):
@@ -313,14 +359,14 @@ def check_local_diagnostic_presentation(root: Path, *, ranked=False):
         disclosure.feed(page)
         if relative.as_posix() == 'en/index.html' and page == english_notice():
             continue
-        if not disclosure.is_report or 'evidence' not in disclosure.visible:
+        if not disclosure.is_report or (not external_scope_notes and 'evidence' not in disclosure.visible):
             raise ValueError('Local diagnostic disclosure missing: ' + str(path.relative_to(root)))
-        if ranked and 'ranking' not in disclosure.visible:
+        if ranked and not external_scope_notes and 'ranking' not in disclosure.visible:
             raise ValueError('Sample ranking scope missing: ' + str(path.relative_to(root)))
         for table in re.findall(r'<table\b[^>]*\bid="ranking-[^"]+".*?</table>', page, re.S):
             if not ranked and (re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) or 'comparison-winner' in table):
                 raise ValueError('Unrequested diagnostic ranking: ' + str(path.relative_to(root)))
-            if re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) and 'ranking' not in disclosure.visible:
+            if not external_scope_notes and re.search(r'<th>\s*(?:序号|Rank|No\.)\s*</th>', table) and 'ranking' not in disclosure.visible:
                 raise ValueError('Sample ranking scope missing: ' + str(path.relative_to(root)))
 
 

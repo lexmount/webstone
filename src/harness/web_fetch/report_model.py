@@ -160,6 +160,7 @@ class RenderContext:
     descriptive_ranks: bool = False
     result_views: dict | None = None
     methods: MethodScope = field(default_factory=MethodScope)
+    external_scope_notes: bool = False
 
 
 _RENDER_CONTEXT = ContextVar('webfetch_render_context', default=RenderContext())

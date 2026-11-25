@@ -5,6 +5,7 @@
     "price_entry_verified": "本条官方资料核验：{date}。",
     "saved_failure_chapters": "各方法未通过的原因",
     "saved_failure_categories_note": "以下分类来自程序检查和返回内容，覆盖全部未通过结果。相同分类可能有不同原因；没有逐题人工复核的结果，不据此认定网站或提供商的根因。",
+    "saved_result_counts": "本报告包含 {count} 个任务、{count2} 个逻辑结果，任务通过 {passes}/{count2}。",
     "inspect_response_scoring": "查看实际返回与评分",
     "saved_method_task_counts": "共 {total} 题，通过 {passed} 题，未通过 {failed} 题。",
     "saved_method_unmeasured_count": "另有 {count} 题无法判定，不计入通过率与失败分布的分母。",
@@ -2475,6 +2476,18 @@
     "report_retries_full": "重试按完整内容要求决定；本报告对保存输出评分。",
     "report_retries_original": "重试按各题原定要求决定；本报告对保存输出评分。",
     "response_validation_failed": "返回结果校验失败",
-    "response_validation": "返回结果校验"
+    "response_validation": "返回结果校验",
+    "token_usage_title": "Token 消耗",
+    "token_usage_coverage": "记录 / 题数",
+    "token_usage_total": "Token 总量",
+    "token_usage_uncached": "未缓存输入",
+    "token_usage_cached": "缓存输入",
+    "token_usage_output": "输出",
+    "token_usage_definition": "总量 = 未缓存输入 + 缓存输入 + 输出。按各题 subagent 的记录合计，缓存只计一次；单位为 token。",
+    "token_usage_minimum": "同等题数下，总量较小值用绿色加粗。",
+    "passing_latency_detail": "通过任务的耗时",
+    "latency_column_minimum": "耗时列的较小值用绿色加粗。",
+    "token_usage_partial": "已记录部分",
+    "saved_comparison_population": "{tasks} 个任务 · {methods} 种方法。对比已记录的任务通过率与调用耗时。"
   }
 }

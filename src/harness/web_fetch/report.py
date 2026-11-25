@@ -471,6 +471,7 @@ def table(headers,rows,id='',sortable=False,cls='',metrics=None,index_header=t('
  body=''.join(f'<tr{attrs}>'+ ((f'<td data-rank="{rank_values[i]}">{rank_values[i]}</td>' if rank_values is not None else f'<td>{i+1}</td>') if include_index else '')+f'{values}</tr>' for i,(attrs,values) in enumerate(rows))
  sort_attrs=(f' data-col="{default_sort[0]}" data-dir="{default_sort[1]}"' if default_sort else '')
  if not include_index:sort_attrs+=' data-row-index="false"'
+ if render_context().descriptive_ranks:sort_attrs+=' data-highlight-ties="all"'
  return metric_legend(headers if metrics is None else metrics)+f'<div class="table-wrap"><table class="{cls}"'+(f' id="{id}"' if id else '')+sort_attrs+f'><thead><tr>{head}</tr></thead><tbody'+(' id="rows"' if id=='filtered-table' else '')+f'>{body}</tbody></table></div>'
 def _scoped_render(function):
  @wraps(function)
@@ -492,10 +493,13 @@ def write(out,path,title,body,*,root_links=False,show_language=True):
    body+=section(t('acceptance_basis', 'Acceptance basis'),('<div data-score-audit><dl class="diagnostic-fields"><dt>' + t('acceptance_requirement', 'Acceptance requirement') + f"</dt><dd>{esc(reviewed['requirement'])}</dd><dt>" + t('actual_output', 'Actual output') + f"</dt><dd>{esc(reviewed['actual'])}</dd></dl><p>{link('../audit/index.html#' + identifier, t('view_sources_and_judgment_basis', 'View sources and judgment basis'))}</p></div>"))
  counterpart=(base+'en/'+path if context.english_generated else base+'en/index.html')
  language=f'<a href="{safe_href(counterpart)}" hreflang="en">English</a>' if show_language else ''
- footer=t('all_scores_are_computed_from_the_recorded', 'All scores are computed from the recorded calls. Web pages and services may change; conclusions apply only to this sample and configuration.')
+ footer='' if context.external_scope_notes else t('all_scores_are_computed_from_the_recorded', 'All scores are computed from the recorded calls. Web pages and services may change; conclusions apply only to this sample and configuration.')
  evidence_attr=' data-evidence-state="published_snapshot_score_audit"' if context.score_audit else ''
  if context.score_audit:footer=link(base+'methodology/index.html',t('methodology', 'Methodology'))+' · '+link(base+'changes/index.html',t('version_records', 'Version records'))
  banner=context.banner.replace('href="audit/index.html"','href="'+base+'audit/index.html"')
+ if context.external_scope_notes:
+  banner=''
+  evidence_attr+=' data-scope-notes="external"'
  scope_note=''
  if context.scope_presentation:
   from harness.web_fetch.report_version import SCOPE_TEXT, scope_retry_text
@@ -879,7 +883,7 @@ def overview_card(records,cases,track,label,names,*,diagnostic=False):
  selected={k:c for k,c in cases.items() if report_family(c)==track}
  if not selected:return ''
  eligible=[r for r in records if r['case_id'] in selected and measured(r,selected[r['case_id']])]
- if diagnostic or not ranking_readiness(records,selected,participants=family_participants(records,selected))[0]:
+ if (diagnostic or not ranking_readiness(records,selected,participants=family_participants(records,selected))[0]) and not (render_context().external_scope_notes and render_context().descriptive_ranks):
   return (f"""<div class="card"><div class="eyebrow">{len(selected)}{t('report_tasks_e5ff3d', ' tasks')}</div><h3>{link('#home-rankings-' + track, label)}</h3><p>{t('report_these_saved_results_are_diagnostic_and_uncertified_543b73', 'These saved results are diagnostic and uncertified.')}</p></div>""")
  rates={n:sum(succeeded(r,cases[r['case_id']]) for r in eligible if r['provider']==n)/sum(r['provider']==n for r in eligible) for n in names if any(r['provider']==n for r in eligible)}
  maximum=max(rates.values(),default=None)
@@ -1489,7 +1493,7 @@ def ranking_readiness(records,cases,*,participants=None):
  notes=[]
  if not complete:notes.append(model_text(*pair('report_results_do_not_cover_the_same_complete_task_1be98a', 'Results do not cover the same complete task population; scores are shown without ranks.')))
  if not same_scorer and not render_context().descriptive_ranks:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
- return complete and (same_scorer or render_context().descriptive_ranks), ''.join('<p class="callout">'+n+'</p>' for n in notes)
+ return complete and (same_scorer or render_context().descriptive_ranks), ('' if render_context().external_scope_notes else ''.join('<p class="callout">'+n+'</p>' for n in notes))
 
 
 def shared_ranks(scores):
@@ -1629,6 +1633,7 @@ def overview_matched_latency(records,cases):
  names=sorted(set(render_context().labels) | {r['provider'] for r in records})
  keys={(r['provider'],r['case_id']) for r in records}
  if not names or len(keys)!=len(records) or any((name,cid) not in keys for name in names for cid in cases):
+  if render_context().external_scope_notes:return ''
   return ('<p>' + t('the_call_matrix_is_incomplete_so_latency', 'The call matrix is incomplete, so latency on tasks passed by every method is not yet summarized.') + '</p>')
  common=set.intersection(*({r['case_id'] for r in records if r['provider']==name and succeeded(r,cases[r['case_id']])} for name in names))
  if not common:return ('<p>' + t('no_task_is_yet_passed_by_every', 'No task is yet passed by every method, so shared-task latency is not calculated.') + '</p>')
@@ -1641,6 +1646,7 @@ def overview_matched_latency(records,cases):
   rows.append(('',values))
  count=population['common_pass_count']
  note=(('<p>' + t('all_tested_configurations_pass', 'All {count} tested configurations pass', count=len(names)) + f' <strong>{count}/{len(cases)}</strong> ' + t('tasks_in_common_every_row_below_uses', 'tasks in common. Every row below uses this same task set.') + '</p><p class="source-note">' + t('this_includes_all_methods_and_versions_registered', 'This includes all methods and versions registered in the report. Statistics use recorded primary calls and disclosed latency corrections across dates and batches. These values are not a controlled speed comparison within one time window and exclude failed-task latency.') + '</p>'))
+ if render_context().external_scope_notes:note=note.split('<p class="source-note">',1)[0]
  dates=[]
  for row in population['rows']:
   observed=row['recorded_start_dates']
@@ -1727,21 +1733,43 @@ def logical_execution_cost_ms(record):
  return record['elapsed_ms']+metadata.get('retry_cleanup_wait_ms',0)+metadata.get('retry_throttle_wait_ms',0)
 
 
-def successful_final_call_latency(records,cases):
+def successful_final_call_latency(records,cases,*,prefix=""):
  """Show conditional task-passing latency separately from all-result costs."""
  groups=defaultdict(list)
  for record in records:groups[record['provider']].append(record)
  rows=[]
  for name,group in sorted(groups.items()):
   times=[r['elapsed_ms'] for r in group if succeeded(r,cases[r['case_id']])]
-  values=cell(link(f'providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
+  values=cell(link(f'{prefix}providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
   for value in (statistics.mean(times) if times else None,percentile(times,.5),percentile(times,.95)):
    values+=cell(ms(value),value)
   rows.append(('',values))
  rows=comparative_rows(rows,{i:('successful_final_latency_'+str(i),'min') for i in (2,3,4)})
  return ('<h3>'+model_text(*pair('report_final_call_latency_of_task_passing_results_c5387b', 'Final-call latency of task-passing results'))+'</h3><p>'+
-  model_text(*pair('report_only_each_method_s_task_passing_results_are_a81e48', 'Only each method’s task-passing results are included; failures cannot win latency highlights. Populations differ, so highlights identify column minima, not a same-task speed ranking.'))+'</p>'+
+  ('' if render_context().external_scope_notes else model_text(*pair('report_only_each_method_s_task_passing_results_are_a81e48', 'Only each method’s task-passing results are included; failures cannot win latency highlights. Populations differ, so highlights identify column minima, not a same-task speed ranking.')))+'</p>'+
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
+
+
+def token_usage_comparison(records):
+ from harness.web_fetch.report_usage import token_usage
+ usage=token_usage(records)
+ if not usage:return ''
+ usage.sort(key=lambda item:(item['total_tokens'] is None,item['total_tokens'] or 0,item['provider']))
+ fields=('total_tokens','uncached_input_tokens','cached_input_tokens','output_tokens')
+ rows=[]
+ for item in usage:
+  values=cell(link('providers/'+item['provider']+'.html',provider_label(item['provider'])))+cell(f"{item['observed']}/{item['count']}")
+  for key in fields:
+   value=item[key]
+   text='—' if value is None else f'{value:,}'
+   if key=='total_tokens' and value is not None and item['observed']<item['count']:
+    text+='<br><small data-partial-usage>'+t('token_usage_partial','Recorded subset')+'</small>'
+   values+=cell(text,value)
+  rows.append((' data-provider="'+esc(item['provider'])+'"',values))
+ comparable=len({item['count'] for item in usage})==1 and all(item['observed']==item['count'] for item in usage)
+ rows=comparative_rows(rows,{2:('total_tokens','min')} if comparable else {})
+ heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
+ return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the lower total for the same number of tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
 
 
 def all_final_call_latency(records):
@@ -1806,19 +1834,19 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b>'+model_text(*pair('report_some_results_are_missing_or_tasks_were_not_c085cf', 'Some results are missing or tasks were not called. Rates use each method’s saved decidable results; missing items are not failures. See completion details for denominators, calls and missing counts. Adapter rejections retain their original failure scores without implying a product call.'))+'</p>'
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
+ if render_context().external_scope_notes and render_context().descriptive_ranks:
+  intro='<p class="decision-lead">'+t('saved_comparison_population','{tasks} tasks · {methods} methods. Compare recorded task pass rates and call latency.',tasks=case_count,methods=len(groups))+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
        + '<div><dt>'+saved_matrix_text('passing_final_call_title' if passing_latency else 'final_call_timing_title')+'</dt><dd>'+saved_matrix_text('passing_final_call_help' if passing_latency else 'final_call_timing_help')+'</dd></div>' +
        ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
- # Mixed outcomes make all-call timing observational: a quicker failure is
- # not a better delivery. Successful-call comparisons have their own owner.
- if passing_latency or (records and all(succeeded(r,cases[r['case_id']]) for r in records)):
-  directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
+ # Timing columns compare recorded consumption over their declared population.
+ directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
- if ranked:rows=comparative_rows(rows,directions)
+ if ranked or render_context().descriptive_ranks:rows=comparative_rows(rows,directions)
  timing_note='<p>'+saved_matrix_text('final_call_timing_note')
  if passing_latency:
   timing_note+=' '+saved_matrix_text('passing_final_call_help')+' '+link('analysis/index.html#all-final-call-timing',saved_matrix_text('all_final_call_timing_title'))
@@ -1834,8 +1862,9 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead">'+model_text(*pair('report_compare_each_frozen_task_group_separately_without_a_f6add0', 'Compare each frozen task group separately, without a combined pass-rate ranking. Cross-group cases retain their original identities; record counts are not unique-site counts.'))+'</p>'
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
- rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
+ indexed=ranked or render_context().descriptive_ranks
+ rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=indexed,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(indexed),'desc') if combined else (0,'asc'))
+ return intro+rank_note+timing_note+help+('<p class="source-note">'+t('latency_column_minimum','Lower values in latency columns are green and bold.')+'</p>' if ranked else '')+rendered
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""
@@ -1935,6 +1964,7 @@ def local_pass_rate_ranking(dataset):
 
 
 def local_audit_banner(dataset):
+ if dataset.get('comparison',{}).get('presentation',{}).get('scope_notes')=='external':return ''
  if dataset.get('saved_matrix_scope') and local_pass_rate_ranking(dataset):
   return '<div class="wrap source-note" data-evidence-state="saved_results" data-ranking-scope="saved-task-pass-rate"><strong>'+model_text(*pair('report_saved_result_rankings_not_benchmark_certification_93b684', 'Saved-result rankings · not benchmark certification'))+'</strong><p>'+model_text(*pair('report_ranks_describe_the_listed_results_and_the_acceptance_14faa5', 'Ranks describe the listed results and the acceptance rules recorded with them. Source and execution-setting verification is not benchmark certification; see methodology for configurations and collection dates.'))+'</p></div>'
  if dataset.get('comparison',{}).get('publication_state')!='local_audit_only_not_for_release':
@@ -1991,7 +2021,7 @@ def _model_pages(out,model):
  if not isinstance(model,ReportModel):raise TypeError('render_report() takes a validated ReportModel')
  # The model keeps its inputs by reference; admit them again at the render boundary.
  model.require_admission()
- with rendering(model):
+ with rendering(model,descriptive_ranks=model.dataset.get('comparison',{}).get('presentation',{}).get('descriptive_comparison',False)):
   return _render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
 
 
@@ -2057,7 +2087,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  elif dataset.get('comparison', {}).get('publication_state') == 'diagnostic_not_for_release':
   reliability_banner += ('<div class="wrap callout" role="status"><strong>' + t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') + '</strong><p>' + t('these_calls_check_the_selected_tasks_and', 'These calls check the selected tasks and methods without the cohort certification required for a formal benchmark.') + '</p></div>')
  from harness.web_fetch.report_version import content_scope_presentation
- set_render_context(replace(render_context(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests)))
+ set_render_context(replace(render_context(),banner=reliability_banner,english_generated=include_english,score_audit=score_audit,coverage_plan=dataset.get('coverage_plan'),scope_presentation=content_scope_presentation(dataset,records,manifests),external_scope_notes=dataset.get('comparison',{}).get('presentation',{}).get('scope_notes')=='external'))
  validate_report_ids(dataset,records)
  for path in ['assets/style.css','assets/report.js','references']:
   contained_path(out,path)
@@ -2118,6 +2148,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  if not combined:overall_title=(t('report_task_results_b4e30d', 'Task results'))
  budgets={m['timeout_seconds'] for m in manifests if m.get('timeout_seconds') is not None}
  home+=section(overall_title,overall_ranking(records,cases,audit,diagnostic=diagnostic,call_budget_seconds=next(iter(budgets)) if len(budgets)==1 else None,combined=combined),'overall-ranking')
+ home+=token_usage_comparison(records)
  home+=input_suite_comparison(dataset,cases,records)
  if diagnostic and not score_audit:
   home+=result_ledger_section(out,records)
@@ -2126,7 +2157,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  if measurement_presentation(dataset).all_call_latency:
   home+=section((t('report_all_call_latency_on_the_same_task_set_45ffcf', 'All-call latency on the same task set')),overview_all_call_latency(records,cases),'all-call-latency')
  completeness=(('<p class="callout">' + '<b>' + t('report_result_storage_5f0229', 'Result storage:') + '</b>')+str(reliability['present_calls'])+'/'+str(reliability['expected_calls'])+(t('report_groups_have_saved_results_no_scores_were_invented_for_m_448a36', ' groups have saved results; no scores were invented for missing entries.') + '</p>'))
- if final_saved:
+ if final_saved or render_context().external_scope_notes:
   completeness=''
  elif not dataset.get('saved_matrix_scope'):
   completeness=('<p class="callout success">' + '<b>' + t('report_result_coverage_403d3c', 'Result coverage:') + '</b>')+str(reliability['expected_calls'])+'/'+str(reliability['expected_calls'])+(t('report_calls_all_have_saved_results_0daa25', ' calls all have saved results.') + '</p>')
@@ -2134,7 +2165,8 @@ def _render_model(out,dataset,records,manifests,*,model):
  if dataset.get('saved_matrix_scope') and not final_saved:
   home+=saved_matrix_scope_section(dataset['saved_matrix_scope'])
 
- home+=section((t('report_latency_on_tasks_passed_by_every_method_4f37d4', 'Latency on tasks passed by every method')),overview_matched_latency(records,cases),'overall-matched-latency')
+ matched_timing=overview_matched_latency(records,cases)
+ if matched_timing:home+=section((t('report_latency_on_tasks_passed_by_every_method_4f37d4', 'Latency on tasks passed by every method')),matched_timing,'overall-matched-latency')
  if (out/'resource-cohort/resource-comparison.json').is_file():
   home+=section((t('report_cpu_memory_and_network_6ef0eb', 'CPU, memory, and network')),overview_resources(out),'overall-resources')
  home+=section((t('report_results_by_task_family_fc8ac0', 'Results by task family')) if score_audit else (t('report_diagnostic_results_by_task_family_d020c9', 'Diagnostic results by task family')) if diagnostic else model_text(*pair('report_value_family_rankings_886366', '{value1} family rankings', value0=track_label, value1=len(tracks))),(('<p>' + t('report_task_pass_rate_content_quality_and_latency_are_shown_se_2f9439', 'Task pass rate, content quality and latency are shown separately.') + '</p>') if score_audit else ('<p class="ranking-orientation">' + t('report_diagnostic_rows_are_sorted_by_task_pass_rate_for_inspec_6aadb0', 'Diagnostic rows are sorted by task pass rate for inspection; no ranks are assigned. Task judgments, content quality and latency are shown separately.') + '</p>') if diagnostic else ('<p class="ranking-orientation">' + t('report_family_rankings_show_specific_capabilities_they_default_500d5c', 'Family rankings show specific capabilities. They default to task pass rate; select a column heading to sort. Text quality and pass rate are calculated separately.') + '</p>'))+tabs('home-rankings',panels),'results')
@@ -2477,7 +2509,7 @@ def _render_model(out,dataset,records,manifests,*,model):
    file_rows=[('',cell(link('../'+f['artifact_path'],t('download_delivered_file', 'Download delivered file')))+cell(esc(f.get('mime')))+cell(str(f['bytes']))+cell('<code class="break">'+esc(f['sha256'])+'</code>')+cell(t('match', 'Match') if f.get('pass') else t('not_matched_2', 'Not matched'))) for f in delivered]
    body+=section(t('original_file_byte_evidence', 'Original-file byte evidence'),table([t('file', 'File'),t('format_signature', 'Format signature'),t('bytes_2', 'Bytes'),'SHA-256',t('target_check', 'Target check')],file_rows,metrics=[]))
   write(out,'attempts/'+r['attempt_id']+'.html',c['name']+' · '+r['provider'],body)
- write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks))
+ write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks)+section(t('passing_latency_detail', 'Task-passing latency'),successful_final_call_latency(records,cases,prefix='../'),'passing-latency'))
  write_support(out,records,manifests,authored_interpretation=authored_interpretation)
  if score_audit:
   render_score_audit(out,score_audit,score_binding)
@@ -3078,11 +3110,13 @@ def saved_execution_settings_section(settings):
   values+=cell(esc(item.get('collection_start') or '—')+'<br>'+esc(item.get('collection_end') or '—'))+cell(details)
   rows.append(('',values))
  note=model_text(*pair('report_actual_settings_and_collection_times_are_grouped_by_49f6f0', 'Actual settings and collection times are grouped by method and task family. Uniformity describes records within each group only. Differences in DNS, budgets, timeouts, collection dates or execution locations prevent a same-window controlled speed claim.'))
- return section(model_text(*pair('report_execution_settings_by_method_and_task_family_65dad7', 'Execution settings by method and task family')),'<p>'+note+'</p>'+table([
+ return section(model_text(*pair('report_execution_settings_by_method_and_task_family_65dad7', 'Execution settings by method and task family')),('' if render_context().external_scope_notes else '<p>'+note+'</p>')+table([
   model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_task_family_2346c3', 'Task family')),model_text(*pair('report_verified_calls_8249fa', 'Verified / calls')),model_text(*pair('report_within_group_settings_29de0d', 'Within-group settings')),model_text(*pair('report_collection_period_0d19bd', 'Collection period')),model_text(*pair('report_configuration_evidence_879a28', 'Configuration evidence'))],rows,'saved-execution-settings',metrics=[]),'execution-settings')
 
 
 def saved_matrix_scope_section(scope,*,show_completion=True):
+ if render_context().external_scope_notes:
+  return '' if show_completion else saved_execution_settings_section(scope.get('execution_settings',[]))
  limitations=section(saved_matrix_text('limitations'),'<ul>'+''.join('<li>'+esc(note)+'</li>' for note in scope.get('limitations',[]))+'</ul>','saved-limitations')
  if not show_completion:
   quality_note='<p data-acceptance-quality-limit>'+model_text(*pair('report_required_text_and_structure_checks_measure_declared_target_b54265', 'Required-text and structure checks measure declared target coverage, not a complete noise penalty. Passing a task does not establish the absence of navigation, ads or irrelevant text. Full-text precision is computed only where a comparable complete reference exists and does not measure noise for the remaining tasks.'))+'</p>'
@@ -3121,7 +3155,7 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  rows=[row for _,_,row in sorted(rows,key=lambda item:item[:2])]
  eligible,rank_note=ranking_readiness(records,selected,participants=family_participants(records,selected))
  ranked=not diagnostic and eligible
- if ranked:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
+ if ranked or render_context().descriptive_ranks:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
  scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(render_context().labels)],reverse=True)
  return rank_note+'<p>'+saved_matrix_text('suite_denominator_note')+'</p>'+table(saved_matrix_text('suite_result_headers'),rows,id or 'ranking-'+suite,sortable=True,metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(6+int(ranked),'desc'))
 

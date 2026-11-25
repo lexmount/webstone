@@ -348,7 +348,7 @@ def _unified_home(page, base_model, added_model, presentation):
             container.append(rendered)
         else:
             page.find('table', id=identifier).replace_with(fragment)
-        if fragment.get('data-row-index') != 'false':
+        if fragment.select_one('td[data-rank]') is not None:
             fragment.thead.tr.find('th').string = _text('extension_rank')
         else:
             if identifier != 'ranking-overall':
@@ -1038,7 +1038,7 @@ def _project(value, paths):
 
 
 def _public_spec(spec):
-    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking') if k in spec}
+    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking', 'scope_notes', 'ranking', 'report_families') if k in spec}
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = True
     return result
@@ -1047,6 +1047,7 @@ def _public_spec(spec):
 def composition_model(output, spec, snapshots):
     from harness.web_fetch.report_saved_matrix import _case_identity, _totals, check_saved_matrix
     providers, rows, cases, suites, families = [], [], {}, None, None
+    execution_settings = []
     expected_population = None
     for snapshot in snapshots:
         if snapshot['path'] != 'evidence/saved-reports/' + safe_identifier(snapshot['id']):
@@ -1054,8 +1055,10 @@ def composition_model(output, spec, snapshots):
         root = contained_path(output, snapshot['path'], reject_symlinks=True)
         if _hash(root / 'saved-matrix-audit.json') != snapshot['sha256']:
             raise ValueError('Saved composition source audit changed')
-        check_saved_matrix(root)
-        audit, model = _read(root / 'saved-matrix-audit.json'), _read(root / 'matrix.json')
+        model = _frozen_report(root, snapshot)
+        if not model.get('public_evidence_views') and model.get('presentation') != 'final':
+            check_saved_matrix(root)
+        audit = _read(root / 'saved-matrix-audit.json')
         if 'providers' in snapshot:
             selected = snapshot['providers']
             available = {p['id'] for p in model['providers']}
@@ -1067,12 +1070,14 @@ def composition_model(output, spec, snapshots):
             model['rows'] = [r for r in model['rows'] if r['provider'] in selected]
         if suites is None:
             suites, families = model['suites'], model.get('report_families')
-        if suites != model['suites'] or families != model.get('report_families'):
+        if (spec.get('report_families') and {s['id'] for s in suites} != {s['id'] for s in model['suites']}
+                or not spec.get('report_families') and (suites != model['suites'] or families != model.get('report_families'))):
             raise ValueError('Saved comparisons have different task groups')
         if {p['id'] for p in providers} & {p['id'] for p in model['providers']}:
             raise ValueError('Saved comparisons have duplicate methods')
         providers.extend(model['providers'])
         paths = {name: snapshot['path'] + '/' + name for name in audit['files']}
+        execution_settings.extend(_project(model.get('execution_settings', []), paths))
         population = set()
         for row in model['rows']:
             key = row['suite'], row['case_id']
@@ -1084,7 +1089,11 @@ def composition_model(output, spec, snapshots):
         if expected_population is not None and population != expected_population:
             raise ValueError('Saved comparisons have different case populations')
         expected_population = population
-        rows.extend(_project(model['rows'], paths))
+        projected = _project(model['rows'], paths)
+        if model.get('public_evidence_views'):
+            for row in projected:
+                row['frozen_public_evidence_views'] = True
+        rows.extend(projected)
     if not rows:
         raise ValueError('Saved composition requires reports')
     result = dict(title=spec['title'], providers=providers, suites=suites, rows=rows,
@@ -1093,8 +1102,18 @@ def composition_model(output, spec, snapshots):
                   combined_ranking=spec.get('combined_ranking', True),
                   source_bindings=[{'name': s['id'], 'sha256': s['sha256']} for s in snapshots],
                   scores_changed=any(row.get('score_revision') for row in rows))
+    result['execution_settings'] = execution_settings
     if families is not None:
-        result['report_families'] = families
+        result['report_families'] = spec.get('report_families', families)
+    for key in ('scope_notes', 'ranking'):
+        if key in spec:
+            result[key] = spec[key]
+    if spec.get('scope_notes', 'report') not in {'report', 'external'}:
+        raise ValueError('Unknown saved composition scope note policy')
+    if spec.get('ranking', 'diagnostic') not in {'diagnostic', 'saved_task_pass_rate'}:
+        raise ValueError('Unknown saved composition ranking policy')
+    if spec.get('ranking') == 'saved_task_pass_rate':
+        result['descriptive_comparison'] = True
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = {'path': 'native-policy-registry.json',
                                            'sha256': _hash(output / 'native-policy-registry.json')}
@@ -1120,7 +1139,9 @@ def build_composition(spec_path, output):
         audit_path = root / 'saved-matrix-audit.json'
         if _hash(audit_path) != item['audit']['sha256']:
             raise ValueError('Saved report audit differs from binding')
-        check_saved_matrix(root)
+        source_model = _frozen_report(root, item['audit'])
+        if not source_model.get('public_evidence_views') and source_model.get('presentation') != 'final':
+            check_saved_matrix(root)
         relative = 'evidence/saved-reports/' + identifier
         shutil.copytree(root, output / relative)
         snapshot = {'id': identifier, 'path': relative, 'sha256': _hash(audit_path)}
