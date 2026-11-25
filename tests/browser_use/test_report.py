@@ -1238,6 +1238,17 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
     assert "查看本题运行结果" in task
     dataset = (output / "datasets/index.html").read_text(encoding="utf-8")
     assert "data-result=" not in dataset
+    from bs4 import BeautifulSoup
+
+    search_index = {
+        row.select_one("td a").text: row["data-search"]
+        for row in BeautifulSoup(dataset, "html.parser").select("tr[data-search]")
+    }
+    assert "Open my todos page" in search_index["#44"]
+    assert "GitLab" in search_index["#44"]
+    assert not any(
+        '"evaluation_contract"' in text or '"task_id"' in text for text in search_index.values()
+    )
     for expected in ("均值", "P50", "P95", "comparison-winner"):
         assert expected in text
     analysis = (output / "analysis/index.html").read_text(encoding="utf-8")

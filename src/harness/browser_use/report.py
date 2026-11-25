@@ -2366,7 +2366,7 @@ def _filters(participants: Participants, *, attempts: bool = False, dataset: boo
             "<label>" + t("filters.result", "Result") + ' <select data-filter="result"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="pass">' + t("same_task_comparison.pass", "Pass") + f"</option><option value=\"fail\"{' selected' if attempts else ''}>" + t("same_task_comparison.fail", "Fail") + "</option></select></label>"
         )
     )
-    placeholder = t("filters.task_intent_or_acceptance_contract", "Task, intent, or acceptance contract") if dataset else t("filters.task_intent_answer_or_error", "Task, intent, answer, or error")
+    placeholder = t("filters.task_intent_site_or_rationale", "Task, intent, site, or rationale") if dataset else t("filters.task_intent_answer_or_error", "Task, intent, answer, or error")
     return (
         ('<div class="filters"><label>' + t("filters.full_text_search", "Full-text search") + f' <input data-search type="search" placeholder="{placeholder}"></label><label>' + t("same_task_comparison.tier", "Tier") + ' <select data-filter="tier"><option value="">' + t("same_task_comparison.all", "All") + '</option><option value="easy">' + t("tier_label.easy", "Easy") + '</option><option value="medium">' + t("tier_label.medium", "Medium") + '</option><option value="hard">' + t("tier_label.hard", "Hard") + "</option></select></label><label>" + t("same_task_comparison.site", "Site") + ' <select data-filter="site"><option value="">' + t("same_task_comparison.all", "All") + '</option>' + _site_options() + '</select></label><label>' + t("same_task_comparison.type", "Type") + ' <select data-filter="kind"><option value="">' + t("same_task_comparison.all", "All") + "</option><option>RETRIEVE</option><option>NAVIGATE</option><option>MUTATE</option></select></label>")
         + result_filter
@@ -2395,9 +2395,11 @@ def _task_table(tasks: list[dict[str, Any]], participants: Participants) -> str:
             str(x)
             for x in (
                 task_id,
+                _tier_label(task["tier"]),
+                SITE_LABELS.get(site, site),
+                kind,
                 task.get("intent"),
                 _searchable_rationale(task),
-                json.dumps(task.get("contract") or {}, ensure_ascii=False),
             )
         )
         rows.append(
