@@ -13,7 +13,7 @@ import re
 import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from functools import partial
+from functools import cache, partial
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit, urlunsplit
@@ -493,9 +493,14 @@ class _GroupValues(dict):
         return self.match.group(key)
 
 
+@cache
+def _legacy_reports() -> dict:
+    return json.loads(LEGACY_REPORT_TEXT.read_text(encoding='utf-8'))['reports']
+
+
 def legacy_report_text(report: str) -> dict:
     """The frozen content of one already-published report, keyed by its identity."""
-    reports = json.loads(LEGACY_REPORT_TEXT.read_text(encoding='utf-8'))['reports']
+    reports = _legacy_reports()
     if report not in reports:
         raise ValueError('Unregistered legacy report text: ' + report)
     return reports[report]
