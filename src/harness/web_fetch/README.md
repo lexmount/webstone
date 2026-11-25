@@ -1632,6 +1632,10 @@ When composing `saved_reports`, set `retain_source_reviews: true` to keep each
 source's review page and protocol under its own method labels in the combined
 review page. This preserves prior review coverage without assigning it to newly
 added methods; the original source pages remain bound evidence.
+Set `saved_reports[].retain_public_evidence_views: true` to carry a source's
+public evidence views into its current rows and through nested compositions.
+Generated diagnostic pages belong to the current report's `diagnostics/` directory,
+so rendering never overwrites an imported snapshot's evidence or page wrappers.
 For already published snapshots, `frozen_sources: true` verifies the complete
 file inventories and pinned audit hashes using the published-extension boundary,
 rather than applying a newer acquisition or rendering contract to historical

@@ -67,6 +67,38 @@ def test_composition_retains_exact_source_records(tmp_path, shared_reports):
         check_saved_matrix(output)
 
 
+def test_nested_composition_retains_native_public_views_and_diagnosis(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    spec['public_evidence_views'] = True
+    record.update(ok=False, error_message='HTTP 403')
+    (source/record['artifact_path']).write_bytes(b'')
+    record['metrics'].update(content_pass=False, request_ok=False,
+                             content_sha256=hashlib.sha256(b'').hexdigest())
+    native = source/'private_artifacts/response.json'
+    native.parent.mkdir()
+    native.write_text(json.dumps({'code':'BLOCKED_TARGET', 'error':'Target resolves to a private address'}))
+    record['provider_metadata'].update(raw_response_path=native.relative_to(source).as_posix(),
+        raw_response_sha256=hashlib.sha256(native.read_bytes()).hexdigest(),
+        raw_response_bytes=native.stat().st_size)
+    raw = (json.dumps(record)+'\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    output = build(tmp_path, spec).parent
+    for level in range(2):
+        audit = output/'saved-matrix-audit.json'
+        path = tmp_path/f'composition-{level}.json'
+        write(path, {'schema_version':1, 'title':'Combined', 'frozen_sources':True, 'saved_reports':[{
+            'id':'source', 'root':str(output), 'retain_public_evidence_views':True, 'audit':{'path':str(audit),
+            'sha256':hashlib.sha256(audit.read_bytes()).hexdigest()}}]})
+        output = build_saved_matrix(path, tmp_path/f'combined-{level}').parent
+        assert check_saved_matrix(output, spec_path=path)['valid']
+        current = json.loads((output/'results.jsonl').read_text())
+        assert current['metrics'] == record['metrics']
+        assert current['diagnosis']['category'] in {'Method safety restriction', '方法安全限制'}
+        assert current['diagnosis']['evidence'] == 'Target resolves to a private address'
+        assert (output/current['provider_metadata']['public_response_path']).is_file()
+
+
 @pytest.mark.parametrize('option', ['different_task', 'duplicate'])
 def test_composition_rejects_incompatible_reports(tmp_path, option):
     spec, _ = reports(tmp_path, **{option: True})
@@ -339,9 +371,11 @@ def test_extension_reuses_standard_rankings_and_timing(tmp_path, shared_reports)
     rendered = _shared_presentations(output)
     overall = BeautifulSoup(rendered['overall'], 'html.parser')
     assert len(overall.select('#ranking-overall tbody tr')) == 2
-    assert all(cell.select_one('strong.comparison-winner.good') for row in overall.select('#ranking-overall tbody tr') for cell in row.find_all('td')[-3:])
+    # Identical method timings are ties, so neither receives a unique-best marker.
+    assert not overall.select('strong.comparison-winner.good')
+    from harness.reporting.presentation import check_presentation
+    check_presentation(overall)
     assert [r.find('td').get_text() for r in overall.select('#ranking-overall tbody tr')] == ['1', '1']
-    assert overall.select('.comparison-winner')
     timing = BeautifulSoup(rendered['timing'], 'html.parser')
     assert len(timing.select('#overall-matched-latency-table tbody tr')) == 2
     assert not timing.select('#overall-matched-latency-table strong, #overall-matched-latency-table [data-rank]')

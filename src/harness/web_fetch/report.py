@@ -309,7 +309,7 @@ def diagnostic_view_page(out, relative, label, note, *, ctx):
     """Show the real sanitized text in HTML; retain its original download bytes."""
     source=contained_path(out,relative)
     raw=source.read_bytes()
-    view=Path(relative).with_suffix('.html').as_posix()
+    view='diagnostics/'+hashlib.sha256(relative.encode()).hexdigest()+'.html'
     body=(hero(label,t('actual_saved_records_formatted_for_browsing_without', 'Actual saved records, formatted for browsing without additional product calls.'), ctx=ctx)+
           section(t('record_source', 'Record source'),f"""<p>{esc(note)}</p><p>{link('../' + relative, t('download_original_public_file', 'Download original public file'))} · {str(len(raw))} 字节 · SHA-256：<code class="break">{hashlib.sha256(raw).hexdigest()}</code></p>""")+
           section(model_text(*pair('record_excerpt', 'Record excerpt')),'<pre>'+esc(_diagnostic_log_excerpt(raw.decode('utf-8','replace'))[:6000])+'</pre>')+
@@ -461,7 +461,7 @@ def comparative_rows(rows, directions, *, ctx):
    if column[row_number] is None:opening=re.sub(r' data-sort="[^"]+"','',opening)
    opening+=' data-metric="'+metric+'" data-metric-direction="'+direction+'"'
    content=body[:-5]
-   if (unique or ctx.descriptive_ranks) and column[row_number] is not None and column[row_number]==extreme:
+   if unique and column[row_number] is not None and column[row_number]==extreme:
     content='<strong class="comparison-winner good">'+content+'</strong>'
    values=values[:cells[index].start()]+opening+'>'+content+'</td>'+values[cells[index].end():]
   result.append((attrs,values))

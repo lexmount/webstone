@@ -3004,7 +3004,7 @@ def _saved_renderer_projection(output, model, admission=None):
         record = project(raw)
         if model.get('retain_source_task_contracts'):
             record['report_source_case_path'] = row['case_path']
-        if model.get('public_evidence_views'):
+        if model.get('public_evidence_views') or row.get('public_evidence_views'):
             from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose
             local_root = contained_path(output, prefix, reject_symlinks=True)

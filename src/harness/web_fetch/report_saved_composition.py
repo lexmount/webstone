@@ -1102,6 +1102,9 @@ def composition_model(output, spec, snapshots):
             raise ValueError('Saved comparisons have different case populations')
         expected_population = population
         projected = _project(model['rows'], paths)
+        if snapshot.get('retain_public_evidence_views') and model.get('public_evidence_views'):
+            for row in projected:
+                row['public_evidence_views'] = True
         if spec.get('frozen_sources'):
             for row in projected:
                 if 'score_revision' in row:
@@ -1212,6 +1215,10 @@ def build_composition(spec_path, output):
         relative = 'evidence/saved-reports/' + identifier
         shutil.copytree(root, output / relative)
         snapshot = {'id': identifier, 'path': relative, 'sha256': _hash(audit_path)}
+        if 'retain_public_evidence_views' in item:
+            if type(item['retain_public_evidence_views']) is not bool:
+                raise ValueError('Public evidence retention must be explicitly enabled or disabled')
+            snapshot['retain_public_evidence_views'] = item['retain_public_evidence_views']
         if 'providers' in item:
             snapshot['providers'] = item['providers']
         snapshots.append(snapshot)

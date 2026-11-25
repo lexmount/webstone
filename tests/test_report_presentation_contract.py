@@ -28,6 +28,14 @@ class PresentationContractTests(unittest.TestCase):
 
 
 class SharedRankingPresentationTests(unittest.TestCase):
+    def test_descriptive_ranks_do_not_change_extremum_rules(self):
+        from harness.web_fetch.report import comparative_rows, table
+        rows = [('', '<td data-sort="1">1</td>')]*2
+        rendered = table(['Value'], comparative_rows(rows, {0:('value','max')},
+            ctx=RenderContext(descriptive_ranks=True)))
+        check_presentation(rendered)
+        self.assertNotIn('comparison-winner', rendered)
+
     def test_raw_column_extremes_zero_ties_and_unavailable_values(self):
         from harness.web_fetch.report import cell, comparative_rows, table
         rows=[('',cell('A')+cell('0 ms',0)+cell('50%',0.5)),
