@@ -75,6 +75,10 @@ def validate_release(source: Path, *, presentation_binding: Path | None = None, 
 
 def _release_identity(source: Path, presentation_binding, snapshot_audit) -> bool:
     """Name which release this report is; only a certified one binds measured evidence."""
+    if (source / 'saved-composition.json').is_file():
+        from harness.web_fetch.report_saved_matrix import check_saved_matrix
+        check_saved_matrix(source)
+        return False
     if (source / 'saved-extension.json').is_file():
         from harness.web_fetch.report_saved_composition import check_published_extension
         check_published_extension(source)

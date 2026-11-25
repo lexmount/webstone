@@ -1546,6 +1546,11 @@ causes without copying every failure's complete output and logs.
 
 ### Sharing a frozen diagnostic snapshot
 
+A verified `saved-composition.json` report can use `site-package` and `site-publish`
+to host its frozen comparison. The package gate rechecks the saved composition and
+treats it as noncertified. Ordinary saved matrices retain their existing explicit
+publication-authority requirements. Hosting adds no certification or content review.
+
 Pass the same `--presentation-binding /path/to/binding.json` to
 `uv run --frozen python -m harness.web_fetch site-package` and `site-bundle-check` when
 sharing a previously validated frozen local report. Both commands verify its

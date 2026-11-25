@@ -471,6 +471,7 @@ def table(headers,rows,id='',sortable=False,cls='',metrics=None,index_header=t('
  body=''.join(f'<tr{attrs}>'+ ((f'<td data-rank="{rank_values[i]}">{rank_values[i]}</td>' if rank_values is not None else f'<td>{i+1}</td>') if include_index else '')+f'{values}</tr>' for i,(attrs,values) in enumerate(rows))
  sort_attrs=(f' data-col="{default_sort[0]}" data-dir="{default_sort[1]}"' if default_sort else '')
  if not include_index:sort_attrs+=' data-row-index="false"'
+ if render_context().descriptive_ranks:sort_attrs+=' data-highlight-ties="all"'
  return metric_legend(headers if metrics is None else metrics)+f'<div class="table-wrap"><table class="{cls}"'+(f' id="{id}"' if id else '')+sort_attrs+f'><thead><tr>{head}</tr></thead><tbody'+(' id="rows"' if id=='filtered-table' else '')+f'>{body}</tbody></table></div>'
 def _scoped_render(function):
  @wraps(function)
