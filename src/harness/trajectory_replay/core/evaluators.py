@@ -23,6 +23,12 @@ class TaskEvidence:
     process_passed: bool
     agent_response: dict[str, Any] | list[Any] | str | None = None
     network_har_path: Path | None = None
+    # Executed action records, for evaluators that read current-run observations.
+    trace: tuple[dict[str, Any], ...] = ()
+    # Checks already made on the live page before it closed.
+    page_checks: tuple[dict[str, Any], ...] = ()
+    run_id: str = ""
+    attempt_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -32,6 +38,8 @@ class TaskEvaluation:
     checks: tuple[dict[str, Any], ...]
     evaluator: str
     error: str = ""
+    # The evaluator's full result, persisted by the runner as attempt evidence.
+    record: dict[str, Any] | None = None
 
     @property
     def passed(self) -> bool:
@@ -63,7 +71,8 @@ def _format_exact_failures(checks: tuple[dict[str, Any], ...]) -> str:
     )
 
 
-# Each factory receives the run's evaluator options, such as ``config_path``.
+# Each factory receives the run's evaluator options, such as ``config_path``;
+# a factory ignores the options it does not use.
 EVALUATOR_KINDS: Registry[Callable[..., TaskEvaluator]] = Registry("replay evaluator")
 EVALUATOR_KINDS.register("exact_outputs", lambda **_: ExactOutputsEvaluator())
 
@@ -71,8 +80,8 @@ EVALUATOR_KINDS.register("exact_outputs", lambda **_: ExactOutputsEvaluator())
 class EvaluatorRegistry:
     """Score attempts with the registered evaluator their task names."""
 
-    def __init__(self, *, config_path: str | Path | None = None) -> None:
-        self._options: dict[str, Any] = {"config_path": config_path}
+    def __init__(self, *, config_path: str | Path | None = None, **options: Any) -> None:
+        self._options: dict[str, Any] = {"config_path": config_path, **options}
         self._evaluators: dict[str, TaskEvaluator] = {}
 
     def evaluate(self, task: BrowserTask, evidence: TaskEvidence) -> TaskEvaluation:

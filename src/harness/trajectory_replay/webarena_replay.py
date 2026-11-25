@@ -46,6 +46,7 @@ from harness.environments.webarena.runtime import (
 from harness.environments.webarena.topology import CREDENTIAL_SITES, require_site_credentials
 from harness.record_io import canonical_json_sha256, file_sha256
 from harness.resource_accounting import DockerStatsResources, ResourceSampler
+from harness.trajectory_replay.core.runner import replay_attempts
 from harness.trajectory_replay.retrieval_acceptance import (
     PROTOCOL,
     build_actual_response,
@@ -1467,14 +1468,14 @@ def run_replay_suite(  # noqa: PLR0913
         receipt["method_teardown"] = method_teardown
         receipt["isolation"]["lock_wait_ms"] = round(lock_wait_ms, 3)
         _write_receipt(receipt_path, receipt)
-        for method in select_methods(plan, engines):
+        def run_method(method: dict[str, Any]) -> None:
             engine = str(method["engine"])
             execution = plan["profile"]["execution"]
             reset_before_every_task = execution["reset_before_every_task"]
             retry_failed_task = execution.get("retry_failed_task", True)
             pending = [task for task in tasks if (engine, int(task["task_id"])) not in completed]
             if not pending:
-                continue
+                return
             network = None
             container = None
             primary_error: BaseException | None = None
@@ -1525,7 +1526,10 @@ def run_replay_suite(  # noqa: PLR0913
                 sessions.append(session)
                 receipt["sessions"] = sessions
                 _write_receipt(receipt_path, receipt)
-                for task in pending:
+                def run_task(
+                    _engine: str, task: dict[str, Any], _attempt: int
+                ) -> dict[str, Any]:
+                    nonlocal endpoint, http_endpoint, session
                     physical_execution = _next_physical_execution(
                         output, engine, int(task["task_id"])
                     )
@@ -1615,9 +1619,12 @@ def run_replay_suite(  # noqa: PLR0913
                         )
                         _finish_physical_execution(retry_entry, attempt)
                         _write_receipt(receipt_path, receipt)
+                    return attempt
+
+                def record(attempt: dict[str, Any]) -> None:
                     attempts.append(attempt)
-                    session["task_ids"].append(int(task["task_id"]))
-                    completed.add((engine, int(task["task_id"])))
+                    session["task_ids"].append(int(attempt["task_id"]))
+                    completed.add((engine, int(attempt["task_id"])))
                     receipt["attempts"] = attempts
                     _write_receipt(receipt_path, receipt)
                     print(
@@ -1631,6 +1638,10 @@ def run_replay_suite(  # noqa: PLR0913
                         ),
                         flush=True,
                     )
+
+                # One logical attempt per task: a declared retry runs inside it,
+                # so both physical executions stay bound to one logical result.
+                replay_attempts(pending, (engine,), run_task, max_retries=0, record=record)
             except BaseException as exc:
                 primary_error = exc
                 raise
@@ -1644,6 +1655,9 @@ def run_replay_suite(  # noqa: PLR0913
                     receipt_path,
                     primary_error,
                 )
+
+        for method in select_methods(plan, engines):
+            run_method(method)
 
     expected = {(engine, task_id) for engine in engines for task_id in task_ids}
     actual = {(str(item["engine"]), int(item["task_id"])) for item in attempts}

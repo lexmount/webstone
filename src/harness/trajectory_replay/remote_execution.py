@@ -39,6 +39,9 @@ from harness.trajectory_replay.catalog_contracts import (
     apply_action_overrides,
     catalog_action_overrides,
 )
+from harness.trajectory_replay.catalog_evaluators import catalog_task
+from harness.trajectory_replay.core.evaluators import EvaluatorRegistry, TaskEvidence
+from harness.trajectory_replay.core.runner import replay_attempts
 from harness.trajectory_replay.core.suite import BrowserTask
 from harness.trajectory_replay.public_webarena.executor import execute_steps
 from harness.trajectory_replay.public_webarena.response_builder import build_agent_response
@@ -53,11 +56,10 @@ from harness.trajectory_replay.remote_runtime import (
     validate_remote_cohort_reset_receipt,
     validate_remote_reset_receipt,
 )
-from harness.trajectory_replay.retrieval_acceptance import build_actual_response, validate_contract
+from harness.trajectory_replay.retrieval_acceptance import validate_contract
 from harness.trajectory_replay.webarena_corrections import (
     apply_correction,
     check_replay_assertions,
-    evaluate_corrected_contract,
     load_corrections,
 )
 from harness.trajectory_replay.webarena_plan import (
@@ -468,6 +470,7 @@ def run_replay_task(
         raise ValueError("task_timeout_ms must be positive")
     official = benchmark.get_task(task_id)
     correction = apply_correction(official, catalog) if task_id in catalog.records else None
+    evaluators = EvaluatorRegistry(benchmark=benchmark)
     if backend == "browsertool":
         if cdp_headers:
             raise ValueError("BrowserTool replay does not support remote CDP headers")
@@ -664,14 +667,21 @@ def run_replay_task(
                 dict(record, arguments=candidate["tool_calls"][i])
                 for i, record in enumerate(records)
             ]
-            acceptance = build_actual_response(
-                contract=candidate["retrieval_contract"],
-                task_id=task_id,
-                calls=candidate["tool_calls"],
-                records=source_records,
-                run_id=run_id,
-                attempt_id=uuid.uuid4().hex,
-            )
+            acceptance = evaluators.evaluate(
+                catalog_task(
+                    task_id,
+                    "retrieval_acceptance",
+                    tool_calls=candidate["tool_calls"],
+                    contract=candidate["retrieval_contract"],
+                ),
+                TaskEvidence(
+                    outputs={},
+                    process_passed=True,
+                    trace=tuple(source_records),
+                    run_id=run_id,
+                    attempt_id=uuid.uuid4().hex,
+                ),
+            ).record
             hashes["acceptance"] = _write(task_dir / "acceptance.json", acceptance)
             actual = acceptance["actual_response"]
         else:
@@ -686,28 +696,19 @@ def run_replay_task(
             status = "unsupported"
         else:
             failure_stage = "official_evaluator_execution"
-            evaluation_result = (
-                evaluate_corrected_contract(
-                    benchmark, correction, agent_response=actual, network_trace=har_path
-                )
-                if correction is not None
-                else benchmark.evaluate_task(
-                    task_id=task_id, agent_response=actual, network_trace=har_path
-                )
+            evaluation = evaluators.evaluate(
+                catalog_task(task_id, "catalog_acceptance", correction=correction),
+                TaskEvidence(
+                    outputs={},
+                    process_passed=True,
+                    agent_response=actual,
+                    network_har_path=har_path,
+                    page_checks=tuple(assertions),
+                ),
             )
-            evaluation = evaluation_result.model_dump(mode="json")
-            evaluation["replay_assertions"] = assertions
-            if correction is not None:
-                evaluation["contract_correction_id"] = correction.correction_id
-                evaluation["corrected_task_sha256"] = correction.corrected_task_sha256
-            hashes["evaluation"] = _write(task_dir / "evaluation.json", evaluation)
-            score = evaluation.get("score")
-            status = (
-                "pass"
-                if float(score or 0) == 1
-                and all(item.get("status") == "pass" for item in assertions)
-                else "fail"
-            )
+            hashes["evaluation"] = _write(task_dir / "evaluation.json", evaluation.record)
+            score = evaluation.record.get("score")
+            status = evaluation.status
     except Exception:
         error = traceback.format_exc()
         failure_capture_available = bool(
@@ -902,6 +903,11 @@ def cohort_reference_hashes(args: argparse.Namespace) -> dict[str, str]:
         "retrieval_acceptance": Path(__file__).with_name("retrieval_acceptance.py"),
         "correction_logic": Path(__file__).with_name("webarena_corrections.py"),
         "remote_runtime": Path(__file__).with_name("remote_runtime.py"),
+        # The cohort loop and its scoring run through these shared modules, so a
+        # change to them during a run must also block certification.
+        "replay_loop": Path(__file__).with_name("core") / "runner.py",
+        "evaluator_registry": Path(__file__).with_name("core") / "evaluators.py",
+        "catalog_evaluators": Path(__file__).with_name("catalog_evaluators.py"),
     }
     catalog = load_corrections()
     for task_id, record in catalog.records.items():
@@ -1127,8 +1133,9 @@ def _execute_cohort(args: argparse.Namespace) -> int:
                 BrowserTool(config=browser_tool_config(endpoint)), sites
             )
             _write(args.output / "browser-readiness.json", readiness)
-            for task_id in execution_manifest["task_ids"]:
-                result = run_replay_task(
+
+            def run_task(_engine: str, task_id: int, _attempt: int) -> dict:
+                return run_replay_task(
                     task_id=task_id,
                     row=tasks[task_id],
                     benchmark=benchmark,
@@ -1140,6 +1147,8 @@ def _execute_cohort(args: argparse.Namespace) -> int:
                     catalog=catalog,
                     candidate_override_path=candidate_paths.get(task_id),
                 )
+
+            def record(result: dict) -> None:
                 results.append(result)
                 _write(args.output / "progress.json", results)
                 print(
@@ -1153,6 +1162,15 @@ def _execute_cohort(args: argparse.Namespace) -> int:
                     ),
                     flush=True,
                 )
+
+            # One run per task and no retry: the cohort certificate requires both.
+            replay_attempts(
+                execution_manifest["task_ids"],
+                (args.engine,),
+                run_task,
+                max_retries=0,
+                record=record,
+            )
         finally:
             stop_browser(process)
     after = cohort_reference_hashes(args)

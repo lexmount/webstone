@@ -1,4 +1,8 @@
-"""Replay one frozen WebArena catalog in its declared task order."""
+"""Replay one frozen WebArena catalog in its declared task order.
+
+The catalog runs through the shared replay loop (``core.runner.replay_attempts``)
+on one of two execution backends: a local browser process or a hosted CDP browser.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +44,7 @@ from harness.trajectory_replay.catalog_contracts import (
     validate_environment_preparation,
     verify_physical_evidence,
 )
+from harness.trajectory_replay.core.runner import replay_attempts
 from harness.trajectory_replay.remote_execution import (
     finalize_timed_out_task,
     run_replay_task,
@@ -470,6 +475,118 @@ def _run_remote_with_setup_recovery(
     )
 
 
+class LocalBrowserBackend:
+    """Execution backend for a browser process started on this host.
+
+    Each task runs behind the setup-recovery boundary and the task watchdog of
+    ``_run_with_setup_recovery``. A task that poisoned the runtime or left the
+    browser dead restarts it before the next task.
+    """
+
+    def __init__(
+        self,
+        browser_args: argparse.Namespace,
+        profile: str,
+        *,
+        output: Path,
+        task_timeout_ms: int,
+        bound_row,
+        execute_task,
+    ) -> None:
+        self._browser_args = browser_args
+        self._profile = profile
+        self._output = output
+        self._task_timeout_ms = task_timeout_ms
+        self._bound_row = bound_row
+        self._execute_task = execute_task
+        self._endpoint = ""
+        self._process: subprocess.Popen | None = None
+        self._previous: dict | None = None
+
+    def __enter__(self) -> LocalBrowserBackend:
+        self._process = self._start()
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        assert self._process is not None
+        stop_browser(self._process)
+
+    def _start(self) -> subprocess.Popen:
+        process, self._endpoint = start_local_browser(self._browser_args, self._profile)
+        return process
+
+    def _restart(self, current: subprocess.Popen) -> subprocess.Popen:
+        stop_browser(current)
+        return self._start()
+
+    def run(self, _engine: str, frozen: dict, _attempt: int) -> dict:
+        assert self._process is not None
+        previous = self._previous
+        if previous is not None and (
+            previous.get("runtime_poisoned") or self._process.poll() is not None
+        ):
+            self._process = self._restart(self._process)
+        task_id = frozen["task_id"]
+        row = self._bound_row(frozen)
+        outcome, self._process = _run_with_setup_recovery(
+            task_id=task_id,
+            task_dir=self._output / f"task-{task_id}",
+            process=self._process,
+            restart_browser=self._restart,
+            run_task=lambda: self._execute_task(frozen, row, self._endpoint),
+            row=row,
+            task_timeout_ms=self._task_timeout_ms,
+        )
+        self._previous = outcome
+        return outcome
+
+
+class HostedBrowserBackend:
+    """Execution backend for a hosted CDP browser.
+
+    Each task runs in a forked worker behind a whole-task watchdog, and
+    persisted errors never carry the hosted endpoint or its credentials.
+    """
+
+    def __init__(
+        self,
+        *,
+        output: Path,
+        task_timeout_ms: int,
+        endpoint: str,
+        headers: dict[str, str],
+        runtime_metadata: dict[str, str],
+        bound_row,
+        execute_task,
+    ) -> None:
+        self._output = output
+        self._task_timeout_ms = task_timeout_ms
+        self._endpoint = endpoint
+        self._headers = headers
+        self._runtime_metadata = runtime_metadata
+        self._bound_row = bound_row
+        self._execute_task = execute_task
+
+    def run(self, _engine: str, frozen: dict, _attempt: int) -> dict:
+        task_id = frozen["task_id"]
+        row = self._bound_row(frozen)
+        outcome = _run_remote_with_setup_recovery(
+            task_id=task_id,
+            task_dir=self._output / f"task-{task_id}",
+            row=row,
+            task_timeout_ms=self._task_timeout_ms,
+            runtime_metadata=self._runtime_metadata,
+            remote_endpoint=self._endpoint,
+            remote_headers=self._headers,
+            run_task=lambda: self._execute_task(frozen, row, self._endpoint, self._headers),
+        )
+        if outcome.get("error"):
+            outcome["error"] = sanitize_remote_text(
+                str(outcome["error"]), self._endpoint, self._headers
+            )
+        return outcome
+
+
 def _bound_catalog_row(catalog: dict, frozen: dict, portable_tasks: dict, sites: dict) -> dict:
     task_id = frozen["task_id"]
     source_actions = (
@@ -758,29 +875,19 @@ def main() -> None:
             flush=True,
         )
 
+    engines = (args.engine,)
     if remote_endpoint is not None:
-        assert remote_headers is not None
-        for frozen in pending:
-            task_id = frozen["task_id"]
-            row = bound_row(frozen)
-            task_dir = args.output / f"task-{task_id}"
-            outcome = _run_remote_with_setup_recovery(
-                task_id=task_id,
-                task_dir=task_dir,
-                row=row,
-                task_timeout_ms=args.task_timeout_ms,
-                runtime_metadata=remote_binding["runtime_metadata"],
-                remote_endpoint=remote_endpoint,
-                remote_headers=remote_headers,
-                run_task=lambda frozen=frozen, row=row: execute_task(
-                    frozen, row, remote_endpoint, remote_headers
-                ),
-            )
-            if outcome.get("error"):
-                outcome["error"] = sanitize_remote_text(
-                    str(outcome["error"]), remote_endpoint, remote_headers
-                )
-            record_outcome(outcome)
+        assert remote_headers is not None and remote_binding is not None
+        hosted = HostedBrowserBackend(
+            output=args.output,
+            task_timeout_ms=args.task_timeout_ms,
+            endpoint=remote_endpoint,
+            headers=remote_headers,
+            runtime_metadata=remote_binding["runtime_metadata"],
+            bound_row=bound_row,
+            execute_task=execute_task,
+        )
+        replay_attempts(pending, engines, hosted.run, max_retries=0, record=record_outcome)
         return
 
     browser_args = argparse.Namespace(
@@ -788,41 +895,15 @@ def main() -> None:
         binary=args.binary,
         host_resolver_rules=_host_resolver_rules(environment_profile, args.engine),
     )
-    with tempfile.TemporaryDirectory(prefix="webarena-catalog-") as profile:
-        def start_browser() -> subprocess.Popen:
-            nonlocal endpoint
-            started, endpoint = start_local_browser(browser_args, profile)
-            return started
-
-        def restart_browser(current: subprocess.Popen) -> subprocess.Popen:
-            stop_browser(current)
-            return start_browser()
-
-        endpoint = ""
-        process = start_browser()
-        try:
-            for pending_index, frozen in enumerate(pending):
-                task_id = frozen["task_id"]
-                row = bound_row(frozen)
-                def run_task(
-                    row: dict = row,
-                    frozen: dict = frozen,
-                ) -> dict:
-                    return execute_task(frozen, row, endpoint)
-
-                outcome, process = _run_with_setup_recovery(
-                    task_id=task_id,
-                    task_dir=args.output / f"task-{task_id}",
-                    process=process,
-                    restart_browser=restart_browser,
-                    run_task=run_task,
-                    row=row,
-                    task_timeout_ms=args.task_timeout_ms,
-                )
-                record_outcome(outcome)
-                if (
-                    outcome.get("runtime_poisoned") or process.poll() is not None
-                ) and pending_index + 1 < len(pending):
-                    process = restart_browser(process)
-        finally:
-            stop_browser(process)
+    with (
+        tempfile.TemporaryDirectory(prefix="webarena-catalog-") as profile,
+        LocalBrowserBackend(
+            browser_args,
+            profile,
+            output=args.output,
+            task_timeout_ms=args.task_timeout_ms,
+            bound_row=bound_row,
+            execute_task=execute_task,
+        ) as local,
+    ):
+        replay_attempts(pending, engines, local.run, max_retries=0, record=record_outcome)
