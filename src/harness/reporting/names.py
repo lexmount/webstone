@@ -39,6 +39,9 @@ def check_display_names(html, labels: Mapping[str, object]) -> None:
     raw = {name for name in labels if display_name(labels, name, language) != name}
     if not raw:
         return
+    # A display label may itself contain an id between separators ("foo / bar");
+    # remove whole labels before reading the remaining parts.
+    shown = sorted({display_name(labels, name, language) for name in labels}, key=len, reverse=True)
     for cell in soup.select("main td, main tbody th"):
         # Visible text only: comments and other non-rendered nodes are not names.
         texts = [str(text) for text in cell.find_all(string=True)
@@ -47,14 +50,18 @@ def check_display_names(html, labels: Mapping[str, object]) -> None:
                  and text.find_parent(attrs={"data-verbatim": True}) is None]
         # Each text node, and the cell read across inline elements, so a split id is still seen.
         for text in (*texts, "".join(texts)):
+            text = text.strip()
+            for label in shown:
+                text = text.replace(label, "\0")
             # The whole text first: an id may itself contain a separator.
-            for part in (text.strip(), *_CELL_PARTS.split(text.strip())):
+            for part in (text, *_CELL_PARTS.split(text)):
                 if part in raw:
                     table = cell.find_parent("table")
                     where = (table.get("id") or "") if table is not None else ""
                     raise ValueError(f"Table cell shows the raw id {part!r} instead of its display name"
                                      + (f" in table {where!r}" if where else "")
                                      + f": {cell.get_text(' ', strip=True)[:80]!r}")
+
 
 _CJK = re.compile(r"[\u3400-\u9fff]")
 # Interface words a Chinese page translates; names, units and metric acronyms (P50, F1) stay as they are.
