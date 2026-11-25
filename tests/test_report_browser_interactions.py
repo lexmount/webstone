@@ -654,6 +654,73 @@ def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
             page.close()
 
 
+def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, display):
+    from harness.web_fetch.report import JS, cell, table
+    from harness.web_fetch.report_saved_composition import render_source_reviews
+
+    source = tmp_path/'evidence/source/review/index.html'
+    source.parent.mkdir(parents=True)
+    comparison = table(['Value'], [('', cell('2 ms', 2)), ('', cell('1 ms', 1))],
+                       id='score-revision-steps', sortable=True, include_index=False, metrics=[], default_sort=(0, 'desc'))
+    source.write_text('<html><main><h1>Source</h1>' + comparison + '</main></html>', encoding='utf-8')
+    target = tmp_path/'review/index.html'
+    target.parent.mkdir()
+    target.write_text('<html><head><meta charset="utf-8"><script defer src="../app.js"></script></head>'
+                      '<body><main><h1>Combined review</h1></main></body></html>', encoding='utf-8')
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    render_source_reviews(tmp_path, {'source_review_pages': [
+        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        errors = []
+        page.on('pageerror', lambda error: errors.append(error.stack))
+        try:
+            page.goto(origin + '/review/index.html')
+            page.locator('th button').click()
+            assert errors == []
+            assert page.locator('tbody td').all_text_contents() == ['1 ms', '2 ms']
+            page.locator('th button').click()
+            assert page.locator('tbody td').all_text_contents() == ['2 ms', '1 ms']
+            assert page.locator('th').get_attribute('aria-sort') == 'descending'
+            assert errors == []
+        finally:
+            page.close()
+
+
+@pytest.mark.parametrize('evidence_state', ['saved_diagnostic', 'saved_results', 'local_measurement'])
+def test_method_details_omit_repeated_banners(tmp_path, browser, evidence_state):
+    from harness.web_fetch.report import JS
+
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    markup = ('<html><head><meta charset="utf-8"><script defer src="/app.js"></script></head><body><main>'
+              '<div data-saved-completion>Coverage</div>'
+              f'<div data-evidence-state="{evidence_state}">Evidence state</div>'
+              '<div role="alert">Incomplete evidence alert</div>'
+              '<p data-report-content-scope="full">Full content</p>'
+              '<h1>Method</h1></main></body></html>')
+    for route in ('providers/sample.html', 'methodology/index.html'):
+        target = tmp_path/route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(markup, encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **DESKTOP_LIGHT)
+        try:
+            page.goto(origin + '/providers/sample.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
+            expect(page.locator('[data-report-content-scope]')).to_have_text('Full content')
+            page.goto(origin + '/methodology/index.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(1)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
+            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(0)
+            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
+        finally:
+            page.close()
+
+
 def test_shared_inventory_falls_back_pages_keeps_filters_and_walks_details(tmp_path, browser, display):
     """A late all-pass filter falls back with a notice; pages, URL filters (including All), trail and dialog work."""
     from harness.reporting import explorer
@@ -790,68 +857,3 @@ def test_shared_inventory_follows_sorting_inline_filters_buttons_and_multi_selec
         expect(page.locator("[data-filter]")).to_have_value("fail")
         page.wait_for_function("[...document.querySelector('[data-many]').selectedOptions].map(o=>o.value).join()==='a'")
         expect(page.locator("tbody tr:visible")).to_have_count(2)
-def test_retained_source_review_sorting_uses_current_ids(tmp_path, browser, display):
-    from harness.web_fetch.report import JS, cell, table
-    from harness.web_fetch.report_saved_composition import render_source_reviews
-
-    source = tmp_path/'evidence/source/review/index.html'
-    source.parent.mkdir(parents=True)
-    comparison = table(['Value'], [('', cell('2 ms', 2)), ('', cell('1 ms', 1))],
-                       id='score-revision-steps', sortable=True, include_index=False, metrics=[], default_sort=(0, 'desc'))
-    source.write_text('<html><main><h1>Source</h1>' + comparison + '</main></html>', encoding='utf-8')
-    target = tmp_path/'review/index.html'
-    target.parent.mkdir()
-    target.write_text('<html><head><meta charset="utf-8"><script defer src="../app.js"></script></head>'
-                      '<body><main><h1>Combined review</h1></main></body></html>', encoding='utf-8')
-    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
-    render_source_reviews(tmp_path, {'source_review_pages': [
-        {'path': source.relative_to(tmp_path).as_posix(), 'providers': [{'id': 'local'}]}]})
-    with local_report_server(tmp_path) as origin:
-        page = local_page(browser, origin, **display)
-        errors = []
-        page.on('pageerror', lambda error: errors.append(error.stack))
-        try:
-            page.goto(origin + '/review/index.html')
-            page.locator('th button').click()
-            assert errors == []
-            assert page.locator('tbody td').all_text_contents() == ['1 ms', '2 ms']
-            page.locator('th button').click()
-            assert page.locator('tbody td').all_text_contents() == ['2 ms', '1 ms']
-            assert page.locator('th').get_attribute('aria-sort') == 'descending'
-            assert errors == []
-        finally:
-            page.close()
-
-
-@pytest.mark.parametrize('evidence_state', ['saved_diagnostic', 'saved_results', 'local_measurement'])
-def test_method_details_omit_repeated_coverage_and_preserve_evidence_state(tmp_path, browser, evidence_state):
-    from harness.web_fetch.report import JS
-
-    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
-    markup = ('<html><head><meta charset="utf-8"><script defer src="/app.js"></script></head><body><main>'
-              '<div data-saved-completion>Coverage</div>'
-              f'<div data-evidence-state="{evidence_state}">Evidence state</div>'
-              '<div role="alert">Incomplete evidence alert</div>'
-              '<p data-report-content-scope="full">Full content</p>'
-              '<h1>Method</h1></main></body></html>')
-    for route in ('providers/sample.html', 'methodology/index.html'):
-        target = tmp_path/route
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(markup, encoding='utf-8')
-    with local_report_server(tmp_path) as origin:
-        page = local_page(browser, origin, **DESKTOP_LIGHT)
-        try:
-            page.goto(origin + '/providers/sample.html')
-            expect(page.locator('[data-saved-completion]')).to_have_count(0)
-            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
-            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
-            expect(page.locator('[data-report-content-scope]')).to_have_text('Full content')
-            page.goto(origin + '/methodology/index.html')
-            expect(page.locator('[data-saved-completion]')).to_have_count(1)
-            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
-            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
-            expect(page.locator('[data-saved-completion]')).to_have_count(0)
-            expect(page.locator(f'[data-evidence-state="{evidence_state}"]')).to_have_count(1)
-            expect(page.get_by_role('alert')).to_have_text('Incomplete evidence alert')
-        finally:
-            page.close()
