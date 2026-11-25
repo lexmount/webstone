@@ -886,6 +886,10 @@ def check_revision(out: Path, *, authority_root: Path, profile_path: Path | None
                 for selector in (".track-more", ".ranking-metric-help"):
                     if not not panel.select_one(selector).has_attr("open"):
                         raise ValueError(path)
+        status = soup.select_one("main [data-saved-completion]")
+        title = soup.select_one("main h1")
+        if status is not None and title is not None and title not in status.find_all_previous("h1"):
+            raise ValueError((path, "Status notes must follow the page title"))
         for pre in soup.select("pre"):
             pre.decompose()
         if not ("条件通过率" not in soup.get_text() and "条件达标率" not in soup.get_text()):

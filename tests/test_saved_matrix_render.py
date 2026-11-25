@@ -189,7 +189,7 @@ def test_missing_does_not_become_scored_failure(tmp_path):
     assert len(soup.select('#saved-missing tbody tr')) == 1
     assert 'Pre-call block' in soup.get_text()
     assert len((root/'results.jsonl').read_text(encoding='utf-8').splitlines()) == 1
-    assert '未入库或未调用' in soup.get_text()
+    assert '未保存或未调用' in soup.get_text()
 
 
 def test_five_suite_inventory_drives_rankings_and_filters(tmp_path):
@@ -325,8 +325,8 @@ def test_saved_scope_banner_distinguishes_uncommitted_and_user_skip(tmp_path):
         banner=page.select_one('[data-saved-completion]')
         assert banner is not None
         text=banner.get_text()
-        assert '计划 3 项，已入库 1 项' in text
-        assert '已调用未入库 1 项' in text
+        assert '计划 3 项，已保存 1 项' in text
+        assert '已调用未保存 1 项' in text
         assert '未调用（含按要求跳过）1 项' in text
         assert '缺少 2 个计划调用' not in page.get_text()
 
@@ -537,3 +537,19 @@ def test_same_ranked_case_requires_one_definition_across_providers(tmp_path):
     write(root/row['case_path'], {**original, 'expected_any': ['different rule']})
     with pytest.raises(ValueError, match='Conflicting saved case definitions for first--same'):
         generate_saved_matrix(root, model)
+
+
+def test_saved_status_follows_the_title_and_guide_orders_like_home(tmp_path):
+    spec, _, _, _ = fixture(tmp_path)
+    dataset_path=Path(spec['suites'][0]['dataset']['path'])
+    dataset=json.loads(dataset_path.read_text(encoding='utf-8'))
+    dataset['cases'] += [{**dataset['cases'][0],'id':'uncommitted'}]
+    spec['suites'][0]['dataset']=write(dataset_path,dataset)
+    receipt=write(tmp_path/'called.json', {'suite':'first','provider':'method','case_id':'uncommitted','state':'called_but_uncommitted'})
+    spec['missing']=[{'suite':'first','provider':'method','case_id':'uncommitted','status':'uncommitted',
+                      'reason':'Call completed but persistence failed','receipt':receipt}]
+    root=build(tmp_path,spec).parent
+    page=BeautifulSoup((root/'index.html').read_text(encoding='utf-8'),'html.parser')
+    banner=page.select_one('[data-saved-completion]')
+    assert banner is not None and page.select_one('main h1').find_next('div', attrs={'data-saved-completion': True}) is banner
+    assert '入库' not in page.get_text() and '旧分数' not in page.get_text()

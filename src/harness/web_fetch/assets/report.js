@@ -1,3 +1,6 @@
+// Indent small JSON only when reserializing preserves every token (large integers, duplicate keys, escapes); otherwise show the saved bytes.
+function minifyJson(text){let out='',quoted=false,escaped=false;for(const c of text){if(quoted){out+=c;if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')quoted=false}else if(c==='"'){quoted=true;out+=c}else if(!/\s/.test(c))out+=c}return out}
+function losslessJson(text){if(text.length>64*1024)return text;try{const value=JSON.parse(text);if(JSON.stringify(value)!==minifyJson(text))return text;const indented=JSON.stringify(value,null,2);return indented.length>256*1024?text:indented}catch(error){return text}}
 function readTheme(){try{return localStorage.getItem('webfetch-theme')}catch{return 'light'}}
 function saveTheme(t){try{localStorage.setItem('webfetch-theme',t)}catch{}}
 
@@ -28,7 +31,8 @@ async function loadDiagnosticEvidence(dialog){
     const source=pre.dataset.file?new URL(pre.dataset.file,new URL('../',script.src)):new URL(pre.dataset.evidenceFile,document.baseURI);
     const response=await fetch(source);if(!response.ok)throw Error('HTTP '+response.status);
     text=await response.text();
-   }if(pre.dataset.readable)text=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,c=>'\\x'+c.charCodeAt(0).toString(16).padStart(2,'0'));
+   }if(/\.json$/i.test((pre.dataset.file||pre.dataset.evidenceFile||'').split(/[?#]/)[0]))text=losslessJson(text)
+   if(pre.dataset.readable)text=text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,c=>'\\x'+c.charCodeAt(0).toString(16).padStart(2,'0'));
    if(text.length>256*1024){const box=document.createElement('textarea');box.className='large-evidence-output';box.readOnly=true;box.value=text;box.setAttribute('aria-label',tr('完整日志与响应','Complete logs and responses'));pre.replaceWith(box)}else pre.textContent=text;
    pre.dataset.loaded='1';
   }catch(error){pre.textContent=tr('完整记录读取失败：','Complete record could not be loaded: ')+error.message+tr('；可使用下载链接，并重新打开重试。','; use the download link or reopen to retry.')}

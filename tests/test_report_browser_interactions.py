@@ -320,6 +320,12 @@ def test_generated_browser_use_success_failure_and_evidence_viewer(tmp_path, mon
                 link.click()
                 page.wait_for_selector('#evidence-raw-link:not([hidden])')
                 evidence = page.locator('#evidence-viewer-content')
+                # The viewer opens on the overview; each nested record is its own section.
+                expect(evidence).to_contain_text('lex_browser_use_public_execution_evidence')
+                page.locator('#evidence-viewer-sections [data-section="key:evaluation"]').click()
+                expect(page.locator(
+                    '#evidence-viewer-sections [data-section="key:evaluation"]'
+                )).to_have_attribute('aria-pressed', 'true')
                 expect(evidence).to_contain_text('AgentResponseEvaluator')
                 if method == 'moli':
                     expect(evidence).to_contain_text('Fixture expected mutation missing')

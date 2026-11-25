@@ -335,11 +335,13 @@ def test_sample_webmainbench_gate_reads_every_generated_edition(tmp_path):
         webmainbench_report_check.check_sample_report(report, authority_root=repo)
 
 
-def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(tmp_path):
+# The gate derives its population from the bound dataset, so a smaller sample reaches the same rule.
+@pytest.mark.parametrize("case_count", [200, 40])
+def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(tmp_path, case_count):
     report, repo = _sample_webmainbench_with_history(tmp_path)
     write_language_contract(report, include_english=False)
     providers = ["method-a", "method-b"]
-    case_ids = [f"case-{number}" for number in range(200)]
+    case_ids = [f"case-{number}" for number in range(case_count)]
     artifact = report / "artifacts/output.md"
     artifact.parent.mkdir()
     artifact.write_text("output", encoding="utf-8")
@@ -349,7 +351,7 @@ def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(t
     (report / "results.jsonl").write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
     sample = report / "sample-manifest.json"
     sample.write_text(json.dumps({
-        "cases": [{"track_id": case_id} for case_id in case_ids], "sampling": {"size": 200},
+        "cases": [{"track_id": case_id} for case_id in case_ids], "sampling": {"size": case_count},
     }), encoding="utf-8")
     summaries = report / "score-summaries.json"
     summaries.write_text(json.dumps(dict.fromkeys(providers, {})), encoding="utf-8")
@@ -362,12 +364,12 @@ def test_sample_webmainbench_gate_applies_presentation_rules_to_result_details(t
     results_hash = file_sha256(report / "results.jsonl")
     (report / "result-review.json").write_text(json.dumps({
         "status": "passed", "providers": providers, "sample_manifest_sha256": file_sha256(sample),
-        "sample_case_count": 200, "bindings": {"results_jsonl_sha256": results_hash},
+        "sample_case_count": case_count, "bindings": {"results_jsonl_sha256": results_hash},
     }), encoding="utf-8")
     (report / "webmainbench-anomaly-review.json").write_text(json.dumps({
         "kind": "webmainbench_anomaly_root_cause_review",
-        "scope": {"signal_triggered_results": 36, "distinct_cases": 6, "unresolved_triggered_results": 0},
-        "triggered_attempt_ids": [f"attempt-{number}" for number in range(36)],
+        "scope": {"signal_triggered_results": 12, "distinct_cases": 6, "unresolved_triggered_results": 0},
+        "triggered_attempt_ids": [row["attempt_id"] for row in records if row["case_id"] in case_ids[:6]],
         "bindings": {"dataset_json_sha256": file_sha256(dataset), "results_jsonl_sha256": results_hash,
                      "score_summaries_json_sha256": file_sha256(summaries)},
     }), encoding="utf-8")

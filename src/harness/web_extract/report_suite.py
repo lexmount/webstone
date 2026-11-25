@@ -65,12 +65,14 @@ def section(output, entry, language="zh"):
         return scores[family][field] if scores is not None else None
 
     quality, operation = [], []
-    for method in methods:
+    ranked = owner.ranked(
+        methods, {m: score(m, "page_hit_macro", "f1") for m in methods}, manifest["method_labels"]
+    )
+    for method in ranked:
         current = metrics[method]
-        latency = current["latency"]
         quality.append(
             [
-                escape(manifest["method_labels"][method])
+                "<span data-method-label>" + escape(manifest["method_labels"][method]) + "</span>"
                 + (
                     "<br><small>" + escape(manifest["skipped_methods"][method]) + "</small>"
                     if method in manifest["skipped_methods"]
@@ -84,6 +86,9 @@ def section(output, entry, language="zh"):
                 + t("suite_results") + "</a>",
             ]
         )
+    for method in methods:
+        current = metrics[method]
+        latency = current["latency"]
         operation.append(
             [
                 escape(manifest["method_labels"][method]),
@@ -97,13 +102,14 @@ def section(output, entry, language="zh"):
         t("suite_quality_headers"),
         quality,
         {
-            column: (key, "max", [score(m, family, field) for m in methods])
+            column: (key, "max", [score(m, family, field) for m in ranked])
             for column, key, family, field in [
                 (2, "micro-f1", "value_micro", "f1"),
                 (3, "macro-f1", "page_hit_macro", "f1"),
                 (4, "exact-rate", "exact_field_sets", "rate"),
             ]
         },
+        rank_column=3,
     )
     time_table = owner.record_comparison(
         t("suite_operation_headers"),
@@ -308,6 +314,7 @@ def _check_rendered_suite(output, *, release=False, visual_receipt=None):
     from harness.reporting.presentation import check_metric_guide, check_presentation
 
     soup = check_presentation((output / "zh/index.html").read_text(encoding="utf-8"))
+    owner.check_ranked_comparisons(soup)
     expected = BeautifulSoup(owner.page(
         "zh", "index", "", "".join(section(output, entry) for entry in entries),
         languages=("zh",), state=MODE,

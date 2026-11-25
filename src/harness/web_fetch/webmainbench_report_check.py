@@ -534,6 +534,8 @@ def check_sample_report(root: Path, dataset: dict | None = None,
     prefixes = tuple(prefix for _, prefix in language_pairs)
     dataset = dataset or read_json(root / "dataset.json")
     records = records or read_jsonl(root / "results.jsonl")
+    # The bound dataset fixes the population; every count below follows it instead of a release constant.
+    case_count = len(dataset.get("cases", []))
     latency_correction = validate_latency_correction(root)
     current_profile = read_json(profile_path)
     diagnostic_profile = current_profile.get('latency_diagnostic')
@@ -544,7 +546,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
     if latency_diagnostic:
         if (latency_diagnostic.get('kind') != 'same_host_latency_diagnostic'
                 or latency_diagnostic.get('official_results_sha256') != file_sha256(prior_results_path(root))
-                or len(latency_diagnostic.get('per_case', [])) != 200
+                or len(latency_diagnostic.get('per_case', [])) != case_count
                 or {row['case_id'] for row in latency_diagnostic['per_case']} !=
                    {row['id'] for row in dataset.get('cases', [])}
                 or set(latency_diagnostic.get('runs', {})) != set(LATENCY_DIAGNOSTIC_RUNS)):
@@ -572,13 +574,13 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                                        and changes.select_one('a[href$="prior-latency-results.jsonl"]')):
             raise ValueError(prefix + 'Timing correction evidence links are missing')
     teds_revision = validate_teds_revision_if_present(root, records)
-    if dataset.get("id") != "webmainbench-545-preselected-200-six-methods":
-        raise ValueError("Not the current WebMainBench preselected-200 report")
+    if not str(dataset.get("id", "")).startswith("webmainbench-") or not case_count:
+        raise ValueError("Not the current WebMainBench sample report")
     cases = {row["id"]: row for row in dataset.get("cases", [])}
     # The method set is the bound score summary's; the repository content binding pins its bytes.
     summaries = read_json(root / "score-summaries.json")
     providers = frozenset(summaries)
-    if len(cases) != 200 or len(records) != 200 * len(providers):
+    if len(cases) != case_count or len(records) != case_count * len(providers):
         raise ValueError("WebMainBench report matrix size mismatch")
     expected = {(provider, case_id) for provider in providers for case_id in cases}
     if {(row.get("provider"), row.get("case_id")) for row in records} != expected:
@@ -592,13 +594,13 @@ def check_sample_report(root: Path, dataset: dict | None = None,
     sample_ids = {row.get("track_id") for row in sample.get("cases", [])}
     if (sample_sha != dataset.get("sample_manifest_sha256")
             or sample_ids != set(cases)
-            or sample.get("sampling", {}).get("size") != 200):
+            or sample.get("sampling", {}).get("size") != case_count):
         raise ValueError("WebMainBench sample binding mismatch")
 
     review = read_json(root / "result-review.json")
     if (review.get("status") != "passed" or set(review.get("providers", [])) != providers
             or review.get("sample_manifest_sha256") != sample_sha
-            or review.get("sample_case_count") != 200
+            or review.get("sample_case_count") != case_count
             or review.get('bindings', {}).get('results_jsonl_sha256') != file_sha256(prior_results_path(root))
             or review.get("failures")):
         raise ValueError("WebMainBench independent review is missing or incomplete")
@@ -609,11 +611,10 @@ def check_sample_report(root: Path, dataset: dict | None = None,
     bindings = anomaly.get("bindings", {})
     triggered = anomaly.get("triggered_attempt_ids", [])
     if (anomaly.get("kind") != "webmainbench_anomaly_root_cause_review"
-            or scope.get("signal_triggered_results") != 36
-            or scope.get("distinct_cases") != 6
+            or scope.get("signal_triggered_results") != len(triggered)
+            or scope.get("distinct_cases") != len({row["case_id"] for row in records if row["attempt_id"] in set(triggered)})
             or scope.get("unresolved_triggered_results") != 0
-            or len(triggered) != 36
-            or len(set(triggered)) != 36
+            or len(set(triggered)) != len(triggered)
             or bindings.get("dataset_json_sha256") != file_sha256(root / "dataset.json")
             or bindings.get("results_jsonl_sha256") != file_sha256(prior_results_path(root))
             or bindings.get("score_summaries_json_sha256") != file_sha256(root / "score-summaries.json")):
@@ -702,7 +703,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
         raise ValueError("WebMainBench failure-first explanation does not match the measured matrix")
     if not any("响应与正文" in tag.get_text(strip=True) for tag in analysis.select("#wmb-attempt-matrix th")):
         raise ValueError("WebMainBench result rows must expose response and body-text condition")
-    if len(analysis.select("#wmb-compare-rows > tr")) != 200 or len(analysis.select("[data-wmb-compare-method]")) != len(providers):
+    if len(analysis.select("#wmb-compare-rows > tr")) != case_count or len(analysis.select("[data-wmb-compare-method]")) != len(providers):
         raise ValueError("WebMainBench same-page group comparison is incomplete")
     if {option.get("value") for option in analysis.select('[data-wmb-filter="failure"] option') if option.get("value")} != output_errors - {None}:
         raise ValueError("WebMainBench request failure classes are incomplete")
@@ -744,8 +745,8 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                 or any(not contained_path(root / prefix, href[3:]).is_file() for href in evidence)):
             raise ValueError(f"WebMainBench {language} guide lacks representative evidence links")
     dataset_page = read_page(root / "datasets/index.html")
-    if len(dataset_page.select('table[data-wmb-table] tbody tr')) != 200:
-        raise ValueError("WebMainBench 200-case filtered dataset inventory is incomplete")
+    if len(dataset_page.select('table[data-wmb-table] tbody tr')) != case_count:
+        raise ValueError("WebMainBench filtered dataset inventory is incomplete")
     if dataset_page.select('[data-wmb-filter="request"]') or '公式' not in dataset_page.select('#wmb-cases th')[-1].get_text(strip=True):
         raise ValueError("Dataset inventory must describe the frozen pages, not method outcomes")
     if (len(dataset_page.select('#wmb-distribution tbody > tr')) == 0
@@ -805,7 +806,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             name = Path(cells[1].a['href']).stem
             values = [row['elapsed_ms'] for row in successes[name]]
             expected_times = (statistics.fmean(values), statistics.median(values), percentile(values, .95))
-            if cells[-4].get_text(strip=True) != f'{len(values)}/200' or any(
+            if cells[-4].get_text(strip=True) != f'{len(values)}/{case_count}' or any(
                     not close(float(td['data-sort']), value) for td, value in zip(cells[-3:], expected_times, strict=True)):
                 raise ValueError(name + ': final successful-fetch timing differs from immutable calls')
 
@@ -828,7 +829,8 @@ def check_sample_report(root: Path, dataset: dict | None = None,
             raise ValueError(prefix + "WebMainBench methodology must lead with an evaluation-flow diagram")
         localized_review = read_page(root / prefix / "review/index.html")
         review_text = localized_review.get_text(" ", strip=True)
-        expected_review = "36 条，实际集中在 6 个页面" if not prefix else "36 of 1,200 results, concentrated in 6 pages"
+        expected_review = (f"{len(triggered)} 条，实际集中在 {scope['distinct_cases']} 个页面" if not prefix else
+                           f"{len(triggered)} of {len(records):,} results, concentrated in {scope['distinct_cases']} pages")
         if expected_review not in review_text or len(localized_review.select("table.wide-prose-table tbody > tr")) < 6:
             raise ValueError(prefix + "WebMainBench anomaly causes must be visible in the review")
     impossible_teds = sum(
@@ -872,7 +874,7 @@ def check_sample_report(root: Path, dataset: dict | None = None,
                 raise ValueError("WebMainBench bilingual filter fields or values differ: " + route)
     for provider in providers:
         method_page = read_page(root / "providers" / f'{provider}.html')
-        if len(method_page.select('table[data-wmb-table] tbody tr')) != 200:
+        if len(method_page.select('table[data-wmb-table] tbody tr')) != case_count:
             raise ValueError(provider + ": filtered per-method result inventory is incomplete")
     for relative in zh:
         editions = [read_page(root / prefix / relative)

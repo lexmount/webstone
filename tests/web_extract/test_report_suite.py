@@ -162,8 +162,13 @@ def test_quality_exclusion_preserves_operational_comparison(tmp_path):
     tables = soup.select('[data-cohort="first"] table')
     quality, operation = [table.select("tbody tr") for table in tables]
     assert len(quality) == len(operation) == 2
-    assert "Synthetic account quota" in quality[0].get_text()
-    assert [td.get_text() for td in quality[0].select("td")[2:5]] == ["—"] * 3
+    # Quality rows follow the ranking; the excluded method has no score and sorts by name.
+    label = model["participants"][method]["label"]
+    excluded = next(
+        row for row in quality if row.select_one("[data-method-label]").get_text() == label
+    )
+    assert "Synthetic account quota" in excluded.get_text()
+    assert [td.get_text() for td in excluded.select("td")[2:5]] == ["—"] * 3
     assert model["participants"][method]["label"] in operation[0].get_text()
     assert operation[0].select('[data-metric="mean"]')
     assert "$" in operation[0].get_text()

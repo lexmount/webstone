@@ -168,6 +168,7 @@ def require_home_interpretation(html: str | BeautifulSoup, summary: dict,
     changes = soup.select('#configuration-change')
     require(core is not None, 'Home core comparison is missing')
     require(not soup.select('#moli-change'), 'Report-specific findings belong in bound interpretation content')
+    require_core_lead(soup, summary, lang)
     if comparison == {}:
         require(not changes, 'Home has an undeclared paired comparison')
     if comparison or changes:
@@ -247,6 +248,22 @@ def require_home_interpretation(html: str | BeautifulSoup, summary: dict,
     return soup
 
 
+def require_core_lead(html: str | BeautifulSoup, summary: dict, lang: str) -> None:
+    """A tie among more than two configurations is summarized by its size, not by repeating every name."""
+    soup = BeautifulSoup(html, 'html.parser') if isinstance(html, str) else html
+    lead = soup.select_one('[data-core-lead]')
+    require(lead is not None, 'Home core lead is missing')
+    text = lead.get_text(' ', strip=True)
+    providers = summary['providers']
+    best = max(values['quality_f1'] for values in providers.values())
+    fast = min(values['mean_latency_ms'] for values in providers.values())
+    for count in (sum(values['quality_f1'] == best for values in providers.values()),
+                  sum(values['mean_latency_ms'] == fast for values in providers.values())):
+        if count > 2:
+            require(f'{count} ' + ('种配置' if lang == 'zh' else 'configurations') in text,
+                    'Home core lead must summarize a wide tie by its size')
+
+
 def require_guide_interpretation(html: str | BeautifulSoup, summary: dict,
                                  providers: list[str], lang: str, *, expected_html: str) -> BeautifulSoup:
     """A guide must work as a standalone explanation, with traceable examples."""
@@ -301,6 +318,24 @@ def require_case_summary(html: str | BeautifulSoup, lang: str) -> BeautifulSoup:
     if sum(node.get_text(' ', strip=True) == label for node in soup.select('h2')) != 1:
         raise ValueError('Result detail has missing or duplicate summary')
     return soup
+
+
+def require_shared_routes(html: str | BeautifulSoup) -> None:
+    """A route shared by several configurations is stated once, not repeated per configuration."""
+    soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html, 'html.parser')
+    routes = [re.split(r': |：', node.get_text(), maxsplit=1)[-1] for node in soup.select('[data-route-group]')]
+    require(bool(routes) and len(routes) == len(set(routes)), 'Method routes must state a shared route once')
+
+
+def require_case_cards(html: str | BeautifulSoup, providers) -> None:
+    """Case rows link to method cards, and cards omit diagnostic lines that have no finding."""
+    soup = html if isinstance(html, BeautifulSoup) else BeautifulSoup(html, 'html.parser')
+    require(not any(re.search(r'[:：]\s*—$', node.get_text(strip=True)) for provider in providers
+                    for node in soup.select(f'section[id="{provider}"] > p')),
+            'Case card shows an empty diagnostic line')
+    targets = [urlsplit(a['href']).fragment for a in soup.select('table tbody tr td:first-child a')]
+    require(sorted(targets) == sorted(providers) and all(soup.find(id=target) for target in targets),
+            'Case rows must link to their method cards')
 
 
 def check_bound_interpretation(root: Path, binding: dict) -> None:
@@ -470,10 +505,13 @@ def check(root: Path, *, authority_root: Path | None = None, profile_path: Path 
                     require(len(dataset.select('#wcxb-dataset tbody a[href$="#reference"]')) == len(case_ids), 'Dataset references are not linked')
                     require(('搜索网页 ID 或地址' if lang == 'zh' else 'Search page ID or URL') in dataset.get_text(),
                             'Dataset search label does not describe its searchable fields')
+            if route == 'methodology/index.html':
+                require_shared_routes(html)
             if route.startswith('cases/'):
                 require_case_summary(html, lang)
                 require(set(providers) <= page.ids and page.outputs == len(providers), f'Case participant evidence missing: {route}')
                 require(f'evidence/{Path(route).stem}.json' in html, f'Case evidence link missing: {route}')
+                require_case_cards(html, providers)
                 require('id="preview"' in html and 'class="frozen-preview"' in html, f'Frozen-page preview missing: {route}')
                 preview_section = BeautifulSoup(html, 'html.parser').select_one('#preview')
                 expected_title = '冻结 HTML 阅读视图' if lang == 'zh' else 'Frozen HTML reading view'

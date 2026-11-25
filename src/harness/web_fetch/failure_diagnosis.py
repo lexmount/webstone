@@ -39,6 +39,17 @@ def _timeout_error(message, error_type):
     return bool(re.search(r'timed out|\btimeout\b(?!["\']?\s*[:=])|deadline exceeded', message, re.I))
 
 
+def _timeout_limit_note(message, elapsed_ms):
+    """Name the limit the error itself reports, so a short timeout is not read as the call budget."""
+    elapsed = f'{elapsed_ms / 1000:.1f} s' if isinstance(elapsed_ms, (int, float)) else '—'
+    match = (re.search(r'timeout\D{0,20}?(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds)\b', message, re.I)
+             or re.search(r'(?:timed out|deadline exceeded)\D{0,20}?(\d+(?:\.\d+)?)\s*(ms|milliseconds|s|sec|seconds)\b', message, re.I))
+    if not match:
+        return t('timeout_limit_unreported', 'The error does not state which time limit fired; this call ended after {elapsed}.', elapsed=elapsed)
+    value = float(match.group(1)) / (1000 if match.group(2).lower().startswith('m') else 1)
+    return t('timeout_limit_reported', 'The error reports a {limit} time limit inside the method or service; this call ended after {elapsed}. This is not the evaluation’s per-call budget.', limit=f'{value:g} s', elapsed=elapsed)
+
+
 def _returned_page_failure(raw, case, metrics):
     """Identify an observed gate or shell before downstream contract failures.
 
@@ -340,6 +351,7 @@ def diagnose(r,c,raw,*,native_raw=None):
             category,stage,proof=set_result(t('browser_execution_context_interrupted', 'Browser execution context interrupted'),t('browser_execution', 'Browser execution'),message[:650])
         elif _timeout_error(message, r.get('error_type')):
             category,stage,proof=set_result(t('load_extraction_timeout', 'Load / extraction timeout'),t('page_fetch_or_extraction', 'Page fetch or extraction'),message[:650])
+            certainty=_timeout_limit_note(message, r.get('elapsed_ms'))
         elif upstream in {401,403} or re.search(r'(?:http[_ :]*|failed \(|status code[: ]*|status_not_ok.{0,80})(?:401|403)',low) or re.search(r'(401|403) client error',low):
             category,stage,proof=set_result(t('origin_denied_this_request', 'Origin denied this request'),t('origin_access', 'Origin access'),str(nested.get('message') or r.get('error_message') or message)[:650])
         elif any(x in low for x in ['crawl_not_found','404 page not found','failed (404)']):

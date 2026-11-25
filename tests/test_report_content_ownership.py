@@ -57,6 +57,19 @@ class ContentOwnershipTests(unittest.TestCase):
         self.assertIn('任务通过率',[x.get_text() for x in details.select('dt')])
         self.assertIsNotNone(soup.select_one('table').parent.find_previous_sibling('details',class_='ranking-metric-help'))
 
+    def test_home_rankings_lead_with_one_sentence_and_keep_rules_in_metric_notes(self):
+        from harness.web_fetch.report import overall_ranking
+        board=BeautifulSoup(ranking([],{},'web',compact=True, ctx=RenderContext()),'html.parser')
+        self.assertTrue(board.select('p.source-note'))
+        self.assertTrue(all(note.find_parent('details',class_='ranking-metric-help') for note in board.select('p.source-note')))
+        overall=BeautifulSoup(overall_ranking([],{},ctx=RenderContext()),'html.parser')
+        leads=[p for p in overall.select('p.decision-lead') if not p.find_parent('details')]
+        self.assertEqual(len(leads),1)
+        self.assertIsNone(leads[0].find('b'))
+        help=overall.select_one('details.ranking-metric-help')
+        self.assertIn('总榜口径',help.get_text())
+        self.assertIn('最终一次调用耗时',help.get_text())
+
     def test_every_ranking_links_to_its_methodology_example(self):
         page = examples()
         for track in REPORT_FAMILIES:

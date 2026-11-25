@@ -591,3 +591,11 @@ class UnifiedTextFailureTests(unittest.TestCase):
         metrics.update(content_pass=False, length_pass=False, list_task_pass=False)
         for track in self.tracks:
             self.assertIsNone(diagnose(self.record(metrics), {'track': track, 'task_kind': 'body'}, ''))
+
+
+def test_timeout_names_the_limit_the_error_reports_not_the_call_budget():
+    from harness.web_fetch.failure_diagnosis import _timeout_limit_note
+    reported = _timeout_limit_note('Page.goto: Timeout 15000ms exceeded.', 17012)
+    assert '15 s' in reported and '17.0 s' in reported and '不是评测' in reported
+    unreported = _timeout_limit_note('Request timed out', 300000)
+    assert '未说明' in unreported and '300.0 s' in unreported

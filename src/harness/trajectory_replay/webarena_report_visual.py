@@ -538,15 +538,17 @@ return node && node.textContent.trim().startsWith('{');
                                 diagnosis_trigger = page.locator(
                                     ".inventory tbody tr:not([hidden]) [data-open-diagnosis]"
                                 ).first
-                                diagnosis_trigger.click()
-                                page.locator("#diagnosis-dialog[data-loaded]").wait_for(
-                                    timeout=5_000
-                                )
-                                page.keyboard.press("Escape")
-                                assert page.locator("#diagnosis-dialog[open]").count() == 0
-                                assert diagnosis_trigger.evaluate(
-                                    "element => element === document.activeElement"
-                                )
+                                # Only failed rows open a diagnosis; an all-pass run has none.
+                                if diagnosis_trigger.count():
+                                    diagnosis_trigger.click()
+                                    page.locator("#diagnosis-dialog[data-loaded]").wait_for(
+                                        timeout=5_000
+                                    )
+                                    page.keyboard.press("Escape")
+                                    assert page.locator("#diagnosis-dialog[open]").count() == 0
+                                    assert diagnosis_trigger.evaluate(
+                                        "element => element === document.activeElement"
+                                    )
                             if route.endswith("index.html") and not route.startswith("en/"):
                                 assert (
                                     page.locator("[data-failure-signatures] [data-method]").count()

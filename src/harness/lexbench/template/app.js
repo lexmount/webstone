@@ -820,11 +820,11 @@ async function resultPage(id, mode) {
       `<div class="panel">${facts([
         [
           message("unprofiled_run"),
-          `<code>${esc(M.runs[mode + "_baseline"].run_id)}</code>`,
+          runIdentity(mode + "_baseline"),
         ],
         [
           message("profiled_run"),
-          `<code>${esc(M.runs[mode + "_engine"].run_id)}</code>`,
+          runIdentity(mode + "_engine"),
         ],
       ])}</div>`,
     ) +
@@ -1292,10 +1292,18 @@ function candidateReproductionSection() {
         : ""),
   );
 }
+// Readers see the mode and sampling role; the stored run ID stays a secondary identifier.
+function runLabel(key) {
+  let [mode, role] = key.split("_");
+  return `${T.modes[mode]} · ${message(role === "engine" ? "profiled_run" : "unprofiled_run")}`;
+}
+function runIdentity(key) {
+  return `${esc(T.modes[key.split("_")[0]])}<div class="mini">${esc(message("run_id"))}: <code>${esc(M.runs[key].run_id)}</code></div>`;
+}
 function reproducePage() {
   let rows = Object.entries(M.runs).map(
     ([k, v]) =>
-      `<tr><td><code>${esc(k)}</code></td><td><code>${esc(v.run_id)}</code></td><td>${M.attempts_per_mode}/${M.attempts_per_mode}</td><td><code>${esc(v.manifest_sha256.slice(0, 16))}</code></td></tr>`,
+      `<tr><td>${esc(runLabel(k))}</td><td><code>${esc(v.run_id)}</code></td><td>${M.attempts_per_mode}/${M.attempts_per_mode}</td><td><code>${esc(v.manifest_sha256.slice(0, 16))}</code></td></tr>`,
   );
   return (
     hero(T.nav.reproduce, reproduceIntro()) +

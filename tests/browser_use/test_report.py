@@ -864,6 +864,9 @@ def test_failed_result_without_failed_rules_shows_the_evaluation_error(
     assert "Fixture expected mutation missing" in english
     for home in (output / "index.html", output / "en/index.html"):
         assert "data-report-en=" not in visible_text(home.read_text(encoding="utf-8"))
+    lead = (output / "en/index.html").read_text(encoding="utf-8").split("data-home-lead>", 1)[1]
+    assert lead.startswith("CowAgent drives Chromium, Moli 1.1.3 with GPT-5.6 Sol")
+    assert "1 of 2 recorded results pass (50.0%)" in lead.split("</p>", 1)[0]
 
 
 def test_result_verification_is_readable_and_does_not_duplicate_raw_panels() -> None:
@@ -1214,10 +1217,10 @@ def test_report_publishes_one_final_logical_result_and_aggregates_cost(
             ), page
         home = (output / "en/index.html").read_text(encoding="utf-8")
         assert '<html lang="en">' in home and "切换主题" not in home
-        # A selection rationale without English stays as written.
-        assert "创建一个命名明确的空仓库" in (output / "en/datasets/475.html").read_text(
-            encoding="utf-8"
-        )
+        # Every selection rationale has an English reading on English routes.
+        task_page = (output / "en/datasets/475.html").read_text(encoding="utf-8")
+        assert "Create an empty repository with a specific name" in task_page
+        assert "创建一个命名明确的空仓库" not in task_page
         assert report_module.t is report_module._ZH
 
     text = (output / "index.html").read_text(encoding="utf-8")
@@ -2196,3 +2199,14 @@ def test_english_navigation_follows_the_template_and_links_back(tmp_path: Path, 
     english = [("en/" + item.route, item.title) for item in TEMPLATE.variant(VARIANT).pages]
     assert links == [*english, ("datasets/44.html", "中文")]
     assert nav.select_one("[aria-current]")["href"] == "en/datasets/index.html"
+
+
+def test_every_selection_rationale_has_an_english_reading() -> None:
+    from harness.browser_use.report_i18n import english_rationale
+
+    untranslated = [
+        task.task_id
+        for task in load_pilot("evaluation/browser-use/webarena-verified-pilot.json").tasks
+        if re.search(r"[一-鿿]", english_rationale(task.rationale))
+    ]
+    assert untranslated == []

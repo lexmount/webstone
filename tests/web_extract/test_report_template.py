@@ -122,3 +122,53 @@ def test_titles_name_pages_and_cases_and_unreturned_calls_never_match(tmp_path):
         'field-button field-not_returned', 'field-button field-correct', 1))
     with pytest.raises(ValueError, match="other than not returned"):
         _check_rendered_report(output)
+
+
+def test_comparisons_rank_by_primary_metric_with_ties_by_name():
+    from harness.web_extract.report import check_ranked_comparisons, ranked, record_comparison
+
+    labels = {"a": "Zeta", "b": "Alpha", "c": "Beta", "d": "Gamma"}
+    values = {"a": 0.8, "b": None, "c": 0.8, "d": 0.9}
+    order = ranked(list(labels), values, labels)
+    assert order == ["d", "c", "a", "b"]
+
+    def view(methods):
+        rows = [[f"<span data-method-label>{labels[m]}</span>", str(values[m])] for m in methods]
+        html = record_comparison(["Method", "F1"], rows,
+                                 {1: ("f1", "max", [values[m] for m in methods])}, rank_column=1)
+        return BeautifulSoup(html, "html.parser")
+
+    check_ranked_comparisons(view(order))
+    for wrong in (["c", "d", "a", "b"], ["d", "a", "c", "b"], ["b", "d", "c", "a"]):
+        with pytest.raises(ValueError, match="primary metric"):
+            check_ranked_comparisons(view(wrong))
+
+
+@pytest.mark.parametrize("mode", ["compatibility", "field-extraction-cohort"])
+def test_header_speaks_the_page_language_and_theme_toggle_exposes_state(tmp_path, mode):
+    output = tmp_path / "report"
+    create(output, mode=mode)
+    route = "zh/index.html"
+    page = BeautifulSoup((output / route).read_text(encoding="utf-8"), "html.parser")
+    assert page.select_one("header .eyebrow").get_text() == "Web Extract · 结构化字段提取"
+    toggle = page.select_one("#theme")
+    assert toggle["aria-pressed"] == "false" and toggle["aria-label"] == "切换主题：深色模式"
+    original = (output / route).read_text(encoding="utf-8")
+    for broken in (
+        original.replace("Web Extract · 结构化字段提取", "WEB EXTRACT / STRUCTURED EXTRACTION"),
+        original.replace(' aria-pressed="false"', ""),
+    ):
+        rebind(output, route, lambda _, broken=broken: broken)
+        with pytest.raises(ValueError, match="accessible theme toggle"):
+            _check_rendered_report(output)
+
+
+def test_client_script_carries_no_product_field_list():
+    import json
+
+    from harness.web_extract.product_fields import REPORTED
+    from harness.web_extract.report_ui import ASSETS, JS
+
+    source = (ASSETS / "report.js").read_text(encoding="utf-8")
+    assert not [field for field in REPORTED if field.lower() in source.lower()]
+    assert "const REPORT_FIELDS = " + json.dumps(list(REPORTED)) + ";" in JS

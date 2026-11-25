@@ -431,10 +431,11 @@ def model_text(value,english=None):
  return esc(value) if english is None else '<span data-report-en="'+esc(english)+'">'+esc(value)+'</span>'
 def rate(a,b):return pct(a/b) if b else '—'
 def section(title,body,id=''):return '<section class="section"'+(f' id="{id}"' if id else '')+f'><div class="wrap"><h2>{title}</h2>{body}</div></section>'
+HERO_OPEN='<section class="hero">'
 def hero(title,desc, *, ctx):
  banner=ctx.banner
  label=t('synthetic_example', 'Synthetic example') if t('synthetic_example_not_a_formal_benchmark', 'Synthetic example · not a formal benchmark') in banner else t('diagnostic_run', 'Diagnostic run') if t('diagnostic_run_not_a_formal_benchmark', 'Diagnostic run · not a formal benchmark') in banner else t('measured_report', 'Measured report')
- return f'<section class="hero"><div class="wrap"><div class="eyebrow">Web Fetch · {label}</div><h1>{title}</h1><p class="lead">{desc}</p></div></section>'
+ return HERO_OPEN+f'<div class="wrap"><div class="eyebrow">Web Fetch · {label}</div><h1>{title}</h1><p class="lead">{desc}</p></div></section>'
 def comparative_rows(rows, directions, *, ctx):
  """Mark raw-value column extrema without ranking unavailable values or ties."""
  matches=[list(re.finditer(r'<td\b[^>]*>.*?</td>',values,re.S)) for _,values in rows]
@@ -496,7 +497,16 @@ def write(out,path,title,body,*,root_links=False,show_language=True, ctx):
   if retry:
    scope_note+=' <span data-retry-acceptance-scopes="'+esc(','.join(state['retry_scopes']))+'">'+esc(t(*retry))+'</span>'
   scope_note+='</p>'
- page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{''.join((link(base + url, label) for url, label in nav))}{language}<button class="theme-toggle" onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f'</button></nav></header><main{role_attribute(path)}{evidence_attr}>{banner}{scope_note}{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
+ # Status notes follow the page title and lead, so the heading stays the first thing a reader sees.
+ hero_start=body.find(HERO_OPEN)
+ if hero_start>=0:hero_end=body.find('</section>',hero_start)+len('</section>')
+ else:
+  # Pages without a hero still place status after their title and its lead paragraph.
+  title_end=body.find('</h1>')
+  hero_end=0 if title_end<0 else title_end+len('</h1>')
+  if hero_end and body.startswith('<p',hero_end):hero_end=body.find('</p>',hero_end)+len('</p>')
+ lead_body=body[:hero_end]+banner+scope_note+body[hero_end:]
+ page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{''.join((link(base + url, label) for url, label in nav))}{language}<button class="theme-toggle" onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f'</button></nav></header><main{role_attribute(path)}{evidence_attr}>{lead_body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
  target=contained_path(out,path);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
 _RESEARCH_ROUTES=[
@@ -1567,11 +1577,14 @@ def ranking(records,cases,track,base='',id=None,compact=False,audit=None,*,diagn
  result=rank_note+table(heads,rows,id or 'ranking-'+track,True,'ranking',metrics=[] if compact else None,include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc'))
  if text_scopes and len(set(text_scopes.values()))>1:
   result=('<details><summary>' + t('text_check_coverage', 'Text-check coverage') + f"""</summary><ul>{''.join((f"<li>{esc(name)}：{len(scope)}/{len(selected)} 例；{esc('、'.join((selected[k]['name'] for k in sorted(scope))) or t('no_text_check_record', 'No text-check record'))}</li>" for name, scope in sorted(text_scopes.items())))}</ul></details>{result}""")
+ note_html='<p class="source-note">'+note+'</p>'
  if compact:
-  result=('<details class="ranking-metric-help"><summary>' + t('metric_definitions_pass_rate_quality_and_latency', 'Metric definitions · pass rate, quality, and latency') + f'</summary>{metric_legend(heads)}</details>{result}')
+  # Home boards keep coverage rules inside the closed metric notes instead of ahead of the ranking.
+  result=('<details class="ranking-metric-help"><summary>' + t('metric_definitions_pass_rate_quality_and_latency', 'Metric definitions · pass rate, quality, and latency') + f'</summary>{note_html}{metric_legend(heads)}</details>{result}')
+  note_html=''
  if title_scope:result+=title_diagnostics(groups,selected,base,id or 'ranking-'+track)
  result+=matched_latency(groups,cases,base, ctx=ctx)
- return task_pass_guide(track,base,selected)+'<p class="source-note">'+note+'</p>'+result
+ return task_pass_guide(track,base,selected)+note_html+result
 
 def matched_latency(groups,cases,base, *, ctx):
  scopes=[{r['case_id'] for r in rows if succeeded(r,cases[r['case_id']], ctx=ctx)} for rows in groups.values()]
@@ -1825,6 +1838,11 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
+ if help:
+  # One sentence stays beside the ranking; the full basis and latency policy live in the closed metric notes.
+  help=help.replace('<div class="metric-help">','<div class="metric-help">'+intro+timing_note,1)
+  intro='<p class="decision-lead ranking-lead">'+(t('overall_ranking_lead', 'Ranked by overall task pass rate across {case_count} planned tasks; latency is shown separately and does not affect the order. Open the metric notes for the full basis.', case_count=case_count) if ranked else t('overall_scores_lead', 'Overall task pass rates across {case_count} planned tasks are shown without ranks; latency is shown separately. Open the metric notes for the full basis.', case_count=case_count))+'</p>'
+  timing_note=''
  return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases, ctx=ctx))
 
 def analysis_body(records,cases,headers=None,tracks=None, *, ctx):
