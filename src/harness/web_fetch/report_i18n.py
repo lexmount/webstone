@@ -22,6 +22,7 @@ from bs4 import BeautifulSoup, Comment
 
 from harness.reporting import shell
 from harness.reporting.locales import catalog_text, format_message, plural, translate
+from harness.reporting.presentation import drop_other_edition
 from harness.web_fetch.report_reading import archived_translations, render_archived_reading
 
 NAV = [
@@ -800,8 +801,8 @@ REGEX.insert(0, (re.compile(r"^(\d+)/(\d+) · 复核记录$"), r"\1/\2 · review
 REGEX.insert(0, (re.compile(r"^(\d+) 条通过结果的参考词精确率低于 30%。此比例用于定位检查对象，不是统一失败线；通过不保证干净正文，正文参考的范围和时间也会影响该指标。$"), r"\1 passing results have reference word precision below 30%. This locates inspection candidates, not a universal failure threshold. Passing does not establish clean body text; reference scope and time also affect this metric."))
 
 
-def write_english_report(out: Path, *, source_routes=None) -> int:
-    """Mirror Chinese HTML routes; a scoped refresh preserves other editions."""
+def _chinese_routes(out: Path, source_routes=None) -> list[Path]:
+    """The Chinese HTML routes of this build: all of them, or a scoped refresh's routes."""
     if source_routes is None:
         sources = sorted(path for path in out.rglob("*.html") if "en" not in path.relative_to(out).parts)
     else:
@@ -816,6 +817,25 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
             if not path.is_file():
                 raise FileNotFoundError('Missing Chinese route: ' + str(route))
             sources.append(out / str(route))
+    return sources
+
+
+def drop_english_source(out: Path, *, source_routes=None) -> None:
+    """Leave each Chinese page in Chinese only once its English edition, if any, is written.
+
+    The renderer carries each dynamic label's English form beside the Chinese text so the
+    English pass can use it; a published page holds one language.
+    """
+    for path in _chinese_routes(out, source_routes):
+        page = path.read_text(encoding="utf-8")
+        single = drop_other_edition(page)
+        if single != page:
+            path.write_text(single, encoding="utf-8")
+
+
+def write_english_report(out: Path, *, source_routes=None) -> int:
+    """Mirror Chinese HTML routes; a scoped refresh preserves other editions."""
+    sources = _chinese_routes(out, source_routes)
     history_path = out / "report-changes.json"
     translations = release_translations(json.loads(history_path.read_text(encoding="utf-8"))) if history_path.is_file() else {}
     catalog = published_report_catalog(out, translations)
@@ -856,7 +876,7 @@ def write_english_report(out: Path, *, source_routes=None) -> int:
                 raise ValueError(
                     "Untranslated English article UI or narrative: " + repr(untranslated[:20])
                 )
-        target.write_text(localized, encoding="utf-8")
+        target.write_text(drop_other_edition(localized), encoding="utf-8")
     return len(sources)
 
 

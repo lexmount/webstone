@@ -37,6 +37,7 @@ from harness.record_io import file_sha256, load_jsonl, optional_file_sha256, rea
 from harness.report_languages import check_language_contract, generated_languages
 from harness.reporting.assets import bound_json_asset
 from harness.reporting.locales import catalog_text
+from harness.reporting.presentation import check_one_language
 from harness.reporting.presentation import visible_text as _visible_text
 from harness.reporting.privacy import BROWSER_USE_CHECK_SOURCE
 from harness.reporting.release_check import check_report_identity, check_template_pages, open_report
@@ -80,6 +81,7 @@ def _check_reader_facing_ux(report_dir: Path, rendered_pages: dict[Path, str]) -
             raise ValueError(f"formal report contains unexplained internal term {term}: {page}")
         if "data-report-en=" in _visible_text(text):
             raise ValueError(f"formal report shows escaped interface markup as text: {page}")
+        check_one_language(text)
     for homepage in (
         report_dir / "index.html",
         *([report_dir / "en/index.html"] if "en" in generated_languages(report_dir) else []),

@@ -16,7 +16,7 @@ from lexbench_webfetch.stable_tasks import validate_acceptance_contract
 
 from harness.record_io import file_sha256, load_jsonl, read_json
 from harness.report_languages import check_language_contract, generated_languages, visible_numbers
-from harness.reporting.presentation import check_presentation
+from harness.reporting.presentation import check_one_language, check_presentation
 from harness.reporting.release_check import language_editions, open_report, read_page
 from harness.web_fetch.template import check_template_pages
 from harness.web_fetch.adjudication_evidence import (
@@ -660,7 +660,7 @@ def check(root: Path, *, authority_root: Path, profile: Path | None = None, pres
     pages = ((page, root, rs, case_by_id, local_measurement) for page in root.rglob('*.html'))
     for p, page_root, page_records, page_cases, page_diagnostic in pages:
         text = p.read_text(encoding="utf-8")
-        check_presentation(text)
+        check_one_language(check_presentation(text))
         reader = VisibleText()
         reader.feed(text)
         visible = " ".join(reader.parts)

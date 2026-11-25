@@ -113,7 +113,7 @@ from harness.web_fetch.report_explainer import (
  load_browser_failure_review,
  render_explainer,
 )
-from harness.web_fetch.report_i18n import pair, published_ranking_basis, report_text, t, write_english_report
+from harness.web_fetch.report_i18n import drop_english_source, pair, published_ranking_basis, report_text, t, write_english_report
 from harness.web_fetch.report_interfaces import method_provenance
 from harness.web_fetch.report_methods import render_methods
 from harness.web_fetch.report_quality import render_quality_observations
@@ -2558,6 +2558,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  _write_uncalled_participants(out,model, ctx=ctx)
  if include_english:
   write_english_report(out,source_routes=english_routes)
+ drop_english_source(out,source_routes=english_routes)
  if presentation_only and (out/'report-languages.json').is_file():
   if ('en' in generated_languages(out)) != include_english:
    raise ValueError('Presentation refresh cannot change generated languages')

@@ -42,7 +42,6 @@ from harness.browser_use.publication import (
 )
 from harness.browser_use.report_i18n import (
     MESSAGES,
-    bilingual_text,
     english_rationale,
     write_english_report,
 )
@@ -99,8 +98,13 @@ def _language() -> str:
 
 
 def _translated(key: str, source: str, /, **values: Any) -> Safe:
-    """Keep dynamic text and its English form beside the same values."""
-    return Safe(bilingual_text(_ZH(key, source, **values), _EN(key, source, **values)))
+    """Dynamic catalog text in the edition being rendered; a page carries one language."""
+    return Safe(_e(_edition_text(_ZH(key, source, **values), _EN(key, source, **values))))
+
+
+def _edition_text(zh: str, en: str) -> str:
+    """Pick the text of the edition being rendered."""
+    return en if _language() == "en" else zh
 
 
 def _rationale(task: dict[str, Any]) -> str:
@@ -2262,10 +2266,10 @@ def _article_body(
         specimen = next(iter(causes), _attempt_id(failures[0]))
         cause = causes.get(specimen) or {}
         reason = cause.get('reason') or {}
-        explanation = bilingual_text(
+        explanation = _e(_edition_text(
             str(reason.get('zh') or _ZH('article_body.no_verified_cause', 'This result has no verified root cause.')),
             str(reason.get('en') or _EN('article_body.no_verified_cause', 'This result has no verified root cause.')),
-        )
+        ))
         chapters.append(
             f'<section data-browser-failure-profile="{_e(model)}-{_e(engine)}"><h3>{_e(label)}</h3>'
             + _translated("article_body.failed_results_have_a_verified_cause", "{failures_count} failed results; {causes_count} have a verified cause.", failures_count=len(failures), causes_count=len(causes))
@@ -3171,9 +3175,9 @@ def _methodology_protocol(inputs: ReportInputs) -> str:
                 [t("methodology_protocol.logical_results", "Logical results"), _translated("methodology_protocol.one_retained_logical_result_per_task", "One retained logical result per task, model and browser; binary acceptance and task-paired comparison.")],
                 [
                     t("methodology_protocol.execution_limit", "Execution limit"),
-                    Safe(bilingual_text(
+                    Safe(_e(_edition_text(
                         _ZH('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or _ZH('protocol.limit_not_recorded', 'not recorded')),
-                        _EN('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or 'not recorded'))),
+                        _EN('protocol.execution_limit', 'Frozen execution limit per task: {limit}; execution latency and model usage are cumulative.', limit=limit or 'not recorded')))),
                 ],
                 [
                     t("methodology_protocol.exclusions", "Exclusions"),
