@@ -102,12 +102,28 @@ def test_token_usage_does_not_invent_missing_totals_or_double_count_cache():
     record = dict(provider='a', provider_metadata={'terminal_usage': receipt})
     assert token_usage([record])[0]['uncached_input_tokens'] == 20
     partial = token_usage([record, dict(provider='a')])[0]
-    assert (partial['observed'], partial['count'], partial['total_tokens']) == (1, 2, None)
+    assert (partial['observed'], partial['count'], partial['total_tokens']) == (1, 2, 110)
     for field, value in (('total_tokens', 190), ('cached_input_tokens', 101), ('output_tokens', True)):
         invalid = deepcopy(record)
         invalid['provider_metadata']['terminal_usage'][field] = value
         with pytest.raises(ValueError, match='token usage receipt'):
             token_usage([invalid])
+
+
+def test_partial_subagent_usage_is_labeled_and_not_highlighted():
+    from harness.web_fetch.report import token_usage_comparison
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    usage = dict(input_tokens=100, cached_input_tokens=80, output_tokens=10, total_tokens=110)
+    records = [dict(provider='a', provider_metadata={'subagent_usage': usage}), dict(provider='a')]
+    content = token_usage_comparison(records)
+    check_token_usage_presentation(content, records)
+    soup = BeautifulSoup(content, 'html.parser')
+    assert soup.select_one('[data-partial-usage]')
+    assert '1/2' in soup.get_text()
+    assert not soup.select('.comparison-winner')
+    soup.select_one('[data-partial-usage]').decompose()
+    with pytest.raises(ValueError, match='subset label'):
+        check_token_usage_presentation(str(soup), records)
 
 
 @pytest.mark.parametrize('state', ['tie', 'missing', 'unequal'])

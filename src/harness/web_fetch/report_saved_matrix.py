@@ -2689,6 +2689,9 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
                 except ValueError as exc:
                     raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')
+    if (any(row.get('frozen_public_evidence_views') for row in model['rows'])
+            and not (output/'saved-composition.json').is_file()):
+        raise ValueError('Frozen public views require a bound saved composition')
     if inputs is not None:
         pricing = inputs['spec'].get('pricing')
         expected = ({'path':'report-assets/provider-pricing.json','sha256':pricing['sha256']}
@@ -2956,7 +2959,7 @@ def _saved_renderer_projection(output, model):
                     return candidate
             return value
         record = project(raw)
-        if model.get('public_evidence_views'):
+        if model.get('public_evidence_views') or row.get('frozen_public_evidence_views'):
             from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose
             local_root = contained_path(output, prefix, reject_symlinks=True)
@@ -3024,6 +3027,8 @@ def _saved_renderer_projection(output, model):
         'saved_matrix_scope': scope}
     if 'scope_notes' in model:
         dataset['comparison']['presentation']['scope_notes'] = model['scope_notes']
+    if model.get('descriptive_comparison'):
+        dataset['comparison']['presentation']['descriptive_comparison'] = True
     if model.get('offline_revision'):
         dataset['comparison']['offline_revision'] = model['offline_revision']
     if _declared_review_scope(model) is not None:

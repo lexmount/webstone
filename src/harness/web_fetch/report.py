@@ -1492,7 +1492,7 @@ def ranking_readiness(records,cases,*,participants=None):
  notes=[]
  if not complete:notes.append(model_text(*pair('report_results_do_not_cover_the_same_complete_task_1be98a', 'Results do not cover the same complete task population; scores are shown without ranks.')))
  if not same_scorer and not render_context().descriptive_ranks:notes.append(model_text(*pair('report_scorer_identities_differ_or_are_missing_scores_are_ceb67f', 'Scorer identities differ or are missing; scores are shown without ranks.')))
- return complete and (same_scorer or render_context().descriptive_ranks), ''.join('<p class="callout">'+n+'</p>' for n in notes)
+ return complete and (same_scorer or render_context().descriptive_ranks), ('' if render_context().external_scope_notes else ''.join('<p class="callout">'+n+'</p>' for n in notes))
 
 
 def shared_ranks(scores):
@@ -1759,7 +1759,10 @@ def token_usage_comparison(records):
   values=cell(link('providers/'+item['provider']+'.html',provider_label(item['provider'])))+cell(f"{item['observed']}/{item['count']}")
   for key in fields:
    value=item[key]
-   values+=cell('—' if value is None else f'{value:,}',value)
+   text='—' if value is None else f'{value:,}'
+   if key=='total_tokens' and value is not None and item['observed']<item['count']:
+    text+='<br><small data-partial-usage>'+t('token_usage_partial','Recorded subset')+'</small>'
+   values+=cell(text,value)
   rows.append((' data-provider="'+esc(item['provider'])+'"',values))
  comparable=len({item['count'] for item in usage})==1 and all(item['observed']==item['count'] for item in usage)
  rows=comparative_rows(rows,{2:('total_tokens','min')} if comparable else {})
@@ -1829,6 +1832,8 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b>'+model_text(*pair('report_some_results_are_missing_or_tasks_were_not_c085cf', 'Some results are missing or tasks were not called. Rates use each method’s saved decidable results; missing items are not failures. See completion details for denominators, calls and missing counts. Adapter rejections retain their original failure scores without implying a product call.'))+'</p>'
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
+ if render_context().external_scope_notes and render_context().descriptive_ranks:
+  intro='<p class="decision-lead">'+t('saved_comparison_population','{tasks} tasks · {methods} methods. Compare recorded task pass rates and call latency.',tasks=case_count,methods=len(groups))+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
        + '<div><dt>'+saved_matrix_text('passing_final_call_title' if passing_latency else 'final_call_timing_title')+'</dt><dd>'+saved_matrix_text('passing_final_call_help' if passing_latency else 'final_call_timing_help')+'</dd></div>' +
        ('<div>' + '<dt>' + t('report_review_coverage_9466e9', 'Review coverage') + '</dt>' + '<dd>' + t('report_coverage_of_the_independent_blind_review_its_protocol_a_329b7a', 'Coverage of recorded result reviews, their protocols, and unresolved count.') + '</dd>' + '</div>' + '</dl>' + '</div>' + '</details>'))
@@ -1839,7 +1844,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
- if ranked:rows=comparative_rows(rows,directions)
+ if ranked or render_context().descriptive_ranks:rows=comparative_rows(rows,directions)
  timing_note='<p>'+saved_matrix_text('final_call_timing_note')
  if passing_latency:
   timing_note+=' '+saved_matrix_text('passing_final_call_help')+' '+link('analysis/index.html#all-final-call-timing',saved_matrix_text('all_final_call_timing_title'))
@@ -1855,7 +1860,8 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   intro='<p class="decision-lead">'+model_text(*pair('report_compare_each_frozen_task_group_separately_without_a_f6add0', 'Compare each frozen task group separately, without a combined pass-rate ranking. Cross-group cases retain their original identities; record counts are not unique-site counts.'))+'</p>'
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
- rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
+ indexed=ranked or render_context().descriptive_ranks
+ rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=indexed,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(indexed),'desc') if combined else (0,'asc'))
  return intro+rank_note+timing_note+help+('<p class="source-note">'+t('latency_column_minimum','Lower values in latency columns are green and bold.')+'</p>' if ranked else '')+rendered
 
 def analysis_body(records,cases,headers=None,tracks=None):
@@ -2013,7 +2019,7 @@ def _model_pages(out,model):
  if not isinstance(model,ReportModel):raise TypeError('render_report() takes a validated ReportModel')
  # The model keeps its inputs by reference; admit them again at the render boundary.
  model.require_admission()
- with rendering(model):
+ with rendering(model,descriptive_ranks=model.dataset.get('comparison',{}).get('presentation',{}).get('descriptive_comparison',False)):
   return _render_model(Path(out),model.dataset,model.records,model.manifests,model=model)
 
 
@@ -3146,7 +3152,7 @@ def saved_suite_ranking(records,cases,suite,*,base='',id=None,diagnostic=False):
  rows=[row for _,_,row in sorted(rows,key=lambda item:item[:2])]
  eligible,rank_note=ranking_readiness(records,selected,participants=family_participants(records,selected))
  ranked=not diagnostic and eligible
- if ranked:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
+ if ranked or render_context().descriptive_ranks:rows=comparative_rows(rows,{6:('task_pass_rate','max')})
  scores=sorted([sum(succeeded(r,selected[r['case_id']]) for r in records if r['provider']==provider and r['case_id'] in selected) for provider in {r['provider'] for r in records}|set(render_context().labels)],reverse=True)
  return rank_note+'<p>'+saved_matrix_text('suite_denominator_note')+'</p>'+table(saved_matrix_text('suite_result_headers'),rows,id or 'ranking-'+suite,sortable=True,metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(6+int(ranked),'desc'))
 

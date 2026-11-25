@@ -118,6 +118,12 @@ def check_token_usage_presentation(content, records):
                                      'cached_input_tokens', 'output_tokens'), start=2):
             value = item[key]
             cell = cells[index]
+            partial = cell.select_one('[data-partial-usage]')
+            needs_partial = index == 2 and value is not None and item['observed'] < item['count']
+            if bool(partial) != needs_partial:
+                raise ValueError('Token usage subset label differs from receipt coverage')
+            if partial is not None:
+                partial.decompose()
             if (cell.get('data-sort') != (None if value is None else str(value))
                     or cell.get_text() != ('—' if value is None else f'{value:,}')):
                 raise ValueError('Token usage value differs from native receipts')
