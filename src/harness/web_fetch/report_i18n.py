@@ -71,11 +71,12 @@ def t(key: str, source: str, /, **values) -> str:
 
 
 def legacy_t(report: str, key: str, /, **values) -> str:
-    """`t` for one already-published report's frozen message."""
-    message = legacy_report_text(report)['messages'][key]
-    chinese = message['zh'].format_map(values)
-    TEXT.setdefault(chinese.strip(), message['en'].format_map(values))
-    return chinese
+    """The Chinese edition of one already-published report's frozen message.
+
+    Its English comes only from that report's catalog in the English pass; the
+    shared catalog never learns it.
+    """
+    return legacy_report_text(report)['messages'][key]['zh'].format_map(values)
 
 
 def pair(key: str, source: str, /, **values) -> tuple[str, str]:

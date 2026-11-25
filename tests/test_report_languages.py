@@ -280,3 +280,16 @@ def test_published_report_text_is_read_only_for_that_report(tmp_path):
     release = sorted(_historical_release_ids())[0]
     (published / 'report-changes.json').write_text(json.dumps({'releases': [{'id': release}]}), encoding='utf-8')
     assert translate_text(sentence, published_report_catalog(published)) == english
+
+
+def test_rendering_a_published_message_does_not_leak_into_other_reports(tmp_path):
+    import json
+    from harness.web_fetch.report_i18n import (
+        _historical_release_ids, legacy_report_text, legacy_t, published_report_catalog, translate_text)
+    message = legacy_report_text('web-fetch-published')['messages']['every_method_runs_the_same_150_tasks']
+    chinese = legacy_t('web-fetch-published', 'every_method_runs_the_same_150_tasks')
+    assert translate_text(chinese) == chinese
+    assert translate_text(chinese, published_report_catalog(tmp_path)) == chinese
+    (tmp_path / 'report-changes.json').write_text(
+        json.dumps({'releases': [{'id': sorted(_historical_release_ids())[0]}]}), encoding='utf-8')
+    assert translate_text(chinese, published_report_catalog(tmp_path)) == message['en']
