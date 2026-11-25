@@ -239,14 +239,14 @@ def test_historical_selector_policy_requires_exact_trusted_identity():
     digest = hashlib.sha256(b'synthetic historical selector').hexdigest()
     policy = {'kind': 'native-answer-selection', 'version': 1, 'provider_type': 'browserbase_fetch',
               'source_sha256': digest, 'source_path': 'native-answer-policies/'+digest+'.py'}
-    from harness.web_fetch.native_projection import approved_native_policies
-    with approved_native_policies({'schema_version': 1, 'sources': [
-            {'source_sha256': digest, 'version': 1, 'reason': 'Synthetic reviewed fixture'}]}):
-        assert native_projection_policy_version(policy, 'browserbase_fetch') == 1
-        for key, value in [('source_sha256', '0'*64), ('version', 2), ('provider_type', 'firecrawl'),
-                           ('source_path', 'other.py'), ('kind', 'other')]:
-            with pytest.raises(ValueError, match='differs from its pre-call freeze'):
-                native_projection_policy_version({**policy, key: value}, 'browserbase_fetch')
+    from harness.web_fetch.native_projection import approved_policy_versions
+    approved = approved_policy_versions({'schema_version': 1, 'sources': [
+        {'source_sha256': digest, 'version': 1, 'reason': 'Synthetic reviewed fixture'}]})
+    assert native_projection_policy_version(policy, 'browserbase_fetch', approved) == 1
+    for key, value in [('source_sha256', '0'*64), ('version', 2), ('provider_type', 'firecrawl'),
+                       ('source_path', 'other.py'), ('kind', 'other')]:
+        with pytest.raises(ValueError, match='differs from its pre-call freeze'):
+            native_projection_policy_version({**policy, key: value}, 'browserbase_fetch', approved)
 
 
 def test_historical_selector_replays_old_file_scope_and_checks_saved_source(tmp_path, monkeypatch):
@@ -272,20 +272,22 @@ def test_historical_selector_replays_old_file_scope_and_checks_saved_source(tmp_
     record = {'case_id': 'file', 'provider_type': 'browserbase_fetch', 'url': case['url'], 'ok': False,
               'title': None, 'final_url': None, 'artifact_path': 'answer.txt', 'provider_metadata': metadata,
               'metrics': {'content_sha256': hashlib.sha256(payload['content'].encode()).hexdigest()}}
-    with projection.approved_native_policies({'schema_version': 1, 'sources': [
-            {'source_sha256': digest, 'version': 1, 'reason': 'Synthetic reviewed fixture'}]}):
+    approved = projection.approved_policy_versions({'schema_version': 1, 'sources': [
+        {'source_sha256': digest, 'version': 1, 'reason': 'Synthetic reviewed fixture'}]})
+    verify_saved_native_answer(tmp_path, record, approved_policies=approved)
+    with pytest.raises(ValueError, match='differs from its pre-call freeze'):
         verify_saved_native_answer(tmp_path, record)
-        frozen = deepcopy(record)
-        source_path.write_bytes(source + b'tampered')
-        with pytest.raises(ValueError):
-            verify_saved_native_answer(tmp_path, record)
-        source_path.write_bytes(source)
-        metadata['native_answer_projection'] = projection.native_answer_projection('browserbase_fetch', case, payload, 200)
-        assert metadata['native_answer_projection']['files']
-        with pytest.raises(ValueError, match='differs from its pre-call selection policy'):
-            verify_saved_native_answer(tmp_path, record)
-        metadata['native_answer_projection'] = old
-        assert record == frozen
+    frozen = deepcopy(record)
+    source_path.write_bytes(source + b'tampered')
+    with pytest.raises(ValueError):
+        verify_saved_native_answer(tmp_path, record, approved_policies=approved)
+    source_path.write_bytes(source)
+    metadata['native_answer_projection'] = projection.native_answer_projection('browserbase_fetch', case, payload, 200)
+    assert metadata['native_answer_projection']['files']
+    with pytest.raises(ValueError, match='differs from its pre-call selection policy'):
+        verify_saved_native_answer(tmp_path, record, approved_policies=approved)
+    metadata['native_answer_projection'] = old
+    assert record == frozen
 
 
 def test_moli_markdown_route_preserves_historical_document_contract():
@@ -305,8 +307,8 @@ def test_moli_markdown_route_preserves_historical_document_contract():
     assert direct_file['files'] == {'format': 'raw_bytes'}
 
 
-def test_external_policy_approval_is_scoped_and_receipts_cannot_self_authorize():
-    from harness.web_fetch.native_projection import approved_native_policies, native_projection_policy_version
+def test_external_policy_approval_is_explicit_and_receipts_cannot_self_authorize():
+    from harness.web_fetch.native_projection import approved_policy_versions, native_projection_policy_version
     digest = hashlib.sha256(b'synthetic separately reviewed implementation').hexdigest()
     policy = {'kind': 'native-answer-selection', 'version': 2, 'provider_type': 'browserbase_fetch',
               'source_sha256': digest, 'source_path': 'native-answer-policies/' + digest + '.py'}
@@ -314,17 +316,28 @@ def test_external_policy_approval_is_scoped_and_receipts_cannot_self_authorize()
         {'source_sha256': digest, 'version': 2, 'reason': 'Reviewed independent fixture'}]}
     with pytest.raises(ValueError, match='differs from its pre-call freeze'):
         native_projection_policy_version(policy, 'browserbase_fetch')
-    with approved_native_policies(registry):
-        assert native_projection_policy_version(policy, 'browserbase_fetch') == 2
-        with approved_native_policies(None):
-            with pytest.raises(ValueError, match='differs from its pre-call freeze'):
-                native_projection_policy_version(policy, 'browserbase_fetch')
-        assert native_projection_policy_version(policy, 'browserbase_fetch') == 2
+    assert native_projection_policy_version(policy, 'browserbase_fetch', approved_policy_versions(registry)) == 2
     with pytest.raises(ValueError, match='differs from its pre-call freeze'):
-        native_projection_policy_version(policy, 'browserbase_fetch')
+        native_projection_policy_version(policy, 'browserbase_fetch', approved_policy_versions(None))
     with pytest.raises(ValueError, match='duplicate'):
-        with approved_native_policies({**registry, 'sources': registry['sources'] * 2}):
-            pytest.fail('Duplicate approval was accepted')
+        approved_policy_versions({**registry, 'sources': registry['sources'] * 2})
+
+
+def test_stored_policy_module_copies_keep_earlier_current_version_evidence_verifying(monkeypatch):
+    import harness.web_fetch.native_projection as projection
+    stored = projection._stored_policy_modules()
+    assert stored and all(version == 7 for _, version in stored)
+    raw = stored[-1][0]
+    digest = hashlib.sha256(projection.native_projection_source('kimi_fetch', policy_module=raw)).hexdigest()
+    policy = {'kind': 'native-answer-selection', 'version': 7, 'provider_type': 'kimi_fetch',
+              'source_sha256': digest, 'source_path': 'native-answer-policies/' + digest + '.py'}
+    assert projection.native_projection_policy_version(policy, 'kimi_fetch') == 7
+    # A digest from a copy that no stored module matches is not approved.
+    projection._stored_policy_versions.cache_clear()
+    monkeypatch.setattr(projection, '_stored_policy_modules', lambda: ((raw + b'#', 7),))
+    with pytest.raises(ValueError, match='differs from its pre-call freeze'):
+        projection.native_projection_policy_version(policy, 'kimi_fetch')
+    projection._stored_policy_versions.cache_clear()
 
 
 def test_extract_quote_records_preserve_ownership_and_historical_policy():

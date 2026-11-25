@@ -117,6 +117,18 @@ def metric_legend(headers):
 TRACK_CONTEXT = json.loads((Path(__file__).resolve().parent / 'data/report-track-context.json').read_text(encoding='utf-8'))
 
 
+def example_text(track, name, part='examples'):
+    """One benchmark-specific example sentence the track context declares in both languages."""
+    entry = TRACK_CONTEXT[track][part][name]
+    TEXT.setdefault(entry['zh'].strip(), entry['en'])
+    return entry['zh']
+
+
+def example_link(track):
+    """Opening tag of the link to the task a track's examples describe."""
+    return '<a href="../datasets/' + escape(TRACK_CONTEXT[track]['examples']['case_id']) + '.html">'
+
+
 def media_population_text(track, cases):
     """Describe the declared population, without assuming a historical cohort."""
     selected = [case for case in (cases or {}).values() if report_family(case) == track]
@@ -197,40 +209,40 @@ def task_pass_guide(track, base='', cases=None):
 def examples(cases=None):
     items=[
         ('web',t('general_web_text', 'General web text'),[
-            (t('task', 'Task'),t('open_the_books_to_scrape_home_page', 'Open the Books to Scrape home page and retrieve the book-list body on that page.')),
-            (t('reference_answer', 'Reference answer'),t('independently_retain_the_complete_page_listing_and', 'Independently retain the complete page listing and check title, price, and availability—for example, the first item A Light in the Attic, £51.77, In stock.')),
+            (t('task', 'Task'),example_text('web', 'task')),
+            (t('reference_answer', 'Reference answer'),example_text('web', 'reference')),
             (t('how_it_is_measured', 'How it is measured'),t('calculate_recall_precision_and_f1_against_the', 'Calculate recall, precision, and F1 against the complete body; separately check length, required facts, and error-page signals.')),
             (t('what_counts_as_a_pass_2', 'What counts as a pass'),t('all_required_facts_and_body_rules_pass', 'All required facts and body rules pass. Acceptance does not mean every character was recovered; consult the full-text metrics.')),
         ]),
         ('dynamic',t('rendered_web_text', 'Rendered web text'),[
-            (t('task', 'Task'),t('read_each_task_s_declared_initial_load', "Read each task's declared initial-load scope—for example, the first 20 GraphQL reviews, 16 React catalog products, 20 Swagger endpoint summaries, or 14 category names inside an iframe. Each task is scored independently.")),
+            (t('task', 'Task'),example_text('dynamic', 'task')),
             (t('task_contract', 'Task contract'),t('observe_the_initial_load_scope_independently_and', 'Observe the initial-load scope independently and register stable content anchors (stable headings, sections, and descriptions) plus record count and field structure, such as product name, numeric price, and visible financing fields. Only frequently changing item titles and prices are excluded from permanent answers; stable content remains checked.')),
             (t('how_it_is_measured', 'How it is measured'),t('check_stable_content_anchors_together_with_each', "Check stable content anchors together with each record's field ownership, count, uniqueness, and types, allowing declared field order and common layouts. A complete comparable text reference may support a separate overlap diagnostic, but does not establish the factual accuracy or freshness of volatile values.")),
             (t('what_counts_as_a_pass_2', 'What counts as a pass'),t('the_request_succeeds_and_every_body_rule', 'The request succeeds and every body rule for the task passes. The contract covers only the declared initial records and does not imply scrolling, pagination, or clicks. A missing planned call or verdict makes the report incomplete and blocks publication.')),
         ]),
         ('document',t('document_text', 'Document text'),[
-            (t('task', 'Task'),t('use_the_attention_is_all_you_need', 'Use the Attention Is All You Need PDF as an example and read the complete paper; DOCX, TXT, and embedded-document pages are tested separately.')),
+            (t('task', 'Task'),example_text('document', 'task')),
             (t('reference_answer', 'Reference answer'),t('independently_extract_body_text_from_every_page', 'Independently extract body text from every page, paragraph, and table in the original file, and retain the file.')),
             (t('how_it_is_measured', 'How it is measured'),t('provide_the_original_document_url_and_use', "Provide the original document URL and use the body text returned by the browser's official interface. A task fails if the method returns only raw PDF, DOCX, or other file bytes; the evaluation harness does not parse the file on its behalf. Stop timing once readable body text is available, then compare it with the full reference text for recall, precision, and F1, and check the title, key terms, and sections.")),
-            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('the_document_body_is_required_a_paper', 'The document body is required; a paper download URL alone fails.') + '<a href="../datasets/document-01.html">' + t('view_the_complete_reference_and_per_method', 'View the complete reference and per-method results →') + '</a>')),
+            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('the_document_body_is_required_a_paper', 'The document body is required; a paper download URL alone fails.') + example_link('document') + t('view_the_complete_reference_and_per_method', 'View the complete reference and per-method results →') + '</a>')),
         ]),
         ('web_media',t('embedded_webpage_media', 'Embedded webpage media'),[
             (t('task', 'Task'),bilingual_text(*media_population_text('web_media', cases))),
             (t('reference_answer', 'Reference answer'),bilingual_text(*pair('each_task_independently_declares_target_resource_urls', 'Each task independently declares target resource URLs, text or structural requirements.'))),
             (t('how_it_is_measured', 'How it is measured'),t('url_tasks_check_whether_the_returned_value', 'URL tasks check whether the returned value contains the target URL and do not require a separate media download. The text task checks the registered facts.')),
-            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('return_the_url_or_text_required_by', 'Return the URL or text required by the task. A URL alone does not deliver the file or show understanding of images, video, captions, or audio.') + '<a href="../datasets/image-01.html">' + t('view_web_media_references_and_results', 'View web-media references and results →') + '</a>')),
+            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('return_the_url_or_text_required_by', 'Return the URL or text required by the task. A URL alone does not deliver the file or show understanding of images, video, captions, or audio.') + example_link('web_media') + t('view_web_media_references_and_results', 'View web-media references and results →') + '</a>')),
         ]),
         ('media_file',t('direct_media_files', 'Direct media files'),[
             (t('task', 'Task'),bilingual_text(*media_population_text('media_file', cases))),
             (t('reference_answer', 'Reference answer'),t('independently_saved_file_format_length_and_sha', 'Independently saved file format, length, and SHA-256.')),
             (t('how_it_is_measured', 'How it is measured'),t('check_the_returned_bytes_against_the_required', 'Check the returned bytes against the required file signature, length, and SHA-256. Binary files are not converted to Markdown.')),
-            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('the_method_must_return_the_matching_file', 'The method must return the matching file bytes. Repeating the input URL or returning page text does not pass. These tasks do not test media understanding.') + '<a href="../datasets/image-10.html">' + t('view_original_file_references_and_results', 'View original-file references and results →') + '</a>')),
+            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('the_method_must_return_the_matching_file', 'The method must return the matching file bytes. Repeating the input URL or returning page text does not pass. These tasks do not test media understanding.') + example_link('media_file') + t('view_original_file_references_and_results', 'View original-file references and results →') + '</a>')),
         ]),
         ('challenge',t('popular_site_text', 'Popular-site text'),[
-            (t('task', 'Task'),t('for_a_justwatch_example_retrieve_the_declared', 'For a JustWatch example, retrieve the declared number of distinct shows with names and detail endpoints. Task verdict and latency enter the popular-site primary table. A missing complete reference affects only full-text metrics and does not hide the verdict.')),
+            (t('task', 'Task'),example_text('challenge', 'task')),
             (t('reference_basis', 'Reference basis'),t('an_independent_page_supplies_stable_content_anchors', "An independent page supplies stable content anchors and record-structure requirements: show name and a same-site detail endpoint. The day's show list is not frozen.")),
             (t('how_structure_is_measured', 'How structure is measured'),t('require_at_least_3_named_same_site', 'Require at least 3 named same-site detail URLs, deduplicated by address. Bare URLs, navigation buttons, and login prompts do not count. Frequently changing names, ranks, prices, and IDs are not frozen to old snapshot values, but registered stable content is still required.')),
-            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('stable_content_anchors_and_every_required_field', 'Stable content anchors and every required field, type, uniqueness, and count check pass. Acceptance does not establish the factual accuracy or freshness of volatile values; recall, precision, and F1 are — without a complete comparable reference.') + '<a href="../datasets/challenge-10-justwatch.html">' + t('view_reference_and_measured_results', 'View reference and measured results →') + '</a>')),
+            (t('what_counts_as_a_pass_2', 'What counts as a pass'),(t('stable_content_anchors_and_every_required_field', 'Stable content anchors and every required field, type, uniqueness, and count check pass. Acceptance does not establish the factual accuracy or freshness of volatile values; recall, precision, and F1 are — without a complete comparable reference.') + example_link('challenge') + t('view_reference_and_measured_results', 'View reference and measured results →') + '</a>')),
         ]),
         ('risk_control',t('risk_control_page_body_text', 'Risk-control page body text'),[
             (t('task', 'Task'),t('open_the_specified_url_and_retrieve_the', 'Open the specified URL and retrieve the target body, lists, and real links loaded automatically, without clicking, typing, scrolling, pagination, or login.')),
@@ -421,10 +433,10 @@ def reference_status(cases):
     overview=cards([
         (t('tasks_with_complete_references', '{full} tasks with complete references', full=full),t('full_text_metrics_require_a_complete_comparable', 'Full-text metrics require a complete, comparable body reference. Image and video tasks are checked as resources, files, or text metadata.')),
         (t('list_tasks_2', '{dynamic} list tasks', dynamic=dynamic),t('acceptance_uses_registered_stable_content_anchors_plus', "Acceptance uses registered stable content anchors plus fields, types, counts, and uniqueness. Task pass rate and latency enter the corresponding primary table; the day's list membership is not frozen.")),
-        (t('snapshot_scope', 'Snapshot scope'),t('zhihu_30_trending_entries_dianping_15_merchants', 'Zhihu: 30 trending entries; Dianping: 15 merchants; JustWatch: 40 shows. Only list fields are published; account information and original login pages are excluded.')),
+        (t('snapshot_scope', 'Snapshot scope'),example_text('challenge', 'snapshot_scope', 'reference_status')),
         (t('volatile_content_validation_boundary', 'Volatile-content validation boundary'),t('stable_headings_sections_and_descriptions_are_checked', 'Stable headings, sections, and descriptions are checked against registered content. Frequently changing lists and prices are checked only for declared field structure, types, count, and uniqueness; this does not establish their factual accuracy or freshness. Missing complete references do not suppress task verdicts.')),
     ])
-    links=[f'<a href="{c["id"]}.html">{escape(c["name"])}</a>' for c in cases if c['id'] in {'challenge-04','challenge-06','challenge-10-justwatch'}]
+    links=[f'<a href="{c["id"]}.html">{escape(c["name"])}</a>' for c in cases if c['id'] in TRACK_CONTEXT['challenge']['reference_status']['example_case_ids']]
     return overview+(('<details><summary>' + t('reference_examples', 'Reference examples') + f"</summary><p>{' · '.join(links)}</p><p>" + t('each_task_records_its_source_snapshot_and', 'Each task records its source snapshot and independent-access conditions. Restricted access and site unavailability are judged separately.') + '</p></details>') if links else '')
 
 

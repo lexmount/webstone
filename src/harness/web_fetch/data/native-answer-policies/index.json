@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "native_answer_policy_modules",
+  "modules": [
+    {
+      "git_commit": "ed00452346b40cb8791f6ac4248cd39d8145d8ed",
+      "path": "src/harness/web_fetch/native_projection.py",
+      "sha256": "85cf58525fad0e3f9421b3c9d5b1c802da511548a20f707fe8215de5d1961819",
+      "source_artifact": "85cf58525fad0e3f9421b3c9d5b1c802da511548a20f707fe8215de5d1961819.py.txt",
+      "version": 7
+    }
+  ]
+}

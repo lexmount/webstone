@@ -7,7 +7,8 @@ import pytest
 from harness.reporting.presentation import esc
 from harness.web_fetch.report import table, cell, link
 from harness.web_fetch.report_i18n import localize_html, untranslated_english_narrative
-from harness.web_fetch.report_pricing import SOURCE, per_thousand, browser_monthly, render_pricing
+from harness.web_fetch.report_pricing import SOURCE, per_thousand, render_pricing
+from harness.web_fetch.report_pricing import browser_monthly as _browser_monthly
 
 
 def test_exact_commitment_conversion_not_rounded_annual_label():
@@ -21,6 +22,12 @@ def test_exact_commitment_conversion_not_rounded_annual_label():
 
 
 def test_browser_bill_includes_base_allowance_and_half_up_monthly_rounding():
+    from functools import partial
+    from harness.web_fetch.methods import report_method_catalog
+    plans = [method['pricing_duration_example']['monthly'] for method in report_method_catalog()['methods'].values()
+             if 'pricing_duration_example' in method]
+    assert plans
+    browser_monthly = partial(_browser_monthly, **plans[0])
     assert browser_monthly(1000, 5) == 5
     assert browser_monthly(100000, 5) == pytest.approx(16.61)
     assert browser_monthly(1, 10.5 * 3600 - 1) == 5

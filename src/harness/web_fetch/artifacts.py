@@ -372,7 +372,8 @@ def artifact_bindings(record: dict[str, Any]) -> list[tuple[str, str]]:
     return list(bindings.items())
 
 
-def verify_record_artifacts(root: Path, record: dict[str, Any], *, native_cases=None) -> None:
+def verify_record_artifacts(root: Path, record: dict[str, Any], *, native_cases=None,
+                            approved_policies=None) -> None:
     """Verify all declared public and private bytes against acquisition bindings."""
     verify_record_private_artifacts(root, record)
     for relative, digest in artifact_bindings(record):
@@ -383,7 +384,8 @@ def verify_record_artifacts(root: Path, record: dict[str, Any], *, native_cases=
         if not source.is_file() or file_sha256(source) != digest:
             raise ValueError('Artifact differs from its result binding: ' + relative)
     verify_record_public_call_logs(root, record)
-    native_routes.verify_saved_native_answer(root, record, cases_by_id=native_cases)
+    native_routes.verify_saved_native_answer(root, record, cases_by_id=native_cases,
+                                            approved_policies=approved_policies)
 
 
 def materialize_bound_artifacts(output: Path, source_root: Path, records: list[dict]) -> None:

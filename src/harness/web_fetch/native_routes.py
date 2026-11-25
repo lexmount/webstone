@@ -552,8 +552,11 @@ def _expected_native_declaration(root, record, raw, cases_by_id, *, policy_versi
                                     interface=output_contract, policy_version=policy_version)
 
 
-def verify_saved_native_answer(root, record, *, cases_by_id=None):
+def verify_saved_native_answer(root, record, *, cases_by_id=None, approved_policies=None):
     """Validate newly declared saved answers at aggregation/release boundaries.
+
+    ``approved_policies`` maps historical policy digests to versions
+    (``approved_policy_versions``) for a caller that selected a bound registry.
 
     Older calls with no declaration need a separately recorded historical audit;
     their missing acquisition declarations must never be invented in place.
@@ -563,7 +566,7 @@ def verify_saved_native_answer(root, record, *, cases_by_id=None):
     policy = metadata.get('native_route_receipt', {}).get('answer_selection_policy')
     policy_version = 3
     if policy is not None:
-        policy_version = native_projection_policy_version(policy, record.get('provider_type'))
+        policy_version = native_projection_policy_version(policy, record.get('provider_type'), approved_policies)
         read_evidence_binding(root, {'path': policy['source_path'],
                                      'sha256': policy['source_sha256']})
     if not declaration:

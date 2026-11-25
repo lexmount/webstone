@@ -904,6 +904,11 @@
           "zh": "每种方法都执行同一组 150 个任务，每题计一次通过或失败，直接相加；耗时单列展示，不参与通过率排序。总榜适合看整体交付覆盖，具体能力仍应回到六个分榜。",
           "en": "Every method runs the same 150 tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the six family rankings."
         }
+      },
+      "ranking_basis": {
+        "case_count": 150,
+        "track_count": 6,
+        "message": "every_method_runs_the_same_150_tasks"
       }
     },
     "webmainbench": {

@@ -5,7 +5,7 @@ import math
 from html import escape
 
 from harness.distribution import repository_root
-from harness.web_fetch.methods import native_browser_engine
+from harness.web_fetch.methods import native_browser_engine, report_method_catalog
 from harness.web_fetch.report_i18n import t
 
 SOURCE = repository_root() / 'research/provider-pricing.json'
@@ -18,14 +18,26 @@ def per_thousand(price, credits, credits_per_page=1):
     return price / credits * credits_per_page * 1000
 
 
-def browser_monthly(pages, seconds, base=5, included_hours=10, hourly=0.09):
+def browser_monthly(pages, seconds, *, base_usd, included_hours, usd_per_hour):
+    """Monthly spend of a browser-time plan: base fee plus billed hours past the included ones."""
     if pages < 0 or seconds < 0:
         raise ValueError('Invalid usage')
-    return base + max(0, math.floor(pages * seconds / 3600 + .5) - included_hours) * hourly
+    return base_usd + max(0, math.floor(pages * seconds / 3600 + .5) - included_hours) * usd_per_hour
 
 
 def money(value):
     return '$' + f'{value:,.3f}'.rstrip('0').rstrip('.')
+
+
+def _duration_example(example, *, table, cell):
+    """A method's declared sensitivity of browser-time billing to the seconds billed per page."""
+    rows = [('', cell(str(seconds) + ' 秒') + cell(money(seconds * example['usd_per_second']))
+             + ''.join(cell(money(browser_monthly(pages, seconds, **example['monthly'])))
+                       for pages in example['page_volumes']))
+            for seconds in example['seconds_per_page']]
+    return ('<h4>' + example['heading'] + '</h4><p>' + example['assumption'] + '</p>'
+            + table(example['headers'], rows, cls='pricing-table', metrics=[])
+            + '<p class="source-note">' + example['source_note'] + '</p>')
 
 
 def render_pricing(out, names, *, table, cell, link, esc):
@@ -106,14 +118,9 @@ def render_pricing(out, names, *, table, cell, link, esc):
         body += '<dl class="interface-fields">' + ''.join('<div><dt>' + esc(title) + '</dt><dd>' + esc(text) + '</dd></div>' for title, text in p['terms']) + '</dl>'
         for offer in p.get('offers', []):
             body += '<p><strong>' + esc(offer['label']) + '</strong>：' + esc(offer['text']) + ' ' + link(offer['url'], '官方资格与条款 ↗') + '</p>'
-        if p['id'] == 'cloudflare-markdown':
-            rows = []
-            for seconds in (5, 10, 40):
-                rows.append(('', cell(str(seconds) + ' 秒') + cell(money(seconds * .025)) +
-                             cell(money(browser_monthly(1000, seconds))) + cell(money(browser_monthly(100000, seconds)))))
-            body += '<h4>时长敏感性示例</h4><p>假设仅使用 /markdown，全部用量可计费；按响应头 X-Browser-Ms-Used 计时。每千页边际价＝每页秒数 × $0.025，不含最低月费、赠送时长和月度取整。</p>'
-            body += table(['假设计费时长 / 页', '每千页边际价', '1,000 页/月总支出', '100,000 页/月总支出'], rows, cls='pricing-table', metrics=[])
-            body += '<p class="source-note">月支出＝$5＋$0.09 × max(0, round(月浏览器小时数)−10)，半小时向上取整。仅含 Workers 基础月费与浏览器时长；已有付费 Workers 时，增量成本不应重复加 $5。不是用榜单的客户端耗时推算账单。</p>'
+        example = report_method_catalog()['methods'].get(p['id'], {}).get('pricing_duration_example')
+        if example:
+            body += _duration_example(example, table=table, cell=cell)
         body += '</details>'
     body += '<h3>其他参评方法的成本归属</h3>'
     rows = [('', cell(esc(p['label'])) + cell(esc(p['status'])) + cell(esc(p['note'])) + cell(sources(p))) for p in data['other_methods'] if set(p['ids']) & set(names)]

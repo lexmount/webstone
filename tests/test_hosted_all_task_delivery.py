@@ -81,12 +81,12 @@ def test_historical_policies_cannot_acquire_new_brightdata_files(version):
     digest = hashlib.sha256(str(version).encode()).hexdigest()
     policy = {'kind': 'native-answer-selection', 'version': version, 'provider_type': 'brightdata_unlocker',
               'source_sha256': digest, 'source_path': 'native-answer-policies/'+digest+'.py'}
-    from harness.web_fetch.native_projection import approved_native_policies
-    with approved_native_policies({'schema_version': 1, 'sources': [
-            {'source_sha256': digest, 'version': version, 'reason': 'Synthetic reviewed fixture'}]}):
-        assert native_projection_policy_version(policy, 'brightdata_unlocker') == version
-        with pytest.raises(ValueError):
-            native_projection_policy_version({**policy, 'version': 3}, 'brightdata_unlocker')
+    from harness.web_fetch.native_projection import approved_policy_versions
+    approved = approved_policy_versions({'schema_version': 1, 'sources': [
+        {'source_sha256': digest, 'version': version, 'reason': 'Synthetic reviewed fixture'}]})
+    assert native_projection_policy_version(policy, 'brightdata_unlocker', approved) == version
+    with pytest.raises(ValueError):
+        native_projection_policy_version({**policy, 'version': 3}, 'brightdata_unlocker', approved)
     old = native_answer_projection('brightdata_unlocker', file_case(), {}, 200, policy_version=version)
     assert old['content_format'] == 'utf8' and 'files' not in old
     new = native_answer_projection('brightdata_unlocker', file_case(), {}, 200)

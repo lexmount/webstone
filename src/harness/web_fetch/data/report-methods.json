@@ -958,6 +958,16 @@
         "zh": "cloudflare-markdown",
         "en": "cloudflare-markdown"
       },
+      "pricing_duration_example": {
+        "seconds_per_page": [5, 10, 40],
+        "usd_per_second": 0.025,
+        "monthly": {"base_usd": 5, "included_hours": 10, "usd_per_hour": 0.09},
+        "page_volumes": [1000, 100000],
+        "heading": "时长敏感性示例",
+        "assumption": "假设仅使用 /markdown，全部用量可计费；按响应头 X-Browser-Ms-Used 计时。每千页边际价＝每页秒数 × $0.025，不含最低月费、赠送时长和月度取整。",
+        "headers": ["假设计费时长 / 页", "每千页边际价", "1,000 页/月总支出", "100,000 页/月总支出"],
+        "source_note": "月支出＝$5＋$0.09 × max(0, round(月浏览器小时数)−10)，半小时向上取整。仅含 Workers 基础月费与浏览器时长；已有付费 Workers 时，增量成本不应重复加 $5。不是用榜单的客户端耗时推算账单。"
+      },
       "kind": "adapter",
       "source_url": "https://developers.cloudflare.com/browser-run/quick-actions/markdown-endpoint/",
       "profile": {
