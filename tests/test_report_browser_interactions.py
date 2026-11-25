@@ -721,6 +721,49 @@ def test_method_details_omit_repeated_banners(tmp_path, browser, evidence_state)
             page.close()
 
 
+@pytest.mark.parametrize('language', ['en', 'zh'])
+@pytest.mark.parametrize('reviewed', [False, True])
+def test_method_details_preserve_local_measurement_warning(tmp_path, browser, language, reviewed):
+    from pathlib import PurePosixPath
+
+    from harness.web_fetch.report import JS, local_audit_banner
+    from harness.web_fetch.report_i18n import localize_html
+
+    dataset = {'comparison': {'kind': 'uniform_native_local_measurement',
+                             'publication_state': 'local_audit_only_not_for_release',
+                             'independent_review': reviewed}}
+    banner = local_audit_banner(dataset)
+    (tmp_path/'app.js').write_text(JS, encoding='utf-8')
+    markup = (f'<html lang="{language}"><head><meta charset="utf-8">'
+              '<script defer src="/app.js"></script></head><body><main>'
+              '<div data-saved-completion>Coverage</div>' + banner
+              + '<h1>Method</h1></main></body></html>')
+    for route in ('providers/sample.html', 'methodology/index.html'):
+        target = tmp_path/route
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(localize_html(markup, PurePosixPath(route)) if language == 'en' else markup,
+                          encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **NARROW_DARK)
+        try:
+            page.goto(origin + '/methodology/index.html')
+            warning = page.get_by_role('alert')
+            expected_warning = warning.inner_text()
+            assert expected_warning
+            expect(warning).to_have_attribute('data-evidence-state', 'local_measurement')
+            page.goto(origin + '/providers/sample.html')
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(warning).to_be_visible()
+            expect(warning).to_have_text(expected_warning, use_inner_text=True)
+            page.goto(origin + '/methodology/index.html')
+            page.evaluate("location.hash='page=additional%2Fproviders%2Fsample.html';window.dispatchEvent(new Event('report-ready'))")
+            expect(page.locator('[data-saved-completion]')).to_have_count(0)
+            expect(warning).to_be_visible()
+            expect(warning).to_have_text(expected_warning, use_inner_text=True)
+        finally:
+            page.close()
+
+
 def test_shared_inventory_falls_back_pages_keeps_filters_and_walks_details(tmp_path, browser, display):
     """A late all-pass filter falls back with a notice; pages, URL filters (including All), trail and dialog work."""
     from harness.reporting import explorer
