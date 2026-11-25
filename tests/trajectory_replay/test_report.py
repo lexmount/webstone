@@ -589,3 +589,17 @@ def test_replay_engine_order_rotates_through_every_registered_position():
     assert rotated_engine_order(("chromium", "moli"), 1) == ("moli", "chromium")
     engines = ("a", "b", "c")
     assert [rotated_engine_order(engines, index)[0] for index in range(3)] == list(engines)
+
+
+def test_curated_failure_shows_its_exact_error_and_never_an_empty_step(tmp_path):
+    reports = tmp_path / "reports"
+    build_curated_report(reports, ("chromium", "moli"), {"chromium": ("modal-form",)})
+    detail = _route(reports, "-task-6d6f64616c2d666f726d-6368726f6d69756d.html")
+    panel = detail.split('class="diagnosis-panel"', 1)[1].split("</div>", 1)[0]
+
+    assert "Timeout waiting for selector #answer" in panel
+    assert "第  步" not in panel and "第 None 步" not in panel and "unknown" not in panel
+    inventory = _route(reports, "-analysis.html")
+    marker = 'data-task="modal-form" data-engine="chromium"'
+    row = inventory.split(marker, 1)[1].split("</div>", 1)[0]
+    assert 'class="row-error"' in row and "Timeout waiting for selector #answer" in row

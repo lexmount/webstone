@@ -641,6 +641,35 @@ def _metric_tables(summary: dict[str, Any]) -> str:
     )
 
 
+def _failure_location(diagnostic: dict[str, Any]) -> str:
+    """Name the failed step only when the trace located it; never print empty placeholders."""
+    step, action = diagnostic.get("failed_step"), str(diagnostic.get("failed_action") or "")
+    if step in (None, "") or action in {"", "unknown"}:
+        return f"<span>{t('replay.detail.step_not_located', 'No failed BrowserTool step was recorded; the run error is shown below.')}</span>"
+    selector = diagnostic.get("selector")
+    return (
+        f"<span>{t('replay.detail.failed_step', 'Step {step} · {action}', step=_e(step), action=_e(action))}"
+        + (f" · <code>{_e(selector)}</code>" if selector else "")
+        + "</span>"
+    )
+
+
+def _row_failure_summary(diagnostic: dict[str, Any] | None, status: str) -> str:
+    """One inventory line with the located step and the start of the exact error."""
+    if not diagnostic or status == "pass":
+        return ""
+    step, action = diagnostic.get("failed_step"), str(diagnostic.get("failed_action") or "")
+    located = (
+        t("replay.detail.failed_step", "Step {step} · {action}", step=step, action=action)
+        if step not in (None, "") and action not in {"", "unknown"}
+        else t("replay.execution.step_not_located", "Step not located")
+    )
+    error = next(iter(str(diagnostic.get("evidence") or "").strip().splitlines()), "")
+    if len(error) > 140:
+        error = error[:139].rstrip() + "…"
+    return '<small class="row-error">' + _e(" · ".join(x for x in (located, error) if x)) + "</small>"
+
+
 def _task_detail_body(
     task_id: str,
     title: str,
@@ -697,11 +726,15 @@ def _task_detail_body(
         overview += (
             '<div class="diagnosis-panel">'
             f"<strong>{_e(diagnostic.get('category') or t('replay.detail.other', 'Other'))}</strong>"
-            f"<span>{t('replay.detail.failed_step', 'Step {step} · {action}', step=_e(diagnostic.get('failed_step')), action=_e(diagnostic.get('failed_action')))}"
-            f" · <code>{_e(diagnostic.get('selector') or '—')}</code></span>"
+            + _failure_location(diagnostic)
             + (
                 f"<p>{_e(diagnostic['observed_mechanism'])}</p>"
                 if diagnostic.get("observed_mechanism")
+                else ""
+            )
+            + (
+                f'<pre class="diagnosis-error">{_e(diagnostic["evidence"])}</pre>'
+                if diagnostic.get("evidence")
                 else ""
             )
             + evidence_link(diagnostic.get("actionability_probe"), "Actionability probe")
@@ -963,7 +996,7 @@ def _execution_details(
                 ]
             )
             blocks.append(
-                f'<div id="{_e(anchor)}" class="execution-card" data-task="{_e(task_id)}" data-engine="{_e(engine)}" data-status="{_e(final_result_status)}" data-combined-status="{_e(final_combined_status)}" data-complexity="{_e(task.get("complexity"))}" data-error="{_e(error_category)}" data-actions="{_e(",".join(actions))}" data-tags="{_e(",".join(tags))}" data-search="{_e(_trace_text(search_text))}" data-duration="{_e(total_duration)}"><a href="{detail_name}" class="execution-summary"><span>{_e(title)}</span><span>{_e(engine)}</span><span class="{"ok" if final_result_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_result_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span class="{"ok" if final_process_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_process_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span>{_e(error_category)}</span><span>{_show(total_duration, suffix=" ms")}</span></a></div>'
+                f'<div id="{_e(anchor)}" class="execution-card" data-task="{_e(task_id)}" data-engine="{_e(engine)}" data-status="{_e(final_result_status)}" data-combined-status="{_e(final_combined_status)}" data-complexity="{_e(task.get("complexity"))}" data-error="{_e(error_category)}" data-actions="{_e(",".join(actions))}" data-tags="{_e(",".join(tags))}" data-search="{_e(_trace_text(search_text))}" data-duration="{_e(total_duration)}"><a href="{detail_name}" class="execution-summary"><span>{_e(title)}</span><span>{_e(engine)}</span><span class="{"ok" if final_result_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_result_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span class="{"ok" if final_process_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_process_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span>{_e(error_category)}{_row_failure_summary(diagnostic, final_result_status)}</span><span>{_show(total_duration, suffix=" ms")}</span></a></div>'
             )
     return "".join(blocks) or f"<p>{t('replay.execution.none', 'No execution samples to show.')}</p>"
 
