@@ -141,6 +141,15 @@ the renderer, with Chinese in `messages.json`. `t` declares that English for
 the post-render English pass, so write one text node per call.
 A frozen or refresh build renders saved Chinese text without running those calls,
 so keep the matching `report-translations.json` entries and regex rules.
+Those shared catalogs hold interface text only: no measured value, date, version
+or registered method name in a sentence (`tests/test_architecture_instance_literals.py`).
+Text that belongs to an already-published report lives in
+`data/legacy-report-text.json`, keyed by report: the English pass reads it only
+when the report's bound release history names a release of that frozen history,
+and a page set that renders one such report reads its messages through
+`report_text(language, legacy=...)`. A registered method owns the English of the
+text its registry entry renders (`english_pass`), and the price catalog owns the
+English of its rendered summaries. New reports put their prose in bound content.
 Prove reuse through the public build and check entries with a different external
 task/method inventory, not only by searching for old numbers in source code.
 Exercise assembly and packaging with that external profile as well. Participant

@@ -38,12 +38,12 @@ def test_registered_interfaces_and_pricing_have_complete_english(tmp_path):
     from harness.web_fetch.report import table, cell, link
     from harness.web_fetch.report_interfaces import SPECS, render_interfaces
     from harness.web_fetch.report_pricing import render_pricing
-    from harness.web_fetch.report_i18n import localize_html
+    from harness.web_fetch.report_i18n import localize_html, published_report_catalog
     from harness.web_fetch.report_check import EnglishNarrative, PageShape
 
     source = render_pricing(tmp_path, list(SPECS), table=table, cell=cell, link=link, esc=esc)
     source += render_interfaces(tmp_path, [])
-    english = localize_html(source, PurePosixPath('adoption/index.html'))
+    english = localize_html(source, PurePosixPath('adoption/index.html'), catalog=published_report_catalog(tmp_path))
     zh_shape, en_shape = PageShape(), PageShape()
     zh_shape.feed(source)
     en_shape.feed(english)

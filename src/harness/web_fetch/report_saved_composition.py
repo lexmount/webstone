@@ -198,9 +198,15 @@ def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), asce
 
 
 def _model_fetch_badges(page):
-    labels = {'DeepSeek Fetch API', 'Claude Web Fetch', 'Claude Web Fetch · Haiku 5.5', 'Z.AI Web Reader', 'Kimi Fetch API'}
+    """Mark methods the registry declares as a model company's own web retrieval tool."""
+    from harness.web_fetch.methods import report_method_catalog
+    methods = {name: row for name, row in report_method_catalog()['methods'].items()
+               if 'model_fetch' in row.get('report_badges', ())}
+    labels = {label for row in methods.values()
+              for label in (*row['label'].values(), *row.get('report_label_variants', ()))}
+    route = re.compile(r'/providers/(?:' + '|'.join(map(re.escape, methods)) + r')\.html$')
     for link in page.select('a[href], span[data-report-en]'):
-        if link.name == 'a' and not re.search(r'/providers/(?:deepseek-fetch-api|claude-web-fetch|zai-reader|kimi-fetch)\.html$', '/' + link['href']):
+        if link.name == 'a' and not route.search('/' + link['href']):
             continue
         if link.name == 'span' and (link.get('data-report-en') not in labels or link.find_parent('a')):
             continue
@@ -701,7 +707,7 @@ def _extension_page(base, addition, route, base_model, added_model, overview, no
 def _extension_english_views(output, primary):
     """Use the shared localizer; frozen source editions remain immutable."""
     from harness.report_languages import generated_languages, language_metadata_path
-    from harness.web_fetch.report_i18n import localize_html, release_translations
+    from harness.web_fetch.report_i18n import localize_html, published_report_catalog, release_translations
     from bs4 import BeautifulSoup
     def english_available(root):
         index = root/'extension-base-pages/en/index.html'
@@ -727,9 +733,9 @@ def _extension_english_views(output, primary):
             targets[prefix + name] = prefix + (counterpart if has_english and counterpart in files else name)
     targets.update({route: 'en/' + route for route in primary})
     history = output/'report-changes.json'
-    translations = release_translations(_read(history)) if history.is_file() else {}
+    catalog = published_report_catalog(output, release_translations(_read(history)) if history.is_file() else {})
     return {'en/' + route: localize_html(content, PurePosixPath(route),
-                translations=translations, route_targets=targets)
+                catalog=catalog, route_targets=targets)
             for route, content in primary.items()}
 
 

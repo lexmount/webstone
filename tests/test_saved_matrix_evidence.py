@@ -818,8 +818,8 @@ def test_nested_route_links_resolve_from_page_or_base(tmp_path, monkeypatch, bas
     from harness.web_fetch import report_saved_matrix
     original = report_saved_matrix.generate_saved_matrix
 
-    def generate(out, model):
-        entry = original(out, model)
+    def generate(out, model, admission=None):
+        entry = original(out, model, admission=admission)
         nested = out / 'providers' / 'example.html'
         nested.parent.mkdir(exist_ok=True)
         prefix = '' if base else '../'
@@ -847,8 +847,8 @@ def test_nested_route_invalid_target_rejected(tmp_path, monkeypatch, markup, mes
     from harness.web_fetch import report_saved_matrix
     original = report_saved_matrix.generate_saved_matrix
 
-    def generate(out, model):
-        entry = original(out, model)
+    def generate(out, model, admission=None):
+        entry = original(out, model, admission=admission)
         nested = out / 'providers' / 'example.html'
         nested.parent.mkdir(exist_ok=True)
         disclosure = '<meta name="webstone-report" content="1">' + report.local_audit_banner(

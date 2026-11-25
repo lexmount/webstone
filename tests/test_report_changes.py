@@ -74,7 +74,7 @@ class ReportChangesTests(unittest.TestCase):
 
     def test_web_fetch_release_translations_come_from_history(self):
         from harness.web_fetch.report_changes import ROOT
-        from harness.web_fetch.report_i18n import release_translations, translate_text
+        from harness.web_fetch.report_i18n import Catalog, release_translations, translate_text
         data = json.loads((ROOT / 'research/report-changes.json').read_text(encoding='utf-8'))
         from harness.web_fetch.report_changes import select_cohort_history
         kinds = ('generic', 'headless_markdown', 'web_fetch_methods',
@@ -83,7 +83,7 @@ class ReportChangesTests(unittest.TestCase):
         releases = {row['id']: row for kind in kinds
                     for row in select_cohort_history(data, {'comparison': {'kind': kind}}, [])['releases']}
         self.assertTrue(releases)
-        translations = release_translations({"releases": list(releases.values())})
+        translations = Catalog(exact=release_translations({"releases": list(releases.values())}))
         for row in releases.values():
             english = row['i18n']['en']
             for key in ('title', 'summary'):
@@ -94,7 +94,7 @@ class ReportChangesTests(unittest.TestCase):
                     self.assertEqual(translate_text(zh, translations), en, row['id'])
 
     def test_release_translation_reuse_requires_one_unambiguous_english_value(self):
-        from harness.web_fetch.report_i18n import release_translations, translate_text
+        from harness.web_fetch.report_i18n import Catalog, release_translations, translate_text
         release = {
             'id': 'first', 'title': '版本', 'summary': '摘要',
             'changes': [['项目', '原问题', '修正', '边界']],
@@ -103,7 +103,7 @@ class ReportChangesTests(unittest.TestCase):
         }
         matching = json.loads(json.dumps(release))
         matching['id'] = 'second'
-        translations = release_translations({'releases': [release, matching]})
+        translations = Catalog(exact=release_translations({'releases': [release, matching]}))
         self.assertEqual(translate_text('修正', translations), 'Correction')
         for field in ('title', 'summary', 'changes'):
             conflicting = json.loads(json.dumps(matching))

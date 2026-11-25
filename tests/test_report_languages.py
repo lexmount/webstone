@@ -195,9 +195,9 @@ def test_evidence_translate_no_preserves_nested_text_and_attributes(monkeypatch)
     raw = "记录来源" * 1000
     original = report_i18n.translate_text
 
-    def translate(value, translations=None):
+    def translate(value, catalog=None):
         assert raw not in value, "Raw evidence reached narrative translation"
-        return original(value, translations)
+        return original(value, catalog)
 
     monkeypatch.setattr(report_i18n, "translate_text", translate)
     page = ('<p translate="no" title="记录来源"><span>' + raw + '</span><br/>'
@@ -264,3 +264,42 @@ def test_nested_header_navigation_rewrites_every_chinese_home_link(tmp_path):
     from bs4 import BeautifulSoup
     page = BeautifulSoup((tmp_path / "en/index.html").read_text(encoding="utf-8"), "html.parser")
     assert [a["href"] for a in page.select("header a")] == ["../index.html?report-language=zh"] * 2
+
+
+def test_published_report_text_is_read_only_for_that_report(tmp_path):
+    """Frozen sentences of a published report translate only when the build is that report."""
+    import json
+    from harness.web_fetch.report_i18n import _historical_release_ids, legacy_report_text, published_report_catalog, translate_text
+    sentence, english = next(iter(legacy_report_text('web-fetch-published')['text'].items()))
+    other = tmp_path / 'other'
+    other.mkdir()
+    (other / 'report-changes.json').write_text(json.dumps({'releases': [{'id': 'new-report-release'}]}), encoding='utf-8')
+    assert translate_text(sentence, published_report_catalog(other)) == sentence
+    published = tmp_path / 'published'
+    published.mkdir()
+    release = sorted(_historical_release_ids())[0]
+    (published / 'report-changes.json').write_text(json.dumps({'releases': [{'id': release}]}), encoding='utf-8')
+    assert translate_text(sentence, published_report_catalog(published)) == english
+
+
+def test_rendering_a_published_message_does_not_leak_into_other_reports(tmp_path):
+    import json
+    from harness.web_fetch.report_i18n import (
+        _historical_release_ids, legacy_report_text, legacy_t, published_report_catalog, translate_text)
+    message = legacy_report_text('web-fetch-published')['messages']['every_method_runs_the_same_150_tasks']
+    chinese = legacy_t('web-fetch-published', 'every_method_runs_the_same_150_tasks')
+    assert translate_text(chinese) == chinese
+    assert translate_text(chinese, published_report_catalog(tmp_path)) == chinese
+    (tmp_path / 'report-changes.json').write_text(
+        json.dumps({'releases': [{'id': sorted(_historical_release_ids())[0]}]}), encoding='utf-8')
+    assert translate_text(chinese, published_report_catalog(tmp_path)) == message['en']
+
+
+def test_published_release_identity_is_packaged_with_the_frozen_text():
+    """Installed builds identify published reports without the checkout's research history."""
+    import json
+    from harness.distribution import repository_root
+    from harness.web_fetch.report_i18n import LEGACY_REPORT_TEXT, _historical_release_ids
+    assert LEGACY_REPORT_TEXT.parent.name == 'data'  # packaged as harness.web_fetch data/*.json
+    history = json.loads((repository_root() / 'research/report-changes.json').read_text(encoding='utf-8'))
+    assert _historical_release_ids() == {row['id'] for row in history['releases']}

@@ -7,6 +7,7 @@ occurrence or keeps one that is gone, so a regenerated list may only shrink.
 
 import ast
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -100,6 +101,70 @@ def instance_literals() -> dict[str, list[str]]:
                            and node.value in names})
         if literals:
             occurrences[module] = literals
+    return occurrences
+
+
+# Shared Web Fetch catalogs: interface text the renderer and its English pass use for every report.
+WEB_FETCH = SOURCE / "harness/web_fetch"
+SHARED_CATALOGS = ("report-translations.json", "messages.json", "report_i18n.py")
+# Technical tokens that look like values but are part of interface text.
+TECHNICAL_TOKENS = re.compile(r"\d+ [KM]iB|\b404\b|SHA-256|HTTP \d{3}|UTF-8|P\d{2}|F1|\b1,000\b")
+MEASURED_VALUE = re.compile(
+    r"\d+\.\d*[1-9]\d*\s*(?:%|ms|毫秒|秒|s\b|seconds?)"  # a measured decimal with its unit
+    r"|(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d.])"   # a grouped count
+    r"|(?<![\d.,/])\d{3,}(?![\d.,%])"              # a count or size of three or more digits
+    r"|\d{4}-\d{2}-\d{2}"                         # a date
+    r"|(?<![\w.])\d+\.\d+\.\d+")                  # a version
+# Registered names that are also ordinary words in report prose.
+GENERIC_NAME_TOKENS = frozenset({"browser", "headless", "http", "subprocess"})
+
+
+def method_name_tokens() -> frozenset[str]:
+    """Registered method names as they appear in prose: product tokens and display labels."""
+    tokens = {re.split(r"[-_]", name)[0] for name in registered_names()} - GENERIC_NAME_TOKENS
+    methods = json.loads((WEB_FETCH / "data/report-methods.json").read_text(encoding="utf-8"))["methods"]
+    for row in methods.values():
+        label = row.get("label")
+        tokens.update(label.values() if isinstance(label, dict) else [label] if label else [])
+    return frozenset(tokens)
+
+
+def catalog_strings(name: str) -> list[str]:
+    path = WEB_FETCH / name
+    if path.suffix == ".py":
+        return [node.value for node in ast.walk(ast.parse(path.read_bytes(), filename=str(path)))
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)]
+    found = []
+
+    def walk(value):
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if name == "report-translations.json":  # its keys are source text, not message ids
+                    walk(key)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+    walk(json.loads(path.read_text(encoding="utf-8")))
+    return found
+
+
+def catalog_instance_text() -> dict[str, list[str]]:
+    """Entries of the shared catalogs that quote a measured value or name a method in a sentence."""
+    tokens = method_name_tokens()
+    name = re.compile(r"(?<![A-Za-z0-9])(?:" + "|".join(map(re.escape, sorted(tokens, key=len, reverse=True)))
+                      + r")(?![A-Za-z0-9])", re.I)
+    occurrences = {}
+    for catalog in SHARED_CATALOGS:
+        found = []
+        for text in catalog_strings(catalog):
+            named = name.search(text)
+            if (named and named.group().strip() != text.strip()) or MEASURED_VALUE.search(TECHNICAL_TOKENS.sub("", text)):
+                found.append(text)
+        if found:
+            occurrences[catalog] = sorted(set(found))
     return occurrences
 
 
