@@ -1696,6 +1696,25 @@ language must show the same comparison population and valid evidence links;
 evidence uses its frozen English edition when available, otherwise its original
 language.
 
+Optional `configuration_comparisons` adds separately frozen saved reports to the
+home page without changing leaderboard participants, ranks or result inventories.
+Each entry declares an `id`, report `root`, path/hash `audit` binding, and English
+and Chinese `title` and `description`. The complete comparison remains available
+under `comparisons/<id>/`; the home table retains its saved values and evidence
+links. Every generated parent language requires the same comparison language.
+Build, refresh and portable checks verify these sources and displayed tables.
+To retain an already extended publication byte for byte, bind its
+`saved-extension.json` as `published_base.audit` and omit `additional_report`.
+This appends the separate comparisons and retains every original page and result;
+it does not rebuild the leaderboard with a newer renderer. Packaging resolves
+lazy evidence against each frozen report's own file inventory, including nested
+source reports.
+When composing frozen reports with different task ID namespaces,
+`saved_reports[].case_id_mapping` maps every `suite--source_id` to a unique target
+ID within that suite. This requires `retain_source_task_contracts`; task names,
+URLs and deliverable kinds must still match, and original cases and records stay
+unchanged.
+
 Use `scripts/build_report.py --variant saved-matrix --input SPEC --output NEW_REPORT` and
 `scripts/check_report.py NEW_REPORT --variant saved-matrix --source-spec SPEC`. Package with
 `uv run --frozen python -m harness.web_fetch site-package NEW_REPORT ARCHIVE

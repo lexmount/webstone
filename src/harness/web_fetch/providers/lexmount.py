@@ -36,7 +36,7 @@ class LexmountProvider(Provider):
             return True
         return False
     native_configuration_fields = Provider.native_configuration_fields + (
-        'engine', 'trace_include_steps')
+        'engine', 'trace_include_steps', 'use_proxy')
 
     @staticmethod
     def native_answer_selection(selection):
@@ -121,11 +121,18 @@ class LexmountProvider(Provider):
                             'options': {'engine_preference': engine}}}
         if trace:
             body['trace'] = {'include_steps': True}
+        self._configure_proxy(body)
         return (str(self.config.get('base_url', 'https://api.lexmount.com')).rstrip('/') + '/v1/extract',
                 self.native_http_options(body, {
                     'X-API-Key': str(self.config.get('api_key', '')),
                     'X-Project-Id': str(self.config.get('project_id', '')),
                 }, timeout))
+
+    def _configure_proxy(self, body):
+        if 'use_proxy' in self.config:
+            if type(self.config['use_proxy']) is not bool:
+                raise ValueError('Lexmount use_proxy must be boolean')
+            body['use_proxy'] = self.config['use_proxy']
 
     def validate(self) -> list[str]:
         missing = []
@@ -224,6 +231,7 @@ class LexmountProvider(Provider):
                 "X-API-Key": str(self.config.get("api_key", "")),
                 "X-Project-Id": str(self.config.get("project_id", "")),
                 }, json_body={"extract": extract})
+            self._configure_proxy(arguments['json_body'])
         response = self.native_http_request(case, request, endpoint,
                                             native_route_ledger=native_route_ledger, **arguments)
         try:

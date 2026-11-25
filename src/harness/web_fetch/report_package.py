@@ -972,9 +972,33 @@ def _save_wire_manifest(content, manifest):
         (content/'manifest.json').write_bytes(raw)
 
 
-def _extension_file_bytes(name, path, originals):
+def _extension_namespace_sources(source):
+    """Locate each frozen report that owns a separate comparison's lazy files."""
+    proof = json.loads((source/'saved-extension.json').read_bytes())
+    namespaces = {}
+    for entry in proof.get('configuration_comparisons', []):
+        root = contained_path(source, entry['path'], reject_symlinks=True)
+        for audit in root.rglob('saved-matrix-audit.json'):
+            prefix = audit.parent.relative_to(source).as_posix() + '/'
+            namespaces[prefix] = json.loads(audit.read_bytes())['files']
+    return namespaces
+
+
+def _extension_file_bytes(name, path, originals, *, namespaces=None):
     """Namespace packed lazy evidence while preserving standalone source pages."""
     data = path.read_bytes()
+    if name.startswith('comparisons/') and name.endswith('.html'):
+        text = data.decode('utf-8')
+        _namespace_extension_evidence(text, prefix='')
+        keys = re.findall(r'\b(?:data-file|data-evidence-file)="([^"]+)"', text)
+        if not keys:
+            return data
+        for prefix in sorted(namespaces or {}, key=len, reverse=True):
+            files = namespaces[prefix]
+            if (name.startswith(prefix) and name[len(prefix):] in files
+                    and all(key in files for key in keys)):
+                return _namespace_extension_evidence(text, prefix=prefix).encode('utf-8')
+        raise ValueError('Nested comparison evidence has no owning frozen report: ' + name)
     if name.startswith('additional/') and name.endswith('.html'):
         text = data.decode('utf-8')
         expected = originals[name.removeprefix('additional/')]
@@ -986,9 +1010,9 @@ def _extension_file_bytes(name, path, originals):
     return data
 
 
-def _extension_file_identity(name, path, originals):
-    if name.startswith('additional/') and name.endswith('.html'):
-        data = _extension_file_bytes(name, path, originals)
+def _extension_file_identity(name, path, originals, *, namespaces=None):
+    if name.startswith(('additional/', 'comparisons/')) and name.endswith('.html'):
+        data = _extension_file_bytes(name, path, originals, namespaces=namespaces)
         return hashlib.sha256(data).hexdigest(), len(data)
     return _archive_identity(path), path.stat().st_size
 
@@ -1015,6 +1039,7 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
         raise ValueError('Extension content must be outside its immutable inputs')
     check_published_extension(source)
     originals = json.loads((source/'additional/saved-matrix-audit.json').read_bytes())['files']
+    namespaces = _extension_namespace_sources(source)
     original = _wire_manifest(baseline)
     _require(original['schema_version'] == 3, 'Published extension requires a compact baseline')
     retire_packs = frozenset(retire_packs)
@@ -1054,7 +1079,7 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
 
     for path in sorted(p for p in source.rglob('*') if p.is_file()):
         name = path.relative_to(source).as_posix()
-        digest, size = _extension_file_identity(name, path, originals)
+        digest, size = _extension_file_identity(name, path, originals, namespaces=namespaces)
         old = normalized['files'].get(name)
         if old is None and name == 'extension-base-home.txt':
             old = normalized['files'].get('index.html')
@@ -1062,7 +1087,7 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
                 (not retire_packs or not any(normalized['blocks'][i]['pack'] in retire_packs for i in old['parts']))):
             append(name, {k:v for k,v in old.items() if k != 'parts'}, old['parts'])
             continue
-        data = _extension_file_bytes(name, path, originals)
+        data = _extension_file_bytes(name, path, originals, namespaces=namespaces)
         _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
         ids = []
         for offset in range(0, len(data), 32768):
@@ -1114,6 +1139,7 @@ def extend_published_content(source, baseline, destination, *, replace_site=None
 def check_extended_content(source, baseline, content, *, replace_site=None, rehydrated=(), retire_packs=()):
     """Verify reused ranges and every appended byte against the report tree."""
     originals = json.loads((source/'additional/saved-matrix-audit.json').read_bytes())['files']
+    namespaces = _extension_namespace_sources(source)
     original = read_packed_manifest(lambda name:(baseline/name).read_bytes())
     current = read_packed_manifest(lambda name:(content/name).read_bytes())
     retire_packs = frozenset(retire_packs)
@@ -1156,7 +1182,7 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
             _require(len(cache(name)) == expected_size, kind+' pack has undeclared bytes: '+name)
         for name, path in paths.items():
             entry = current['files'][name]
-            digest, size = _extension_file_identity(name, path, originals)
+            digest, size = _extension_file_identity(name, path, originals, namespaces=namespaces)
             _require(entry['sha256'] == digest and entry['size'] == size,
                      'Extension package file differs: '+name)
             old = original['files'].get(name)
@@ -1165,7 +1191,7 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
             if old and old['sha256'] == digest and list(entry['parts']) == list(old['parts']):
                 blocks = [current['blocks'][i] for i in entry['parts']]
                 if any(block['pack'] in reused_physical_packs for block in blocks):
-                    data = _extension_file_bytes(name, path, originals)
+                    data = _extension_file_bytes(name, path, originals, namespaces=namespaces)
                     _require(not publication_file_risk(name, data), 'Private content in re-uploaded pack: '+name)
                     offset = 0
                     for block in blocks:
@@ -1177,7 +1203,7 @@ def check_extended_content(source, baseline, content, *, replace_site=None, rehy
                     _require(offset == len(data), 'Reused file ranges differ from the frozen size: '+name)
                 reused += 1
             else:
-                data = _extension_file_bytes(name, path, originals)
+                data = _extension_file_bytes(name, path, originals, namespaces=namespaces)
                 _require(not publication_file_risk(name, data), 'Private content in extension: '+name)
                 _require(all(i >= count for i in entry['parts']), 'Appended file uses undeclared old ranges')
                 _require(reconstruct_packed_file(current, name, cache) == data,

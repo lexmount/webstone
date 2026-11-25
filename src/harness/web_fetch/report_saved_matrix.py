@@ -2745,13 +2745,14 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
     for row in model['rows']:
         identity = row['suite'], row['provider'], row['case_id']
         case = _json(contained_path(output, row['case_path'], reject_symlinks=True))
-        if case['id'] != row['case_id']:
+        if case['id'] != row['case_id'] and not model.get('retain_source_task_contracts'):
             raise ValueError('Saved case identity differs from matrix')
         if row.get('url') != case['url'] or row.get('name') != case.get('name', row['case_id']):
             raise ValueError('Saved case metadata differs from matrix')
         if row.get('record_path'):
             record = _json(contained_path(output, row['record_path'], reject_symlinks=True))
-            if (record['provider'], record['case_id']) != identity[1:]:
+            source_identity = (row['provider'], case['id']) if model.get('retain_source_task_contracts') else identity[1:]
+            if (record['provider'], record['case_id']) != source_identity:
                 raise ValueError('Saved record identity differs from matrix')
             values = _saved_row_values(record, case)
             if row.get('retry_continuation'):
@@ -2794,7 +2795,11 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
         _validate_record_links(output, row)
         for relative in set(record_paths(row)):
             path = contained_path(output, relative, reject_symlinks=True)
-            _validate_record_artifacts(path)
+            # Published snapshots can contain post-score public views whose
+            # bytes deliberately differ from private acquisition hashes. Their
+            # complete file inventory is verified by the frozen-source owner.
+            if not any(relative.startswith(prefix + '/') for prefix in model.get('frozen_source_prefixes', [])):
+                _validate_record_artifacts(path)
         if row.get('score_revision'):
             receipt = _json(contained_path(output, row['score_revision']['receipt_path'], reject_symlinks=True))
             for target in receipt.get('review_files', {}).values():
@@ -2831,7 +2836,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
     saved_records = [json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines() if line.strip()]
     execution = _json(output/'execution.json')
     scores_changed = (bool(inputs['revision']) or any(adoptions[key]['revision'] for key in keys if key in adoptions)
-                      if inputs is not None else bool(model.get('offline_revision')) or any(row.get('score_revision') for row in model['rows']))
+                      if inputs is not None else bool(model.get('offline_revision')) or any(
+                          row.get('score_revision') or row.get('source_score_revision') for row in model['rows']))
     scores_changed = bool(scores_changed)
     if any(value.get('scores_changed') is not scores_changed for value in (audit, model, execution)):
         raise ValueError('Saved scoring-change flags differ from revision evidence')
@@ -2915,7 +2921,8 @@ def _saved_renderer_projection(output, model, admission=None):
                 before = _json(contained_path(output, proof['before_case_path'], reject_symlinks=True))
                 if not _same_task_rules(before, case):
                     raise ValueError('Changed task contracts cannot enter a portable final report')
-        if case['id'] != row['case_id']:
+        source_case_id = case['id']
+        if case['id'] != row['case_id'] and not model.get('retain_source_task_contracts'):
             raise ValueError('Saved case identity differs from matrix')
         if row.get('url') != case['url'] or row.get('name') != case.get('name', row['case_id']):
             raise ValueError('Saved case metadata differs from matrix')
@@ -2923,12 +2930,13 @@ def _saved_renderer_projection(output, model, admission=None):
         family = _presentation_family(case, row['suite'], groups) if 'report_families' in model else row['suite']
         case['report_family'] = family
         case['report_family_label'] = labels[family]
-        if cases.setdefault(route, case) != case:
+        if cases.setdefault(route, case) != case and not model.get('retain_source_task_contracts'):
             raise ValueError(f"Conflicting saved case definitions for {route}")
         if not row.get('record_path'):
             continue
         raw = _json(contained_path(output, row['record_path']))
-        if raw['case_id'] != row['case_id'] or raw['provider'] != row['provider']:
+        expected_case_id = source_case_id if model.get('retain_source_task_contracts') else row['case_id']
+        if raw['case_id'] != expected_case_id or raw['provider'] != row['provider']:
             raise ValueError('Saved record identity differs from matrix')
         if _saved_row_values(raw, case)['passed'] != row['passed']:
             raise ValueError('Saved verdict differs from matrix')
@@ -2944,6 +2952,8 @@ def _saved_renderer_projection(output, model, admission=None):
                     return candidate
             return value
         record = project(raw)
+        if model.get('retain_source_task_contracts'):
+            record['report_source_case_path'] = row['case_path']
         if model.get('public_evidence_views'):
             from harness.reporting.publication_privacy import public_render_views, read_evidence_binding
             from harness.web_fetch.failure_diagnosis import diagnose

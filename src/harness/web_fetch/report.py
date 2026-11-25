@@ -13,6 +13,7 @@ import re
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import replace
+from functools import lru_cache
 from math import ceil
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -832,9 +833,16 @@ def result_view(record, *, ctx):
  views=ctx.result_views
  return views.get((record['provider'],record['case_id']),{}) if views else {}
 
+@lru_cache(maxsize=8192)
+def _saved_source_case(path):
+ return json.loads(Path(path).read_bytes())
+
 def result_case(record,fallback, *, ctx):
  """Keep each saved result's own rules separate from its comparison identity."""
- return result_view(record, ctx=ctx).get('case',fallback)
+ selected=result_view(record, ctx=ctx).get('case')
+ if selected is not None:return selected
+ source=record.get('report_source_case_path')
+ return _saved_source_case(str(contained_path(ctx.source_root,source,reject_symlinks=True))) if source and ctx.source_root is not None else record.get('report_source_case') or fallback
 
 def result_href(record,kind,base='', *, ctx):
  """Resolve a retained evidence route relative to the report root."""
@@ -2055,7 +2063,7 @@ def _write_uncalled_participants(out,model, *, ctx):
 
 @with_measured_method_labels
 def _render_model(out,dataset,records,manifests,*,model,scope):
- ctx=model_render_context(model,methods=scope)
+ ctx=model_render_context(model,methods=scope,source_root=out)
  options=model.options
  include_english,authored_interpretation,presentation_only=options.include_english,options.authored_interpretation,options.presentation_only
  show_local_status_banners,detail_attempt_ids,dataset_case_ids=options.show_local_status_banners,options.detail_attempt_ids,options.dataset_case_ids

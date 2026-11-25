@@ -108,6 +108,25 @@ class ProviderTest(unittest.TestCase):
         self.assertNotIn("engine", mock_request.call_args.kwargs["json_body"]["extract"])
 
     @patch("harness.web_fetch.providers.lexmount.request")
+    def test_lexmount_proxy_preserves_existing_native_request(self, mock_request) -> None:
+        mock_request.return_value = HttpResponse(
+            200, "u", {}, b'{"result":{"main_text":"Example"}}')
+        for engine, trace in [('lightmount_domstable', True), ('auto', False)]:
+            for native in (True, False):
+                config = {'api_key': 'x', 'project_id': 'p', 'engine': engine,
+                          'trace_include_steps': trace, 'uniform_native_parameters': native}
+                LexmountProvider('lexmount', config).fetch(self.case, 30)
+                original = mock_request.call_args.kwargs['json_body']
+                for use_proxy in (True, False):
+                    provider = LexmountProvider('lexmount', {**config, 'use_proxy': use_proxy})
+                    provider.fetch(self.case, 30)
+                    self.assertEqual(mock_request.call_args.kwargs['json_body'],
+                                     {**original, 'use_proxy': use_proxy})
+                    self.assertEqual(provider.native_configured_parameters()['use_proxy'], use_proxy)
+                with self.assertRaisesRegex(ValueError, 'use_proxy must be boolean'):
+                    LexmountProvider('lexmount', {**config, 'use_proxy': 'true'}).fetch(self.case, 30)
+
+    @patch("harness.web_fetch.providers.lexmount.request")
     def test_lexmount_never_uses_api_envelope_as_page_content(self, mock_request) -> None:
         mock_request.return_value = HttpResponse(
             200,

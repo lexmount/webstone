@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields
+from pathlib import Path
 
 from harness.record_io import canonical_json_sha256
 from harness.web_fetch.models import report_family
@@ -157,11 +158,12 @@ class RenderContext:
     scope_presentation: dict | None = None
     descriptive_ranks: bool = False
     result_views: dict | None = None
+    source_root: Path | None = None
     methods: MethodScope = field(default_factory=MethodScope)
 
 
-def model_render_context(model=None, *, methods, descriptive_ranks=False, result_views=None):
+def model_render_context(model=None, *, methods, descriptive_ranks=False, result_views=None, source_root=None):
     """The render context of ``model``'s participants and suites; shared views may opt into descriptive ranks."""
     return RenderContext(
         labels=model.labels if model else {}, suites=model.suites if model else (),
-        descriptive_ranks=descriptive_ranks, result_views=result_views, methods=methods)
+        descriptive_ranks=descriptive_ranks, result_views=result_views, methods=methods, source_root=source_root)

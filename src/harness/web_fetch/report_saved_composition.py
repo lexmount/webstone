@@ -12,34 +12,42 @@ from harness.record_io import file_sha256 as _hash
 from harness.web_fetch.report_i18n import saved_matrix_text as _text
 
 
-def _frozen_report(root, binding):
+def _frozen_files(root, binding, audit_name):
     """Verify a published tree without reinterpreting its historical verdicts."""
-    audit = root / 'saved-matrix-audit.json'
+    audit = root / audit_name
     if _hash(audit) != binding['sha256']:
         raise ValueError('Frozen report audit changed')
-    files = _read(audit)['files']
+    authority = _read(audit)
+    files = authority['files']
     inventory = list(root.rglob('*'))
     if root.is_symlink() or any(p.is_symlink() for p in inventory):
         raise ValueError('Frozen reports reject symlinks')
     actual = {p.relative_to(root).as_posix() for p in inventory if p.is_file()}
-    if actual != set(files) | {'saved-matrix-audit.json'}:
+    if actual != set(files) | {audit_name}:
         raise ValueError('Frozen report file inventory changed')
     for name, digest in files.items():
         if _hash(root / name) != digest:
             raise ValueError('Frozen report file changed: ' + name)
+    return authority
+
+
+def _frozen_report(root, binding):
+    _frozen_files(root, binding, 'saved-matrix-audit.json')
     return _read(root / 'matrix.json')
 
 
-def _namespace_extension_evidence(text):
+def _namespace_extension_evidence(text, prefix='additional/'):
     """Qualify lazy sources only in views rendered beneath the outer report root."""
     if re.search(r'\bdata-record=', text):
         raise ValueError('Nested report requires explicit evidence-file bindings')
-    return re.sub(r'\bdata-file="([^"]+)"', r'data-file="additional/\1"', text)
+    return re.sub(r'\b(data-file|data-evidence-file)="([^"]+)"',
+                  lambda match: match[1] + '="' + prefix + match[2] + '"', text)
 
 
-def _restore_extension_evidence(text):
+def _restore_extension_evidence(text, prefix='additional/'):
     """Recover only the namespace projection used by frozen older extensions."""
-    return re.sub(r'\bdata-file="additional/([^"]+)"', r'data-file="\1"', text)
+    return re.sub(r'\b(data-file|data-evidence-file)="' + re.escape(prefix) + r'([^"]+)"',
+                  lambda match: match[1] + '="' + match[2] + '"', text)
 
 
 def _extended_home(base, addition, base_model, added_model, overview, note, *, ranked=False, presentation=None):
@@ -278,7 +286,9 @@ def _joined_presentation(output, *, ctx):
             key = record['provider'], comparison_id
             if key in views:
                 raise ValueError('Joined presentation repeats a saved task result')
-            views[key] = {'case': source_cases[source_id],
+            case = (_read(contained_path(output, record['report_source_case_path'], reject_symlinks=True))
+                    if record.get('report_source_case_path') else record.get('report_source_case') or source_cases[source_id])
+            views[key] = {'case': case,
                 'task_href': prefix+'datasets/'+source_id+'.html',
                 'attempt_href': prefix+'attempts/'+record['attempt_id']+'.html'}
             record['case_id'] = comparison_id
@@ -798,10 +808,130 @@ def _selected_method_prices(spec_path, spec):
     return prices
 
 
+def _configuration_comparisons(content, output, comparisons, *, language):
+    """Embed complete saved comparisons without adding leaderboard participants."""
+    if not comparisons:
+        return content
+    from bs4 import BeautifulSoup
+    from harness.report_languages import generated_languages
+    from urllib.parse import urlsplit
+    page = BeautifulSoup(content, 'html.parser')
+    for old in page.select('[data-configuration-comparison]'):
+        old.decompose()
+    container = page.find('main') or page.body
+    anchor = page.find(id='configuration-comparisons')
+    for entry in comparisons:
+        identifier = safe_identifier(entry['id'])
+        for field in ('title', 'description'):
+            if (not isinstance(entry[field], dict) or any(
+                    not isinstance(entry[field].get(key), str) or not entry[field][key].strip()
+                    for key in ('en', 'zh'))):
+                raise ValueError('Configuration comparisons require English and Chinese text')
+        root = output / entry['path']
+        if language not in generated_languages(root):
+            raise ValueError('Configuration comparison is missing the generated language: ' + language)
+        edition = 'en/' if language == 'en' else ''
+        source = BeautifulSoup((root / edition / 'index.html').read_text(encoding='utf-8'), 'html.parser')
+        table = source.select_one('#ranking-overall')
+        model = _read(root / 'matrix.json')
+        if table is None or len(table.select('tbody > tr')) != len(model['providers']):
+            raise ValueError('Configuration comparison omitted saved participants')
+        section = page.new_tag('section', attrs={
+            'id': 'configuration-' + identifier, 'data-configuration-comparison': identifier})
+        heading = page.new_tag('h2')
+        heading.string = entry['title'][language]
+        section.append(heading)
+        paragraph = page.new_tag('p')
+        paragraph.string = entry['description'][language]
+        section.append(paragraph)
+        prefix = ('../' if language == 'en' else '') + entry['path'] + '/' + edition
+        link = page.new_tag('a', href=prefix + 'index.html')
+        link.string = ('Open task results, settings and evidence →' if language == 'en'
+                       else '查看逐题结果、配置与证据 →')
+        section.append(link)
+        table = deepcopy(table)
+        original_id = table['id']
+        table['id'] = 'configuration-' + identifier + '-overall'
+        for button in table.select('[onclick]'):
+            button['onclick'] = re.sub(r'(\bsortTable\([\'\"])' + re.escape(original_id) + r'([\'\"])',
+                lambda match, table_id=table['id']: match[1] + table_id + match[2], button['onclick'])
+        for table_link in table.select('a[href]'):
+            href = table_link['href']
+            parsed = urlsplit(href)
+            if not parsed.scheme and not parsed.netloc and not href.startswith(('#', '/')):
+                table_link['href'] = prefix + href
+        wrapper = page.new_tag('div', attrs={'class': 'table-wrap'})
+        wrapper.append(table)
+        section.append(wrapper)
+        if anchor is not None:
+            anchor.insert_after(section)
+            anchor = section
+        else:
+            container.append(section)
+    return str(page)
+
+
+def _copy_configuration_comparisons(spec_path, output, entries, existing=()):
+    from harness.web_fetch.report_saved_matrix import _path
+    comparisons = deepcopy(list(existing))
+    for entry in entries:
+        identifier = safe_identifier(entry['id'])
+        if any(row['id'] == identifier for row in comparisons):
+            raise ValueError('Duplicate configuration comparison')
+        source = _path(spec_path.parent, entry['root'])
+        _frozen_report(source, entry['audit'])
+        path = 'comparisons/' + identifier
+        shutil.copytree(source, output / path)
+        comparisons.append({key: deepcopy(entry[key]) for key in ('id', 'title', 'description')} | {
+            'path': path, 'audit_sha256': _hash(source / 'saved-matrix-audit.json')})
+    return comparisons
+
+
+def _build_frozen_configuration_extension(spec_path, output, spec):
+    """Add comparisons to an existing publication without rebuilding its views."""
+    from harness.web_fetch.report_saved_matrix import _path
+    from harness.record_io import json_bytes
+    from harness.reporting.publication import atomic_write
+    from harness.report_languages import generated_languages, language_metadata_path
+    source = _path(spec_path.parent, spec['published_base']['root'])
+    base = _frozen_files(source, spec['published_base']['audit'], 'saved-extension.json')
+    if not spec.get('configuration_comparisons'):
+        raise ValueError('A frozen publication extension requires configuration comparisons')
+    shutil.copytree(source, output)
+    comparisons = _copy_configuration_comparisons(spec_path, output,
+        spec['configuration_comparisons'], base.get('configuration_comparisons', []))
+    retained = 'configuration-sources/' + _hash(source/'saved-extension.json')
+    (output/retained).mkdir(parents=True)
+    shutil.copyfile(source/'saved-extension.json', output/retained/'saved-extension.json')
+    routes = [('index.html', 'zh')]
+    if 'en' in generated_languages(source) and (language_metadata_path(source).is_file() or (source/'en/index.html').is_file()):
+        routes.append(('en/index.html', 'en'))
+    homes = {}
+    for route, language in routes:
+        original = source/route
+        target = output/retained/(route+'.txt')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(original, target)
+        homes[route] = target.relative_to(output).as_posix()
+        (output/route).write_text(_configuration_comparisons(original.read_text(encoding='utf-8'),
+            output, comparisons, language=language), encoding='utf-8')
+    proof = deepcopy(base)
+    proof.update(spec_sha256=_hash(spec_path), configuration_comparisons=comparisons,
+        configuration_base={'path': retained+'/saved-extension.json',
+                            'sha256': _hash(source/'saved-extension.json'), 'homes': homes})
+    proof['files'] = {p.relative_to(output).as_posix(): _hash(p) for p in output.rglob('*')
+                      if p.is_file() and p != output/'saved-extension.json'}
+    atomic_write(output/'saved-extension.json', json_bytes(proof))
+    check_published_extension(output)
+    return output/'index.html'
+
+
 def build_published_extension(spec_path, output):
     """Extend a frozen publication while retaining each scoring edition verbatim."""
     from harness.web_fetch.report_saved_matrix import _path, _write
     spec = _read(spec_path)
+    if 'additional_report' not in spec:
+        return _build_frozen_configuration_extension(spec_path, output, spec)
     base_root = _path(spec_path.parent, spec['published_base']['root'])
     added_root = _path(spec_path.parent, spec['additional_report']['root'])
     base = _frozen_report(base_root, spec['published_base']['audit'])
@@ -825,6 +955,7 @@ def build_published_extension(spec_path, output):
     shutil.copytree(base_root, output)
     shutil.copytree(added_root, output / 'additional')
     shutil.copyfile(base_root / 'index.html', output / 'extension-base-home.txt')
+    comparisons = _copy_configuration_comparisons(spec_path, output, spec.get('configuration_comparisons', []))
     if 'method_prices' in spec:
         _write(output/'extension-prices.json', _selected_method_prices(spec_path, spec))
     ranked = spec.get('presentation') == 'ranked'
@@ -839,6 +970,11 @@ def build_published_extension(spec_path, output):
             shutil.copyfile(output / route, retained)
         (output/route).parent.mkdir(parents=True, exist_ok=True)
         (output / route).write_text(content, encoding='utf-8')
+    for route, language in [('index.html', 'zh'), ('en/index.html', 'en')]:
+        if route == 'index.html' or route in pages:
+            path = output / route
+            path.write_text(_configuration_comparisons(path.read_text(encoding='utf-8'),
+                output, comparisons, language=language), encoding='utf-8')
     _write(output / 'extension-methods.json', overview)
     _write(output / 'saved-extension.json', {
         'schema_version': 1, 'spec_sha256': _hash(spec_path),
@@ -847,14 +983,60 @@ def build_published_extension(spec_path, output):
         'comparison_note': spec['comparison_note'], 'provider_calls_added': 0,
         'presentation': spec.get('presentation', 'audit'), 'presentation_pages': list(pages),
         'providers': base['providers'] + added['providers'],
+        'configuration_comparisons': comparisons,
         'files': {p.relative_to(output).as_posix(): _hash(p) for p in output.rglob('*') if p.is_file()}})
     check_published_extension(output)
     return output / 'index.html'
 
 
+def _check_frozen_configuration_extension(output, proof):
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin, urlsplit, unquote
+    binding = proof['configuration_base']
+    path = contained_path(output, binding['path'], reject_symlinks=True)
+    if _hash(path) != binding['sha256']:
+        raise ValueError('Frozen publication source changed')
+    prefix = 'configuration-sources/' + binding['sha256'] + '/'
+    if (binding['path'] != prefix + 'saved-extension.json' or 'index.html' not in binding['homes']
+            or not set(binding['homes']) <= {'index.html', 'en/index.html'}
+            or any(name != prefix + route + '.txt' for route, name in binding['homes'].items())):
+        raise ValueError('Invalid frozen publication home binding')
+    base = _read(path)
+    if proof['providers'] != base['providers']:
+        raise ValueError('Configuration comparison changed leaderboard participants')
+    for entry in base.get('configuration_comparisons', []):
+        if entry not in proof.get('configuration_comparisons', []):
+            raise ValueError('Frozen configuration comparison changed')
+    for name, digest in base['files'].items():
+        retained = binding['homes'].get(name, name)
+        if _hash(contained_path(output, retained, reject_symlinks=True)) != digest:
+            raise ValueError('Configuration comparison changed original evidence: ' + name)
+    for route, retained in binding['homes'].items():
+        original = contained_path(output, retained, reject_symlinks=True).read_text(encoding='utf-8')
+        expected = _configuration_comparisons(original, output, proof['configuration_comparisons'],
+            language='en' if route.startswith('en/') else 'zh')
+        if (output/route).read_text(encoding='utf-8') != expected:
+            raise ValueError('Configuration comparison differs from frozen sources')
+        page = BeautifulSoup(expected, 'html.parser')
+        if len(page.select('#ranking-overall > tbody > tr')) != len(base['providers']):
+            raise ValueError('Configuration comparison changed leaderboard population')
+        for link in page.select('[data-configuration-comparison] a[href]'):
+            url = urlsplit(urljoin('https://extension.invalid/' + route, link['href']))
+            if url.netloc == 'extension.invalid' and url.path != '/':
+                if not contained_path(output, unquote(url.path.lstrip('/')), reject_symlinks=True).is_file():
+                    raise ValueError('Configuration comparison has a broken evidence link')
+    return {'valid': True, 'files_verified': len(proof['files']),
+            'providers': len(proof['providers']), 'provider_calls_added': 0, 'frozen_base': True}
+
+
 def check_published_extension(output):
     from bs4 import BeautifulSoup
     proof = _read(output / 'saved-extension.json')
+    comparisons = proof.get('configuration_comparisons', [])
+    for entry in comparisons:
+        if entry['path'] != 'comparisons/' + safe_identifier(entry['id']):
+            raise ValueError('Invalid configuration comparison path')
+        _frozen_report(output / entry['path'], {'sha256': entry['audit_sha256']})
     inventory = list(output.rglob('*'))
     if output.is_symlink() or any(p.is_symlink() for p in inventory):
         raise ValueError('Published extensions reject symlinks')
@@ -864,6 +1046,8 @@ def check_published_extension(output):
     for name, digest in proof['files'].items():
         if _hash(output / name) != digest:
             raise ValueError('Published extension bytes changed: ' + name)
+    if proof.get('configuration_base'):
+        return _check_frozen_configuration_extension(output, proof)
     baseline = _read(output / 'saved-matrix-audit.json')
     if (_hash(output / 'saved-matrix-audit.json') != proof['base_audit_sha256']
             or _hash(output / 'additional/saved-matrix-audit.json') != proof['additional_audit_sha256']
@@ -887,11 +1071,17 @@ def check_published_extension(output):
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
         proof['comparison_note'], ranked=proof.get('presentation') == 'ranked',
         presentation=_shared_presentations(output) if proof.get('presentation') == 'ranked' else None)
+    expected = _configuration_comparisons(expected, output, comparisons, language='zh')
     if (output / 'index.html').read_text(encoding='utf-8') != expected:
         raise ValueError('Published extension comparison differs from source metrics')
     views = _extension_views(output, _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
         proof['comparison_note'], ranked=proof.get('presentation') == 'ranked')
+    # The shared localizer receives the retained main comparison. Each separate
+    # configuration report supplies its own generated language and evidence.
+    for route in ('en/index.html',):
+        if route in views:
+            views[route] = _configuration_comparisons(views[route], output, comparisons, language='en')
     if set(views) != set(proof.get('presentation_pages', [])):
         raise ValueError('Published extension omitted comparison pages')
     for route, content in views.items():
@@ -965,10 +1155,30 @@ def _refresh_published_extension(output, *, spec_path=None):
     from harness.record_io import json_bytes
     import hashlib
     proof = _read(output / 'saved-extension.json')
+    if proof.get('configuration_base'):
+        if spec_path is not None and _hash(spec_path) != proof['spec_sha256']:
+            raise ValueError('Frozen comparison sources require a new build')
+        for name, digest in proof['files'].items():
+            if _hash(contained_path(output, name, reject_symlinks=True)) != digest:
+                raise ValueError('Cannot refresh changed frozen evidence: ' + name)
+        for route, retained in proof['configuration_base']['homes'].items():
+            original = (output/retained).read_text(encoding='utf-8')
+            content = _configuration_comparisons(original, output, proof['configuration_comparisons'],
+                language='en' if route.startswith('en/') else 'zh')
+            atomic_write(output/route, content.encode())
+            proof['files'][route] = _hash(output/route)
+        atomic_write(output/'saved-extension.json', json_bytes(proof))
+        return check_published_extension(output)
     overview = _read(output / 'extension-methods.json')
     prices = _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {}
     if spec_path is not None:
         spec = _read(spec_path)
+        comparisons = [{key: deepcopy(entry[key]) for key in ('id', 'title', 'description')} | {
+            'path': 'comparisons/' + safe_identifier(entry['id']),
+            'audit_sha256': entry['audit']['sha256']}
+            for entry in spec.get('configuration_comparisons', [])]
+        if comparisons != proof.get('configuration_comparisons', []):
+            raise ValueError('Refresh cannot replace configuration comparison sources')
         if (spec['published_base']['audit']['sha256'] != proof['base_audit_sha256']
                 or spec['additional_report']['audit']['sha256'] != proof['additional_audit_sha256']):
             raise ValueError('Refresh cannot replace frozen report sources')
@@ -990,6 +1200,7 @@ def _refresh_published_extension(output, *, spec_path=None):
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview,
         note, ranked=ranked, presentation=presentation)
+    home = _configuration_comparisons(home, output, proof.get('configuration_comparisons', []), language='zh')
     for name, digest in proof['files'].items():
         actual = _hash(contained_path(output, name, reject_symlinks=True))
         if actual != digest and not (name == 'index.html' and actual == hashlib.sha256(home.encode()).hexdigest()):
@@ -1003,6 +1214,9 @@ def _refresh_published_extension(output, *, spec_path=None):
         proof['files']['extension-prices.json'] = _hash(output/'extension-prices.json')
     pages = _extension_views(output, _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), overview, note, ranked=ranked)
+    if 'en/index.html' in pages:
+        pages['en/index.html'] = _configuration_comparisons(pages['en/index.html'], output,
+            proof.get('configuration_comparisons', []), language='en')
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
         if route in baseline['files'] and not retained.exists():
@@ -1045,7 +1259,7 @@ def _project(value, paths):
 
 
 def _public_spec(spec):
-    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking') if k in spec}
+    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking', 'retain_source_reviews', 'frozen_sources', 'retain_source_task_contracts') if k in spec}
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = True
     return result
@@ -1061,8 +1275,12 @@ def composition_model(output, spec, snapshots):
         root = contained_path(output, snapshot['path'], reject_symlinks=True)
         if _hash(root / 'saved-matrix-audit.json') != snapshot['sha256']:
             raise ValueError('Saved composition source audit changed')
-        check_saved_matrix(root)
-        audit, model = _read(root / 'saved-matrix-audit.json'), _read(root / 'matrix.json')
+        if spec.get('frozen_sources'):
+            model = _frozen_report(root, {'sha256': snapshot['sha256']})
+        else:
+            check_saved_matrix(root)
+            model = _read(root / 'matrix.json')
+        audit = _read(root / 'saved-matrix-audit.json')
         if 'providers' in snapshot:
             selected = snapshot['providers']
             available = {p['id'] for p in model['providers']}
@@ -1072,6 +1290,18 @@ def composition_model(output, spec, snapshots):
                 raise ValueError('Invalid saved report provider selection')
             model['providers'] = [p for p in model['providers'] if p['id'] in selected]
             model['rows'] = [r for r in model['rows'] if r['provider'] in selected]
+        mapping = snapshot.get('case_id_mapping', {})
+        if 'case_id_mapping' in snapshot:
+            source_ids = {row['suite'] + '--' + row['case_id'] for row in model['rows']}
+            if (not spec.get('retain_source_task_contracts') or not isinstance(mapping, dict)
+                    or set(mapping) != source_ids
+                    or any(not isinstance(value, str) for value in mapping.values())):
+                raise ValueError('Case identity mapping must cover the complete frozen population')
+            targets = {(row['suite'], mapping[row['suite'] + '--' + row['case_id']]) for row in model['rows']}
+            if len(targets) != len(mapping):
+                raise ValueError('Case identity mapping repeats a target within a suite')
+            for row in model['rows']:
+                row['case_id'] = safe_identifier(mapping[row['suite'] + '--' + row['case_id']])
         if suites is None:
             suites, families = model['suites'], model.get('report_families')
         if suites != model['suites'] or families != model.get('report_families'):
@@ -1085,13 +1315,20 @@ def composition_model(output, spec, snapshots):
             key = row['suite'], row['case_id']
             case = _case_identity(_read(root / row['case_path']))
             if key in cases and cases[key] != case:
-                raise ValueError('Saved comparisons have different frozen tasks')
-            cases[key] = case
+                same_identity = (cases[key].url, cases[key].name, cases[key].task_kind) == (case.url, case.name, case.task_kind)
+                if not spec.get('retain_source_task_contracts') or not same_identity:
+                    raise ValueError('Saved comparisons have different frozen tasks')
+            cases.setdefault(key, case)
             population.add(key)
         if expected_population is not None and population != expected_population:
             raise ValueError('Saved comparisons have different case populations')
         expected_population = population
-        rows.extend(_project(model['rows'], paths))
+        projected = _project(model['rows'], paths)
+        if spec.get('frozen_sources'):
+            for row in projected:
+                if 'score_revision' in row:
+                    row['source_score_revision'] = row.pop('score_revision')
+        rows.extend(projected)
     if not rows:
         raise ValueError('Saved composition requires reports')
     result = dict(title=spec['title'], providers=providers, suites=suites, rows=rows,
@@ -1099,13 +1336,67 @@ def composition_model(output, spec, snapshots):
                   presentation=spec.get('presentation', 'audit'),
                   combined_ranking=spec.get('combined_ranking', True),
                   source_bindings=[{'name': s['id'], 'sha256': s['sha256']} for s in snapshots],
-                  scores_changed=any(row.get('score_revision') for row in rows))
+                  scores_changed=any(row.get('score_revision') or row.get('source_score_revision') for row in rows))
     if families is not None:
         result['report_families'] = families
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = {'path': 'native-policy-registry.json',
                                            'sha256': _hash(output / 'native-policy-registry.json')}
+    if spec.get('retain_source_reviews'):
+        result['source_review_pages'] = [
+            {'path': snapshot['path'] + '/review/index.html',
+             'providers': _read(output/snapshot['path']/'matrix.json')['providers']}
+            for snapshot in snapshots]
+    if spec.get('retain_source_task_contracts'):
+        result['retain_source_task_contracts'] = True
+    if spec.get('frozen_sources'):
+        result['frozen_source_prefixes'] = [snapshot['path'] for snapshot in snapshots]
     return result
+
+
+def render_source_reviews(output, model):
+    """Retain frozen review scopes beneath the composition's own navigation."""
+    from bs4 import BeautifulSoup
+    from urllib.parse import urljoin, urlsplit
+    sources = model.get('source_review_pages')
+    if not sources:
+        return
+    path = output/'review/index.html'
+    page = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
+    main = page.find('main')
+    for child in list(main.children):
+        if not isinstance(child, str) and (child.name == 'h1' or child.find('h1')):
+            continue
+        child.extract()
+    for index, source in enumerate(sources):
+        original = BeautifulSoup((output/source['path']).read_text(encoding='utf-8'), 'html.parser')
+        content = original.find('main')
+        identifiers = {}
+        for node in content.select('[id]'):
+            old = node['id']
+            identifiers[old] = node['id'] = f'source-review-{index}-' + old
+        for node in content.find_all(True):
+            for attribute in ('for', 'aria-controls', 'aria-labelledby', 'aria-describedby'):
+                if node.has_attr(attribute):
+                    node[attribute] = ' '.join(identifiers.get(value, value) for value in node[attribute].split())
+        for node in content.select('a[href]'):
+            href = node['href']
+            if href.startswith('#'):
+                node['href'] = '#' + identifiers.get(href[1:], href[1:])
+            elif not urlsplit(href).scheme and not urlsplit(href).netloc:
+                target = urlsplit(urljoin('https://report.invalid/' + source['path'], href))
+                node['href'] = '../' + target.path.lstrip('/') + ('#' + target.fragment if target.fragment else '')
+        section = page.new_tag('section', attrs={'data-source-review': source['path']})
+        heading = page.new_tag('h2')
+        heading.string = ', '.join(p.get('label', p['id']) for p in source['providers'])
+        section.append(heading)
+        for title in content.find_all('h1'):
+            title.decompose()
+        for child in list(content.children):
+            section.append(child)
+        main.append(section)
+    path.write_text(str(page), encoding='utf-8')
+
 
 
 def build_composition(spec_path, output):
@@ -1114,6 +1405,14 @@ def build_composition(spec_path, output):
     spec = _read(spec_path)
     if spec.get('schema_version') != 1 or not isinstance(spec.get('saved_reports'), list):
         raise ValueError('Unsupported saved composition specification')
+    if 'retain_source_reviews' in spec and type(spec['retain_source_reviews']) is not bool:
+        raise ValueError('Source review retention must be explicitly enabled or disabled')
+    if 'frozen_sources' in spec and type(spec['frozen_sources']) is not bool:
+        raise ValueError('Frozen source selection must be explicitly enabled or disabled')
+    if spec.get('frozen_sources') and spec.get('presentation', 'audit') != 'audit':
+        raise ValueError('Frozen source composition retains historical scores without final certification')
+    if spec.get('retain_source_task_contracts') and not spec.get('frozen_sources'):
+        raise ValueError('Historical task contracts require frozen source imports')
     snapshots, identifiers = [], set()
     output.mkdir()
     for item in spec['saved_reports']:
@@ -1127,18 +1426,23 @@ def build_composition(spec_path, output):
         audit_path = root / 'saved-matrix-audit.json'
         if _hash(audit_path) != item['audit']['sha256']:
             raise ValueError('Saved report audit differs from binding')
-        check_saved_matrix(root)
+        if spec.get('frozen_sources'):
+            _frozen_report(root, item['audit'])
+        else:
+            check_saved_matrix(root)
         relative = 'evidence/saved-reports/' + identifier
         shutil.copytree(root, output / relative)
         snapshot = {'id': identifier, 'path': relative, 'sha256': _hash(audit_path)}
         if 'providers' in item:
             snapshot['providers'] = item['providers']
+        if 'case_id_mapping' in item:
+            snapshot['case_id_mapping'] = item['case_id_mapping']
         snapshots.append(snapshot)
         # Revision receipts use report-root review attachment links. Preserve
         # those exact bytes, rejecting ambiguous collisions across sources.
         model = _read(root / 'matrix.json')
-        receipt_paths = {row['score_revision']['receipt_path'] for row in model['rows']
-                         if row.get('score_revision')}
+        receipt_paths = ({row['score_revision']['receipt_path'] for row in model['rows']
+                          if row.get('score_revision')} if not spec.get('frozen_sources') else set())
         for receipt_path in sorted(receipt_paths):
             receipt = _read(root / receipt_path)
             for name in receipt.get('review_files', {}).values():
@@ -1157,6 +1461,7 @@ def build_composition(spec_path, output):
     _write(output / 'matrix.json', model)
     _write(output / 'saved-composition.json', {'spec': _public_spec(spec), 'snapshots': snapshots})
     entry = generate_saved_matrix(output, model)
+    render_source_reviews(output, model)
     files = {p.relative_to(output).as_posix(): _hash(p) for p in output.rglob('*') if p.is_file()}
     _write(output / 'saved-matrix-audit.json', dict(schema_version=1, spec_sha256=_hash(spec_path),
         sources=model['source_bindings'], files=files, totals=model['totals'],
