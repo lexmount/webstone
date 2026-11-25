@@ -25,6 +25,8 @@ Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，�
 请安装并使用 https://github.com/lexmount/webstone/blob/main/.agents/skills/webstone/SKILL.md 里的 Webstone 评测 Skill，帮我评测［想比较的工具或模型］。
 ```
 
+手动安装见[软件和 Skill 安装说明](agent-workflows.md#install-software-and-skill)。
+
 ## 快速开始
 
 使用 Python 3.11 或更新版本，从 [PyPI](https://pypi.org/project/webstone/) 安装 Webstone，再运行离线示例：
@@ -41,23 +43,15 @@ webstone run --delay 0
 
 接下来可以[用 HTTP、Moli 或 Chromium 读取本地文章](../examples/web_fetch/README.md)。各 Track 指南列出了适配器、凭据和在线评测命令。
 
-把评测 Skill 安装到 Codex。其他 Agent 可指定自己的 Skill 目录。
-
-```sh
-webstone skills install --directory "$HOME/.codex/skills"
-```
-
-当前包没有 `skills` 命令时，见[源码安装说明](agent-workflows.md#install-software-and-skill)。
-
 ### 命令
 
-所有 Track 使用同一组阶段命令；在各级加 `--help` 可查看该 Track 支持的阶段和它自己的准备命令：
+各 Track 使用统一的阶段名称，具体支持哪些阶段和准备命令，以 `webstone <track> --help` 为准：
 
 ```text
 webstone <track> run | score | report | check | package | publish | export
 ```
 
-Track 包括 `webfetch`、`web-search`、`web-extract`、`trajectory-replay` 和 `browser-use`（`webstone tracks` 以 JSON 列出）。Web Fetch 是默认 Track，它的阶段也可以直接在顶层运行（`webstone run` 等同于 `webstone webfetch run`）。对已保存证据重新评分用 `score`，它取代了原来的 `rescore` 命令；`webstone webfetch compose` 根据多个运行目录写出已保存矩阵的说明文件。`make <stage> TRACK=<track> ARGS="..."` 运行同样的命令。阶段及其产物的定义见[仓库规范](spec.md#command-surface)。
+Track 包括 `webfetch`、`web-search`、`web-extract`、`trajectory-replay` 和 `browser-use`（`webstone tracks` 以 JSON 列出）。Web Fetch 是默认 Track，它的阶段也可以直接在顶层运行（`webstone run` 等同于 `webstone webfetch run`）。对已保存证据重新评分用 `score`；`webstone webfetch compose` 根据多个运行目录写出已保存矩阵的说明文件。`make <stage> TRACK=<track> ARGS="..."` 运行同样的命令。阶段及其产物的定义见[仓库规范](spec.md#command-surface)。
 
 ## 评测流程
 
@@ -165,13 +159,13 @@ flowchart LR
 
     有明确答案和验收条件的任务，尽可能用程序判断结果，减少模型判断带来的波动。但这不是完全排除 LLM as a judge：Web Search 的相关性分级就适合使用模型，前提是明确评分标准，并保留评分依据与结果。
 
-2. **不引入 LLM 和 Agent 去执行评测过程**
+2. **直接调用被测工具，回放预先确定的动作**
 
     Web Fetch、Web Search 直接调用被测工具；Browser Trajectory Replay 执行预先确定的动作，可用于检查浏览器兼容性或验证网站任务是否完成。让各个参与方按同样的任务约定执行，去掉额外的 LLM 决策和 Agent 规划这两个波动来源，并保留任务输入、代码版本和执行配置。
 
 3. **方便审查，可校验**
 
-    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。只有明确要求发布并授权后，才上传到 Yours。
+    用 LLM as a verifier 对程序判定及其依据多做一层校验，按需触发，默认不运行。生成本地 HTML 报告，支持从汇总指标下钻到每一个结果，查看原始响应、操作轨迹、日志和评分依据。100% 人工审查成本高，因此也要方便人工抽样审查。
 
 评分与复核的详细要求见[评测设计](benchmarks.md#evaluation-design)。
 
@@ -181,14 +175,14 @@ flowchart LR
 
 结果和证据默认保存在本地 `~/.webstone/runs/`，也可用 `--output ./fixture-run` 指定新目录。HTML 报告包含结果对比、逐题结果、完整响应和失败证据。本地评测、评分和查看 HTML 无需 Yours 账号或发布授权。
 
-`run` 默认生成本地报告。加 `--no-report` 可只保存结果；`score --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
+快速开始里的 Web Fetch 流程默认在 `run` 后生成本地报告。加 `--no-report` 可只保存结果；`score --no-report` 只重算评分，不重建 HTML。用新目录保存结果，之后可以从已有证据生成或重建报告，无需重复调用：
 
 ```sh
 webstone run --delay 0 --no-report --output ./fixture-run
 webstone report ./fixture-run
 ```
 
-默认生成英文；运行或重建时加 `--language zh` 可选中文。重建时不传该选项，会沿用已保存的语言。
+上面的示例默认生成英文，加 `--language zh` 可选中文。重建时不指定语言，会沿用已保存的语言。其他报告格式见[报告语言说明](report-hosting.md#report-languages)。
 
 ### 按需分享
 
@@ -212,7 +206,7 @@ flowchart LR
     classDef score fill:#fffbeb,stroke:#fbbf24,color:#78350f
 ```
 
-从仍然适用的已存证据重建报告，无需重新调用参与方。复核补充审查发现，不自动改写分数。
+复核补充审查发现，不自动改写分数。
 
 </details>
 
