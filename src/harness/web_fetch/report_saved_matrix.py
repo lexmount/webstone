@@ -61,8 +61,8 @@ def _write(path, value):
     _write_bytes(path, json_bytes(value))
 
 
-def _require_public_json(receipt, *, label="Missing receipt"):
-    """Reject private values and absolute path fields in distributable JSON."""
+def _require_public_json(receipt, *, label="Missing receipt", native_response=False):
+    """Reject private values and local evidence paths; native page_path is a web route."""
     from harness.reporting.publication_privacy import publication_risk
     risk = publication_risk(json_bytes(receipt))
 
@@ -73,7 +73,13 @@ def _require_public_json(receipt, *, label="Missing receipt"):
             # scan above still rejects actual home paths and secrets there.
             web_route = (isinstance(value.get('hosts'), list) and bool(value['hosts'])
                          and all(isinstance(host, str) and host for host in value['hosts']))
-            return any((key.endswith('path') and not (key == 'entry_path' and web_route) and isinstance(item, str)
+            api_route = (isinstance(value.get('method'), str) and value['method'].upper() in {
+                'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'TRACE'})
+            return any((key.endswith('path') and not (key == 'entry_path' and web_route)
+                        and not (key == 'path' and api_route and isinstance(item, str)
+                                 and item.startswith('/') and not item.startswith('//'))
+                        and not (key == 'page_path' and native_response and isinstance(item, str)
+                                 and item.startswith('/') and not item.startswith('//')) and isinstance(item, str)
                         and (item.startswith(('/', '~', '\\')) or re.match(r'^[A-Za-z]:', item)))
                        or local_path(item) for key, item in value.items())
         if isinstance(value, list):
@@ -2700,7 +2706,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved
                 values = []
             for value in values:
                 try:
-                    _require_public_json(value, label='Saved report file')
+                    _require_public_json(value, label='Saved report file',
+                        native_response='/public-evidence/native-responses/' in '/' + relative)
                 except ValueError as exc:
                     raise ValueError(str(exc)+': '+relative) from exc
     model = _json(output / 'matrix.json')

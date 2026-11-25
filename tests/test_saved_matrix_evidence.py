@@ -454,6 +454,25 @@ def test_native_retry_public_views_require_bound_verdict_invariant_inputs(tmp_pa
     assert early.read_bytes() == answer
 
 
+def test_native_page_path_is_a_web_route_without_relaxing_evidence_path_or_secret_checks():
+    from harness.web_fetch.report_saved_matrix import _require_public_json
+    response = {'result':{'url':'https://example.test/zh/docs', 'extra':{'page_path':'/zh/docs'}}}
+    _require_public_json(response, native_response=True)
+    _require_public_json({'method':'GET', 'path':'/pet/{petId}', 'summary':'Get pet'})
+    _require_public_json({'schema':{'method':{'type':'string'}, 'path':{'type':'string'}}})
+    with pytest.raises(ValueError, match='private content'):
+        _require_public_json(response)
+    for value in ({'artifact_path':'/tmp/record.json'},
+                  {'method':'GET', 'artifact_path':'/tmp/record.json'},
+                  {'method':'GET', 'path':'C:\\private\\record.json'},
+                  {'method':'download', 'path':'/tmp/record.json'},
+                  {'result':{'extra':{'page_path':'C:\\private\\record.json'}}},
+                  {'result':{'extra':{'page_path':'/Users/fixture/private.txt'}}},
+                  {'authorization':'Bearer synthetic-secret'}):
+        with pytest.raises(ValueError, match='private content'):
+            _require_public_json(value, native_response=True)
+
+
 def test_public_views_keep_binary_attachments_and_native_stderr(tmp_path):
     spec, source, record, _ = fixture(tmp_path)
     spec['public_evidence_views'] = True
