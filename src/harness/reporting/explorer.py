@@ -216,7 +216,11 @@ INVENTORY_STYLE = (
     ".inventory-dialog pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto}"
     ".inventory-dialog-links{display:flex;flex-wrap:wrap;gap:12px}"
     ".detail-navigation{display:flex;flex-wrap:wrap;gap:8px 16px;margin:8px 0 16px}"
-    ".same-task-explorer fieldset label{display:inline-flex;align-items:center;gap:6px;margin:4px 12px 4px 0}"
+    # Track filter rules (e.g. `.filters label{flex-direction:column}`, `.filters input{width:100%}`)
+    # also match these checkbox pairs, so every property they set is restated here.
+    ".same-task-explorer fieldset label{display:inline-flex;flex:0 0 auto;flex-direction:row;"
+    "align-items:center;gap:6px;margin:4px 12px 4px 0}"
+    ".same-task-explorer fieldset input[type=checkbox]{width:auto;min-width:0;margin:0;padding:0}"
 )
 
 INVENTORY_SCRIPT = r"""
