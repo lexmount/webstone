@@ -828,6 +828,9 @@ _SAVED_MATRIX_SOURCES = {'review_coverage_unresolved': '{reviewed}/{total} · re
  'extension_local': 'Local',
  'extension_unrecorded': 'Not recorded',
  'extension_prices_headers': ['Method', 'Price', 'Billing', 'Source'],
+ 'extension_method_overview_title': 'Method configuration and reference price',
+ 'extension_method_overview_headers': ['Method', 'Configuration', 'Reference price'],
+ 'extension_retained_settings': 'Retained source settings; see method details.',
  'parameter_rerun_title': 'Parameter reruns and result selection',
  'changes_scope': 'Parameter reruns and offline revisions are recorded separately. Parameter reruns include '
                   'new calls; offline revisions use retained responses only.',

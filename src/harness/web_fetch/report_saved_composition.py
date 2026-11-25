@@ -135,8 +135,22 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         explanation.string = note
         old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
+    legacy_overview = methods is None
     if methods is None:
-        raise ValueError('Published base has no method overview')
+        from harness.web_fetch.report import cell, link, section, table
+        rows = []
+        for method in base_model['providers']:
+            href = 'providers/' + method['id'] + '.html'
+            rows.append(('', cell(link(href, escape(method.get('label', method['id'])))
+                + '<small class="method-execution">' + _text('extension_retained_settings') + '</small>')
+                + cell(link(href, _text('extension_retained_settings')))
+                + cell('—<p>' + _text('extension_unrecorded') + '</p>')))
+        fragment = section(_text('extension_method_overview_title'),
+            table(_text('extension_method_overview_headers'), rows, 'method-overview',
+                  metrics=[], include_index=False),
+            'method-overview-section')
+        old.find(id='overall-ranking').insert_after(BeautifulSoup(fragment, 'html.parser'))
+        methods = old.find('table', id='method-overview')
     for method in overview:
         row = old.new_tag('tr', attrs={'data-added-method': method['id']})
         settings = '<p>' + escape(method['configuration']) + '</p>'
@@ -153,6 +167,14 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         for cell in list(fragment.contents):
             row.append(cell)
         methods.tbody.append(row)
+    if legacy_overview:
+        methods['style'] = 'table-layout:fixed;width:100%'
+        for heading, width in zip(methods.select('thead th'), ('28%', '47%', '25%'), strict=True):
+            heading['style'] = 'width:' + width
+        for cell in methods.select('tbody td'):
+            cell['style'] = 'white-space:normal;overflow-wrap:anywhere;vertical-align:top'
+        for execution in methods.select('.method-execution'):
+            execution['style'] = 'display:block;margin-top:4px'
     heading = old.find(id='overall-ranking')
     if heading and heading.find('h2'):
         heading.find('h2').string = _text('extension_audit_title')
@@ -172,7 +194,48 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
     methods.parent.insert_after(entry)
     if ranked:
         _unified_home(old, base_model, added_model, presentation)
+        _extend_token_usage(old, presentation.get('usage_records', []), added_model)
     return str(old)
+
+
+def _extend_token_usage(page, records, model):
+    """Append observed usage while retaining the frozen source's token cells."""
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report import cell, esc, link
+    target = page.find('table', id='token-usage')
+    if target is None:
+        return
+    if len(target.select('thead th')) != 6:
+        raise ValueError('Unrecognized frozen token-usage table schema')
+    fields = ('input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens')
+    for provider in model['providers']:
+        usage = []
+        for record in records:
+            if record['provider'] != provider['id']:
+                continue
+            metadata = record.get('provider_metadata', {})
+            observed = metadata.get('subagent_usage') or metadata.get('terminal_usage')
+            if isinstance(observed, dict) and all(type(observed.get(k)) is int for k in fields):
+                if (any(observed[k] < 0 for k in fields)
+                        or observed['cached_input_tokens'] > observed['input_tokens']
+                        or observed['total_tokens'] != observed['input_tokens'] + observed['output_tokens']):
+                    raise ValueError('Inconsistent saved subagent token receipt')
+                usage.append(observed)
+        planned = sum(row['provider'] == provider['id'] for row in model['rows'])
+        totals = {key: sum(item[key] for item in usage) for key in fields}
+        values = (totals['total_tokens'], totals['input_tokens'] - totals['cached_input_tokens'],
+                  totals['cached_input_tokens'], totals['output_tokens'])
+        cells = cell(link('additional/providers/' + provider['id'] + '.html',
+                          esc(provider.get('label', provider['id']))))
+        cells += cell(f'{len(usage)}/{planned}')
+        cells += ''.join(cell(f'{value:,}' if usage else '—', value if usage else None) for value in values)
+        row = BeautifulSoup('<tr>' + cells + '</tr>', 'html.parser').tr
+        row['data-provider'] = provider['id']
+        target.tbody.append(row)
+    rows = list(target.tbody.find_all('tr', recursive=False))
+    for row in sorted(rows, key=lambda row: float(row.find_all('td')[2].get('data-sort', 'inf'))):
+        target.tbody.append(row)
+    target['data-col'], target['data-dir'] = '2', 'asc'
 
 
 def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), ascending=False):
@@ -250,6 +313,11 @@ def _extension_case_routes(cases, added):
     return routes
 
 
+def _uncalled_without_result(row):
+    return (row.get('status') == 'not_called' and row.get('called') is False
+            and row.get('record_path') is None)
+
+
 def _joined_presentation(output):
     """Join frozen renderer inputs through a one-to-one task identity mapping."""
     from harness.record_io import load_jsonl
@@ -285,6 +353,9 @@ def _joined_presentation(output):
     expected = {}
     for model, mapping in ((base_model, {key: key for key in cases}), (added_model, routes)):
         for row in model['rows']:
+            # An explicitly uncalled position remains in the missing inventory.
+            if _uncalled_without_result(row):
+                continue
             key = row['provider'], mapping[row['suite'] + '--' + row['case_id']]
             if key in expected:
                 raise ValueError('Joined presentation repeats a saved task result')
@@ -316,6 +387,7 @@ def _shared_presentations(output):
     try:
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall,
+                'usage_records': records,
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
@@ -508,6 +580,12 @@ def _home_method_summary(page, prices=None):
 def _check_method_presentation(page):
     """Check authored method prose and diagnostic tables, excluding evidence/code."""
     from bs4 import BeautifulSoup
+    overview = page.select_one('#method-overview')
+    if overview and overview.thead:
+        columns = len(overview.select('thead th'))
+        if any(len(row.find_all('td', recursive=False)) != columns
+               for row in overview.select('tbody tr')):
+            raise ValueError('Inconsistent method overview column counts')
     if not (page.html and str(page.html.get('lang', '')).startswith('en')):
         for paragraph in page.select('#method-overview td:nth-child(2) p'):
             authored = BeautifulSoup(str(paragraph), 'html.parser')
@@ -904,7 +982,9 @@ def check_published_extension(output):
             for selector in ('#compare-a option', '[data-compare-method]'):
                 if len(analysis.select(selector)) != provider_count:
                     raise ValueError('Unified method comparison omitted selectable methods')
-            expected_rows = len(_read(output / 'matrix.json')['rows']) + len(_read(output / 'additional/matrix.json')['rows'])
+            expected_rows = sum(not _uncalled_without_result(row)
+                for name in ('matrix.json', 'additional/matrix.json')
+                for row in _read(output / name)['rows'])
             if len(analysis.select('#filtered-table tbody tr')) != expected_rows:
                 raise ValueError('Unified result inventory omitted saved results')
     home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
