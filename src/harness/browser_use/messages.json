@@ -644,7 +644,14 @@
     "verification_html.view_evaluator_technical_details": "查看 evaluator 技术明细",
     "verification_html.view_the_official_expectation_and_this": "查看官方期望与本次观察",
     "winner.best": "优",
-    "winner.better": "更优"
+    "winner.better": "更优",
+    "inventory.no_failures_showing_all": "没有未通过的结果，已改为显示全部结果。",
+    "inventory.show_more": "显示更多",
+    "inventory.back_to_results": "返回结果列表",
+    "inventory.previous_result": "上一条",
+    "inventory.next_result": "下一条",
+    "chart.task_pass_rate": "任务通过率",
+    "chart.task_pass_rate_caption": "按通过率排序；n/N 为每个模型与浏览器组合的通过数 / 完成任务数。"
   },
   "rationale_en": {
     "打开一个需要登录的 GitLab 目标页": "Open an authenticated GitLab target page",

@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from harness.record_io import write_json
-from harness.reporting import explorer, shell
+from harness.reporting import charts, explorer, shell
 from harness.reporting.templates import compose
 
 ASSETS = Path(__file__).parents[1] / "assets"
@@ -175,8 +175,9 @@ def flat_page(
                      if index + 1 < len(pages) else "<span></span>")
         pager = f'<div class="pager">{previous}{following}</div>'
     return shell.page(
-        lang="zh-CN", base=None, title=title, heading=None, heading_html=heading, style=style,
-        script="", nav=nav, eyebrow=eyebrow, notice="", role=owner.role,
+        lang="zh-CN", base=None, title=title, heading=None, heading_html=heading,
+        style=style + explorer.INVENTORY_STYLE, script=explorer.INVENTORY_SCRIPT, nav=nav,
+        eyebrow=eyebrow, notice="", role=owner.role,
         body=compose(owner.role, fills) + pager, dialog="",
         footer_html=f"<footer>{footer}</footer>",
     )
@@ -189,6 +190,37 @@ def write_chinese_only(root: Path) -> None:
     """
     contract = {"languages": ["zh"], "english_status": "not_generated"}
     write_json(root / "report-languages.json", contract)
+
+
+def correctness_chart(summary: dict[str, Any], engines, t) -> str:
+    """Result-correct rate per engine, then result against result-and-process correct."""
+    functional = summary.get("functional") or {}
+    bars, pairs = [], []
+    for engine in engines:
+        values = functional.get(engine) or {}
+        tasks = int(values.get("tasks", 0) or 0)
+        result = int(values.get("result_final_passes", 0) or 0)
+        combined = int(values.get("combined_final_passes", 0) or 0)
+        label = html.escape(str(engine))
+        bars.append(charts.Bar.rate(label, result, tasks))
+        pairs.append(charts.Pair(label, result / tasks if tasks else None,
+                                 combined / tasks if tasks else None))
+    ranked = sorted(bars, key=lambda bar: -(bar.value if bar.value is not None else -1))
+    order = [bar.label for bar in ranked]
+    return charts.charts(
+        charts.ranked_bars(
+            bars, title=t("chart.result_correct", "Result correct"),
+            caption=t("chart.result_correct_caption",
+                      "Ordered by rate; n/N is tasks with a correct result / tasks.")),
+        charts.dumbbell(
+            sorted(pairs, key=lambda pair: order.index(pair.label)),
+            title=t("chart.result_and_process",
+                    "Correct result versus correct result and process"),
+            caption=t("chart.result_and_process_caption",
+                      "The gap is tasks whose answer was right but whose reference process "
+                      "did not complete."),
+            first_label=t("chart.result_only", "Result correct"),
+            second_label=t("chart.both", "Result and process correct")))
 
 
 def explorer_labels(

@@ -244,6 +244,9 @@ def test_one_query_per_output_page_preserves_all_providers_and_full_text():
         try:
             page = browser.new_page()
             page.set_content(render_comparison(profile, rows, zh))
+            # Failures come first; this test pages through every task.
+            assert page.locator('[data-compare-relation]').input_value() == 'any_miss'
+            page.locator('[data-compare-relation]').select_option('all')
             assert page.locator('.compare-task').count() == 1
             assert page.locator('.compare-task h3').inner_text() == 'Find a page'
             assert page.locator('.compare-task .compare-method').count() == 2
@@ -276,6 +279,7 @@ def test_selected_outputs_remain_readable_and_keyboard_scroll_both_axes():
         try:
             page = browser.new_page(viewport={'width': 390, 'height': 800})
             page.set_content(render_comparison(profile, rows, True))
+            page.locator('[data-compare-relation]').select_option('all')
             region = page.locator('.compare-columns')
             assert region.evaluate('(n)=>n.scrollWidth>n.clientWidth && n.scrollHeight>n.clientHeight')
             assert page.locator('.compare-method').first.bounding_box()['width'] >= 320

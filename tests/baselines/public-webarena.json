@@ -1,15 +1,15 @@
 {
  "routes": [
   "reports/report-languages.json 9946ea25f400652f3244",
-  "reports/webarena-trajectory-replay-latest-appendix.html 29ea062373bc757b43b0",
+  "reports/webarena-trajectory-replay-latest-appendix.html 8927bc3da03a078d8523",
   "reports/webarena-trajectory-replay-latest-data.json 1519ce8b9107f0446645",
-  "reports/webarena-trajectory-replay-latest-method.html 30c4478becf74f774df3",
-  "reports/webarena-trajectory-replay-latest-research.html 3cc5b103c4293cfd4443",
-  "reports/webarena-trajectory-replay-latest-results.html 00312f99e4281f69d4ae",
-  "reports/webarena-trajectory-replay-latest-suite.html 31e50e367e9e39e18a11",
-  "reports/webarena-trajectory-replay-latest-task-7461736b-6368726f6d69756d.html 64bab7d073093e3730b6",
-  "reports/webarena-trajectory-replay-latest-task-7461736b-6d6f6c69.html ba8a7dde6e418c1c77b1",
-  "reports/webarena-trajectory-replay-latest.html 0b4f74c3f22d70b9aad9",
+  "reports/webarena-trajectory-replay-latest-method.html 6c06103c75f26c21be79",
+  "reports/webarena-trajectory-replay-latest-research.html e552705878e421cf4d4c",
+  "reports/webarena-trajectory-replay-latest-results.html 251e14abe7ebaf366452",
+  "reports/webarena-trajectory-replay-latest-suite.html 7e57caaa699970897da5",
+  "reports/webarena-trajectory-replay-latest-task-7461736b-6368726f6d69756d.html 024c23668d0ce7aebbb8",
+  "reports/webarena-trajectory-replay-latest-task-7461736b-6d6f6c69.html 7c654eafaa7bd859fa69",
+  "reports/webarena-trajectory-replay-latest.html 1c0bdc3923ecff5cb187",
   "reports/webarena-trajectory-replay-latest.md 1251718fbcc9dc1d62d0",
   "run/manifest.json 817c1a5482189886b67e",
   "run/summary.json 5663c36519af9fd4f8a1"

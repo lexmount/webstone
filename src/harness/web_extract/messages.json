@@ -535,7 +535,14 @@
     "suite_examples": "Methods and real examples",
     "suite_case_results": "Per-page results",
     "suite_notice": "Independent benchmark comparisons · machine-scored",
-    "price_not_declared": "No price contract is bound to this report."
+    "price_not_declared": "No price contract is bound to this report.",
+    "inventory_no_failures_showing_all": "No result failed; showing all results.",
+    "inventory_show_more": "Show more",
+    "back_to_results": "Back to results",
+    "previous_result": "Previous result",
+    "next_result": "Next result",
+    "chart_structured_output_rate": "Structured output rate",
+    "chart_structured_output_caption": "Ordered by rate; n/N is results that returned structured product fields / planned cases."
   },
   "zh": {
     "stages_client_transport": "客户端连接",
@@ -730,7 +737,7 @@
     "null": "空值",
     "no_accepted_value": "无可接受值",
     "stage_fb689e6a": "失败环节",
-    "exact_error": "准确错误",
+    "exact_error": "具体错误",
     "structured_fields_returned_inspect_field_differences": "接口已返回结构化字段；查看各字段差异。",
     "reviewed_cause": "核查原因",
     "see_field_judgments_and_complete_evidence_below": "字段判断见下方；完整记录可展开。",
@@ -1073,6 +1080,13 @@
     "suite_examples": "方法与真实示例",
     "suite_case_results": "逐页结果",
     "suite_notice": "各数据集独立比较 · 机器评分",
-    "price_not_declared": "本报告未绑定价格说明。"
+    "price_not_declared": "本报告未绑定价格说明。",
+    "inventory_no_failures_showing_all": "没有未通过的结果，已改为显示全部结果。",
+    "inventory_show_more": "显示更多",
+    "back_to_results": "返回结果列表",
+    "previous_result": "上一条",
+    "next_result": "下一条",
+    "chart_structured_output_rate": "结构化输出比例",
+    "chart_structured_output_caption": "按比例排序；n/N 为返回结构化商品字段的结果数 / 计划用例数。"
   }
 }

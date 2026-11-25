@@ -992,6 +992,17 @@
     "viewer.tab.review": "复核原因",
     "viewer.tab.site_reset": "站点重置",
     "viewer.tab.trajectory": "动作与日志",
-    "viewer.title": "证据查看器"
+    "viewer.title": "证据查看器",
+    "inventory.no_failures": "没有未通过的结果，已改为显示全部结果。",
+    "inventory.show_more": "显示更多",
+    "inventory.previous_result": "上一条",
+    "inventory.next_result": "下一条",
+    "chart.pass_rate_caption": "按通过率排序；n/N 为官方通过数 / 任务数。",
+    "chart.result_correct": "结果正确率",
+    "chart.result_correct_caption": "按比例排序；n/N 为结果正确的任务数 / 任务数。",
+    "chart.result_and_process": "结果正确与结果、过程均正确",
+    "chart.result_and_process_caption": "两点之间的差距是答案正确但参考过程没有完成的任务。",
+    "chart.result_only": "结果正确",
+    "chart.both": "结果与过程均正确"
   }
 }

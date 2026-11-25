@@ -98,6 +98,8 @@ def test_real_browser_filters_and_highlights_respect_quality_scope():
         page = browser.new_page()
         try:
             page.set_content(render_comparison(profile, rows, zh))
+            assert page.locator("[data-compare-relation]").input_value() == "any_miss"
+            page.locator("[data-compare-relation]").select_option("all")
             page.locator("[data-output-benchmark]").select_option("factual")
             assert page.locator('[data-output-benchmark] option[value="factual"]').inner_text().endswith('· 2')
             assert "Who founded isolated?" not in page.locator('[data-relation-tasks]').inner_text()

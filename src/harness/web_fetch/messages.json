@@ -2460,6 +2460,23 @@
     "overall_ranking_lead": "按 {case_count} 个计划任务的综合通过率排序；耗时单列展示，不参与排序。完整口径见指标说明。",
     "overall_scores_lead": "展示 {case_count} 个计划任务的综合通过率，不计算名次；耗时单列展示。完整口径见指标说明。",
     "timeout_limit_unreported": "错误信息未说明触发的是哪一项时间限制；本次调用在 {elapsed} 后结束。",
-    "timeout_limit_reported": "错误信息显示方法或服务内部的 {limit} 时间限制先触发；本次调用在 {elapsed} 后结束。这不是评测给每次调用设定的时间上限。"
+    "timeout_limit_reported": "错误信息显示方法或服务内部的 {limit} 时间限制先触发；本次调用在 {elapsed} 后结束。这不是评测给每次调用设定的时间上限。",
+    "inventory_no_failures_showing_all": "没有未通过的结果，已改为显示全部结果。",
+    "inventory_show_more": "显示更多",
+    "diagnose": "定位",
+    "exact_error": "具体错误",
+    "open_full_result": "打开完整结果",
+    "verdict_failure_reason": "失败原因",
+    "back_to_results": "返回结果列表",
+    "previous_result": "上一条",
+    "next_result": "下一条",
+    "chart_task_pass_rate": "任务通过率",
+    "chart_task_pass_rate_caption": "按通过率排序；n/N 为通过数 / 可判定任务数。",
+    "chart_request_vs_task": "请求成功率与任务通过率",
+    "chart_request_vs_task_caption": "两项比率使用同一批可判定任务。请求返回不等于任务通过；两点之间的差距是返回了内容但未满足任务要求的调用。",
+    "request_success": "请求成功率",
+    "task_pass": "任务通过率",
+    "chart_mean_f1": "{quality_count} 页有效参考上的平均 F1",
+    "chart_mean_f1_caption": "按与人工主内容参考对比的逐页 F1 平均值排序。"
   }
 }

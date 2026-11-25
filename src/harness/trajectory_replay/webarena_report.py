@@ -34,7 +34,7 @@ from harness.report_languages import (
     primary_report_language,
     select_report_language,
 )
-from harness.reporting import explorer, shell
+from harness.reporting import charts, explorer, shell
 from harness.reporting.assets import copy_bound_assets
 from harness.reporting.locales import translate
 from harness.reporting.mermaid import mermaid_script_attributes
@@ -72,8 +72,8 @@ from harness.trajectory_replay.webarena_review import (
 from lexbench_webfetch.metrics import percentile
 
 ASSETS = Path(__file__).with_name("assets")
-REPORT_CSS = (ASSETS / "webarena-report.css").read_text(encoding="utf-8")
-REPORT_JS = (ASSETS / "webarena-report.js").read_text(encoding="utf-8") + explorer.SCRIPT
+REPORT_CSS = (ASSETS / "webarena-report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
+REPORT_JS = (ASSETS / "webarena-report.js").read_text(encoding="utf-8") + explorer.SCRIPT + explorer.INVENTORY_SCRIPT
 ARTICLE_CSS = (ASSETS / "webarena-article.css").read_text(encoding="utf-8")
 VARIANT = TEMPLATE.variant("catalog")
 
@@ -947,6 +947,9 @@ def _detail_page(
         else ""
     )
     failure_panel = ""
+    verdict_error = ""
+    if attempt["status"] != "pass" and failed.get("message"):
+        verdict_error = f'<code class="verdict-error" data-verdict-error>{_e(str(failed["message"])[:300])}</code>'
     if attempt["status"] != "pass":
         unknown_active_action = (
             failed_index is None
@@ -975,9 +978,10 @@ def _detail_page(
     )
     viewer_file = ("data/evidence/" if zh else "../data/evidence/") + key + ".json"
     body = f'''
-    <section class="detail-hero"><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../task/{attempt["task_id"]}.html">{t("result.link.task_contract", "Task contract and fixed trajectory")}</a><a href="../results.html">{t("result.link.back_to_results", "Back to results")}</a></div></section>
+    {explorer.detail_navigation("../results.html", back=t("result.link.back_to_results", "Back to results"), previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result"))}
+    <section class="detail-hero"><p class="task-intent">{_e(task["task"]["intent"])}</p><div class="detail-links"><a href="../task/{attempt["task_id"]}.html">{t("result.link.task_contract", "Task contract and fixed trajectory")}</a></div></section>
     <section class="compact-section"><h2>{t("result.peers.heading", "All method results for this task")}</h2><div class="peer-list">{''.join(peer_cells)}</div></section>
-    <section class="compact-section"><div class="verdict-line {attempt["status"]}"><strong>{status}</strong><span>{_e(stage) if attempt["status"] != "pass" else (t("result.verdict.passed_note", "Fixed trajectory and official evaluation passed"))}</span></div><div class="fact-strip">{fact_html}</div></section>
+    <section class="compact-section"><div class="verdict-line {attempt["status"]}"><strong>{status}</strong><span>{_e(stage) if attempt["status"] != "pass" else (t("result.verdict.passed_note", "Fixed trajectory and official evaluation passed"))}</span>{verdict_error}</div><div class="fact-strip">{fact_html}</div></section>
     {validity_panel}
     {failure_panel}
     <section id="trajectory"><h2>{t("result.trajectory.heading", "This method's trajectory and execution")}</h2><p>{t("result.trajectory.lead", "The left column is this method's frozen input and the right column its execution. Qualified paths can differ between methods. Open a step for exact arguments, tool response, logs and errors.")}</p><div class="trajectory-columns"><span>#</span><strong>{t("result.trajectory.method_input", "Method input")}</strong><strong>{t("result.actual_execution", "Actual execution")}</strong></div><div class="trace-list">{''.join(steps)}</div></section>
@@ -1419,7 +1423,11 @@ def build_webarena_replay_report(
             "status": (f'<p><a href="interpretation.html">{t("interpretation.home_link", "Interpretation: failure mechanisms, repairs and evaluation limits")}</a></p>'
                        if interpretation_path is not None else ""),
             "lead": f'''<section class="hero" data-browser-count="{browser_count}" data-method-count="{method_count}"><p>{t("home.lead", "{browsers} browsers form {methods} method configurations, each covering the same {tasks} frozen trajectory replays. {backend_note} Environment documents versions, paths and site preparation.", browsers=browser_count, methods=method_count, tasks=task_count, backend_note=backend_note)}</p><div class="detail-links"><a href="results.html">{t("home.link.outcomes", "Explore outcomes and exact errors")}</a><a href="dataset.html">{t("home.link.dataset", "Task contracts and fixed trajectories")}</a></div></section>{legacy_link}''',
-            "core-comparison": f'<section><h2>{t("home.core_metrics", "Core metrics")}</h2><p class="callout">{core_metrics_note}</p>{core_metrics_table}</section>',
+            "core-comparison": charts.charts(charts.ranked_bars(
+                [charts.Bar.rate(_e(row["label"]), row["passed"], row["total"]) for row in method_rows],
+                title=t("metrics.official_pass_rate", "Official pass rate"),
+                caption=t("chart.pass_rate_caption", "Ordered by pass rate; n/N is official passes / tasks.")))
+            + f'<section><h2>{t("home.core_metrics", "Core metrics")}</h2><p class="callout">{core_metrics_note}</p>{core_metrics_table}</section>',
             "summary": resource_section,
             "findings": failure_signatures,
         }
@@ -1462,7 +1470,7 @@ def build_webarena_replay_report(
             diagnose_button = "" if row["status"] == "pass" else (
                 '<button type="button" data-open-diagnosis>' + t("results.diagnose", "Diagnose") + "</button>"
             )
-            result_rows.append(f'<tr data-key="{row["key"]}" data-task="{row["task_id"]}" data-participant="{_e(row["participant_id"])}" data-status="{row["status"]}" data-site="{_e(row["sites"][0] if row["sites"] else "")}" data-stage="{_e(row["failure_stage"])}" data-cause="{_e(row["cause_zh"] or row["cause_en"])}"><td><a href="task/{row["task_id"]}.html">#{row["task_id"]}</a>{diagnose_button}</td><td><a href="{_e(detail_url)}">{_e(row["browser"])}</a></td><td>{_e(row["sites"][0] if row["sites"] else "")}</td><td class="status-{row["status"]}">{status}</td><td>{row["completed_actions"]}/{row["action_count"]}</td><td>{_e(stage_label)}</td><td>{_e(cause) if cause else "—"}</td><td><a href="{_e(detail_url)}">{t("results.evidence_page", "Evidence page")}</a></td></tr>')
+            result_rows.append(f'<tr data-key="{row["key"]}" data-task="{row["task_id"]}" data-participant="{_e(row["participant_id"])}" data-status="{row["status"]}" data-site="{_e(row["sites"][0] if row["sites"] else "")}" data-stage="{_e(row["failure_stage"])}" data-cause="{_e(row["cause_zh"] or row["cause_en"])}"><td><a href="task/{row["task_id"]}.html">#{row["task_id"]}</a>{diagnose_button}</td><td><a data-inventory-detail href="{_e(detail_url)}">{_e(row["browser"])}</a></td><td>{_e(row["sites"][0] if row["sites"] else "")}</td><td class="status-{row["status"]}">{status}</td><td>{row["completed_actions"]}/{row["action_count"]}</td><td>{_e(stage_label)}</td><td>{_e(cause) if cause else "—"}</td><td><a href="{_e(detail_url)}">{t("results.evidence_page", "Evidence page")}</a></td></tr>')
         browser_options = "".join(f'<option value="{_e(key)}">{_e(item["label"])}</option>' for key, item in comparison_methods.items())
         site_options = "".join(f'<option value="{_e(site)}">{_e(site)}</option>' for site in sorted({s for row in public_rows for s in row["sites"]}))
         present_stages = {row["failure_stage"] for row in public_rows if row["status"] == "fail"}
@@ -1513,7 +1521,7 @@ def build_webarena_replay_report(
             + "</section>"
         )
         results_lead = f'''<section class="hero"><p>{t("results.lead", "Choose a baseline and multiple methods for same-task comparison. The inventory starts with failures; open Diagnose for the exact finding, reviewed cause, and execution evidence.")}</p></section>'''
-        results_inventory = f'''<section><div class="filters" id="result-inventory"><label>{t("results.filter.search", "Search")}<input data-filter="q" placeholder="{t("results.filter.placeholder", "Task, site, or error")}"></label><label>{t("common.method", "Method")}<select data-filter="participant"><option value="">{t("common.all", "All")}</option>{browser_options}</select></label><label>{t("common.verdict", "Verdict")}<select data-filter="status"><option value="fail">{t("verdict.fail", "Fail")}</option><option value="pass">{t("verdict.pass", "Pass")}</option><option value="">{t("common.all", "All")}</option></select></label><label>{t("common.site", "Site")}<select data-filter="site"><option value="">{t("common.all", "All")}</option>{site_options}</select></label><label>{t("common.failure_stage", "Failure stage")}<select data-filter="stage"><option value="">{t("common.all", "All")}</option>{stage_options}</select></label><label>{t("common.reviewed_category", "Reviewed category")}<select data-filter="cause"><option value="">{t("common.all", "All")}</option>{cause_options}</select></label></div><p class="result-count" data-result-count></p><div class="table-scroll inventory" data-results><table><thead><tr><th>{t("common.task", "Task")}</th><th>{t("common.method", "Method")}</th><th>{t("common.site", "Site")}</th><th>{t("results.column.verdict", "Verdict")}</th><th>{t("results.column.actions", "Actions")}</th><th>{t("common.failure_stage", "Failure stage")}</th><th>{t("common.reviewed_category", "Reviewed category")}</th><th>{t("results.column.detail", "Detail")}</th></tr></thead><tbody>{''.join(result_rows)}</tbody></table></div></section><dialog id="diagnosis-dialog"><div class="dialog-head"><strong data-dialog-title></strong><button type="button" aria-label="{t("results.dialog.close", "Close")}">×</button></div><div class="dialog-body"><div class="diagnosis-facts"><div><span>{t("common.failure_stage", "Failure stage")}</span><strong data-dialog-stage></strong></div><div><span>{t("results.dialog.action_locator", "Action locator")}</span><strong data-dialog-step></strong></div><div><span>{t("common.reviewed_category", "Reviewed category")}</span><strong data-dialog-category></strong></div></div><h3>{t("results.dialog.finding", "Programmatic finding and evaluator rule")}</h3><pre data-dialog-error></pre><h3>{t("results.dialog.cause", "Reviewed cause and treatment")}</h3><p data-dialog-cause></p><p data-dialog-remediation></p><div class="evidence-actions"><a data-dialog-step-link>{t("results.dialog.open_action", "Open the relevant action")}</a><a data-dialog-link>{t("results.dialog.open_detail", "Open full detail")}</a></div></div></dialog>'''
+        results_inventory = f'''<section{explorer.inventory_attributes(result_control='select[data-filter="status"]')}><div class="filters" id="result-inventory"><label>{t("results.filter.search", "Search")}<input data-filter="q" placeholder="{t("results.filter.placeholder", "Task, site, or error")}"></label><label>{t("common.method", "Method")}<select data-filter="participant"><option value="">{t("common.all", "All")}</option>{browser_options}</select></label><label>{t("common.verdict", "Verdict")}<select data-filter="status"><option value="fail">{t("verdict.fail", "Fail")}</option><option value="pass">{t("verdict.pass", "Pass")}</option><option value="">{t("common.all", "All")}</option></select></label><label>{t("common.site", "Site")}<select data-filter="site"><option value="">{t("common.all", "All")}</option>{site_options}</select></label><label>{t("common.failure_stage", "Failure stage")}<select data-filter="stage"><option value="">{t("common.all", "All")}</option>{stage_options}</select></label><label>{t("common.reviewed_category", "Reviewed category")}<select data-filter="cause"><option value="">{t("common.all", "All")}</option>{cause_options}</select></label></div><p class="result-count" data-result-count></p><div class="table-scroll inventory" data-results><table><thead><tr><th>{t("common.task", "Task")}</th><th>{t("common.method", "Method")}</th><th>{t("common.site", "Site")}</th><th>{t("results.column.verdict", "Verdict")}</th><th>{t("results.column.actions", "Actions")}</th><th>{t("common.failure_stage", "Failure stage")}</th><th>{t("common.reviewed_category", "Reviewed category")}</th><th>{t("results.column.detail", "Detail")}</th></tr></thead><tbody>{''.join(result_rows)}</tbody></table></div>{explorer.inventory_notice(t("inventory.no_failures", "No result failed; showing all results."), t("inventory.show_more", "Show more"))}</section><dialog id="diagnosis-dialog"><div class="dialog-head"><strong data-dialog-title></strong><button type="button" aria-label="{t("results.dialog.close", "Close")}">×</button></div><div class="dialog-body"><div class="diagnosis-facts"><div><span>{t("common.failure_stage", "Failure stage")}</span><strong data-dialog-stage></strong></div><div><span>{t("results.dialog.action_locator", "Action locator")}</span><strong data-dialog-step></strong></div><div><span>{t("common.reviewed_category", "Reviewed category")}</span><strong data-dialog-category></strong></div></div><h3>{t("results.dialog.finding", "Programmatic finding and evaluator rule")}</h3><pre data-dialog-error></pre><h3>{t("results.dialog.cause", "Reviewed cause and treatment")}</h3><p data-dialog-cause></p><p data-dialog-remediation></p><div class="evidence-actions"><a data-dialog-step-link>{t("results.dialog.open_action", "Open the relevant action")}</a><a data-dialog-link>{t("results.dialog.open_detail", "Open full detail")}</a></div></div></dialog>'''
         results_fills = {"lead": results_lead, "inventory": results_inventory,
                          "comparison": f'<section class="compact-section">{result_matrix}</section>' + diagnostic_details}
         (root / "results.html").write_text(_shell(lang, "results", t("results.title", "Results analysis"), results_fills, heading=t("results.title", "Results analysis"), eyebrow=f'{len(public_rows)} {t("results.logical_outcomes", "logical outcomes")}', notice=notice_html, current_route="results.html"), encoding="utf-8")

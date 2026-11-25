@@ -9,6 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from harness.environments.browser import container_engines, engine_label
+from harness.reporting import explorer
 from harness.trajectory_replay.core.report import (
     EVIDENCE_DIALOG_JS,
     SUITE_FILTER_JS,
@@ -25,6 +26,7 @@ from harness.trajectory_replay.core.report import (
     _source_references,
     _stat,
     _trace_text,
+    correctness_chart,
     flat_page,
     replay_table,
     write_chinese_only,
@@ -235,8 +237,9 @@ def _page(
     names = engine_names(engines)
     run_id = _e(manifest.get("run_id", "unknown"))
     detail_nav = (
-        f'<a href="{REPORT_STEM}-analysis.html#{_e(back_anchor)}">← {t("curated.back_to_analysis", "Back to per-task analysis")}</a>'
-        f'<a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
+        explorer.detail_navigation(f"{REPORT_STEM}-analysis.html#{back_anchor}", back=t("curated.back_to_analysis", "Back to per-task analysis"),
+                                   previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result"))
+        +         f'<a href="{REPORT_STEM}.html">{t("curated.shell.detail_title", "{engines} evaluation", engines=" / ".join(engine_label(engine) for engine in engines))}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
         if detail_title
         else ""
     )
@@ -399,7 +402,7 @@ def _summary_page(manifest: dict[str, Any], summary: dict[str, Any], content: di
     )
     return {
         "lead": f"""<section class="card note"><h2>{t("curated.summary.conclusion", "Conclusion and product recommendation")}</h2><p><strong>{recommendation}</strong></p><p>{t("curated.summary.scope", "This is a public-web deterministic microbenchmark at the browser tool-call layer, not an LLM Agent ranking. The suite has {count} tasks with unique results.", count=task_count)}</p></section>""",
-        "core-comparison": f"""<section class="card"><h2>{t("curated.correctness.title", "Task correctness")}</h2>{correctness}</section>""",
+        "core-comparison": correctness_chart(summary, engines, t) + f"""<section class="card"><h2>{t("curated.correctness.title", "Task correctness")}</h2>{correctness}</section>""",
         "findings": f"""<section class="card" id="technical-findings"><h2>{t("curated.summary.findings", "Key technical findings")}</h2><ul>
 {_ratio_finding(summary, engines)}{_authored(content.get("findings"), "li")}{_root_cause_finding()}</ul></section>""",
         "coverage": f"""<section class="card" id="performance"><h2>{t("curated.summary.performance", "Speed and resources on tasks {parties} passed", parties=parties)}</h2><p>{t("curated.summary.performance_scope", "Scope: {count} same tasks {parties} passed, excluding failures and retry samples.", parties=parties, count=paired)}{highlight_legend}</p>{_metric_tables(summary)}{_duration_ratio_audit(summary)}</section>{smoke_html}""",
@@ -996,7 +999,7 @@ def _execution_details(
                 ]
             )
             blocks.append(
-                f'<div id="{_e(anchor)}" class="execution-card" data-task="{_e(task_id)}" data-engine="{_e(engine)}" data-status="{_e(final_result_status)}" data-combined-status="{_e(final_combined_status)}" data-complexity="{_e(task.get("complexity"))}" data-error="{_e(error_category)}" data-actions="{_e(",".join(actions))}" data-tags="{_e(",".join(tags))}" data-search="{_e(_trace_text(search_text))}" data-duration="{_e(total_duration)}"><a href="{detail_name}" class="execution-summary"><span>{_e(title)}</span><span>{_e(engine)}</span><span class="{"ok" if final_result_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_result_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span class="{"ok" if final_process_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_process_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span>{_e(error_category)}{_row_failure_summary(diagnostic, final_result_status)}</span><span>{_show(total_duration, suffix=" ms")}</span></a></div>'
+                f'<div id="{_e(anchor)}" class="execution-card" data-inventory-row data-task="{_e(task_id)}" data-engine="{_e(engine)}" data-status="{_e(final_result_status)}" data-combined-status="{_e(final_combined_status)}" data-complexity="{_e(task.get("complexity"))}" data-error="{_e(error_category)}" data-actions="{_e(",".join(actions))}" data-tags="{_e(",".join(tags))}" data-search="{_e(_trace_text(search_text))}" data-duration="{_e(total_duration)}"><a href="{detail_name}" class="execution-summary"><span>{_e(title)}</span><span>{_e(engine)}</span><span class="{"ok" if final_result_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_result_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span class="{"ok" if final_process_status == "pass" else "bad"}">{t("replay.execution.correct", "Correct") if final_process_status == "pass" else t("replay.execution.incorrect", "Incorrect")}</span><span>{_e(error_category)}{_row_failure_summary(diagnostic, final_result_status)}</span><span>{_show(total_duration, suffix=" ms")}</span></a></div>'
             )
     return "".join(blocks) or f"<p>{t('replay.execution.none', 'No execution samples to show.')}</p>"
 
@@ -1082,7 +1085,7 @@ def _execution_explorer(
     provider_list = "[" + ",".join(f"'{engine}'" for engine in engines) + "]"
     script = f"<script>{EXECUTION_FILTER_JS}</script>".replace("__PROVIDER_LIST__", provider_list)
     grid_head = f'<div class="record-grid-head" aria-hidden="true"><span>{t("replay.column.task", "Task")}</span><span>Provider</span><span>{t("replay.detail.result", "Result")}</span><span>{t("curated.analysis.process", "Process")}</span><span>{t("replay.filter.error_category", "Error category")}</span><span>{t("curated.metric.duration", "Total duration")}</span></div>'
-    return f"""<section class="card" id="execution-results"><h2>{t("curated.analysis.title", "Per-task analysis and raw evidence")}</h2><p>{t("curated.analysis.body", "{records} task × provider records, {executions} executions. Open a task to see its complete actions, answers, verdicts and trace.", records=logical_executions, executions=physical_attempts)}</p>{_table([t("curated.analysis.rule_category", "Rule category"), t("curated.analysis.failure_groups", "Deduplicated failure groups"), t("curated.analysis.failure_count", "Actual failures")], category_rows, t("curated.analysis.failure_caption", "Programmatic failure distribution"))}{filters}<div id="execution-list" class="record-grid">{grid_head}{_execution_details(manifest, summary, detail_pages)}</div><p id="execution-empty" class="empty-state" role="status" hidden></p>{script}</section>"""
+    return f"""<section class="card" id="execution-results"{explorer.inventory_attributes(result_control="#f-status")}><h2>{t("curated.analysis.title", "Per-task analysis and raw evidence")}</h2><p>{t("curated.analysis.body", "{records} task × provider records, {executions} executions. Open a task to see its complete actions, answers, verdicts and trace.", records=logical_executions, executions=physical_attempts)}</p>{_table([t("curated.analysis.rule_category", "Rule category"), t("curated.analysis.failure_groups", "Deduplicated failure groups"), t("curated.analysis.failure_count", "Actual failures")], category_rows, t("curated.analysis.failure_caption", "Programmatic failure distribution"))}{filters}<div id="execution-list" class="record-grid">{grid_head}{_execution_details(manifest, summary, detail_pages)}</div><p id="execution-empty" class="empty-state" role="status" hidden></p>{explorer.inventory_notice(t("inventory.no_failures", "No result failed; showing all results."), t("inventory.show_more", "Show more"))}{script}</section>"""
 
 
 def _classify(error: str) -> str:

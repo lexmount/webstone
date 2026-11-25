@@ -23,6 +23,7 @@ from harness.distribution import repository_root
 from harness.env_file import local_setting
 from harness.record_io import canonical_json_sha256
 from harness.report_languages import resolve_report_language
+from harness.reporting import charts, explorer
 from harness.reporting.links import LinkIndex
 from harness.reporting.publication_privacy import project_evidence_view, publication_risk
 from harness.reporting.release_check import check_report_identity, checked_page, open_report
@@ -188,7 +189,7 @@ def page_label(route, language):
 # An authored page intro fills exactly one template slot of its page.
 INTRO_SELECTOR = "main > [data-slot] > [data-page-intro]"
 ASSETS = Path(__file__).with_name("assets")
-CSS = (ASSETS / "report.css").read_text(encoding="utf-8")
+CSS = (ASSETS / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
 
 
 def table(headers, rows, *, inventory=False, attrs="", sort_values=None, pin_method=False):
@@ -3327,7 +3328,7 @@ def _assemble_product(output, content, *, home, run, language, profile):
                 raise ValueError("Review belongs to a different native response")
     output.mkdir(parents=True, exist_ok=True)
     (output / "style.css").write_text(CSS, encoding="utf-8")
-    (output / "app.js").write_text(JS, encoding="utf-8")
+    (output / "app.js").write_text(JS + explorer.INVENTORY_SCRIPT, encoding="utf-8")
     copy_report_assets(output, content, model)
     input_profile = copy_input_profile(output, profile)
     buckets = (
@@ -3476,10 +3477,12 @@ def _product_pages(evidence, lang, write):
     }
     bodies["protocol"] += execution_settings(configurations, methods, names, lang)
     summary = []
+    bars = []
     for method in methods:
         subset = [r for r in rows if r["method"] == method]
         called = sum(r["state"] in ("response_received", "call_error") for r in subset)
         structured = sum(r.get("compatibility") == "structured_output" for r in subset)
+        bars.append(charts.Bar.rate(esc(names.get(method, method)), structured, len(subset)))
         summary.append(
             [
                 esc(method),
@@ -3504,6 +3507,9 @@ def _product_pages(evidence, lang, write):
         )
         + bodies["index"]
     )
+    home_chart = charts.charts(charts.ranked_bars(
+        bars, title=esc(message("chart_structured_output_rate", lang)),
+        caption=esc(message("chart_structured_output_caption", lang))))
     if not cohort:
         bodies["index"] += operating_metrics(
             methods, rows, model.get("prices", {}), lang, names, execution=configurations
@@ -3725,7 +3731,9 @@ def _product_pages(evidence, lang, write):
             )
             compared.append(cells)
         case_body = (
-            f'<article data-same-case="{cid}"><p><a href="source-{cid}.html">'
+            explorer.detail_navigation("results.html", back=message("back_to_results", lang),
+                                       previous=message("previous_result", lang), next_label=message("next_result", lang))
+            + f'<article data-same-case="{cid}"><p><a href="source-{cid}.html">'
             + (message("source_and_annotations_a71c1ae7", lang))
             + "</a></p>"
         )
@@ -3779,7 +3787,8 @@ def _product_pages(evidence, lang, write):
         evidence = "../public-evidence/" + (r["method"] if cohort else key) + ".json"
         evidence_key = f' data-key="{cid}"' if cohort else ""
         label_attr = f' data-case-label="{esc(case_label(truth[cid], cid), quote=True)}"'
-        detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p>{esc(case_label(truth[cid], cid))}</p></div>'
+        verdict_error = "" if ok else f'<p data-verdict-error><b>{message("exact_error", lang)}</b> <code>{esc(error[:300])}</code></p>'
+        detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p>{esc(case_label(truth[cid], cid))}</p>{verdict_error}</div>'
         detail += (
             f'<p class="case-links"><a href="case-{cid}.html">'
             + (message("compare_all_methods", lang))
@@ -3892,7 +3901,7 @@ def _product_pages(evidence, lang, write):
         correct = all(v["status"] == "correct" for v in r["field_results"].values())
         search = cid + " " + truth[cid]["url"] + " " + error
         inventory.append(
-            f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}{label_attr}>{lab[9]}</button> · <a href="{url}">'
+            f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}{label_attr}>{lab[9]}</button> · <a data-inventory-detail href="{url}">'
             + (message("full_result", lang))
             + "</a></td></tr>"
         )
@@ -3917,8 +3926,12 @@ def _product_pages(evidence, lang, write):
                     )
     if not cohort:
         bodies["index"] = report_metric_guide(lang, records=False) + bodies["index"]
+    if not cohort:
+        # Cohort home pages open on their core comparison table, which the release check binds.
+        bodies["index"] = home_chart + bodies["index"]
     bodies["results"] += (
-        result_controls(methods, rows, names, lang)
+        "<div" + explorer.inventory_attributes(result_control='select[data-result-filter="status"]', fallback="all") + ">"
+        + result_controls(methods, rows, names, lang)
         + '<div class="table-wrap inventory" tabindex="0"><table data-sortable data-method-column="true"><thead><tr>'
         + "".join(
             "<th>" + x + "</th>"
@@ -3935,6 +3948,8 @@ def _product_pages(evidence, lang, write):
         + "</tr></thead><tbody>"
         + "".join(inventory)
         + "</tbody></table></div>"
+        + explorer.inventory_notice(message("inventory_no_failures_showing_all", lang), message("inventory_show_more", lang))
+        + "</div>"
         + '<dialog id="diagnosis" aria-labelledby="diagnosis-title"><h2 id="diagnosis-title">'
         + (message("field_and_call_evidence", lang))
         + "</h2><button data-call-log-close>"
@@ -5196,7 +5211,7 @@ def _assemble_record(output, content, *, home, run, language, profile):
     (output / "data").mkdir()
     (output / "public-evidence").mkdir()
     (output / "style.css").write_text(CSS, encoding="utf-8")
-    (output / "app.js").write_text(JS, encoding="utf-8")
+    (output / "app.js").write_text(JS + explorer.INVENTORY_SCRIPT, encoding="utf-8")
     copy_report_assets(output, content, model)
     input_profile = copy_input_profile(output, profile)
     prices = model["prices"]

@@ -561,7 +561,7 @@ def test_report_links_to_full_failures_and_tool_trace_on_detail_pages(tmp_path, 
     # Template order: the result inventory, then the same-task comparison.
     assert (
         results.index('<section class="card" id="failure-review">')
-        < results.index('<section class="card" id="execution-results">')
+        < results.index('<section class="card" id="execution-results"')
         < results.index('<section class="card" id="task-comparison">')
     )
     assert results.count('class="execution-card"') == 1

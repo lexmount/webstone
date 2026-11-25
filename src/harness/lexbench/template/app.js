@@ -572,7 +572,7 @@ function inventory(kind) {
       : kind === "analysis"
         ? T.analysisIntro
         : population();
-  let filters = `<div class="filters"><label>${T.search}<input id="query" type="search" placeholder="${esc(T.search)}"></label><label>${T.stratum}<select id="stratum"><option value="">${T.all}</option>${M.strata.map((s) => `<option value="${s}">${esc(T.strata[s] || s)}</option>`).join("")}</select></label><label>${T.relation}<select id="relation"><option value="">${T.all}</option><option value="failure" ${kind === "results" ? "selected" : ""}>${esc(T.filterFail)}</option>${["bothPass", "gain", "bothFail", "loss", "mixed"].map((s) => `<option value="${s}">${esc(T[s])}</option>`).join("")}</select></label></div><div class="subtle" id="count"></div>`;
+  let filters = `<div class="filters"><label>${T.search}<input id="query" type="search" placeholder="${esc(T.search)}"></label><label>${T.stratum}<select id="stratum"><option value="">${T.all}</option>${M.strata.map((s) => `<option value="${s}">${esc(T.strata[s] || s)}</option>`).join("")}</select></label><label>${T.relation}<select id="relation"><option value="">${T.all}</option><option value="failure" ${kind === "results" ? "selected" : ""}>${esc(T.filterFail)}</option>${["bothPass", "gain", "bothFail", "loss", "mixed"].map((s) => `<option value="${s}">${esc(T[s])}</option>`).join("")}</select></label></div><p class="inventory-notice" id="inventory-fallback" role="status" hidden>${esc(message("no_failures_showing_all"))}</p><div class="subtle" id="count"></div>`;
   return (
     hero(title, intro) +
     section(
@@ -671,6 +671,17 @@ function wireInventory() {
       .getElementById(id)
       ?.addEventListener(id === "query" ? "input" : "change", renderInventory);
   renderInventory();
+  // Failures come first; when the initial filters (such as a stratum from the link) leave no
+  // failure, the view falls back once to every task within those filters.
+  let relation = document.getElementById("relation"),
+    stratum = document.getElementById("stratum")?.value || "",
+    scope = M.cases.filter((c) => !stratum || c.stratum === stratum);
+  if (route() !== "dataset" && relation?.value === "failure" && scope.length &&
+      scope.every((c) => pairStatus(c) === "bothPass")) {
+    relation.value = "";
+    document.getElementById("inventory-fallback").hidden = false;
+    renderInventory();
+  }
 }
 const facts = (items) =>
   `<dl class="facts">${items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
