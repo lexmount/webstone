@@ -7,6 +7,7 @@ entry that no longer occurs both fail. Regenerate it with `tests/architecture/sc
 from tests.architecture.scan import (
     LAYERING_ALLOWLIST,
     allowlist_drift,
+    benchmark_module_imports,
     imported_modules,
     layering_violations,
     modules,
@@ -37,3 +38,7 @@ def test_scan_sees_lazy_and_package_level_imports(tmp_path):
 def test_allowlist_drift_fails_in_both_directions():
     added, stale = allowlist_drift({"a": ["x", "y"]}, {"a": ["x"], "b": ["z"]})
     assert (added, stale) == (["a -> y"], ["b -> z"])
+
+
+def test_shared_web_extract_modules_reach_benchmarks_through_adapters():
+    assert benchmark_module_imports() == {}

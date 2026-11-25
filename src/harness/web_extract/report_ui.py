@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from harness.web_extract.messages import message
+from harness.web_extract.product_fields import REPORTED, label_key
 
 ASSETS = Path(__file__).with_name("assets")
 JS = (ASSETS / "report.js").read_text(encoding="utf-8")
@@ -19,10 +20,8 @@ CLIENT_MESSAGE_KEYS = (
     "exact_error",
     "failure_repair",
     "field",
-    "field_labels_availability",
-    "field_labels_OutOfStock",
-    "field_labels_price",
-    "field_labels_sku",
+    # Ordered as the shipped client script binds them.
+    *sorted((label_key("field_labels", field) for field in REPORTED), key=str.lower),
     "full_result",
     "load_failed_close_and_retry_or_use_the_raw_file",
     "loading_complete_evidence",

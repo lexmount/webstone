@@ -36,9 +36,7 @@ from harness.web_extract.analysis import (
 )
 from harness.web_extract.messages import message, messages_sha256, validate_catalog
 from harness.web_extract.pipeline import (
-    FIELDS,
     METHODS,
-    PRODUCT_FIELDS,
     PROFILE,
     digest,
     execution_identity,
@@ -55,7 +53,13 @@ from harness.web_extract.pipeline import (
     verify_execution_snapshot,
     verify_retry_history,
 )
-from harness.web_extract.product_fields import DECLARED, REPORTED, REPORTED_DERIVED, label_key
+from harness.web_extract.product_fields import (
+    DECLARED,
+    REPORTED,
+    REPORTED_DERIVED,
+    SCORED,
+    label_key,
+)
 from harness.web_extract.report_ui import JS
 from harness.web_extract.template import (
     BODY_SLOTS,
@@ -1258,7 +1262,7 @@ def completion_bundle(methods, rows, *, records, complete_methods, excluded_fiel
             fields = row["field_results"]
             if not records:
                 fields = row.get("review", {}).get("audited_fields", fields)
-                fields = {f: fields[f] for f in PRODUCT_FIELDS}
+                fields = {f: fields[f] for f in DECLARED}
             judgments[row["case_id"]] = {
                 f: {**v, "status": "unavailable"}
                 if f in excluded_fields.get(row["case_id"], [])
@@ -3541,7 +3545,7 @@ def _product_pages(evidence, lang, write):
                 text = '<span class="comparison-winner">' + text + "</span>"
             cells.append(f'<span data-history="{field}">{text}</span>')
         hr.append(cells)
-    historical_names = [*lab[23:26], message("out_of_stock_f1", lang)]
+    historical_names = [message(label_key("history_labels", field), lang) for field in historical_fields]
     headers = [
         lab[15],
         *[
@@ -3872,7 +3876,7 @@ def _product_pages(evidence, lang, write):
                     inventory.append(
                         f'<tr data-case="{cid}" data-status="pending" data-method="{method}" data-outcome="pending" data-search="{search}"'
                         + "".join(
-                            " data-" + field + '="pending"' for field in (*FIELDS, *REPORTED_DERIVED)
+                            " data-" + field + '="pending"' for field in (*SCORED, *REPORTED_DERIVED)
                         )
                         + f"><td>{esc(names.get(method, method))}</td><td><code>{cid[:12]}</code></td><td>{message('not_executed', lang)}</td>"
                         + "<td>—</td>" * 6

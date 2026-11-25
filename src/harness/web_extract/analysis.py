@@ -8,9 +8,14 @@ from decimal import InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 
-from harness.web_extract.pipeline import PRODUCT, PROFILE, digest, official_scorer
-from harness.web_extract.pipeline import PRODUCT_FIELDS as FIELDS
-from harness.web_extract.product_fields import NUMERIC, REPORTED, REPORTED_DERIVED
+from harness.web_extract.pipeline import PROFILE, digest, official_scorer
+from harness.web_extract.product_fields import (
+    BENCHMARK,
+    DECLARED,
+    NUMERIC,
+    REPORTED,
+    REPORTED_DERIVED,
+)
 
 
 def score_model_comparison(plan_path, run, contract_path, home, *, stage, repair=None):
@@ -221,7 +226,7 @@ def field_results(home, reference, row, *, profile=PROFILE):
 
 def check_reference_controls(home, *, profile=PROFILE):
     """Paired positive/negative controls through the production field scorer."""
-    for name, field, accepted, valid, invalid in PRODUCT.reference_controls:
+    for name, field, accepted, valid, invalid in BENCHMARK.reference_controls:
         for prediction, expected in ((valid, "correct"), (invalid, "incorrect")):
             result = field_results(
                 home,
@@ -231,7 +236,7 @@ def check_reference_controls(home, *, profile=PROFILE):
             )[field]
             if (result["status"] == "correct") != (expected == "correct"):
                 raise ValueError("Reference correction regression: " + name)
-    return [item[0] for item in PRODUCT.reference_controls]
+    return [item[0] for item in BENCHMARK.reference_controls]
 
 
 def product_audit_scores(truth, reviews, methods, excluded, scorer):
@@ -268,7 +273,9 @@ def check_product_audit(home, truth, rows, audit, *, profile):
     ):
         raise ValueError("Audit reference or scorer binding differs from current scoring inputs")
     excluded = audit.get("excluded_fields", {})
-    if set(excluded) - set(truth) or any(set(fields) - set(FIELDS) for fields in excluded.values()):
+    if set(excluded) - set(truth) or any(
+        set(fields) - set(DECLARED) for fields in excluded.values()
+    ):
         raise ValueError("Audit exclusion is outside the declared reference scope")
     recomputed = {}
     for row in rows:
@@ -329,7 +336,7 @@ def failure_stage(row):
 
 def record_field_results(reference, row, *, text_matching="literal", unavailable_fields=()):
     """Expose exact-set and official page-hit outcomes without changing saved scores."""
-    from harness.web_extract.swde import record_value_key
+    from harness.web_extract.benchmark_adapter import record_value_key
 
     if text_matching not in ("literal", "whitespace"):
         raise ValueError("Unsupported record text matching policy")
@@ -521,7 +528,7 @@ def completion_metrics(rows, fields_by_case, *, records):
                     and isinstance(value, list)
                     and all(isinstance(item, str) for item in value)
                 )
-            return PRODUCT.valid_value(field, value)
+            return BENCHMARK.valid_value(field, value)
 
         correct = {
             f: delivered

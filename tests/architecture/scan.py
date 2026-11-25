@@ -78,6 +78,25 @@ def layering_violations() -> dict[str, list[str]]:
     return violations
 
 
+# Shared Web Extract scoring and report modules: they reach benchmarks only through their adapters.
+WEB_EXTRACT_SHARED = tuple(f"harness.web_extract.{name}" for name in (
+    "analysis", "report", "report_ui", "report_suite", "model_comparison"))
+
+
+def benchmark_module_imports() -> dict[str, list[str]]:
+    """Registered Web Extract task-adapter modules imported directly by shared modules."""
+    from harness.web_extract.dataset import BENCHMARKS
+
+    adapters = {item.module for _, item in BENCHMARKS.items() if item.module}
+    found = modules()
+    occurrences = {}
+    for module in WEB_EXTRACT_SHARED:
+        bad = sorted(imported_modules(found[module], set(found)) & adapters)
+        if bad:
+            occurrences[module] = bad
+    return occurrences
+
+
 def registered_names() -> frozenset[str]:
     """Method, provider and browser names from the registries that own them."""
     from harness.environments.browser import BROWSERS

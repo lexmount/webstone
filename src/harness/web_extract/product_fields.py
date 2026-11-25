@@ -12,6 +12,8 @@ BENCHMARK = fixed_field_benchmark()
 DECLARED = BENCHMARK.fields
 # Upstream-derived fields that carry their own score, with the declared field each derives from.
 REPORTED_DERIVED = {"OutOfStock": "availability"}
+# Every field the upstream scorer scores, declared and derived.
+SCORED = (*DECLARED, *BENCHMARK.derived_fields)
 # Every scored field a report shows.
 REPORTED = (*DECLARED, *REPORTED_DERIVED)
 # Declared fields whose schema admits numbers; the upstream scorer matches them as decimals.

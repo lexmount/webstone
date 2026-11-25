@@ -9,11 +9,12 @@ takes the population's references and one method's predictions.
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import InvalidOperation
-from functools import cached_property
+from functools import cache, cached_property
 from pathlib import Path
 from typing import Any
 
@@ -86,3 +87,16 @@ def adapter(home: Path | str, name: str | None = None) -> ExtractBenchmarkAdapte
     """The adapter of the benchmark the prepared home records, or of ``name``."""
     item = BENCHMARKS.get(name) if name else benchmark_config(Path(home))["benchmark"]
     return ExtractBenchmarkAdapter(item, Path(home))
+
+
+@cache
+def _record_value_equivalence():
+    """The one value equivalence a registered task adapter declares for record references."""
+    (key,) = {module.record_value_key for _, item in BENCHMARKS.items() if item.module
+              if hasattr(module := importlib.import_module(item.module), "record_value_key")}
+    return key
+
+
+def record_value_key(reference, field, value, text_matching="literal"):
+    """Comparison key of one record value under its reference's declared value kind."""
+    return _record_value_equivalence()(reference, field, value, text_matching)
