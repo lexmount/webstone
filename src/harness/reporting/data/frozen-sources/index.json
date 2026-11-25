@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "frozen_visual_checker_sources",
+  "sources": [
+    {
+      "git_commit": "8738917208d89d7df33d2788e61208f45c653545",
+      "path": "src/harness/reporting/visual.py",
+      "sha256": "7436030b6d5a576ccdd4895760f16646341c1fb934031fa34ea43662ab8264be",
+      "source_artifact": "7436030b6d5a576ccdd4895760f16646341c1fb934031fa34ea43662ab8264be.py.txt"
+    },
+    {
+      "git_commit": "8738917208d89d7df33d2788e61208f45c653545",
+      "path": "src/harness/browser_use/report_visual.py",
+      "sha256": "60134e6757e1cbc79c3024e3eb8034a81d6256090a6777bf2a2acf3af04b3835",
+      "source_artifact": "60134e6757e1cbc79c3024e3eb8034a81d6256090a6777bf2a2acf3af04b3835.py.txt"
+    },
+    {
+      "git_commit": "8738917208d89d7df33d2788e61208f45c653545",
+      "path": "src/harness/trajectory_replay/webarena_report_visual.py",
+      "sha256": "ba0884abc3d1b16927cda2bdbdd26a90b81192002c5ec0faa08af2f38bdbd1f9",
+      "source_artifact": "ba0884abc3d1b16927cda2bdbdd26a90b81192002c5ec0faa08af2f38bdbd1f9.py.txt"
+    },
+    {
+      "git_commit": "8738917208d89d7df33d2788e61208f45c653545",
+      "path": "src/harness/web_search/visual.py",
+      "sha256": "a8100484cbd28b76b7c0000c4ef0b4c8ab8fa9b469db1a858122aa7a57551011",
+      "source_artifact": "a8100484cbd28b76b7c0000c4ef0b4c8ab8fa9b469db1a858122aa7a57551011.py.txt"
+    },
+    {
+      "git_commit": "8738917208d89d7df33d2788e61208f45c653545",
+      "path": "src/harness/web_search/template.py",
+      "sha256": "ebcbaa14ba9a0582e9eac18b4c46ccbdd8b8dcc3aed42d3758f2b195cc37ebf7",
+      "source_artifact": "ebcbaa14ba9a0582e9eac18b4c46ccbdd8b8dcc3aed42d3758f2b195cc37ebf7.py.txt"
+    }
+  ]
+}

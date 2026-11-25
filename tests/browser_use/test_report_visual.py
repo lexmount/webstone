@@ -70,7 +70,7 @@ def test_partial_receipt_cannot_skip_browser_gate(tmp_path, monkeypatch, count):
 
 
 def complete_receipt(report, receipt, binary):
-    from harness.reporting.visual import checker_sources, file_sha256
+    from harness.reporting.visual import checker_paths, file_sha256, keep_sources
 
     routes = [
         "index.html",
@@ -91,7 +91,7 @@ def complete_receipt(report, receipt, binary):
     value = {
         "schema": "lex_browser_use_visual_qa/2",
         "report_tree_sha256": packager.tree_sha256(report),
-        "checker_sources": checker_sources(Path(visual.__file__)),
+        "checker_sources": keep_sources(receipt, checker_paths(Path(visual.__file__))),
         "browser_executable": str(binary),
         "browser_sha256": file_sha256(binary),
         "route_classes": len(routes),
