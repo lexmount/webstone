@@ -29,6 +29,11 @@ def test_body_cells_show_display_names():
             check_display_names(page(f"<table><tr><td>{cell}</td></tr></table>"), LABELS)
 
 
+def test_an_id_containing_a_separator_is_still_a_raw_id():
+    with pytest.raises(ValueError, match="raw id 'vendor/model'"):
+        check_display_names(page("<table><tr><td>vendor/model</td></tr></table>"), {"vendor/model": "Model"})
+
+
 def test_display_names_resolve_in_the_page_language():
     labels = {"foo": {"zh": "中文名称", "en": "foo"}, "bar": {"zh": "bar", "en": "Bar"}}
     with pytest.raises(ValueError, match="raw id 'foo'"):

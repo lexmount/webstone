@@ -47,7 +47,8 @@ def check_display_names(html, labels: Mapping[str, object]) -> None:
                  and text.find_parent(attrs={"data-verbatim": True}) is None]
         # Each text node, and the cell read across inline elements, so a split id is still seen.
         for text in (*texts, "".join(texts)):
-            for part in _CELL_PARTS.split(text.strip()):
+            # The whole text first: an id may itself contain a separator.
+            for part in (text.strip(), *_CELL_PARTS.split(text.strip())):
                 if part in raw:
                     table = cell.find_parent("table")
                     where = (table.get("id") or "") if table is not None else ""
