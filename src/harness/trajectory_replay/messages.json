@@ -353,6 +353,7 @@
     "interpretation.scope": "测量范围",
     "interpretation.scoring": "如何判分",
     "interpretation.scoring_text": "每种方法重放同一任务的冻结动作，再由绑定的任务验收规则判分。原始成绩与合同修订保留在任务和结果详情中。",
+    "interpretation.task_link": "任务 #{task}",
     "interpretation.title": "结果解读",
     "metric.action_latency": "单次动作耗时",
     "metric.all_tasks_time": "全部任务端到端耗时",
