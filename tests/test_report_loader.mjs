@@ -213,6 +213,19 @@ await new Promise(resolve=>setTimeout(resolve,0));
 assert.equal(smallPre.textContent,'original output bytes');
 assert.equal(smallReads,2);assert.equal(smallPre.role,undefined);
 console.log('PASS: small evidence has a working retry action just like large evidence');
+{
+ vm.runInContext(reportSource.match(/function minifyJson[\s\S]*?\n(?=function )/)[0]+reportSource.match(/function losslessJson[^\n]*\n/)[0],retryContext);
+ const jsonPre={dataset:{file:'logs/call.json'},classList:{add(){},remove(){}},setAttribute(){},removeAttribute(){},addEventListener(){},removeEventListener(){}};
+ retryContext.jsonPre=jsonPre;retryContext.readJson=async()=>'{"a":1}';
+ vm.runInContext('textFile=readJson',retryContext);
+ await vm.runInContext('fill(jsonPre)',retryContext);
+ assert.equal(jsonPre.textContent,'{\n  "a": 1\n}');
+ const exact={...jsonPre,dataset:{file:'logs/big.json'}};retryContext.exactPre=exact;retryContext.readExact=async()=>'{"id":9007199254740993}';
+ vm.runInContext('textFile=readExact',retryContext);
+ await vm.runInContext('fill(exactPre)',retryContext);
+ assert.equal(exact.textContent,'{"id":9007199254740993}');
+ console.log('PASS: packaged JSON logs use the same lossless indentation');
+}
 vm.runInContext("location.hash='#page=en%2Fattempts%2Fexample.html'",failureContext);
 await vm.runInContext('render()',failureContext);
 assert.equal(retryButton.textContent,'Reload','failed English route uses its requested path before render completes');
