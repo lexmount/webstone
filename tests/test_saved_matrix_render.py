@@ -55,8 +55,83 @@ def test_default_scope_note_policy_keeps_legacy_projection_shape(tmp_path):
     assert 'scope_notes' not in dataset['comparison']['presentation']
 
 
+def test_native_token_comparison_uses_receipts_and_rejects_presentation_errors(tmp_path):
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    spec, source, record, _ = fixture(tmp_path)
+    spec.update(ranking='saved_task_pass_rate', scope_notes='external')
+    record['provider_metadata']['terminal_usage'] = dict(
+        input_tokens=100, cached_input_tokens=80, output_tokens=10, total_tokens=110)
+    other = deepcopy(record)
+    other.update(provider='other', attempt_id='other-run')
+    other['provider_metadata']['terminal_usage'].update(
+        input_tokens=200, cached_input_tokens=190, output_tokens=20, total_tokens=220)
+    spec['providers'].append({'id': 'other', 'label': 'Other'})
+    path = source/'results.jsonl'
+    path.write_text(''.join(json.dumps(r)+'\n' for r in (record, other)))
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+    root = build(tmp_path, spec).parent
+    content = (root/'index.html').read_text()
+    records = [json.loads(line) for line in (root/'results.jsonl').read_text().splitlines()]
+    check_token_usage_presentation(content, records)
+    soup = BeautifulSoup(content, 'html.parser')
+    table = soup.select_one('#token-usage')
+    rows = table.select('tbody tr')
+    assert [cell.get_text() for cell in rows[0].select('td')][1:] == ['1/1', '110', '20', '80', '10']
+    assert len(table.select('.comparison-winner')) == 1
+    assert not soup.select('#overview .callout')
+    assert not soup.select('#successful-final-call-latency')
+    for mutation in ('missing', 'wrong-value', 'missing-highlight', 'wrong-highlight'):
+        altered = BeautifulSoup(content, 'html.parser')
+        target = altered.select_one('#token-usage')
+        if mutation == 'missing':
+            target.decompose()
+        elif mutation == 'wrong-value':
+            target.select('tbody td')[4].string = '190'
+        elif mutation == 'missing-highlight':
+            target.select_one('.comparison-winner').unwrap()
+        else:
+            target.select('tbody td')[4].append(BeautifulSoup(
+                '<strong class="comparison-winner good">80</strong>', 'html.parser'))
+        with pytest.raises(ValueError, match='Token usage'):
+            check_token_usage_presentation(str(altered), records)
+
+
+def test_token_usage_does_not_invent_missing_totals_or_double_count_cache():
+    from harness.web_fetch.report_usage import token_usage
+    receipt = dict(input_tokens=100, cached_input_tokens=80, output_tokens=10, total_tokens=110)
+    record = dict(provider='a', provider_metadata={'terminal_usage': receipt})
+    assert token_usage([record])[0]['uncached_input_tokens'] == 20
+    partial = token_usage([record, dict(provider='a')])[0]
+    assert (partial['observed'], partial['count'], partial['total_tokens']) == (1, 2, None)
+    for field, value in (('total_tokens', 190), ('cached_input_tokens', 101), ('output_tokens', True)):
+        invalid = deepcopy(record)
+        invalid['provider_metadata']['terminal_usage'][field] = value
+        with pytest.raises(ValueError, match='token usage receipt'):
+            token_usage([invalid])
+
+
+@pytest.mark.parametrize('state', ['tie', 'missing', 'unequal'])
+def test_token_usage_leaves_incomparable_or_tied_totals_neutral(state):
+    from harness.web_fetch.report import token_usage_comparison
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    usage = dict(input_tokens=100, cached_input_tokens=80, output_tokens=10, total_tokens=110)
+    records = [dict(provider=provider, provider_metadata={'terminal_usage': usage})
+               for provider in ('a', 'b')]
+    if state == 'missing':
+        records[1].pop('provider_metadata')
+    elif state == 'unequal':
+        records.append(deepcopy(records[1]))
+    content = token_usage_comparison(records)
+    check_token_usage_presentation(content, records)
+    soup = BeautifulSoup(content, 'html.parser')
+    assert not soup.select('.comparison-winner')
+    if state == 'missing':
+        assert [c.get_text() for c in soup.select('tbody tr')[1].select('td')][1:] == [
+            '0/1', '—', '—', '—', '—']
+
+
 @pytest.mark.parametrize('tie', [False, True])
-def test_saved_ranking_keeps_failed_call_latency_neutral(tmp_path, tie):
+def test_saved_ranking_marks_all_call_latency_minima(tmp_path, tie):
     spec, source, record, raw = fixture(tmp_path)
     spec['ranking'] = 'saved_task_pass_rate'
     spec.update(presentation='audit', combined_ranking=True)
@@ -79,12 +154,14 @@ def test_saved_ranking_keeps_failed_call_latency_neutral(tmp_path, tie):
     assert ranking.select('.comparison-winner')
     assert len(ranking.select('thead button')) >= 6
     for row in rows:
-        assert not row.select('[data-metric-direction="min"]')
+        assert len(row.select('[data-metric-direction="min"]')) == 3
         values = row.select('td')[-3:]
         elapsed = 12 if row.select_one('a')['href'] == 'providers/method.html' or tie else 6
         assert all(float(cell['data-sort']) == elapsed for cell in values)
-        assert not any(cell.select('.comparison-winner') for cell in values)
-    successful = page.select_one('#successful-final-call-latency')
+        assert all(bool(cell.select('.comparison-winner')) == (not tie and elapsed == 6) for cell in values)
+    assert page.select_one('#successful-final-call-latency') is None
+    analysis = BeautifulSoup((root/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
+    successful = analysis.select_one('#successful-final-call-latency')
     successful_rows = successful.select('tbody tr')
     failed = next(row for row in successful_rows if 'alphabetic-first' in row.select_one('a')['href'])
     assert not failed.select('.comparison-winner')

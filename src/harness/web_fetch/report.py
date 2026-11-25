@@ -1731,14 +1731,14 @@ def logical_execution_cost_ms(record):
  return record['elapsed_ms']+metadata.get('retry_cleanup_wait_ms',0)+metadata.get('retry_throttle_wait_ms',0)
 
 
-def successful_final_call_latency(records,cases):
+def successful_final_call_latency(records,cases,*,prefix=""):
  """Show conditional task-passing latency separately from all-result costs."""
  groups=defaultdict(list)
  for record in records:groups[record['provider']].append(record)
  rows=[]
  for name,group in sorted(groups.items()):
   times=[r['elapsed_ms'] for r in group if succeeded(r,cases[r['case_id']])]
-  values=cell(link(f'providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
+  values=cell(link(f'{prefix}providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
   for value in (statistics.mean(times) if times else None,percentile(times,.5),percentile(times,.95)):
    values+=cell(ms(value),value)
   rows.append(('',values))
@@ -1746,6 +1746,24 @@ def successful_final_call_latency(records,cases):
  return ('<h3>'+model_text(*pair('report_final_call_latency_of_task_passing_results_c5387b', 'Final-call latency of task-passing results'))+'</h3><p>'+
   ('' if render_context().external_scope_notes else model_text(*pair('report_only_each_method_s_task_passing_results_are_a81e48', 'Only each method’s task-passing results are included; failures cannot win latency highlights. Populations differ, so highlights identify column minima, not a same-task speed ranking.')))+'</p>'+
   table([model_text(*pair('report_method_59e05c', 'Method')),model_text(*pair('report_passed_saved_ecdf33', 'Passed / saved')),model_text(*pair('report_mean_456d46', 'Mean')),'P50','P95'],rows,'successful-final-call-latency',metrics=[]))
+
+
+def token_usage_comparison(records):
+ from harness.web_fetch.report_usage import token_usage
+ usage=token_usage(records)
+ if not usage:return ''
+ fields=('total_tokens','uncached_input_tokens','cached_input_tokens','output_tokens')
+ rows=[]
+ for item in usage:
+  values=cell(link('providers/'+item['provider']+'.html',provider_label(item['provider'])))+cell(f"{item['observed']}/{item['count']}")
+  for key in fields:
+   value=item[key]
+   values+=cell('—' if value is None else f'{value:,}',value)
+  rows.append((' data-provider="'+esc(item['provider'])+'"',values))
+ comparable=len({item['count'] for item in usage})==1 and all(item['observed']==item['count'] for item in usage)
+ rows=comparative_rows(rows,{2:('total_tokens','min')} if comparable else {})
+ heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
+ return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the lower total for the same number of tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
 
 
 def all_final_call_latency(records):
@@ -1816,10 +1834,8 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  offset=2+int(combined)
  directions={i:('acceptance_'+str(i),'max') for i in range(1,offset+len(tracks)+int(has_unknown))}
  if has_unknown:directions.pop(offset,None)
- # Mixed outcomes make all-call timing observational: a quicker failure is
- # not a better delivery. Successful-call comparisons have their own owner.
- if passing_latency or (records and all(succeeded(r,cases[r['case_id']]) for r in records)):
-  directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
+ # Timing columns compare recorded consumption over their declared population.
+ directions.update({i:('final_call_latency_'+str(i),'min') for i in range(len(heads)-len(timing_heads)-int(bool(audit)),len(heads)-int(bool(audit)))})
  eligible,rank_note=ranking_readiness(records,cases)
  ranked=combined and not diagnostic and eligible
  if ranked:rows=comparative_rows(rows,directions)
@@ -1839,7 +1855,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
+ return intro+rank_note+timing_note+help+('<p class="source-note">'+t('latency_column_minimum','Lower values in latency columns are green and bold.')+'</p>' if ranked else '')+rendered
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""
@@ -2123,6 +2139,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  if not combined:overall_title=(t('report_task_results_b4e30d', 'Task results'))
  budgets={m['timeout_seconds'] for m in manifests if m.get('timeout_seconds') is not None}
  home+=section(overall_title,overall_ranking(records,cases,audit,diagnostic=diagnostic,call_budget_seconds=next(iter(budgets)) if len(budgets)==1 else None,combined=combined),'overall-ranking')
+ home+=token_usage_comparison(records)
  home+=input_suite_comparison(dataset,cases,records)
  if diagnostic and not score_audit:
   home+=result_ledger_section(out,records)
@@ -2131,7 +2148,7 @@ def _render_model(out,dataset,records,manifests,*,model):
  if measurement_presentation(dataset).all_call_latency:
   home+=section((t('report_all_call_latency_on_the_same_task_set_45ffcf', 'All-call latency on the same task set')),overview_all_call_latency(records,cases),'all-call-latency')
  completeness=(('<p class="callout">' + '<b>' + t('report_result_storage_5f0229', 'Result storage:') + '</b>')+str(reliability['present_calls'])+'/'+str(reliability['expected_calls'])+(t('report_groups_have_saved_results_no_scores_were_invented_for_m_448a36', ' groups have saved results; no scores were invented for missing entries.') + '</p>'))
- if final_saved:
+ if final_saved or render_context().external_scope_notes:
   completeness=''
  elif not dataset.get('saved_matrix_scope'):
   completeness=('<p class="callout success">' + '<b>' + t('report_result_coverage_403d3c', 'Result coverage:') + '</b>')+str(reliability['expected_calls'])+'/'+str(reliability['expected_calls'])+(t('report_calls_all_have_saved_results_0daa25', ' calls all have saved results.') + '</p>')
@@ -2482,7 +2499,7 @@ def _render_model(out,dataset,records,manifests,*,model):
    file_rows=[('',cell(link('../'+f['artifact_path'],t('download_delivered_file', 'Download delivered file')))+cell(esc(f.get('mime')))+cell(str(f['bytes']))+cell('<code class="break">'+esc(f['sha256'])+'</code>')+cell(t('match', 'Match') if f.get('pass') else t('not_matched_2', 'Not matched'))) for f in delivered]
    body+=section(t('original_file_byte_evidence', 'Original-file byte evidence'),table([t('file', 'File'),t('format_signature', 'Format signature'),t('bytes_2', 'Bytes'),'SHA-256',t('target_check', 'Target check')],file_rows,metrics=[]))
   write(out,'attempts/'+r['attempt_id']+'.html',c['name']+' · '+r['provider'],body)
- write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks))
+ write(out,'analysis/index.html',t('analysis', 'Analysis'),analysis_body(records,cases,headers,tracks)+section(t('passing_latency_detail', 'Task-passing latency'),successful_final_call_latency(records,cases,prefix='../'),'passing-latency'))
  write_support(out,records,manifests,authored_interpretation=authored_interpretation)
  if score_audit:
   render_score_audit(out,score_audit,score_binding)

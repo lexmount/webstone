@@ -2848,6 +2848,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         raise ValueError('Saved renderer projection differs from validated rows')
     if inputs is not None:
         _validate_rendered_pages(output, model)
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    check_token_usage_presentation((output/'index.html').read_text(encoding='utf-8'), projected_records)
     # Source HTML captures are immutable evidence, not generated navigation routes.
     routes = sorted(p for p in output.rglob('*.html')
                     if p.relative_to(output).parts[0] != 'evidence')

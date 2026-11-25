@@ -2476,6 +2476,16 @@
     "report_retries_full": "重试按完整内容要求决定；本报告对保存输出评分。",
     "report_retries_original": "重试按各题原定要求决定；本报告对保存输出评分。",
     "response_validation_failed": "返回结果校验失败",
-    "response_validation": "返回结果校验"
+    "response_validation": "返回结果校验",
+    "token_usage_title": "Token 消耗",
+    "token_usage_coverage": "记录 / 题数",
+    "token_usage_total": "Token 总量",
+    "token_usage_uncached": "未缓存输入",
+    "token_usage_cached": "缓存输入",
+    "token_usage_output": "输出",
+    "token_usage_definition": "总量 = 未缓存输入 + 缓存输入 + 输出。按各题 subagent 的记录合计，缓存只计一次；单位为 token。",
+    "token_usage_minimum": "同等题数下，总量较小值用绿色加粗。",
+    "passing_latency_detail": "通过任务的耗时",
+    "latency_column_minimum": "耗时列的较小值用绿色加粗。"
   }
 }
