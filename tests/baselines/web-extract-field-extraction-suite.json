@@ -158,8 +158,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
@@ -191,8 +191,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "机器诊断 | 页数",
@@ -423,8 +423,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
@@ -456,8 +456,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "机器诊断 | 页数",
@@ -544,8 +544,8 @@
     "tables": [
      [
       "方法 | 已执行 / 题数 | 值级 F1 ↑ | 页面命中 F1 ↑ | 字段完全一致率 ↑ | 结果解读",
-      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果",
-      "firecrawl-json | 1 / 3 | — | — | — | 查看结果"
+      "firecrawl-json | 1 / 3 | — | — | — | 查看结果",
+      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果"
      ],
      [
       "方法 | 计时 / 题数 | 平均（秒）↓ | P50（秒）↓ | P95（秒）↓ | 美元 / 1,000 次 | 报价说明",
@@ -554,8 +554,8 @@
      ],
      [
       "方法 | 已执行 / 题数 | 值级 F1 ↑ | 页面命中 F1 ↑ | 字段完全一致率 ↑ | 结果解读",
-      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果",
-      "firecrawl-json | 1 / 3 | — | — | — | 查看结果"
+      "firecrawl-json | 1 / 3 | — | — | — | 查看结果",
+      "scrapegraph-extract | 3 / 3 | — | — | — | 查看结果"
      ],
      [
       "方法 | 计时 / 题数 | 平均（秒）↓ | P50（秒）↓ | P95（秒）↓ | 美元 / 1,000 次 | 报价说明",
@@ -578,12 +578,12 @@
    }
   },
   "routes": [
-   "app.js 8f28da9eb683daa936dd",
-   "en/index.html 0e651d4ae11591aad043",
-   "first/app.js 8f28da9eb683daa936dd",
+   "app.js 39c837e57fe1954b7886",
+   "en/index.html 004bca1e880d0c57749c",
+   "first/app.js 39c837e57fe1954b7886",
    "first/data/completion-metrics.json c8e2b3094cc80c003df7",
    "first/data/metrics.json 45138b1e45f5db1eacb7",
-   "first/en/index.html c1ea141b8bf156c99d9f",
+   "first/en/index.html fc8d8624057240b7516a",
    "first/index.html 93a6043bf3fa4f9041ec",
    "first/public-evidence/firecrawl-json.json 927a547d8b4bc9a9b43b",
    "first/public-evidence/provenance/input-profile.json 9c1962f22022a9b1ee54",
@@ -593,28 +593,28 @@
    "first/report-manifest.json 42d723e9679427597d81",
    "first/style.css 7b6049d240fd9b08e4f1",
    "first/webstone-version.json 561aadb67df5738a512b",
-   "first/zh/accounts.html 582546a8182267a44891",
-   "first/zh/c-3fc4ccfe745870e2c0d99f71.html 10460363eefd849f88c7",
-   "first/zh/c-7692c3ad3540bb803c020b3a.html ee95f83e6fdee52c812a",
-   "first/zh/c-8b5b9db0c13db24256c829aa.html 835d7d87eed91bc4342d",
-   "first/zh/candidates.html a00a5488fe74fc90f7ca",
-   "first/zh/d-3fc4ccfe745870e2c0d99f71.html 0f972f0fa02d567fa968",
-   "first/zh/d-7692c3ad3540bb803c020b3a.html a75d628896709785f7e8",
-   "first/zh/d-8b5b9db0c13db24256c829aa.html e397f3ae7350648fef8c",
-   "first/zh/dataset.html e2ad1ff017303aa8eaaa",
-   "first/zh/index.html e3163e0a74ed3991c400",
-   "first/zh/interpretation.html 844e996d44a8f67f4fd0",
-   "first/zh/protocol.html 770b6fc5056f74f3cf91",
-   "first/zh/research.html 80996d07334d18053f4d",
-   "first/zh/results.html 688cb1d131aaeb37578c",
-   "first/zh/review.html c349d9482125a5839261",
+   "first/zh/accounts.html 8ae2616d834509fe368f",
+   "first/zh/c-3fc4ccfe745870e2c0d99f71.html 28915b4a18a11c8ec270",
+   "first/zh/c-7692c3ad3540bb803c020b3a.html b389dbdca2d5fc69873f",
+   "first/zh/c-8b5b9db0c13db24256c829aa.html 600e4e110f0307c2ddb5",
+   "first/zh/candidates.html c012aa5e634ad416db56",
+   "first/zh/d-3fc4ccfe745870e2c0d99f71.html 34f246916b743c5c67a4",
+   "first/zh/d-7692c3ad3540bb803c020b3a.html 55fd9fdea2250b5a898a",
+   "first/zh/d-8b5b9db0c13db24256c829aa.html 616db32883809f3e5e38",
+   "first/zh/dataset.html 1a81a22d9bf63d545c9b",
+   "first/zh/index.html 3fc37812ede8144dcbe0",
+   "first/zh/interpretation.html 7516ef3ffa605540498e",
+   "first/zh/protocol.html ac89538d15ed356f8075",
+   "first/zh/research.html ba5da5cc17187e553da0",
+   "first/zh/results.html 4c4672a391517693a4c0",
+   "first/zh/review.html af056ce01806867cdc62",
    "index.html d629a5a12f899b4b0b30",
    "public-evidence/provenance/input-profile.json 347d22901beb8fff3595",
    "report-manifest.json 39bf24b388b051738582",
-   "second/app.js 8f28da9eb683daa936dd",
+   "second/app.js 39c837e57fe1954b7886",
    "second/data/completion-metrics.json c8e2b3094cc80c003df7",
    "second/data/metrics.json 45138b1e45f5db1eacb7",
-   "second/en/index.html debc0843103938ae4f99",
+   "second/en/index.html ee56c8fd0482f9c12f6f",
    "second/index.html 8c552e5fcf95c660e7ac",
    "second/public-evidence/firecrawl-json.json 53fb58827553a253455d",
    "second/public-evidence/provenance/input-profile.json 9c1962f22022a9b1ee54",
@@ -624,25 +624,25 @@
    "second/report-manifest.json 21a9944ee9856d064cf3",
    "second/style.css 7b6049d240fd9b08e4f1",
    "second/webstone-version.json 561aadb67df5738a512b",
-   "second/zh/accounts.html 3bc0bc56ce58088ac62d",
-   "second/zh/c-3fc4ccfe745870e2c0d99f71.html d82c21dec0579ba2bfdc",
-   "second/zh/c-7692c3ad3540bb803c020b3a.html e8e5e6f120421314be55",
-   "second/zh/c-8b5b9db0c13db24256c829aa.html e6dcd1e1a1428da47582",
-   "second/zh/candidates.html d788c33a5cd00dd87402",
-   "second/zh/d-3fc4ccfe745870e2c0d99f71.html e5ffd0bce2301b2fd9de",
-   "second/zh/d-7692c3ad3540bb803c020b3a.html cc67a86844fb53afa56e",
-   "second/zh/d-8b5b9db0c13db24256c829aa.html 01157a1c779df0496d7f",
-   "second/zh/dataset.html 31e989a6ede2fb3ef871",
-   "second/zh/index.html 0c5c6c2048f25e5df5d4",
-   "second/zh/interpretation.html 5cfe83f4caecec6963ba",
-   "second/zh/protocol.html a21dd903339bbb8055bf",
-   "second/zh/research.html cb93dfb79846fb122f46",
-   "second/zh/results.html eb1535bbb44b3e182aa4",
-   "second/zh/review.html 07b43336da547d5aa37b",
+   "second/zh/accounts.html c6ccea46699a9dbe0474",
+   "second/zh/c-3fc4ccfe745870e2c0d99f71.html 5ba391f72b28f5d81b14",
+   "second/zh/c-7692c3ad3540bb803c020b3a.html 3d9ef3248ba8d9e4f9ed",
+   "second/zh/c-8b5b9db0c13db24256c829aa.html 77678e3c38ca427fc2c0",
+   "second/zh/candidates.html 87d21c8a51f834072f5a",
+   "second/zh/d-3fc4ccfe745870e2c0d99f71.html ecba42574e24e9650711",
+   "second/zh/d-7692c3ad3540bb803c020b3a.html 22cdf733aad0b3ada672",
+   "second/zh/d-8b5b9db0c13db24256c829aa.html 0587d96f9c40008080b2",
+   "second/zh/dataset.html b49fcdd283d78412c9e7",
+   "second/zh/index.html 17148004500a09fb593a",
+   "second/zh/interpretation.html e0cfae545d4a6ab67465",
+   "second/zh/protocol.html 4adf414e8fea5bd6f927",
+   "second/zh/research.html 1f18cd6fd2243af1266f",
+   "second/zh/results.html 7cdc391db845ad42cea4",
+   "second/zh/review.html 0548a4a4410573b8e5bb",
    "style.css 7b6049d240fd9b08e4f1",
    "suite.json 9edc33c4853be34d8bf6",
    "webstone-version.json 561aadb67df5738a512b",
-   "zh/index.html 603d8f87fe6b6180418c"
+   "zh/index.html f7e7bb776f5a302e2211"
   ]
  },
  "scored": {

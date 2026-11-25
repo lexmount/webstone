@@ -32,7 +32,7 @@ def test_report_branding_preserves_original_product_names_and_links():
     body = f'<p>Bright Data Web Scraper API</p><a href="{source}">Official API</a>'
     rendered = BeautifulSoup(page("en", "index", "Web Extract", body), "html.parser")
     assert rendered.select_one("header .eyebrow").get_text() == (
-        "WEB EXTRACT / STRUCTURED EXTRACTION"
+        "Web Extract · Structured field extraction"
     )
     assert rendered.select_one("footer").get_text().startswith("Web Extract · ")
     assert rendered.select_one("main p").get_text() == "Bright Data Web Scraper API"

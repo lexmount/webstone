@@ -308,8 +308,10 @@ def page(
     other_route = route if not detail else "results"
     if other not in languages:
         other_route = "index"
-    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css"></head><body><header><div class="eyebrow">WEB EXTRACT / STRUCTURED EXTRACTION</div><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p><div class="report-toolbar"><nav>{part5}</nav><div class="report-tools"><a href="../{part6}/{part7}.html">{part8}</a><button id="theme">{part9}</button></div></div></header><main data-page-role="{role}">{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
+    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css"></head><body><header><div class="eyebrow">{eyebrow}</div><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p><div class="report-toolbar"><nav>{part5}</nav><div class="report-tools"><a href="../{part6}/{part7}.html">{part8}</a><button id="theme" type="button" aria-pressed="false" aria-label="{theme_label}">{part9}</button></div></div></header><main data-page-role="{role}">{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
         part0=language,
+        eyebrow=message("report_eyebrow", language),
+        theme_label=message("theme_toggle_dark", language),
         part1=esc(title),
         part2=esc(title),
         part3=state,
@@ -1490,12 +1492,13 @@ def check_completion_metrics(output, manifest, rows):
             actual_rows = table_view.select("tbody tr")
             if len(actual_rows) != len(methods):
                 raise ValueError("Completion comparison population differs")
-            for method, actual, wanted in zip(
-                methods, actual_rows, expected.select("tbody tr"), strict=True
-            ):
-                if actual.get("data-method") != method or actual.select(
-                    "td[data-completion-metric]"
-                ) != wanted.select("td"):
+            # Rows may follow a ranked order; each still carries its own method's values.
+            wanted_rows = dict(zip(methods, expected.select("tbody tr"), strict=True))
+            if sorted(row.get("data-method") or "" for row in actual_rows) != sorted(methods):
+                raise ValueError("Completion metric comparison is missing or inconsistent")
+            for actual in actual_rows:
+                wanted = wanted_rows[actual["data-method"]]
+                if actual.select("td[data-completion-metric]") != wanted.select("td"):
                     raise ValueError("Completion metric comparison is missing or inconsistent")
 
 
@@ -4058,11 +4061,30 @@ def check_template_pages(output, manifest):
 
 
 def check_page_titles(output, manifest):
-    """Titles name the page or case for readers, never a content hash or route file stem."""
+    """Titles name the page or case for readers, never a content hash or route file stem.
+
+    Ranked comparisons on the same pages keep their declared primary-metric order, and the
+    header speaks the page language with a theme toggle that exposes its state.
+    """
     for name in manifest["files"]:
         if not name.endswith(".html") or name.split("/")[0] not in manifest["languages"]:
             continue
         document = BeautifulSoup((output / name).read_text(encoding="utf-8"), "html.parser")
+        check_ranked_comparisons(document)
+        language = name.split("/")[0]
+        eyebrow = document.select_one("header .eyebrow")
+        toggles = document.select("#theme")
+        if (
+            (eyebrow is not None and eyebrow.get_text() != message("report_eyebrow", language))
+            or len(toggles) > 1
+            or any(
+                toggle.get("type") != "button"
+                or toggle.get("aria-pressed") != "false"
+                or toggle.get("aria-label") != message("theme_toggle_dark", language)
+                for toggle in toggles
+            )
+        ):
+            raise ValueError("Report header must be localized with an accessible theme toggle")
         for node in (document.title, document.h1):
             if node is None:
                 continue
@@ -4955,10 +4977,36 @@ def record_result_href(method, case_id):
     return record_route("c", case_id) + ".html#" + method
 
 
-def record_comparison(headers, rows, metrics, *, sort_values=None, pin_method=False):
+def ranked(methods, values, labels):
+    """Order a comparison by its primary metric: highest first, unavailable last, ties by name."""
+    return sorted(
+        methods,
+        key=lambda m: (values[m] is None, -round(values[m] or 0, 12), labels.get(m, m)),
+    )
+
+
+def check_ranked_comparisons(document):
+    """A table declaring a primary metric lists methods from best to worst, ties by name."""
+    for view in document.select("table[data-rank-column]"):
+        column = int(view["data-rank-column"])
+        keys = []
+        for row in view.select("tbody tr"):
+            cells = row.select("td")
+            value = cells[column].get("data-sort")
+            name = cells[0].select_one("[data-method-label]") or cells[0]
+            keys.append((value is None, -round(float(value or 0), 12), name.get_text(strip=True)))
+        if keys != sorted(keys):
+            raise ValueError("Comparison rows are not ordered by their primary metric")
+
+
+def record_comparison(headers, rows, metrics, *, sort_values=None, pin_method=False,
+                      rank_column=None):
     """Use the common table owner and raw-value extrema checks for each metric."""
+    attrs = "data-sortable"
+    if rank_column is not None:
+        attrs += f' data-rank-column="{rank_column}"'
     soup = BeautifulSoup(
-        table(headers, rows, attrs="data-sortable", sort_values=sort_values, pin_method=pin_method),
+        table(headers, rows, attrs=attrs, sort_values=sort_values, pin_method=pin_method),
         "html.parser",
     )
     for column, (name, direction, values) in metrics.items():
@@ -5387,6 +5435,7 @@ def _record_pages(evidence, language, writer):
             )
         return label
 
+    order = ranked(methods, {m: score(m, "page_hit_macro", "f1") for m in methods}, labels)
     core_rows = [
         [
             method_cell(m),
@@ -5397,26 +5446,27 @@ def _record_pages(evidence, language, writer):
             metric(score(m, "exact_field_sets", "rate"), True),
             route_link("interpretation#" + m, t("interpretation")),
         ]
-        for m in methods
+        for m in order
     ]
     # Fragment links need the fragment after the filename.
-    for m, row in zip(methods, core_rows, strict=True):
+    for m, row in zip(order, core_rows, strict=True):
         row[-1] = '<a href="interpretation.html#' + esc(m) + '">' + t("interpretation") + "</a>"
     core = record_comparison(
         headers,
         core_rows,
         {
-            3: ("macro-f1", "max", [score(m, "page_hit_macro", "f1") for m in methods]),
-            4: ("micro-f1", "max", [score(m, "value_micro", "f1") for m in methods]),
-            5: ("exact-rate", "max", [score(m, "exact_field_sets", "rate") for m in methods]),
+            3: ("macro-f1", "max", [score(m, "page_hit_macro", "f1") for m in order]),
+            4: ("micro-f1", "max", [score(m, "value_micro", "f1") for m in order]),
+            5: ("exact-rate", "max", [score(m, "exact_field_sets", "rate") for m in order]),
         },
         sort_values={
-            1: [stats[m]["executed"] for m in methods],
-            2: [stats[m]["structured"] for m in methods],
+            1: [stats[m]["executed"] for m in order],
+            2: [stats[m]["structured"] for m in order],
         },
         pin_method=True,
+        rank_column=3,
     )
-    core = with_completion_columns(core, completion, methods, language, before_details=True)
+    core = with_completion_columns(core, completion, order, language, before_details=True)
     operations = operating_metrics(
         methods,
         [row for m in methods for row in data["methods"][m]["results"].values()],
@@ -6220,7 +6270,17 @@ def _check_record_cohort(output, *, release=False, visual_receipt=None):
         rendered = soup.select(selector + " tbody tr")
         if len(rendered) != len(metrics):
             raise ValueError("Record core comparison participant count differs")
-        for method, row in zip(manifest["planned_methods"], rendered, strict=True):
+        order = ranked(
+            manifest["planned_methods"],
+            {
+                m: metrics[m]["scores"]["page_hit_macro"]["f1"]
+                if m in manifest["comparison_methods"] and metrics[m]["scores"]
+                else None
+                for m in manifest["planned_methods"]
+            },
+            manifest["method_labels"],
+        )
+        for method, row in zip(order, rendered, strict=True):
             cells = row.select("td")
             current = metrics[method]
             scores = current["scores"] if method in manifest["comparison_methods"] else None

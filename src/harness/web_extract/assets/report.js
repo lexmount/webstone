@@ -1,5 +1,7 @@
 
 const REPORT_MESSAGES = __REPORT_MESSAGES__;
+// The reported product fields in report order, shipped from the benchmark declaration.
+const REPORT_FIELDS = __REPORT_FIELDS__;
 const tr = (key, values = {}) => {
   const language = document.documentElement.lang.startsWith("en") ? "en" : "zh";
   if (!(key in REPORT_MESSAGES[language]))
@@ -15,8 +17,13 @@ try {
     localStorage.getItem("extract-theme") === "dark",
   );
 } catch {}
-document.querySelector("#theme")?.addEventListener("click", () => {
+const themeToggle = document.querySelector("#theme");
+const showTheme = () => themeToggle?.setAttribute(
+  "aria-pressed", String(document.documentElement.classList.contains("dark")));
+showTheme();
+themeToggle?.addEventListener("click", () => {
   document.documentElement.classList.toggle("dark");
+  showTheme();
   try {
     localStorage.setItem(
       "extract-theme",
@@ -43,12 +50,9 @@ async function evidence(src, key) {
   const value = await evidenceCache.get(url);
   return key ? value[key] : value;
 }
-const fieldNames = {
-  price: tr("field_labels_price"),
-  sku: tr("field_labels_sku"),
-  availability: tr("field_labels_availability"),
-  OutOfStock: tr("field_labels_OutOfStock"),
-};
+const fieldNames = Object.fromEntries(
+  REPORT_FIELDS.map((key) => [key, tr("field_labels_" + key)]),
+);
 const outcomeNames = {
   correct: tr("outcomes_correct"),
   missing: tr("outcomes_missing"),
@@ -142,13 +146,13 @@ function diagnosisContent(container, row, field, technical = false, caseLabel = 
   const facts = document.createElement("dl");
   facts.className = "diagnosis-grid";
   const diagnosis = row.diagnosis || {};
-  const diagnosisFields = ["price", "sku", "availability", "OutOfStock"];
+  const diagnosisFields = REPORT_FIELDS;
   const selectedField =
     field ||
     diagnosisFields.find(
       (key) => row.field_results?.[key] && row.field_results[key].status !== "correct",
     ) ||
-    "price";
+    diagnosisFields[0];
   const resultFinding = row.review?.reviewer_fields?.[selectedField];
   const add = (label, value) => {
     facts.append(node("dt", label), node("dd", value || "—"));
@@ -207,7 +211,7 @@ function diagnosisContent(container, row, field, technical = false, caseLabel = 
     details.append(
       node("summary", tr("source_evidence_and_audited_reference")),
     );
-    for (const key of ["price", "sku", "availability"]) {
+    for (const key of diagnosisFields) {
       const finding = row.review.source_field_review?.[key];
       const assessed = row.review.audited_fields?.[key];
       if (!finding || !assessed) continue;

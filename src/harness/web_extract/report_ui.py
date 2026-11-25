@@ -54,7 +54,7 @@ CLIENT_MESSAGE_KEYS = (
     "structured_fields_returned_inspect_field_differences",
     "treatment",
 )
-JS = JS.replace(
+JS = JS.replace("__REPORT_FIELDS__", json.dumps(list(REPORTED))).replace(
     "__REPORT_MESSAGES__",
     json.dumps(
         {

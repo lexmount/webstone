@@ -153,8 +153,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "指标 | 衡量什么 | 单位 | 统计范围 | 怎样比较",
@@ -186,8 +186,8 @@
     "tables": [
      [
       "方法 | 已执行 / 计划页数 | 返回字段页数 | 页面命中宏平均 F1 | 值级微平均 F1 | 字段集合完全一致率 | 整页全对率 | 空值处理正确率 | 完整结果",
-      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
-      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
+      "firecrawl-json | 1 / 3 | 1 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读",
+      "scrapegraph-extract | 3 / 3 | 2 | — | — | — | 尚未完成完整批次认证 | 尚未完成完整批次认证 | 结果解读"
      ],
      [
       "机器诊断 | 页数",
@@ -265,10 +265,10 @@
    }
   },
   "routes": [
-   "app.js 8f28da9eb683daa936dd",
+   "app.js 39c837e57fe1954b7886",
    "data/completion-metrics.json c8e2b3094cc80c003df7",
    "data/metrics.json 45138b1e45f5db1eacb7",
-   "en/index.html 0e651d4ae11591aad043",
+   "en/index.html 004bca1e880d0c57749c",
    "index.html 6d68578e80574cadb375",
    "public-evidence/firecrawl-json.json 99b390eb5546e90cd2b3",
    "public-evidence/provenance/input-profile.json e1d55e4e1e399b01499b",
@@ -278,21 +278,21 @@
    "report-manifest.json 591dd64e47f89236118c",
    "style.css 7b6049d240fd9b08e4f1",
    "webstone-version.json 561aadb67df5738a512b",
-   "zh/accounts.html 0bcdaeaf0fa8a3492ff3",
-   "zh/c-3fc4ccfe745870e2c0d99f71.html 12fe7cb9f66a3d1d6dc6",
-   "zh/c-7692c3ad3540bb803c020b3a.html 2333094a002d3b4f3b6a",
-   "zh/c-8b5b9db0c13db24256c829aa.html afb690dff07bb62e641d",
-   "zh/candidates.html 80534cde3a968967a0ca",
-   "zh/d-3fc4ccfe745870e2c0d99f71.html 847e84a776f8bd34a73c",
-   "zh/d-7692c3ad3540bb803c020b3a.html 9cb53b9cd4b0d292143a",
-   "zh/d-8b5b9db0c13db24256c829aa.html 9246f331e54e91f48630",
-   "zh/dataset.html 85ecf2a61b25e7bb470e",
-   "zh/index.html 3436227ba20b10bd47dd",
-   "zh/interpretation.html 49c84a47668ea7ab4e8d",
-   "zh/protocol.html e4ccc93cda72aa7dacc5",
-   "zh/research.html b296872209a0c96d9932",
-   "zh/results.html 850e5317bf92067f2240",
-   "zh/review.html 417e842cc90739e4a322"
+   "zh/accounts.html 73bf20b90a96441b2d2d",
+   "zh/c-3fc4ccfe745870e2c0d99f71.html 5496f989329d1ae30f92",
+   "zh/c-7692c3ad3540bb803c020b3a.html a073fdba6e588e64344c",
+   "zh/c-8b5b9db0c13db24256c829aa.html 7dfc597b598232cc862c",
+   "zh/candidates.html a44914566c3e8274d8c3",
+   "zh/d-3fc4ccfe745870e2c0d99f71.html 1ec98577ca504a6b47d0",
+   "zh/d-7692c3ad3540bb803c020b3a.html 4330b49b22f70f40ea57",
+   "zh/d-8b5b9db0c13db24256c829aa.html 07609ec1354bf03ddfe4",
+   "zh/dataset.html 9a918a1b982fb77c6d7d",
+   "zh/index.html 96a39bece04bf99ef7c6",
+   "zh/interpretation.html 4bf695fd9007ac1d0ead",
+   "zh/protocol.html b4ff081a99b668f25116",
+   "zh/research.html 65d9563a1ed5f9c61322",
+   "zh/results.html 0cc9a3309248e9ec1423",
+   "zh/review.html 88e55cf577caf6c773ae"
   ]
  },
  "scored": {
