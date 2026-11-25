@@ -66,11 +66,13 @@ _INTERFACE = "main h1, main h2, main h3, main h4, th, summary, button, label, ca
 
 def _interface_text(string) -> bool:
     """Whether a text node is report-authored Chinese interface text rather than kept wording."""
+    if type(string) is not NavigableString:
+        return False  # comments and other nodes a reader never sees
     declared = string.find_parent(attrs={"lang": True})
     return not ((declared is not None and not declared["lang"].lower().startswith("zh"))
                 or string.find_parent(attrs={"data-verbatim": True}) is not None
                 or string.find_parent(attrs={"translate": "no"}) is not None
-                or string.find_parent(["pre", "code", "template"]) is not None)
+                or string.find_parent(["pre", "code", "template", "script", "style"]) is not None)
 
 
 def check_interface_language(html) -> None:

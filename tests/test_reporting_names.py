@@ -48,7 +48,8 @@ def test_chinese_pages_name_their_interface_in_chinese():
     check_interface_language(page('<button translate="no">Next</button>'))
     check_interface_language(page('<h2><span lang="en">Results</span></h2>'))
     check_interface_language(page('<h2><span translate="no">Results</span> 汇总</h2>'))
-    for chrome in ("<th>Mean</th>", "<h1>GPT · Task #44</h1>", "<option>Passed</option>", "<button>Back</button>"):
+    check_interface_language(page("<h1>Chromium<!-- Status --></h1>"))
+    for chrome in ("<h1>Results<!-- 中文 --></h1>", "<th>Mean</th>", "<h1>GPT · Task #44</h1>", "<option>Passed</option>", "<button>Back</button>"):
         with pytest.raises(ValueError, match="Untranslated interface"):
             check_interface_language(page(chrome))
 
