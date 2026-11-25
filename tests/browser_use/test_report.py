@@ -34,6 +34,7 @@ from harness.browser_use.report_i18n import localize_html, write_english_report
 from harness.browser_use.selection import load_pilot
 from harness.environments.webarena.topology import RECORDING_GATEWAYS
 from harness.record_io import optional_file_sha256
+from harness.reporting.presentation import visible_text
 
 GW = RECORDING_GATEWAYS[0]
 CURRENT = Participants(
@@ -830,6 +831,39 @@ def test_reader_facing_ux_rejects_unexplained_internal_terms(tmp_path: Path) -> 
         }
         with pytest.raises(ValueError, match="unexplained internal term"):
             _check_reader_facing_ux(tmp_path, pages)
+
+
+def test_reader_facing_ux_rejects_escaped_bilingual_markup(tmp_path: Path) -> None:
+    pages = {
+        tmp_path / "index.html": (
+            '<table id="home-core-metrics"><th><span data-report-en="Pass">通过</span></th></table>'
+        ),
+        tmp_path / "en/index.html": '<table id="home-core-metrics"></table>',
+    }
+    _check_reader_facing_ux(tmp_path, pages)
+
+    pages[tmp_path / "index.html"] = (
+        '<table id="home-core-metrics"><th>'
+        '&lt;span data-report-en="Pass"&gt;通过&lt;/span&gt;</th></table>'
+    )
+    with pytest.raises(ValueError, match="escaped interface markup"):
+        _check_reader_facing_ux(tmp_path, pages)
+
+
+def test_failed_result_without_failed_rules_shows_the_evaluation_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output, _, _ = build_browser_use_fixture(tmp_path, monkeypatch, "en", failed=True)
+
+    page = (output / "results/gpt-5.6-sol-moli-44.html").read_text(encoding="utf-8")
+    diagnosis = page.split('id="diagnosis"', 1)[1].split("</section>", 1)[0]
+    assert "Fixture expected mutation missing" in diagnosis
+    assert "均通过" not in diagnosis
+    english = (output / "en/results/gpt-5.6-sol-moli-44.html").read_text(encoding="utf-8")
+    assert "passed" not in english.split('id="diagnosis"', 1)[1].split("</section>", 1)[0]
+    assert "Fixture expected mutation missing" in english
+    for home in (output / "index.html", output / "en/index.html"):
+        assert "data-report-en=" not in visible_text(home.read_text(encoding="utf-8"))
 
 
 def test_result_verification_is_readable_and_does_not_duplicate_raw_panels() -> None:

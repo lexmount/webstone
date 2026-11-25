@@ -760,6 +760,9 @@
     "mean(grade), 0–3": "等级均值，范围 0–3",
     "correct / all queries": "正确题数 / 全部题数",
     "Original references use the shared URL normalization, without additional document-copy references. First-hit reciprocal rank is averaged over all queries.": "原始参考网址使用统一的网址规范化，不加入额外的同页副本；首个命中排名倒数按全部题目取平均。",
-    "Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.": "前五条命中原始参考网址的题目比例；使用统一的网址规范化，不加入额外的同页副本。"
+    "Query fraction with an original reference in the first five under the shared URL normalization, without additional document-copy references.": "前五条命中原始参考网址的题目比例；使用统一的网址规范化，不加入额外的同页副本。",
+    "Metrics for this call": "本次调用指标",
+    "Back to query comparison": "返回逐题对照",
+    "Failure diagnosis": "失败诊断"
   }
 }

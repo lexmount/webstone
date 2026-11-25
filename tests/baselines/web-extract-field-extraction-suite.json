@@ -87,8 +87,8 @@
      ],
      [
       "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
-      "title | Example | 未返回值 | 漏提取 | 否 | 否",
-      "author | AB | 未返回值 | 漏提取 | 否 | 否"
+      "title | Example | 未返回值 | 未返回 | 否 | 否",
+      "author | AB | 未返回值 | 未返回 | 否 | 否"
      ]
     ]
    },
@@ -352,8 +352,8 @@
      ],
      [
       "字段 | 原标注 | 接口提取值 | 机器诊断 | 页面命中 | 集合一致",
-      "title | Example | 未返回值 | 漏提取 | 否 | 否",
-      "author | AB | 未返回值 | 漏提取 | 否 | 否"
+      "title | Example | 未返回值 | 未返回 | 否 | 否",
+      "author | AB | 未返回值 | 未返回 | 否 | 否"
      ]
     ]
    },
@@ -578,9 +578,9 @@
    }
   },
   "routes": [
-   "app.js 675a47df17496c730267",
+   "app.js 8f28da9eb683daa936dd",
    "en/index.html 0e651d4ae11591aad043",
-   "first/app.js 675a47df17496c730267",
+   "first/app.js 8f28da9eb683daa936dd",
    "first/data/completion-metrics.json c8e2b3094cc80c003df7",
    "first/data/metrics.json 45138b1e45f5db1eacb7",
    "first/en/index.html c1ea141b8bf156c99d9f",
@@ -596,7 +596,7 @@
    "first/zh/accounts.html 582546a8182267a44891",
    "first/zh/c-3fc4ccfe745870e2c0d99f71.html 10460363eefd849f88c7",
    "first/zh/c-7692c3ad3540bb803c020b3a.html ee95f83e6fdee52c812a",
-   "first/zh/c-8b5b9db0c13db24256c829aa.html b0846ad63d9100cb514c",
+   "first/zh/c-8b5b9db0c13db24256c829aa.html 835d7d87eed91bc4342d",
    "first/zh/candidates.html a00a5488fe74fc90f7ca",
    "first/zh/d-3fc4ccfe745870e2c0d99f71.html 0f972f0fa02d567fa968",
    "first/zh/d-7692c3ad3540bb803c020b3a.html a75d628896709785f7e8",
@@ -611,7 +611,7 @@
    "index.html d629a5a12f899b4b0b30",
    "public-evidence/provenance/input-profile.json 347d22901beb8fff3595",
    "report-manifest.json 39bf24b388b051738582",
-   "second/app.js 675a47df17496c730267",
+   "second/app.js 8f28da9eb683daa936dd",
    "second/data/completion-metrics.json c8e2b3094cc80c003df7",
    "second/data/metrics.json 45138b1e45f5db1eacb7",
    "second/en/index.html debc0843103938ae4f99",
@@ -627,7 +627,7 @@
    "second/zh/accounts.html 3bc0bc56ce58088ac62d",
    "second/zh/c-3fc4ccfe745870e2c0d99f71.html d82c21dec0579ba2bfdc",
    "second/zh/c-7692c3ad3540bb803c020b3a.html e8e5e6f120421314be55",
-   "second/zh/c-8b5b9db0c13db24256c829aa.html f52233aa4812e2b9f181",
+   "second/zh/c-8b5b9db0c13db24256c829aa.html e6dcd1e1a1428da47582",
    "second/zh/candidates.html d788c33a5cd00dd87402",
    "second/zh/d-3fc4ccfe745870e2c0d99f71.html e5ffd0bce2301b2fd9de",
    "second/zh/d-7692c3ad3540bb803c020b3a.html cc67a86844fb53afa56e",

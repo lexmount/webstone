@@ -227,7 +227,7 @@ def test_delivered_detail_sections_open_the_original_file_before_scrolling(tmp_p
     source, destination = tmp_path / 'report', tmp_path / 'delivery'
     export(source, destination)
     manifest = json.loads((source / 'manifest.json').read_bytes())
-    row = manifest['rows'][0]
+    row = next(row for row in manifest['rows'] if row.get('error'))
     target = prefix + 'details/' + row['id'] + '.html#result-logs'
     with local_report_server(destination) as origin, sync_playwright() as engine:
         browser = engine.chromium.launch(executable_path=browser_executable(), headless=True)

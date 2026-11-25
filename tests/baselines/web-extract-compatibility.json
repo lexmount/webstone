@@ -11,7 +11,7 @@
    },
    "zh/accounts.html": {
     "headings": [
-     "h1: 合成示例 · accounts"
+     "h1: 合成示例 · 价格与接入"
     ],
     "tables": [
      [
@@ -23,12 +23,12 @@
    },
    "zh/candidates.html": {
     "headings": [
-     "h1: 合成示例 · candidates"
+     "h1: 合成示例 · 服务目录"
     ]
    },
    "zh/case-<sha256>.html": {
     "headings": [
-     "h1: 同题方法比较 · 333333333333",
+     "h1: 同题方法比较 · example.org/product/3",
      "h2: 返回结构化字段",
      "h2: 开发者记录：请求、响应与调用历史",
      "h2: 受阻",
@@ -37,7 +37,7 @@
     "tables": [
      [
       "方法 | 价格 | SKU | 库存 | 环节 | 秒",
-      "synthetic-blocked | null符合标注 | null漏提取 | null漏提取 | 客户端连接 | 1.00",
+      "synthetic-blocked | null未返回 | null未返回 | null未返回 | 客户端连接 | 1.00",
       "synthetic-success | null符合标注 | \"3\"符合标注 | null漏提取 | 字段匹配 | 1.00"
      ],
      [
@@ -49,16 +49,16 @@
      ],
      [
       "字段 | 参考值（可接受其一） | 输出 | 判定 | 命中 TP | 误报 FP | 漏报 FN",
-      "价格 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0",
-      "SKU | 3 | 未返回值 | 漏提取 | 0 | 0 | 1",
-      "库存 | InStock | 未返回值 | 漏提取 | 0 | 0 | 1",
-      "缺货识别 | 无参考值 | 未返回值 | 符合标注 | 0 | 0 | 0"
+      "价格 | 无参考值 | 未返回值 | 未返回 | 0 | 0 | 0",
+      "SKU | 3 | 未返回值 | 未返回 | 0 | 0 | 1",
+      "库存 | InStock | 未返回值 | 未返回 | 0 | 0 | 1",
+      "缺货识别 | 无参考值 | 未返回值 | 未返回 | 0 | 0 | 0"
      ]
     ]
    },
    "zh/dataset.html": {
     "headings": [
-     "h1: 合成示例 · dataset"
+     "h1: 合成示例 · 数据集"
     ],
     "tables": [
      [
@@ -71,7 +71,7 @@
    },
    "zh/index.html": {
     "headings": [
-     "h1: 合成示例 · index",
+     "h1: 合成示例 · 总览",
      "h2: 耗时与价格",
      "h2: 历史结果复现 · 3 页"
     ],
@@ -108,12 +108,12 @@
    },
    "zh/interpretation.html": {
     "headings": [
-     "h1: 合成示例 · interpretation"
+     "h1: 合成示例 · 结果解读"
     ]
    },
    "zh/protocol.html": {
     "headings": [
-     "h1: 合成示例 · protocol",
+     "h1: 合成示例 · 评测方法",
      "h2: 实际调用配置"
     ],
     "tables": [
@@ -126,12 +126,12 @@
    },
    "zh/research.html": {
     "headings": [
-     "h1: 合成示例 · research"
+     "h1: 合成示例 · 研究参考"
     ]
    },
    "zh/results.html": {
     "headings": [
-     "h1: 合成示例 · results",
+     "h1: 合成示例 · 评测结果",
      "h2: 字段与调用证据"
     ],
     "tables": [
@@ -140,26 +140,26 @@
       "synthetic-success | 111111111111 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
       "synthetic-success | 222222222222 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
       "synthetic-success | 333333333333 | 返回结构化字段 | 符合 | 符合 | 漏提 | 200 | 1.00 | 查看证据 · 完整结果",
-      "synthetic-blocked | 111111111111 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果",
-      "synthetic-blocked | 222222222222 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果",
-      "synthetic-blocked | 333333333333 | 受阻 | 符合 | 漏提 | 漏提 | — | 1.00 | 查看证据 · 完整结果"
+      "synthetic-blocked | 111111111111 | 受阻 | 未返回 | 未返回 | 未返回 | — | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 222222222222 | 受阻 | 未返回 | 未返回 | 未返回 | — | 1.00 | 查看证据 · 完整结果",
+      "synthetic-blocked | 333333333333 | 受阻 | 未返回 | 未返回 | 未返回 | — | 1.00 | 查看证据 · 完整结果"
      ]
     ]
    },
    "zh/review.html": {
     "headings": [
-     "h1: 合成示例 · review"
+     "h1: 合成示例 · 标注与复核"
     ]
    },
    "zh/source-<sha256>.html": {
     "headings": [
-     "h1: 页面与标注 · 333333333333",
+     "h1: 页面与标注 · example.org/product/3",
      "h2: 冻结 HTML 的文本与结构化数据"
     ]
    }
   },
   "routes": [
-   "app.js 675a47df17496c730267",
+   "app.js 8f28da9eb683daa936dd",
    "en/index.html 0e651d4ae11591aad043",
    "index.html 4df7b9d217d9cb156d68",
    "public-evidence/provenance/input-profile.json 85a23f5230a4318d2a73",
@@ -172,21 +172,21 @@
    "report-manifest.json b64f62d7e641e7a92185",
    "style.css 7b6049d240fd9b08e4f1",
    "webstone-version.json 561aadb67df5738a512b",
-   "zh/accounts.html cad9d1f8ea42351a9f33",
-   "zh/candidates.html a1eb27410157f13883cc",
-   "zh/case-<sha256>.html 6a4f52d93f34c29c68ac",
-   "zh/case-<sha256>.html 77a3a8e15750bcec64df",
-   "zh/case-<sha256>.html b3a7458a9bc325b432c6",
-   "zh/dataset.html ca29903da57491488bd1",
-   "zh/index.html 1576290c415d34f4456a",
-   "zh/interpretation.html 99104b1904366c6b11d6",
-   "zh/protocol.html d21ace9fe7adf34dda4b",
-   "zh/research.html 2b242d83915bb241385a",
-   "zh/results.html e7795cf121f4e422d87e",
-   "zh/review.html f941b67232349cea620e",
-   "zh/source-<sha256>.html 1141599b091b6cdf8877",
-   "zh/source-<sha256>.html 498bd8121d5662cbea2e",
-   "zh/source-<sha256>.html d6122005a9f85450f7be"
+   "zh/accounts.html 3aa66f32c1d9a81663a3",
+   "zh/candidates.html 967ad96788c22c54c22e",
+   "zh/case-<sha256>.html 087e3090a42a9fec90d9",
+   "zh/case-<sha256>.html 5a1a9e9af268c3aeabfc",
+   "zh/case-<sha256>.html 9a0f5101a9a52e25f0bb",
+   "zh/dataset.html e1b4985a3e945b23dc43",
+   "zh/index.html a1162e8582b8e85776d8",
+   "zh/interpretation.html bb387e2c81365d80fac4",
+   "zh/protocol.html fb1e77547d6937f68f61",
+   "zh/research.html c59043d949397252b27f",
+   "zh/results.html 96f102d4c771a0083a36",
+   "zh/review.html 86e58ab1aaafe45022b1",
+   "zh/source-<sha256>.html 354d647659016e7ff541",
+   "zh/source-<sha256>.html 4a7beb60716145ed74fe",
+   "zh/source-<sha256>.html f97587f8f2f8c3346075"
   ]
  },
  "scored": {

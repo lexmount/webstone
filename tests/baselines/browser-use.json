@@ -347,7 +347,7 @@
       "Cause scope | Failed results | Treatment in this run | Fix and verification"
      ],
      [
-      "Model | Browser | <span data-report-en=\"Passes across 90 tasks\">Passes on 90 tasks</span> | Pass rate",
+      "Model | Browser | Passes on 90 tasks | Pass rate",
       "GPT-5.6 Sol | Chromium | 1/1 | 100.0%",
       "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0%"
      ],
@@ -615,7 +615,7 @@
       "原因范围 | 失败结果数 | 本轮处理 | 修复与验证"
      ],
      [
-      "模型 | 浏览器 | <span data-report-en=\"Passes across 90 tasks\">90 题通过</span> | 通过率",
+      "模型 | 浏览器 | 90 题通过 | 通过率",
       "GPT-5.6 Sol | Chromium | 1/1 | 100.0%",
       "GPT-5.6 Sol | Moli 1.1.3 | 0/1 | 0.0%"
      ],
@@ -731,7 +731,7 @@
     "headings": [
      "h1: GPT-5.6 Sol · Chromium · Task #44",
      "h2: 结果",
-     "h3: 全部官方 evaluator 均通过。",
+     "h3: 全部官方评测规则均通过。",
      "h2: 任务要求与验收结果",
      "h2: CowAgent 自主执行轨迹",
      "h2: 运行、日志与证据",
@@ -812,7 +812,7 @@
    ".generated-report ca28b9c931018355bd27",
    "accounts/index.html 05098ee12948bd20474a",
    "adoption/index.html 7a91af513eac3be4b0c8",
-   "analysis/index.html 35e288d6a7945fb1bf28",
+   "analysis/index.html 440685901ff8ff08c2a5",
    "artifacts/gpt-5.6-sol-chromium-44/executions/1/execution-evidence.json 5a6f516fd3ba28c88129",
    "artifacts/gpt-5.6-sol-chromium-44/executions/2/execution-evidence.json 32e91a564fae49a3800e",
    "artifacts/gpt-5.6-sol-moli-44/executions/1/execution-evidence.json 04cb0ffb404315f48bbf",
@@ -923,7 +923,7 @@
    "datasets/index.html 5b93a33a3ba816e7dafb",
    "en/accounts/index.html cf9ed7c2db4577623b04",
    "en/adoption/index.html ced5a80e9704a05a1a5d",
-   "en/analysis/index.html 6166becea164b0c9ba0d",
+   "en/analysis/index.html 38b517c3fae3b111f1c1",
    "en/changes/index.html e7c5eaf796c3471719bf",
    "en/datasets/108.html fd5f257e32f6e99e81fe",
    "en/datasets/110.html feaf89e06bf48cbdde89",
@@ -1020,24 +1020,24 @@
    "en/engines/moli.html 41aa87d37f01d6b25b7a",
    "en/evidence-viewer.html d100e3745755d219b3c6",
    "en/fixes/index.html 0f19a6ceb0deb40a6d0c",
-   "en/index.html 632c74c2266af56adb66",
+   "en/index.html 7517c3c5eb0b5328250d",
    "en/methodology/index.html ea12f57e3aa43ec95ce9",
    "en/reproduce/index.html 397c25838e86e1f4b60c",
    "en/results/gpt-5.6-sol-chromium-44.html c8522d0d870743356e7b",
-   "en/results/gpt-5.6-sol-moli-44.html 473f096e58a988d2201a",
+   "en/results/gpt-5.6-sol-moli-44.html efb20a946ffedfe91ded",
    "en/review/index.html ff4995b79ccfa9c0498f",
    "engines/chromium.html 03b60e900952159d1ea1",
    "engines/moli.html 72e8f113e15d7066742f",
    "evidence-viewer.html fbc1aaa575044b07b18a",
    "fixes/index.html 31c90c29286bbbd17671",
-   "index.html adc26803a8c801fbe251",
+   "index.html d73a02430eeb6d92a680",
    "methodology/index.html ed4d36e20208f877e720",
    "report-changes.json ca3d163bab0553818272",
    "report-data.json ad3771be435b22624c9a",
    "report-languages.json 157feaf364b79467aabe",
    "reproduce/index.html c4faee507d98ceb2767c",
-   "results/gpt-5.6-sol-chromium-44.html e448706cc161d75b5dab",
-   "results/gpt-5.6-sol-moli-44.html e6ed5c2629051ba343ca",
+   "results/gpt-5.6-sol-chromium-44.html c4279fb590e500134dfa",
+   "results/gpt-5.6-sol-moli-44.html b55d9c418e49acc81bbe",
    "review/index.html 53ea182bdbdacbcca3c4",
    "webstone-version.json 561aadb67df5738a512b"
   ]

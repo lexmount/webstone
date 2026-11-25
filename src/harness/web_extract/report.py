@@ -99,7 +99,19 @@ OUTCOMES = {
     "missing": (message("outcomes_missing", "zh"), message("outcomes_missing", "en")),
     "unexpected": (message("outcomes_unexpected", "zh"), message("outcomes_unexpected", "en")),
     "wrong": (message("outcomes_wrong", "zh"), message("outcomes_wrong", "en")),
+    "not_returned": (message("outcomes_not_returned", "zh"), message("outcomes_not_returned", "en")),
 }
+
+
+def shown_outcome(row, status):
+    """A call that returned no structured output has nothing to match, whatever the reference."""
+    return status if row.get("compatibility") == "structured_output" else "not_returned"
+
+
+def case_label(truth_case, case_id):
+    """Readers identify a case by its page address, not by its content hash."""
+    url = urlsplit(truth_case.get("url", ""))
+    return (url.netloc + url.path.rstrip("/")) or case_id[:12]
 FIELD_LABELS = {
     field: (message(label_key("field_labels", field), "zh"), message(label_key("field_labels", field), "en"))
     for field in REPORTED
@@ -164,6 +176,15 @@ EXTRA_LABELS = {
         "en": message("extra_labels_interpretation", "en"),
     },
 }
+
+
+def page_label(route, language):
+    """The reader-facing name of one report page."""
+    if route in EXTRA_LABELS:
+        return EXTRA_LABELS[route][language]
+    return LABELS[language][PAGES.index(route)]
+
+
 # An authored page intro fills exactly one template slot of its page.
 INTRO_SELECTOR = "main > [data-slot] > [data-page-intro]"
 ASSETS = Path(__file__).with_name("assets")
@@ -2073,15 +2094,19 @@ def field_table(row, lang):
         "missing": message("diagnostic_outcomes_missing", "zh"),
         "unexpected": message("diagnostic_outcomes_unexpected", "zh"),
         "wrong": message("diagnostic_outcomes_wrong", "zh"),
+        "not_returned": message("outcomes_not_returned", "zh"),
     }
     records = []
     for field, value in row["field_results"].items():
+        outcome = shown_outcome(row, value["status"])
         records.append(
             [
                 labels[field] if lang == "zh" else field,
                 displayed_values(value["expected"], lang, reference=True),
                 displayed_values(value["actual"], lang),
-                outcomes[value["status"]] if lang == "zh" else value["status"],
+                outcomes[outcome] if lang == "zh"
+                else message("outcomes_not_returned", lang) if outcome == "not_returned"
+                else outcome,
                 str(value["tp"]),
                 str(value["fp"]),
                 str(value["fn"]),
@@ -3443,8 +3468,8 @@ def _product_pages(evidence, lang, write):
         p: model["pages"]
         .get(p, {})
         .get("title", {})
-        .get(lang, EXTRA_LABELS[p][lang] if p in EXTRA_LABELS else lab[i])
-        for i, p in enumerate(PAGES)
+        .get(lang, page_label(p, lang))
+        for p in PAGES
     }
     bodies["protocol"] += execution_settings(configurations, methods, names, lang)
     summary = []
@@ -3665,7 +3690,7 @@ def _product_pages(evidence, lang, write):
             + esc(outline)
             + "</pre></article>"
         )
-        write(lang, "dataset", (message("source_and_annotations", lang)) + cid[:12], source_body,
+        write(lang, "dataset", message("source_and_annotations", lang) + case_label(gt, cid), source_body,
               detail_file="source-" + cid)
         compared = []
         case_rows = []
@@ -3677,13 +3702,14 @@ def _product_pages(evidence, lang, write):
             cells = [f'<a href="case-{cid}.html#{method}">{esc(names.get(method, method))}</a>']
             for field in fields:
                 result = row["field_results"][field]
+                outcome = shown_outcome(row, result["status"])
                 cells.append(
                     '<span class="field-'
-                    + result["status"]
+                    + outcome
                     + '">'
                     + esc(json.dumps(result["actual"], ensure_ascii=False))
                     + "</span><br><small>"
-                    + OUTCOMES[result["status"]][0 if lang == "zh" else 1]
+                    + OUTCOMES[outcome][0 if lang == "zh" else 1]
                     + "</small>"
                 )
             cells.extend(
@@ -3749,7 +3775,8 @@ def _product_pages(evidence, lang, write):
         )
         evidence = "../public-evidence/" + (r["method"] if cohort else key) + ".json"
         evidence_key = f' data-key="{cid}"' if cohort else ""
-        detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p><code>{cid}</code></p></div>'
+        label_attr = f' data-case-label="{esc(case_label(truth[cid], cid), quote=True)}"'
+        detail = f'<article data-report-detail="{"passed" if ok else "failed"}"><div data-result-summary><h2>{status}</h2><p>{esc(names.get(r["method"], r["method"]))}</p><p>{esc(case_label(truth[cid], cid))}</p></div>'
         detail += (
             f'<p class="case-links"><a href="case-{cid}.html">'
             + (message("compare_all_methods", lang))
@@ -3845,12 +3872,14 @@ def _product_pages(evidence, lang, write):
             "missing": message("compact_outcome_missing", "zh"),
             "unexpected": message("compact_outcome_unexpected", "zh"),
             "wrong": message("compact_outcome_wrong", "zh"),
+            "not_returned": message("outcomes_not_returned", "zh"),
         }
         for field in fields:
-            outcome = r["field_results"][field]["status"]
+            outcome = shown_outcome(r, r["field_results"][field]["status"])
             field_cells += (
-                f'<td><button class="field-button field-{outcome}" data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key} data-field="{field}">'
-                + (outcomes[outcome] if lang == "zh" else outcome)
+                f'<td><button class="field-button field-{outcome}" data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}{label_attr} data-field="{field}">'
+                + (outcomes[outcome] if lang == "zh" else OUTCOMES[outcome][1]
+                   if outcome == "not_returned" else outcome)
                 + "</button></td>"
             )
         data_fields = " ".join(
@@ -3860,12 +3889,13 @@ def _product_pages(evidence, lang, write):
         correct = all(v["status"] == "correct" for v in r["field_results"].values())
         search = cid + " " + truth[cid]["url"] + " " + error
         inventory.append(
-            f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}>{lab[9]}</button> · <a href="{url}">'
+            f'<tr data-case="{cid}" data-status="{"pass" if ok else "fail"}" data-method="{r["method"]}" data-stage="{r["failure_stage"]}" data-outcome="{"correct" if correct and ok else "wrong"}" data-search="{esc(search, quote=True)}" {data_fields}><td>{esc(names.get(r["method"], r["method"]))}</td><td><a href="{url}"><code>{cid[:12]}</code></a></td><td>{status}</td>{field_cells}<td>{r.get("http_status") or "—"}</td><td data-sort="{r.get("elapsed_seconds", "")}">{elapsed}</td><td><button data-call-log-open="diagnosis" data-src="{evidence}"{evidence_key}{label_attr}>{lab[9]}</button> · <a href="{url}">'
             + (message("full_result", lang))
             + "</a></td></tr>"
         )
     for cid, case_body in case_bodies.items():
-        write(lang, "results", message("same_case_comparison", lang) + cid[:12], case_body,
+        write(lang, "results", message("same_case_comparison", lang) + case_label(truth[cid], cid),
+              case_body,
               detail_file="case-" + cid)
     if cohort:
         observed = {(r["method"], r["case_id"]) for r in rows}
@@ -4027,9 +4057,43 @@ def check_template_pages(output, manifest):
             check_page(BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser"), selected)
 
 
+def check_page_titles(output, manifest):
+    """Titles name the page or case for readers, never a content hash or route file stem."""
+    for name in manifest["files"]:
+        if not name.endswith(".html") or name.split("/")[0] not in manifest["languages"]:
+            continue
+        document = BeautifulSoup((output / name).read_text(encoding="utf-8"), "html.parser")
+        for node in (document.title, document.h1):
+            if node is None:
+                continue
+            text = node.get_text(" ", strip=True)
+            parts = {part.strip() for part in text.split("·")}
+            if (
+                re.search(r"(?<![\w/.-])[0-9a-f]{12,}(?![\w/.-])", text)
+                or parts & set(PAGES)
+                or any(re.fullmatch(r"(?:case|source|c|d)-\S+", part) for part in parts)
+            ):
+                raise ValueError("Page title shows a hash or route name instead of a reader label")
+
+
+def check_unreturned_fields(document, language):
+    """A call that returned no structured output never renders a field match."""
+    label = message("outcomes_not_returned", language)
+    for row in document.select('tr[data-status="fail"]'):
+        if any("field-not_returned" not in button.get("class", [])
+               or button.get_text(strip=True) != (OUTCOMES["not_returned"][0 if language == "zh" else 1])
+               for button in row.select(".field-button")):
+            raise ValueError("A call without output shows a field outcome other than not returned")
+    for article in document.select('[data-report-detail="failed"]'):
+        for line in article.select("[data-field-diagnostics] tbody tr"):
+            if line.select("td")[3].get_text(strip=True) != label:
+                raise ValueError("A call without output shows a field outcome other than not returned")
+
+
 def check_reader_contract(output, manifest, *, release=False):
     report_editions(manifest)
     check_template_pages(output, manifest)
+    check_page_titles(output, manifest)
     validate_catalog()
     if any(manifest.get(key) != value for key, value in report_dependencies().items()):
         raise ValueError("Report client dependencies changed; rebuild required")
@@ -4197,6 +4261,8 @@ def _check_product(output, *, release=False, visual_receipt=None):
         if path.suffix != ".html":
             continue
         soup = checked_page(path)
+        if name.split("/")[0] in manifest["languages"]:
+            check_unreturned_fields(soup, name.split("/")[0])
         if (
             name.endswith("/index.html")
             and name.split("/")[0] in manifest["languages"]
@@ -4853,7 +4919,7 @@ def record_field_rows(row, language):
             esc(row.get("field_labels", {}).get(field, field)),
             displayed_values(f["expected"], language, reference=True),
             displayed_values(f["actual"], language),
-            message("outcomes_" + f["status"], language),
+            message("outcomes_" + shown_outcome(row, f["status"]), language),
             "—" if f["hit"] is None else t("yes") if f["hit"] else t("no"),
             "—" if f["exact"] is None else t("yes") if f["exact"] else t("no"),
         ]
@@ -6247,6 +6313,10 @@ def _check_record_cohort(output, *, release=False, visual_receipt=None):
             ]
             if displayed != expected_cells:
                 raise ValueError("Record displayed fields differ from native evidence")
+            if row.get("compatibility") != "structured_output" and any(
+                cells[3] != message("outcomes_not_returned", "zh") for cells in displayed
+            ):
+                raise ValueError("A call without output shows a field outcome other than not returned")
             button = detail.select_one("[data-call-log-open]")
             if (
                 button is None

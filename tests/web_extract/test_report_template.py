@@ -83,3 +83,42 @@ def test_review_intro_leads_the_review_page_and_empty_core_slots_fail_placement(
         '<div data-slot="summary"><section data-page-intro></section></div></main>', "html.parser")
     assert not intro_is_correctly_placed(
         document, document.select_one("[data-page-intro]"), "index.html", "field-extraction-cohort")
+
+
+def test_titles_name_pages_and_cases_and_unreturned_calls_never_match(tmp_path):
+    output = tmp_path / "report"
+    create(output)
+    case = "zh/case-" + "1" * 64 + ".html"
+    page = BeautifulSoup((output / case).read_text(encoding="utf-8"), "html.parser")
+    assert page.h1.get_text() == "同题方法比较 · example.org/product/1"
+    index = BeautifulSoup((output / "zh/index.html").read_text(encoding="utf-8"), "html.parser")
+    assert index.h1.get_text() == "合成示例 · 总览"
+    blocked = page.select_one('[data-report-detail="failed"] [data-field-diagnostics]')
+    assert {line.select("td")[3].get_text() for line in blocked.select("tbody tr")} == {"未返回"}
+    results = (output / "zh/results.html").read_text(encoding="utf-8")
+    assert 'field-not_returned' in results
+
+    original_case = (output / case).read_text(encoding="utf-8")
+    original_index = (output / "zh/index.html").read_text(encoding="utf-8")
+    for route, raw in [
+        (case, original_case.replace("example.org/product/1", "1" * 12)),
+        ("zh/index.html", original_index.replace("合成示例 · 总览", "合成示例 · index")),
+    ]:
+        rebind(output, route, lambda _, raw=raw: raw)
+        with pytest.raises(ValueError, match="hash or route name"):
+            _check_rendered_report(output)
+    # A numeric product path in a page address is a reader label, not an internal hash.
+    rebind(output, case, lambda _: original_case.replace(
+        "example.org/product/1", "example.org/product/123456789012"))
+    rebind(output, "zh/index.html", lambda _: original_index)
+    _check_rendered_report(output)
+    rebind(output, case, lambda _: original_case)
+
+    rebind(output, case, lambda raw: raw.replace("<td>未返回</td>", "<td>符合标注</td>", 1))
+    with pytest.raises(ValueError, match="other than not returned"):
+        _check_rendered_report(output)
+    rebind(output, case, lambda _: original_case)
+    rebind(output, "zh/results.html", lambda raw: raw.replace(
+        'field-button field-not_returned', 'field-button field-correct', 1))
+    with pytest.raises(ValueError, match="other than not returned"):
+        _check_rendered_report(output)

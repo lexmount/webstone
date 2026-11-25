@@ -1481,7 +1481,7 @@ def _case_reference_detail(c: dict[str, Any], query_relevance: dict[str, Any] | 
 
 
 def _result_metrics_detail(r: dict[str, Any], c: dict[str, Any], hit_key: str, cutoff: int, t: Callable[..., str]) -> str:
-    detail = ""
+    detail = "<h2>" + t("Metrics for this call") + "</h2>"
     metric_labels = [
         (hit_key, t("Known target@{cutoff}", cutoff=cutoff)),
         ("reciprocal_rank", t("Reciprocal rank")),
@@ -1554,11 +1554,12 @@ def _wrap_result_detail(detail: str, status: str, t: Callable[..., str]) -> str:
             label.string = t("Inspect evidence")
             pre.wrap(disclosure)
             disclosure.insert(0, label)
-    diagnosis_node = detail_doc.new_tag("section", id="result-logs")
-    diagnosis_node["data-failure-diagnosis"] = ""
     error_node = detail_doc.select_one("[data-error]")
-    error_node["data-kind"] = "error"
-    error_node.parent.wrap(diagnosis_node)
+    if error_node is not None:
+        diagnosis_node = detail_doc.new_tag("section", id="result-logs")
+        diagnosis_node["data-failure-diagnosis"] = ""
+        error_node["data-kind"] = "error"
+        error_node.parent.wrap(diagnosis_node)
     detail = '<section data-report-detail="' + ("failed" if status == "fail" else "passed") + '">' + str(detail_doc) + '</section>'
     return detail
 
@@ -1578,7 +1579,8 @@ def _result_detail(
     cutoff = profile["protocol"]["top_k"]
     # Relative path from details/ to shared evidence at output root.
     ev = ("../../" if prefix else "../") + r["evidence"]["path"]
-    detail = f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {fmt(r['elapsed_ms'])} ms · {len(r['results'])} {t('results')}</p></section>"
+    back_link = '<p class="detail-back"><a data-back-results href="../results.html">← ' + t("Back to query comparison") + "</a></p>"
+    detail = back_link + f"<section data-summary><p>{esc(c['query'])}</p><p>HTTP {r['http_status']} · {fmt(r['elapsed_ms'])} ms · {len(r['results'])} {t('results')}</p></section>"
     detail += _case_reference_detail(c, query_relevance, cutoff, edition)
     if query_relevance:
         reason_label = t("Useful results: ") + str(query_relevance["useful"]) + f"/{cutoff}"
@@ -1599,16 +1601,17 @@ def _result_detail(
         detail += render_level_detail(inputs.level_views, r, zh)
     else:
         detail += _result_metrics_detail(r, c, _known_page_metric(profile), cutoff, t)
-    detail += (
-        "<h2>"
-        + t("Exact error")
-        + "</h2><pre data-error>"
-        + esc(
-            error_evidence(r, payloads.get(r["id"], {}))
-            or t("No API error reported; inspect the returned response for retrieval diagnostics.")
+    exact_error = error_evidence(r, payloads.get(r["id"], {}))
+    if exact_error:
+        detail += "<h2>" + t("Exact error") + "</h2><pre data-error>" + esc(exact_error) + "</pre>"
+    elif status == "fail":
+        detail += (
+            '<section id="result-logs" data-failure-diagnosis><h2>'
+            + t("Failure diagnosis")
+            + "</h2><p data-log-unavailable>"
+            + t("No API error reported; inspect the returned response for retrieval diagnostics.")
+            + "</p></section>"
         )
-        + "</pre>"
-    )
     detail += evidence_link(ev, t("Open response"))
     repeats = [x for x in rows if x["case_id"] == cid and x["method"] == r["method"]]
     detail += _physical_calls_detail(repeats, edition)
@@ -1621,6 +1624,7 @@ def _result_detail(
                 detail += '<article class="specimen"><p>' + str(item_index + 1) + '. ' + t('Invalid result slot') + '</p></article>'
                 continue
             detail += f'''<article class="specimen"><a href="{esc(item['url'])}">{esc(item['title'])}</a><p>{esc(item['snippet'])}</p>''' + evidence_link(ev, t("Summary and content"), result=item_index) + "</article>"
+    detail += back_link
     return _wrap_result_detail(detail, status, t)
 
 
@@ -2498,9 +2502,6 @@ def check(output, *, return_data=False, evidence_only=False):
         if "details/" in route and relevance_scores:
             result_id = Path(route).stem
             row = next((r for r in manifest["rows"] if r["id"] == result_id), None)
-            expected_error = error_evidence(row, payloads.get(row["id"], {})) if row else ""
-            if expected_error and soup.select_one("[data-error]").get_text() != expected_error:
-                raise ValueError("Exact error details differ from native evidence")
             query_score = next((q for q in relevance_scores if row and q["case_id"] == row["case_id"] and q["method"] == row["method"]), None)
             if query_score:
                 expected = BeautifulSoup(relevance_detail(query_score, soup.html["lang"] == "zh"), "html.parser").select_one('[data-case-relevance]')
@@ -2508,15 +2509,22 @@ def check(output, *, return_data=False, evidence_only=False):
                     raise ValueError("Query quality calculation differs from frozen grades")
         if "details/" in route and (
             len(soup.select("[data-summary]")) != 1
-            or not soup.select("[data-error]")
             or not soup.select("[data-evidence]")
         ):
-            raise ValueError("Missing detail summary, error or evidence")
+            raise ValueError("Missing detail summary or evidence")
         if "details/" in route:
             row = next(r for r in manifest["rows"] if r["id"] == Path(route).stem)
             expected_error = error_evidence(row, payloads.get(row["id"], {}))
-            if expected_error and soup.select_one("[data-error]").get_text() != expected_error:
+            error_node = soup.select_one("[data-error]")
+            if bool(expected_error) != (error_node is not None):
+                raise ValueError("Exact error section must appear exactly when the call reported an error")
+            if expected_error and error_node.get_text() != expected_error:
                 raise ValueError("Exact error details differ from native evidence")
+            comparison_route = ("en/" if route.startswith("en/") else "") + "results.html"
+            allowed = {comparison_route, posixpath.join(manifest.get("site_prefix") or "", comparison_route)}
+            back_links = [a.get("href") for a in soup.select("a[data-back-results]")]
+            if len(back_links) != 2 or not set(back_links) <= allowed:
+                raise ValueError("Result detail must link back to the query comparison at top and bottom")
         for a in soup.select("[href],[data-evidence],[data-detail]"):
             if a.name == "base":
                 continue
