@@ -1,0 +1,149 @@
+# Native Codex subagent collection
+
+The native single-fetch and autonomous multiple-fetch methods use the Codex
+agent's built-in `collaboration.spawn_agent` capability. Each case starts with
+`fork_turns: "none"`. Native dispatch is performed by the parent agent using that
+tool. Capture and offline trajectory projections live in
+`harness.web_fetch.native_subagent`; scoring and reporting keep their existing
+Web Fetch owners.
+
+## Inputs and dispatch
+
+Keep the case roster, prompts, acquisition contract, execution plan, source
+hashes and publication profile outside Git under `WEBSTONE_DATA_HOME`. Freeze
+the selected dataset and scorer before collection. Follow
+[`docs/benchmark-execution.md`](../../../docs/benchmark-execution.md) for preflight,
+resource admission and resume. The parent must own one admission scope, count
+every dispatched unfinished child against `max_in_flight`, and interrupt expired
+children before freeing their slots. Resume from retained dispatch and terminal
+receipts before selecting another case. A tool timeout does not release a slot
+while its child remains active.
+
+Pass the frozen prompt plus only the target URL and a unique delivery path to
+each child. Reference answers, acceptance contracts and sibling results stay in
+the parent. Use a new task name and directory for each physical call; an
+unfinished reservation is reconciled before reuse. Never start an unrecorded
+replacement because an answer is missing or a score is low.
+
+The parent supplies these arguments directly to `collaboration.spawn_agent`:
+
+```javascript
+{
+  task_name: slot,
+  fork_turns: "none",
+  model: contract.model,
+  reasoning_effort: contract.reasoning_effort,
+  message: contract.prompt_template + "\nURL: " + targetUrl
+    + "\n" + contract.delivery_label + ": " + answerPath
+}
+```
+
+The prompt and delivery label are external frozen inputs, including their
+original language. Keep their hashes in the contract. Set the fetch budget to
+one for single-fetch and to unlimited for autonomous multiple-fetch. The latter
+leaves the fetch tools and methods to each child. Both prompts prohibit mixing
+Browser Use click, scroll, input and other interactive actions into fetching.
+The original comparison used a 300-second case deadline, zero retries, two
+concurrent children and full-content scoring. These are instance settings.
+
+Retain the parent spawn call and child ID, raw child trajectory, delivery bytes,
+terminal state, actual duration and final cumulative token receipt.
+`dispatch_checks` compares retained spawn arguments against the exact expected
+message, model, effort, task name and clean-history setting. It returns `None`
+for plaintext equality when the parent log contains an encrypted message;
+other checks still run. A false result fails the dispatch check. An unknown
+result remains unknown in the retained proof.
+
+## Single-fetch native capture
+
+The original single-fetch collection saved the untouched native tool return
+without asking the child to rewrite its text. The following capture functions
+can be pasted into a child's `functions.exec` invocation. Bind `executionRoot`,
+`directory` and `fetchArguments` from the admitted contract before use. The
+directory must already exist and belong exclusively to that case.
+
+```javascript
+const shellQuote = s => "'" + s.replaceAll("'", "'\\''") + "'";
+async function checkedCommand(cmd) {
+  const result = await tools.exec_command({cmd, workdir:executionRoot, max_output_tokens:2000});
+  if (result.exit_code !== 0) throw new Error("Capture command failed: " + result.output);
+  return result;
+}
+async function prepareCapture(directory, toolName, args) {
+  const code = 'const fs=require("node:fs");const d=process.argv[1];fs.writeFileSync(d+"/.raw-response.partial","",{flag:"wx"});fs.writeFileSync(d+"/events.jsonl",process.argv[2]+"\\n",{flag:"wx"});';
+  const event = JSON.stringify({sequence:1,tool:toolName,parameters:args,time:new Date().toISOString()});
+  await checkedCommand("node -e " + shellQuote(code) + " " + shellQuote(directory) + " " + shellQuote(event));
+}
+async function persistCapture(nativeReturn, directory, fetchMs) {
+  const serialized = JSON.stringify(nativeReturn);
+  if (typeof serialized !== "string") throw new Error("Native return is not JSON-serializable");
+  for (let offset=0; offset<serialized.length;) {
+    let end=Math.min(offset+32768,serialized.length);
+    if(end<serialized.length) {
+      const last=serialized.charCodeAt(end-1);
+      if(last>=0xD800 && last<=0xDBFF) end--;
+    }
+    await checkedCommand("printf %s " + shellQuote(serialized.slice(offset,end)) + " >> " + shellQuote(directory+"/.raw-response.partial"));
+    offset=end;
+  }
+  const receipt = await checkedCommand("uv run --frozen python -m harness.web_fetch.native_subagent --save-native-response " + shellQuote(directory) + " --fetch-ms " + String(fetchMs));
+  notify(receipt.output);
+}
+```
+
+Call `prepareCapture` before the chosen fetch. Time only that tool invocation,
+catch a tool exception as `{fetch_error: String(error)}`, then pass the untouched
+return and duration to `persistCapture`. Print only the save receipt. End the
+child after delivery; the parent retains its actual terminal state. This capture
+helper performs no network request. Its exclusive save claim prevents a second
+save to the same directory. Raw JSON, ordered text, binary blocks, hashes and
+fetch/save timers remain separate artifacts.
+
+Autonomous multiple-fetch children instead write their final selected delivery
+to the specified path. Preserve that file and its hash at termination; leave
+absent delivery absent. Capture does not transform it into a synthetic response.
+
+## Offline audit, usage and scoring
+
+Read the saved JSONL trajectory and first verify its SHA256 against the terminal
+receipt. Extract `response_item` payloads of type `function_call` or
+`custom_tool_call` for `assess_protocol`. This preserves namespaces when the
+short tool name is just `js`, separates inventory probes from browser-control
+attempts and identifies Lexmount tool attempts. Retain the flags with their raw
+call IDs; do not remove flagged cases or change their answers.
+
+`audit_single_open` checks the original native open routes using runtime
+`item_completed` events. An MCP call with its nested native extension is one
+logical invocation. It rejects multiple opens, changed URLs and unexpected
+request arguments. Retain and inspect shell commands separately.
+
+`trace_telemetry` projects whole-tool call durations and the last cumulative
+`token_count.info.total_token_usage`, leaving unmatched durations and missing
+usage unavailable. It does not sum intermediate cumulative receipts. Store the
+returned `terminal_usage` in result `provider_metadata`; the existing
+`report_usage.token_usage` validates and aggregates it. Cached input is already
+part of input, and reasoning output is already part of output.
+
+Score the preserved delivery with the frozen `lexbench_webfetch.scoring.score_attempt`
+and `lexbench_webfetch.metrics.task_passed` / `task_measured` APIs. Bind the dataset,
+reference and scorer hashes; retain missing-file and deadline states in the
+record. The scorer receives full scope and the actual `ok` state. Reuse the
+saved-matrix composition, report checks and package/publish commands documented
+in [README.md](README.md). The external report profile selects frozen records;
+rebuilding a report does not acquire or rescore provider responses.
+
+## Source provenance and offline controls
+
+The capture functions were extracted from the frozen provider source with
+SHA256 `d6d198f453bb02ab43413b67355e3885047d63eebfac189103da14865b8abfdb`.
+The open audit and namespace-aware protocol audit were moved from their
+run-local scripts into parameterized functions. The telemetry projection keeps
+the existing whole-call timing and cumulative-usage conventions. Original
+source snapshots remain bound by each external experiment contract.
+
+Run the synthetic capture, dispatch, audit and usage controls without any
+provider calls:
+
+```sh
+uv run --frozen python -m pytest tests/benchmarks/webfetch/test_native_subagent.py
+```

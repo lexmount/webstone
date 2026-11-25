@@ -1,5 +1,10 @@
 # Web Fetch
 
+For native Codex single-fetch and autonomous multiple-fetch collection, see
+[Native Codex subagent collection](NATIVE_SUBAGENT.md). It documents clean
+subagent dispatch, the retained capture boundary and offline trajectory audits;
+both methods reuse the shared scorer and saved-report pipeline.
+
 ## Main and full content
 
 The [evaluation skill](../../../.agents/skills/benchmark-report/SKILL.md#web-fetch-scope-selection) asks for Full content (default) or Main content before new collection.
