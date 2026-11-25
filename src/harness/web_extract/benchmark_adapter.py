@@ -1,11 +1,10 @@
 """The ``BenchmarkAdapter`` hooks of a registered Web Extract benchmark on a prepared home.
 
-``dataset.py`` declares each ``ExtractBenchmark`` and ``pipeline.py`` owns preparation
-and scoring, but both files' bytes are bound into frozen cohort plans and run contracts
-(``dataset_registry_sha256``, ``pipeline_sha256``). The hooks therefore live here and
-delegate to those owners, so adding them changes no binding. An Extract benchmark scores
-a population, not one call: ``score`` takes the population's references and one
-method's predictions, as the pinned upstream scorer and the record adapters do.
+``dataset.py`` declares each ``ExtractBenchmark`` and ``pipeline.py`` owns collection.
+The pipeline reads references and scores every method through these hooks, so a
+benchmark's scorer (the pinned upstream scorer or a record adapter) is selected here,
+not by the runner. An Extract benchmark scores a population, not one call: ``score``
+takes the population's references and one method's predictions.
 """
 
 from __future__ import annotations
@@ -13,14 +12,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import InvalidOperation
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
+from harness.web_extract import pipeline
 from harness.web_extract.dataset import BENCHMARKS, ExtractBenchmark, benchmark_config, input_mode
-from harness.web_extract.pipeline import read_json, score_rows
-
-# The method name under which ``score`` passes one method's predictions to the pipeline.
-_SCORED = "scored"
 
 
 @dataclass(frozen=True)
@@ -35,7 +33,7 @@ class ExtractBenchmarkAdapter:
         return self.benchmark.name
 
     def truth(self) -> dict[str, dict]:
-        return read_json(self.home / "dataset/dataset/ground-truth.json")
+        return pipeline.read_json(self.home / "dataset/dataset/ground-truth.json")
 
     def cases(self, profile: dict | None = None) -> list[dict[str, Any]]:
         """Frozen cases of the prepared home, in identifier order."""
@@ -48,11 +46,27 @@ class ExtractBenchmarkAdapter:
         yield {"mode": mode, "root": self.home / "dataset/html" if mode == "snapshot" else None,
                "case_ids": [case["id"] for case in cases]}
 
-    def score(self, truth: dict[str, dict], predictions: dict[str, dict]) -> dict[str, Any]:
+    @cached_property
+    def _upstream(self) -> dict[str, Any]:
+        """The pinned upstream scorer, loaded once; prices that are not decimals match exactly."""
+        scorer = pipeline.official_scorer(self.home)
+        decimal = scorer["decimal_matching"]
+
+        def price_match(gold, prediction):
+            try:
+                return decimal(gold, prediction)
+            except InvalidOperation:
+                return scorer["hard_matching"](gold, prediction)
+
+        return {**scorer, "decimal_matching": price_match}
+
+    def score(self, truth: dict[str, dict], predictions: dict[str, dict],
+              **reference_policy: Any) -> dict[str, Any]:
         """Score one method's predictions over the given references."""
-        rows = [{"method": _SCORED, "case_id": case_id, "http_status": 200,
-                 "normalized_fields": fields} for case_id, fields in predictions.items()]
-        return score_rows(self.home, truth, rows, [_SCORED])[_SCORED]
+        module = benchmark_config(self.home)["adapter"]
+        if module is not None:
+            return module.score(truth, predictions, **reference_policy)
+        return pipeline.evaluate_predictions(truth, predictions, self._upstream)
 
     def populations(self) -> list[dict[str, Any]]:
         """The declared population: its denominator and the fields it scores."""

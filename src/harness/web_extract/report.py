@@ -33,7 +33,6 @@ from harness.web_extract.analysis import (
     field_results,
     native_error,
 )
-from harness.web_extract.call_records import load_run
 from harness.web_extract.messages import message, messages_sha256, validate_catalog
 from harness.web_extract.pipeline import (
     FIELDS,
@@ -42,6 +41,7 @@ from harness.web_extract.pipeline import (
     PROFILE,
     digest,
     execution_identity,
+    load_run,
     normalize,
     read_json,
     require_external_output,

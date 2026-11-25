@@ -2686,7 +2686,8 @@ def test_record_later_title_dispute_preserves_the_resolved_author(tmp_path, monk
             response = ({'json': fields} if method == 'scrapegraph-extract'
                         else {'data': {'json': fields}})
             path = run / 'calls' / (cid + '.json')
-            pipeline.save_json(path, {'method': method, 'case_id': cid, 'response': response,
+            pipeline.save_json(path, {'method': method, 'case_id': cid,
+                                     'state': 'response_received', 'response': response,
                                      'normalized_fields': fields, 'http_status': 200,
                                      'input_sha256': pipeline.digest(
                                          (home / 'dataset/html' / (cid + '.html')).read_bytes())})

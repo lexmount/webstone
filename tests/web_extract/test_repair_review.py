@@ -176,6 +176,7 @@ def parent_inputs(
         row = {
             "method": method,
             "case_id": cid,
+            "state": "response_received" if i < success_count else "request_failed",
             "input_sha256": digest((home / "dataset/html" / (cid + ".html")).read_bytes()),
             "http_status": 200 if i < success_count else None,
             "compatibility": "structured_output" if i < success_count else "no_structured_output",
