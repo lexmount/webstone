@@ -91,6 +91,8 @@ def check_token_usage_presentation(content, records):
     """Reject missing receipts, double-counted cache, or misleading extrema."""
     from harness.web_fetch.report_usage import token_usage
     expected = token_usage(records)
+    expected.sort(key=lambda item: (item['total_tokens'] is None,
+                                   item['total_tokens'] or 0, item['provider']))
     soup = BeautifulSoup(content, 'html.parser')
     table = soup.select_one('#token-usage')
     if not expected:

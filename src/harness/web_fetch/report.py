@@ -1752,6 +1752,7 @@ def token_usage_comparison(records):
  from harness.web_fetch.report_usage import token_usage
  usage=token_usage(records)
  if not usage:return ''
+ usage.sort(key=lambda item:(item['total_tokens'] is None,item['total_tokens'] or 0,item['provider']))
  fields=('total_tokens','uncached_input_tokens','cached_input_tokens','output_tokens')
  rows=[]
  for item in usage:
