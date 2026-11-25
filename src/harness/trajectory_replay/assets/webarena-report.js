@@ -1,12 +1,6 @@
 const lang=document.documentElement.lang;
 const zh=lang==='zh';
 const base=zh?'':'../';
-document.documentElement.dataset.theme=localStorage.getItem('report-theme')||'light';
-document.querySelector('.theme')?.addEventListener('click',()=>{
-  const root=document.documentElement;
-  root.dataset.theme=root.dataset.theme==='dark'?'light':'dark';
-  localStorage.setItem('report-theme',root.dataset.theme);
-});
 const fetchJson=async path=>{const response=await fetch(path);if(!response.ok)throw Error(`HTTP ${response.status}`);return response.json()};
 const enhanceTables=()=>{
   const excluded='[data-results] table,[data-dataset-table] table,[data-explorer] table';

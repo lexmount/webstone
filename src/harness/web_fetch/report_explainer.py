@@ -219,7 +219,7 @@ def browser_example_evidence(out, case, row, *, focus=None, reference_focus=None
                        'verdict':t('pass_2', 'Pass') if verdict is True else t('fail_2', 'Fail') if verdict is False else t('not_recorded', 'Not recorded')})
     add('request','请求完成','成功返回','成功返回' if row['ok'] else '未成功返回',bool(row['ok']))
     if 'length_pass' in m:
-        add('length',t('body_length', 'Body length'),(t('at_least_characters_2', 'At least {min_content_chars} characters', min_content_chars=str(case['min_content_chars']))) if 'min_content_chars' in case else '题目登记的最小长度',t('characters', '{get} characters', get=str(m.get('content_chars', t('not_recorded', 'Not recorded')))),m['length_pass'])
+        add('length',t('body_length', 'Body length'),(t('at_least_characters_2', 'At least {min_content_chars} {min_content_chars|character|characters}', min_content_chars=str(case['min_content_chars']))) if 'min_content_chars' in case else '题目登记的最小长度',t('characters', '{get} {get|character|characters}', get=str(m.get('content_chars', t('not_recorded', 'Not recorded')))),m['length_pass'])
     for field,title in [('fact_results','事实组'),('stable_anchor_results',t('stable_text_2', 'Stable text')),
                         ('pattern_results','字段模式'),('stable_page_pattern_results',t('page_patterns', 'Page patterns')),
                         ('body_region_results','正文分段'),('stable_field_results',t('record_fields', 'Record fields')),
@@ -1122,7 +1122,7 @@ def _saved_failure_chapters(cases, records, *, ctx):
             if proof:
                 examples.append('<details><summary>'+escape(category)+'</summary><p>'+escape(proof)
                     +'</p><p>'+escape(result_case(specimen, cases[specimen['case_id']], ctx=ctx).get('url', ''))+' · '+evidence_link+'</p></details>')
-        count = '<p>'+t('saved_method_task_counts', '{total} tasks: {passed} passed and {failed} failed.',
+        count = '<p>'+t('saved_method_task_counts', '{total} {total|task|tasks}: {passed} passed and {failed} failed.',
                   total=len(selected), passed=len(eligible)-len(failed), failed=len(failed))+'</p>'
         if len(eligible) != len(selected):
             count += '<p>'+t('saved_method_unmeasured_count', 'Unavailable results: {count}; excluded from the pass-rate and failure denominators.', count=len(selected)-len(eligible))+'</p>'
@@ -1144,7 +1144,7 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
         return _render_current_browser_article(out, cases, records, content_binding, ctx=ctx, scope=ctx.methods)
     passes = sum(task_passed(row['ok'], row['metrics'],
                  cases[row['case_id']].get('task_kind', 'body')) for row in records)
-    intro = bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} tasks and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
+    intro = bilingual_text(*pair('this_report_contains_tasks_and_logical_results', 'This report contains {count} {count|task|tasks} and {count2} logical results, with {passes}/{count2} passing. Findings apply only to the registered tasks and rules.', count=len(cases), count2=len(records), passes=passes))
     context = ''
     if dataset_path.is_file():
         scope = json.loads(dataset_path.read_text(encoding='utf-8')).get('saved_matrix_scope', {})
@@ -1152,7 +1152,7 @@ def render_explainer(out, cases, records, *, table=None, cell=None, link=None, a
             from harness.web_fetch.report import provider_label, measured, succeeded, comparative_rows, cell as report_cell, table as report_table
             eligible_results = [row for row in records if measured(row, cases[row['case_id']], ctx=ctx)]
             if len(eligible_results) != len(records):
-                intro = t('saved_measured_result_summary', 'This report contains {tasks} tasks and {total} saved logical results. Of {measured} measurable results, {passed} passed; {unavailable} are unavailable and excluded from pass-rate denominators. Findings apply only to the registered tasks and rules.',
+                intro = t('saved_measured_result_summary', 'This report contains {tasks} {tasks|task|tasks} and {total} saved logical results. Of {measured} measurable results, {passed} passed; {unavailable} are unavailable and excluded from pass-rate denominators. Findings apply only to the registered tasks and rules.',
                     tasks=len(cases), total=len(records), measured=len(eligible_results),
                     passed=sum(succeeded(row, cases[row['case_id']], ctx=ctx) for row in eligible_results),
                     unavailable=len(records)-len(eligible_results))

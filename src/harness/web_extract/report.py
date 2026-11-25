@@ -23,8 +23,9 @@ from harness.distribution import repository_root
 from harness.env_file import local_setting
 from harness.record_io import canonical_json_sha256
 from harness.report_languages import resolve_report_language
-from harness.reporting import charts, explorer
+from harness.reporting import charts, explorer, shell
 from harness.reporting.links import LinkIndex
+from harness.reporting.presentation import unit_number
 from harness.reporting.publication_privacy import project_evidence_view, publication_risk
 from harness.reporting.release_check import check_report_identity, checked_page, open_report
 from harness.reporting.templates import check_page, compose, recorded_variant, template_identity
@@ -189,7 +190,7 @@ def page_label(route, language):
 # An authored page intro fills exactly one template slot of its page.
 INTRO_SELECTOR = "main > [data-slot] > [data-page-intro]"
 ASSETS = Path(__file__).with_name("assets")
-CSS = (ASSETS / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
+CSS = shell.CSS + (ASSETS / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
 
 
 def table(headers, rows, *, inventory=False, attrs="", sort_values=None, pin_method=False):
@@ -284,44 +285,24 @@ def page(
     ):
         raise ValueError("Navigation must name every report page exactly once")
 
-    def nav_link(entry):
-        p = entry["route"]
-        return (
-            f'<a href="{p}.html"'
-            + (' aria-current="page"' if route == p else "")
-            + ">"
-            + esc(entry["label"])
-            + "</a>"
-        )
-
-    nav = "".join(nav_link(entry) for entry in entries if entry.get("primary", True))
-    secondary = [entry for entry in entries if not entry.get("primary", True)]
-    if secondary:
-        nav += (
-            '<details class="nav-more"'
-            + (" open" if route in {e["route"] for e in secondary} else "")
-            + "><summary>"
-            + message("more_resources", language)
-            + "</summary><div>"
-            + "".join(nav_link(entry) for entry in secondary)
-            + "</div></details>"
-        )
     other_route = route if not detail else "results"
     if other not in languages:
         other_route = "index"
-    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css"></head><body><header><div class="eyebrow">{eyebrow}</div><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p><div class="report-toolbar"><nav>{part5}</nav><div class="report-tools"><a href="../{part6}/{part7}.html">{part8}</a><button id="theme" type="button" aria-pressed="false" aria-label="{theme_label}">{part9}</button></div></div></header><main data-page-role="{role}">{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
+    switch = (f"../{other}/{other_route}.html", other)
+    html = '<!doctype html><html lang="{part0}"><head><base href="../"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{part1} · Web Extract</title><link rel="stylesheet" href="../style.css">{shell_script}</head><body>{header}<div class="page-head"><p class="eyebrow">{eyebrow}</p><h1>{part2}</h1><p class="notice" data-evidence-state="{part3}">{part4}</p></div><main data-page-role="{role}">{part10}</main><footer>Web Extract · {part11} · <a href="../report-manifest.json">{part12}</a></footer><script src="../app.js"></script></body></html>'.format(
         part0=language,
         eyebrow=message("report_eyebrow", language),
-        theme_label=message("theme_toggle_dark", language),
         part1=esc(title),
         part2=esc(title),
         part3=state,
         part4=labels[7],
-        part5=nav,
-        part6=other,
-        part7=other_route,
-        part8=message("english", other),
-        part9=labels[8],
+        shell_script=shell.HEAD_SCRIPT,
+        header=shell.header(
+            language=language, brand="Web Extract", home="index.html",
+            links=[(f'{entry["route"]}.html', esc(entry["label"]), entry.get("primary", True))
+                   for entry in entries],
+            current=f"{route}.html", switch=switch,
+        ),
         part10=body,
         role=role,
         part11=("评测方法与数据版本" if language == "zh" else "Methodology and dataset versions"),
@@ -1566,7 +1547,7 @@ def cohort_metrics(methods, rows, bindings, count, lang, labels=None, *, truth=N
             cell.attrs.update(
                 {"data-metric": field, "data-metric-direction": "max", "data-sort": str(value)}
             )
-            if value == max(values):
+            if len(values) > 1 and value == max(values):
                 cell.string = ""
                 span = result.new_tag("span", attrs={"class": "comparison-winner"})
                 span.string = f"{value:.3f}"
@@ -1651,6 +1632,8 @@ def cohort_metrics(methods, rows, bindings, count, lang, labels=None, *, truth=N
             if comparable:
                 groups.setdefault(name, []).append((value, cell))
     for values in groups.values():
+        if len(values) < 2:
+            continue
         lowest = min(v for v, _ in values)
         for value, cell in values:
             if value != lowest:
@@ -2048,7 +2031,7 @@ def operating_metrics(methods, rows, prices, lang, labels, *, compared=None, exe
                 )
                 if method in compared:
                     observed.append((value, cell))
-        if observed:
+        if len(observed) > 1:
             low = min(v for v, _ in observed)
             for value, cell in observed:
                 if value != low:
@@ -2345,7 +2328,7 @@ def audit_explanation(audit, rows, methods, labels, lang, *, reference_view, cor
             )
             if value is not None:
                 cell["data-sort"] = str(value)
-            if value is not None and value == max(values):
+            if value is not None and len(values) > 1 and value == max(values):
                 span = comparison.new_tag("span", attrs={"class": "comparison-winner"})
                 span.string = cell.get_text()
                 cell.clear()
@@ -2842,7 +2825,7 @@ def method_examples(output, binding, language="zh"):
                 }
                 elapsed = example.get("elapsed_seconds")
                 timing = (
-                    message("examples_timing", language, seconds=f"{elapsed:.3f}")
+                    message("examples_timing", language, seconds=unit_number(elapsed, "s"))
                     if isinstance(elapsed, (int, float))
                     else ""
                 )
@@ -3575,7 +3558,7 @@ def _product_pages(evidence, lang, write):
             v = scores[field]["f1"]
             best = max(s[field]["f1"] for s in history["scores"].values())
             text = f"{v:.3f}"
-            if v == best:
+            if v == best and len(history["scores"]) > 1:
                 text = '<span class="comparison-winner">' + text + "</span>"
             cells.append(f'<span data-history="{field}">{text}</span>')
         hr.append(cells)
@@ -4087,19 +4070,10 @@ def check_page_titles(output, manifest):
         document = BeautifulSoup((output / name).read_text(encoding="utf-8"), "html.parser")
         check_ranked_comparisons(document)
         language = name.split("/")[0]
-        eyebrow = document.select_one("header .eyebrow")
-        toggles = document.select("#theme")
-        if (
-            (eyebrow is not None and eyebrow.get_text() != message("report_eyebrow", language))
-            or len(toggles) > 1
-            or any(
-                toggle.get("type") != "button"
-                or toggle.get("aria-pressed") != "false"
-                or toggle.get("aria-label") != message("theme_toggle_dark", language)
-                for toggle in toggles
-            )
-        ):
-            raise ValueError("Report header must be localized with an accessible theme toggle")
+        eyebrow = document.select_one(".page-head .eyebrow")
+        # The shared header and its theme control are checked by check_presentation.
+        if eyebrow is not None and eyebrow.get_text() != message("report_eyebrow", language):
+            raise ValueError("Report eyebrow must be localized")
         for node in (document.title, document.h1):
             if node is None:
                 continue
@@ -4332,10 +4306,10 @@ def _check_product(output, *, release=False, visual_receipt=None):
                 for route in ("index", "results", "dataset", "protocol", "interpretation")
             ]
             if (
-                [a.get("href") for a in soup.select("nav > a")] != expected_primary
-                or len(soup.select("nav details.nav-more a")) != 4
-                or len(soup.select(".report-tools #theme")) != 1
-                or len(soup.select(".report-tools a")) != 1
+                [a.get("href") for a in soup.select(".shell-links > a")] != expected_primary
+                or len(soup.select(".shell-more a")) != 4
+                or len(soup.select(".shell-controls [data-shell-theme]")) != 1
+                or len(soup.select(".shell-controls a")) != 1
             ):
                 raise ValueError("Report navigation must separate core pages, resources and tools")
         if notice and (name != "en/index.html" or "en" in manifest["languages"]):
@@ -5032,7 +5006,7 @@ def record_comparison(headers, rows, metrics, *, sort_values=None, pin_method=Fa
             if value is not None:
                 cell["data-sort"] = str(value)
                 observed.append((float(value), cell))
-        if observed and direction != "neutral":
+        if len(observed) > 1 and direction != "neutral":
             extreme = (min if direction == "min" else max)(value for value, _ in observed)
             for value, cell in observed:
                 if value == extreme:
@@ -6108,7 +6082,8 @@ def _check_record_cohort(output, *, release=False, visual_receipt=None):
         ]
         for path in (output / "zh").glob("*.html"):
             soup = BeautifulSoup(read_html(path), "html.parser")
-            actual_navigation = [(a.get("href"), a.get_text()) for a in soup.select("nav a")]
+            actual_navigation = [(a.get("href"), a.get_text())
+                                 for a in soup.select(".shell-links a, .shell-more a")]
             if actual_navigation != expected_navigation:
                 raise ValueError("Record navigation differs from its declared reader routes")
     views = manifest.get("public_evidence_views", [])

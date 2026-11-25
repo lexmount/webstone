@@ -94,7 +94,8 @@ def test_bundle_check_keeps_verifying_bundles_built_before_the_template(tmp_path
     for page in VARIANT.pages:
         path = reports / page.route
         text = path.read_text(encoding="utf-8")
-        start, end = text.index("<nav>"), text.index("</nav>") + len("</nav>")
+        start = text.index('<header class="shell-top"')
+        end = text.index("</header>") + len("</header>")
         path.write_text(text[:start] + legacy_nav(page.key) + text[end:], encoding="utf-8")
     assert check_report_bundle(staged)["pages"] == 6
     home = reports / VARIANT.pages[0].route

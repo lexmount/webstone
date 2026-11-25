@@ -150,16 +150,16 @@ def test_header_speaks_the_page_language_and_theme_toggle_exposes_state(tmp_path
     create(output, mode=mode)
     route = "zh/index.html"
     page = BeautifulSoup((output / route).read_text(encoding="utf-8"), "html.parser")
-    assert page.select_one("header .eyebrow").get_text() == "Web Extract · 结构化字段提取"
-    toggle = page.select_one("#theme")
-    assert toggle["aria-pressed"] == "false" and toggle["aria-label"] == "切换主题：深色模式"
+    assert page.select_one(".page-head .eyebrow").get_text() == "Web Extract · 结构化字段提取"
+    toggle = page.select_one("header.shell-top [data-shell-theme]")
+    assert toggle["aria-pressed"] == "false" and toggle["aria-label"] == "深色主题"
     original = (output / route).read_text(encoding="utf-8")
     for broken in (
         original.replace("Web Extract · 结构化字段提取", "WEB EXTRACT / STRUCTURED EXTRACTION"),
         original.replace(' aria-pressed="false"', ""),
     ):
         rebind(output, route, lambda _, broken=broken: broken)
-        with pytest.raises(ValueError, match="accessible theme toggle"):
+        with pytest.raises(ValueError, match="eyebrow must be localized|theme control"):
             _check_rendered_report(output)
 
 

@@ -1,6 +1,5 @@
 
 
-document.querySelector('[data-theme]').onclick=()=>{document.body.className=document.body.className==='dark'?'light':'dark'};
 document.querySelectorAll('table[data-sort-controls]').forEach(table=>{
   const original=new Map([...table.tBodies[0].rows].map((row,index)=>[row,index]));
   function value(cell){

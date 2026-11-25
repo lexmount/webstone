@@ -153,7 +153,8 @@ def _check_interpretation(
             # Template-era pages carry the interpretation link among the template pages;
             # earlier reports injected it into their own header.
             if page.select_one("main[data-page-role]") is not None:
-                links = page.select('body > nav > .pages a[href$="interpretation.html"]')
+                links = page.select('.shell-links a[href$="interpretation.html"], '
+                                    'body > nav > .pages a[href$="interpretation.html"]')
             elif page.select_one("header.top nav") is not None:
                 links = page.select("header.top nav a[data-report-interpretation]")
             else:

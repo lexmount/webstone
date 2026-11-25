@@ -69,9 +69,9 @@ def test_population_scopes_use_each_editions_separator(report, tmp_path):
     home = BeautifulSoup((output / "index.html").read_text(encoding="utf-8"), "html.parser")
     assert "\uff1b" in home.select_one("[data-populations] > .population-note").get_text()
     english = output / "en/index.html"
-    assert "fixture-0 1 queries; fixture-1 1 queries" in english.read_text(encoding="utf-8")
+    assert "fixture-0 1 query; fixture-1 1 query" in english.read_text(encoding="utf-8")
     assert check(output)
-    _tamper(english, "fixture-0 1 queries; fixture-1", "fixture-0 1 queries\uff1bfixture-1")
+    _tamper(english, "fixture-0 1 query; fixture-1", "fixture-0 1 query\uff1bfixture-1")
     with pytest.raises(ValueError, match="Chinese punctuation"):
         check(output)
 

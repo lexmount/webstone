@@ -2,11 +2,11 @@
 import ast
 import json
 import re
-import string
 from pathlib import Path
 
 import pytest
 
+from harness.reporting.locales import placeholders
 from harness.web_search.benchmarks import catalog_keys
 from harness.web_search.messages import report_text, zh_text
 from harness.web_search.template import TEMPLATE
@@ -35,7 +35,7 @@ def _lookups():
 
 
 def _fields(template):
-    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
+    return placeholders(template)
 
 
 def test_every_lookup_is_a_literal_catalog_key_and_every_key_is_used():

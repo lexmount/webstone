@@ -13,13 +13,16 @@ async function loadSavedPage(){
    const doc=new DOMParser().parseFromString(text,'text/html');
    document.documentElement.lang=doc.documentElement.lang;
    document.title=doc.title;
-   document.querySelector('nav').replaceWith(doc.querySelector('nav'));
+   document.querySelector('header.shell-top').replaceWith(doc.querySelector('header.shell-top'));
    document.querySelector('main').replaceWith(doc.querySelector('main'));
    document.querySelector('dialog').replaceWith(doc.querySelector('dialog'));
    rewriteLinks(document);
    const script=document.createElement('script');
-   script.textContent='{'+doc.querySelector('script').textContent+'}';
+   // The page's own script closes its body; the shared shell script stays in the head.
+   script.textContent='{'+[...doc.querySelectorAll('body > script')].pop().textContent+'}';
    document.body.appendChild(script);
+   // The shared shell marks wide tables once the saved page is in place.
+   window.dispatchEvent(new Event('report-ready'));
    if(anchor)requestAnimationFrame(()=>document.getElementById(anchor)?.scrollIntoView());
   }else{
    let formatted=text;try{formatted=JSON.stringify(JSON.parse(text),null,2)}catch{}

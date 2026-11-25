@@ -3,11 +3,11 @@
 import ast
 import json
 import re
-import string
 from pathlib import Path
 
 from harness.browser_use import report as report_module
 from harness.browser_use.report_i18n import MESSAGES
+from harness.reporting.locales import placeholders
 from harness.reporting.source_policy import HAN
 
 RENDERERS = ("report.py", "report_check.py")
@@ -30,7 +30,7 @@ def _lookups():
 
 
 def _fields(template: str) -> set[str]:
-    return {field for _, field, _, _ in string.Formatter().parse(template) if field}
+    return placeholders(template)
 
 
 def test_every_lookup_has_a_semantic_id_and_literal_english_source() -> None:

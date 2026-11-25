@@ -119,6 +119,8 @@ from harness.web_fetch.report_methods import render_methods
 from harness.web_fetch.report_quality import render_quality_observations
 from harness.web_fetch.report_reading import render_archived_reading
 from harness.web_fetch.report_resources import render_resource_comparison
+from harness.reporting import shell
+from harness.reporting.locales import plural
 from harness.reporting.style import STYLE
 from harness.web_fetch.report_style import asset_text
 from harness.web_fetch.result_ledger import validate_ledger
@@ -181,7 +183,7 @@ def provider_page_body(name,records,cases,headers,tracks,*,native_default=False,
  body=hero(field('title'),field('contract'), ctx=ctx)+section(t('measured_configuration', 'Measured configuration'),configuration)
  body+=section(t('method_resources', 'Method resources'),'<p class="actions">'+link('../adoption/index.html#'+model['pricing_anchor'],t('pricing_billing', 'Pricing & billing →'))+link('../adoption/index.html#interface-'+name,t('interfaces_examples', 'Interfaces & examples →'))+'</p>')
  return body+section(t('execution_records', '{count} execution records', count=len(records)),inventory(controls+table(headers,[attempt_row(r,cases[r['case_id']],diagnose=True, ctx=ctx) for r in records],'filtered-table')),'all-results')
-JS=asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('script'))+explorer.INVENTORY_SCRIPT
+JS=shell.SCRIPT+asset_text('report.js').replace('/*mermaid-script-attributes*/',mermaid_script_attributes('script'))+explorer.INVENTORY_SCRIPT
 EXTRA=asset_text('report-extra.css')+explorer.INVENTORY_STYLE
 
 def readable_output(s):
@@ -448,7 +450,8 @@ def comparative_rows(rows, directions, *, ctx):
    value=float(match.group(1)) if match else None
    values.append(value if value is not None and value>=0 else None)
   valid=[v for v in values if v is not None]
-  extreme=(max(valid) if direction=='max' else min(valid)) if valid else None
+  # A highlight needs a contest: at least two available values.
+  extreme=(max(valid) if direction=='max' else min(valid)) if len(valid)>1 else None
   numbers[index]=(values,extreme,valid.count(extreme)==1)
  result=[]
  for row_number,((attrs,values),cells) in enumerate(zip(rows,matches,strict=True)):
@@ -470,13 +473,13 @@ def table(headers,rows,id='',sortable=False,cls='',metrics=None,index_header=t('
  body=''.join(f'<tr{attrs}>'+ ((f'<td data-rank="{rank_values[i]}">{rank_values[i]}</td>' if rank_values is not None else f'<td>{i+1}</td>') if include_index else '')+f'{values}</tr>' for i,(attrs,values) in enumerate(rows))
  sort_attrs=(f' data-col="{default_sort[0]}" data-dir="{default_sort[1]}"' if default_sort else '')
  if not include_index:sort_attrs+=' data-row-index="false"'
+ else:sort_attrs+=' data-no-sticky'
  return metric_legend(headers if metrics is None else metrics)+f'<div class="table-wrap"><table class="{cls}"'+(f' id="{id}"' if id else '')+sort_attrs+f'><thead><tr>{head}</tr></thead><tbody'+(' id="rows"' if id=='filtered-table' else '')+f'>{body}</tbody></table></div>'
 def write(out,path,title,body,*,root_links=False,show_language=True, ctx):
  depth=len(Path(path).parts)-1;base='../'*depth
  document_base='<base href="'+(base or './')+'">' if root_links else ''
  if root_links:base=''
  nav=[('datasets/index.html',t('dataset', 'Dataset')),('methodology/index.html',t('methodology', 'Methodology')),('analysis/index.html',t('analysis', 'Analysis')),('review/index.html',t('review_record', 'Review record')),('guide/index.html',t('interpretation', 'Interpretation')),('adoption/index.html',t('methods', 'Methods')),('reproduce/index.html',t('reproduction', 'Reproduction')),('changes/index.html',t('changelog', 'Changelog')),('accounts/index.html',t('access_setup', 'Access & setup'))]
- brand=link(base+'index.html','Web Fetch')
  context=ctx
  if context.score_audit and path.startswith('attempts/'):
   identifier=Path(path).stem
@@ -484,7 +487,7 @@ def write(out,path,title,body,*,root_links=False,show_language=True, ctx):
   if reviewed:
    body+=section(t('acceptance_basis', 'Acceptance basis'),('<div data-score-audit><dl class="diagnostic-fields"><dt>' + t('acceptance_requirement', 'Acceptance requirement') + f"</dt><dd>{esc(reviewed['requirement'])}</dd><dt>" + t('actual_output', 'Actual output') + f"</dt><dd>{esc(reviewed['actual'])}</dd></dl><p>{link('../audit/index.html#' + identifier, t('view_sources_and_judgment_basis', 'View sources and judgment basis'))}</p></div>"))
  counterpart=(base+'en/'+path if context.english_generated else base+'en/index.html')
- language=f'<a href="{safe_href(counterpart)}" hreflang="en">English</a>' if show_language else ''
+ switch=(esc(safe_href(counterpart)),'en') if show_language else None
  footer=t('all_scores_are_computed_from_the_recorded', 'All scores are computed from the recorded calls. Web pages and services may change; conclusions apply only to this sample and configuration.')
  evidence_attr=' data-evidence-state="published_snapshot_score_audit"' if context.score_audit else ''
  if context.score_audit:footer=link(base+'methodology/index.html',t('methodology', 'Methodology'))+' · '+link(base+'changes/index.html',t('version_records', 'Version records'))
@@ -507,7 +510,7 @@ def write(out,path,title,body,*,root_links=False,show_language=True, ctx):
   hero_end=0 if title_end<0 else title_end+len('</h1>')
   if hero_end and body.startswith('<p',hero_end):hero_end=body.find('</p>',hero_end)+len('</p>')
  lead_body=body[:hero_end]+banner+scope_note+body[hero_end:]
- page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{''.join((link(base + url, label) for url, label in nav))}{language}<button class="theme-toggle" onclick="theme()">''' + t('toggle_theme', 'Toggle theme') + f'</button></nav></header><main{role_attribute(path)}{evidence_attr}>{lead_body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
+ page=(f'''<!doctype html><html lang="zh-CN"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{document_base}<title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css?v={hashlib.sha256((STYLE + EXTRA).encode()).hexdigest()[:16]}"><script src="{base}assets/report.js" defer></script>{shell.HEAD_SCRIPT}</head><body>''' + shell.header(language='zh', brand='Web Fetch', home=esc(safe_href(base+'index.html')), links=[(url, esc(label)) for url, label in nav], current=path, back=base, switch=switch) + f'<main{role_attribute(path)}{evidence_attr}>{lead_body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>')
  target=contained_path(out,path);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
 _RESEARCH_ROUTES=[
@@ -691,13 +694,11 @@ def _research_hero(title,desc,english=False):
 def _research_write(out,path,title,body,english=False):
  local_path=('en/'+path) if english else path
  depth=len(Path(local_path).parts)-1;base='../'*depth
- nav=''.join(link(base+('en/' if english else '')+url,en if english else zh) for url,zh,en in _RESEARCH_ROUTES)
- brand=link(base+('en/index.html' if english else 'index.html'),'Web Fetch')
  counterpart=base+path if english else base+'en/'+path
- language=f'''<a href="{safe_href(counterpart)}" hreflang="{('zh-CN' if english else 'en')}">{('中文' if english else 'English')}</a>'''
+ header=shell.header(language='en' if english else 'zh', brand='Web Fetch', home=esc(safe_href(base+('en/index.html' if english else 'index.html'))), links=[(esc(safe_href(base+('en/' if english else '')+url)), esc(en if english else zh)) for url,zh,en in _RESEARCH_ROUTES], current=esc(safe_href(base+('en/' if english else '')+path)), switch=(esc(safe_href(counterpart)), 'zh' if english else 'en'))
  status=(report_text('en' if english else 'zh')('research_edition_0_measured_results', 'Research edition · 0 measured results'))
  footer=(report_text('en' if english else 'zh')('research_was_verified_from_public_papers_repositories', 'Research was verified from public papers, repositories, datasets and scorers. No benchmark result is claimed in this edition.'))
- page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script></head><body><header class="top"><nav class="wrap">{brand}{nav}{language}<button class="theme-toggle" onclick="theme()">{report_text('en' if english else 'zh')('toggle_theme', 'Theme')}</button></nav></header><main{role_attribute(path)}><div class="wrap reliability" role="status"><strong>{status}</strong></div>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
+ page=f'''<!doctype html><html lang="{('en' if english else 'zh-CN')}"><head><meta name="webstone-report" content="1"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)} · Web Fetch</title><link rel="stylesheet" href="{base}assets/style.css"><script src="{base}assets/report.js" defer></script>{shell.HEAD_SCRIPT}</head><body>{header}<main{role_attribute(path)}><div class="wrap reliability" role="status"><strong>{status}</strong></div>{body}</main><footer class="wrap source-note"><p>{footer}</p></footer></body></html>'''
  target=contained_path(out,local_path);target.parent.mkdir(parents=True,exist_ok=True);target.write_text(page,encoding='utf-8')
 
 def _research_pages(out:Path,research:dict,*,include_english:bool=False):
@@ -742,7 +743,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   datasets+=section('WCEB '+h('composition', 'composition'),research_table([h('subset', 'Subset'),h('pages_3', 'Pages')],[('',cell(esc(name))+cell(f'{count:,}')) for name,count in subsets],metrics=[])+f"<p>{h('total', 'Total')}: <b>{sum((x[1] for x in subsets)):,}</b></p>")
   wcxb=next(x for x in direct if x['id']=='wcxb')
   development_pages,test_pages=wcxb['repository_audit']['development_html'],wcxb['repository_audit']['test_html']
-  datasets+=section('WCXB '+h('stratification', 'stratification'),f"<p>{h('the_development_split_has_pages_and_the', 'The development split has {development_pages:,} pages and the test split {test_pages:,}; HTML and ground truth were verified present for both.', development_pages=development_pages, test_pages=test_pages)}</p><p>{h('page_types', 'Page types: ')}"+esc(', '.join(wcxb['page_types']))+'</p>')
+  datasets+=section('WCXB '+h('stratification', 'stratification'),f"<p>{h('the_development_split_has_pages_and_the', 'The development split has {development_pages:,} {development_pages|page|pages} and the test split {test_pages:,}; HTML and ground truth were verified present for both.', development_pages=development_pages, test_pages=test_pages)}</p><p>{h('page_types', 'Page types: ')}"+esc(', '.join(wcxb['page_types']))+'</p>')
   frozen=research.get('frozen_sample')
   if frozen:
    distribution_rows=[]
@@ -767,12 +768,12 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   _research_write(out,'methodology/index.html',h('methodology', 'Methodology'),method,english)
 
   analysis=_research_hero(h('research_findings', 'Research findings'),h('direct_public_benchmarks_exist_but_none_jointly', 'Direct public benchmarks exist, but none jointly isolate live access success and extraction quality.'),english)
-  analysis+=section(h('smallest_complete_design', 'Smallest complete design'),f"<p>{esc(research['decision']['summary_en' if english else 'summary_zh'])}</p><p>{h('the_public_set_freezes_html_and_answers', 'The public set freezes HTML and answers extraction/Markdown fidelity on identical input; the current {current_cases} cases continue to answer end-to-end URL-to-output capability.', current_cases=current_cases)}</p>")
+  analysis+=section(h('smallest_complete_design', 'Smallest complete design'),f"<p>{esc(research['decision']['summary_en' if english else 'summary_zh'])}</p><p>{h('the_public_set_freezes_html_and_answers', 'The public set freezes HTML and answers extraction/Markdown fidelity on identical input; the current {current_cases} {current_cases|case|cases} continue to answer end-to-end URL-to-output capability.', current_cases=current_cases)}</p>")
   limitations='<ul>'+''.join('<li>'+esc(x)+'</li>' for x in wcxb['limitations' if english else 'limitations_zh'])+'</ul>'
   analysis+=section('WCXB '+h('audit_and_disposition', 'audit and disposition'),f'<p>{esc(field(wcxb,"disposition"))}</p>'+limitations)
   current=research['current_benchmark']
   track_text=' · '.join(f'{name} {count}' for name,count in current['tracks'].items())
-  analysis+=section(h('relationship_to_the_current_cases', 'Relationship to the current {current_cases} cases', current_cases=current_cases),f'<p><b>{esc(track_text)}</b></p><p>{esc(field(current,"measures"))}</p><p>{esc(field(current,"difference"))}</p>')
+  analysis+=section(h('relationship_to_the_current_cases', 'Relationship to the current {current_cases} {current_cases|case|cases}', current_cases=current_cases),f'<p><b>{esc(track_text)}</b></p><p>{esc(field(current,"measures"))}</p><p>{esc(field(current,"difference"))}</p>')
   fusion_rows=[('',cell(esc(field(x,'layer')))+cell(esc(field(x,'keep')))) for x in research['fusion_plan']]
   analysis+=section(h('fuse_process_and_diagnostics_not_scores', 'Fuse process and diagnostics, not scores'),research_table([h('layer', 'Layer'),h('decision_2', 'Decision')],fusion_rows,metrics=[]))
   analysis+=section(h('what_stays_outside_the_main_leaderboard', 'What stays outside the main leaderboard'),f"<p>{h('webarena_mind2web_webvoyager_and_browsecomp_matter_for', 'WebArena, Mind2Web, WebVoyager and BrowseComp matter for browser/search systems, but score actions, task completion or research QA and cannot attribute differences to the fetch layer.')}</p>")
@@ -793,7 +794,7 @@ def _research_pages(out:Path,research:dict,*,include_english:bool=False):
   _research_write(out,'review/index.html',h('review_record', 'Verification'),review,english)
 
   guide=_research_hero(h('interpretation', 'Guide'),h('this_edition_answers_what_to_test_not', 'This edition answers what to test, not which method wins.'),english)
-  guide+=section(h('reading_order', 'Reading order'),f"""<div class="guide-grid"><article class="guide-card"><h3>1 · {h('selection', 'Selection')}</h3><p>{h('see_why_webmainbench_545_is_the_sole')}</p></article><article class="guide-card"><h3>2 · {h('sampling', 'Sampling')}</h3><p>{h('see_how_cases_cover_official_categories', 'See how {sample_size} cases cover official categories.', sample_size=sample_size)}</p></article><article class="guide-card"><h3>3 · {h('adoption_2', 'Adoption')}</h3><p>{h('separate_execution_integration_and_mere_mentions', 'Separate execution, integration and mere mentions.')}</p></article><article class="guide-card"><h3>4 · {h('measurement', 'Measurement')}</h3><p>{h('rank_only_after_complete_denominators_and_review', 'Rank only after complete denominators and review.')}</p></article></div>""")
+  guide+=section(h('reading_order', 'Reading order'),f"""<div class="guide-grid"><article class="guide-card"><h3>1 · {h('selection', 'Selection')}</h3><p>{h('see_why_webmainbench_545_is_the_sole')}</p></article><article class="guide-card"><h3>2 · {h('sampling', 'Sampling')}</h3><p>{h('see_how_cases_cover_official_categories', 'See how {sample_size} {sample_size|case|cases} cover official categories.', sample_size=sample_size)}</p></article><article class="guide-card"><h3>3 · {h('adoption_2', 'Adoption')}</h3><p>{h('separate_execution_integration_and_mere_mentions', 'Separate execution, integration and mere mentions.')}</p></article><article class="guide-card"><h3>4 · {h('measurement', 'Measurement')}</h3><p>{h('rank_only_after_complete_denominators_and_review', 'Rank only after complete denominators and review.')}</p></article></div>""")
   _research_write(out,'guide/index.html',h('interpretation', 'Guide'),guide,english)
 
   adoption=_research_hero(h('adoption', 'Adoption'),h('adoption_is_evidenced_by_papers_executable_benchmark', 'Adoption is evidenced by papers, executable benchmark repositories and framework integrations; stars are context only.'),english)
@@ -884,14 +885,14 @@ def overview_card(records,cases,track,label,names,*,diagnostic=False, ctx):
  rates={n:sum(succeeded(r,cases[r['case_id']], ctx=ctx) for r in eligible if r['provider']==n)/sum(r['provider']==n for r in eligible) for n in names if any(r['provider']==n for r in eligible)}
  maximum=max(rates.values(),default=None)
  winners='、'.join(provider_label(n, ctx=ctx) for n in names if rates.get(n)==maximum) if maximum else t('no_passing_tasks_in_this_run', 'No passing tasks in this run') if rates else t('no_call_records_yet', 'No call records yet')
- return ('<div class="card"><div class="eyebrow">' + t('tasks_2', '{count} tasks', count=len(selected)) + f"</div><h3>{link('#home-rankings-' + track, label)}</h3><p>" + t('best_in_family', 'Best in family:') + f'<b>{pct(maximum)}</b></p><p>{esc(winners)}</p></div>')
+ return ('<div class="card"><div class="eyebrow">' + t('tasks_2', '{count} {count|task|tasks}', count=len(selected)) + f"</div><h3>{link('#home-rankings-' + track, label)}</h3><p>" + t('best_in_family', 'Best in family:') + f'<b>{pct(maximum)}</b></p><p>{esc(winners)}</p></div>')
 
 def review_summary(out, prefix='', *, highlight=True):
  path=out/'result-review.json'
  if not path.is_file():return ''
  audit=json.loads(path.read_text(encoding='utf-8'))
  if audit.get('review_protocol',{}).get('machine_judgments_withheld') is False:
-  return '<p class="callout">'+t('known_outcome_audit_scope', 'Evidence audit with known machine outcomes: {reviewed}/{total} results; {unreviewed} machine passes were not individually reviewed.', reviewed=audit.get('reviewed_attempts',0),total=audit.get('total_attempts',0),unreviewed=audit.get('accepted_unreviewed_passes',0))+' '+link(prefix+'review/index.html',t('view_review_rounds', 'View review rounds →'))+'</p>'
+  return '<p class="callout">'+t('known_outcome_audit_scope', 'Evidence audit with known machine outcomes: {reviewed}/{total} {total|result|results}; {unreviewed} machine passes were not individually reviewed.', reviewed=audit.get('reviewed_attempts',0),total=audit.get('total_attempts',0),unreviewed=audit.get('accepted_unreviewed_passes',0))+' '+link(prefix+'review/index.html',t('view_review_rounds', 'View review rounds →'))+'</p>'
  if audit.get('retained_reviews'):
   mode_note = (model_text(*pair('this_round_checked_evidence_with_known_machine', ' This round checked evidence with known machine outcomes; it was not an independent blind review.')) if audit.get('review_protocol',{}).get('blind_initial_verdict') is False else '')
   if audit.get('review_protocol',{}).get('fresh_blind_initial_verdict') is True:
@@ -1129,7 +1130,7 @@ def stable_answer_panel(contract):
  return (f'{note}<div class="answer-list"{scroll}><div class="answer-item"><b>' + t('structure_requirements', 'Structure requirements') + f"</b><blockquote>{esc(count)}</blockquote></div>{''.join(items)}</div>")
 
 def required_text_answer_panel(case):
- items=[('<div class="answer-item"><b>' + t('body_length_requirement', 'Body length requirement') + '</b><blockquote>' + t('at_least_characters', 'At least {get:,} characters', get=case.get('min_content_chars', 1)) + '</blockquote></div>')]
+ items=[('<div class="answer-item"><b>' + t('body_length_requirement', 'Body length requirement') + '</b><blockquote>' + t('at_least_characters', 'At least {get:,} {get|character|characters}', get=case.get('min_content_chars', 1)) + '</blockquote></div>')]
  for index,fact in enumerate(case.get('required_facts',[]),1):
   text=('\n<span>' + t('or', 'or') + '</span>\n').join(f'<span translate="no">{esc(value)}</span>' for value in fact.get('alternatives',[]))
   items.append(('<div class="answer-item"><b>' + t('required_text_group_any_alternative_may_match', 'Required text group {index} (any alternative may match)', index=index) + f'</b><blockquote>{text}</blockquote></div>'))
@@ -1177,7 +1178,7 @@ def composite_result_evidence(metrics):
   payload={key:result[key] for key in ('records','literal_results','fixed_value_results') if result.get(key)}
   if payload:
    details.append((f"<details><summary>{esc(result['id'])} " + t('parsing_result', ' parsing result') + f'</summary><pre data-kind="metadata">{esc(json.dumps(payload, ensure_ascii=False, indent=2))}</pre></details>'))
- return (('<div class="decision-lead"><b>' + t('combined_rule_result', 'Combined-rule result:') + '</b>' + t('each_group_is_checked_independently_entries_from', 'Each group is checked independently; entries from another list cannot fill a gap, and fields from different entries cannot be joined.') + f"</div>{table([t('rule_group', 'Rule group'), t('check_type', 'Check type'), t('valid_entries', 'Valid entries'), t('at_least', 'At least'), t('verdict', 'Verdict')], rows, metrics=[])}{''.join(details)}"))
+ return (('<div class="decision-lead"><b>' + t('combined_rule_result', 'Combined-rule result:') + '</b> ' + t('each_group_is_checked_independently_entries_from', 'Each group is checked independently; entries from another list cannot fill a gap, and fields from different entries cannot be joined.') + f"</div>{table([t('rule_group', 'Rule group'), t('check_type', 'Check type'), t('valid_entries', 'Valid entries'), t('at_least', 'At least'), t('verdict', 'Verdict')], rows, metrics=[])}{''.join(details)}"))
 
 def _stable_field_comparison(metrics,item):
  """Find the closest parsed record for a structured anchor, for display only."""
@@ -1213,8 +1214,8 @@ def _quote_field_issue(metrics):
   compact+=bool(left and left==right)
  contaminated=len(comparisons)-compact
  parts=[t('quotes_and_authors_of_failed_checks_match', 'Quotes and authors of {count} failed checks match the reference', count=len(comparisons))]
- if compact:parts.append(t('records_have_complete_tag_text_but_no', '{compact} records have complete tag text but no readable separator between tags', compact=compact))
- if contaminated:parts.append(t('records_have_tag_fields_mixed_with_extra', '{contaminated} records have tag fields mixed with extra text or missing text', contaminated=contaminated))
+ if compact:parts.append(t('records_have_complete_tag_text_but_no', '{compact} {compact|record|records} {compact|has|have} complete tag text but no readable separator between tags', compact=compact))
+ if contaminated:parts.append(t('records_have_tag_fields_mixed_with_extra', '{contaminated} {contaminated|record|records} {contaminated|has|have} tag fields mixed with extra text or missing text', contaminated=contaminated))
  return (f"{'；'.join(parts)}" + t('the_task_requires_the_tag_list_to', '. The task requires the tag list to keep field boundaries, so it still fails'))
 
 def _returned_answer_fields(metadata):
@@ -1372,7 +1373,7 @@ def stable_failure_summary(metrics):
  minimum=metrics.get('stable_minimum_records')
  complete=metrics.get('stable_unique_record_count')
  if isinstance(minimum,int) and isinstance(complete,int) and complete < minimum:
-  parts.append(t('only_records_are_both_complete_and_non', 'Only {complete} records are both complete and non-duplicate, fewer than the required {minimum}', complete=complete, minimum=minimum))
+  parts.append(t('only_records_are_both_complete_and_non', 'Only {complete} {complete|record|records} {complete|is|are} both complete and non-duplicate, fewer than the required {minimum}', complete=complete, minimum=minimum))
  quote_issue=_quote_field_issue(metrics)
  if quote_issue:return quote_issue
  missing=[]
@@ -1556,7 +1557,7 @@ def ranking(records,cases,track,base='',id=None,compact=False,audit=None,*,diagn
    if c.get('task_kind')=='structure' and not c.get('acceptance_contract')))
   if identity_rules:note+=' '+esc(' '.join(identity_rules))
   note+=(' ' + t('required_text_coverage_measures_only_registered_required', 'Required-text coverage measures only registered required-text groups; it is not full-text recall. Tasks without text evidence are excluded from that average.'))
-  if text_scopes and len(set(text_scopes.values()))==1:note+=(' ' + t('required_text_coverage_tasks_for_every_method', 'Required-text coverage: {count}/{count2} tasks for every method.', count=len(next(iter(text_scopes.values()))), count2=len(selected)))
+  if text_scopes and len(set(text_scopes.values()))==1:note+=(' ' + t('required_text_coverage_tasks_for_every_method', 'Required-text coverage: {count}/{count2} {count2|task|tasks} for every method.', count=len(next(iter(text_scopes.values()))), count2=len(selected)))
   elif text_scopes:note+=(' ' + t('text_check_coverage_differs_by_method_see', 'Text-check coverage differs by method; see the coverage below.'))
   if track=='challenge':note+=(' ' + t('lists_stable_field_labels_and_descriptions_are', 'Lists, stable field labels, and descriptions are judged together; title-text quality is only a supporting diagnostic below.'))
   if track=='dynamic':note+=(' ' + t('legacy_snapshot_text_scores_containing_excluded_volatile', "Legacy snapshot-text scores containing excluded volatile fields remain in attempt details and are excluded from this table's full-text averages."))
@@ -1590,7 +1591,7 @@ def ranking(records,cases,track,base='',id=None,compact=False,audit=None,*,diagn
 def matched_latency(groups,cases,base, *, ctx):
  scopes=[{r['case_id'] for r in rows if succeeded(r,cases[r['case_id']], ctx=ctx)} for rows in groups.values()]
  common=set.intersection(*scopes) if scopes else set()
- note=t('the_evaluated_methods_jointly_pass_tasks_latency', 'The evaluated methods jointly pass {count} tasks. Latency is compared only on this identical subset; it does not represent the cost of failed tasks or a production SLA.', count=len(common))
+ note=t('the_evaluated_methods_jointly_pass_tasks_latency', 'The evaluated methods jointly pass {count} {count|task|tasks}. Latency is compared only on this identical subset; it does not represent the cost of failed tasks or a production SLA.', count=len(common))
  rows=[]
  if common:
   for provider, records in sorted(groups.items()):
@@ -1615,7 +1616,7 @@ def overview_all_call_latency(records,cases, *, ctx):
   times=[r['elapsed_ms'] for r in records if r['provider']==name]
   rows.append(('',cell(link('providers/'+name+'.html',provider_label(name, ctx=ctx),browser_method_label(name,language='en', ctx=ctx)))+cell(str(len(times)))+
                cell(ms(statistics.mean(times)))+cell(ms(percentile(times,.5)))+cell(ms(percentile(times,.95)))))
- return ('<p>'+model_text(*pair('each_method_uses_the_same_tasks_including', 'Each method uses the same {count} tasks, including passes, failures, errors and timeouts. Latency covers one call from input to output, excluding cooldown intervals between calls. Each method executes cases sequentially; method concurrency and limits are documented in the call-chain audit. Local/remote execution, network conditions and native product limits still affect latency.', count=len(cases)))+'</p>'+
+ return ('<p>'+model_text(*pair('each_method_uses_the_same_tasks_including', 'Each method uses the same {count} {count|task|tasks}, including passes, failures, errors and timeouts. Latency covers one call from input to output, excluding cooldown intervals between calls. Each method executes cases sequentially; method concurrency and limits are documented in the call-chain audit. Local/remote execution, network conditions and native product limits still affect latency.', count=len(cases)))+'</p>'+
          table([t('method', 'Method'),t('calls', 'Calls'),t('all_call_mean', 'All-call mean'),t('all_call_p50', 'All-call P50'),t('all_call_p95', 'All-call P95')],rows,'all-call-latency-table',metrics=[]))
 
 
@@ -1648,7 +1649,7 @@ def overview_matched_latency(records,cases, *, ctx):
  for row in population['rows']:
   observed=row['recorded_start_dates']
   if observed:
-   dates.append(model_text(provider_label(row['provider'], ctx=ctx),browser_method_label(row['provider'],language="en", ctx=ctx))+model_text('：'+'、'.join(f'{date}（{number} 题）' for date,number in observed.items()),': '+', '.join(f'{date} ({number} tasks)' for date,number in observed.items())))
+   dates.append(model_text(provider_label(row['provider'], ctx=ctx),browser_method_label(row['provider'],language="en", ctx=ctx))+model_text('：'+'、'.join(f'{date}（{number} 题）' for date,number in observed.items()),': '+', '.join(f'{date} ({number} {plural(number, "task", "tasks")})' for date,number in observed.items())))
  links='、'.join(link('datasets/'+cid+'.html',cases[cid].get('name',cid)) for cid in population['common_pass_cases'])
  content=((f"{note}{table([t('method', 'Method'), t('mean_on_shared_tasks', 'Mean on shared tasks'), t('p50_on_shared_tasks', 'P50 on shared tasks'), t('p95_on_shared_tasks', 'P95 on shared tasks')], rows, 'overall-matched-latency-table', metrics=[], include_index=False)}<details><summary>" + t('shared_tasks_and_call_dates', 'Shared tasks and call dates') + f"</summary><p>{links}</p><p>{'<br>'.join(dates)}</p></details>"))
  return ('<details class="ranking-metric-help"><summary>' + t('view_shared_pass_latency_on_demand', 'View shared-pass latency on demand') + f'</summary>{content}</details>')
@@ -1673,13 +1674,13 @@ def title_diagnostics(groups,selected,base,identifier):
    values+=cell(pct(value),value if value is not None else -1)
   count=sum(r.get('title_quality',{}).get('scored_titles',0) for r in rs)
   total=sum(r.get('title_quality',{}).get('returned_titles',0) for r in rs)
-  coverage=t('tasks_3', '{count}/{total} · {count2}/{count3} tasks', count=count, total=total, count2=len({r['case_id'] for r in measured}), count3=len(selected))
+  coverage=t('tasks_3', '{count}/{total} · {count2}/{count3} {count3|task|tasks}', count=count, total=total, count2=len({r['case_id'] for r in measured}), count3=len(selected))
   if not measured:coverage+=t('no_scorable_titles', ' (no scorable titles)')
   rows.append(('',values+cell(coverage)))
  returned=sum(r.get('title_quality',{}).get('returned_titles',0) for rs in groups.values() for r in rs)
  scored=sum(r.get('title_quality',{}).get('scored_titles',0) for rs in groups.values() for r in rs)
  cases_scored=len({r['case_id'] for rs in groups.values() for r in rs if r.get('title_quality',{}).get('f1') is not None})
- steps=(('<ol class="quality-steps"><li><b>' + t('identify_returned_records', 'Identify returned records') + '</b><span>' + t('read_titles_and_detail_urls_from_structured', 'Read titles and detail URLs from structured results: {returned} returned titles.', returned=returned) + '</span></li><li><b>' + t('join_references_by_detail_url', 'Join references by detail URL') + '</b><span>' + t('titles_join_to_independent_name_evidence_titles', '{scored}/{returned} titles join to independent name evidence; titles without matching evidence are not scored.', scored=scored, returned=returned) + '</span></li><li><b>' + t('compare_title_text', 'Compare title text') + '</b><span>' + t('calculate_title_recall_precision_and_f1_separately', 'Calculate title recall, precision, and F1 separately; formatting marks are not title content.') + '</span></li><li><b>' + t('aggregate_comparable_results', 'Aggregate comparable results') + '</b><span>' + t('coverage_tasks_this_is_a_title_diagnostic', 'Coverage: {cases_scored}/{count} tasks. This is a title diagnostic and does not determine task acceptance.', cases_scored=cases_scored, count=len(selected)) + '</span></li></ol>'))
+ steps=(('<ol class="quality-steps"><li><b>' + t('identify_returned_records', 'Identify returned records') + '</b><span>' + t('read_titles_and_detail_urls_from_structured', 'Read titles and detail URLs from structured results: {returned} returned titles.', returned=returned) + '</span></li><li><b>' + t('join_references_by_detail_url', 'Join references by detail URL') + '</b><span>' + t('titles_join_to_independent_name_evidence_titles', '{scored}/{returned} titles join to independent name evidence; titles without matching evidence are not scored.', scored=scored, returned=returned) + '</span></li><li><b>' + t('compare_title_text', 'Compare title text') + '</b><span>' + t('calculate_title_recall_precision_and_f1_separately', 'Calculate title recall, precision, and F1 separately; formatting marks are not title content.') + '</span></li><li><b>' + t('aggregate_comparable_results', 'Aggregate comparable results') + '</b><span>' + t('coverage_tasks_this_is_a_title_diagnostic', 'Coverage: {cases_scored}/{count} {count|task|tasks}. This is a title diagnostic and does not determine task acceptance.', cases_scored=cases_scored, count=len(selected)) + '</span></li></ol>'))
  return (('<details class="ranking-metric-help"><summary>' + t('title_text_quality_method_and_results', 'Title-text quality · method and results') + '</summary><p>' + t('this_diagnostic_asks_whether_titles_that_were', 'This diagnostic asks whether titles that were returned are complete and clean. It does not measure list recall, freshness, or whole-page body quality.') + f"</p>{steps}{table([t('method', 'Method'), t('title_recall', 'Title recall'), t('title_precision', 'Title precision'), t('title_f1', 'Title F1'), t('title_reference_coverage_scorable_returned', 'Title reference coverage (scorable / returned)')], rows, identifier + '-titles', True, metrics=[])}</details>"))
 
 def input_suite_comparison(dataset, cases, records, *, ctx):
@@ -1823,13 +1824,13 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
  case_count=len(cases);track_count=len(tracks);track_label=track_count_label(track_count)
  published_basis=published_ranking_basis(case_count,track_count)
  if published_basis:
-  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + published_basis + '</p>')
+  intro=('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b> ' + published_basis + '</p>')
  else:
-  intro=(('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b>' + t('every_method_runs_the_current_dataset_s', "Every method runs the current dataset's {case_count} planned tasks. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the {track_label} family rankings.", case_count=case_count, track_label=track_label) + '</p>'))
+  intro=(('<p class="decision-lead"><b>' + t('overall_ranking_basis', 'Overall-ranking basis:') + '</b> ' + t('every_method_runs_the_current_dataset_s', "Every method runs the current dataset's {case_count} planned {case_count|task|tasks}. Each task contributes one pass or fail and the results are summed directly; latency is shown separately and does not affect pass-rate ranking. The overall ranking shows delivery coverage, while specific capabilities belong in the {track_label} {track_count|family ranking|family rankings}.", case_count=case_count, track_label=track_label, track_count=track_count) + '</p>'))
  if has_unknown:
-  intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b>'+model_text(*pair('report_each_method_calls_the_same_value_tasks_pass_9cda7e', 'Each method calls the same {value0} tasks. Pass rate is passed / decidable results; undecidable results are listed separately and count as neither passes nor failures. Decidable denominators differ, so these rates describe only judged results, not a definite pass rate for all tasks. Latency does not affect pass-rate ordering.', value0=case_count))+'</p>'
+  intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b> '+model_text(*pair('report_each_method_calls_the_same_value_tasks_pass_9cda7e', 'Each method calls the same {value0} {value0|task|tasks}. Pass rate is passed / decidable results; undecidable results are listed separately and count as neither passes nor failures. Decidable denominators differ, so these rates describe only judged results, not a definite pass rate for all tasks. Latency does not affect pass-rate ordering.', value0=case_count))+'</p>'
  if any(len(rs)!=len(cases) for rs in groups.values()):
-  intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b>'+model_text(*pair('report_some_results_are_missing_or_tasks_were_not_c085cf', 'Some results are missing or tasks were not called. Rates use each method’s saved decidable results; missing items are not failures. See completion details for denominators, calls and missing counts. Adapter rejections retain their original failure scores without implying a product call.'))+'</p>'
+  intro='<p class="decision-lead"><b>'+t('overall_ranking_basis', 'Overall-ranking basis:')+'</b> '+model_text(*pair('report_some_results_are_missing_or_tasks_were_not_c085cf', 'Some results are missing or tasks were not called. Rates use each method’s saved decidable results; missing items are not failures. See completion details for denominators, calls and missing counts. Adapter rejections retain their original failure scores without implying a product call.'))+'</p>'
  if has_not_called:
   intro='<p class="decision-lead">'+saved_matrix_text('suite_denominator_note')+'</p>'
  help=((f"""<details class="ranking-metric-help"><summary>{t('report_overall_ranking_metrics_977f67', 'Overall-ranking metrics')}</summary><div class="metric-help"><dl><div><dt>{t('report_overall_task_pass_rate_71785d', 'Overall task pass rate')}</dt><dd>{case_count}{t('report_planned_tasks_passed_decidable_each_task_has_equal_weig_513a18', ' planned tasks: passed / decidable; each task has equal weight and undecidable results are excluded from the denominator.')}</dd></div><div><dt>{track_label}{t('report_families_passed_ae37c3', ' families passed')}</dt><dd>{t('report_passes_divided_by_tasks_in_each_family_showing_which_ca_c7ed30', 'Passes divided by tasks in each family, showing which capabilities contribute to the overall result.')}</dd></div>""")
@@ -2090,9 +2091,9 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
        and not any(reliability[key] for key in ('missing','extra','duplicates'))):
   excluded=[r for r in records if r['metrics'].get('evaluation_excluded')]
   if len(excluded)==len(reliability['unjudged']):
-   reliability_banner='<div class="wrap callout">'+model_text(*pair('results_are_excluded_across_all_methods_for', '{count} results are excluded across all methods for a verified evaluation-environment defect; original calls and outputs are retained.', count=len(excluded)))+'</div>'
+   reliability_banner='<div class="wrap callout">'+model_text(*pair('results_are_excluded_across_all_methods_for', '{count} {count|result|results} {count|is|are} excluded across all methods for a verified evaluation-environment defect; original calls and outputs are retained.', count=len(excluded)))+'</div>'
   else:
-   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('calls_are_complete_but_some_results_are', 'Calls are complete, but some results are undecidable') + f"</strong><span>{esc(t('all_calls_have_records_lack_sufficient_acceptance', 'All {present_calls} calls have records; {count} lack sufficient acceptance evidence. The pass rate uses decidable results, with the denominator and undecidable count shown separately. A local report is not full acceptance or formal publication.', present_calls=reliability['present_calls'], count=len(reliability['unjudged'])))}</span></div>")
+   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('calls_are_complete_but_some_results_are', 'Calls are complete, but some results are undecidable') + f"</strong><span>{esc(t('all_calls_have_records_lack_sufficient_acceptance', 'All {present_calls} {present_calls|call|calls} {present_calls|has|have} records; {count} lack sufficient acceptance evidence. The pass rate uses decidable results, with the denominator and undecidable count shown separately. A local report is not full acceptance or formal publication.', present_calls=reliability['present_calls'], count=len(reliability['unjudged'])))}</span></div>")
  else:
   reliability_banner=('<div class="wrap reliability failure" role="alert"><strong>' + t('report_unreliable_evaluation_incomplete', 'Report unreliable: evaluation incomplete') + f"</strong><span>{esc('；'.join(reliability['errors']))}。本页排名不得用于结论或发布。</span></div>")
  if not show_local_status_banners and dataset.get('comparison',{}).get('publication_state')=='local_audit_only_not_for_release' and not any(reliability[key] for key in ('missing','extra','duplicates')):
@@ -2129,13 +2130,13 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  cards=''
  for track,label in tracks:
   cards+=overview_card(records,cases,track,label,names,diagnostic=diagnostic, ctx=ctx)
- description=(t('tasks_methods_local_uncertified_diagnostic_snapshot', '{count} tasks · {count2} methods · local uncertified diagnostic snapshot.', count=len(cases), count2=len(names)) if diagnostic else t('tasks_methods_family_rankings_and_one_overall', '{count} tasks · {count2} methods · {track_label} family rankings and one overall coverage ranking.', count=len(cases), count2=len(names), track_label=track_label))
+ description=(t('tasks_methods_local_uncertified_diagnostic_snapshot', '{count} {count|task|tasks} · {count2} {count2|method|methods} · local uncertified diagnostic snapshot.', count=len(cases), count2=len(names)) if diagnostic else t('tasks_methods_family_rankings_and_one_overall', '{count} {count|task|tasks} · {count2} {count2|method|methods} · {track_label} {track_count|family ranking|family rankings} and one overall coverage ranking.', count=len(cases), count2=len(names), track_label=track_label, track_count=len(tracks)))
  if score_audit:
-  description=model_text(*pair('report_value_cases_value_methods_value_task_families_056945', '{value0} cases · {value1} methods · {value3} task families.', value0=len(cases), value1=len(names), value2=track_label, value3=len(tracks)))
+  description=model_text(*pair('report_value_cases_value_methods_value_task_families_056945', '{value0} {value0|case|cases} · {value1} {value1|method|methods} · {value3} task families.', value0=len(cases), value1=len(names), value2=track_label, value3=len(tracks)))
  if local_pass_rate_ranking(dataset):
-  description=model_text(*pair('report_value_cases_value_methods_ordered_by_task_pass_07cb44', '{value0} cases · {value1} methods · Ordered by task pass rate for this sample.', value0=len(cases), value1=len(names)))
+  description=model_text(*pair('report_value_cases_value_methods_ordered_by_task_pass_07cb44', '{value0} {value0|case|cases} · {value1} {value1|method|methods} · Ordered by task pass rate for this sample.', value0=len(cases), value1=len(names)))
  if not dataset.get('comparison',{}).get('presentation',{}).get('combined_ranking',True):
-  description=model_text(*pair('report_value_task_entries_value_methods_compared_within_each_953b5c', '{value0} task entries · {value1} methods · Compared within each task category.', value0=len(cases), value1=len(names)))
+  description=model_text(*pair('report_value_task_entries_value_methods_compared_within_each_953b5c', '{value0} task entries · {value1} {value1|method|methods} · Compared within each task category.', value0=len(cases), value1=len(names)))
  release_path=out/'benchmark-release.json'
  if release_path.is_file():
   release=json.loads(release_path.read_text(encoding='utf-8'))
@@ -2161,7 +2162,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  for track,label in tracks:
   selected=[c for c in cases.values() if report_family(c)==track]
   method_count=len({r['provider'] for r in records if report_family(cases[r['case_id']])==track})
-  coverage=model_text(*pair('report_value_cases_value_measured_methods_885407', '{value0} cases · {value1} measured methods', value0=len(selected), value1=method_count))
+  coverage=model_text(*pair('report_value_cases_value_measured_methods_885407', '{value0} {value0|case|cases} · {value1} measured methods', value0=len(selected), value1=method_count))
   panels.append((track,label,f'<div class="track-heading"><h3>{esc(label) if ctx.suites else label}</h3><span>{coverage}</span></div>'+ranking(records,cases,track,compact=True,audit=audit,diagnostic=diagnostic, ctx=ctx)+(f"<p>{link('datasets/index.html#track-' + track, t('report_tasks_and_references_2fa3ec', 'Tasks and references →'))}</p>")))
  overall_title=model_text(*pair('report_task_pass_rate_ranking_for_this_sample_5d9edf', 'Task pass-rate ranking for this sample')) if local_pass_rate_ranking(dataset) else ((t('report_task_results_b4e30d', 'Task results')) if diagnostic else (t('report_overall_coverage_ranking_47274b', 'Overall coverage ranking')))
  combined=dataset.get('comparison',{}).get('presentation',{}).get('combined_ranking',True)
@@ -2176,11 +2177,11 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   home+=section(t('content_diagnostics_for_passing_results', 'Content diagnostics for passing results'),('<p>' + t('passing_results_have_reference_word_precision_below', '{count} passing results have reference word precision below 30%. This locates inspection candidates, not a universal failure threshold. Passing does not establish clean body text; reference scope and time also affect this metric.', count=len(low)) + '</p>'),'coverage-quality')
  if measurement_presentation(dataset).all_call_latency:
   home+=section((t('report_all_call_latency_on_the_same_task_set_45ffcf', 'All-call latency on the same task set')),overview_all_call_latency(records,cases, ctx=ctx),'all-call-latency')
- completeness=(('<p class="callout">' + '<b>' + t('report_result_storage_5f0229', 'Result storage:') + '</b>')+str(reliability['present_calls'])+'/'+str(reliability['expected_calls'])+(t('report_groups_have_saved_results_no_scores_were_invented_for_m_448a36', ' groups have saved results; no scores were invented for missing entries.') + '</p>'))
+ completeness=(('<p class="callout">' + '<b>' + t('report_result_storage_5f0229', 'Result storage:') + '</b> ')+str(reliability['present_calls'])+'/'+str(reliability['expected_calls'])+(t('report_groups_have_saved_results_no_scores_were_invented_for_m_448a36', ' groups have saved results; no scores were invented for missing entries.') + '</p>'))
  if final_saved:
   completeness=''
  elif not dataset.get('saved_matrix_scope'):
-  completeness=('<p class="callout success">' + '<b>' + t('report_result_coverage_403d3c', 'Result coverage:') + '</b>')+str(reliability['expected_calls'])+'/'+str(reliability['expected_calls'])+(t('report_calls_all_have_saved_results_0daa25', ' calls all have saved results.') + '</p>')
+  completeness=('<p class="callout success">' + '<b>' + t('report_result_coverage_403d3c', 'Result coverage:') + '</b> ')+str(reliability['expected_calls'])+'/'+str(reliability['expected_calls'])+(t('report_calls_all_have_saved_results_0daa25', ' calls all have saved results.') + '</p>')
  home+=section(model_text(*pair('report_value_task_family_overview_8b3e73', '{value1} task-family overview', value0=track_label, value1=len(tracks))),review_summary(out)+completeness+('<p class="source-note">' + t('report_compare_results_only_within_the_same_task_family_9a6239', 'Compare results only within the same task family.') + '</p>' + '<div class="grid home-overview-grid">')+cards+'</div>','overview')
  if dataset.get('saved_matrix_scope') and not final_saved:
   home+=saved_matrix_scope_section(dataset['saved_matrix_scope'], ctx=ctx)
@@ -2188,7 +2189,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
  home+=section((t('report_latency_on_tasks_passed_by_every_method_4f37d4', 'Latency on tasks passed by every method')),overview_matched_latency(records,cases, ctx=ctx),'overall-matched-latency')
  if (out/'resource-cohort/resource-comparison.json').is_file():
   home+=section((t('report_cpu_memory_and_network_6ef0eb', 'CPU, memory, and network')),overview_resources(out, ctx=ctx),'overall-resources')
- home+=section((t('report_results_by_task_family_fc8ac0', 'Results by task family')) if score_audit else (t('report_diagnostic_results_by_task_family_d020c9', 'Diagnostic results by task family')) if diagnostic else model_text(*pair('report_value_family_rankings_886366', '{value1} family rankings', value0=track_label, value1=len(tracks))),(('<p>' + t('report_task_pass_rate_content_quality_and_latency_are_shown_se_2f9439', 'Task pass rate, content quality and latency are shown separately.') + '</p>') if score_audit else ('<p class="ranking-orientation">' + t('report_diagnostic_rows_are_sorted_by_task_pass_rate_for_inspec_6aadb0', 'Diagnostic rows are sorted by task pass rate for inspection; no ranks are assigned. Task judgments, content quality and latency are shown separately.') + '</p>') if diagnostic else ('<p class="ranking-orientation">' + t('report_family_rankings_show_specific_capabilities_they_default_500d5c', 'Family rankings show specific capabilities. They default to task pass rate; select a column heading to sort. Text quality and pass rate are calculated separately.') + '</p>'))+tabs('home-rankings',panels),'results')
+ home+=section((t('report_results_by_task_family_fc8ac0', 'Results by task family')) if score_audit else (t('report_diagnostic_results_by_task_family_d020c9', 'Diagnostic results by task family')) if diagnostic else model_text(*pair('report_value_family_rankings_886366', '{value1} {value1|family ranking|family rankings}', value0=track_label, value1=len(tracks))),(('<p>' + t('report_task_pass_rate_content_quality_and_latency_are_shown_se_2f9439', 'Task pass rate, content quality and latency are shown separately.') + '</p>') if score_audit else ('<p class="ranking-orientation">' + t('report_diagnostic_rows_are_sorted_by_task_pass_rate_for_inspec_6aadb0', 'Diagnostic rows are sorted by task pass rate for inspection; no ranks are assigned. Task judgments, content quality and latency are shown separately.') + '</p>') if diagnostic else ('<p class="ranking-orientation">' + t('report_family_rankings_show_specific_capabilities_they_default_500d5c', 'Family rankings show specific capabilities. They default to task pass rate; select a column heading to sort. Text quality and pass rate are calculated separately.') + '</p>'))+tabs('home-rankings',panels),'results')
  write(out,'index.html',(t('report_benchmark_report_838269', 'Benchmark report')),home+'</div>', ctx=ctx)
  controls=filter_controls([('track',(t('report_family_ba4001', 'Family')),tracks),('category',(t('report_family_0d12cb', 'Family')),[(x,x) for x in dict.fromkeys(c['category'] for c in cases.values())])], ctx=ctx)
  rows=[]
@@ -2197,7 +2198,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   rows.append((dataset_attrs(c),cell(link(c['id']+'.html',c['name']))+cell(esc(c['category']))+cell(link(c['url'],t('source_page_2', 'Source page ↗')))+cell(link(c['id']+'.html#facts',basis_label(c)))+cell(reference_label(c))+cell(state)))
  anchors=''.join(f'<span id="track-{t}"></span>' for t,_ in tracks)
  dataset_panels=[('cases',t('task_2', 'Task'),(f'{anchors}{controls}<p class="source-note">' + t('open_any_evidence_basis_for_details_restricted', "Open any evidence basis for details. Restricted access does not mean a site is down. Stable content and record structure are checked against registered contracts rather than frequently changing lists. Rendered-web body text is judged within each task's declared complete scope.") + f"</p>{table([t('task_2', 'Task'), t('family_2', 'Family'), 'URL', t('reference_basis', 'Reference basis'), t('reference_status', 'Reference status'), t('original_access', 'Original access')], rows, 'filtered-table')}")),('references',t('reference_status', 'Reference status'),'<span id="references"></span>'+reference_status(list(cases.values()))),('sources',t('sources_2', 'Source'),'<span id="sources"></span>'+sources_panel())]
- write(out,'datasets/index.html',t('dataset', 'Dataset'),hero(t('dataset', 'Dataset'),t('tasks_grouped_by_task_family', '{count} tasks, grouped by task family.', count=len(cases)), ctx=ctx)+section(t('tasks_and_evidence', 'Tasks and evidence'),tabs('dataset-hub',dataset_panels)), ctx=ctx)
+ write(out,'datasets/index.html',t('dataset', 'Dataset'),hero(t('dataset', 'Dataset'),t('tasks_grouped_by_task_family', '{count} {count|task|tasks}, grouped by task family.', count=len(cases)), ctx=ctx)+section(t('tasks_and_evidence', 'Tasks and evidence'),tabs('dataset-hub',dataset_panels)), ctx=ctx)
  headers=[t('task_2', 'Task'),t('family', 'Family'),t('result', 'Result'),t('failure_class', 'Failure class'),t('elapsed_time', 'Elapsed time'),t('run_id', 'Run ID')]
  for c in ([case for case in cases.values() if case['id'] in (dataset_case_ids or set())] if presentation_only else cases.values()):
   v=c.get('source_verification',{});ref=reference_text(c)
@@ -2248,7 +2249,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
    if rules.get('version')==3:
     policy=(t('hard_floor_per_region_at_least_regions', 'Hard floor per region {minimum_floor}; at least {minimum_region_passes}/{count} regions reach {minimum_coverage}.', minimum_floor=pct(rules['minimum_floor']), minimum_region_passes=rules['minimum_region_passes'], count=len(rules['regions']), minimum_coverage=pct(rules['minimum_coverage'])))
    else:policy=f'每段至少达到 {pct(rules["minimum_coverage"])}。'
-   body+=section(t('how_body_coverage_is_checked', 'How body coverage is checked'),('<p class="decision-lead"><b>' + t('this_is_one_complete_answer_not_tasks', 'This is one complete answer, not {total} tasks.', total=total) + '</b> ' + t('checking_only_the_title_and_a_few', "Checking only the title and a few keywords could let an opening-only result pass, so the same reference is checked by position. {policy} comparison ignores whitespace, layout symbols and Markdown link targets; each execution page shows each position's reference text and actual evidence side by side.", policy=policy) + f"</p>{''.join(region_cards)}"))
+   body+=section(t('how_body_coverage_is_checked', 'How body coverage is checked'),('<p class="decision-lead"><b>' + t('this_is_one_complete_answer_not_tasks', 'This is one complete answer, not {total} {total|task|tasks}.', total=total) + '</b> ' + t('checking_only_the_title_and_a_few', "Checking only the title and a few keywords could let an opening-only result pass, so the same reference is checked by position. {policy} comparison ignores whitespace, layout symbols and Markdown link targets; each execution page shows each position's reference text and actual evidence side by side.", policy=policy) + f"</p>{''.join(region_cards)}"))
   body+='<p class="actions">'+link('../analysis/index.html#inspect?query='+c['id'],t('view_execution_results_for_all_methods', 'View execution results for all methods →'))+'</p>'
   write(out,'datasets/'+c['id']+'.html',c['name'],body, ctx=ctx)
  for name,rs in byprovider.items():
@@ -2447,7 +2448,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
                 t('this_section_lists_the_body_acceptance_rules', 'This section lists the body acceptance rules and text used to check retrieval scope; scope-check text does not affect acceptance.'))
   corruption=''
   if m.get('text_encoding_corruption'):
-   corruption=(('<p class="callout failure encoding-warning"><b>' + t('the_returned_text_contains_decoding_corruption', 'The returned text contains decoding corruption:') + '</b>' + t('contains_characters_of_it_these_characters_were', 'Contains {get:,} � characters, {get2} of it. These characters were lost before saving and cannot be restored from the current Markdown.', get=m.get('replacement_character_count', 0), get2=pct(m.get('replacement_character_ratio'))) + '</p>'))
+   corruption=(('<p class="callout failure encoding-warning"><b>' + t('the_returned_text_contains_decoding_corruption', 'The returned text contains decoding corruption:') + '</b> ' + t('contains_characters_of_it_these_characters_were', 'Contains {get:,} � characters, {get2} of it. These characters were lost before saving and cannot be restored from the current Markdown.', get=m.get('replacement_character_count', 0), get2=pct(m.get('replacement_character_ratio'))) + '</p>'))
   answer_view=r.get('provider_metadata',{}).get('publication_views',{}).get('scored_answer')
   output_note=(f"{len(output):,} 字符 · {link('../' + r['artifact_path'], t('download_raw_output', 'Download raw output'))}")
   if answer_view and answer_view['original_sha256']!=answer_view['published_sha256']:
@@ -2455,7 +2456,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
   if r.get('scoring',{}).get('mode')=='published_snapshot_rescore':
    view=r['scoring']['artifact_view']
    view_label={'original':t('saved_output_identical_to_the_original_hash', 'Saved output identical to the original hash'),'recovered_original':t('output_restored_by_the_original_hash_this', 'Output restored by the original hash (this page shows the public copy)'),'published_projection':t('public_redacted_copies', 'Public redacted copies')}[view]
-   output_note=t('characters_this_scoring_input', '{count:,} characters · this scoring input: {view_label} · {link}', count=len(output), view_label=esc(view_label), link=link('../' + r['artifact_path'], t('download_public_output', 'Download public output')))
+   output_note=t('characters_this_scoring_input', '{count:,} {count|character|characters} · this scoring input: {view_label} · {link}', count=len(output), view_label=esc(view_label), link=link('../' + r['artifact_path'], t('download_public_output', 'Download public output')))
    output_note+=('<br>' + t('original_call_output_sha_256', 'Original call output SHA-256:') + f"""<code class="break">{esc(r['scoring']['original_content_sha256'])}</code><br>""" + t('this_scoring_input_sha_256', 'This scoring input SHA-256:') + f"""<code class="break">{esc(r['scoring']['scored_content_sha256'])}</code>""")
   if readable_output(output)!=output:output_note+=' · 控制字节在页面中显示为 \\xNN'
   actual_body=(corruption+f'<pre data-kind="output">{esc(readable_output(output))}</pre>' if output else
@@ -2478,7 +2479,7 @@ def _render_model(out,dataset,records,manifests,*,model,scope):
    actual_body+=('<details id="returned-fields"><summary>'+model_text('查看随正文返回的字段','View fields returned with the text')
                  +'</summary><pre translate="no">'+esc(json.dumps(returned_fields,ensure_ascii=False,indent=2))+'</pre></details>')
   reference_scope=('' if not (c.get('track')=='document' and 0 < len(ref) < 100) else
-                   ('<p class="callout"><b>' + t('reference_scope', 'Reference scope:') + '</b>' + t('this_is_a_minimal_document_parsing_sample', 'This is a minimal document-parsing sample. All extractable body text of the frozen source is {count:,} characters, and the reference omits nothing. It only verifies short document text extraction, not multi-page, table or appendix completeness.', count=len(ref)) + '</p>'))
+                   ('<p class="callout"><b>' + t('reference_scope', 'Reference scope:') + '</b> ' + t('this_is_a_minimal_document_parsing_sample', 'This is a minimal document-parsing sample. All extractable body text of the frozen source is {count:,} {count|character|characters}, and the reference omits nothing. It only verifies short document text extraction, not multi-page, table or appendix completeness.', count=len(ref)) + '</p>'))
   evidence_intro=t('the_left_side_is_the_reference_or', 'The left side is the reference or explicit acceptance contract used for the verdict. The right side is the complete output saved from this call. Neither side is a summary; long content scrolls within its pane.')
   if answer_view and answer_view['original_sha256']!=answer_view['published_sha256']:
    evidence_intro=model_text(*pair('the_left_pane_contains_the_scoring_reference', 'The left pane contains the scoring reference or acceptance rules. The right pane contains the public output view with paths or sensitive values hidden. Scores retain the original verdict; original and public hashes are identified separately. Long content scrolls within each pane.'))
@@ -2574,7 +2575,7 @@ def current_local_review_findings(out,dataset,records,audit, *, ctx):
  adjudicated=len(audit.get('adjudication_revision',{}).get('adjudicated_attempt_ids',[]))
  unreviewed=len(audit.get('unreviewed_attempt_ids',[]))
  rows=[
-  (t('the_current_report_contains_results_reuse_historical', 'The current report contains {count} results: {inherited_results} reuse historical calls and {added} come from new calls. Original responses, call times and latencies are kept.', count=len(records), inherited_results=receipt['inherited_results'], added=added),
+  (t('the_current_report_contains_results_reuse_historical', 'The current report contains {count} {count|result|results}: {inherited_results} reuse historical calls and {added} come from new calls. Original responses, call times and latencies are kept.', count=len(records), inherited_results=receipt['inherited_results'], added=added),
    f"The current report contains {len(records)} results: {receipt['inherited_results']} inherited calls and {added} new calls. Original answers, timestamps and latencies are retained."),
   (t('currently_pass_are_comparable_and_are_excluded', 'Currently {passed} pass, {count} are comparable and {value} are excluded. Pages and downloadable summaries use the same saved results.', passed=passed, count=len(eligible), value=len(records) - len(eligible)),
    f"Currently {passed} pass among {len(eligible)} eligible results; {len(records)-len(eligible)} are excluded. Pages and downloadable summaries use the same saved results."),
@@ -2653,7 +2654,7 @@ def write_saved_changes(out, *, ctx):
  revision_path=out/'score-revision.json'
  if revision_path.is_file():
   count,results=saved_current_revision_scope(out,matrix)
-  updates+='<article class="review-round"><div class="round-label">'+model_text(*pair('report_offline_revision_d6fff2', 'Offline revision'))+'</div><div><h3>'+model_text(*pair('report_rule_and_scorer_revisions_9bfdf8', 'Rule and scorer revisions'))+'</h3><p>'+model_text(*pair('report_value_cases_have_revised_rules_and_value_saved_5b3e4a', '{value0} cases have revised rules and {value1} saved results were rescored. Original rules, results and call evidence are retained; no provider calls were added.', value0=count, value1=results))+'</p><p>'+link('../review/index.html',(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p></div></article>'
+  updates+='<article class="review-round"><div class="round-label">'+model_text(*pair('report_offline_revision_d6fff2', 'Offline revision'))+'</div><div><h3>'+model_text(*pair('report_rule_and_scorer_revisions_9bfdf8', 'Rule and scorer revisions'))+'</h3><p>'+model_text(*pair('report_value_cases_have_revised_rules_and_value_saved_5b3e4a', '{value0} {value0|case|cases} {value0|has|have} revised rules and {value1} saved results were rescored. Original rules, results and call evidence are retained; no provider calls were added.', value0=count, value1=results))+'</p><p>'+link('../review/index.html',(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p></div></article>'
  if not updates:
   updates='<p>'+model_text(*pair('report_no_result_revisions_are_registered_for_this_report_87a325', 'No result revisions are registered for this report.'))+'</p>'
  write(out,'changes/index.html',(t('report_changelog_6a4481', 'Changelog')),hero((t('report_changelog_6a4481', 'Changelog')),saved_matrix_text('changes_scope'), ctx=ctx)+section((t('report_corrections_to_this_run_ff4ddd', 'Corrections to this run')),'<div class="review-rounds">'+updates+'</div>')+section((t('report_supporting_evidence_f9035c', 'Supporting evidence')),'<p>'+link('../review/index.html',(t('report_review_scope_and_corrections_e82445', 'Review scope and corrections')))+' · '+link('../analysis/index.html',(t('report_per_task_results_and_evidence_ddad92', 'Per-task results and evidence')))+' · '+link('../reproduce/index.html',(t('report_run_parameters_and_versions_be2f2a', 'Run parameters and versions')))+'</p>'), ctx=ctx)
@@ -2680,7 +2681,7 @@ def write_review_page(out,records, *, ctx):
   revision_link='../score-revision.json' if revision_path.is_file() else '../'+adopted[0]['path']
   page=hero((t('report_review_record_efa815', 'Review record')),saved_matrix_text('offline_review_scope'), ctx=ctx)
   count,results=saved_current_revision_scope(out,matrix)
-  page+=section((t('report_revision_scope_0a5c51', 'Revision scope')),'<p>'+model_text(*pair('report_in_the_current_report_value_cases_revised_and_adefb1', 'In the current report, {value0} cases revised and {value1} saved results rescored. Original rules, results, answers and call timings are retained.', value0=count, value1=results))+'</p><p>'+link(revision_link,(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p>','current-revision-scope')
+  page+=section((t('report_revision_scope_0a5c51', 'Revision scope')),'<p>'+model_text(*pair('report_in_the_current_report_value_cases_revised_and_adefb1', 'In the current report, {value0} {value0|case|cases} revised and {value1} saved results rescored. Original rules, results, answers and call timings are retained.', value0=count, value1=results))+'</p><p>'+link(revision_link,(t('report_revision_basis_and_verdict_changes_419378', 'Revision basis and verdict changes')))+'</p>','current-revision-scope')
   audit_path=out/'result-review.json'
   if audit_path.is_file():
    audit=json.loads(audit_path.read_text(encoding='utf-8'))
@@ -2748,7 +2749,7 @@ def write_review_page(out,records, *, ctx):
   dataset_path=out/'dataset.json'
   cases={c['id']:c for c in json.loads(dataset_path.read_text(encoding='utf-8')).get('cases',[])} if dataset_path.is_file() else {}
   accepted=sum(task_passed(r['ok'],r['metrics'],cases.get(r['case_id'],{}).get('task_kind','body')) for r in records)
-  coverage='<p data-review-scope="none">'+t('unreviewed_result_coverage', 'Independent review: 0/{total} results. {accepted} machine passes remain independently unreviewed.',total=len(records),accepted=accepted)+'</p>'
+  coverage='<p data-review-scope="none">'+t('unreviewed_result_coverage', 'Independent review: 0/{total} {total|result|results}. {accepted} machine passes remain independently unreviewed.',total=len(records),accepted=accepted)+'</p>'
   write(out,'review/index.html',t('review_record', 'Review record'),hero(t('review_record', 'Review record'),t('no_independent_review_record_is_bound_to', 'No independent review record is bound to this build.'), ctx=ctx)+section(t('review_scope', 'Review scope'),coverage), ctx=ctx)
   return
  audit=json.loads(path.read_text(encoding='utf-8'));reviewer=audit.get('reviewer',{})
@@ -3032,7 +3033,7 @@ def write_support(out,records,manifests,*,authored_interpretation=True, ctx):
   support+=section(t('same_window_latency_evidence', 'Same-window latency evidence'),'<p>'+link('../speed-cohort/speed-comparison.json',t('latency_summary_and_sample_denominators', 'Latency summary and sample denominators'))+' · '+link('../speed-cohort/results.jsonl',t('per_call_latency_cohort_records', 'Per-call latency-cohort records'))+'</p>')
  if (out/'resource-cohort/resource-comparison.json').is_file():
   support+=section(t('isolated_resource_evidence', 'Isolated resource evidence'),'<p>'+link('../resource-cohort/resource-comparison.json',t('cpu_memory_and_network_summary_with_shared', 'CPU, memory, and network summary with shared-success cases'))+' · '+link('../resource-cohort/results.jsonl',t('per_call_resource_cohort_records', 'Per-call resource-cohort records'))+' · '+link('../resource-cohort/execution.json',t('container_environment_and_image_identity', 'Container environment and image identity'))+'</p>')
- conditions=(t('the_final_report_includes_calls_execution_began', 'The final report includes {count:,} calls. Execution began after tasks and references were frozen; calls were sequential within each method and did not reuse personal login state.', count=len(records)) if authored_interpretation else t('this_report_includes_logical_results_run_parameters', 'This report includes {count:,} logical results. Run parameters are listed below; each result detail contains its retained physical calls and outputs.', count=len(records)))
+ conditions=(t('the_final_report_includes_calls_execution_began', 'The final report includes {count:,} {count|call|calls}. Execution began after tasks and references were frozen; calls were sequential within each method and did not reuse personal login state.', count=len(records)) if authored_interpretation else t('this_report_includes_logical_results_run_parameters', 'This report includes {count:,} logical results. Run parameters are listed below; each result detail contains its retained physical calls and outputs.', count=len(records)))
  if not manifests and dataset.get('saved_matrix_scope'):
   support+=section(t('shared_conditions', 'Shared conditions'),'<p>'+t('saved_reproduction_settings_link', 'Execution settings and collection periods are verified from original call receipts; inspect them on the methodology page.')+' '+link('../methodology/index.html#execution-settings',t('runtime_configuration', 'Runtime configuration:'))+'</p>')
  else:

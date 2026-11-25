@@ -250,7 +250,7 @@ def _page(
     detail_nav = (
         explorer.detail_navigation(f"{REPORT_STEM}-results.html#{back_anchor}", back=t("public.back_to_results", "Back to evaluation results"),
                                    previous=t("inventory.previous_result", "Previous result"), next_label=t("inventory.next_result", "Next result"))
-        +         f'<a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a><span class="muted">{t("replay.run", "Run {run_id}", run_id=run_id)}</span>'
+        + f'<p class="muted"><a href="{REPORT_STEM}.html">{t("public.title.short", "Fixed-trajectory replay evaluation")}</a> · <span>{t("replay.run", "Run {run_id}", run_id=run_id)}</span></p>'
         if detail_title
         else ""
     )
@@ -258,8 +258,8 @@ def _page(
         VARIANT, key, fills,
         title=t("public.shell.title", "{title} | WebArena fixed-trajectory replay evaluation", title=detail_title or PAGE_LABELS[key]),
         heading=_e(detail_title) if detail_title else t("public.shell.heading", "WebArena fixed-trajectory replay evaluation"),
-        eyebrow="" if detail_title else "WebArena Fixed-Trajectory Replay · " + t("public.shell.subtitle", "Deterministic replay of public human trajectories · No Agent or model variables · Run {run_id}", run_id=run_id),
-        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav,
+        eyebrow="" if detail_title else t("public.shell.subtitle", "Deterministic replay of public human trajectories · No Agent or model variables · Run {run_id}", run_id=run_id),
+        style=REPORT_CSS, labels=PAGE_LABELS, detail_nav=detail_nav, brand=t("public.shell.brand", "WebArena Fixed-Trajectory Replay"),
         footer="Lexmount WebArena Fixed-Trajectory Replay · " + t("replay.edition.chinese_only", "This report is available in Chinese only."),
     )
 
@@ -544,7 +544,7 @@ def _summary_page(
     final_failure_count = sum(int(row[1]) for row in failure_rows)
     failure_breakdown = t("replay.separator.comma", ", ").join(t("public.summary.breakdown", "{count} {category}", count=row[1], category=row[0]) for row in failure_rows)
     failure_summary = (
-        t("public.summary.failure_summary", "The {count} results that did not pass include {breakdown}. ", count=final_failure_count, breakdown=failure_breakdown)
+        t("public.summary.failure_summary", "The {count} {count|result|results} that did not pass include {breakdown}. ", count=final_failure_count, breakdown=failure_breakdown)
         if failure_rows
         else t("public.summary.no_failures", "No result failed in this run. ")
     )
@@ -585,7 +585,7 @@ def _summary_page(
         else t("public.summary.memory_none", "No unique lowest memory P50")
     )
     audit_strip = (
-        f'<div class="audit-strip"><strong>{t("public.summary.audit_count", "{reviewed}/{total} results passed the consistency audit", reviewed=audit["logical_results_reviewed"], total=task_count * len(engines))}</strong><span>{t("public.summary.audit_note", "Underlying execution records, programmatic acceptance and aggregates agree; {count} failed results are classified from logs and call fields.", count=sum(audit["final_failures"].values()))}</span><a href="{REPORT_STEM}-method.html#verification">{t("public.summary.audit_link", "View verification scope")}</a></div>'
+        f'<div class="audit-strip"><strong>{t("public.summary.audit_count", "{reviewed}/{total} {total|result|results} passed the consistency audit", reviewed=audit["logical_results_reviewed"], total=task_count * len(engines))}</strong><span>{t("public.summary.audit_note", "Underlying execution records, programmatic acceptance and aggregates agree; {count} failed results are classified from logs and call fields.", count=sum(audit["final_failures"].values()))}</span><a href="{REPORT_STEM}-method.html#verification">{t("public.summary.audit_link", "View verification scope")}</a></div>'
     )
     return {
         "lead": f"""<section class="card hero"><div class="eyebrow">{t("replay.page.summary", "Summary")}</div><h2>{t("public.summary.hero", "In this run, {compatibility}; {resource}. Speed, CPU, memory and network are listed separately and not merged into one score.", compatibility=compatibility_lead, resource=resource_lead)}</h2><p>{t("public.summary.hero_note", "This is a fixed replay of WebArena public human trajectories, with no Agent planning, model calls or LLM judge at run time. The numbers apply only to these {count} frozen trajectories and this environment.", count=task_count)}</p>{audit_strip}</section>""",
@@ -835,7 +835,7 @@ def _suite_page(manifest: dict[str, Any]) -> str:
         )
     filters = (
         f'<section class="card suite-filter-panel" aria-label="{t("replay.suite.filter_label", "Task filter")}"><div class="section-heading"><h2>{t("replay.suite.find_tasks", "Find tasks")}</h2>'
-        f'<span id="suite-count" class="muted" aria-live="polite">{t("replay.suite.showing", "Showing {shown} / {total} tasks", shown=len(suite), total=len(suite))}</span></div>'
+        f'<span id="suite-count" class="muted" aria-live="polite">{t("replay.suite.showing", "Showing {shown} / {total} {total|task|tasks}", shown=len(suite), total=len(suite))}</span></div>'
         f'<div class="suite-filter-controls"><label class="suite-search">{t("replay.suite.search", "Search tasks")}<input id="suite-query" type="search" placeholder="{t("replay.suite.search_placeholder", "Task name, ID, site or keyword")}"></label>'
         f'<label>{t("public.suite.sampling_group", "Sampling group")}<select id="suite-difficulty"><option value="">{t("public.suite.all_groups", "All groups")}</option>'
         + "".join(
@@ -856,7 +856,7 @@ def _suite_page(manifest: dict[str, Any]) -> str:
     if webarena:
         evaluator_count = sum(1 for task in suite if task.get("evaluator"))
         validation_note = (
-            f'<p class="muted">{t("public.suite.evaluator_note", "Programmatic evaluator: {bound}/{total} tasks bound.", bound=evaluator_count, total=len(suite))}'
+            f'<p class="muted">{t("public.suite.evaluator_note", "Programmatic evaluator: {bound}/{total} {total|task|tasks} bound.", bound=evaluator_count, total=len(suite))}'
             f'{t("public.suite.manifest_sha", "Task manifest SHA-256: <code>{sha}</code>.", sha=_e(str(manifest.get("suite_sha256") or "")[:16]))}</p>'
         )
     else:
@@ -1117,7 +1117,7 @@ def _task_detail_body(
         if value == "":
             return t("replay.detail.empty_string", "(empty string)")
         if isinstance(value, list):
-            return t("public.detail.record_count", "{count} records", count=len(value))
+            return t("public.detail.record_count", "{count} {count|record|records}", count=len(value))
         if isinstance(value, dict):
             preferred = [
                 key
@@ -1643,7 +1643,7 @@ def _review_page(
         [t("public.audit.source", "Candidate source"), t("public.audit.source_value", "{candidates} official WebArena human recordings", candidates=scope["candidates"]), t("public.audit.source_rule", "Every source trajectory hash is registered")],
         [t("public.audit.prefilter", "Architecture and evaluator prefilter"), t("public.audit.prefilter_value", "Exclude {non_native} arm64-only Wikipedia recordings and {evaluator_defects} confirmed evaluator defects", non_native=scope["non_native"], evaluator_defects=scope["evaluator_defects"]), t("public.audit.prefilter_rule", "Rules frozen before any browser result")],
         [t("public.audit.qualification", "Trajectory qualification"), t("public.audit.qualification_value", "Cold Chromium replay + official programmatic evaluator + evidence completeness"), t("public.audit.qualification_rule", "Only passing tasks enter the formal denominator of {tasks}", tasks=task_count)],
-        [t("public.audit.task_matrix", "Formal task matrix"), t("public.audit.task_matrix_value", "{tasks} tasks × {browsers} browsers", tasks=len(manifest.get('suite') or []), browsers=len(engines)), t("public.audit.same_inputs", "Same tasks, trajectories, viewport, timeouts and acceptors")],
+        [t("public.audit.task_matrix", "Formal task matrix"), t("public.audit.task_matrix_value", "{tasks} {tasks|task|tasks} × {browsers} {browsers|browser|browsers}", tasks=len(manifest.get('suite') or []), browsers=len(engines)), t("public.audit.same_inputs", "Same tasks, trajectories, viewport, timeouts and acceptors")],
         [t("public.method.result_unit", "Result unit"), t("public.audit.result_unit_value", "Each task and browser publishes one result"), t("public.audit.same_scope", "Aggregates, task comparisons and details use the same scope")],
         [t("public.audit.result_scoring", "Result scoring"), t("public.audit.scoring_value", "AgentResponse / final service state / HAR network events"), t("public.audit.no_judge", "No LLM judge; missing required evidence fails")],
     ]

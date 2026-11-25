@@ -330,7 +330,7 @@ def _check_rendered_suite(output, *, release=False, visual_receipt=None):
         title=owner.message("guide_title", "zh"),
         headings=owner.message("guide_headings", "zh"),
     )
-    if [(a.get("href"), a.get_text()) for a in soup.select("nav a")] != [
+    if [(a.get("href"), a.get_text()) for a in soup.select(".shell-links a, .shell-more a")] != [
         (entry["id"] + "/zh/index.html", entry["label"]) for entry in entries
     ]:
         raise ValueError("Suite navigation differs from its benchmark registry")

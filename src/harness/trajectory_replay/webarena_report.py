@@ -36,7 +36,6 @@ from harness.report_languages import (
 )
 from harness.reporting import charts, explorer, shell
 from harness.reporting.assets import copy_bound_assets
-from harness.reporting.locales import translate
 from harness.reporting.mermaid import mermaid_script_attributes
 from harness.reporting.privacy import TRAJECTORY_REPLAY
 from harness.reporting.release_check import check_template_pages
@@ -54,7 +53,7 @@ from harness.trajectory_replay.failure_matrix import (
     failure_signature_cards,
 )
 from harness.trajectory_replay.interpretation import render_interpretation, standalone_document
-from harness.trajectory_replay.messages import MESSAGES, report_text
+from harness.trajectory_replay.messages import report_text
 from harness.trajectory_replay.remote_runtime import load_remote_sites, remote_benchmark
 from harness.trajectory_replay.report_inputs import (
     bound_dataset_path,
@@ -539,15 +538,11 @@ def _nav(lang: str, active: str, *, depth: int, current_route: str = "index.html
     }
     local_prefix = "../" * depth
     switch = ("../../" if lang == "en" and depth else "../" if lang == "en" else "../en/" if depth else "en/") + current_route
-    switch_label = translate(MESSAGES, "nav.other_edition", lang)
-    brand = t("nav.brand", "Trajectory Replay")
-    theme_label = t("nav.toggle_theme", "Toggle theme")
-    links = shell.navigation(
-        [(page.route, labels[page.key]) for page in VARIANT.pages], VARIANT.page(active).route,
-        back=local_prefix,
+    return shell.header(
+        language=lang, brand=t("nav.brand", "Trajectory Replay"), home=f"{local_prefix}index.html",
+        links=[(page.route, labels[page.key]) for page in VARIANT.pages], current=VARIANT.page(active).route,
+        back=local_prefix, switch=(switch, "zh" if lang == "en" else "en"),
     )
-    return (f'<a class="brand" href="{local_prefix}index.html">{brand}</a><span class="pages">{links}</span>'
-            f'<a class="language" href="{switch}">{switch_label}</a><button class="theme" type="button" aria-label="{theme_label}">◐</button>')
 
 
 def _shell(lang: str, active: str, title: str, fills: dict[str, str], *, heading: str, eyebrow: str = "",
@@ -579,7 +574,7 @@ css.href=css.dataset.src;
     body = compose(role, fills).replace('<img src=', '<img data-src=')
     return shell.page(
         lang=lang, base=None, title=title, heading=heading, style="", script="",
-        head=REPORT_PAGE_MARKER + head, nav=_nav(lang, active, depth=depth, current_route=current_route),
+        head=REPORT_PAGE_MARKER + head, header=_nav(lang, active, depth=depth, current_route=current_route),
         eyebrow=f'<span class="eyebrow">{eyebrow}</span>' if eyebrow else "", notice=notice, role=role,
         body=body, dialog=app, footer_html=f"<footer>{footer}</footer>",
     )
@@ -1058,7 +1053,8 @@ def _task_page(
 
 def _assets(output: Path) -> None:
     (output / "assets").mkdir(parents=True, exist_ok=True)
-    (output / "assets/report.css").write_text(REPORT_CSS, encoding="utf-8")
+    # The page shell and the standalone article both read the shared tokens from this file.
+    (output / "assets/report.css").write_text(shell.CSS + REPORT_CSS, encoding="utf-8")
     (output / "assets/app.js").write_text(REPORT_JS, encoding="utf-8")
 
 
@@ -1353,13 +1349,13 @@ def build_webarena_replay_report(
                     action_winners,
                     lang=lang,
                 )
-                calls_label = t("results.action_latency.calls", "calls")
-                cells.append(f"<td>{text}<br><small>{metric['n']} {calls_label}</small></td>")
+                calls = t("results.action_latency.call_count", "{count} {count|call|calls}", count=metric["n"])
+                cells.append(f"<td>{text}<br><small>{calls}</small></td>")
             action_rows.append(f'<tr><td><code>{_e(action)}</code></td>{"".join(cells)}</tr>')
         action_table = f'<div class="table-scroll"><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in action_headers)}</tr></thead><tbody>{"".join(action_rows)}</tbody></table></div>'
         task_count = len(tasks)
         eyebrow = (
-            t("home.eyebrow", "WebArena-Verified · {tasks} tasks · model calls 0", tasks=task_count)
+            t("home.eyebrow", "WebArena-Verified · {tasks} {tasks|task|tasks} · model calls 0", tasks=task_count)
         )
         backend_note = (
             (t("home.backend.playwright", "All methods use the same Playwright replay adapter for frozen actions, with no Agent decisions or model calls."))
@@ -1387,11 +1383,11 @@ def build_webarena_replay_report(
         ) or "—"
         if unverifiable_ids:
             core_metrics_note = (
-                t("home.core_note.with_unverifiable", "All methods cover the same {tasks} tasks. Official passes use all {tasks}; verifiable-task passes use the {verifiable} tasks whose answers are supported by site evidence. Unverifiable tasks: {links}. ", tasks=task_count, verifiable=valid_reference_count, links=unverifiable_links)
+                t("home.core_note.with_unverifiable", "All methods cover the same {tasks} {tasks|task|tasks}. Official passes use all {tasks}; verifiable-task passes use the {verifiable} {verifiable|task|tasks} whose answers are supported by site evidence. Unverifiable tasks: {links}. ", tasks=task_count, verifiable=valid_reference_count, links=unverifiable_links)
             )
         else:
             core_metrics_note = (
-                t("home.core_note.all_verifiable", "All methods cover the same {tasks} tasks. Task details identify acceptance rules and declared corrections; the review page states the independent review scope. ", tasks=task_count)
+                t("home.core_note.all_verifiable", "All methods cover the same {tasks} {tasks|task|tasks}. Task details identify acceptance rules and declared corrections; the review page states the independent review scope. ", tasks=task_count)
             )
         has_resource_samples = any(
             row[metric]["n"]
@@ -1411,7 +1407,7 @@ def build_webarena_replay_report(
             core_metrics_note += " " + _e(measurement_note)
         resource_table = _resource_table(method_rows, lang)
         resource_section = (
-            f'<section><h2>{t("home.resources.heading", "Resources and network")}</h2><p>{t("home.resources.lead", "These per-task samples cover all {tasks} tasks. Each n counts observed values; missing samples are not zero, and measured zeroes are retained. Network bytes and CPU utilization are not ranked: lower values may reflect early failure, caching, or waiting.", tasks=task_count)}</p><details class="matrix-disclosure"><summary>{t("home.resources.open", "Open resource and network statistics")}</summary>{resource_table}</details></section>'
+            f'<section><h2>{t("home.resources.heading", "Resources and network")}</h2><p>{t("home.resources.lead", "These per-task samples cover all {tasks} {tasks|task|tasks}. Each n counts observed values; missing samples are not zero, and measured zeroes are retained. Network bytes and CPU utilization are not ranked: lower values may reflect early failure, caching, or waiting.", tasks=task_count)}</p><details class="matrix-disclosure"><summary>{t("home.resources.open", "Open resource and network statistics")}</summary>{resource_table}</details></section>'
             if resource_table
             else f'<section><h2>{t("home.resources.unavailable_heading", "Resource data")}</h2><p class="callout">{t("home.resources.unavailable", "This run did not record process-level CPU, memory, or network samples. Those metrics are unavailable, so the report does not show empty tables or resource rankings. End-to-end and action latency come from the retained trajectories and require no rerun.")}</p></section>'
         )
@@ -1422,7 +1418,7 @@ def build_webarena_replay_report(
         home_fills = {
             "status": (f'<p><a href="interpretation.html">{t("interpretation.home_link", "Interpretation: failure mechanisms, repairs and evaluation limits")}</a></p>'
                        if interpretation_path is not None else ""),
-            "lead": f'''<section class="hero" data-browser-count="{browser_count}" data-method-count="{method_count}"><p>{t("home.lead", "{browsers} browsers form {methods} method configurations, each covering the same {tasks} frozen trajectory replays. {backend_note} Environment documents versions, paths and site preparation.", browsers=browser_count, methods=method_count, tasks=task_count, backend_note=backend_note)}</p><div class="detail-links"><a href="results.html">{t("home.link.outcomes", "Explore outcomes and exact errors")}</a><a href="dataset.html">{t("home.link.dataset", "Task contracts and fixed trajectories")}</a></div></section>{legacy_link}''',
+            "lead": f'''<section class="hero" data-browser-count="{browser_count}" data-method-count="{method_count}"><p>{t("home.lead", "{browsers} {browsers|browser|browsers} form {methods} method configurations, each covering the same {tasks} frozen trajectory replays. {backend_note} Environment documents versions, paths and site preparation.", browsers=browser_count, methods=method_count, tasks=task_count, backend_note=backend_note)}</p><div class="detail-links"><a href="results.html">{t("home.link.outcomes", "Explore outcomes and exact errors")}</a><a href="dataset.html">{t("home.link.dataset", "Task contracts and fixed trajectories")}</a></div></section>{legacy_link}''',
             "core-comparison": charts.charts(charts.ranked_bars(
                 [charts.Bar.rate(_e(row["label"]), row["passed"], row["total"]) for row in method_rows],
                 title=t("metrics.official_pass_rate", "Official pass rate"),
@@ -1449,7 +1445,7 @@ def build_webarena_replay_report(
         dataset_sites = sorted({site for task in tasks.values() for site in (task["task"].get("sites") or [])})
         dataset_site_options = "".join(f'<option value="{_e(site)}">{_e(site)}</option>' for site in dataset_sites)
         dataset_type_options = "".join(f'<option value="{code}">{_e(label)}</option>' for code, label in (("RETRIEVE", t("dataset.type_filter.retrieve", "Retrieve")), ("NAVIGATE", t("dataset.type_filter.navigate", "Navigate")), ("MUTATE", t("dataset.type_filter.mutate", "Mutate"))))
-        dataset_lead = f'''<section class="hero"><p>{t("dataset.lead", "{tasks} tasks share goals and acceptance rules. This page retains the dataset reference path; method-specific frozen inputs and measured verdicts appear on result pages.", tasks=task_count)}</p></section>'''
+        dataset_lead = f'''<section class="hero"><p>{t("dataset.lead", "{tasks} {tasks|task shares|tasks share} goals and acceptance rules. This page retains the dataset reference path; method-specific frozen inputs and measured verdicts appear on result pages.", tasks=task_count)}</p></section>'''
         dataset_body = f'''<section><div class="dataset-browser"><h2>{t("dataset.tasks_heading", "Tasks and reference paths")}</h2><p>{t("dataset.tasks_lead", "{autonomous} came from successful autonomous runs; {repaired} were repaired and checked under the recorded protocol on {reference}. Open a task for its acceptance input, full trajectory, and evidence from every browser.", autonomous=browser_use_source_count, repaired=repaired_source_count, reference=reference_label)}</p><div class="dataset-controls"><label>{t("dataset.filter.search", "Search tasks")}<input data-dataset-filter="q" type="search" placeholder="{t('dataset.filter.placeholder', 'ID, site, or goal')}"></label><label>{t("common.site", "Site")}<select data-dataset-filter="site"><option value="">{t("common.all", "All")}</option>{dataset_site_options}</select></label><label>{t("common.task_type", "Task type")}<select data-dataset-filter="type"><option value="">{t("common.all", "All")}</option>{dataset_type_options}</select></label><label>{t("common.trajectory_source", "Trajectory source")}<select data-dataset-filter="source"><option value="">{t("common.all", "All")}</option><option value="autonomous">{t("dataset.source.autonomous", "Autonomous success")}</option><option value="repaired">{t("dataset.source.repaired", "Repaired and checked")}</option></select></label></div><p class="dataset-count" data-dataset-count></p><div class="table-scroll dataset-table" data-dataset-table><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in headers)}</tr></thead><tbody>{"".join(matrix_rows)}</tbody></table></div><p class="dataset-empty" data-dataset-empty hidden>{t("dataset.empty", "No matching tasks. Change the filters.")}</p></div></section>'''
         (root / "dataset.html").write_text(_shell(lang, "dataset", t("dataset.title", "Dataset"), {"lead": dataset_lead, "inventory": dataset_body}, heading=t("dataset.title", "Dataset"), eyebrow=f"WebArena-Verified · {task_count}", notice=notice_html, current_route="dataset.html"), encoding="utf-8")
 
@@ -1649,7 +1645,7 @@ def build_webarena_replay_report(
         review_rows = (
             (
                 t("review.trajectory.title", "Trajectory qualification"),
-                t("review.trajectory.scope", "{tasks} tasks: {autonomous} autonomous successes and {repaired} repaired trajectories.", tasks=task_count, autonomous=browser_use_source_count, repaired=repaired_source_count),
+                t("review.trajectory.scope", "{tasks} {tasks|task|tasks}: {autonomous} autonomous {autonomous|success|successes} and {repaired} repaired {repaired|trajectory|trajectories}.", tasks=task_count, autonomous=browser_use_source_count, repaired=repaired_source_count),
                 t("review.trajectory.finding", "{repaired} candidate trajectories required repair before use as frozen inputs.", repaired=repaired_source_count),
                 t("review.trajectory.correction", "Recorded per-task acceptance yielded {passed}/{total} passes on {reference}. Frozen trajectories contain no Agent or model decisions.", reference=reference_label, passed=reference_row['passed'], total=reference_row['total']),
                 t("review.trajectory.open", "Method-specific frozen inputs and official evaluations are available on each result page."),
@@ -1668,18 +1664,18 @@ def build_webarena_replay_report(
         )
         review_headers = (t("review.column.round", "Round"), t("review.column.scope", "Scope"), t("review.column.finding", "Finding"), t("review.column.correction", "Correction"), t("review.column.open", "Open"))
         review_status = (
-            t("review.status", "The report contains {tasks} tasks with one result per each registered method; {failures}/{failures} final failures received evidence-bound review.", tasks=task_count, failures=reviewed_failure_count)
+            t("review.status", "The report contains {tasks} {tasks|task|tasks} with one result per each registered method; {failures}/{failures} final failures received evidence-bound review.", tasks=task_count, failures=reviewed_failure_count)
         )
         if unverifiable_ids:
             review_status += (
-                t("review.status_unverifiable", " The {tasks} tasks with unverifiable references are excluded from the separate verifiable-task denominator.", tasks=len(unverifiable_ids))
+                t("review.status_unverifiable", " The {tasks} {tasks|task|tasks} with unverifiable references are excluded from the separate verifiable-task denominator.", tasks=len(unverifiable_ids))
             )
         review_body = f'''<section class="hero"><p>{t("review.lead", "Rounds that affected the current dataset or result interpretation. Full evidence and treatment status for each failure are on result pages.")}</p></section><section><h2>{t("review.current_status", "Current status")}</h2><p>{review_status}</p></section><section><h2>{t("review.rounds", "Review rounds")}</h2><div class="table-scroll review-table"><table><thead><tr>{''.join(f'<th>{_e(label)}</th>' for label in review_headers)}</tr></thead><tbody>{review_table_rows}</tbody></table></div></section>'''
         (root / "review.html").write_text(_shell(lang, "review", t("review.title", "Review history"), {"summary": review_body}, heading=t("review.title", "Review history"), notice=notice_html, current_route="review.html"), encoding="utf-8")
 
         viewer_tabs = (("result", t("viewer.tab.result", "Result and resources")), ("site_reset", t("viewer.tab.site_reset", "Site reset")), ("readiness", t("viewer.tab.readiness", "Site readiness")), ("programmatic_failure", t("viewer.tab.programmatic_failure", "Programmatic finding")), ("review", t("viewer.tab.review", "Reviewed cause")), ("trajectory", t("viewer.tab.trajectory", "Actions and logs")), ("official_evaluation", t("stage.official_evaluation", "Official evaluation")))
         tab_buttons = "".join(f'<button type="button" data-evidence-tab="{key}" aria-selected="false">{label}</button>' for key, label in viewer_tabs)
-        viewer_body = f'<section class="hero"><p>{t("viewer.lead", "Inspect full sanitized evidence by outcome, action, programmatic finding, and review. The raw JSON remains downloadable.")}</p></section><section class="viewer"><div class="viewer-tabs" role="tablist">{tab_buttons}</div><h2 data-evidence-heading></h2><div class="evidence-actions"><a data-evidence-raw href="#">{t("common.download_sanitized_json", "Download sanitized JSON")}</a><a data-evidence-image hidden></a></div><pre data-evidence-viewer></pre></section>'
+        viewer_body = f'<section class="hero"><p>{t("viewer.lead", "Inspect full sanitized evidence by outcome, action, programmatic finding, and review. The raw JSON remains downloadable.")}</p></section><section class="viewer"><div class="viewer-tabs" role="tablist">{tab_buttons}</div><h2 data-evidence-heading>{t("replay.evidence.raw", "Raw evidence")}</h2><div class="evidence-actions"><a data-evidence-raw href="#">{t("common.download_sanitized_json", "Download sanitized JSON")}</a><a data-evidence-image hidden></a></div><pre data-evidence-viewer></pre></section>'
         (root / "evidence-viewer.html").write_text(_shell(lang, "results", t("viewer.title", "Evidence viewer"), {"inventory": viewer_body}, heading=t("viewer.title", "Evidence viewer"), notice=notice_html, current_route="evidence-viewer.html"), encoding="utf-8")
 
     if interpretation_path is not None:
@@ -1731,7 +1727,7 @@ def build_webarena_replay_report(
             failed_participants = [name for name in methods if any(
                 row["participant_id"] == name and row["status"] != "pass" for row in public_rows)]
             failed_count = sum(row["status"] != "pass" for row in public_rows)
-            overview = (t("interpretation.overview", "{tasks} tasks and {methods} methods produce {results} logical results, including {failures} failures.", tasks=len(tasks), methods=len(methods), results=len(public_rows), failures=failed_count))
+            overview = (t("interpretation.overview", "{tasks} {tasks|task|tasks} and {methods} {methods|method|methods} produce {results} logical {results|result|results}, including {failures} {failures|failure|failures}.", tasks=len(tasks), methods=len(methods), results=len(public_rows), failures=failed_count))
             scoring = (t("interpretation.scoring_text", "Each method replays the frozen actions for the same task, then applies its bound acceptance rules. Task and result details retain original scores and contract revisions."))
             task_id = next(iter(tasks))
             body = (f'<article class="interpretation"><h1>{title}</h1>'
@@ -1772,7 +1768,7 @@ def build_webarena_replay_report(
             prefix = "../" * (len(page.relative_to(output).parts) - 1)
             content = page.read_text(encoding="utf-8")
             content = re.sub(
-                r'(<a class="language" href=")[^"]+(">)',
+                r'(<a href=")[^"]+(" hreflang="en")',
                 lambda match, prefix=prefix: match[1] + prefix + "en/index.html" + match[2],
                 content,
             )
@@ -1852,15 +1848,17 @@ def _catalog_shell(key: str, title: str, body: str, participant: str) -> str:
         "method": t("catalog.nav.method", "Method and boundaries"),
     }
     page = CATALOG_VARIANT.page(key)
-    nav = shell.navigation([(item.route, labels[item.key]) for item in CATALOG_VARIANT.pages if item.nav],
-                           page.route)
+    header = shell.header(language="zh", brand=t("nav.brand", "Trajectory Replay"),
+                          home=CATALOG_VARIANT.pages[0].route,
+                          links=[(item.route, labels[item.key]) for item in CATALOG_VARIANT.pages if item.nav],
+                          current=page.route)
     heading, body = re.match(r"\s*<h1>(.*?)</h1>(.*)", body, re.S).groups()
     lead = re.match(r'\s*(<p class="lead">.*?</p>)(.*)', body, re.S)
     fills = ({"lead": lead.group(1), _CATALOG_SLOTS[page.role]: lead.group(2)} if lead
              else {_CATALOG_SLOTS[page.role]: body})
     return shell.page(
         lang="zh-CN", base="/", title=title, heading=None, heading_html=heading,
-        style=CATALOG_REPORT_CSS, script="", head=REPORT_PAGE_MARKER, nav=nav, eyebrow="", notice="",
+        style=CATALOG_REPORT_CSS, script="", head=REPORT_PAGE_MARKER, header=header, eyebrow="", notice="",
         role=page.role, body=compose(page.role, fills), dialog="",
         footer_html=f"<footer>{t('catalog.heading', 'WebArena-Verified full trajectory replay')} · {html.escape(participant)}</footer>",
     )
@@ -2084,7 +2082,7 @@ def build_catalog_acceptance_report(
     runtime_count = binary_count + remote_count
     hosted_runtime = bool(remote_count)
     initial_physical = first_pass + first_fail
-    index_body = f"""<h1>{t("catalog.heading", "WebArena-Verified full trajectory replay")}</h1><p class="lead">{t("catalog.index.lead", "{participant}: {tasks} / {tasks} tasks passed the official evaluator at least once (100%). ", participant=html.escape(participant), tasks=task_count)}{t("catalog.index.stop_after_pass", "A case does not run again after it passes.")}</p>
+    index_body = f"""<h1>{t("catalog.heading", "WebArena-Verified full trajectory replay")}</h1><p class="lead">{t("catalog.index.lead", "{participant}: {tasks} / {tasks} {tasks|task|tasks} passed the official evaluator at least once (100%). ", participant=html.escape(participant), tasks=task_count)}{t("catalog.index.stop_after_pass", "A case does not run again after it passes.")}</p>
 <section class="panel"><h2>{t("catalog.index.core_results", "Core results")}</h2><div class="scroll"><table><thead><tr><th>{t("catalog.index.engine_backend", "Browser engine / execution backend")}</th><th>{t("catalog.index.tasks", "Tasks")}</th><th>{t("catalog.pass", "Pass")}</th><th>Mean</th><th>P50</th><th>P95</th></tr></thead><tbody><tr><td>{html.escape(participant)}</td><td>{task_count}</td><td>{counts["pass"]}</td><td>{t("catalog.seconds", "{value:.2f} s", value=statistics.mean(durations))}</td><td>{t("catalog.seconds", "{value:.2f} s", value=statistics.median(durations))}</td><td>{t("catalog.seconds", "{value:.2f} s", value=percentile(durations, .95))}</td></tr></tbody></table></div><p class="muted">{t("catalog.index.timing_note", "Timing uses the final passing call of each task. The acceptance audit covers {physical_executions}; {duplicates} duplicate executions ran after a pass.", physical_executions=t("catalog.physical_executions", "{count:,} physical executions", count=counts["physical_attempts"]), duplicates=counts["excluded_duplicate_attempts"])}</p></section>
 <section class="panel"><h2>执行收敛</h2><p>初始顺序扫描完成 {initial_physical} 次物理执行：{first_pass} 题通过，{first_fail} 题未通过；其余 {setup_failure} 题因执行环境中断记录为准备失败。恢复环境后继续按官方题号处理未通过项，并逐类修复轨迹、执行器、站点状态和已确认的评测问题，直至 {task_count} 题全部通过。</p><p>接受链包含 {len(ledger["runs"])} 个执行段和 {runtime_count} 个浏览器运行时身份。浏览器引擎、执行后端和站点映射保持一致；每次修复只进入尚未通过的 case。</p></section>
 <section class="panel"><h2>{t("catalog.index.sites", "Site distribution")}</h2><p>{t("catalog.index.sites_note", "One task can involve several sites, so counts can sum to more than {tasks}.", tasks=task_count)}</p><div class="scroll"><table><thead><tr><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.index.tasks_involved", "Tasks involved")}</th></tr></thead><tbody>{site_html}</tbody></table></div></section>
@@ -2123,7 +2121,7 @@ def build_catalog_acceptance_report(
         f'<td>{html.escape(task["intent"])}</td></tr>'
         for task in contracts
     )
-    dataset_body = f"""<h1>{t("catalog.dataset.heading", "Dataset and trajectory contract")}</h1><p class="lead">{t("catalog.dataset.lead", "{tasks} tasks are frozen in official WebArena-Verified order. This page only shows task definitions; scoring and execution evidence are on the per-task result pages.", tasks=task_count)}</p><section class="panel"><div class="scroll"><table><thead><tr><th>{t("catalog.index.task_id", "Task ID")}</th><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.dataset.task", "Task")}</th></tr></thead><tbody>{dataset_rows}</tbody></table></div><p><a href="dataset-contracts.json">{t("catalog.dataset.download", "Download complete task, evaluator and fixed-action contracts")}</a></p></section>"""
+    dataset_body = f"""<h1>{t("catalog.dataset.heading", "Dataset and trajectory contract")}</h1><p class="lead">{t("catalog.dataset.lead", "{tasks} {tasks|task|tasks} {tasks|is|are} frozen in official WebArena-Verified order. This page only shows task definitions; scoring and execution evidence are on the per-task result pages.", tasks=task_count)}</p><section class="panel"><div class="scroll"><table><thead><tr><th>{t("catalog.index.task_id", "Task ID")}</th><th>{t("catalog.index.site", "Site")}</th><th>{t("catalog.dataset.task", "Task")}</th></tr></thead><tbody>{dataset_rows}</tbody></table></div><p><a href="dataset-contracts.json">{t("catalog.dataset.download", "Download complete task, evaluator and fixed-action contracts")}</a></p></section>"""
     (output / "dataset.html").write_text(
         _catalog_shell("dataset", t("catalog.dataset.heading", "Dataset and trajectory contract"), dataset_body, participant), encoding="utf-8"
     )

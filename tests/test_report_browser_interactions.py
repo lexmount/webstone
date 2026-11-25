@@ -229,7 +229,8 @@ def activate_and_check_layout(page, display):
     dark = page.evaluate("document.documentElement.dataset.theme === 'dark' || document.body.classList.contains('dark')")
     before = page.evaluate("[document.body,document.documentElement].map(e=>getComputedStyle(e).backgroundColor).join('/')")
     if dark != (theme == "dark"):
-        page.locator('#theme, .theme, .theme-toggle, button[onclick="theme()"]:visible').first.click()
+        # Lexbench keeps its own application theme control; every other report uses the shell's.
+        page.locator('[data-shell-theme], #theme:visible').first.click()
         page.wait_for_function(
             """({theme, before}) => {
                 const dark = document.documentElement.dataset.theme === 'dark'
@@ -252,8 +253,8 @@ def test_theme_check_waits_for_visual_change_and_rejects_broken_controls(browser
     color = "setTimeout(()=>document.body.style.backgroundColor='black',150);" if behavior != 'missing-color' else ''
     try:
         page.set_content(f'''<html data-theme="light"><body style="background:white">
-            <button id="theme">Theme</button><script>
-            document.getElementById('theme').onclick=()=>{{{state}{color}}};
+            <button data-shell-theme>Theme</button><script>
+            document.querySelector('[data-shell-theme]').onclick=()=>{{{state}{color}}};
             </script></body></html>''')
         display = {"color_scheme": "dark"}
         if behavior == 'delayed':
@@ -402,7 +403,7 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(t
             for method in ('synthetic-success', 'synthetic-blocked'):
                 if display['color_scheme'] == 'dark':
                     if not page.locator('html').evaluate('(e)=>e.classList.contains("dark")'):
-                        page.locator('#theme').click()
+                        page.locator('[data-shell-theme]').click()
                 page.locator('[data-result-filter="status"]').select_option('all')
                 row = page.locator(f'tr[data-method="{method}"]').first
                 row.locator('[data-call-log-open]').first.click()
@@ -429,11 +430,11 @@ def test_web_extract_same_case_panels_keep_native_evidence_and_keyboard_return(t
                 expect(dialog).not_to_be_visible()
                 assert trigger.evaluate('(e)=>e===document.activeElement')
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
-                page.locator(f'nav a[href="{language}/results.html"]').click()
+                page.locator(f'.shell-links a[href="{language}/results.html"]').click()
                 assert page.url == origin + language + '/results.html'
-            account_link = page.locator(f'nav a[href="{language}/accounts.html"]')
+            account_link = page.locator(f'.shell-more a[href="{language}/accounts.html"]')
             if not account_link.is_visible():
-                page.locator('nav details > summary').click()
+                page.locator('.shell-more > summary').click()
             account_link.click()
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
             with page.expect_response(lambda r: r.url.endswith('/assets/cost-disclosure.json')) as receipt:
@@ -638,7 +639,7 @@ def test_webfetch_bilingual_extension_navigation(tmp_path, browser, display):
             expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
             page.locator('a[hreflang="en"]').click()
             expect(page.locator('#ranking-overall tbody tr')).to_have_count(2)
-            page.locator('header.top').get_by_role('link', name='Analysis', exact=True).click()
+            page.locator('header.shell-top').get_by_role('link', name='Analysis', exact=True).click()
             expect(page).to_have_url(origin+'/en/analysis/index.html')
             page.locator('[data-filter="result"]').select_option('')
             expect(page.locator('#filtered-table tbody tr')).to_have_count(2)

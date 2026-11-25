@@ -43,7 +43,6 @@ from harness.browser_use.publication import (
 from harness.browser_use.report_i18n import (
     MESSAGES,
     bilingual_text,
-    chinese_link,
     english_rationale,
     write_english_report,
 )
@@ -384,6 +383,7 @@ def _table(
     return shell.table(
         [_html(x) for x in headers], [shell.cells([_html(x) for x in row]) for row in rows], sortable=False,
         header_html=True, caption=caption, table_id=table_id, classes=classes,
+        empty=t("table.empty", "No records to show in this run."),
     )
 
 
@@ -1007,7 +1007,7 @@ def _action_duration_cards(attempts: list[dict[str, Any]], participants: Partici
                 width = 0 if average is None or maximum <= 0 else max(2.0, average / maximum * 100)
                 average_text = "—" if average is None else t("action_duration_cards.seconds", "{average:.3f} seconds", average=average / 1000)
                 browser_rows.append(
-                    f'''<div class="action-browser-row{' action-winner' if key in average_winners else ''}"><div class="action-browser-head"><b>{_e(participants.models[model])} · {_e(participants.engines[engine])}</b>{_winner(average_text, won=key in average_winners, label=t('action_duration_cards.lowest_mean_per_call_latency_across', 'Lowest mean per-call latency across all configurations'))}</div><div class="action-bar" aria-hidden="true"><i style="width:{width:.1f}%"></i></div><div class="action-browser-meta">''' + t("action_duration_cards.total_s_calls", "Total {total:.1f} s · {count} calls", total=total / 1000, count=count) + "</div></div>"
+                    f'''<div class="action-browser-row{' action-winner' if key in average_winners else ''}"><div class="action-browser-head"><b>{_e(participants.models[model])} · {_e(participants.engines[engine])}</b>{_winner(average_text, won=key in average_winners, label=t('action_duration_cards.lowest_mean_per_call_latency_across', 'Lowest mean per-call latency across all configurations'))}</div><div class="action-bar" aria-hidden="true"><i style="width:{width:.1f}%"></i></div><div class="action-browser-meta">''' + t("action_duration_cards.total_s_calls", "Total {total:.1f} s · {count} {count|call|calls}", total=total / 1000, count=count) + "</div></div>"
                 )
         cards.append(
             '<article class="action-card"><header><code>'
@@ -1261,7 +1261,7 @@ def _resource_comparison_table(
 
 
 REPORT_JS = (Path(__file__).parent / "assets" / "report.js").read_text(encoding="utf-8") + explorer.SCRIPT + explorer.INVENTORY_SCRIPT
-REPORT_STYLE = (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
+REPORT_STYLE = shell.CSS + (Path(__file__).parent / "assets" / "report.css").read_text(encoding="utf-8") + explorer.INVENTORY_STYLE
 _HEAD = (REPORT_PAGE_MARKER + '<link rel="stylesheet" href="assets/style.css">'
          '<script defer src="assets/report.js"></script>')
 
@@ -1297,15 +1297,17 @@ def _page(*, route: str, title: str, active: str, eyebrow: str, heading: Any, bo
     owner = TEMPLATE.variant(VARIANT).page(active)
     # The English pass links full routes, which its rewrite moves under `en/`.
     target = (lambda route: route) if _language() == "en" else _nav_route
-    links = shell.navigation([(target(page.route), _e(labels[page.key])) for page in pages], target(owner.route))
+    home, *rest = pages
     # The English pass links back to the same Chinese route; its link rewrite keeps hreflang links.
-    language = chinese_link(route) if _language() == "en" else '<a href="en/">English</a>'
-    controls = links + language + '<button class="theme-toggle" onclick="theme()">' + t("page.toggle_theme", "Toggle theme") + "</button>"
+    switch = (_e(route), "zh") if _language() == "en" else ("en/", "en")
+    header = shell.header(language=_language(), brand=_e(labels[home.key]), home=target(home.route),
+                          links=[(target(page.route), _e(labels[page.key])) for page in rest],
+                          current=target(owner.route), switch=switch)
     footer = ('<footer class="footer"><div class="wrap"><p>' + t("page.conclusions_apply_only_to_this_preregistered", "Conclusions apply only to this preregistered sample, agent, model, and runtime configuration. Presentation changes do not alter measured results.") + "</p></div></footer>")
     return shell.page(
         lang="zh-CN", base="../" * route.count("/") or "./",
         title=t("page.browser_use_evaluation", "{title} · Browser Use evaluation", title=title),
-        heading=None, heading_html=_html(heading), style="", script="", head=_HEAD, nav=controls,
+        heading=None, heading_html=_html(heading), style="", script="", head=_HEAD, header=header, shell_css=False,
         eyebrow=_e(eyebrow), notice="", role=owner.role, body=body, dialog="", footer_html=footer,
     )
 
@@ -1513,14 +1515,14 @@ def _failure_point(code: str, steps: list[dict[str, Any]]) -> tuple[str, int | N
     if code.startswith("evidence_") or code == "evidence_capture":
         return t("failure_point.network_evidence_acceptance_after_execution", "Network-evidence acceptance after execution"), last_step
     if code.startswith("site_"):
-        return (t("failure_point.after_steps_site_response_save", "After {last_step} steps: site response/save", last_step=last_step) if last_step else t("failure_point.site_response_save", "Site response/save")), last_step
+        return (t("failure_point.after_steps_site_response_save", "After {last_step} {last_step|step|steps}: site response/save", last_step=last_step) if last_step else t("failure_point.site_response_save", "Site response/save")), last_step
     if failed_step:
         number = int(failed_step.get("step") or last_step or 1)
         return _tool_error_point(number), number
     if code == "agent_step_budget":
-        return (t("failure_point.after_steps_step_limit_reached", "After {last_step} steps: step limit reached", last_step=last_step) if last_step else t("failure_point.step_limit_reached", "Step limit reached")), last_step
+        return (t("failure_point.after_steps_step_limit_reached", "After {last_step} {last_step|step|steps}: step limit reached", last_step=last_step) if last_step else t("failure_point.step_limit_reached", "Step limit reached")), last_step
     return (
-        t("failure_point.after_steps_final_answer_task_state", "After {last_step} steps: final answer/task state", last_step=last_step) if last_step else t("failure_point.final_answer_task_state", "Final answer/task state")
+        t("failure_point.after_steps_final_answer_task_state", "After {last_step} {last_step|step|steps}: final answer/task state", last_step=last_step) if last_step else t("failure_point.final_answer_task_state", "Final answer/task state")
     ), last_step
 
 
@@ -1839,7 +1841,7 @@ def _execution_evidence_html(result_id: str, executions: list[dict[str, Any]]) -
             [[label, artifact["sha256"]] for label, artifact in execution["artifacts"].items()],
         )
         cards.append(
-            ('<article class="review-round"><h3>' + t("execution_evidence_html.physical_execution", "Physical execution {execution}{authority}", execution=execution['execution'], authority=authority) + "</h3><p>" + t("execution_evidence_html.score_agent_path_browsertool_calls_model", "Score {score} · Agent path {duration_ms} · BrowserTool {action_count} calls / {browser_tool_duration_ms} · model tokens {total_tokens}", score=_number(execution['score']), duration_ms=_seconds_short(execution['duration_ms']), action_count=execution['action_count'], browser_tool_duration_ms=_seconds_short(execution['browser_tool_duration_ms']), total_tokens=_number(usage['total_tokens'])) + "</p>")
+            ('<article class="review-round"><h3>' + t("execution_evidence_html.physical_execution", "Physical execution {execution}{authority}", execution=execution['execution'], authority=authority) + "</h3><p>" + t("execution_evidence_html.score_agent_path_browsertool_calls_model", "Score {score} · Agent path {duration_ms} · BrowserTool {action_count} {action_count|call|calls} / {browser_tool_duration_ms} · model tokens {total_tokens}", score=_number(execution['score']), duration_ms=_seconds_short(execution['duration_ms']), action_count=execution['action_count'], browser_tool_duration_ms=_seconds_short(execution['browser_tool_duration_ms']), total_tokens=_number(usage['total_tokens'])) + "</p>")
             + _artifact_links(result_id, int(execution["execution"]))
             + hashes
             + "</article>"
@@ -2288,7 +2290,7 @@ def _article_body(
             rate=_pct(passed_count / len(attempts)) if attempts else "—",
         )
         + '</p><p class="lead-scope">'
-        + _translated("article_body.the_declared_scope_contains_tasks_and", "The declared scope contains {task_count} tasks and {configuration_count} configurations; {attempts_count}/{expected_count} logical results are recorded. Official evaluator results remain unchanged. A separate {clean_count}-task diagnostic subset excludes {excluded_count} tasks with verified external interference.", task_count=task_count, configuration_count=configuration_count, attempts_count=len(attempts), expected_count=expected_count, excluded_count=len(excluded), clean_count=clean_count)
+        + _translated("article_body.the_declared_scope_contains_tasks_and", "The declared scope contains {task_count} {task_count|task|tasks} and {configuration_count} {configuration_count|configuration|configurations}; {attempts_count}/{expected_count} logical results are recorded. Official evaluator results remain unchanged. A separate {clean_count}-task diagnostic subset excludes {excluded_count} {excluded_count|task|tasks} with verified external interference.", task_count=task_count, configuration_count=configuration_count, attempts_count=len(attempts), expected_count=expected_count, excluded_count=len(excluded), clean_count=clean_count)
         + ('</p><p class="page-links"><a href="datasets/">' + t("article_body.view_dataset", "View dataset") + '</a><a href="analysis/">' + t("article_body.inspect_all_results", "Inspect all results") + '</a><a href="data/interpretation-evidence.json" download>' + t("article_body.download_claims_and_evidence", "Download claims and evidence") + "</a></p></header>")
     )
     pass_chart = charts.charts(charts.ranked_bars(
@@ -2299,7 +2301,7 @@ def _article_body(
     core = (
         pass_chart
         + '<section><h2>'
-        + _translated("article_body.core_metrics_across_tasks", "Core metrics across {task_count} tasks", task_count=task_count) + '</h2>'
+        + _translated("article_body.core_metrics_across_tasks", "Core metrics across {task_count} {task_count|task|tasks}", task_count=task_count) + '</h2>'
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), t("article_body.tasks_passed", "Tasks passed"), t("article_body.pass_rate", "Pass rate"), t("article_body.agent_total_time", "Agent total time"), t("article_body.browsertool_latency", "BrowserTool latency"), 'Tokens'],
                  _summary_comparison_rows(summary, participants), table_id='home-core-metrics', classes='core-comparison-table')
         + '<p class="source-note">' + _translated("article_body.every_configuration_uses_the_same_task", "Every configuration uses the same task scope; result pages retain all physical executions.") + '</p></section>'
@@ -2314,7 +2316,7 @@ def _article_body(
         + _translated("article_body.programmatic_findings_identify_failed_rules_cause", "Programmatic findings identify failed rules; cause reviews explain the evidence-supported cause. They serve different purposes.")
         + _automatic_failure_figure(automatic_failure_counts) + _failure_scope_figure(verified_causes)
         + ''.join(chapters) + '<h3>' + _translated("article_body.official_results_and_post_hoc_diagnostics", "Official results and post-hoc diagnostics") + '</h3>'
-        + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), _translated("article_body.passes_on_tasks", "Passes on {clean_count} tasks", clean_count=clean_count), t("article_body.pass_rate", "Pass rate")], clean_rows,
+        + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), _translated("article_body.passes_on_tasks", "Passes on {clean_count} {clean_count|task|tasks}", clean_count=clean_count), t("article_body.pass_rate", "Pass rate")], clean_rows,
                  table_id='home-qualified-results', classes='core-comparison-table')
         + '<p class="source-note">' + _translated("article_body.the_diagnostic_subset_does_not_replace", "The diagnostic subset does not replace official scores. Original failure evidence remains available.") + '</p></section>'
     )
@@ -2326,12 +2328,12 @@ def _article_body(
         + ("</article><article><h3>" + t("article_body.failure_root_cause_review", "Failure root-cause review") + "</h3>")
         + _translated("article_body.bound_cause_reviews_cover_failed_logical", "Bound cause reviews cover {verified_causes_count}/{failed_count} failed logical results.", verified_causes_count=len(verified_causes), failed_count=len(failed))
         + '</article></div><p>' + _translated("article_body.passed_results_have_not_received_an", "Passed results have not received an independent blind semantic review.") + ('</p><a href="review/">' + t("article_body.view_review_records", "View review records →") + "</a></section>")
-        + '<section><h2>' + _translated("article_body.latency_and_browser_resources_across_tasks", "Latency and browser resources across {task_count} tasks", task_count=task_count) + '</h2>'
-        + _translated("article_body.mean_p50_and_p95_compare_all", "Mean, P50 and P95 compare all {configuration_count} configurations. CPU, memory and network cover the browser, excluding the Agent and model service.", configuration_count=configuration_count)
+        + '<section><h2>' + _translated("article_body.latency_and_browser_resources_across_tasks", "Latency and browser resources across {task_count} {task_count|task|tasks}", task_count=task_count) + '</h2>'
+        + _translated("article_body.mean_p50_and_p95_compare_all", "Mean, P50 and P95 compare all {configuration_count} {configuration_count|configuration|configurations}. CPU, memory and network cover the browser, excluding the Agent and model service.", configuration_count=configuration_count)
         + _resource_comparison_table(summary, participants)
         + _translated("article_body.minimum_markers_describe_the_recorded_configuration", "Minimum markers describe the recorded configuration; they do not establish resource efficiency at a common viewport.")
         + ("</section><section><h2>" + t("article_body.performance_and_resources_on_common_final", "Performance and resources on common final successes") + "</h2>")
-        + _translated("article_body.all_configurations_finally_passed_tasks_the", "All configurations finally passed {common_count} tasks. The table computes P50 over all physical executions within each logical result.", common_count=common_count)
+        + _translated("article_body.all_configurations_finally_passed_tasks_the", "All configurations finally passed {common_count} {common_count|task|tasks}. The table computes P50 over all physical executions within each logical result.", common_count=common_count)
         + _table([t("resource_comparison_table.model", "Model"), t("resource_comparison_table.browser", "Browser"), t("article_body.agent_path_p50", "Agent path P50"), 'BrowserTool P50', 'Tokens P50', t("article_body.peak_memory_p50", "Peak memory P50"), t("article_body.cpu_time_p50", "CPU time P50")], resource_rows,
                  table_id='home-resource-table', classes='core-comparison-table')
         + _translated("article_body.the_common_success_subset_retains_each", "The common-success subset retains each configuration’s recorded environment; it does not establish resource efficiency under identical conditions.")
@@ -3041,10 +3043,10 @@ def _write_dataset_index(stage: Path, inputs: ReportInputs) -> None:
         )
         + _section(
             t("dataset_index.dataset_scope", "Dataset scope"),
-            ("<p>" + t("dataset_index.all_tasks_were_fixed_before_model", "All {task_count} tasks were fixed before model execution, covering four deployed sites and RETRIEVE, NAVIGATE and MUTATE outcome contracts. This page describes tasks and acceptance rules. Pass rates, timings, trajectories and feasibility observations belong in results analysis.", task_count=task_count) + "</p>"),
+            ("<p>" + t("dataset_index.all_tasks_were_fixed_before_model", "All {task_count} {task_count|task|tasks} {task_count|was|were} fixed before model execution, covering four deployed sites and RETRIEVE, NAVIGATE and MUTATE outcome contracts. This page describes tasks and acceptance rules. Pass rates, timings, trajectories and feasibility observations belong in results analysis.", task_count=task_count) + "</p>"),
         )
     )
-    inventory = _section(t("dataset_index.tasks", "{task_count} tasks", task_count=task_count), _task_table(tasks, participants))
+    inventory = _section(t("dataset_index.tasks", "{task_count} {task_count|task|tasks}", task_count=task_count), _task_table(tasks, participants))
     _write_page(stage, "datasets/index.html", title=t("nav.dataset", "Dataset"), active="datasets",
                 eyebrow="Dataset", heading=heading,
                 body=compose("datasets", {"lead": lead, "definition": definition, "inventory": inventory}))
@@ -3104,7 +3106,7 @@ def _methodology_scoring_chain(inputs: ReportInputs) -> str:
     )
     return _section(
         t("methodology_scoring_chain.scoring_chain_for_this_run", "Scoring chain for this run"),
-        ('<ol class="flow"><li>' + t("methodology_scoring_chain.preregister_tasks", "Preregister {task_count} tasks", task_count=task_count) + "</li><li>" + t("methodology_scoring_chain.cowagent_plans_autonomously", "CowAgent plans autonomously") + "</li><li>BrowserTool</li><li>" + t("methodology_scoring_chain.run_official_evaluators", "Run official evaluators") + "</li><li>" + t("methodology_scoring_chain.review_deterministic_evidence", "Review deterministic evidence") + "</li></ol>")
+        ('<ol class="flow"><li>' + t("methodology_scoring_chain.preregister_tasks", "Preregister {task_count} {task_count|task|tasks}", task_count=task_count) + "</li><li>" + t("methodology_scoring_chain.cowagent_plans_autonomously", "CowAgent plans autonomously") + "</li><li>BrowserTool</li><li>" + t("methodology_scoring_chain.run_official_evaluators", "Run official evaluators") + "</li><li>" + t("methodology_scoring_chain.review_deterministic_evidence", "Review deterministic evidence") + "</li></ol>")
         + '<p>' + _translated("methodology_scoring_chain.the_counts_below_come_from_the", "The counts below come from the selected tasks' frozen acceptance contracts. Every configured evaluator must return 1.0 for a task to pass.") + '</p>'
         + _table(["Evaluator", _translated("trajectory_replay_control.tasks", "Tasks")], sorted(evaluator_counts.items()), table_id="methodology-evaluators"),
     )
@@ -3124,7 +3126,7 @@ def _methodology_deployment(inputs: ReportInputs) -> str:
     selected_sites = Counter(site for task in tasks for site in task.get("sites", []))
     site_images = environment.get("site_images") or config.get("site_images") or {}
     return _section(
-        t("methodology_deployment.how_the_tasks_were_deployed_and", "How the {task_count} tasks were deployed and run by the agent", task_count=task_count),
+        t("methodology_deployment.how_the_tasks_were_deployed_and", "How the {task_count} {task_count|task|tasks} {task_count|was|were} deployed and run by the agent", task_count=task_count),
         '<figure id="deployment-flow" class="method-figure"><img src="assets/webarena-autonomous-evaluation-flow.png" alt="Browser Use evaluation flow: tasks, recorded environment, autonomous actions, registered browsers and official evaluators"><figcaption>'
         + _translated("methodology_deployment.the_diagram_explains_responsibilities_the_recorded", "The diagram explains responsibilities. The recorded deployment and preparation coverage are specified below and in each execution's evidence.")
         + '</figcaption></figure><p>'
@@ -3203,7 +3205,7 @@ def _methodology_evaluators() -> str:
                 ],
             ],
         )
-        + ("<p><strong>" + t("methodology_evaluators.conjunction_rule", "Conjunction rule:") + "</strong>" + t("methodology_evaluators.every_evaluator_configured_for_a_task", "Every evaluator configured for a task must score 1.0 for the task to pass. There is no LLM-as-a-judge and no manual score override.") + "</p>"),
+        + ("<p><strong>" + t("methodology_evaluators.conjunction_rule", "Conjunction rule:") + "</strong> " + t("methodology_evaluators.every_evaluator_configured_for_a_task", "Every evaluator configured for a task must score 1.0 for the task to pass. There is no LLM-as-a-judge and no manual score override.") + "</p>"),
     )
 
 
@@ -3246,8 +3248,8 @@ def _write_analysis_page(stage: Path, inputs: ReportInputs) -> None:
         + _action_duration_cards(attempts, participants),
     )
     inventory = _section(
-        t("analysis_page.results_and_failure_diagnoses", "{result_count} results and failure diagnoses", result_count=result_count),
-        ("<p>" + t("analysis_page.all_official_results_for_the_preregistered", "All official results for the {task_count} preregistered tasks are retained; {excluded_task_ids_count} tasks are marked as affected by external interference. Failures are shown by default. Open a diagnosis to inspect the failure stage, program error, reviewed cause, trajectory, screenshots and logs.", task_count=task_count, excluded_task_ids_count=len(excluded_task_ids)) + "</p>")
+        t("analysis_page.results_and_failure_diagnoses", "{result_count} {result_count|result|results} and failure diagnoses", result_count=result_count),
+        ("<p>" + t("analysis_page.all_official_results_for_the_preregistered", "All official results for the {task_count} preregistered tasks are retained; {excluded_task_ids_count} {excluded_task_ids_count|task|tasks} {excluded_task_ids_count|is|are} marked as affected by external interference. Failures are shown by default. Open a diagnosis to inspect the failure stage, program error, reviewed cause, trajectory, screenshots and logs.", task_count=task_count, excluded_task_ids_count=len(excluded_task_ids)) + "</p>")
         + _attempt_table(attempts, tasks, participants, verified_causes),
     )
     _write_page(stage, "analysis/index.html", title=t("nav.results_analysis", "Results analysis"), active="analysis",
@@ -3335,7 +3337,7 @@ def _result_navigation(public: dict[str, Any], attempt_page: str) -> str:
 
 def _result_runtime_facts(public: dict[str, Any], usage: dict[str, Any]) -> str:
     return (
-        '<div class="attempt-secondary runtime-strip"><div class="attempt-fact"><b>' + t("result_runtime_facts.autonomous_actions", "Autonomous actions") + "</b>" + t("result_runtime_facts.times", "{action_count} times", action_count=public['action_count']) + '</div><div class="attempt-fact"><b>' + t("result_runtime_facts.agent_path", "Agent path") + f"</b>{_seconds(public['duration_ms'])}</div><div class=\"attempt-fact\"><b>BrowserTool</b>{_seconds(public['browser_tool_duration_ms'])}</div><div class=\"attempt-fact\"><b>" + t("result_runtime_facts.model_tokens", "Model tokens") + f"</b>{_number(usage['total_tokens'])}</div><div class=\"attempt-fact\"><b>" + t("result_runtime_facts.model_requests", "Model requests") + "</b>" + t("result_runtime_facts.calls_transport_attempts", "{request_count} calls / {request_attempt_count} transport attempts", request_count=usage['request_count'], request_attempt_count=usage['request_attempt_count']) + "</div></div>"
+        '<div class="attempt-secondary runtime-strip"><div class="attempt-fact"><b>' + t("result_runtime_facts.autonomous_actions", "Autonomous actions") + "</b>" + t("result_runtime_facts.times", "{action_count} times", action_count=public['action_count']) + '</div><div class="attempt-fact"><b>' + t("result_runtime_facts.agent_path", "Agent path") + f"</b>{_seconds(public['duration_ms'])}</div><div class=\"attempt-fact\"><b>BrowserTool</b>{_seconds(public['browser_tool_duration_ms'])}</div><div class=\"attempt-fact\"><b>" + t("result_runtime_facts.model_tokens", "Model tokens") + f"</b>{_number(usage['total_tokens'])}</div><div class=\"attempt-fact\"><b>" + t("result_runtime_facts.model_requests", "Model requests") + "</b>" + t("result_runtime_facts.calls_transport_attempts", "{request_count} {request_count|call|calls} / {request_attempt_count} transport attempts", request_count=usage['request_count'], request_attempt_count=usage['request_attempt_count']) + "</div></div>"
     )
 
 
@@ -3369,12 +3371,12 @@ def _result_failure_section(
             if step_context
             else ""
         )
-        + ('<div class="diagnosis-grid"><div class="attempt-fact"><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(_automatic_failure_type(evaluation_record)[1] or t('filters.none', 'None'))}</div><div class=\"attempt-fact\"><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div class=\"attempt-fact\"><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f'</b>{_e(remediation_owner)}</div><div class="attempt-fact"><b>' + t("review_history.treatment", "Treatment") + f'</b>{_e(remediation_action)}</div></div><div class="failure-error"><h3>' + t("diagnosis_dialog.program_error", "Program error") + f'</h3><pre class="log-view">{_e(_evaluator_error_text(evaluation_record, row))}</pre></div><div class="diagnosis-reason"><strong>' + t("result_failure_section.reviewed_conclusion", "Reviewed conclusion:") + "</strong>")
+        + ('<div class="diagnosis-grid"><div class="attempt-fact"><b>' + t("diagnosis_dialog.program_verdict", "Program verdict") + f"</b>{_e(_automatic_failure_type(evaluation_record)[1] or t('filters.none', 'None'))}</div><div class=\"attempt-fact\"><b>" + t("diagnosis_dialog.reviewed_root_cause", "Reviewed root cause") + f"</b>{_e(subcategory or t('diagnosis_dialog.awaiting_review', 'Awaiting review'))}</div><div class=\"attempt-fact\"><b>" + t("diagnosis_dialog.owning_scope", "Owning scope") + f'</b>{_e(remediation_owner)}</div><div class="attempt-fact"><b>' + t("review_history.treatment", "Treatment") + f'</b>{_e(remediation_action)}</div></div><div class="failure-error"><h3>' + t("diagnosis_dialog.program_error", "Program error") + f'</h3><pre class="log-view">{_e(_evaluator_error_text(evaluation_record, row))}</pre></div><div class="diagnosis-reason"><strong>' + t("result_failure_section.reviewed_conclusion", "Reviewed conclusion:") + "</strong> ")
         + _e(reason or t("result_failure_section.no_verified_root_cause_is_available", "No verified root cause is available yet."))
         + (f'</div><p class="page-links"><a href="{attempt_page}#verification">' + t("diagnosis_dialog.view_expected_and_actual_values", "View expected and actual values") + f'</a><a href="{step_href}">' + t("diagnosis_dialog.view_trajectory_near_the_failure", "View trajectory near the failure") + f'</a><a href="{attempt_page}#screenshots">' + t("diagnosis_dialog.view_page_screenshots", "View page screenshots") + f'</a><a href="{attempt_page}#runtime">' + t("result_failure_section.view_complete_logs", "View complete logs") + "</a></p>")
         + runtime_facts
         + (
-            ('<p class="callout"><strong>' + t("result_failure_section.comparison_treatment", "Comparison treatment:") + "</strong>" + t("result_failure_section.this_result_contains_confirmed_interference_outside", "This result contains confirmed interference outside the model/browser variables. Its official score is retained, but it is temporarily excluded from the clean subset.") + "</p>")
+            ('<p class="callout"><strong>' + t("result_failure_section.comparison_treatment", "Comparison treatment:") + "</strong> " + t("result_failure_section.this_result_contains_confirmed_interference_outside", "This result contains confirmed interference outside the model/browser variables. Its official score is retained, but it is temporarily excluded from the clean subset.") + "</p>")
             if external_interference
             else ""
         ),
@@ -3525,7 +3527,7 @@ def _write_review_page(stage: Path, release_data: dict[str, Any]) -> None:
     )
     review_page += _section(
         t("review_page.current_status", "Current status"),
-        ('<p class="callout success"><strong>' + t("review_page.release_gate", "Release gate:") + "</strong>" + t("review_page.evidence_files_hashes_scores_statuses_the", "Evidence files, hashes, scores, statuses, the official version, and report links passed programmatic consistency checks.") + "</p><p>" + t("review_page.the_official_webarena_verified_evaluator_is", "The official WebArena-Verified evaluator is the scoring authority. This history records checks and revisions to the implementation and report; it does not replace task scoring.") + "</p>"),
+        ('<p class="callout success"><strong>' + t("review_page.release_gate", "Release gate:") + "</strong> " + t("review_page.evidence_files_hashes_scores_statuses_the", "Evidence files, hashes, scores, statuses, the official version, and report links passed programmatic consistency checks.") + "</p><p>" + t("review_page.the_official_webarena_verified_evaluator_is", "The official WebArena-Verified evaluator is the scoring authority. This history records checks and revisions to the implementation and report; it does not replace task scoring.") + "</p>"),
     )
     rounds = _section(
         t("review_page.review_rounds", "Review rounds"),
@@ -3588,7 +3590,7 @@ def _adoption_conditions_section(inputs: ReportInputs) -> str:
                 ],
                 [
                     t("adoption_conditions_section.tasks_and_sites", "Tasks and sites"),
-                    t("adoption_conditions_section.same_tasks_same_local_site_images", "Same {task_count} tasks; same local site images", task_count=task_count),
+                    t("adoption_conditions_section.same_tasks_same_local_site_images", "Same {task_count} {task_count|task|tasks}; same local site images", task_count=task_count),
                     t("adoption_conditions_section.provide_identical_inputs_and_website_state", "Provide identical inputs and website state"),
                 ],
                 [t("adoption_conditions_section.action_interface", "Action interface"), "CowAgent BrowserTool · CDP", t("adoption_conditions_section.deliver_agent_actions_to_the_browser", "Deliver agent actions to the browser")],
@@ -3599,12 +3601,12 @@ def _adoption_conditions_section(inputs: ReportInputs) -> str:
                 ],
                 [
                     t("adoption_conditions_section.resources_and_limits", "Resources and limits"),
-                    t("adoption_conditions_section.same_cpu_memory_and_up_to", "Same CPU, memory, and up to {max_agent_steps} steps; historical viewports differed", max_agent_steps=max_agent_steps),
+                    t("adoption_conditions_section.same_cpu_memory_and_up_to", "Same CPU, memory, and up to {max_agent_steps} {max_agent_steps|step|steps}; historical viewports differed", max_agent_steps=max_agent_steps),
                     t("adoption_conditions_section.control_the_execution_budget", "Control the execution budget"),
                 ],
             ],
         )
-        + ("<p><strong>" + t("adoption_conditions_section.cowagent_executes_all_tasks_autonomously", "CowAgent executes all {task_count} tasks autonomously.", task_count=task_count) + "</strong>" + t("adoption_conditions_section.the_repository_s_browser_trajectory_replay", "The repository's Browser Trajectory Replay track is a separate fixed-action test and is not included in these scores.") + "</p>"),
+        + ("<p><strong>" + t("adoption_conditions_section.cowagent_executes_all_tasks_autonomously", "CowAgent executes all {task_count} {task_count|task|tasks} autonomously.", task_count=task_count) + "</strong>" + t("adoption_conditions_section.the_repository_s_browser_trajectory_replay", "The repository's Browser Trajectory Replay track is a separate fixed-action test and is not included in these scores.") + "</p>"),
     )
 
 
@@ -3773,7 +3775,7 @@ def _reproduce_isolation_section(participants: Participants) -> str:
                     t("reproduce_isolation_section.one_daemon_scoped_lock_reset_and", "One daemon-scoped lock; reset and verify initial state before every attempt"),
                 ],
                 [
-                    t("reproduce_isolation_section.one_site_stack_browsers_run_in", "One site stack; {value} browsers run in parallel", value=t('reproduce_isolation_section.two', 'two') if len(participants.engines) == 2 else t('reproduce_isolation_section.multiple', 'multiple')),
+                    t("reproduce_isolation_section.one_site_stack_browsers_run_in", "One site stack; {value} {value|browser|browsers} run in parallel", value=t('reproduce_isolation_section.two', 'two') if len(participants.engines) == 2 else t('reproduce_isolation_section.multiple', 'multiple')),
                     t("reproduce_isolation_section.not_allowed", "Not allowed"),
                     t("reproduce_isolation_section.separate_accounts_still_share_objects_indexes", "Separate accounts still share objects, indexes, caches, and background jobs"),
                 ],
@@ -3878,7 +3880,7 @@ def _write_interpretation_evidence(
             },
             {
                 "claim": (
-                    t("interpretation_evidence.p50_performance_and_resources_on_tasks", "P50 performance and resources on tasks that all {value} configurations finally passed", value=t('interpretation_evidence.four', 'four') if configuration_count == 4 else t('interpretation_evidence.text', '{configuration_count}', configuration_count=configuration_count))
+                    t("interpretation_evidence.p50_performance_and_resources_on_tasks", "P50 performance and resources on tasks that all {value} {value|configuration|configurations} finally passed", value=t('interpretation_evidence.four', 'four') if configuration_count == 4 else t('interpretation_evidence.text', '{configuration_count}', configuration_count=configuration_count))
                 ),
                 "basis": dict(
                     zip(

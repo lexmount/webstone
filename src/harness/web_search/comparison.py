@@ -345,7 +345,7 @@ def render_level_guide(views, zh=False):
     for item in declared:
         calls = len(panels[item.name]['timing_case_ids'])
         if calls != scope[item.name]:
-            body += '<p class="metric-caption" data-guide-population>' + t('{benchmark} quality uses {quality} valid queries; timing retains all {calls} calls.', benchmark=t(item.label), quality=scope[item.name], calls=calls) + '</p>'
+            body += '<p class="metric-caption" data-guide-population>' + t('{benchmark} quality uses {quality} valid queries; timing retains all {calls} {calls|call|calls}.', benchmark=t(item.label), quality=scope[item.name], calls=calls) + '</p>'
     return body + '</details></section>'
 
 
@@ -368,7 +368,7 @@ def locale_context(rows, method_id, zh=False):
             continue
         groups[tuple(sorted(locale.items()))] += 1
     t = partial(report_text, zh=zh)
-    return '; '.join(t('{count} calls: {settings}', count=count,
+    return '; '.join(t('{count} {count|call|calls}: {settings}', count=count,
                         settings=', '.join(k + '=' + str(v) for k, v in settings) or t('No locale parameters'))
                      for settings, count in sorted(groups.items()))
 
@@ -571,7 +571,7 @@ def render_level_summary(view, zh=False, *, content=None):
                 cells.append(cell)
             rendered.append('<tr data-summary-method="' + esc(method['id']) + '">' + ''.join(cells) + '</tr>')
         name = t(BENCHMARKS.get(benchmark).label)
-        body += '<article data-level-benchmark="' + benchmark + '"><h3>' + name + f' · {n}' + t(' queries') + '</h3>'
+        body += '<article data-level-benchmark="' + benchmark + '"><h3>' + name + ' · ' + t('{count} {count|query|queries}', count=n) + '</h3>'
         body += '<p data-dataset-purpose>' + level_purpose(level, benchmark, zh) + '</p>'
         body += level_conclusion(view, panel, zh)
         body += '<p class="primary-guide" data-primary-guide>' + t('Primary metric: {metric}. Higher is better; the initial order is descending.', metric=labels[panel['primary_metric']]) + '</p>'
@@ -602,7 +602,7 @@ def render_level_findings(view, zh=False):
             mean = sum(s[key] for s in scored) / n if n else None
             values.append((method, mean))
         ordered = sorted(values, key=lambda pair: (pair[1] is None, -(pair[1] or 0)))
-        body += '<article data-findings-benchmark="' + benchmark + '"><h3>' + name + f' · {n}' + t(' queries') + '</h3><p data-dataset-purpose>' + description + '</p>'
+        body += '<article data-findings-benchmark="' + benchmark + '"><h3>' + name + ' · ' + t('{count} {count|query|queries}', count=n) + '</h3><p data-dataset-purpose>' + description + '</p>'
         body += '<figure class="metric-bars" data-primary-chart="' + key + '"><figcaption>' + esc(metric) + '</figcaption>'
         for method, value in ordered:
             width = max(0, min(100, (value or 0) / (3 if key == 'answer_grade' else 1) * 100))
@@ -744,7 +744,7 @@ def level_conclusion(view, panel, zh=False):
     names = ', '.join(name for name, value in values if value == best)
     value = (f'{best * 100:.1f}' if key == 'ndcg' else f'{best:.3f}' if key == 'source_rr' else
              f'{best:.2f} / 3' if key == 'answer_grade' else f'{best:.1%}')
-    sentence = (t('{method}: {value} across {count} queries. This level has one participant.', method=names, value=value, count=n)
+    sentence = (t('{method}: {value} across {count} {count|query|queries}. This level has one participant.', method=names, value=value, count=n)
                 if len(values) == 1 else t('Highest observed primary score: {method}, {value}.', method=names, value=value))
     return '<p class="level-conclusion" data-level-conclusion>' + esc(sentence) + '</p>'
 

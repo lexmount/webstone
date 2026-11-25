@@ -306,7 +306,8 @@ def check_report_bundle(formal_root: Path) -> dict[str, int]:
         # Every registered page fills its template role in order and is in the navigation.
         variant = check_template_pages(reports, audit["template"], TEMPLATE)
         link = '<a href="{route}"( aria-current="page")?>{label}</a>'
-        nav_pattern = r"<nav>(.*?)</nav>"
+        # The shared header holds the pages; bundles from before it keep a bare <nav>.
+        nav_pattern = r'(?:<div class="shell-links">|<nav>)(.*?)(?:</div>|</nav>)'
         active_pattern = r'<a href="[^"]+" aria-current="page">(.*?)</a>'
     else:
         # Bundles built before the template record keep their earlier navigation markup.

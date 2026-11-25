@@ -179,7 +179,7 @@ def test_reader_navigation_order_and_labels_apply_to_home_and_evidence(tmp_path)
         soup = BeautifulSoup(
             (output / "zh" / (route + ".html")).read_text(encoding="utf-8"), "html.parser"
         )
-        links = soup.select("nav a")[: len(PAGES)]
+        links = soup.select(".shell-links a, .shell-more a")[: len(PAGES)]
         assert [link["href"] for link in links] == ["zh/" + item + ".html" for item in order]
         assert [link.get_text() for link in links] == ["Read " + item for item in order]
     assert (
@@ -232,10 +232,10 @@ def test_grouped_navigation_keeps_secondary_pages_discoverable():
         for route in PAGES
     ]
     soup = BeautifulSoup(page("zh", "research", "Example", "", navigation=entries), "html.parser")
-    assert len(soup.select("nav > a")) == 3
-    assert len(soup.select("nav details a")) == 6
-    assert soup.select_one("nav details[open] a[aria-current]").get_text() == "research"
-    assert soup.select_one(".report-tools a").get_text() == "English"
+    assert len(soup.select(".shell-links > a")) == 3
+    assert len(soup.select(".shell-more a")) == 6
+    assert soup.select_one(".shell-more[data-current] a[aria-current]").get_text() == "research"
+    assert soup.select_one(".shell-controls a").get_text() == "English"
 
 
 def test_native_method_examples_keep_benchmarks_separate_and_reject_changed_outputs(tmp_path):
@@ -732,8 +732,9 @@ def test_skipped_latency_is_retained_without_ranking_it_as_comparison_leader():
         )
     )
     rendered = soup.select("tbody tr")
-    assert len(rendered[0].select(".comparison-winner")) == 3
-    assert not rendered[1].select(".comparison-winner")
+    # One compared method has no contest, so no cell is marked as the leader.
+    assert not soup.select(".comparison-winner")
+    assert rendered[0].select_one('[data-metric="home-mean"]')["data-metric-direction"] == "min"
     assert rendered[1].select_one('[data-metric="home-mean"]').get_text() == "1.000"
 
 

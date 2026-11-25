@@ -272,7 +272,7 @@
      [
       "方法 | 非空／题数 | 平均 ms | P50 ms | P95 ms | 目标页进前5条 | 千次价格",
       "Fixture A | ★ 2/2 | ★ 100.00 | ★ 100.00 | ★ 100.00 | ★ 100.0% (2题) | — CNY",
-      "Fixture B | 1/2 | 200.00 | 200.00 | 200.00 | 50.0% (2题) | ★ 5.00 CNY"
+      "Fixture B | 1/2 | 200.00 | 200.00 | 200.00 | 50.0% (2题) | 5.00 CNY"
      ],
      [
       "场景 | 方法 | Hit@5 | MRR | 指定域名占比 | 重复占比",
@@ -306,7 +306,7 @@
      [
       "接口 | 返回结果的题数 | 已知页@5 | P50 ms | P95 ms | 本批估算费用",
       "Fixture A | ★ 2/2 | ★ 100.0% (n=2) | ★ 100.00 | ★ 100.00 | — CNY",
-      "Fixture B | 1/2 | 50.0% (n=2) | 200.00 | 200.00 | ★ 0.005 CNY"
+      "Fixture B | 1/2 | 50.0% (n=2) | 200.00 | 200.00 | 0.005 CNY"
      ],
      [
       "方法 | 规则分类 | 查询数 | 本方法查询总数",
@@ -389,23 +389,23 @@
    "calls/fixture-0-lexmount-r0.json cb52e64037188a38de19",
    "calls/fixture-1-deepseek-content-r0.json 5c120a40be700d465c31",
    "calls/fixture-1-lexmount-r0.json 6927ddb3cc59633bc9cf",
-   "changes.html c072f8ca18091fe44f6a",
-   "dataset.html 7b228fd8fe651ca79a55",
-   "details/fixture-0-deepseek-content-r0.html d3bde293dbd0c2d2573b",
-   "details/fixture-0-lexmount-r0.html 35c90cd2a16d450940fe",
-   "details/fixture-1-deepseek-content-r0.html 9c9a76c423208ffe1f49",
-   "details/fixture-1-lexmount-r0.html b7471492244e6830df69",
+   "changes.html 4d0038744232162a96d6",
+   "dataset.html 96349f104b3589bb128d",
+   "details/fixture-0-deepseek-content-r0.html 862fdf8bbcc7e5de8429",
+   "details/fixture-0-lexmount-r0.html bfbf8384210bc166315f",
+   "details/fixture-1-deepseek-content-r0.html a1ce8c52df8b5023d576",
+   "details/fixture-1-lexmount-r0.html 8c1f147c954595ae959b",
    "en/index.html 690db8438fa023e0159c",
-   "index.html 087ccd10bd8acfc13647",
-   "interpretation.html 6838489251e2b1d6cd5e",
+   "index.html ada58fbcb3018083b011",
+   "interpretation.html d9df4f639a7e6088826e",
    "manifest.json f5ffcf8f3d09207c19bf",
-   "performance.html c4656c4f28c446107609",
+   "performance.html fb608b5a061504ae40f1",
    "query-catalog-license.txt 4787042ef9f5d9e353ed",
    "report-languages.json 15a1ff360d87e41f62e9",
-   "reproduce.html 89dfdbed54fddc04fd9b",
-   "research.html 5ad013d1a78cc63e842e",
-   "results.html 8a2d306c81766ed1b21a",
-   "review.html 507ca6f64d7e46f45f65",
+   "reproduce.html ffb127d24090c4029e54",
+   "research.html 9f4b294f097b38535817",
+   "results.html 263d98603ca7d080dc43",
+   "review.html a4b48daf0308a1e9c7f8",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  }

@@ -105,7 +105,7 @@ def test_english_home_explains_unknown_and_missing_results(tmp_path, monkeypatch
     report.render_report(tmp_path, report_model({'cases': cases}, records, [], include_english=True))
     home = (tmp_path/'en/index.html').read_text(encoding='utf-8')
     assert '1 task-family overview' in home
-    assert '1 family rankings' in home
+    assert '1 family ranking ' in home
     assert '2 cases · 1 measured methods' in home
     assert '类任务概览' not in home and '种已测方法' not in home
     if missing:

@@ -78,7 +78,7 @@ def check_template_pages(root: Path, record, template):
 
 # The page markers that ``check_presentation`` reads. A page without any of them
 # has nothing to check, so the gate reads only the bytes of such a page.
-_PRESENTATION_MARKERS = (b"data-metric-direction", b"data-significance", b"data-sort-controls",
+_PRESENTATION_MARKERS = (b"shell-top", b"data-metric-direction", b"data-significance", b"data-sort-controls",
                          b"data-dataset-inventory", b"data-report-detail")
 
 RELEASE_STAGES = ("identity", "languages", "links", "presentation", "evidence", "visual")

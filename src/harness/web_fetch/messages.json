@@ -598,6 +598,8 @@
     "errors_and_run_records": "错误与运行记录",
     "errors_and_runtime_logs": "错误与运行日志",
     "evaluated_test_pages": "页评测样本",
+    "physical_call_count": "{count} 次调用",
+    "character_count": "{count:,} 字符",
     "evaluation_environment_defect_excluded_across_all_methods": "评测环境异常：统一排除比较",
     "evaluation_workflow": "评测流程",
     "every_call_retains_harness_events_start_time": "每次调用都保存了测试程序的调用记录：何时开始、传入什么参数、何时返回，以及是否发生错误。各案例详情中的“调用方事件”展示这些记录。",
