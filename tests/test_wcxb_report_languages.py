@@ -371,3 +371,12 @@ def test_wcxb_registered_aliases_use_shared_interfaces_and_bound_timing_roles(tm
         assert 'Moli 1.1.7' in example
         assert 'fetch' in example
 
+
+
+def test_wcxb_cells_show_registered_browser_names(built):
+    from harness.reporting.names import check_display_names
+    from harness.web_fetch.methods import method_display_labels
+    root = built(True)[0]
+    labels = method_display_labels()
+    for path in root.rglob('*.html'):
+        check_display_names(path.read_text(encoding='utf-8'), labels)

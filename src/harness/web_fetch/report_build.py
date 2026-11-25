@@ -19,6 +19,7 @@ from harness.record_io import file_sha256, load_jsonl, optional_file_sha256
 from harness.record_schema import read_records, validate_records
 from harness.report_languages import generated_languages, includes_english, select_report_language
 from harness.reporting.assets import copy_bound_assets, load_bound_content
+from harness.reporting.mermaid import MERMAID_LICENSE, MERMAID_RUNTIME
 from harness.web_fetch.template import report_template
 from harness.reporting.versions import bind_build_version, record_build_version
 from harness.web_fetch.adjudication_evidence import (
@@ -1763,7 +1764,10 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
     # The existing owner renders from saved metrics. Only these explanatory
     # routes may be installed; review mode also selects fresh result details.
     # Logs and every measured byte remain outside the install allowlist.
-    routes = ['assets/report.js', 'assets/style.css', 'index.html', 'methodology/index.html', 'adoption/index.html', 'reproduce/index.html', 'changes/index.html']
+    # The vendored Mermaid runtime travels with report.js, which loads it; a report
+    # built before it was vendored gains it here.
+    runtime_assets = ['assets/' + MERMAID_RUNTIME, 'assets/' + MERMAID_LICENSE]
+    routes = ['assets/report.js', *runtime_assets, 'assets/style.css', 'index.html', 'methodology/index.html', 'adoption/index.html', 'reproduce/index.html', 'changes/index.html']
     routes += ['providers/' + provider + '.html' for provider in binding['providers']]
     routes += ['adoption/interfaces/' + provider + '.json' for provider in binding['providers']]
     if review_only:
@@ -1815,7 +1819,7 @@ def refresh_local_presentation(output: Path, binding_path: Path, *, review_only:
         changed = []
         for relative in routes:
             before, after = contained_path(output, relative), contained_path(staging, relative)
-            if not after.is_file() or (not review_only and not before.is_file()):
+            if not after.is_file() or (not review_only and not before.is_file() and relative not in runtime_assets):
                 raise ValueError('Presentation route missing: ' + relative)
             if not before.is_file() or before.read_bytes() != after.read_bytes():
                 changed.append(relative)

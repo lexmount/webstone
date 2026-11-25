@@ -494,6 +494,10 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     # Refresh must install the shared behavior/style required by new detail HTML.
     for relative in ("assets/report.js", "assets/style.css"):
         (output / relative).write_text("stale-presentation-asset", encoding="utf-8")
+    # A report built before Mermaid was vendored has no runtime beside report.js.
+    from harness.reporting.mermaid import MERMAID_LICENSE, MERMAID_RUNTIME, mermaid_file
+    for name in (MERMAID_RUNTIME, MERMAID_LICENSE):
+        (output / "assets" / name).unlink()
     before = {path.relative_to(output).as_posix(): _digest(path)
               for path in output.rglob("*") if path.is_file()}
     from unittest.mock import patch
@@ -513,6 +517,8 @@ def test_new_local_matrix_is_complete_and_keeps_logs_without_claiming_review(tmp
     assert rendered.call_args.args[1].options.authored_interpretation is False
     for relative in ("assets/report.js", "assets/style.css"):
         assert "stale-presentation-asset" not in (output / relative).read_text(encoding="utf-8")
+    for name in (MERMAID_RUNTIME, MERMAID_LICENSE):
+        assert (output / "assets" / name).read_bytes() == mermaid_file(name)
     allowed = {"index.html", "methodology/index.html", "adoption/index.html",
                "reproduce/index.html", "changes/index.html", "providers/fixture.html",
                "adoption/interfaces/fixture.json", "report-manifest.json",

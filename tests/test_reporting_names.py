@@ -28,12 +28,25 @@ def test_body_cells_show_display_names():
             check_display_names(page(f"<table><tr><td>{cell}</td></tr></table>"), LABELS)
 
 
+def test_display_names_resolve_in_the_page_language():
+    labels = {"foo": {"zh": "中文名称", "en": "foo"}, "bar": {"zh": "bar", "en": "Bar"}}
+    with pytest.raises(ValueError, match="raw id 'foo'"):
+        check_display_names(page("<table><tr><td>foo</td></tr></table>"), labels)
+    check_display_names(page("<table><tr><td>foo</td></tr></table>", lang="en"), labels)
+    check_display_names(page("<table><tr><td>bar</td></tr></table>"), labels)
+    with pytest.raises(ValueError, match="raw id 'bar'"):
+        check_display_names(page("<table><tr><td>bar</td></tr></table>", lang="en"), labels)
+
+
 def test_chinese_pages_name_their_interface_in_chinese():
     check_interface_language(page("<table><tr><th>均值</th><th>P50</th><th>F1</th></tr></table>"))
     check_interface_language(page("<h1>Moli 1.1.3 · Chromium</h1>"))
     check_interface_language(page('<h1><span data-verbatim>Task static-title</span></h1>'))
     check_interface_language(page('<h2 lang="en">Mean</h2>'))
     check_interface_language(page("<th>Mean</th>", lang="en"))
+    check_interface_language(page('<button translate="no">Next</button>'))
+    check_interface_language(page('<h2><span lang="en">Results</span></h2>'))
+    check_interface_language(page('<h2><span translate="no">Results</span> 汇总</h2>'))
     for chrome in ("<th>Mean</th>", "<h1>GPT · Task #44</h1>", "<option>Passed</option>", "<button>Back</button>"):
         with pytest.raises(ValueError, match="Untranslated interface"):
             check_interface_language(page(chrome))
