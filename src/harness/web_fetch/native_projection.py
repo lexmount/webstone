@@ -14,8 +14,6 @@ import re
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
-from contextlib import contextmanager
-from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, quote, urljoin, urlsplit
@@ -32,12 +30,13 @@ def _selector(provider_type):
     return provider_class(provider_type).native_answer_selection
 
 
-def native_projection_source(provider_type):
+def native_projection_source(provider_type, *, policy_module=None):
     """Bytes that define one provider type's answer selection policy.
 
     The policy is this module plus the adapter module that defines the type's
     ``native_answer_selection`` hook. The bytes are frozen beside evidence as
     data and identified by their SHA-256; they are never executed.
+    ``policy_module`` stands in for this module's bytes with a stored earlier copy.
     """
     paths = [Path(__file__)]
     selector = _selector(provider_type)
@@ -47,7 +46,34 @@ def native_projection_source(provider_type):
             paths.append(owner)
     root = Path(__file__).parent
     return b''.join(b'# native answer policy source: ' + path.relative_to(root).as_posix().encode() + b'\n'
-                    + path.read_bytes() for path in paths)
+                    + (policy_module if index == 0 and policy_module is not None else path.read_bytes())
+                    for index, path in enumerate(paths))
+
+
+_POLICY_MODULES = Path(__file__).parent / 'data/native-answer-policies'
+
+
+@lru_cache(maxsize=1)
+def _stored_policy_modules():
+    """Earlier bytes of this module that evidence was frozen with, each verified against its copy."""
+    index = json.loads((_POLICY_MODULES / 'index.json').read_text(encoding='utf-8'))
+    if index.get('schema_version') != 1 or index.get('kind') != 'native_answer_policy_modules':
+        raise ValueError('Invalid native answer policy module store')
+    modules = []
+    for row in index['modules']:
+        raw = (_POLICY_MODULES / row['source_artifact']).read_bytes()
+        if (hashlib.sha256(raw).hexdigest() != row['sha256'] or row['source_artifact'] != row['sha256'] + '.py.txt'
+                or type(row['version']) is not int or row['version'] not in range(1, 8)):
+            raise ValueError('Stored native answer policy module differs from its binding')
+        modules.append((raw, row['version']))
+    return tuple(modules)
+
+
+@lru_cache(maxsize=None)
+def _stored_policy_versions(provider_type):
+    """Policy digests of ``provider_type`` under each stored module copy, with their versions."""
+    return {hashlib.sha256(native_projection_source(provider_type, policy_module=raw)).hexdigest(): version
+            for raw, version in _stored_policy_modules()}
 
 
 def native_projection_regressions():
@@ -60,17 +86,13 @@ def native_projection_regressions():
     return indexed
 
 
-# Historical implementations are approved by a caller-selected, hash-bound
-# evidence registry, never by a receipt's self-declared version.
-_HISTORICAL_POLICIES = ContextVar('webfetch_approved_native_policies', default=None)
+def approved_policy_versions(registry):
+    """Policy versions of an independently selected, hash-bound evidence registry.
 
-
-@contextmanager
-def approved_native_policies(registry):
-    """Scope an independently selected registry to one evidence-validation job.
-
-    The caller must verify the registry's immutable path/hash binding first.
-    Saved selector bytes are still verified separately and are never executed.
+    The caller must verify the registry's immutable path/hash binding first and
+    passes the result to ``native_projection_policy_version``. Historical
+    implementations are approved this way, never by a receipt's self-declared
+    version. Saved selector bytes are still verified separately and are never executed.
     """
     sources = {}
     if registry is not None:
@@ -86,20 +108,19 @@ def approved_native_policies(registry):
                     or row['source_sha256'] in sources):
                 raise ValueError('Invalid or duplicate approved native policy source')
             sources[row['source_sha256']] = row['version']
-    token = _HISTORICAL_POLICIES.set(sources)
-    try:
-        yield
-    finally:
-        _HISTORICAL_POLICIES.reset(token)
+    return sources
 
 
-def native_projection_policy_version(policy, provider_type):
+def native_projection_policy_version(policy, provider_type, approved=None):
+    """The version of a frozen policy: the current one, a stored copy of this module, or ``approved``."""
     if policy == native_projection_policy(provider_type):
         return 7
     if not isinstance(policy, dict):
         raise ValueError('Native answer selection policy must be an object')
     digest = policy.get('source_sha256')
-    version = (_HISTORICAL_POLICIES.get() or {}).get(digest) if isinstance(digest, str) else None
+    version = None
+    if isinstance(digest, str):
+        version = (approved or {}).get(digest) or _stored_policy_versions(provider_type).get(digest)
     expected = {'kind': 'native-answer-selection', 'version': version,
                 'provider_type': provider_type, 'source_sha256': digest,
                 'source_path': 'native-answer-policies/'+str(digest)+'.py'}

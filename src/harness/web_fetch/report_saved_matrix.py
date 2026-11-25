@@ -474,8 +474,12 @@ def _declared_review_scope(document):
     return scope
 
 
-def _load_saved_matrix(spec_path):
-    """Validate selection and immutable sources without writing a report."""
+def _load_saved_matrix(spec_path, approved_policies=None):
+    """Validate selection and immutable sources without writing a report.
+
+    ``approved_policies`` are the historical native policy versions the caller
+    approved; nested matrices are validated under the same approval.
+    """
     spec_path = Path(spec_path)
     spec_path = spec_path.parent.resolve() / spec_path.name
     spec = _json(spec_path)
@@ -579,7 +583,8 @@ def _load_saved_matrix(spec_path):
             native_cases = {cid: {**x, 'task_kind': x.get('task_kind', 'body'),
                                   'track': x.get('track', 'web')}
                             for cid, x in source_cases.items()}
-            verify_record_artifacts(root, record, native_cases=native_cases)
+            verify_record_artifacts(root, record, native_cases=native_cases,
+                                    approved_policies=approved_policies)
             for relative, digest in artifact_bindings(record):
                 bind(contained_path(root, relative, reject_symlinks=True), digest)
             for item in record_private_bindings(record):
@@ -648,7 +653,8 @@ def _load_saved_matrix(spec_path):
                 raise ValueError('Retry continuation first call must finish before its launch')
             if task_passed(old['ok'], old['metrics'], prior_cases[key[2]].get('task_kind', 'body')):
                 raise ValueError('Retry continuation requires a failed first call')
-            verify_record_artifacts(root, old, native_cases=prior_cases)
+            verify_record_artifacts(root, old, native_cases=prior_cases,
+                                    approved_policies=approved_policies)
             for relative, digest in artifact_bindings(old):
                 bind(contained_path(root, relative, reject_symlinks=True), digest)
             for item in record_private_bindings(old):
@@ -821,6 +827,7 @@ def _load_saved_matrix(spec_path):
             if key not in completed and not row.get('called') and now_called:
                 raise ValueError('Completion fills an undeclared position')
     return dict(spec=spec, sources=sources, providers=providers, suites=suites, cases=cases,
+                approved_policies=approved_policies,
                 selected=selected, historical=historical, continuations=continuations,
                 missing=missing, uncommitted_execution=uncommitted_execution, replacement_scope=replacement_scope,
                 replacement_cells=cells if replacement_scope else [],
@@ -1304,7 +1311,7 @@ def _parameter_reruns(inputs):
         if len(source_ids) != len(set(source_ids)) or not set(source_ids) <= set(job['case_ids']):
             raise ValueError('Parameter rerun source exceeds declared population')
         if source.get('saved_matrix_spec'):
-            nested = _load_saved_matrix(sources.binding(source['saved_matrix_spec']))
+            nested = _load_saved_matrix(sources.binding(source['saved_matrix_spec']), inputs['approved_policies'])
             if nested['missing'] or nested['revision'] or nested['historical']:
                 raise ValueError('Parameter candidate view must contain complete unmodified calls')
             if set(nested['selected']) != {(job['suite'], job['provider'], cid) for cid in source_ids}:
@@ -1338,7 +1345,8 @@ def _parameter_reruns(inputs):
                 raise ValueError('Parameter rerun changed task rules')
             continuation = inputs.get('parameter_continuations', {}).get(key)
             _validate_call_sequence(record, case, contract, continuation, require_saved_settings=True)
-            verify_record_artifacts(root, record, native_cases=cases)
+            verify_record_artifacts(root, record, native_cases=cases,
+                                    approved_policies=inputs['approved_policies'])
             for relative, digest in artifact_bindings(record):
                 sources.bind(contained_path(root, relative, reject_symlinks=True), digest)
             for item in record_private_bindings(record):
@@ -1523,7 +1531,7 @@ def _adopted_groups(inputs, candidates):
             if not group:
                 raise ValueError('Adoption names an unknown or excluded group')
             expected.update(group)
-        nested = _load_saved_matrix(sources.binding(config['saved_matrix_spec']))
+        nested = _load_saved_matrix(sources.binding(config['saved_matrix_spec']), inputs['approved_policies'])
         if (nested['missing'] or nested['historical'] or nested['spec'].get('adoptions')
                 or nested['spec'].get('parameter_reruns') or set(nested['selected']) != expected
                 or expected & (set(adopted) | set(candidates))):
@@ -1606,24 +1614,24 @@ def _bound_native_registry(base, binding):
 
 def build_saved_matrix(spec_path: Path, output: Path) -> Path:
     """Build with only the historical policies explicitly approved by the caller."""
-    from harness.web_fetch.native_projection import approved_native_policies
+    from harness.web_fetch.native_projection import approved_policy_versions
     spec_path = Path(spec_path)
     output = Path(output).absolute()
     if output.exists() or output.is_symlink():
         raise ValueError('Saved-matrix output must be a new directory')
     registry = _bound_native_registry(spec_path.parent, _json(spec_path).get('native_policy_registry'))
     output.parent.mkdir(parents=True, exist_ok=True)
-    with approved_native_policies(registry), tempfile.TemporaryDirectory(
-            dir=output.parent, prefix='.' + output.name + '-build-') as temporary:
+    approved = approved_policy_versions(registry)
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix='.' + output.name + '-build-') as temporary:
         staged = Path(temporary) / 'report'
-        entry = _build_saved_matrix(spec_path, staged)
+        entry = _build_saved_matrix(spec_path, staged, approved)
         if output.exists() or output.is_symlink():
             raise ValueError('Saved-matrix output must be a new directory')
         staged.rename(output)
         return output / entry.relative_to(staged)
 
 
-def _native_retry_scoring_record(source, record, call, case):
+def _native_retry_scoring_record(source, record, call, case, approved_policies=None):
     """Replay missing text-only retry inputs from its frozen native evidence.
 
     Earlier runner receipts omitted per-call metrics/title. Never borrow the
@@ -1643,7 +1651,7 @@ def _native_retry_scoring_record(source, record, call, case):
     policy = receipt.get('answer_selection_policy')
     if not policy or receipt.get('protocol_errors') or len(receipt.get('requests', [])) != 1:
         reject()
-    version = native_projection_policy_version(policy, record['provider_type'])
+    version = native_projection_policy_version(policy, record['provider_type'], approved_policies)
     if _sha(contained_path(source, policy['source_path'], reject_symlinks=True)) != policy['source_sha256']:
         reject()
     private = call.get('private_artifacts', [])
@@ -1713,7 +1721,7 @@ def _native_retry_scoring_record(source, record, call, case):
             '_public_acceptance_variants':variants}
 
 
-def _record_public_views(source, record, case):
+def _record_public_views(source, record, case, approved_policies=None):
     """Use the shared post-score projection, retaining every original identity."""
     from harness.reporting.publication_privacy import project_evidence_view
     from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256, score_attempt
@@ -1757,7 +1765,7 @@ def _record_public_views(source, record, case):
                 call = calls[0]
                 if not all(key in call for key in
                         ('metrics', 'provider_metadata', 'title', 'final_url', 'ok', 'status_code')):
-                    call = _native_retry_scoring_record(source, record, call, case)
+                    call = _native_retry_scoring_record(source, record, call, case, approved_policies)
             kind = case.get('task_kind', 'body')
             if call['metrics'].get('scoring_source_sha256') != SCORING_SOURCE_SHA256:
                 raise ValueError('Changed public answer requires its bound scoring version')
@@ -1817,9 +1825,10 @@ def _historical_score_summary(record, raw, case):
                 'This summary identifies the retained historical score; it is not a replay of the historical scorer.'}
 
 
-def _materialize_record_public_views(source, destination, record, case, original_record, record_name):
+def _materialize_record_public_views(source, destination, record, case, original_record, record_name,
+                                     approved_policies):
     files = []
-    for binding, public, receipt in _record_public_views(source, record, case):
+    for binding, public, receipt in _record_public_views(source, record, case, approved_policies):
         _write_bytes(destination / receipt['path'], public)
         receipt_path = receipt['path'] + '.receipt.json'
         _write(destination / receipt_path, receipt)
@@ -1856,14 +1865,15 @@ def _public_view_sources(inputs, keys):
         yield relative, source, json.loads(raw), inputs['cases'][key[0]][key[2]], raw
 
 
-def _validate_record_public_views(source, destination, record, case, original_record, record_name):
+def _validate_record_public_views(source, destination, record, case, original_record, record_name,
+                                  approved_policies):
     """Reproduce every public byte from the verified original source."""
     from harness.reporting.publication_privacy import require_public_evidence_view_inventory
     profile = _json(destination/'presentation-binding.json')
     binding = profile['publication_evidence_views']
     index = require_public_evidence_view_inventory(destination, binding, [record])
     expected = []
-    for original, public, receipt in _record_public_views(source, record, case):
+    for original, public, receipt in _record_public_views(source, record, case, approved_policies):
         name = receipt['path']+'.receipt.json'
         if (_json(destination/name) != receipt
                 or (destination/receipt['path']).read_bytes() != public):
@@ -1883,7 +1893,7 @@ def _validate_record_public_views(source, destination, record, case, original_re
         raise ValueError('Result diagnostics differ from original-source projection')
 
 
-def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
+def _build_saved_matrix(spec_path: Path, output: Path, approved_policies: dict) -> Path:
     """Verify immutable sources and create a new portable report directory."""
     if _json(spec_path).get('published_base'):
         from harness.web_fetch.report_saved_composition import build_published_extension
@@ -1896,7 +1906,7 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
     output = Path(output).absolute()
     if output.exists():
         raise ValueError('Saved-matrix output must be a new directory')
-    inputs = _load_saved_matrix(spec_path)
+    inputs = _load_saved_matrix(spec_path, approved_policies)
     candidates = _parameter_reruns(inputs)
     decisions = _parameter_group_decisions(inputs, candidates)
     _validate_completion_retention(inputs, candidates, decisions)
@@ -2191,7 +2201,8 @@ def _build_saved_matrix(spec_path: Path, output: Path) -> Path:
         model['public_evidence_views'] = True
         keys = [(row['suite'], row['provider'], row['case_id']) for row in model_rows]
         for relative, source, record, case, raw in _public_view_sources(inputs, keys):
-            _materialize_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
+            _materialize_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name,
+                                             approved_policies)
     _write(output / 'matrix.json', model)
     entry = generate_saved_matrix(output, model, admission=_source_admission(output, model))
     # Bind every portable byte after generation; source files remain immutable.
@@ -2587,7 +2598,7 @@ def _validate_rendered_pages(output, model):
 
 def check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
     """Verify the portable registry, and its caller authority when supplied."""
-    from harness.web_fetch.native_projection import approved_native_policies
+    from harness.web_fetch.native_projection import approved_policy_versions
     output = _path(Path.cwd(), output).resolve()
     binding = _json(output / 'matrix.json').get('native_policy_registry')
     if binding is not None:
@@ -2599,11 +2610,10 @@ def check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         original = _bound_native_registry(spec_path.parent, selected)
         if original != registry:
             raise ValueError('Portable native policy registry differs from caller approval')
-    with approved_native_policies(registry):
-        return _check_saved_matrix(output, spec_path=spec_path)
+    return _check_saved_matrix(output, spec_path=spec_path, approved_policies=approved_policy_versions(registry))
 
 
-def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
+def _check_saved_matrix(output: Path, *, spec_path: Path | None = None, approved_policies: dict) -> dict:
     """Check the complete portable tree and unchanged sources without rescoring."""
     output = _path(Path.cwd(), output).resolve()
     if (output / 'saved-extension.json').is_file():
@@ -2624,7 +2634,7 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
         if _sha(_path(Path(spec_path).parent, Path(spec_path).name)) != audit['spec_sha256']:
             raise ValueError('Original saved-matrix source changed: specification')
         try:
-            inputs = _load_saved_matrix(spec_path)
+            inputs = _load_saved_matrix(spec_path, approved_policies)
             candidates = _parameter_reruns(inputs)
             decisions = _parameter_group_decisions(inputs, candidates)
             _validate_completion_retention(inputs, candidates, decisions)
@@ -2809,7 +2819,8 @@ def _check_saved_matrix(output: Path, *, spec_path: Path | None = None) -> dict:
     if inputs is not None:
         if model.get('public_evidence_views'):
             for relative, source, record, case, raw in _public_view_sources(inputs, keys):
-                _validate_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name)
+                _validate_record_public_views(source, (output/relative).parent, record, case, raw, Path(relative).name,
+                                              approved_policies)
         for relative, expected_record in _source_record_inventory(inputs, candidates, decisions, adoptions, keys).items():
             path = contained_path(output, relative, reject_symlinks=True)
             if not path.is_file() or path.read_bytes() != _display_record_bytes(model, path.name, expected_record):

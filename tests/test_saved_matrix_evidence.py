@@ -1392,7 +1392,7 @@ def test_parameter_rerun_parts_must_cover_the_whole_original_job(tmp_path, monke
     inputs = {'spec':{'parameter_reruns':{'contract':contract,
               'selection':'replace_track_if_pass_count_improves','sources':sources}},
               'sources':_SourceBindings(tmp_path),'selected':selected,
-              'revision':None,'cases':{'first':{'same':case,'second':second}}}
+              'revision':None,'approved_policies':{},'cases':{'first':{'same':case,'second':second}}}
     assert len(_parameter_reruns(inputs)) == 2
     inputs['spec']['parameter_reruns']['sources'] = sources[:1]
     with pytest.raises(ValueError, match='Incomplete parameter rerun job inventory'):
