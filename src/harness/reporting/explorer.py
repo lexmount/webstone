@@ -205,6 +205,7 @@ INVENTORY_STYLE = (
     ".inventory-notice{margin:8px 0;padding:8px 12px;border-radius:8px;"
     "background:color-mix(in srgb,currentColor 8%,transparent)}"
     ".inventory-more{margin:8px 0}"
+    "[data-inventory-paged]{display:none!important}"
     "[data-inventory] .scroll,[data-inventory] .table-wrap,[data-inventory] .inventory{max-height:70vh;overflow:auto}"
     ".inventory-dialog{max-width:min(720px,calc(100vw - 32px));padding:20px 24px;border-radius:12px;"
     "border:1px solid color-mix(in srgb,currentColor 20%,transparent);"
@@ -223,21 +224,34 @@ INVENTORY_SCRIPT = r"""
 const key=(c,i)=>c.name||c.id||c.dataset.filter||c.dataset.explorerFilter||('c'+i);
 const rowsOf=root=>{const r=[...root.querySelectorAll('[data-inventory-row]')];return r.length?r:[...root.querySelectorAll('tbody tr')]};
 const linkOf=row=>row.querySelector('a[data-inventory-detail]')||row.querySelector('a[href]');
-function paginate(root,extra){const size=+root.dataset.inventoryPageSize||100,more=root.querySelector('[data-inventory-more]');root._limit=extra?root._limit+size:size;let shown=0,left=0;rowsOf(root).forEach(r=>{if(r.hidden){r.style.removeProperty('display');return}if(shown<root._limit){shown++;r.style.removeProperty('display')}else{left++;r.style.display='none'}});if(more){more.hidden=!left;more.dataset.remaining=left;more.setAttribute('aria-label',more.textContent.trim()+' ('+left+')')}return shown}
-function save(root,controls){const url=new URL(location.href);[...url.searchParams.keys()].filter(k=>k.startsWith('f.')).forEach(k=>url.searchParams.delete(k));controls.forEach((c,i)=>url.searchParams.set('f.'+key(c,i),c.type==='checkbox'?(c.checked?'1':'0'):c.value));history.replaceState(history.state,'',url)}
-// Events this script dispatches itself are marked so they are not taken as the reader's choice.
+// A track filters a row out with the hidden attribute or an inline display:none; paging only
+// marks rows with its own attribute, so the two never overwrite each other.
+const filtered=r=>r.hidden||r.style.display==='none';
+// mode: 'reset' to the first page after a filter change, 'more' for the next page, 'keep' after a re-sort.
+function paginate(root,mode){const size=+root.dataset.inventoryPageSize||100,more=root.querySelector('[data-inventory-more]');root._limit=mode==='more'?root._limit+size:mode==='keep'&&root._limit?root._limit:size;let shown=0,left=0;rowsOf(root).forEach(r=>{const paged=!filtered(r)&&shown>=root._limit;if(!filtered(r)&&!paged)shown++;if(paged)left++;r.toggleAttribute('data-inventory-paged',paged)});if(more){more.hidden=!left;more.dataset.remaining=left}return shown}
+const values=c=>c.type==='checkbox'?[c.checked?'1':'0']:c.multiple?[...c.selectedOptions].map(o=>o.value):[c.value];
+function save(root,controls){const url=new URL(location.href);[...url.searchParams.keys()].filter(k=>k.startsWith('f.')).forEach(k=>url.searchParams.delete(k));controls.forEach((c,i)=>{const k='f.'+key(c,i),v=values(c);if(c.multiple)url.searchParams.set(k+'.n',String(v.length));v.forEach(x=>url.searchParams.append(k,x))});history.replaceState(history.state,'',url)}
+// Events this script dispatches itself are marked so they are not taken as the reader's choice;
+// while restoring, the root element carries data-inventory-restoring so a track can skip resets.
 let firing=false;function fire(c){firing=true;try{c.dispatchEvent(new Event('input',{bubbles:true}));c.dispatchEvent(new Event('change',{bubbles:true}))}finally{firing=false}}
 // Until the reader picks a filter, an empty failure view switches once to the fallback. A track
 // may filter late (after fetching data), so this runs on every repagination, not only at load.
-function settle(root){if(root._settled)return;const rows=rowsOf(root),result=root.querySelector(root.dataset.inventoryResult||'[data-inventory-result-control]'),fallback=root.dataset.inventoryFallback||'';if(!rows.length||!result||result.value===fallback||rows.some(r=>!r.hidden))return;root._settled=true;result.value=fallback;fire(result);const notice=root.querySelector('[data-inventory-notice]');if(notice)notice.hidden=false}
-function refresh(root,extra){paginate(root,extra);settle(root)}
-function record(root){const items=rowsOf(root).filter(r=>!r.hidden).map(linkOf).filter(Boolean).map(x=>x.href);try{sessionStorage.setItem(TRAIL,JSON.stringify({back:location.href,items:[...new Set(items)]}))}catch(_){}}
-function init(root){if(root._inventory)return;root._inventory=true;const controls=[...root.querySelectorAll('select,input:not([type=button])')].filter(c=>!c.closest('dialog')),params=new URL(location.href).searchParams;controls.forEach((c,i)=>{const v=params.get('f.'+key(c,i));if(v===null)return;if(c.type==='checkbox')c.checked=v==='1';else c.value=v;root._settled=true;fire(c)});
-let queued=false;const observer=new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;refresh(root,false)})});rowsOf(root).forEach(r=>observer.observe(r,{attributes:true,attributeFilter:['hidden']}));
+function settle(root){if(root._settled)return;const rows=rowsOf(root),result=root.querySelector(root.dataset.inventoryResult||'[data-inventory-result-control]'),fallback=root.dataset.inventoryFallback||'';if(!rows.length||!result||result.value===fallback||rows.some(r=>!filtered(r)))return;root._settled=true;result.value=fallback;fire(result);const notice=root.querySelector('[data-inventory-notice]');if(notice)notice.hidden=false}
+function refresh(root,mode){paginate(root,mode);settle(root)}
+function record(root){const items=rowsOf(root).filter(r=>!filtered(r)).map(linkOf).filter(Boolean).map(x=>x.href);try{sessionStorage.setItem(TRAIL,JSON.stringify({back:location.href,items:[...new Set(items)]}))}catch(_){}}
+function restore(root,controls){const params=new URL(location.href).searchParams,saved=[];controls.forEach((c,i)=>{const k='f.'+key(c,i),v=params.getAll(k);if(!v.length&&!(c.multiple&&params.get(k+'.n')==='0'))return;if(c.type==='checkbox')c.checked=v[0]==='1';else if(c.multiple)[...c.options].forEach(o=>{o.selected=v.includes(o.value)});else c.value=v[0];saved.push(c)});if(!saved.length)return;root._settled=true;
+const again=()=>saved.forEach(c=>{const v=params.getAll('f.'+key(c,controls.indexOf(c)));if(c.type==='checkbox')c.checked=v[0]==='1';else if(c.multiple)[...c.options].forEach(o=>{o.selected=v.includes(o.value)});else c.value=v[0]});
+document.documentElement.dataset.inventoryRestoring='';try{saved.forEach(c=>{fire(c);again()});fire(saved[saved.length-1])}finally{delete document.documentElement.dataset.inventoryRestoring}}
+function init(root){if(root._inventory)return;root._inventory=true;const controls=[...root.querySelectorAll('select,input:not([type=button])')].filter(c=>!c.closest('dialog'));restore(root,controls);
+// Repaginate when a track filters (hidden or inline display) or reorders rows by sorting.
+let queued=false;const observer=new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;refresh(root,'keep')})});observer.observe(root,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','style']});
+const chose=()=>{root._settled=true;save(root,controls)};
 // Only the reader's own choices go into the URL; the load-time fallback and restores do not.
-controls.forEach(c=>c.addEventListener('change',()=>{if(!firing){root._settled=true;save(root,controls)}refresh(root,false)}));controls.forEach(c=>c.addEventListener('input',()=>{if(!firing){root._settled=true;save(root,controls)}}));
-root.querySelector('[data-inventory-more]')?.addEventListener('click',()=>paginate(root,true));
-refresh(root,false);
+controls.forEach(c=>c.addEventListener('change',()=>{if(!firing)chose();refresh(root,'reset')}));controls.forEach(c=>c.addEventListener('input',()=>{if(!firing)chose()}));
+// Track buttons such as "Show all" or "Reset" set controls without events; save after them.
+root.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&!b.closest('[data-inventory-row],tbody tr')&&!b.matches('[data-inventory-more]'))setTimeout(chose)});
+root.querySelector('[data-inventory-more]')?.addEventListener('click',()=>paginate(root,'more'));
+refresh(root,'reset');
 // Any interaction with a row (its links, or a button opening its diagnosis) remembers the
 // visible order, so every path to that row's detail page gets previous/next and back.
 root.addEventListener('click',e=>{const row=e.target.closest('[data-inventory-row],tbody tr');if(row&&root.contains(row))record(root)})}
@@ -247,7 +261,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-inventory-
 const route=h=>{const [b,f='']=h.split('#');return f.startsWith('page=')?b+'#'+f.split('&')[0]:b};
 function detail(){const nav=document.querySelector('[data-detail-nav]');if(!nav)return;let trail;try{trail=JSON.parse(sessionStorage.getItem(TRAIL)||'null')}catch(_){}if(!trail)return;const here=route(location.href);let i=trail.items.indexOf(location.href);if(i<0)i=trail.items.findIndex(h=>route(h)===here);if(i<0)return;nav.querySelector('[data-detail-back]').href=trail.back;[['[data-detail-previous]',i-1],['[data-detail-next]',i+1]].forEach(([s,j])=>{const a=nav.querySelector(s);if(!a)return;a.hidden=!trail.items[j];if(trail.items[j])a.href=trail.items[j]})}
 if(typeof addEventListener==='function')addEventListener('hashchange',detail);
-function start(){document.querySelectorAll('[data-inventory]').forEach(init);detail()}
+// Paging must hide rows even on a page that did not include INVENTORY_STYLE.
+function start(){if(document.querySelector('[data-inventory]')&&!document.getElementById('inventory-paging-style')){const st=document.createElement('style');st.id='inventory-paging-style';st.textContent='[data-inventory-paged]{display:none!important}';document.head.append(st)}document.querySelectorAll('[data-inventory]').forEach(init);detail()}
 // Run after the track's own scripts, which are deferred or wait for DOMContentLoaded.
 if(document.readyState==='complete'||typeof addEventListener!=='function')setTimeout(start);else addEventListener('load',()=>setTimeout(start));
 // A packaged report replaces the body for each route and then announces it.

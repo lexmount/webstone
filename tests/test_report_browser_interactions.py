@@ -699,13 +699,13 @@ def test_shared_inventory_falls_back_pages_keeps_filters_and_walks_details(tmp_p
         page.locator("[data-detail-next]").click()
         expect(page).to_have_url(origin + "/r2.html")
         page.locator("[data-detail-back]").click()
-        assert page.locator("[data-filter]").input_value() == "pass"
+        expect(page.locator("[data-filter]")).to_have_value("pass")
         # An explicit All survives the round trip instead of reverting to the failure default.
         page.locator("[data-filter]").select_option("")
         page.locator('a[href="r1.html"]').click()
         page.locator("[data-detail-back]").click()
         page.wait_for_timeout(600)
-        assert page.locator("[data-filter]").input_value() == ""
+        expect(page.locator("[data-filter]")).to_have_value("")
         assert not page.locator("[data-inventory-notice]").is_visible()
 
 
@@ -734,3 +734,54 @@ def test_shared_inventory_initializes_after_a_packaged_route_replaces_the_body(t
         page.locator('a[href="#page=r1.html"]').click()
         expect(page.locator("[data-detail-previous]")).to_have_attribute("href", origin + "/index.html#page=r0.html")
         expect(page.locator("[data-detail-next]")).to_have_attribute("href", origin + "/index.html#page=r2.html")
+
+
+def test_shared_inventory_follows_sorting_inline_filters_buttons_and_multi_select(tmp_path, browser, display):
+    """Paging follows a track's re-sort and inline display filter; buttons and multi-selects survive back navigation."""
+    from harness.reporting import explorer
+
+    track_js = (
+        "document.addEventListener('DOMContentLoaded',()=>{"
+        "const sel=document.querySelector('[data-filter]'),many=document.querySelector('[data-many]');"
+        "function f(){const v=sel.value,keep=[...many.selectedOptions].map(o=>o.value);"
+        "document.querySelectorAll('tbody tr').forEach(r=>{r.style.display=((v&&r.dataset.result!==v)||!keep.includes(r.dataset.site))?'none':''})}"
+        "sel.addEventListener('change',f);many.addEventListener('change',f);"
+        "document.querySelector('#reset').addEventListener('click',()=>{sel.value='fail';f()});"
+        "document.querySelector('#sort').addEventListener('click',()=>{const b=document.querySelector('tbody');"
+        "[...b.rows].reverse().forEach(r=>b.append(r))});f()});")
+    rows = "".join(f'<tr data-result="fail" data-site="{"a" if i % 2 else "b"}"><td>'
+                   f'<a data-inventory-detail href="r{i}.html">r{i}</a></td></tr>' for i in range(5))
+    (tmp_path / "inventory.js").write_text(track_js + explorer.INVENTORY_SCRIPT, encoding="utf-8")
+    (tmp_path / "index.html").write_text(
+        '<!doctype html><html><head><meta charset="utf-8"><style>' + explorer.INVENTORY_STYLE + '</style>'
+        '<script src="inventory.js"></script></head><body>'
+        '<div' + explorer.inventory_attributes(result_control="[data-filter]", page_size=2) + '>'
+        '<select data-filter><option value="fail" selected>Fail</option><option value="">All</option></select>'
+        '<select data-many multiple><option value="a" selected>A</option><option value="b" selected>B</option></select>'
+        '<button id="reset" type="button">Reset</button><button id="sort" type="button">Sort</button>'
+        f'<table><tbody>{rows}</tbody></table>' + explorer.inventory_notice("None.", "More") + "</div></body></html>",
+        encoding="utf-8")
+    (tmp_path / "r1.html").write_text('<!doctype html><html><head><meta charset="utf-8"><script src="inventory.js">'
+                                      '</script></head><body>' + explorer.detail_navigation(
+                                          "index.html", back="Back", previous="Previous", next_label="Next")
+                                      + "</body></html>", encoding="utf-8")
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin, **display)
+        page.goto(origin + "/index.html")
+        visible = lambda: page.locator("tbody tr:visible a").all_text_contents()  # noqa: E731
+        expect(page.locator("tbody tr:visible")).to_have_count(2)
+        assert visible() == ["r0", "r1"]
+        page.locator("#sort").click()
+        expect(page.locator("tbody tr:visible a").first).to_have_text("r4")
+        assert visible() == ["r4", "r3"]
+        page.locator("[data-many]").select_option(["a"])
+        expect(page.locator("tbody tr:visible")).to_have_count(2)
+        assert visible() == ["r3", "r1"]
+        page.locator("[data-filter]").select_option("")
+        page.locator("#reset").click()
+        page.wait_for_function("new URL(location.href).searchParams.get('f.c0')==='fail'")
+        page.locator('a[href="r1.html"]').click()
+        page.locator("[data-detail-back]").click()
+        expect(page.locator("[data-filter]")).to_have_value("fail")
+        page.wait_for_function("[...document.querySelector('[data-many]').selectedOptions].map(o=>o.value).join()==='a'")
+        expect(page.locator("tbody tr:visible")).to_have_count(2)

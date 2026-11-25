@@ -671,10 +671,13 @@ function wireInventory() {
       .getElementById(id)
       ?.addEventListener(id === "query" ? "input" : "change", renderInventory);
   renderInventory();
-  // Failures come first; a first view without failures falls back to every task once.
-  let relation = document.getElementById("relation");
-  if (route() !== "dataset" && relation?.value === "failure" && M.cases.length &&
-      M.cases.every((c) => pairStatus(c) === "bothPass")) {
+  // Failures come first; when the initial filters (such as a stratum from the link) leave no
+  // failure, the view falls back once to every task within those filters.
+  let relation = document.getElementById("relation"),
+    stratum = document.getElementById("stratum")?.value || "",
+    scope = M.cases.filter((c) => !stratum || c.stratum === stratum);
+  if (route() !== "dataset" && relation?.value === "failure" && scope.length &&
+      scope.every((c) => pairStatus(c) === "bothPass")) {
     relation.value = "";
     document.getElementById("inventory-fallback").hidden = false;
     renderInventory();

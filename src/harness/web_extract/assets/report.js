@@ -400,8 +400,11 @@ if (form) {
     control.addEventListener(control.tagName === "INPUT" ? "input" : "change", update);
   const comparison = form.querySelector("[data-case-comparison]");
   if (comparison) for (const control of comparison.querySelectorAll("select")) control.addEventListener("change", () => {
-    form.querySelector('[data-result-filter="status"]').value = "all";
-    form.querySelector('[data-result-filter="method"]').value = "";
+    // A restore of saved filters (shared inventory script) keeps the saved status and method.
+    if (document.documentElement?.dataset?.inventoryRestoring === undefined) {
+      form.querySelector('[data-result-filter="status"]').value = "all";
+      form.querySelector('[data-result-filter="method"]').value = "";
+    }
     update();
   });
   update();
