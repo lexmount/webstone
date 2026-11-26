@@ -47,15 +47,12 @@ Browser Use click, scroll, input and other interactive actions into fetching.
 That historical policy is not a new requirement: for unrestricted native fetch,
 freeze only the requested single/unlimited budget and delivery boundary. Do not
 force `openPage`, a particular route or the historical browser restriction.
-The child chooses retrieval tools and parameters from receipt metadata. Keep
-every fetched body in the execution runtime and save it there; return only
-status, resource handles and coverage metadata needed to choose another fetch.
-Fetched bodies must never be printed into the child context, including
-intermediate returns. Tool choice remains unrestricted by the capture layer.
-The common initial tool manifest belongs in the frozen runtime context. Keep
-any execution-side discovery inside the pending fetch invocation; do not print
-full tool catalogs, unrelated capabilities or helper source into the child.
-This does not restrict the selected fetch tool or its native internal actions.
+The child chooses retrieval tools, parameters and intermediate observations.
+It may inspect fetched content, discover available tools, reason about progress,
+and select further acquisitions within the frozen budget. Preserve these actual
+strategy costs in its token and timing receipts. Do not make receipt-only
+intermediate outputs or silence a condition for native-method validity.
+Moli-only collections retain their separate provider-route contract.
 The original comparison used a 300-second case deadline, zero retries, two
 concurrent children and full-content scoring. These are instance settings.
 
@@ -112,9 +109,9 @@ hash. The complete receipt, including every block and artifact hash, stays in
 Exclusive save claims, raw JSON, ordered text, binary blocks, hashes and timers
 keep their existing owner.
 
-Autonomous multiple-fetch children may inspect intermediate receipt metadata
-and choose how to fetch. Wrap each chosen acquisition and save in the same
-execution-side invocation so its body never enters a model tool result.
+Autonomous multiple-fetch children may inspect intermediate fetched bodies and
+choose how to fetch. The final selected delivery is saved execution-side without
+printing its body as part of the save receipt.
 Once the final delivery is saved, return only a small save receipt
 (status, path, byte count and hash). Never read the delivered body back for
 confirmation or print it again. The same rule applies to single-fetch.
@@ -128,10 +125,11 @@ multiple raw returns. Preserve the selected delivery and all raw calls; leave
 absent delivery absent. Capture does not transform a model-written delivery into
 a synthetic native response.
 
-Do not add child progress messages, process polling or a post-save sleep. A
-pending execution is awaited by the runtime/parent, without a new child model
-turn to ask whether it finished. After the save receipt, end the child; retain
-any unavoidable terminal status separately. The parent reclaims the child slot
+Do not instruct children to emit extra progress messages, poll completion, read
+back the delivered file or sleep after saving for the harness's convenience.
+The native model's own acquisition strategy is not rejected for intermediate
+messages or polling. After the final save receipt, end the child; retain any
+unavoidable terminal status separately. The parent reclaims the child slot
 only after its terminal state is observed. Do not instruct the child to stay
 pending until interrupted just to suppress a final status.
 
@@ -170,14 +168,19 @@ returned `terminal_usage` in result `provider_metadata`; the existing
 `report_usage.token_usage` validates and aggregates it. Cached input is already
 part of input, and reasoning output is already part of output.
 
-Before admitting a preflight or scoring a receipt-only cohort, run
-`receipt_only_trace_issues` on each complete child trace. It checks model-visible
-tool outputs and assistant messages, without restricting the chosen fetch tools.
-Reject nonreceipt outputs, unmatched calls and nonempty assistant messages from
-clean token comparisons. Keep their original attempts and actual token receipts;
-do not subtract estimated overhead or silently retry them. Inspect nested calls
-and retained file hashes separately: a clean visible trace alone does not prove
-the selected program, single-fetch budget or saved artifact is correct.
+Audit the final delivery using its retained artifact, save-command completion
+and original trajectory. Check whether the save returned the delivered body or
+whether the harness required a later preview/readback. Intermediate tool results
+and assistant messages are not delivery violations. Inspect frozen instructions
+and execution source to distinguish harness-imposed work from the native model's
+own strategy. A body appearing anywhere in a trace is not proof that the final
+delivery was read back. Do not apply an all-output receipt-only validator to an
+autonomous native fetch run. A single execution may legitimately include both
+intermediate observations and final saving; an outer call ID alone does not
+separate them. Unknown delivery boundaries stay unknown rather than becoming an
+automatic rerun. Keep original attempts and actual token receipts; never subtract
+estimated overhead or silently retry. Artifact hashes, acquisition budgets,
+provider route and completion still need their own evidence.
 
 Score the preserved delivery with the frozen `lexbench_webfetch.scoring.score_attempt`
 and `lexbench_webfetch.metrics.task_passed` / `task_measured` APIs. Bind the dataset,

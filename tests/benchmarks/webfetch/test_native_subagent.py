@@ -336,39 +336,6 @@ def test_saved_native_delivery_retains_plain_and_command_text(value):
     assert result.ok
 
 
-@pytest.mark.parametrize('damage', [None, 'body', 'extra_field', 'commentary', 'missing_receipt'])
-@pytest.mark.parametrize('tool_name', ['exec', 'another_native_route'])
-def test_receipt_audit_preserves_tool_choice_and_rejects_context_pollution(damage, tool_name):
-    from harness.web_fetch.native_subagent import receipt_only_trace_issues
-    receipt={'status':'saved','path':'answer.txt','artifacts':[{'path':'answer.txt','bytes':5,'sha256':'0'*64}]}
-    if damage=='extra_field': receipt['body']='fetched document'
-    output=json.dumps(receipt) if damage!='body' else 'fetched document'
-    events=[{'type':'response_item','payload':{'type':'custom_tool_call','call_id':'a','name':tool_name}},
-        {'type':'response_item','payload':{'type':'custom_tool_call_output','call_id':'a','output':[
-            {'type':'input_text','text':'Script completed\nWall time 1.2 seconds\nOutput:\n'},
-            {'type':'input_text','text':output}]}},
-        # Execution-side raw evidence is retained without printing it to the model.
-        {'type':'event_msg','payload':{'type':'item_completed','item':{'result':'fetched document'}}}]
-    if damage=='commentary':
-        events.append({'type':'response_item','payload':{'type':'message','role':'assistant',
-            'content':[{'type':'output_text','text':'Checking completion.'}]}})
-    if damage=='missing_receipt': events.pop(1)
-    assert bool(receipt_only_trace_issues(events)) == bool(damage)
-
-
-def test_receipt_audit_accepts_fragmented_and_multiple_receipts_in_one_native_call():
-    from harness.web_fetch.native_subagent import receipt_only_trace_issues
-    events=[{'type':'response_item','payload':{'type':'custom_tool_call','call_id':'a','name':'exec'}}]
-    for output in ['Script completed\nWall time 1.2 seconds\nOutput:\n',
-                   json.dumps({'status':'saved','path':'first/answer.txt'}),
-                   json.dumps({'status':'saved','path':'second/answer.txt'})]:
-        events.append({'type':'response_item','payload':{'type':'custom_tool_call_output',
-            'call_id':'a','output':output}})
-    assert receipt_only_trace_issues(events)==[]
-    events[-1]['payload']['output']='unrelated fetched body'
-    assert receipt_only_trace_issues(events)
-
-
 @pytest.mark.skipif(shutil.which('node') is None, reason='Capture transfer uses Node')
 def test_multiblock_capture_keeps_full_receipt_on_disk_and_emits_bounded_summary(tmp_path):
     directory=tmp_path/'capture';directory.mkdir()
