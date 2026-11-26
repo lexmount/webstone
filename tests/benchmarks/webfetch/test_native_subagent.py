@@ -367,3 +367,37 @@ def test_receipt_audit_accepts_fragmented_and_multiple_receipts_in_one_native_ca
     assert receipt_only_trace_issues(events)==[]
     events[-1]['payload']['output']='unrelated fetched body'
     assert receipt_only_trace_issues(events)
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='Capture transfer uses Node')
+def test_multiblock_capture_keeps_full_receipt_on_disk_and_emits_bounded_summary(tmp_path):
+    directory=tmp_path/'capture';directory.mkdir()
+    body={'content':[{'type':'image','data':'AA=='} for _ in range(180)]}
+    program=r"""
+const cp=require('node:child_process'),fs=require('node:fs'),vm=require('node:vm');
+const input=JSON.parse(fs.readFileSync(0,'utf8'));
+const receipts=[];
+const tools={exec_command:async({cmd,workdir,max_output_tokens})=>{
+  const output=cp.execSync(cmd,{cwd:workdir,encoding:'utf8'});
+  return {exit_code:0,output:output.length>max_output_tokens*4
+    ? output.slice(0,max_output_tokens*4)+'[truncated]' : output};
+}};
+vm.runInNewContext(`(async()=>{${input.helper}
+await captureNative(input.directory,'arbitrary_native_tool',{},input.body);
+})()`,{tools,notify:r=>receipts.push(r),executionRoot:input.root,input})
+.then(()=>process.stdout.write(JSON.stringify(receipts)))
+.catch(e=>{console.error(e);process.exitCode=1;});
+"""
+    result=subprocess.run(['node','-e',program],input=json.dumps({'helper':CAPTURE_SCRIPT,
+        'directory':str(directory),'root':str(Path.cwd()),'body':body}),
+        text=True,capture_output=True,check=True,timeout=30)
+    messages=json.loads(result.stdout)
+    assert len(messages)==1 and len(messages[0])<512
+    summary=json.loads(messages[0])
+    full=(directory/'receipt.json').read_bytes()
+    assert len(full)>8000
+    assert summary['receipt_sha256']==hashlib.sha256(full).hexdigest()
+    receipt=json.loads(full)
+    assert len(receipt['blocks'])==180 and len(receipt['artifacts'])==182
+    assert all((directory/item['path']).is_file() for item in receipt['artifacts'])
+    assert set(summary)=={'status','path','saved_at','receipt_sha256'}

@@ -50,7 +50,7 @@ async function persistCapture(nativeReturn, directory, fetchMs) {
   const receipt = await checkedCommand(
     "uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent "
     + "--save-native-response "
-    + shellQuote(directory) + (fetchMs === null ? "" : " --fetch-ms " + String(fetchMs)));
+    + shellQuote(directory) + " --receipt-summary" + (fetchMs === null ? "" : " --fetch-ms " + String(fetchMs)));
   notify(receipt.output);
 }
 async function captureNative(directory, toolName, args, acquireOrValue) {
@@ -278,7 +278,7 @@ def receipt_only_trace_issues(events):
     """
     issues, calls, outputs = [], [], {}
     allowed = {'status', 'path', 'saved_at', 'artifacts', 'blocks', 'fetch_ms', 'save_ms',
-               'ref_id', 'total_lines', 'first_line', 'last_line', 'new_lines', 'error'}
+               'ref_id', 'total_lines', 'first_line', 'last_line', 'new_lines', 'error', 'receipt_sha256'}
     for line, event in enumerate(events, 1):
         if event.get('type') != 'response_item':
             continue
@@ -456,11 +456,17 @@ def main(argv=None):
     action.add_argument("--save-native-response", type=Path)
     action.add_argument("--capture-script", action="store_true")
     parser.add_argument("--fetch-ms", type=float)
+    parser.add_argument("--receipt-summary", action="store_true")
     args = parser.parse_args(argv)
     if args.capture_script:
         print(CAPTURE_SCRIPT)
     else:
-        print(json.dumps(save_native_response(args.save_native_response, fetch_ms=args.fetch_ms)))
+        receipt = save_native_response(args.save_native_response, fetch_ms=args.fetch_ms)
+        if args.receipt_summary:
+            receipt = {key: receipt[key] for key in ('status', 'path', 'saved_at')}
+            receipt['receipt_sha256'] = hashlib.sha256(
+                (args.save_native_response / 'receipt.json').read_bytes()).hexdigest()
+        print(json.dumps(receipt))
     return 0
 
 

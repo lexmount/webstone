@@ -106,8 +106,9 @@ The fetch budget belongs to the admitted contract. The wrapper awaits preparatio
 and persistence; do not omit the outer `await`. Saving an already retained value
 performs no new fetch and leaves `fetch_ms` unavailable. The helper also supports
 an acquisition callback, but that shortcut must not become the default retrieval
-strategy in an autonomous collection prompt. The wrapper emits only the save
-receipt. End the child after delivery and retain its actual terminal state.
+strategy in an autonomous collection prompt. The wrapper emits a bounded status/path/timestamp summary and the full receipt
+hash. The complete receipt, including every block and artifact hash, stays in
+`receipt.json` beside the saved content. End the child after delivery and retain its actual terminal state.
 Exclusive save claims, raw JSON, ordered text, binary blocks, hashes and timers
 keep their existing owner.
 

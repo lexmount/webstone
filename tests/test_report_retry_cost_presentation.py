@@ -24,7 +24,9 @@ def test_fast_failure_cannot_win_latency_and_retry_cost_stays_out_of_ranking():
     assert '累计执行耗时' not in main.get_text()
     assert all(not cell.select('.comparison-winner') for row in main.select('tbody tr')
                for cell in row.select('td')[-3:])
-    conditional = doc.select_one('#successful-final-call-latency')
+    assert doc.select_one('#successful-final-call-latency') is None
+    analysis = BeautifulSoup(report.successful_final_call_latency(rows, cases, prefix='../'), 'html.parser')
+    conditional = analysis.select_one('#successful-final-call-latency')
     failed = next(row for row in conditional.select('tbody tr') if 'fails-fast' in row.get_text())
     assert '0/2' in failed.get_text()
     assert not failed.select('.comparison-winner')
@@ -105,6 +107,8 @@ def test_new_metric_labels_and_scope_notes_have_english_views():
     rendered = overall_ranking([result('method', 'a', 10)], cases)
     english = localize_html(rendered, PurePosixPath('index.html'))
     assert 'Mean total execution cost' not in english
-    assert 'Final-call latency of task-passing results' in english
-    assert 'failures cannot win latency highlights' in english
+    analysis = report.successful_final_call_latency([result('method', 'a', 10)], cases, prefix='../')
+    analysis_english = localize_html(analysis, PurePosixPath('analysis/index.html'))
+    assert 'Final-call latency of task-passing results' in analysis_english
+    assert 'failures cannot win latency highlights' in analysis_english
     assert '累计执行耗时均值' not in english
