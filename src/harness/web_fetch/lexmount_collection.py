@@ -382,9 +382,10 @@ def api_collection_main(argv):
         command = shlex.join([shutil.which('node'), str(_BRIDGE), str(work),
                     *(['--moli-url', url] if local else [str(ROOT / '.env'), '--invoke-url', url])])
         caller_script = receipt_caller_script(command)
-        prompt = ('Use functions.exec exactly once with the following complete script, including its pragma. '
-                  'The program waits and saves the response; never read or print response files. '
-                  'After the final saved/failed receipt, end without a message. Use no other tool calls.\n'
+        prompt = ('This is a silent benchmark capture task. Your only model tool call must be functions.exec. '
+                  'After its final receipt, finish immediately with an empty final response. '
+                  'Never use collaboration.send_message or another communication tool; do not report to the parent. '
+                  'Copy the complete script below exactly, including its pragma. Do not read response files.\n'
                   + caller_script)
         deadline = int((time.time()+300)*1000)
         _write_json(work / 'contract.json', dict(mode='moli-cli' if local else 'lexmount-cli' if official else 'lexmount-api', url=url,
