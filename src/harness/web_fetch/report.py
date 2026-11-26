@@ -2025,14 +2025,14 @@ def logical_execution_cost_ms(record):
  return record['elapsed_ms']+metadata.get('retry_cleanup_wait_ms',0)+metadata.get('retry_throttle_wait_ms',0)
 
 
-def successful_final_call_latency(records,cases,*,prefix=""):
+def successful_final_call_latency(records,cases):
  """Show conditional task-passing latency separately from all-result costs."""
  groups=defaultdict(list)
  for record in records:groups[record['provider']].append(record)
  rows=[]
  for name,group in sorted(groups.items()):
   times=[r['elapsed_ms'] for r in group if succeeded(r,cases[r['case_id']])]
-  values=cell(link(f'{prefix}providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
+  values=cell(link(f'providers/{name}.html',provider_label(name)))+cell(f'{len(times)}/{len(group)}')
   for value in (statistics.mean(times) if times else None,percentile(times,.5),percentile(times,.95)):
    values+=cell(ms(value),value)
   rows.append(('',values))
@@ -2059,7 +2059,7 @@ def all_final_call_latency(records):
    rows,'all-final-call-latency',metrics=[]),'all-final-call-timing')
 
 
-def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False,include_successful_latency=True):
+def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seconds=None,combined=True,passing_latency=False):
  records,cases=comparison_population(records,cases)
  has_unknown=any(not measured(r,cases[r["case_id"]]) for r in records)
  has_not_called=any(r.get('report_invocation_status') == 'adapter_rejected' for r in records)
@@ -2133,7 +2133,7 @@ def overall_ranking(records,cases,audit=None,*,diagnostic=False,call_budget_seco
   help=''
  scores=[sum(succeeded(r,cases[r['case_id']]) for r in rs) for _,rs in sorted(groups.items(),key=lambda item:(-sum(succeeded(r,cases[r['case_id']]) for r in item[1]),item[0]))]
  rendered=table(heads,rows,'ranking-overall',True,'ranking',metrics=[],include_index=ranked,rank_values=shared_ranks(scores) if ranked else None,default_sort=(2+int(ranked),'desc') if combined else (0,'asc'))
- return intro+rank_note+timing_note+help+rendered+('' if passing_latency or not include_successful_latency else successful_final_call_latency(records,cases))
+ return intro+rank_note+timing_note+help+rendered+('' if passing_latency else successful_final_call_latency(records,cases))
 
 def analysis_body(records,cases,headers=None,tracks=None):
  """Render every participant through the shared comparison and result controls."""

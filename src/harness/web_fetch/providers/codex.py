@@ -242,16 +242,19 @@ class CodexProvider(Provider):
         except (ValueError, UnicodeDecodeError, KeyError, TypeError) as error:
             record_error = type(error).__name__
             result = ProviderResult(False, "", error_message="Invalid or incomplete Codex records")
+        turn_completed = any(event.get("type") == "turn.completed" for event in events)
         usage = next(
             (e.get("usage") for e in reversed(events) if e.get("type") == "turn.completed"), None
         )
         delta = {k: v - self.usage.get(k, 0) for k, v in usage.items()} if usage else None
         if usage:
             self.usage = usage
-        result.ok &= not timed_out and self.process.returncode == 0
+        result.ok &= not timed_out and self.process.returncode == 0 and turn_completed
         if not result.ok and not result.error_message:
             result.error_message = (
-                "Codex timed out" if timed_out else "Codex failed or returned no usable content"
+                "Codex timed out" if timed_out else
+                "Codex turn did not complete" if not turn_completed else
+                "Codex failed or returned no usable content"
             )
         diagnostics = dict(
                 stdout=events,
@@ -270,6 +273,7 @@ class CodexProvider(Provider):
         result.metadata.update(
             elapsed_ms=round((time.monotonic() - started) * 1000, 2),
             timed_out=timed_out,
+            turn_completed=turn_completed,
             pipe_drain_incomplete=pipe_drain_incomplete,
             cancellation_error=cancellation_error,
             exit_code=self.process.returncode,
@@ -280,7 +284,8 @@ class CodexProvider(Provider):
             diagnostic_log_bytes=len(raw),
             diagnostic_log_sha256=hashlib.sha256(raw).hexdigest(),
         )
-        if timed_out or record_error or stdout_tail or session_tail:
+        if (timed_out or record_error or stdout_tail or session_tail
+                or self.process.returncode != 0 or not turn_completed):
             # Preserve diagnostics, but never append a task to an unknown turn boundary.
             self.thread, self.session, self.offset, self.usage = None, None, 0, {}
         return result

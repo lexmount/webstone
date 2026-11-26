@@ -407,16 +407,14 @@ def _shared_presentations(output):
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
               (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
     try:
-        overall = renderer.overall_ranking(records, cases, include_successful_latency=False)
+        overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall,
                 'usage_records': records,
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': (renderer.analysis_body(records, cases)
-                             + renderer.successful_final_call_latency(records, cases, prefix='../')
-                             + renderer.all_final_call_latency(records)),
+                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
     finally:
         for variable, token in reversed(tokens):

@@ -198,3 +198,51 @@ setTimeout(()=>process.exit(0),20);
             except ProcessLookupError:
                 pass
         provider.work.cleanup()
+
+
+@pytest.mark.parametrize('first_exit_code', [0, 7])
+def test_complete_jsonl_without_turn_completion_cannot_succeed_or_resume(tmp_path, monkeypatch, first_exit_code):
+    from harness.web_fetch.providers.codex import CodexProvider
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node.js is required')
+    home = tmp_path/'home'
+    home.mkdir()
+    monkeypatch.setenv('CODEX_HOME', str(home))
+    first_url, second_url = 'https://first.example.test/', 'https://second.example.test/'
+    payload = {'first': dict(zip(('events', 'session'), trace([first_url]))),
+               'second': dict(zip(('events', 'session'), trace([second_url]))),
+               'first_exit_code': first_exit_code}
+    (tmp_path/'payload.json').write_text(json.dumps(payload), encoding='utf-8')
+    binary = tmp_path/'synthetic-codex'
+    binary.write_text(f'#!{node}\n' + r"""
+const fs=require('node:fs'),home=process.env.CODEX_HOME;
+const payload=JSON.parse(fs.readFileSync(__dirname+'/payload.json'));
+const first=!fs.existsSync(home+'/called');fs.writeFileSync(home+'/called','yes');
+fs.appendFileSync(home+'/arguments.jsonl',JSON.stringify(process.argv.slice(2))+'\n');
+const id=first?'12345678-1234-1234-1234-123456789abc':'12345678-1234-1234-1234-123456789abd';
+const data=first?payload.first:payload.second;
+fs.mkdirSync(home+'/sessions',{recursive:true});
+fs.writeFileSync(home+'/sessions/rollout-'+id+'.jsonl',data.session.map(JSON.stringify).join('\n')+'\n');
+process.stdout.write(JSON.stringify({type:'thread.started',thread_id:id})+'\n');
+for(const event of data.events)process.stdout.write(JSON.stringify(event)+'\n');
+if(!first)process.stdout.write(JSON.stringify({type:'turn.completed',usage:{input_tokens:100,output_tokens:5}})+'\n');
+process.exitCode=first?payload.first_exit_code:0;
+""", encoding='utf-8')
+    binary.chmod(0o700)
+    provider = CodexProvider('synthetic', {'mode':'single', 'executable':str(binary)})
+    try:
+        first = provider.fetch(SimpleNamespace(url=first_url, task_prompt='Read.'), 5)
+        assert not first.ok
+        assert not first.metadata['turn_completed']
+        assert provider.thread is None and provider.session is None and provider.offset == 0
+        diagnostic = json.loads(base64.b64decode(first.metadata['_diagnostic_log_b64']))
+        assert diagnostic['session'] and diagnostic['stdout']
+        second = provider.fetch(SimpleNamespace(url=second_url, task_prompt='Read.'), 5)
+        assert second.ok and second.metadata['turn_completed']
+        arguments = [json.loads(s) for s in (home/'arguments.jsonl').read_text().splitlines()]
+        assert len(arguments) == 2 and all('resume' not in argv for argv in arguments)
+        assert second.metadata['usage_delta'] == {'input_tokens':100, 'output_tokens':5}
+    finally:
+        provider.cancel()
+        provider.work.cleanup()
