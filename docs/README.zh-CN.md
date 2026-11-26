@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/overview.png" alt="Webstone：Agent Web Tools 的试金石。" width="640">
+<img src="assets/overview.png" alt="Webstone：为你的 Agent 选对上网工具。" width="640">
 
 [English](../README.md) · **简体中文**
 
@@ -14,9 +14,9 @@
 
 </div>
 
-**Agent Web Tools 的试金石。**
+**为你的 Agent 选对上网工具。**
 
-Webstone 用同一组任务评测 AI Agent 使用的浏览器和 Web 工具，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
+Webstone 用可重复的任务评测 Web Tools、浏览器和自主操作网页的 Agent，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
 
 查看已有的评测结果和对比报告，请访问 [Webstone Leaderboard](https://webstone.lexmount.io)。
 
