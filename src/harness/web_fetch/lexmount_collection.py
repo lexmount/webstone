@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -425,11 +426,11 @@ def api_collection_main(argv):
             'caller': {'tool': 'functions.exec', 'wait_ms': 300000, 'intermediate_model_returns': False}}))
         return
     contract = read_json(root / 'contract.json')
-    if markdown and file_sha256(Path(contract['executable'])) != contract['binary_sha256']:
+    if operation != 'api-score' and markdown and file_sha256(Path(contract['executable'])) != contract['binary_sha256']:
         raise ValueError('Frozen executable changed')
-    if (file_sha256(_BRIDGE) != contract['bridge_sha256'] or
-            (operation != 'api-score' and file_sha256(Path(__file__)) != contract['collection_sha256']) or
-            file_sha256(dataset) != contract['dataset_sha256']):
+    if ((operation != 'api-score' and (file_sha256(_BRIDGE) != contract['bridge_sha256']
+            or file_sha256(Path(__file__)) != contract['collection_sha256']))
+            or file_sha256(dataset) != contract['dataset_sha256']):
         raise ValueError('Frozen collection inputs changed')
     manifest = root / 'cases.jsonl'
     rows = load_jsonl(manifest) if manifest.exists() else []
@@ -570,25 +571,38 @@ def api_collection_main(argv):
         contract.update(admitted=True,execution_assessment=assessment)
         _write_json(root/'contract.json',contract);print(json.dumps(assessment));return
     if operation == 'api-score':
-        if markdown:
-            print(json.dumps(score_cli_collection(root, dataset, rows, contract, jobs=args.jobs)))
-            return
-        raise ValueError('Scoring is disabled until the full frozen cohort has terminated')
+        print(json.dumps(score_collection(root, dataset, rows, contract, jobs=args.jobs)))
+        return
 
 
-def _score_moli_record(arguments):
+def _score_record(arguments):
     from lexbench_webfetch.scoring import score_attempt
     record, case, root = arguments
     raw = (root / record['artifact_path']).read_bytes()
     record['metrics'] = score_attempt(case, raw, ok=record['ok'],
-        status_code=record['status_code'], final_url=record['final_url'],
+        status_code=record['status_code'], final_url=record['final_url'], title=record.get('title'),
         metadata=record['provider_metadata'], list_reference=load_list_reference(case, root),
         content_scope='full', scoring_scope='full')
     return record
 
 
-def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
-    """Export and score a completed receipt-only cohort without invoking Moli."""
+def score_collection(root, dataset, rows, contract, *, jobs=1):
+    """Publish one complete offline export atomically; captured calls stay immutable."""
+    root = Path(root)
+    destination = root / 'scored'
+    with (root / 'scoring.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError('Completed scoring export already exists')
+        with tempfile.TemporaryDirectory(prefix='.scored-', dir=root) as staging:
+            output = Path(staging) / 'export'
+            result = _score_collection(root, dataset, rows, contract, jobs=jobs, output=output)
+            output.rename(destination)
+    return result
+
+
+def _score_collection(root, dataset, rows, contract, *, jobs, output):
+    """Validate and score saved CLI/API evidence without invoking a product."""
     from concurrent.futures import ProcessPoolExecutor
     from datetime import datetime
     from lexbench_webfetch.metrics import task_passed
@@ -612,23 +626,38 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
     by_case = {row['case_id']: row for row in formal}
     if set(by_case) != {case.id for case in cases}:
         raise ValueError('The selected cohort differs from the frozen dataset')
+    mode = contract.get('mode', 'moli-cli-receipt')
+    api = mode == 'lexmount-api-receipt'
+    if mode not in {'moli-cli-receipt', 'lexmount-cli-receipt', 'lexmount-api-receipt'}:
+        raise ValueError('Unknown collection mode')
+    if api:
+        from harness.web_fetch.native_projection import native_projection_policy
+        if contract.get('native_projection_policy') != native_projection_policy('lexmount'):
+            raise ValueError('The frozen native API projection changed')
     verified = []
     for case in cases:
         row = by_case[case.id]
         work = root / row['slot']
-        if row['url'] != case.url or any(not (work / name).is_file() for name in
-                ('called', 'status.json', 'answer.md', 'debug.log', 'events.jsonl', 'terminal.json')):
+        required = ('called', 'events.jsonl', 'terminal.json') if api else (
+            'called', 'status.json', 'answer.md', 'debug.log', 'events.jsonl', 'terminal.json')
+        if row['url'] != case.url or any(not (work / name).is_file() for name in required):
             raise ValueError('Missing completed call evidence: ' + case.id)
         for path in work.iterdir():
             if path.is_symlink():
                 raise ValueError('Symlinked collection evidence')
-        status, terminal = read_json(work / 'status.json'), read_json(work / 'terminal.json')
-        if ((work / 'answer.md').stat().st_size != status['bytes']
-                or file_sha256(work / 'answer.md') != status['sha256']):
-            raise ValueError('Saved response integrity failure: ' + case.id)
+        status = read_json(work / 'status.json') if (work / 'status.json').is_file() else None
+        terminal = read_json(work / 'terminal.json')
+        response = work / ('response.bin' if api else 'answer.md')
+        if status is not None:
+            if (not response.is_file() or response.stat().st_size != status['bytes']
+                    or file_sha256(response) != status['sha256']):
+                raise ValueError('Saved response integrity failure: ' + case.id)
+        elif not api or response.exists() or not (work / 'error.json').is_file():
+            raise ValueError('Missing completed call evidence: ' + case.id)
         events = load_jsonl(work / 'events.jsonl')
-        if sum(event['event'] == 'client_started' for event in events) != 1:
-            raise ValueError('Require exactly one actual Moli invocation: ' + case.id)
+        if sum(event['event'] == ('api_started' if api else 'client_started') for event in events) != 1:
+            raise ValueError('Require exactly one actual Moli invocation' if not api
+                             else 'Require exactly one actual API invocation')
         if terminal['terminal_type'] != 'task_complete' or not terminal.get('usage'):
             raise ValueError('Missing final subagent telemetry: ' + case.id)
         if contract.get('receipt_protocol') and receipt_protocol_issues(terminal, row['caller_script'],
@@ -640,39 +669,86 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
                     model=contract['model'], effort=contract['reasoning_effort']):
                 raise ValueError('Receipt-only caller protocol violation: ' + case.id)
         verified.append((case, row, work, status, terminal, events))
-    output = root / 'scored'
     output.mkdir(exist_ok=False)
     shutil.copy2(dataset, output / 'dataset.json')
     materialize_task_references(output, {name: input_tree(dataset, name)
         for name in ('sources', 'list-references')}, [case.id for case in cases])
     local = contract.get('mode', 'moli-cli-receipt') == 'moli-cli-receipt'
-    provider = 'codex-moli-local-default' if local else 'codex-lexmount-official-cli'
+    provider = ('codex-lexmount-api-auto' if api else
+                'codex-moli-local-default' if local else 'codex-lexmount-official-cli')
     prepared = []
     def timestamp(value):
         return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
     for case, row, work, status, terminal, events in verified:
-        artifact = Path('artifacts') / provider / case.id / 'answer.md'
-        debug = Path('private_artifacts') / provider / case.id / 'debug.log'
-        for source, target in ((work / 'answer.md', artifact), (work / 'debug.log', debug)):
-            (output / target).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, output / target)
-        diagnostic = (output / debug).read_bytes()
-        native_status, timed_out = native_fetch_diagnostics(diagnostic, case.url)
-        raw = (output / artifact).read_bytes()
-        parsed_status = native_status or _markdown_http_error_status(raw.decode('utf-8', 'replace'))
-        ok = status['code'] == 0 and bool(raw.strip()) and not (parsed_status and parsed_status >= 400)
+        artifact = Path('artifacts') / provider / case.id / ('answer.txt' if api else 'answer.md')
         start = terminal['session_started_at']
         elapsed = (timestamp(terminal['ended_at']) - timestamp(start)) * 1000
         receipts = [e for e in events if e['event'] == 'receipt_sent']
-        metadata = dict(answer_format='markdown', subagent_id=terminal['session_id'],
-            subagent_usage=terminal['usage'], full_subagent_lifecycle_ms=elapsed,
-            cli_invocations=1, retries_used=0,
-            native_readiness_timed_out=timed_out,
-            native_route_receipt={'transport_state': 'started', 'interface': 'local-moli-cli' if local else 'official-cli'},
-            native_parameters=contract['request'], binary_sha256=contract['binary_sha256'],
-            diagnostic_log_path=debug.as_posix(), diagnostic_log_sha256=file_sha256(output / debug),
-            diagnostic_log_bytes=(output / debug).stat().st_size)
-        metadata['moli_cli_ms' if local else 'lexmount_cli_ms'] = status['elapsed_ms']
+        metadata = dict(answer_format='plain_text' if api else 'markdown',
+            subagent_id=terminal['session_id'], subagent_usage=terminal['usage'],
+            full_subagent_lifecycle_ms=elapsed, retries_used=0,
+            native_route_receipt={'transport_state': 'started',
+                'interface': 'native-api' if api else 'local-moli-cli' if local else 'official-cli'},
+            native_parameters=contract['request'])
+        fields = {'title': None, 'final_url': None}
+        hashes = {}
+        if api:
+            from harness.web_fetch.native_projection import (
+                native_answer_projection, project_native_answer, project_native_result_fields,
+            )
+            payload = None
+            if status is not None:
+                raw = (work / 'response.bin').read_bytes()
+                try:
+                    payload = json.loads(raw)
+                except ValueError:
+                    pass
+            else:
+                raw = b''
+            parsed_status = status['status'] if status else None
+            parsed = isinstance(payload, dict)
+            declaration = native_answer_projection('lexmount', case, payload if parsed else {}, parsed_status)
+            content, answer_fields = project_native_answer(payload if parsed else {}, declaration)
+            fields = project_native_result_fields(payload if parsed else {}, declaration, request_url=case.url)
+            metadata.update(answer_fields, api_invocations=1, native_answer_projection=declaration,
+                api_http_status=parsed_status, raw_response_saved=status is not None,
+                raw_response_sha256=status['sha256'] if status else None)
+            for name in ('response.bin', 'status.json', 'error.json', 'events.jsonl'):
+                source = work / name
+                if source.is_file():
+                    target = Path('private_artifacts') / provider / case.id / name
+                    (output / target).parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source, output / target)
+                    hashes[target.as_posix()] = file_sha256(output / target)
+                    if name == 'response.bin':
+                        metadata.update(raw_response_path=target.as_posix(), raw_response_bytes=len(raw))
+            (output / artifact).parent.mkdir(parents=True, exist_ok=True)
+            (output / artifact).write_bytes(content.encode('utf-8'))
+            ok = parsed and status is not None and 200 <= parsed_status < 300 and bool(payload.get('result'))
+            error_type = None if ok else 'api_error' if status else 'api_transport_error'
+            error_message = None if ok else 'See the retained same-call API evidence.'
+            if status:
+                metadata['api_ms'] = status['elapsed_ms']
+            else:
+                metadata['api_transport_error'] = read_json(work / 'error.json')['code']
+        else:
+            debug = Path('private_artifacts') / provider / case.id / 'debug.log'
+            for source, target in ((work / 'answer.md', artifact), (work / 'debug.log', debug)):
+                (output / target).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, output / target)
+            diagnostic = (output / debug).read_bytes()
+            native_status, timed_out = native_fetch_diagnostics(diagnostic, case.url)
+            raw = (output / artifact).read_bytes()
+            parsed_status = native_status or _markdown_http_error_status(raw.decode('utf-8', 'replace'))
+            ok = status['code'] == 0 and bool(raw.strip()) and not (parsed_status and parsed_status >= 400)
+            fields['final_url'] = main_document_url_from_fetch_log(diagnostic, case.url)
+            metadata.update(cli_invocations=1, native_readiness_timed_out=timed_out,
+                binary_sha256=contract['binary_sha256'], diagnostic_log_path=debug.as_posix(),
+                diagnostic_log_sha256=file_sha256(output / debug), diagnostic_log_bytes=len(diagnostic))
+            metadata['moli_cli_ms' if local else 'lexmount_cli_ms'] = status['elapsed_ms']
+            error_type = None if ok else _moli_native_error_type(diagnostic) if local else 'cli_error'
+            error_message = None if ok else 'See the retained same-call CLI diagnostic log.'
+        hashes[artifact.as_posix()] = file_sha256(output / artifact)
         origin = row.get('inherited_source', {})
         metadata['inherited_capture'] = bool(origin)
         metadata['caller_implementation_sha256'] = (origin.get('collection_sha256') if origin
@@ -690,18 +766,16 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
         record = dict(attempt_id=row['slot'], provider=provider, provider_type='codex_native_subagent',
             case_id=case.id, case_name=case.name, category=case.category, url=case.url, run=1,
             started_at=start, completed_at=terminal['ended_at'], elapsed_ms=elapsed, ok=ok,
-            status_code=parsed_status, final_url=main_document_url_from_fetch_log(diagnostic, case.url),
-            title=None, error_type=None if ok else _moli_native_error_type(diagnostic) if local else 'cli_error',
-            error_message=None if ok else 'See the retained same-call CLI diagnostic log.',
-            artifact_path=artifact.as_posix(), artifact_sha256={artifact.as_posix(): status['sha256']},
+            status_code=parsed_status, **fields, error_type=error_type, error_message=error_message,
+            artifact_path=artifact.as_posix(), artifact_sha256=hashes,
             provider_metadata=metadata, scoring={'mode': 'offline_initial_score',
-                'source_sha256': SCORING_SOURCE_SHA256, 'original_output_sha256': status['sha256'],
+                'source_sha256': SCORING_SOURCE_SHA256, 'original_output_sha256': status['sha256'] if status else None,
                 'no_provider_calls': True})
         prepared.append((record, vars(case), output))
     executor = ProcessPoolExecutor(max_workers=jobs) if jobs > 1 else None
     try:
-        scored = list(executor.map(_score_moli_record, prepared) if executor
-                      else map(_score_moli_record, prepared))
+        scored = list(executor.map(_score_record, prepared) if executor
+                      else map(_score_record, prepared))
     finally:
         if executor:
             executor.shutdown()

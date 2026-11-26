@@ -77,10 +77,54 @@ process.stdout.write('{{"type":"item');
         assert base64.b64decode(diagnostic['raw_stdout_b64']).endswith(b'{"type":"item')
         if terminated:
             assert base64.b64decode(diagnostic['raw_session_b64']) == valid+tail
-            assert provider.offset == len(valid)
+            assert provider.offset == 0 and provider.session is None and provider.thread is None
             assert provider.process.returncode < 0
         else:
             assert provider.offset == 0
     finally:
         provider.cancel()
         provider.work.cleanup()
+
+
+@pytest.mark.parametrize('terminated', [False, True])
+def test_invalid_turn_cannot_contaminate_next_url_on_reused_provider(tmp_path, monkeypatch, terminated):
+    from harness.web_fetch.providers.codex import CodexProvider
+    node=shutil.which('node')
+    if not node: pytest.skip('Node.js is required')
+    home=tmp_path/'home';home.mkdir();monkeypatch.setenv('CODEX_HOME',str(home))
+    second_url='https://second.example.test/'
+    events,session=trace([second_url])
+    payload={'events':events,'session':session,'terminated':terminated}
+    binary=tmp_path/'synthetic-codex'
+    binary.write_text(f'#!{node}\n'+r"""
+const fs=require('node:fs');const home=process.env.CODEX_HOME;
+const payload=JSON.parse(fs.readFileSync(__dirname+'/payload.json'));
+const count=fs.existsSync(home+'/count')?Number(fs.readFileSync(home+'/count'))+1:1;
+fs.writeFileSync(home+'/count',String(count));
+fs.appendFileSync(home+'/arguments.jsonl',JSON.stringify(process.argv.slice(2))+'\n');
+const id=count===1?'12345678-1234-1234-1234-123456789abc':'12345678-1234-1234-1234-123456789abd';
+fs.mkdirSync(home+'/sessions',{recursive:true});
+const meta=JSON.stringify({type:'session_meta',payload:{}})+'\n';
+fs.writeFileSync(home+'/sessions/rollout-'+id+'.jsonl',meta+(count===1
+  ? '{"type":"response_item"' : payload.session.map(JSON.stringify).join('\n')+'\n'));
+process.stdout.write(JSON.stringify({type:'thread.started',thread_id:id})+'\n');
+if(count===1){if(payload.terminated)setInterval(()=>{},1000);}
+else{
+ for(const event of payload.events)process.stdout.write(JSON.stringify(event)+'\n');
+ process.stdout.write(JSON.stringify({type:'turn.completed',usage:{input_tokens:100,output_tokens:5}})+'\n');
+}
+""")
+    (tmp_path/'payload.json').write_text(json.dumps(payload));binary.chmod(0o700)
+    provider=CodexProvider('synthetic',{'mode':'single','executable':str(binary)})
+    try:
+        first=provider.fetch(SimpleNamespace(url='https://first.example.test/',task_prompt='Read.'),1)
+        assert not first.ok and provider.thread is None and provider.session is None
+        second=provider.fetch(SimpleNamespace(url=second_url,task_prompt='Read.'),5)
+        assert second.ok and second.content=='paragraph 0'
+        arguments=[json.loads(s) for s in (home/'arguments.jsonl').read_text().splitlines()]
+        assert len(arguments)==2 and all('resume' not in argv for argv in arguments)
+        assert second.metadata['usage_delta']=={'input_tokens':100,'output_tokens':5}
+        diagnostic=json.loads(base64.b64decode(first.metadata['_diagnostic_log_b64']))
+        assert base64.b64decode(diagnostic['raw_session_b64']).endswith(b'{"type":"response_item"')
+    finally:
+        provider.cancel();provider.work.cleanup()

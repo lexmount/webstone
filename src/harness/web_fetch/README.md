@@ -1888,8 +1888,17 @@ require one frozen script, one final status/path receipt, one provider invocatio
 the frozen model and effort in every context, no other tool calls (including native
 tools), no final message, and terminal usage. A violation stops later admission.
 `cli-*` selects the official CLI under the same collector; `api-*` selects API
-capture. Both CLI exports use the shared `score_cli_collection` owner. Scoring
-sources are frozen at initialization and scoring starts only after cohort completion.
+capture. All CLI and API exports use the shared `score_collection` owner. Run
+`api-score` for a completed API cohort; it verifies retained responses and child
+traces and selects answers through the frozen native API projection. API errors
+remain failures, and raw error envelopes never become answer text. Scoring sources
+are frozen at initialization and scoring starts only after cohort completion.
+Exports are built in a temporary sibling directory and published atomically only
+after every score is written. A failed offline export can be retried without
+fetching again; an existing completed export is never overwritten. Offline
+scoring validates frozen inputs and retained traces without requiring the original
+product executable or the current acquisition bridge; their frozen hashes remain
+provenance, rather than live scoring dependencies.
 Retained session snapshots can be synchronized without the mutable Codex session
 directory. Previously verified captures keep their actual script and source hash;
 inherited formal rows are checked by the same protocol, and admission budgets only

@@ -15,7 +15,7 @@ BRIDGE = Path(__file__).parents[3] / "src/harness/web_fetch/providers/codex_capt
 @pytest.mark.parametrize('damage', [None, 'changed_answer', 'missing_terminal', 'second_provider_call', 'wrong_model', 'missing_trace', 'changed_trace', 'forged_terminal'])
 @pytest.mark.parametrize('product', ['moli', 'lexmount'])
 def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch, damage, product):
-    from harness.web_fetch.lexmount_collection import score_cli_collection
+    from harness.web_fetch.lexmount_collection import score_collection
     from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
 
     # A saved response can pass without running any executable or using credentials.
@@ -102,12 +102,12 @@ def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch
                     'second_provider_call': 'exactly one actual Moli invocation',
                     'wrong_model': 'Receipt-only caller protocol violation'}[damage]
         with pytest.raises(ValueError, match=expected):
-            score_cli_collection(tmp_path, dataset, rows, contract)
+            score_collection(tmp_path, dataset, rows, contract)
         assert not (tmp_path / 'scored').exists()
         return
     rows[0]['inherited_source']={'contract_sha256':'a'*64}
     contract['collection_sha256']='b'*64
-    summary = score_cli_collection(tmp_path, dataset, rows, contract)
+    summary = score_collection(tmp_path, dataset, rows, contract)
     assert summary['passed'] == 1 and summary['provider_calls_added'] == 0
     result = json.loads((tmp_path / 'scored/results.jsonl').read_text())
     assert result['provider'] == ('codex-moli-local-default' if product=='moli' else 'codex-lexmount-official-cli')
@@ -546,3 +546,148 @@ def test_legacy_capture_does_not_treat_error_words_in_page_titles_as_failure(tmp
         capture_output=True,text=True,check=True,timeout=5)
     reply=json.loads(completed.stdout)['result']
     assert json.loads(reply['content'][0]['text'])['error'] is failed
+
+
+def _saved_api_cohort(tmp_path, monkeypatch, variant):
+    from harness.web_fetch import lexmount_collection as collector
+    from harness.web_fetch.native_projection import native_projection_policy
+    from lexbench_webfetch.scoring import SCORING_SOURCE_SHA256
+    monkeypatch.setenv('WEBSTONE_DATA_HOME', str(tmp_path))
+    experiments=tmp_path/'experiments';experiments.mkdir()
+    dataset=experiments/'codex-luna-single-530-20261122/dataset.json'
+    dataset.parent.mkdir()
+    case={'id':'synthetic','name':'Synthetic','category':'synthetic','url':'https://example.test/',
+        'expected_any':['page content'],'content_scopes':{'version':1,**{scope:{
+            'requirements':{'task_prompt':'Fetch the page.','required_patterns':[{'id':'body','pattern':'page content'}]},
+            'evidence':{'scope':'synthetic','source_sha256':'0'*64}} for scope in ('main','full')}}}
+    dataset.write_text(json.dumps({'tool':'web_fetch','cases':[case]}))
+    run=experiments/'lexmount-api-530-synthetic';run.mkdir()
+    contract={'mode':'lexmount-api-receipt','model':'gpt-6-luna','reasoning_effort':'medium',
+        'receipt_protocol':'single_blocking_script_v1','request':{'extract':{'url':'{url}'}},
+        'bridge_sha256':hashlib.sha256(BRIDGE.read_bytes()).hexdigest(),
+        'dataset_sha256':hashlib.sha256(dataset.read_bytes()).hexdigest(),
+        'native_projection_policy':native_projection_policy('lexmount')}
+    (run/'contract.json').write_text(json.dumps(contract))
+    (run/'scoring-contract.json').write_text(json.dumps({'scoring_source_sha256':SCORING_SOURCE_SHA256}))
+    work=run/'slot';work.mkdir();(work/'called').touch()
+    (work/'events.jsonl').write_text(''.join(json.dumps({'event':name,
+        'timestamp':'2026-11-26T00:00:00.8Z'})+'\n'
+        for name in ('tool_called','api_started','receipt_sent')))
+    payload={'result':{'main_text':'page content','title':'Native title','final_url':'https://example.test/final'}}
+    if variant=='http_failure': payload={'error':{'message':'page content'}}
+    raw=(b'not JSON: page content' if variant=='malformed' else json.dumps(payload).encode())
+    if variant=='transport_error':
+        (work/'error.json').write_text(json.dumps({'code':'ECONNRESET'}))
+    else:
+        (work/'response.bin').write_bytes(raw)
+        (work/'status.json').write_text(json.dumps({'status':429 if variant=='http_failure' else 200,
+            'elapsed_ms':100,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}))
+    script='frozen program'
+    saved=variant!='transport_error'
+    data=[('session_meta',{'id':'synthetic-session','source':{'subagent':{'thread_spawn':{'agent_path':'/root/agent'}}}}),
+        ('event_msg',{'type':'task_started'}),('turn_context',{'model':'gpt-6-luna','effort':'medium'}),
+        ('response_item',{'type':'custom_tool_call','name':'exec','input':script}),
+        ('response_item',{'type':'custom_tool_call_output','output':json.dumps({'status':'saved' if saved else 'failed',
+            'path':str(work/'response.bin')})}),
+        ('event_msg',{'type':'token_count','info':{'total_token_usage':{
+            'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42}}}),
+        ('event_msg',{'type':'task_complete','last_agent_message':''})]
+    trace=[{'type':kind,'payload':payload,'timestamp':'2026-11-26T00:00:01Z' if i==len(data)-1
+            else '2026-11-26T00:00:00Z'} for i,(kind,payload) in enumerate(data)]
+    snapshot=run/'trace.jsonl';snapshot.write_text(''.join(json.dumps(e)+'\n' for e in trace))
+    terminal={**collector._trace_terminal(trace),'provider_invocations':1,'capture_invocations':1,
+        'session_snapshot':'trace.jsonl','session_snapshot_sha256':hashlib.sha256(snapshot.read_bytes()).hexdigest()}
+    (work/'terminal.json').write_text(json.dumps(terminal))
+    (run/'cases.jsonl').write_text(json.dumps({'scope':'formal','slot':'slot','agent':'agent',
+        'case_id':'synthetic','url':case['url'],'caller_script':script})+'\n')
+    return collector,run,work,raw
+
+
+@pytest.mark.parametrize('variant', ['success','http_failure','malformed','transport_error','incomplete','changed_response','changed_projection'])
+def test_api_score_public_entry_replays_saved_native_evidence_without_calls(tmp_path, monkeypatch, capsys, variant):
+    collector,run,work,raw=_saved_api_cohort(tmp_path,monkeypatch,variant)
+    monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:pytest.fail('Offline score started a process'))
+    if variant=='incomplete':
+        (work/'terminal.json').unlink()
+    elif variant=='changed_response':
+        (work/'response.bin').write_bytes(b'changed')
+    elif variant=='changed_projection':
+        contract=json.loads((run/'contract.json').read_text())
+        contract['native_projection_policy']={}
+        (run/'contract.json').write_text(json.dumps(contract))
+    if variant in ('incomplete','changed_response','changed_projection'):
+        with pytest.raises(ValueError,match='Missing completed|integrity failure|projection changed'):
+            collector.api_collection_main(['api-score','--run',str(run)])
+        assert not (run/'scored').exists()
+        return
+    collector.api_collection_main(['api-score','--run',str(run)])
+    summary=json.loads(capsys.readouterr().out)
+    assert summary['cases']==1 and summary['passed']==int(variant=='success')
+    assert summary['provider_calls_added']==0 and summary['provider']=='codex-lexmount-api-auto'
+    result=json.loads((run/'scored/results.jsonl').read_text())
+    answer=(run/'scored'/result['artifact_path']).read_bytes()
+    assert answer==(b'page content' if variant=='success' else b'')
+    assert result['provider_metadata']['subagent_usage']['total_tokens']==42
+    if variant=='success':
+        assert result['title']=='Native title' and result['final_url']=='https://example.test/final'
+        assert result['metrics']['title_chars']==len('Native title')
+    if variant=='transport_error':
+        assert not result['provider_metadata']['raw_response_saved']
+        assert result['scoring']['original_output_sha256'] is None
+        assert result['provider_metadata']['api_transport_error']=='ECONNRESET'
+    else:
+        retained=run/'scored'/result['provider_metadata']['raw_response_path']
+        assert retained.read_bytes()==raw and (work/'response.bin').read_bytes()==raw
+    for name,digest in result['artifact_sha256'].items():
+        assert hashlib.sha256((run/'scored'/name).read_bytes()).hexdigest()==digest
+
+
+def test_scoring_failure_can_resume_offline_without_repeating_captured_calls(tmp_path, monkeypatch, capsys):
+    collector,run,work,raw=_saved_api_cohort(tmp_path,monkeypatch,'success')
+    original=collector._score_record
+    monkeypatch.setattr(collector,'_score_record',lambda item: (_ for _ in ()).throw(RuntimeError('scorer interrupted')))
+    with pytest.raises(RuntimeError,match='scorer interrupted'):
+        collector.api_collection_main(['api-score','--run',str(run)])
+    assert not (run/'scored').exists() and (work/'response.bin').read_bytes()==raw
+    monkeypatch.setattr(collector,'_score_record',original)
+    monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:pytest.fail('Offline retry invoked a product'))
+    collector.api_collection_main(['api-score','--run',str(run)])
+    assert json.loads(capsys.readouterr().out)['passed']==1
+    complete=(run/'scored/results.jsonl').read_bytes()
+    with pytest.raises(FileExistsError,match='already exists'):
+        collector.api_collection_main(['api-score','--run',str(run)])
+    assert (run/'scored/results.jsonl').read_bytes()==complete
+
+
+@pytest.mark.parametrize('product', ['api', 'moli'])
+def test_offline_score_needs_no_current_acquisition_sources_or_product_binary(tmp_path, monkeypatch, capsys, product):
+    collector,run,work,_=_saved_api_cohort(tmp_path,monkeypatch,'success')
+    contract=json.loads((run/'contract.json').read_text())
+    contract.update(bridge_sha256='0'*64, collection_sha256='1'*64)
+    if product=='moli':
+        contract.update(mode='moli-cli-receipt', executable=str(tmp_path/'not-installed'),
+                        binary_sha256='2'*64, request={'argv':['fetch','--dump','markdown','{url}']})
+        desired=run.with_name('moli-local-530-synthetic')
+        run.rename(desired);run=desired;work=run/'slot'
+        raw=b'page content'
+        (work/'answer.md').write_bytes(raw);(work/'debug.log').write_bytes(b'')
+        (work/'status.json').write_text(json.dumps({'code':0,'elapsed_ms':100,
+            'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()}))
+        events=[json.loads(s) for s in (work/'events.jsonl').read_text().splitlines()]
+        for event in events:
+            if event['event']=='api_started':event['event']='client_started'
+        (work/'events.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+    (run/'contract.json').write_text(json.dumps(contract))
+    monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:pytest.fail('Offline score invoked a product'))
+    collector.api_collection_main([product+'-score','--run',str(run)])
+    assert json.loads(capsys.readouterr().out)['passed']==1
+
+
+def test_api_offline_scoring_supports_bounded_process_workers(tmp_path, monkeypatch, capsys):
+    collector,run,work,raw=_saved_api_cohort(tmp_path,monkeypatch,'success')
+    before=(work/'events.jsonl').read_bytes()
+    collector.api_collection_main(['api-score','--run',str(run),'--jobs','2'])
+    summary=json.loads(capsys.readouterr().out)
+    assert summary['passed']==1 and summary['provider_calls_added']==0
+    assert (work/'response.bin').read_bytes()==raw
+    assert (work/'events.jsonl').read_bytes()==before

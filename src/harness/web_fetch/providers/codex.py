@@ -266,4 +266,7 @@ class CodexProvider(Provider):
             diagnostic_log_bytes=len(raw),
             diagnostic_log_sha256=hashlib.sha256(raw).hexdigest(),
         )
+        if timed_out or record_error or stdout_tail or session_tail:
+            # Preserve diagnostics, but never append a task to an unknown turn boundary.
+            self.thread, self.session, self.offset, self.usage = None, None, 0, {}
         return result
