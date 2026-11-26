@@ -76,6 +76,10 @@ For a separate configuration experiment, use the saved publication owner's
 `configuration_comparisons` instead of adding participants to its leaderboard.
 Bind a complete saved comparison and retain its original task contracts, scores,
 languages and evidence. The Web Fetch guide documents its build and check contract.
+When a separate report is requested, build the selected complete methods through
+the same saved-report composition owner and publish that composition independently.
+Keep its own publication profile; packaging preserves nested source evidence and
+does not confer certification or require new provider calls.
 Retain each selected source's execution settings. Presentation gates verify the
 hash-bound predecessor HTML and apply current semantic checks to new projections,
 including embedded comparisons; diagnostic views do not introduce winner styling.

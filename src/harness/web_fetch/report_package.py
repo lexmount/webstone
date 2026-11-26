@@ -87,6 +87,10 @@ def _release_identity(source: Path, presentation_binding, snapshot_audit) -> boo
         from harness.web_fetch.report_saved_composition import check_published_extension
         check_published_extension(source)
         return False
+    if (source / 'saved-composition.json').is_file():
+        from harness.web_fetch.report_saved_matrix import check_saved_matrix
+        check_saved_matrix(source)
+        return False
     manifest_path = source / 'report-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.is_file() else {}
     model_path=source/'report.json'
@@ -238,6 +242,8 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "data").mkdir(exist_ok=True)
     diagnostic = (source / 'report.json').is_file() and json.loads((source / 'report.json').read_text(encoding="utf-8")).get('schema') == 'webfetch_cohort_diagnostic/1'
+    composition = (source / 'saved-composition.json').is_file()
+    namespaces = saved_report_namespaces(source) if composition else None
     records = [] if diagnostic else load_jsonl(source / "results.jsonl")
     by_attempt = {r["attempt_id"]: (i, r) for i, r in enumerate(records)}
     scored_paths = {r["artifact_path"] for r in records}
@@ -289,6 +295,8 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
         if path.suffix == ".html":
             text = data.decode()
             original_html = text
+            if composition:
+                text = namespace_saved_evidence(name, text, namespaces)
             if diagnostic:
                 base = re.search(r'<base href="([^"]+)">', text)
                 if base:
@@ -303,7 +311,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
                         relative = posixpath.relpath(target.path.lstrip('/'), posixpath.dirname(name) or '.')
                         return match[1] + html.escape(relative + ('?' + target.query if target.query else '') + ('#' + target.fragment if target.fragment else ''), quote=True) + '"'
                     text = re.sub(r'((?:href|src)=")([^"]*)"', relative_link, text)
-            if path.parent.name == "attempts" and not diagnostic:
+            if path.parent.name == "attempts" and not diagnostic and not composition:
                 idx, record = by_attempt[path.stem]
                 kinds = (
                     "reference",
@@ -406,7 +414,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
                         else replacements[match[1]]
                     )
                     text = text[: match.start()] + replacement + text[match.end() :]
-            elif path.parent.name == "datasets" and path.name != "index.html" and not diagnostic:
+            elif path.parent.name == "datasets" and path.name != "index.html" and not diagnostic and not composition:
                 suffix = ".md" if (source / "references" / f"{path.stem}.md").exists() else ".txt"
                 reference_file = html.escape(f"references/{path.stem}{suffix}", quote=True)
                 text = re.sub(
@@ -418,7 +426,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
                     count=1,
                     flags=re.S,
                 )
-            if path.parent.name == 'attempts':
+            if path.parent.name == 'attempts' and not composition:
                 text = _retain_inline_contract(text, original_html, source_names)
             data = text.encode()
         else:
@@ -989,6 +997,26 @@ def _extension_namespace_sources(source):
             prefix = audit.parent.relative_to(source).as_posix() + '/'
             namespaces[prefix] = json.loads(audit.read_bytes())['files']
     return namespaces
+
+
+def saved_report_namespaces(source):
+    """Bind lazy files to the closest frozen report in a saved composition."""
+    return {(audit.parent.relative_to(source).as_posix() + '/' if audit.parent != source else ''):
+            json.loads(audit.read_bytes())['files']
+            for audit in source.rglob('saved-matrix-audit.json')}
+
+
+def namespace_saved_evidence(name, text, namespaces):
+    """Preserve nested source pages while resolving their own lazy evidence."""
+    _namespace_extension_evidence(text, prefix='')
+    keys = re.findall(r'\b(?:data-file|data-evidence-file)="([^"]+)"', text)
+    if not keys:
+        return text
+    for prefix in sorted(namespaces, key=len, reverse=True):
+        files = namespaces[prefix]
+        if name.startswith(prefix) and name[len(prefix):] in files and all(key in files for key in keys):
+            return _namespace_extension_evidence(text, prefix=prefix)
+    raise ValueError('Saved evidence has no owning report: ' + name)
 
 
 def _extension_file_bytes(name, path, originals, *, namespaces=None):

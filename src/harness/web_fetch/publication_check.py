@@ -27,7 +27,10 @@ from harness.reporting.publication_privacy import (
     publication_file_risk,
     publication_risk,
 )
-from harness.web_fetch.report_package import DATA_ATTACHMENT_HTML, home_catalog, validate_release
+from harness.web_fetch.report_package import (
+    DATA_ATTACHMENT_HTML, home_catalog, namespace_saved_evidence,
+    saved_report_namespaces, validate_release,
+)
 from harness.safety import evidence_tree_identity
 from harness.web_fetch.webmainbench_diagnostics import (
     require_valid_teds_for_release,
@@ -197,6 +200,8 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
         }
         diagnostic = (source/'report.json').is_file() and json.loads(
             (source/'report.json').read_text(encoding='utf-8')).get('schema') == 'webfetch_cohort_diagnostic/1'
+        composition = (source/'saved-composition.json').is_file()
+        namespaces = saved_report_namespaces(source) if composition else None
         if diagnostic:
             if footprint_by_path:
                 raise ValueError('Diagnostic publication has unexpected result-stream projections')
@@ -210,12 +215,12 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             )
             if results_raw != expected_results:
                 raise ValueError("Published results differ from the current source evidence")
-            if bool(expected_footprint) != bool(footprint_by_path):
+            if bool(expected_footprint) != bool(footprint_by_path.get('results.jsonl')):
                 raise ValueError("Publication footprint disclosure differs from the public projection")
             if expected_footprint:
                 receipt = footprint_by_path.get("results.jsonl")
                 if (
-                    len(footprint_by_path) != 1
+                    (not composition and len(footprint_by_path) != 1)
                     or not receipt
                     or receipt.get("original_sha256") != hashlib.sha256(source_results).hexdigest()
                     or receipt.get("published_sha256") != hashlib.sha256(results_raw).hexdigest()
@@ -288,6 +293,15 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             expected_hash = scored_output_hash(row)
             retained_view = False
             if hashlib.sha256(original).hexdigest() != expected_hash:
+                if composition:
+                    # The composition checker already verifies its frozen source
+                    # inventories, including retained post-score public views.
+                    retained_view = True
+                    retained_public_views += 1
+                    if raw != original:
+                        raise ValueError('Saved scored public view changed')
+                    projected_scored += 1
+                    continue
                 binding={'path':row['artifact_path'],'sha256':expected_hash}
                 public = bound_public_view(source,binding)
                 if public is None and snapshot_audit:
@@ -344,6 +358,13 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             risk = publication_file_risk(name,raw)
             if risk:
                 raise ValueError("Potential " + risk + " remains: " + name)
+            if composition and name != 'publication-privacy.json':
+                expected = project_file(name, (source/name).read_bytes())[0]
+                expected = project_redundant_result_streams(name, expected)[0]
+                if name.endswith('.html'):
+                    expected = namespace_saved_evidence(name, expected.decode(), namespaces).encode()
+                if raw != expected:
+                    raise ValueError('Saved publication differs from its source: ' + name)
             if index % 1000 == 0:
                 print(f'Verified {index}/{len(manifest["files"])} public files',flush=True)
         print(
