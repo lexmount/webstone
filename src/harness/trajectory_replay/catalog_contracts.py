@@ -404,7 +404,7 @@ def validate_environment_preparation(
     receipt_path: Path,
     environment_profile_path: Path,
 ) -> dict:
-    """Validate the fresh-deployment receipt against the versioned environment profile."""
+    """Validate deployment or pinned restart receipts against the environment profile."""
 
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     profile = json.loads(environment_profile_path.read_text(encoding="utf-8"))
@@ -414,9 +414,16 @@ def validate_environment_preparation(
         profile.get("schema") not in ENVIRONMENT_SCHEMAS
         or receipt.get("schema") != "lex_webarena_environment_preparation/1"
         or receipt.get("method") not in ENVIRONMENT_PREPARATION_METHODS
+        or any(
+            type(receipt.get(key)) is not int or receipt[key] < 1
+            for key in ("source_app_id", "fresh_app_id")
+        )
         or receipt.get("source_app_id") != deployment.get("source_app_id")
         or receipt.get("fresh_app_id") != deployment.get("acceptance_app_id")
-        or receipt.get("source_app_id") == receipt.get("fresh_app_id")
+        or (
+            receipt.get("source_app_id") == receipt.get("fresh_app_id")
+            and receipt.get("method") != "component_restarts_from_pinned_images"
+        )
         or receipt.get("site_reset_between_tasks") is not deployment.get("site_reset_between_tasks")
     ):
         raise ValueError("environment preparation is not bound to the declared deployment")
