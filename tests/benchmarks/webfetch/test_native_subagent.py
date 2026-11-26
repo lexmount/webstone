@@ -298,3 +298,37 @@ def test_delivery_timing_excludes_parent_cleanup_and_keeps_missing_unavailable()
 def test_capture_loader_cli_returns_the_shared_source_without_fetching(capsys):
     assert main(["--capture-script"]) == 0
     assert capsys.readouterr().out == CAPTURE_SCRIPT + "\n"
+
+
+@pytest.mark.parametrize("identifier", [
+    "native-delivery-serialized-web-text",
+    "native-delivery-plain-text",
+    "native-delivery-request-metadata-is-not-text",
+    "native-delivery-error-cannot-pass",
+])
+def test_saved_native_delivery_projection_through_public_scorer(identifier):
+    from harness.web_fetch.native_subagent import project_native_delivery
+    from lexbench_webfetch.metrics import task_passed
+    from lexbench_webfetch.scoring import score_attempt
+
+    controls = json.loads(Path("src/harness/benchmarks/scoring-regressions.json").read_text())
+    row = next(row for row in controls["cases"] if row["id"] == identifier)
+    result = project_native_delivery(row["native_delivery"])
+    assert result.content == row["artifact"]
+    assert result.ok == row["ok"]
+    metrics = score_attempt(row["case"], result.content.encode(), ok=result.ok)
+    assert task_passed(result.ok, metrics, "body") == row["expected_task_pass"]
+
+
+@pytest.mark.parametrize("value", [
+    '"ordinary quoted text"',
+    '{"result":"a JSON document, not a response envelope"}',
+    "L0: this is ordinary source text, without native tool framing",
+    {"output": "<p>command-delivered HTML</p>", "exit_code": 0},
+])
+def test_saved_native_delivery_retains_plain_and_command_text(value):
+    from harness.web_fetch.native_subagent import project_native_delivery
+
+    result = project_native_delivery(value)
+    assert result.content == (value["output"] if isinstance(value, dict) else value)
+    assert result.ok

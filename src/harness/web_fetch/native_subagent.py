@@ -67,6 +67,63 @@ async function captureNative(directory, toolName, args, acquireOrValue) {
 """
 
 
+
+def project_native_delivery(value):
+    """Select saved native answer bytes offline, without assuming an open route.
+
+    Only recognized web-tool framing is removed. Plain retained deliveries and
+    command output stay text; request/diagnostic fields are never answer fields.
+    JSON-stringified web returns are a transport representation, not empty text.
+    """
+    from harness.web_fetch.models import ProviderResult
+
+    def web_text(text):
+        return ("Source: open(" in text.split("\nL", 1)[0]
+                and "Total lines:" in text.split("\nL", 1)[0])
+
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            decoded = None
+        if isinstance(decoded, str) and web_text(decoded):
+            value = decoded
+
+    texts, files, failed = [], [], False
+    if isinstance(value, str):
+        texts.append(value)
+    elif isinstance(value, dict):
+        failed = bool(value.get("isError") or value.get("fetch_error")
+                      or value.get("exit_code") not in (None, 0))
+        if isinstance(value.get("output"), str):
+            texts.append(value["output"])
+        for block in value.get("content", []):
+            if block.get("type") == "text" and isinstance(block.get("text"), str):
+                texts.append(block["text"])
+            else:
+                resource = block.get("resource") if block.get("type") == "resource" else block
+                if isinstance(resource, dict):
+                    encoded = (resource.get("blob") if block.get("type") == "resource"
+                               else resource.get("data"))
+                    if isinstance(encoded, str):
+                        files.append({"data": base64.b64decode(encoded, validate=True)})
+                    elif block.get("type") == "resource" and isinstance(resource.get("text"), str):
+                        texts.append(resource["text"])
+    projected = []
+    for text in texts:
+        if web_text(text):
+            text = "\n".join(re.findall(r"^L\d+(?:@P\d+(?:-\d+)?)?: ?(.*)$", text, re.M))
+            text = re.sub(r"【\d+†([^】]*)】", lambda match: match[1].split("†")[0], text)
+            text = re.sub(r"\[Button: ([^\]]*)\]", r"\1", text)
+        elif (text.startswith(("Internal Error", "Failed to fetch"))
+              and "Source: open(" in text):
+            failed = True
+            text = ""
+        projected.append(text)
+    content = "\n".join(projected)
+    return ProviderResult(bool((content or files) and not failed), content, files=files)
+
+
 def capture_event(path, event, **fields):
     row = {"event": event, "timestamp": datetime.now(UTC).isoformat(), **fields}
     with path.open("a", encoding="utf-8") as stream:

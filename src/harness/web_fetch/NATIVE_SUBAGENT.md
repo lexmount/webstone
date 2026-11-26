@@ -84,22 +84,25 @@ const {captureNative} = new Function(
 ```
 
 Keep helper loading and use in the same `functions.exec` invocation. This
-runtime discards local variables between invocations. Use exactly one awaited
-capture call for the final delivery:
+runtime discards local variables between invocations. The child chooses and
+completes its retrieval steps before deciding what to deliver. Keep the selected
+actual delivery in the execution runtime, for example with
+`store("final_delivery", value)`. Then save it once:
 
 ```javascript
 await captureNative(directory, chosenToolName, chosenArguments,
-  () => tools[chosenToolName](chosenArguments));
+  load("final_delivery"));
 ```
 
-The wrapper awaits preparation, acquisition and persistence itself; it saves a
-thrown acquisition error without retrying. Do not omit the outer `await`.
-For a previously retained multi-step delivery, pass its execution-side value as
-the fourth argument instead of a function. This performs no new fetch and leaves
-`fetch_ms` unavailable. Tool/route selection stays with the child. The wrapper
-emits only the save receipt. End the child after delivery; retain its actual
-terminal state. Exclusive save claims, raw JSON, ordered text, binary blocks,
-hashes and separate fetch/save timers keep their existing owner.
+This save example prescribes no acquisition tool, route or number of fetches.
+The fetch budget belongs to the admitted contract. The wrapper awaits preparation
+and persistence; do not omit the outer `await`. Saving an already retained value
+performs no new fetch and leaves `fetch_ms` unavailable. The helper also supports
+an acquisition callback, but that shortcut must not become the default retrieval
+strategy in an autonomous collection prompt. The wrapper emits only the save
+receipt. End the child after delivery and retain its actual terminal state.
+Exclusive save claims, raw JSON, ordered text, binary blocks, hashes and timers
+keep their existing owner.
 
 Autonomous multiple-fetch children may inspect intermediate returns and choose
 how to fetch. Once the final delivery is saved, return only a small save receipt
@@ -189,3 +192,12 @@ successful HTTP request. Missing HTTP status stays unavailable. Do not turn
 `terminal_state == completed` or a save receipt into an HTTP-success claim.
 The existing saved report's `ok`/normal-return metric retains its adapter-defined
 meaning; it does not measure origin HTTP success for these native children.
+
+Saved native deliveries use `project_native_delivery` for offline answer selection.
+It accepts the capture writer's text/command/MCP answer fields and original binary
+blocks. It removes recognized numbered web-tool framing, including a serialized
+web-text return, but preserves plain selected text. Do not apply the historical
+single-open-only `_project_open_outputs` reader to arbitrary multiple-fetch
+deliveries: valid retained text need not carry numbered web lines. Bind the
+projection source hash and executable `native-delivery-*` controls in correction
+receipts; preserve the prior raw outputs and scores.

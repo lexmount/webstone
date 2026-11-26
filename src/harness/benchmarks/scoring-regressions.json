@@ -87775,6 +87775,114 @@
         "answer_format": "markdown"
       },
       "expected_task_pass": false
+    },
+    {
+      "id": "native-delivery-serialized-web-text",
+      "failure_mode": "false-negative",
+      "native_delivery": "\"Fixture (https://example.test/page)\\nSource: open({\\\"ref_id\\\":\\\"https://example.test/page\\\"}); Total lines: 1\\nL0: The amber otter sleeps beside the river.\"",
+      "artifact": "The amber otter sleeps beside the river.",
+      "ok": true,
+      "expected_task_pass": true,
+      "category": "format-normalization",
+      "root_cause": "A web-open-only projection discarded serialized or plain saved native deliveries; native errors and request fields must remain nonanswers.",
+      "case": {
+        "id": "native-delivery-fixture",
+        "url": "https://example.test/page",
+        "task_kind": "body",
+        "minimum_content_chars": 10,
+        "required_facts": [
+          {
+            "id": "otter",
+            "alternatives": [
+              "The amber otter sleeps beside the river."
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "native-delivery-plain-text",
+      "failure_mode": "false-negative",
+      "native_delivery": "The amber otter sleeps beside the river.",
+      "artifact": "The amber otter sleeps beside the river.",
+      "ok": true,
+      "expected_task_pass": true,
+      "category": "format-normalization",
+      "root_cause": "A web-open-only projection discarded serialized or plain saved native deliveries; native errors and request fields must remain nonanswers.",
+      "case": {
+        "id": "native-delivery-fixture",
+        "url": "https://example.test/page",
+        "task_kind": "body",
+        "minimum_content_chars": 10,
+        "required_facts": [
+          {
+            "id": "otter",
+            "alternatives": [
+              "The amber otter sleeps beside the river."
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "native-delivery-request-metadata-is-not-text",
+      "failure_mode": "false-positive",
+      "native_delivery": {
+        "request": {
+          "text": "The amber otter sleeps beside the river."
+        }
+      },
+      "artifact": "",
+      "ok": false,
+      "expected_task_pass": false,
+      "category": "format-normalization",
+      "root_cause": "A web-open-only projection discarded serialized or plain saved native deliveries; native errors and request fields must remain nonanswers.",
+      "case": {
+        "id": "native-delivery-fixture",
+        "url": "https://example.test/page",
+        "task_kind": "body",
+        "minimum_content_chars": 10,
+        "required_facts": [
+          {
+            "id": "otter",
+            "alternatives": [
+              "The amber otter sleeps beside the river."
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "native-delivery-error-cannot-pass",
+      "failure_mode": "false-positive",
+      "native_delivery": {
+        "isError": true,
+        "content": [
+          {
+            "type": "text",
+            "text": "The amber otter sleeps beside the river."
+          }
+        ]
+      },
+      "artifact": "The amber otter sleeps beside the river.",
+      "ok": false,
+      "expected_task_pass": false,
+      "category": "format-normalization",
+      "root_cause": "A web-open-only projection discarded serialized or plain saved native deliveries; native errors and request fields must remain nonanswers.",
+      "case": {
+        "id": "native-delivery-fixture",
+        "url": "https://example.test/page",
+        "task_kind": "body",
+        "minimum_content_chars": 10,
+        "required_facts": [
+          {
+            "id": "otter",
+            "alternatives": [
+              "The amber otter sleeps beside the river."
+            ]
+          }
+        ]
+      }
     }
   ],
   "web_search": {
