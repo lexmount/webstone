@@ -1775,7 +1775,9 @@ def token_usage_comparison(records):
     directions[index]=(key,'min')
  rows=comparative_rows(rows,directions)
  heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_mean','Mean tokens'),t('token_usage_p50','P50 tokens'),t('token_usage_p95','P95 tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
- return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p><p>'+t('token_usage_distribution','Mean, P50 (median) and P95 use per-task total tokens across all recorded calls, including failures.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the unique lowest value in each column for the same number of fully recorded tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
+ usage_table=table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc'))
+ usage_table=usage_table.replace('<table ', '<table style="min-width:1400px;table-layout:auto" ',1).replace('<td','<td style="white-space:nowrap"')
+ return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p><p>'+t('token_usage_distribution','Mean, P50 (median) and P95 use per-task total tokens across all recorded calls, including failures.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the unique lowest value in each column for the same number of fully recorded tasks.')+'</p>' if comparable else '')+usage_table,'token-consumption')
 
 
 def all_final_call_latency(records):
