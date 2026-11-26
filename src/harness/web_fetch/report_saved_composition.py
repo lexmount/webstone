@@ -325,8 +325,13 @@ def _joined_presentation(output):
 
 def _presentation_suites(suites, options):
     options = options or {}
-    if not isinstance(options, dict) or set(options) - {'family_order', 'collapse_configuration', 'ranking_prices'}:
+    if not isinstance(options, dict) or set(options) - {'family_order', 'family_labels', 'collapse_configuration', 'ranking_prices'}:
         raise ValueError('Unsupported saved-report presentation options')
+    labels = options.get('family_labels', {})
+    if (not isinstance(labels, dict) or set(labels) - {suite['id'] for suite in suites}
+            or any(not isinstance(label, str) or not label.strip() for label in labels.values())):
+        raise ValueError('Family presentation labels must name existing families with nonempty text')
+    suites = [{**suite, 'label': labels.get(suite['id'], suite['label'])} for suite in suites]
     for key in ('collapse_configuration', 'ranking_prices'):
         if key in options and type(options[key]) is not bool:
             raise ValueError('Presentation collapse/pricing options must be boolean')
@@ -341,6 +346,13 @@ def _presentation_suites(suites, options):
 
 
 def _apply_presentation_options(page, presentation):
+    for node in list(page.find_all(string=True)):
+        if node.parent.name in {'script', 'style', 'code', 'pre'}:
+            continue
+        text = str(node)
+        replacement = presentation['family_label_aliases'].get(text.strip())
+        if replacement is not None:
+            node.replace_with(text.replace(text.strip(), replacement))
     order = presentation['family_order']
     for bar in page.select('.tab-bar'):
         buttons = bar.find_all('button', recursive=False)
@@ -374,6 +386,7 @@ def _shared_presentations(output, *, options=None):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
     cases, records, providers, suites, views = _joined_presentation(output)
+    original_labels = {suite['id']: suite['label'] for suite in suites}
     suites = _presentation_suites(suites, options)
     from harness.web_fetch.report_model import report_model
     model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
@@ -381,6 +394,8 @@ def _shared_presentations(output, *, options=None):
     with renderer.rendering(model, descriptive_ranks=True, result_views=views):
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'options': options or {}, 'family_order': [suite['id'] for suite in suites],
+                'family_label_aliases': {original_labels[suite['id']]: suite['label'] for suite in suites
+                                         if original_labels[suite['id']] != suite['label']},
                 'overall': overall, 'usage': renderer.token_usage_comparison(records),
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},

@@ -1680,6 +1680,7 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 
 Saved publication refreshes can select `presentation_options` in the external
 extension specification: `family_order` lists every existing family once,
+`family_labels` selects display names by existing family ID without changing evidence,
 `collapse_configuration` folds the configuration section by default, and
 `ranking_prices` controls the compact price column. These choices affect display
 only. Caller token tables derive totals and per-task mean/P50/P95 from retained

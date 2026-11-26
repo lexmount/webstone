@@ -1465,7 +1465,9 @@ def test_published_presentation_options_order_families_and_collapse_configuratio
     _, path = _real_extension(tmp_path, source_reports=entries)
     spec = json.loads(path.read_text())
     spec['presentation'] = 'ranked'
-    spec['presentation_options'] = {'family_order':['document','web'], 'collapse_configuration':True, 'ranking_prices':False}
+    spec['presentation_options'] = {'family_order':['document','web'],
+        'family_labels':{'document':'Document body','web':'Static sites'},
+        'collapse_configuration':True, 'ranking_prices':False}
     base = Path(spec['published_base']['root'])
     home = base/'index.html'
     home.write_text(home.read_text().replace('<section id="method-overview-section">',
@@ -1479,12 +1481,13 @@ def test_published_presentation_options_order_families_and_collapse_configuratio
     assert check_published_extension(output)['valid']
     page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
     headers = [h.get_text(' ',strip=True).replace(' ↕','') for h in page.select('#ranking-overall thead th')]
-    assert headers[4:6] == ['Documents','Static websites']
+    assert headers[4:6] == ['Document body','Static sites']
     assert headers[-1] != '参考价格'
     buttons = page.select('#home-rankings .tab-bar button')
     assert [button['data-tab'] for button in buttons] == ['document','web']
+    assert [button.get_text(strip=True) for button in buttons] == ['Document body','Static sites']
     cards = page.select_one('#overview .grid').get_text(' ',strip=True)
-    assert cards.index('Documents') < cards.index('Static websites')
+    assert cards.index('Document body') < cards.index('Static sites')
     details = page.select_one('#method-overview-section details.method-configuration')
     assert details is not None and not details.has_attr('open')
     assert details.select_one('summary') and details.select_one('#method-overview')
@@ -1499,6 +1502,8 @@ def test_published_presentation_options_order_families_and_collapse_configuratio
 
 @pytest.mark.parametrize('options', [
     {'family_order':['web','web']}, {'family_order':['missing']},
+    {'family_labels':{'missing':'Unknown'}}, {'family_labels':{'web':''}},
+    {'family_labels':[]},
     {'collapse_configuration':'yes'}, {'unknown':True},
 ])
 def test_invalid_presentation_options_preserve_original_report(tmp_path, options):
