@@ -5,8 +5,8 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
-import shlex
 import sys
 import time
 from pathlib import Path
@@ -29,6 +29,48 @@ _CLI_SHA = "11981bab56ff55141aa868e4cd059ea09bc80a6db5707b647a32c21cfe5182ca"
 _ENDPOINT = "https://api.lexmount.com"
 _METHOD = "codex-lexmount-official-cli"
 _RUN_BINDING = ROOT / "runs/.lexmount-active-run.json"
+
+
+def receipt_protocol_issues(terminal, url, tool_name):
+    """Validate the complete caller trace, rather than a filtered tool count."""
+    issues = []
+    calls = terminal.get('calls', [])
+    if len(calls) != 1 or calls[0].get('name') != tool_name:
+        issues.append('expected_one_direct_fetch_tool_call')
+    else:
+        try:
+            arguments = json.loads(calls[0]['input'])
+        except (ValueError, TypeError, KeyError):
+            arguments = None
+        if arguments != {'url': url}:
+            issues.append('unexpected_fetch_arguments')
+    outputs = terminal.get('tool_outputs', [])
+    value = outputs[0] if len(outputs) == 1 else None
+    try:
+        for _ in range(5):
+            if isinstance(value, str):
+                value = json.loads(value)
+            elif isinstance(value, list) and len(value) == 1:
+                block = value[0]
+                value = (block.get('text') if isinstance(block, dict)
+                         and set(block) == {'type', 'text'}
+                         and block['type'] in ('text', 'input_text') else None)
+            elif isinstance(value, dict) and 'content' in value:
+                value = value['content'] if set(value) <= {'content', 'isError'} else None
+            else:
+                break
+    except (ValueError, TypeError, AttributeError):
+        value = None
+    if not (isinstance(value, dict) and set(value) == {'status', 'path'}
+            and value['status'] in ('saved', 'failed') and isinstance(value['path'], str) and value['path']):
+        issues.append('expected_only_final_status_and_path')
+    if terminal.get('final_text'):
+        issues.append('unexpected_final_message')
+    if terminal.get('terminal_type') != 'task_complete' or not terminal.get('usage'):
+        issues.append('missing_terminal_usage')
+    if terminal.get('provider_invocations') != 1 or terminal.get('capture_invocations') != 1:
+        issues.append('expected_one_capture_and_provider_invocation')
+    return issues
 
 
 def subagent_tool_main(argv):
@@ -205,7 +247,7 @@ def api_collection_main(argv):
     """Collect receipt-only provider responses through fresh parent-spawned subagents."""
     parser = argparse.ArgumentParser(description=api_collection_main.__doc__)
     parser.add_argument('operation', choices=tuple(
-        f'{provider}-{operation}' for provider in ('api', 'moli')
+        f'{provider}-{operation}' for provider in ('api', 'moli', 'cli')
         for operation in ('init', 'reserve', 'sync', 'admit', 'score')))
     parser.add_argument('--run', type=Path, required=True)
     parser.add_argument('--url')
@@ -213,23 +255,28 @@ def api_collection_main(argv):
     parser.add_argument('--binary-sha256')
     parser.add_argument('--wall-time-budget-seconds', type=int, default=14400)
     parser.add_argument('--jobs', type=int, default=1)
+    parser.add_argument('--tool-name', default='mcp__webstone_capture__fetch')
     args = parser.parse_args(argv)
     local = args.operation.startswith('moli-')
-    operation = args.operation.replace('moli-', 'api-', 1) if local else args.operation
+    official = args.operation.startswith('cli-')
+    markdown = local or official
+    operation = 'api-' + args.operation.split('-', 1)[1]
     root = args.run.resolve()
     home = Path(os.environ.get('WEBSTONE_DATA_HOME', Path.home() / '.webstone')).resolve()
-    prefix = 'moli-local-530-' if local else 'lexmount-api-530-'
+    prefix = 'moli-local-530-' if local else 'lexmount-cli-530-' if official else 'lexmount-api-530-'
     if root.parent != home / 'experiments' or not root.name.startswith(prefix):
         parser.error('Use a fresh experiment under the data home')
     os.umask(0o077)
     dataset = home / 'experiments/codex-luna-single-530-20261122/dataset.json'
     if operation == 'api-init':
+        if not re.fullmatch(r'mcp__\w+__fetch', args.tool_name):
+            raise ValueError('Bind the connected MCP fetch tool name')
         selected = _inputs(home)
         if not local and not all(repository_env().get(k) for k in ('LEXMOUNT_API_KEY', 'LEXMOUNT_PROJECT_ID')):
             raise ValueError('Missing repository credentials')
-        if local and (args.binary is None or not args.binary_sha256 or
+        if markdown and (args.binary is None or not args.binary_sha256 or
                       file_sha256(args.binary) != args.binary_sha256):
-            raise ValueError('Bind the exact local Moli binary and SHA-256')
+            raise ValueError('Bind the exact executable and SHA-256')
         root.mkdir(exist_ok=False)
         contract = dict(mode='lexmount-api-receipt', endpoint=_ENDPOINT,
                         request={'extract': {'url': '{url}', 'options': {'engine_preference': 'auto'}}},
@@ -239,28 +286,45 @@ def api_collection_main(argv):
                         retries=0, timeout_seconds=300, max_in_flight=2,
                         model='gpt-6-luna', reasoning_effort='medium', fork_turns='none',
                         content_scope='full', score_scope='full', admitted=False,
-                        transport='single local command invokes the existing capture bridge; MCP tool unavailable',
+                        transport='one blocking MCP call; no terminal or model polling fallback',
+                        receipt_protocol='single_blocking_tool_v1', tool_name=args.tool_name,
                         output='unaltered complete HTTP response bytes; receipt only to subagent',
                         scoring='after all 530 subagents terminate; shared native API projection and score_attempt',
                         plan_changes=['direct API with explicit auto replaces default CLI Markdown',
                                       'native API fields replace CLI Markdown as scoring input',
-                                      'capture bridge has a one-call command entry instead of unavailable MCP tool'])
-        if local:
-            contract.update(mode='moli-cli-receipt', executable=str(args.binary.resolve()),
+                                      'capture bridge waits and saves bytes before its only tool response'])
+        if markdown:
+            contract.update(mode='moli-cli-receipt' if local else 'lexmount-cli-receipt', executable=str(args.binary.resolve()),
                             binary_sha256=args.binary_sha256,
-                            request={'argv': ['fetch', '--dump', 'markdown', '--log-level', 'debug', '{url}']},
-                            endpoint=None, output='complete native Markdown stdout; receipt only to subagent',
+                            request={'argv': ['fetch', '--dump', 'markdown', '--log-level', 'debug', '{url}'] if local
+                                     else ['extract', '--url', '{url}']},
+                            endpoint=None if local else _ENDPOINT,
+                            output='complete native Markdown stdout; receipt only to subagent',
                             scoring='after all 530 subagents terminate; shared score_attempt and task predicate',
-                            plan_changes=['local Moli defaults replace managed API auto; explicit Markdown and debug only'])
+                            plan_changes=['local Moli defaults; explicit Markdown and debug only'] if local else
+                                         ['official CLI defaults; blocking receipt-only transport'])
         from harness.web_fetch.native_projection import native_projection_policy
-        if not local:
+        if not markdown:
             contract['native_projection_policy'] = native_projection_policy('lexmount')
         _write_json(root / 'contract.json', contract)
-        print(json.dumps({'run': str(root), 'cases': len(selected), 'admitted': False}))
+        from lexbench_webfetch.scoring import SCORING_SOURCE_FILES, SCORING_SOURCE_SHA256
+        snapshots = root / 'private_artifacts/scoring-source'
+        snapshots.mkdir(parents=True)
+        for source in SCORING_SOURCE_FILES:
+            shutil.copyfile(source, snapshots / source.name)
+        _write_json(root / 'scoring-contract.json', dict(
+            scoring_source_sha256=SCORING_SOURCE_SHA256,
+            source_files={source.name: file_sha256(source) for source in SCORING_SOURCE_FILES},
+            phase='frozen_before_collection'))
+        (root / 'dispatch').mkdir()
+        print(json.dumps({'run': str(root), 'cases': len(selected), 'admitted': False,
+            'mcp_server': {'name': 'webstone_capture', 'required': True, 'tool_timeout_sec': 300,
+                'enabled_tools': ['fetch'], 'command': shutil.which('node'), 'args': [str(_BRIDGE), str(root),
+                '--receipt-tool', *([] if local else [str(ROOT / '.env')])]}}))
         return
     contract = read_json(root / 'contract.json')
-    if local and file_sha256(Path(contract['executable'])) != contract['binary_sha256']:
-        raise ValueError('Frozen local Moli binary changed')
+    if markdown and file_sha256(Path(contract['executable'])) != contract['binary_sha256']:
+        raise ValueError('Frozen executable changed')
     if (file_sha256(_BRIDGE) != contract['bridge_sha256'] or
             (operation != 'api-score' and file_sha256(Path(__file__)) != contract['collection_sha256']) or
             file_sha256(dataset) != contract['dataset_sha256']):
@@ -268,6 +332,10 @@ def api_collection_main(argv):
     manifest = root / 'cases.jsonl'
     rows = load_jsonl(manifest) if manifest.exists() else []
     if operation == 'api-reserve':
+        if contract.get('receipt_protocol') and any(
+                read_json(root/r['slot']/'terminal.json').get('protocol_issues', ['missing_protocol_audit'])
+                for r in rows if (root/r['slot']/'terminal.json').exists()):
+            raise ValueError('Caller protocol failed; stop admission and preserve completed calls')
         if sum(not (root / r['slot'] / 'terminal.json').exists() for r in rows) >= 2:
             raise ValueError('Two-worker admission is full')
         selected = _inputs(home)
@@ -286,29 +354,23 @@ def api_collection_main(argv):
         slot = uuid4().hex
         work = root / slot
         work.mkdir()
-        agent = ('moli_' if local else 'lx_api_') + slot
-        command = shlex.join([shutil.which('node'), str(_BRIDGE), str(work),
-                              *(['--moli-url', url] if local else [str(ROOT / '.env'), '--invoke-url', url])])
-        prompt = ('Fetch the complete content of the assigned URL exactly once. '
-                  'Use one functions.exec script to call tools.exec_command with the exact command below, '
-                  'sandbox_permissions="require_escalated", justification="Fetch the assigned URL once and save its response for this authorized benchmark", '
-                  'yield_time_ms=30000, max_output_tokens=100. '
-                  'If it returns a session_id, poll that same process using tools.write_stdin inside the same script until completion; never start another command. '
-                  'Print only the final saved or failed receipt, never intermediate process information. '
-                  'If functions.exec yields a running cell, resume that same cell using functions.wait. '
-                  'The capture program saves the full response; do not read or print any response file. '
-                  'After receiving saved or failed, immediately finish with no final text. '
-                  'Never retry, read files, search, browse, send messages, wait for instructions or spawn agents. '
-                  'URL: ' + url + '\nCommand: ' + command)
-        _write_json(work / 'contract.json', dict(mode='moli-cli' if local else 'lexmount-api', url=url,
-                    endpoint=contract['endpoint'], deadline=int((time.time()+300)*1000),
+        agent = ('moli_' if local else 'lx_cli_' if official else 'lx_api_') + slot
+        prompt = ('Call ' + contract['tool_name'] + ' exactly once with {"url":' + json.dumps(url) + '}. '
+                  'The tool waits for completion and saves the full response itself. '
+                  'After its saved/failed receipt, end with no message. Use no other tools.')
+        deadline = int((time.time()+300)*1000)
+        _write_json(work / 'contract.json', dict(mode='moli-cli' if local else 'lexmount-cli' if official else 'lexmount-api', url=url,
+                    endpoint=contract['endpoint'], deadline=deadline,
+                    answerPath=str(work/('answer.md' if markdown else 'response.bin')),
                     events=str(work/'events.jsonl'),
                     **(dict(executable=contract['executable'], binary_sha256=contract['binary_sha256'],
-                            answer=str(work/'answer.md'), answerPath=str(work/'answer.md'),
-                            stderr=str(work/'debug.log')) if local else {})))
+                            answer=str(work/'answer.md'),
+                            stderr=str(work/'debug.log')) if markdown else {})))
+        _write_json(root / 'dispatch' / (hashlib.sha256(url.encode()).hexdigest()+'.json'),
+                    dict(url=url, slot=slot, deadline=deadline))
         row = dict(case_id=case_id, url=url, scope=scope, slot=slot, agent=agent,
-                   prompt=prompt, command=command, reserved_at=time.time(),
-                   answer_path=slot+('/answer.md' if local else '/response.bin'))
+                   prompt=prompt, reserved_at=time.time(),
+                   answer_path=slot+('/answer.md' if markdown else '/response.bin'))
         with manifest.open('a') as stream:
             stream.write(json.dumps(row)+'\n'); stream.flush(); os.fsync(stream.fileno())
         print(json.dumps({'agent': agent, 'prompt': prompt, 'scope': scope, 'case_id': case_id}))
@@ -347,8 +409,16 @@ def api_collection_main(argv):
                               effort=contexts[-1].get('effort') if contexts else None,
                               final_text=terminal.get('last_agent_message', ''),
                               calls=[{'name':p.get('name'),'input':p.get('input',p.get('arguments'))} for p in calls],
-                              response_saved=(work/('answer.md' if local else 'response.bin')).is_file(),
+                              tool_outputs=[e['payload']['output'] for e in events
+                                  if e['type']=='response_item' and e['payload'].get('type')
+                                  in ('function_call_output','custom_tool_call_output')],
+                              response_saved=(work/('answer.md' if markdown else 'response.bin')).is_file(),
                               http_status=read_json(work/'status.json') if (work/'status.json').exists() else None)
+                capture = load_jsonl(work/'events.jsonl') if (work/'events.jsonl').exists() else []
+                result.update(provider_invocations=sum(e['event'] in ('client_started','api_started') for e in capture),
+                              capture_invocations=sum(e['event']=='tool_called' for e in capture))
+                if contract.get('receipt_protocol'):
+                    result['protocol_issues'] = receipt_protocol_issues(result, row['url'], contract['tool_name'])
                 _write_json(work/'terminal.json', result)
         formal = [r for r in rows if r['scope']=='formal']
         preflight = [r for r in rows if r['scope']=='preflight']
@@ -358,11 +428,15 @@ def api_collection_main(argv):
                       active=[r['agent'] for r in rows if not (root/r['slot']/'terminal.json').exists()])
         _write_json(root/'summary.json',result); print(json.dumps(result)); return
     if operation == 'api-admit':
-        preflight = [read_json(root/r['slot']/'terminal.json') for r in rows if r['scope']=='preflight']
+        selected = [r for r in rows if r['scope']=='preflight']
+        preflight = [read_json(root/r['slot']/'terminal.json') for r in selected]
+        protocol_failed = any(receipt_protocol_issues(terminal, row['url'], contract['tool_name'])
+                              for row, terminal in zip(selected, preflight, strict=True))
         if contract['admitted'] or len(preflight)!=2 or any(
             not r['response_saved'] or r['usage'] is None or r['final_text'] or
+            r.get('protocol_issues', ['missing_protocol_audit']) or
             r['model'] != contract['model'] or r['effort'] != contract['reasoning_effort']
-            for r in preflight):
+            for r in preflight) or protocol_failed:
             raise ValueError('Two complete receipt-only preflight subagents are required')
         elapsed = max(__import__('datetime').datetime.fromisoformat(r['ended_at'].replace('Z','+00:00')).timestamp()
                       for r in preflight)-min(r['started_at'] for r in preflight)
@@ -377,8 +451,8 @@ def api_collection_main(argv):
         contract.update(admitted=True,execution_assessment=assessment)
         _write_json(root/'contract.json',contract);print(json.dumps(assessment));return
     if operation == 'api-score':
-        if local:
-            print(json.dumps(score_moli_collection(root, dataset, rows, contract, jobs=args.jobs)))
+        if markdown:
+            print(json.dumps(score_cli_collection(root, dataset, rows, contract, jobs=args.jobs)))
             return
         raise ValueError('Scoring is disabled until the full frozen cohort has terminated')
 
@@ -394,7 +468,7 @@ def _score_moli_record(arguments):
     return record
 
 
-def score_moli_collection(root, dataset, rows, contract, *, jobs=1):
+def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
     """Export and score a completed receipt-only cohort without invoking Moli."""
     from concurrent.futures import ProcessPoolExecutor
     from datetime import datetime
@@ -438,13 +512,16 @@ def score_moli_collection(root, dataset, rows, contract, *, jobs=1):
             raise ValueError('Require exactly one actual Moli invocation: ' + case.id)
         if terminal['terminal_type'] != 'task_complete' or not terminal.get('usage'):
             raise ValueError('Missing final subagent telemetry: ' + case.id)
+        if contract.get('receipt_protocol') and receipt_protocol_issues(terminal, row['url'], contract['tool_name']):
+            raise ValueError('Receipt-only caller protocol violation: ' + case.id)
         verified.append((case, row, work, status, terminal, events))
     output = root / 'scored'
     output.mkdir(exist_ok=False)
     shutil.copy2(dataset, output / 'dataset.json')
     materialize_task_references(output, {name: input_tree(dataset, name)
         for name in ('sources', 'list-references')}, [case.id for case in cases])
-    provider = 'codex-moli-local-default'
+    local = contract.get('mode', 'moli-cli-receipt') == 'moli-cli-receipt'
+    provider = 'codex-moli-local-default' if local else 'codex-lexmount-official-cli'
     prepared = []
     def timestamp(value):
         return datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp()
@@ -464,12 +541,13 @@ def score_moli_collection(root, dataset, rows, contract, *, jobs=1):
         receipts = [e for e in events if e['event'] == 'receipt_sent']
         metadata = dict(answer_format='markdown', subagent_id=terminal['session_id'],
             subagent_usage=terminal['usage'], full_subagent_lifecycle_ms=elapsed,
-            moli_cli_ms=status['elapsed_ms'], cli_invocations=1, retries_used=0,
+            cli_invocations=1, retries_used=0,
             native_readiness_timed_out=timed_out,
-            native_route_receipt={'transport_state': 'started', 'interface': 'local-moli-cli'},
+            native_route_receipt={'transport_state': 'started', 'interface': 'local-moli-cli' if local else 'official-cli'},
             native_parameters=contract['request'], binary_sha256=contract['binary_sha256'],
             diagnostic_log_path=debug.as_posix(), diagnostic_log_sha256=file_sha256(output / debug),
             diagnostic_log_bytes=(output / debug).stat().st_size)
+        metadata['moli_cli_ms' if local else 'lexmount_cli_ms'] = status['elapsed_ms']
         if receipts:
             metadata['receipt_to_exit_ms'] = (timestamp(terminal['ended_at']) -
                 timestamp(receipts[-1]['timestamp'])) * 1000
@@ -480,8 +558,8 @@ def score_moli_collection(root, dataset, rows, contract, *, jobs=1):
             case_id=case.id, case_name=case.name, category=case.category, url=case.url, run=1,
             started_at=start, completed_at=terminal['ended_at'], elapsed_ms=elapsed, ok=ok,
             status_code=parsed_status, final_url=main_document_url_from_fetch_log(diagnostic, case.url),
-            title=None, error_type=None if ok else _moli_native_error_type(diagnostic),
-            error_message=None if ok else 'See the retained same-call Moli diagnostic log.',
+            title=None, error_type=None if ok else _moli_native_error_type(diagnostic) if local else 'cli_error',
+            error_message=None if ok else 'See the retained same-call CLI diagnostic log.',
             artifact_path=artifact.as_posix(), artifact_sha256={artifact.as_posix(): status['sha256']},
             provider_metadata=metadata, scoring={'mode': 'offline_initial_score',
                 'source_sha256': SCORING_SOURCE_SHA256, 'original_output_sha256': status['sha256'],
@@ -508,7 +586,7 @@ def score_moli_collection(root, dataset, rows, contract, *, jobs=1):
 
 
 if __name__ == "__main__":
-    if len(sys.argv)>1 and sys.argv[1].startswith(('api-', 'moli-')):
+    if len(sys.argv)>1 and sys.argv[1].startswith(('api-', 'moli-', 'cli-')):
         api_collection_main(sys.argv[1:])
     else:
         subagent_tool_main(sys.argv[1:])

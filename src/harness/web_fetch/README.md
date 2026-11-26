@@ -1865,8 +1865,10 @@ Initialize a new external
 outside-cohort URLs with `--url` for fresh-subagent preflight, synchronize their
 terminal usage, and admit the measured execution plan before reserving formal
 cases. `--wall-time-budget-seconds` explicitly selects the execution budget.
-The parent dispatches the returned prompts with `fork_turns="none"`; the collector
-does not create agents. Each generated `--moli-url` command executes exactly one
+Connect the MCP server configuration returned by initialization, and bind its
+actual `--tool-name` before reserving preflight cases. The parent dispatches the
+returned prompts with `fork_turns="none"`; the collector does not create agents.
+Each blocking `fetch` tool call executes exactly one
 `moli fetch --dump markdown --log-level debug URL`, preserving native readiness
 defaults and system DNS. This entry accepts no credential-file argument. It saves
 all stdout and stderr, including failed calls, and returns only status and path;
@@ -1877,8 +1879,15 @@ collection. It requires complete, unique call and terminal evidence, verifies
 the frozen scorer and saved response hashes, and writes the shared report inputs
 under the run's new `scored/` directory without invoking a provider.
 
-The dispatch prompt keeps process polling inside one tool script and waits up to
-30 seconds per process observation. Only the final receipt returns to the model;
-long-running tool scripts resume through the same cell. This avoids model rounds
-whose only purpose is checking a still-running process. New runs must still pass
-the fresh-subagent preflight before formal collection.
+The capture program writes the files and waits for the child process without
+model involvement. It returns only the final status and path. There is no terminal,
+`exec`, `write_stdin`, or `wait` fallback. The caller deadline remains 300 seconds;
+the product's native internal timers remain unchanged. Preflight admission checks
+the entire trace: one direct fetch call with the assigned URL, one receipt, one
+provider invocation, no other tools, no final message, and terminal usage. The same
+checks cover formal cases before scoring. If the runtime cannot expose the blocking
+tool, connect it before collection rather than substitute a polling prompt.
+The returned server configuration sets `tool_timeout_sec=300` and requires a
+live connection. `cli-*` selects the official CLI under the same collector and
+receipt checks; `api-*` selects the existing API capture route. Neither selection
+adds a model polling loop. CLI exports use the shared `score_cli_collection` owner.

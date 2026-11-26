@@ -6,9 +6,10 @@ const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
 
 const [launchFolder, environmentOrMode, invocationOrUrl, assignedUrl] = process.argv.slice(2);
+const receiptTool = environmentOrMode === '--receipt-tool';
 const localStandalone = environmentOrMode === '--moli-url';
-const envFile = localStandalone ? null : environmentOrMode;
-const invokeFlag = localStandalone ? null : invocationOrUrl;
+const envFile = receiptTool ? invocationOrUrl : localStandalone ? null : environmentOrMode;
+const invokeFlag = receiptTool || localStandalone ? null : invocationOrUrl;
 const invokeUrl = localStandalone ? invocationOrUrl : assignedUrl;
 const standalone = localStandalone || invokeFlag === '--invoke-url';
 if (invokeFlag && !standalone) throw new Error('Unknown capture invocation');
@@ -16,8 +17,8 @@ const readContract = directory => JSON.parse(fs.readFileSync(path.join(directory
 const bindingPath = envFile && path.join(path.dirname(envFile), 'runs', '.lexmount-active-run.json');
 // Desktop may retain an earlier dispatch argument. Treat the experiment
 // directory name as a legacy selector, without opening that directory.
-const boundDispatch = launchFolder === '--bound-dispatch' ||
-    /^lexmount-api-530-/.test(path.basename(launchFolder));
+const boundDispatch = !receiptTool && (launchFolder === '--bound-dispatch' ||
+    /^lexmount-api-530-/.test(path.basename(launchFolder)));
 const folder = boundDispatch
     ? JSON.parse(fs.readFileSync(bindingPath, 'utf8')).run
     : launchFolder;
@@ -31,8 +32,10 @@ if (boundDispatch && contract.mode !== 'lexmount-dispatch') {
 const native = contract.mode === 'single' || contract.mode === 'same-page';
 const official = contract.mode === 'lexmount-cli';
 const localMoli = contract.mode === 'moli-cli';
-if (localStandalone !== localMoli) throw new Error('Local Moli requires its credential-free invocation');
-const dispatch = contract.mode === 'lexmount-dispatch';
+if (!receiptTool && localStandalone !== localMoli) throw new Error('Local Moli requires its credential-free invocation');
+if (receiptTool && !['moli-cli-receipt', 'lexmount-cli-receipt', 'lexmount-api-receipt'].includes(contract.mode)) {
+    throw new Error('Invalid receipt tool run');
+}
 // Terminating the transport must also stop its detached CLI process groups.
 process.once('SIGTERM', () => process.exit(143));
 process.once('SIGINT', () => process.exit(130));
@@ -47,8 +50,10 @@ const tool = native ? {
         additionalProperties: false,
     },
 } : {
-    name: 'lexmount_fetch',
-    description: 'Fetch the assigned URL once with Lexmount Extract Auto and save the response for scoring.',
+    name: receiptTool ? 'fetch' : 'lexmount_fetch',
+    description: receiptTool
+        ? 'Fetch the assigned URL once, save the complete response, and return only status and path after completion.'
+        : 'Fetch the assigned URL once with Lexmount Extract Auto and save the response for scoring.',
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     inputSchema: {
         type: 'object',
@@ -68,7 +73,7 @@ function receipt(id, saved, active = contract) {
             path: localMoli ? contract.answer : 'response.bin' }) + '\n');
         return;
     }
-    if (active.mode === 'lexmount-cli') {
+    if (receiptTool || active.mode === 'lexmount-cli' || active.mode === 'moli-cli') {
         const value = { status: saved ? 'saved' : 'failed', path: active.answerPath };
         return reply(id, { content: [{ type: 'text', text: JSON.stringify(value) }] });
     }
@@ -98,8 +103,8 @@ async function extractWithCli(id, active = contract, work = folder) {
         const env = isMoli ? {} : parseEnv(fs.readFileSync(envFile, 'utf8'));
         const { LEXMOUNT_API_KEY, LEXMOUNT_PROJECT_ID } = env;
         if (!isMoli && (!LEXMOUNT_API_KEY || !LEXMOUNT_PROJECT_ID)) throw new Error('Missing credentials');
-        if (isMoli && createHash('sha256').update(fs.readFileSync(contract.executable)).digest('hex') !== contract.binary_sha256) {
-            throw new Error('Moli binary changed');
+        if ((isMoli || receiptTool) && createHash('sha256').update(fs.readFileSync(contract.executable)).digest('hex') !== contract.binary_sha256) {
+            throw new Error('Executable changed');
         }
         temporary = contract.answer + '.partial';
         stdout = fs.openSync(temporary, 'wx');
@@ -150,7 +155,7 @@ async function extractWithCli(id, active = contract, work = folder) {
         }
         const output = fs.readFileSync(temporary);
         event('client_finished', { ...exit, elapsed_ms: performance.now() - started });
-        if (exit.code === 0 || isMoli) {
+        if (exit.code === 0 || isMoli || receiptTool) {
             fs.fsyncSync(stdout);
             fs.renameSync(temporary, contract.answer);
             const engine = output.toString('utf8', 0, 8192).match(/^- \*\*Engine:\*\* ([\w-]+)$/m);
@@ -160,7 +165,7 @@ async function extractWithCli(id, active = contract, work = folder) {
                 engine: engine && engine[1] !== '-' ? engine[1] : null,
             });
             saved = exit.code === 0;
-            if (isMoli) fs.writeFileSync(path.join(folder, 'status.json'), JSON.stringify({
+            if (isMoli || receiptTool) fs.writeFileSync(path.join(folder, 'status.json'), JSON.stringify({
                 ...exit, bytes: output.length, elapsed_ms: performance.now() - started,
                 sha256: createHash('sha256').update(output).digest('hex'),
             }), { flag: 'wx', flush: true });
@@ -184,6 +189,15 @@ function dispatchContract(url) {
         throw new Error('Invalid reservation');
     }
     const slot = reservation.slot;
+    if (receiptTool) {
+        const work = path.join(folder, slot);
+        const active = readContract(work);
+        if (active.url !== url || active.deadline !== reservation.deadline ||
+            active.mode !== contract.mode.replace(/-receipt$/, '')) {
+            throw new Error('Reservation contract differs');
+        }
+        return {work, active};
+    }
     const privateFolder = path.join(folder, 'private_artifacts', slot);
     return {
         work: path.join(privateFolder, 'work'),
@@ -232,8 +246,14 @@ function saveNative(id, response) {
     return reply(id, { content: [{ type: 'text', text: JSON.stringify(result) }] });
 }
 
-async function handle({ method, id, params }) {
+async function handle({ method, id, params }, active = contract, work = folder) {
+    const contract = active;
+    const folder = work;
+    const dispatch = contract.mode === 'lexmount-dispatch' ||
+        (receiptTool && ['moli-cli-receipt', 'lexmount-cli-receipt', 'lexmount-api-receipt'].includes(contract.mode));
+    const event = (name, details = {}) => log(name, details, active);
     if (dispatch) {
+        fs.mkdirSync(path.join(folder, 'private_artifacts'), { recursive: true });
         fs.appendFileSync(path.join(folder, 'private_artifacts', 'transport.events.jsonl'),
             JSON.stringify({ timestamp: new Date().toISOString(), method, id,
                 protocolVersion: params?.protocolVersion }) + '\n', { flush: true });
@@ -242,7 +262,7 @@ async function handle({ method, id, params }) {
     if (method === 'initialize') {
         reply(id, {
             protocolVersion: params.protocolVersion,
-            serverInfo: { name: native ? 'capture' : 'lexmount', version: '1' },
+            serverInfo: { name: native || receiptTool ? 'capture' : 'lexmount', version: '1' },
             capabilities: { tools: {} },
         });
     } else if (method === 'tools/list') {
@@ -258,7 +278,10 @@ async function handle({ method, id, params }) {
                     log('tool_rejected', { reason: 'deadline' }, active);
                     return receipt(id, false, active);
                 }
-                return await extractWithCli(id, active, work);
+                if (active.mode === 'moli-cli' || active.mode === 'lexmount-cli') {
+                    return await extractWithCli(id, active, work);
+                }
+                return await handle({ method, id, params }, active, work);
             } catch {
                 return reply(id, { isError: true, content: [{ type: 'text', text: 'No active reservation' }] });
             }
@@ -279,13 +302,14 @@ async function handle({ method, id, params }) {
         }
         if (official || localMoli) return extractWithCli(id);
         try {
+            event('tool_called');
             fs.writeFileSync(path.join(folder, 'called'), '', { flag: 'wx' });
         } catch {
             return receipt(id, false);
         }
         try {
             const env = parseEnv(fs.readFileSync(envFile, 'utf8'));
-            log('api_started');
+            event('api_started');
             const started = performance.now();
             const response = await fetch((contract.endpoint || 'https://api.lexmount.com') + '/v1/extract', {
                 method: 'POST',
@@ -309,17 +333,17 @@ async function handle({ method, id, params }) {
                 headers: { 'content-type': response.headers.get('content-type'),
                     'x-request-id': response.headers.get('x-request-id') },
             }), { flag: 'wx', flush: true });
-            log('api_finished', { status: response.status, bytes: bytes.length,
+            event('api_finished', { status: response.status, bytes: bytes.length,
                 elapsed_ms: performance.now() - started });
-            log('receipt_sent', { status: 'saved' });
-            receipt(id, true);
+            event('receipt_sent', { status: 'saved' });
+            receipt(id, true, active);
         } catch (error) {
             const code = error.cause?.code || error.name;
             fs.writeFileSync(path.join(folder, 'error.json'), JSON.stringify({
                 code: typeof code === 'string' && /^[A-Za-z0-9_]+$/.test(code) ? code : 'Error',
             }));
-            log('receipt_sent', { status: 'failed' });
-            receipt(id, false);
+            event('receipt_sent', { status: 'failed' });
+            receipt(id, false, active);
         }
     } else if (method === 'ping') {
         reply(id, {});
