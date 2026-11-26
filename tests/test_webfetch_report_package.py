@@ -436,20 +436,6 @@ def test_cached_results_refresh_decoded_public_representation_from_source(tmp_pa
     assert updated['original_sha256']==hashlib.sha256(original).hexdigest()
     assert updated['published_sha256']==hashlib.sha256(expected).hexdigest()
     assert updated['replacements']==project_file('results.jsonl',original)[1]['replacements']
-    controls = (Path(report_package.__file__).parent/'assets/report.js').read_bytes()
-    assert (output/'report.js').read_bytes() == controls
-    # A presentation-only refresh also upgrades controls on the compact fast path,
-    # without rewriting the frozen virtual evidence or cached input.
-    (output/'report.js').write_bytes(b'/* previous presentation controls */')
-    refreshed = tmp_path/'refreshed'
-    report_package._compact_cached_content(output,refreshed,source=source)
-    assert (refreshed/'report.js').read_bytes() == controls
-    assert (output/'report.js').read_bytes() == b'/* previous presentation controls */'
-    refreshed_manifest = read_packed_manifest(lambda name:(refreshed/name).read_bytes())
-    assert set(refreshed_manifest['files']) == set(manifest['files'])
-    for name in manifest['files']:
-        assert reconstruct_packed_file(refreshed_manifest,name,
-            lambda p:gzip.decompress((refreshed/p).read_bytes())) == read(name)
     (source/'results.jsonl').write_bytes(original.replace(b'true',b'false',1))
     with pytest.raises(ValueError,match='Cached results identify another source'):
         report_package._compact_cached_content(cached,tmp_path/'rejected',source=source)

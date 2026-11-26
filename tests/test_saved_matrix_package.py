@@ -66,6 +66,23 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
             for name in ('a#b.txt', 'a?b.txt', 'a%b.txt'):
                 assert ('href="../../references/'+quote(name, safe='')+'?download=1#raw"').encode() in viewer
         assert reconstruct_packed_file(manifest, 'results.jsonl', packs) == prior
+    # Cached composition updates use the complete shared script, including paging
+    # and detail navigation, while retaining every frozen virtual file.
+    cached = tmp_path/'cached'
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(cached)
+    (cached/'report.js').write_text('/* old controls */')
+    refreshed = tmp_path/'refreshed.zip'
+    package(source,refreshed,cached_content=cached)
+    from harness.web_fetch.report import JS
+    with zipfile.ZipFile(refreshed) as bundle, DecompressedPackCache(bundle.read) as packs:
+        assert bundle.read('report.js').decode() == JS
+        current = read_packed_manifest(bundle.read)
+        assert set(current['files']) == set(manifest['files'])
+        for name, entry in manifest['files'].items():
+            assert current['files'][name]['sha256'] == entry['sha256']
+        assert reconstruct_packed_file(current,'results.jsonl',packs) == prior
+    assert (cached/'report.js').read_text() == '/* old controls */'
     results = source/'results.jsonl'
     altered = [json.loads(line) for line in prior.splitlines()]
     altered[0]['elapsed_ms'] = 0

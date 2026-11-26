@@ -589,6 +589,12 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
     return manifest
 
 
+def _refresh_composition_controls(source: Path, destination: Path):
+    if (source/'saved-composition.json').is_file():
+        from harness.web_fetch.report import JS
+        (destination/'report.js').write_text(JS, encoding='utf-8')
+
+
 def _compact_cached_content(cached: Path, destination: Path, *, source: Path, refresh_privacy=False):
     """Reuse public files while keeping derived result projections source-authoritative."""
     manifest = read_packed_manifest(lambda name: (cached/name).read_bytes())
@@ -609,7 +615,7 @@ def _compact_cached_content(cached: Path, destination: Path, *, source: Path, re
         del original, projected
     if manifest['schema_version'] == 3 and not refresh_privacy and source_projection is None:
         shutil.copytree(cached,destination,dirs_exist_ok=True)
-        (destination/'report.js').write_bytes((Path(__file__).parent/'assets/report.js').read_bytes())
+        _refresh_composition_controls(source,destination)
         (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
         with DecompressedPackCache(lambda name:(destination/name).read_bytes()) as pack:
             _install_home_catalog(destination, manifest,
@@ -689,7 +695,7 @@ def _compact_cached_content(cached: Path, destination: Path, *, source: Path, re
         compact = write_compact_packs(entries(), destination, architecture=manifest.get('architecture'))
     for name in ('index.html','style.css','report.js'):
         shutil.copyfile(cached/name, destination/name)
-    (destination/'report.js').write_bytes((Path(__file__).parent/'assets/report.js').read_bytes())
+    _refresh_composition_controls(source,destination)
     (destination/'loader.js').write_bytes((Path(__file__).parent/'assets/report-loader.js').read_bytes())
     with DecompressedPackCache(lambda name:(destination/name).read_bytes()) as pack:
         normalized = read_packed_manifest(lambda name:(destination/name).read_bytes())
