@@ -1865,10 +1865,8 @@ Initialize a new external
 outside-cohort URLs with `--url` for fresh-subagent preflight, synchronize their
 terminal usage, and admit the measured execution plan before reserving formal
 cases. `--wall-time-budget-seconds` explicitly selects the execution budget.
-Connect the MCP server configuration returned by initialization, and bind its
-actual `--tool-name` before reserving preflight cases. The parent dispatches the
-returned prompts with `fork_turns="none"`; the collector does not create agents.
-Each blocking `fetch` tool call executes exactly one
+The parent dispatches the returned prompts with `fork_turns="none"`; the collector
+does not create agents. Each assigned capture command executes exactly one
 `moli fetch --dump markdown --log-level debug URL`, preserving native readiness
 defaults and system DNS. This entry accepts no credential-file argument. It saves
 all stdout and stderr, including failed calls, and returns only status and path;
@@ -1879,15 +1877,20 @@ collection. It requires complete, unique call and terminal evidence, verifies
 the frozen scorer and saved response hashes, and writes the shared report inputs
 under the run's new `scored/` directory without invoking a provider.
 
-The capture program writes the files and waits for the child process without
-model involvement. It returns only the final status and path. There is no terminal,
-`exec`, `write_stdin`, or `wait` fallback. The caller deadline remains 300 seconds;
-the product's native internal timers remain unchanged. Preflight admission checks
-the entire trace: one direct fetch call with the assigned URL, one receipt, one
-provider invocation, no other tools, no final message, and terminal usage. The same
-checks cover formal cases before scoring. If the runtime cannot expose the blocking
-tool, connect it before collection rather than substitute a polling prompt.
-The returned server configuration sets `tool_timeout_sec=300` and requires a
-live connection. `cli-*` selects the official CLI under the same collector and
-receipt checks; `api-*` selects the existing API capture route. Neither selection
-adds a model polling loop. CLI exports use the shared `score_cli_collection` owner.
+The generated prompt supplies one exact `functions.exec` script with a
+300,000 ms outer wait. Process observations remain inside that script and only
+the final receipt is printed; there is no model-level `functions.wait` fallback.
+The capture program writes the files, waits for the product and stops its owned
+process group before finalizing the answer hash. The caller deadline remains
+300 seconds; product defaults are unchanged. Preflight and formal-case checks
+require one frozen script, one final status/path receipt, one provider invocation,
+the frozen model and effort in every context, no other tool calls (including native
+tools), no final message, and terminal usage. A violation stops later admission.
+`cli-*` selects the official CLI under the same collector; `api-*` selects API
+capture. Both CLI exports use the shared `score_cli_collection` owner. Scoring
+sources are frozen at initialization and scoring starts only after cohort completion.
+Retained session snapshots can be synchronized without the mutable Codex session
+directory. Previously verified captures keep their actual script and source hash;
+inherited formal rows are checked by the same protocol, and admission budgets only
+the remaining new calls. Reuse selection must depend on protocol evidence, never
+on the URL, task score or measured token count.

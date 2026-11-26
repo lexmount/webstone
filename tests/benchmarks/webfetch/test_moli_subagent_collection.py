@@ -12,7 +12,7 @@ import pytest
 BRIDGE = Path(__file__).parents[3] / "src/harness/web_fetch/providers/codex_capture.cjs"
 
 
-@pytest.mark.parametrize('damage', [None, 'changed_answer', 'missing_terminal', 'second_provider_call'])
+@pytest.mark.parametrize('damage', [None, 'changed_answer', 'missing_terminal', 'second_provider_call', 'wrong_model'])
 @pytest.mark.parametrize('product', ['moli', 'lexmount'])
 def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch, damage, product):
     from harness.web_fetch.lexmount_collection import score_cli_collection
@@ -38,7 +38,7 @@ def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch
     (work / 'called').touch()
     (work / 'status.json').write_text(json.dumps({'code': 0, 'bytes': len(raw),
         'elapsed_ms': 100, 'sha256': hashlib.sha256(raw).hexdigest()}))
-    terminal = dict(terminal_type='task_complete', usage={'total_tokens': 42},
+    terminal = dict(terminal_type='task_complete', usage={'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42},
         session_id='synthetic-session', session_started_at='2026-11-25T00:00:00Z',
         ended_at='2026-11-25T00:00:01Z')
     (work / 'terminal.json').write_text(json.dumps(terminal))
@@ -55,20 +55,36 @@ def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch
                  slot='slot', url=case['url'])]
     contract = {'mode':product+'-cli-receipt',
         'request': {'argv': ['fetch', '--dump', 'markdown']}, 'binary_sha256': '0'*64}
+    if damage=='wrong_model':
+        script='frozen capture script'
+        rows[0]['caller_script']=script
+        contract.update(receipt_protocol='single_blocking_script_v1',
+                        model='gpt-6-luna',reasoning_effort='medium')
+        terminal.update(calls=[{'name':'exec','input':script}],
+            tool_outputs=[json.dumps({'status':'saved','path':'answer.md'})],
+            provider_invocations=1,capture_invocations=1,
+            caller_contexts=[{'model':'another-model','effort':'medium'}])
+        (work/'terminal.json').write_text(json.dumps(terminal))
     if damage:
         expected = {'changed_answer': 'integrity failure',
                     'missing_terminal': 'Missing completed call evidence',
-                    'second_provider_call': 'exactly one actual Moli invocation'}[damage]
+                    'second_provider_call': 'exactly one actual Moli invocation',
+                    'wrong_model': 'Receipt-only caller protocol violation'}[damage]
         with pytest.raises(ValueError, match=expected):
             score_cli_collection(tmp_path, dataset, rows, contract)
         assert not (tmp_path / 'scored').exists()
         return
+    rows[0]['inherited_source']={'contract_sha256':'a'*64}
+    contract['collection_sha256']='b'*64
     summary = score_cli_collection(tmp_path, dataset, rows, contract)
     assert summary['passed'] == 1 and summary['provider_calls_added'] == 0
     result = json.loads((tmp_path / 'scored/results.jsonl').read_text())
     assert result['provider'] == ('codex-moli-local-default' if product=='moli' else 'codex-lexmount-official-cli')
     assert (tmp_path / 'scored' / result['artifact_path']).read_bytes() == raw
     assert result['provider_metadata']['subagent_usage']['total_tokens'] == 42
+    assert result['provider_metadata']['inherited_capture']
+    assert result['provider_metadata']['caller_implementation_sha256'] is None
+    assert result['provider_metadata']['source_collection_contract_sha256']=='a'*64
     assert result['metrics']['content_sha256'] == hashlib.sha256(raw).hexdigest()
 
 
@@ -114,7 +130,7 @@ process.exitCode=process.argv.at(-1).endsWith('/failure')?1:0;
 
 @pytest.mark.parametrize('expired', [False, True])
 @pytest.mark.parametrize('product', ['moli', 'lexmount'])
-def test_blocking_mcp_capture_waits_and_emits_only_one_final_receipt(tmp_path, expired, product):
+def test_capture_program_waits_and_emits_only_one_final_receipt(tmp_path, expired, product):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js is required')
@@ -125,9 +141,7 @@ fs.appendFileSync(__dirname+'/invocations','started\\n');
 setTimeout(()=>{process.stdout.write('# retained body\\n[link](https://example.test/)');},1200);
 """)
     binary.chmod(0o700)
-    run = tmp_path / 'run'; run.mkdir(); (run/'dispatch').mkdir()
-    (run/'contract.json').write_text(json.dumps({'mode':product+'-cli-receipt'}))
-    slot = 'a'*32; work = run/slot; work.mkdir()
+    work = tmp_path / 'work'; work.mkdir()
     url = 'https://example.test/'
     deadline = int((time.time() + (0.7 if expired else 10))*1000)
     answer = work/'answer.md'
@@ -135,28 +149,16 @@ setTimeout(()=>{process.stdout.write('# retained body\\n[link](https://example.t
         executable=str(binary),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
         deadline=deadline,answer=str(answer),answerPath=str(answer),
         stderr=str(work/'debug.log'),events=str(work/'events.jsonl'))))
-    key = hashlib.sha256(url.encode()).hexdigest()
-    (run/'dispatch'/f'{key}.json').write_text(json.dumps(dict(url=url,slot=slot,deadline=deadline)))
-    request = {'jsonrpc':'2.0','id':2,'method':'tools/call',
-               'params':{'name':'fetch','arguments':{'url':url}}}
-    startup = [{'jsonrpc':'2.0','id':0,'method':'initialize',
-                'params':{'protocolVersion':'2025-06-18'}},
-               {'jsonrpc':'2.0','id':1,'method':'tools/list'}]
     started = time.monotonic()
-    command = [node,str(BRIDGE),str(run),'--receipt-tool']
-    if product == 'lexmount':
+    if product == 'moli':
+        command = [node,str(BRIDGE),str(work),'--moli-url',url]
+    else:
         env = tmp_path/'synthetic.env'
         env.write_text('LEXMOUNT_API_KEY=synthetic\nLEXMOUNT_PROJECT_ID=synthetic\n')
-        command.append(str(env))
-    result = subprocess.run(command,
-        input=('\n'.join(json.dumps(x) for x in [*startup,request])+'\n').encode(),
-        capture_output=True,timeout=15,check=True)
-    responses = [json.loads(line) for line in result.stdout.splitlines()]
-    assert len(responses) == 3 and result.stderr == b''
-    assert responses[0]['result']['serverInfo']['name'] == 'capture'
-    assert [x['name'] for x in responses[1]['result']['tools']] == ['fetch']
-    receipt = json.loads(responses[2]['result']['content'][0]['text'])
-    assert receipt == {'status':'failed' if expired else 'saved','path':str(answer)}
+        command = [node,str(BRIDGE),str(work),str(env),'--invoke-url',url]
+    result = subprocess.run(command,capture_output=True,timeout=15,check=True)
+    assert result.stderr == b''
+    assert json.loads(result.stdout) == {'status':'failed' if expired else 'saved','path':str(answer)}
     events = [json.loads(line) for line in (work/'events.jsonl').read_text().splitlines()]
     assert sum(e['event']=='client_started' for e in events) == 1
     if not expired:
@@ -168,19 +170,21 @@ setTimeout(()=>{process.stdout.write('# retained body\\n[link](https://example.t
         assert json.loads((work/'status.json').read_text())['signal'] == 'SIGKILL'
 
 
-@pytest.mark.parametrize('damage', [None,'extra_wait','extra_message_tool','body_returned',
+@pytest.mark.parametrize('damage', [None,'empty_transport_blocks','extra_wait','extra_message_tool','body_returned',
                                     'wrong_url','duplicate_product','final_message',
-                                    'envelope_body','missing_usage'])
+                                    'envelope_body','missing_usage','partial_usage','inconsistent_usage'])
 def test_receipt_protocol_rejects_unnecessary_agent_work(damage):
     from harness.web_fetch.lexmount_collection import receipt_protocol_issues
-    tool = 'mcp__webstone_capture__fetch'
-    url = 'https://example.test/'
-    terminal = dict(calls=[{'name':tool,'input':json.dumps({'url':url})}],
-        tool_outputs=[json.dumps({'content':[{'type':'text','text':json.dumps(
-            {'status':'saved','path':'answer.md'})}]})],
-        terminal_type='task_complete',usage={'total_tokens':42},final_text='',
+    script = 'frozen capture script'
+    terminal = dict(calls=[{'name':'exec','input':script}],
+        tool_outputs=[[{'type':'input_text','text':'Script completed\nWall time 36.6 seconds\nOutput:\n'},
+                       {'type':'input_text','text':json.dumps({'status':'saved','path':'answer.md'})}]],
+        terminal_type='task_complete',usage={'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42},final_text='',
         provider_invocations=1,capture_invocations=1)
-    if damage in ('extra_wait','extra_message_tool'):
+    if damage == 'empty_transport_blocks':
+        terminal['tool_outputs'][0].insert(1, {'type':'input_text','text':''})
+        terminal['tool_outputs'][0].append({'type':'input_text','text':''})
+    elif damage in ('extra_wait','extra_message_tool'):
         terminal['calls'].append({'name':'wait' if damage=='extra_wait' else 'send_message','input':'{}'})
     elif damage=='body_returned':
         terminal['tool_outputs']=[json.dumps({'status':'saved','path':'answer.md','body':'page text'})]
@@ -191,11 +195,14 @@ def test_receipt_protocol_rejects_unnecessary_agent_work(damage):
     elif damage=='final_message':
         terminal['final_text']='done'
     elif damage=='envelope_body':
-        envelope=json.loads(terminal['tool_outputs'][0]);envelope['body']='page text'
-        terminal['tool_outputs']=[json.dumps(envelope)]
+        terminal['tool_outputs'][0][0]['body']='page text'
     elif damage=='missing_usage':
         terminal['usage']=None
-    assert bool(receipt_protocol_issues(terminal,url,tool)) == bool(damage)
+    elif damage=='partial_usage':
+        terminal['usage']={'total_tokens':42}
+    elif damage=='inconsistent_usage':
+        terminal['usage']['total_tokens']=43
+    assert bool(receipt_protocol_issues(terminal,script)) == (damage not in (None,'empty_transport_blocks'))
 
 
 def test_blocking_api_capture_preserves_complete_response(tmp_path):
@@ -215,24 +222,31 @@ def test_blocking_api_capture_preserves_complete_response(tmp_path):
     server = ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread = Thread(target=server.serve_forever,daemon=True); thread.start()
     try:
-        (tmp_path/'contract.json').write_text(json.dumps({'mode':'lexmount-api-receipt'}))
         env = tmp_path/'synthetic.env'
         env.write_text('LEXMOUNT_API_KEY=synthetic\nLEXMOUNT_PROJECT_ID=synthetic\n')
-        work = tmp_path/('b'*32); work.mkdir(); (tmp_path/'dispatch').mkdir()
+        work = tmp_path/('b'*32); work.mkdir()
         url = 'https://example.test/'
         deadline = int((time.time()+10)*1000)
         (work/'contract.json').write_text(json.dumps(dict(mode='lexmount-api',url=url,
             deadline=deadline,endpoint=f'http://127.0.0.1:{server.server_port}',
             events=str(work/'events.jsonl'),answerPath=str(work/'response.bin'))))
-        key = hashlib.sha256(url.encode()).hexdigest()
-        (tmp_path/'dispatch'/f'{key}.json').write_text(json.dumps(dict(
-            url=url,slot=work.name,deadline=deadline)))
         request = dict(jsonrpc='2.0',id=1,method='tools/call',
-            params={'name':'fetch','arguments':{'url':url}})
-        result = subprocess.run([node,str(BRIDGE),str(tmp_path),'--receipt-tool',str(env)],
-            input=json.dumps(request).encode()+b'\n',capture_output=True,timeout=15,check=True)
-        reply = json.loads(result.stdout)
-        assert json.loads(reply['result']['content'][0]['text']) == {
+            params={'name':'lexmount_fetch','arguments':{'url':url}})
+        repeated={**request,'id':2}
+        invalid_init={'jsonrpc':'2.0','id':3,'method':'initialize'}
+        ping={'jsonrpc':'2.0','id':4,'method':'ping'}
+        incoming='\n'.join([json.dumps(request),'{',json.dumps(invalid_init),
+                            json.dumps(repeated),json.dumps(ping)])+'\n'
+        result = subprocess.run([node,str(BRIDGE),str(work),str(env)],
+            input=incoming.encode(),capture_output=True,timeout=15,check=True)
+        replies={x['id']:x for x in map(json.loads,result.stdout.splitlines())}
+        assert len(replies)==5 and not result.stderr
+        assert replies[None]['error']['code']==-32700
+        assert replies[3]['error']['code']==-32602
+        assert replies[4]['result']=={}
+        assert json.loads(replies[2]['result']['content'][0]['text']) == {
+            'status':'failed','path':str(work/'response.bin')}
+        assert json.loads(replies[1]['result']['content'][0]['text']) == {
             'status':'saved','path':str(work/'response.bin')}
         assert (work/'response.bin').read_bytes() == payload
         assert requests == [{'extract':{'url':url,'options':{'engine_preference':'auto'}}}]
@@ -241,8 +255,64 @@ def test_blocking_api_capture_preserves_complete_response(tmp_path):
         server.shutdown(); server.server_close(); thread.join()
 
 
+def test_capture_stops_descendants_before_freezing_output(tmp_path):
+    import os
+    import signal
+    node=shutil.which('node')
+    if not node:
+        pytest.skip('Node.js is required')
+    worker=tmp_path/'worker.cjs'
+    worker.write_text("setInterval(()=>process.stdout.write('worker output\\n'),20);\n")
+    binary=tmp_path/'synthetic-product'
+    binary.write_text(f'#!{node}\n'+"""
+const fs=require('node:fs');
+const child=require('node:child_process').spawn(process.execPath,[__dirname+'/worker.cjs'],
+    {stdio:['ignore',1,2]});
+fs.writeFileSync(__dirname+'/worker.pid',String(child.pid));
+setTimeout(()=>{process.stdout.write('leader done\\n');process.exit(0);},200);
+""")
+    binary.chmod(0o700)
+    answer=tmp_path/'answer.md';url='https://example.test/'
+    (tmp_path/'contract.json').write_text(json.dumps(dict(mode='moli-cli',url=url,
+        executable=str(binary),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+        deadline=int((time.time()+10)*1000),answer=str(answer),answerPath=str(answer),
+        stderr=str(tmp_path/'debug.log'),events=str(tmp_path/'events.jsonl'))))
+    try:
+        result=subprocess.run([node,str(BRIDGE),str(tmp_path),'--moli-url',url],
+            capture_output=True,check=True,timeout=5)
+        assert json.loads(result.stdout)['status']=='saved'
+        status=json.loads((tmp_path/'status.json').read_text())
+        assert status['cleanup_complete']
+        original=answer.read_bytes()
+        assert hashlib.sha256(original).hexdigest()==status['sha256']
+        time.sleep(0.1)
+        assert answer.read_bytes()==original
+        pid=int((tmp_path/'worker.pid').read_text())
+        state=subprocess.run(['ps','-p',str(pid),'-o','stat='],capture_output=True,text=True).stdout.strip()
+        assert not state or state.startswith('Z')
+    finally:
+        if (tmp_path/'worker.pid').exists():
+            try:os.kill(int((tmp_path/'worker.pid').read_text()),signal.SIGKILL)
+            except ProcessLookupError:pass
+
+
+def test_transport_reports_handler_rejection_without_exiting(tmp_path):
+    node=shutil.which('node')
+    if not node:
+        pytest.skip('Node.js is required')
+    (tmp_path/'contract.json').write_text(json.dumps({'mode':'lexmount-dispatch'}))
+    (tmp_path/'private_artifacts/transport.events.jsonl').mkdir(parents=True)
+    requests=[{'jsonrpc':'2.0','id':i,'method':'ping'} for i in (1,2)]
+    result=subprocess.run([node,str(BRIDGE),str(tmp_path),str(tmp_path/'synthetic.env')],
+        input=('\n'.join(map(json.dumps,requests))+'\n').encode(),capture_output=True,check=True,timeout=5)
+    replies=[json.loads(x) for x in result.stdout.splitlines()]
+    assert [x['id'] for x in replies]==[1,2]
+    assert all(x['error']['code']==-32603 for x in replies)
+
+
 @pytest.mark.parametrize('extra_call', [False, True])
-def test_preflight_admission_rechecks_actual_calls(tmp_path, monkeypatch, extra_call):
+@pytest.mark.parametrize('inherited', [False, True])
+def test_preflight_admission_rechecks_actual_calls(tmp_path, monkeypatch, extra_call, inherited):
     from harness.web_fetch import lexmount_collection as collector
     monkeypatch.setenv('WEBSTONE_DATA_HOME',str(tmp_path))
     experiments=tmp_path/'experiments';experiments.mkdir()
@@ -250,25 +320,31 @@ def test_preflight_admission_rechecks_actual_calls(tmp_path, monkeypatch, extra_
     dataset.parent.mkdir();dataset.write_text('{}')
     run=experiments/'moli-local-530-synthetic';run.mkdir()
     binary=tmp_path/'synthetic-binary';binary.write_bytes(b'never executed')
-    tool='mcp__webstone_capture__fetch'
+    script='frozen capture script'
     contract=dict(executable=str(binary),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
         bridge_sha256=hashlib.sha256(BRIDGE.read_bytes()).hexdigest(),
         collection_sha256=hashlib.sha256(Path(collector.__file__).read_bytes()).hexdigest(),
         dataset_sha256=hashlib.sha256(dataset.read_bytes()).hexdigest(),admitted=False,
-        model='gpt-6-luna',reasoning_effort='medium',tool_name=tool,receipt_protocol='single_blocking_tool_v1')
+        model='gpt-6-luna',reasoning_effort='medium',receipt_protocol='single_blocking_script_v1')
     (run/'contract.json').write_text(json.dumps(contract))
     rows=[]
     for i in range(2):
         slot=str(i);work=run/slot;work.mkdir();url=f'https://example.test/{i}'
-        rows.append(dict(scope='preflight',slot=slot,url=url))
-        terminal=dict(response_saved=True,usage={'total_tokens':42},final_text='',
+        rows.append(dict(scope='preflight',slot=slot,url=url,caller_script=script))
+        terminal=dict(response_saved=True,usage={'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42},final_text='',
             model='gpt-6-luna',effort='medium',started_at=0,ended_at='1970-01-01T00:00:01Z',
+            caller_contexts=[{'model':'gpt-6-luna','effort':'medium'}],
             terminal_type='task_complete',provider_invocations=1,capture_invocations=1,
-            calls=[{'name':tool,'input':json.dumps({'url':url})}],
+            calls=[{'name':'exec','input':script}],
             tool_outputs=[json.dumps({'status':'saved','path':'answer.md'})],protocol_issues=[])
         if extra_call and i==0:
             terminal['calls'].append({'name':'wait','input':'{}'})
         (work/'terminal.json').write_text(json.dumps(terminal))
+    if inherited:
+        work=run/'inherited';work.mkdir()
+        (work/'terminal.json').write_text(json.dumps(terminal))
+        rows.append(dict(scope='formal',slot=work.name,url=url,caller_script=script,
+                         inherited_source={'collection_sha256':'1'*64}))
     (run/'cases.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in rows))
     if extra_call:
         with pytest.raises(ValueError,match='receipt-only preflight'):
@@ -277,10 +353,13 @@ def test_preflight_admission_rechecks_actual_calls(tmp_path, monkeypatch, extra_
     else:
         collector.api_collection_main(['moli-admit','--run',str(run)])
         assert json.loads((run/'contract.json').read_text())['admitted']
+        plan=json.loads((run/'execution-plan.json').read_text())
+        assert plan['planned_calls']==530-int(inherited)
+        assert plan['inherited_calls']==int(inherited)
 
 
 @pytest.mark.parametrize('product', ['moli', 'cli'])
-def test_initialization_freezes_scoring_and_blocking_tool_before_calls(tmp_path, monkeypatch, capsys, product):
+def test_initialization_freezes_scoring_and_single_script_before_calls(tmp_path, monkeypatch, capsys, product):
     from harness.web_fetch import lexmount_collection as collector
     from lexbench_webfetch.scoring import SCORING_SOURCE_FILES, SCORING_SOURCE_SHA256
     monkeypatch.setenv('WEBSTONE_DATA_HOME',str(tmp_path))
@@ -288,17 +367,88 @@ def test_initialization_freezes_scoring_and_blocking_tool_before_calls(tmp_path,
     monkeypatch.setattr(collector,'repository_env',lambda:{'LEXMOUNT_API_KEY':'synthetic','LEXMOUNT_PROJECT_ID':'synthetic'})
     monkeypatch.setattr(subprocess,'Popen',lambda *a,**k:pytest.fail('Initialization invoked a product'))
     (tmp_path/'experiments').mkdir()
+    dataset=tmp_path/'experiments/codex-luna-single-530-20261122/dataset.json'
+    dataset.parent.mkdir();dataset.write_text('{}')
+    monkeypatch.setattr(collector,'_DATASET_SHA',hashlib.sha256(dataset.read_bytes()).hexdigest())
     name='moli-local-530-synthetic' if product=='moli' else 'lexmount-cli-530-synthetic'
     run=tmp_path/'experiments'/name
     binary=tmp_path/'synthetic-binary';binary.write_bytes(b'never executed')
     collector.api_collection_main([product+'-init','--run',str(run),'--binary',str(binary),
         '--binary-sha256',hashlib.sha256(binary.read_bytes()).hexdigest()])
     output=json.loads(capsys.readouterr().out)
-    assert output['mcp_server']['tool_timeout_sec']==300
-    assert output['mcp_server']['enabled_tools']==['fetch']
-    assert output['mcp_server']['required']
+    assert output['caller']['wait_ms']==300000
+    assert output['caller']['tool']=='functions.exec'
+    assert not output['caller']['intermediate_model_returns']
     frozen=json.loads((run/'scoring-contract.json').read_text())
     assert frozen['scoring_source_sha256']==SCORING_SOURCE_SHA256
     for source in SCORING_SOURCE_FILES:
         assert (run/'private_artifacts/scoring-source'/source.name).read_bytes()==source.read_bytes()
     assert not json.loads((run/'contract.json').read_text())['admitted']
+    collector.api_collection_main([product+'-reserve','--run',str(run),'--url','https://outside.test/'])
+    assigned=json.loads((run/'cases.jsonl').read_text())
+    assert assigned['caller_script']==collector.receipt_caller_script(assigned['command'])
+    assert assigned['caller_script'].startswith('// @exec: {"yield_time_ms":300000,')
+    assert assigned['caller_script'].count('text(')==1
+    assert 'functions.wait' not in assigned['caller_script']
+    assert not (run/assigned['slot']/'called').exists()
+
+
+@pytest.mark.parametrize('damage', [None,'native_call','wrong_model','wrong_effort','earlier_model'])
+def test_formal_sync_audits_all_calls_and_caller_contexts(tmp_path, monkeypatch, damage):
+    from harness.web_fetch import lexmount_collection as collector
+    monkeypatch.setenv('WEBSTONE_DATA_HOME',str(tmp_path))
+    monkeypatch.setattr(Path,'home',lambda:tmp_path)
+    experiments=tmp_path/'experiments';experiments.mkdir()
+    dataset=experiments/'codex-luna-single-530-20261122/dataset.json'
+    dataset.parent.mkdir();dataset.write_text('{}')
+    run=experiments/'moli-local-530-synthetic';run.mkdir()
+    binary=tmp_path/'synthetic-binary';binary.write_bytes(b'never executed')
+    script='frozen capture script'
+    contract=dict(executable=str(binary),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
+        bridge_sha256=hashlib.sha256(BRIDGE.read_bytes()).hexdigest(),
+        collection_sha256=hashlib.sha256(Path(collector.__file__).read_bytes()).hexdigest(),
+        dataset_sha256=hashlib.sha256(dataset.read_bytes()).hexdigest(),admitted=True,
+        model='gpt-6-luna',reasoning_effort='medium',receipt_protocol='single_blocking_script_v1')
+    (run/'contract.json').write_text(json.dumps(contract))
+    work=run/('a'*32);work.mkdir();(work/'answer.md').write_text('saved')
+    (work/'events.jsonl').write_text(''.join(json.dumps({'event':name})+'\n'
+        for name in ('tool_called','client_started','receipt_sent')))
+    url='https://example.test/'
+    row=dict(case_id='synthetic',scope='formal',slot=work.name,url=url,
+        agent='moli_synthetic',reserved_at=0,caller_script=script)
+    (run/'cases.jsonl').write_text(json.dumps(row)+'\n')
+    payloads=[('session_meta',{'id':'synthetic','source':{'subagent':{'thread_spawn':{
+        'agent_path':'/root/moli_synthetic'}}}}),
+        ('event_msg',{'type':'task_started'})]
+    contexts=[{'model':'gpt-6-luna','effort':'medium'}]
+    if damage=='wrong_model':contexts[0]['model']='another-model'
+    if damage=='wrong_effort':contexts[0]['effort']='low'
+    if damage=='earlier_model':contexts.insert(0,{'model':'another-model','effort':'medium'})
+    payloads += [('turn_context',c) for c in contexts]
+    payloads += [('response_item',{'type':'custom_tool_call','name':'exec','input':script})]
+    if damage=='native_call':
+        payloads.append(('response_item',{'type':'web_search_call','action':{'type':'search'}}))
+    payloads += [('response_item',{'type':'function_call_output','output':json.dumps({
+        'status':'saved','path':str(work/'answer.md')})}),
+        ('event_msg',{'type':'token_count','info':{'total_token_usage':{'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42}}}),
+        ('event_msg',{'type':'task_complete','last_agent_message':''})]
+    session=tmp_path/'.codex/sessions/2026/11/26/synthetic.jsonl'
+    session.parent.mkdir(parents=True)
+    session.write_text(''.join(json.dumps({'type':kind,'payload':p,
+        'timestamp':'2026-11-26T00:00:00Z'})+'\n' for kind,p in payloads))
+    collector.api_collection_main(['moli-sync','--run',str(run)])
+    terminal=json.loads((work/'terminal.json').read_text())
+    assert bool(terminal['protocol_issues']) == bool(damage)
+    snapshot=run/terminal['session_snapshot']
+    assert snapshot.read_bytes()==session.read_bytes()
+    assert hashlib.sha256(snapshot.read_bytes()).hexdigest()==terminal['session_snapshot_sha256']
+    if damage:
+        with pytest.raises(ValueError,match='Caller protocol failed'):
+            collector.api_collection_main(['moli-reserve','--run',str(run)])
+        assert len((run/'cases.jsonl').read_text().splitlines())==1
+    else:
+        session.unlink()
+        (work/'terminal.json').unlink()
+        collector.api_collection_main(['moli-sync','--run',str(run)])
+        restored=json.loads((work/'terminal.json').read_text())
+        assert restored['usage']==terminal['usage'] and not restored['protocol_issues']

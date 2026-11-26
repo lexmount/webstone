@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import time
@@ -31,21 +32,38 @@ _METHOD = "codex-lexmount-official-cli"
 _RUN_BINDING = ROOT / "runs/.lexmount-active-run.json"
 
 
-def receipt_protocol_issues(terminal, url, tool_name):
+def receipt_caller_script(command):
+    return ('// @exec: {"yield_time_ms":300000,"max_output_tokens":100}\n'
+            'let r = await tools.exec_command({cmd:' + json.dumps(command) +
+            ',sandbox_permissions:"require_escalated",'
+            'justification:"Fetch the assigned URL once and save its response for this authorized benchmark",'
+            'yield_time_ms:30000,max_output_tokens:100});\n'
+            'while (r.session_id) { r = await tools.write_stdin({session_id:r.session_id,'
+            'yield_time_ms:30000,max_output_tokens:100}); }\ntext(r.output);')
+
+
+def receipt_protocol_issues(terminal, caller_script, *, model=None, effort=None):
     """Validate the complete caller trace, rather than a filtered tool count."""
     issues = []
     calls = terminal.get('calls', [])
-    if len(calls) != 1 or calls[0].get('name') != tool_name:
-        issues.append('expected_one_direct_fetch_tool_call')
-    else:
-        try:
-            arguments = json.loads(calls[0]['input'])
-        except (ValueError, TypeError, KeyError):
-            arguments = None
-        if arguments != {'url': url}:
-            issues.append('unexpected_fetch_arguments')
+    if (len(calls) != 1 or (calls[0].get('name') or '').split('.')[-1] != 'exec'
+            or not isinstance(calls[0].get('input'), str)
+            or calls[0]['input'].strip() != caller_script.strip()):
+        issues.append('expected_one_frozen_capture_script')
     outputs = terminal.get('tool_outputs', [])
     value = outputs[0] if len(outputs) == 1 else None
+    if isinstance(value, list):
+        value = [block for block in value if not (isinstance(block, dict)
+                 and set(block) == {'type', 'text'}
+                 and block['type'] in ('text', 'input_text') and block['text'] == '')]
+    # Code Mode supplies a fixed completion header alongside text() output.
+    if isinstance(value, list) and len(value) == 2:
+        block = value[0]
+        header = block.get('text', '') if isinstance(block, dict) else ''
+        if (isinstance(block, dict) and set(block) == {'type', 'text'}
+                and block['type'] in ('text', 'input_text')
+                and re.fullmatch(r'Script completed\nWall time [\d.]+ seconds\nOutput:\n', header)):
+            value = value[1:]
     try:
         for _ in range(5):
             if isinstance(value, str):
@@ -66,10 +84,22 @@ def receipt_protocol_issues(terminal, url, tool_name):
         issues.append('expected_only_final_status_and_path')
     if terminal.get('final_text'):
         issues.append('unexpected_final_message')
-    if terminal.get('terminal_type') != 'task_complete' or not terminal.get('usage'):
+    usage = terminal.get('usage') or {}
+    counters = ('input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens')
+    complete_usage = (isinstance(usage, dict)
+                      and all(type(usage.get(k)) is int and usage[k] >= 0 for k in counters)
+                      and usage['cached_input_tokens'] <= usage['input_tokens']
+                      and usage['total_tokens'] == usage['input_tokens'] + usage['output_tokens'])
+    if terminal.get('terminal_type') != 'task_complete' or not complete_usage:
         issues.append('missing_terminal_usage')
     if terminal.get('provider_invocations') != 1 or terminal.get('capture_invocations') != 1:
         issues.append('expected_one_capture_and_provider_invocation')
+    if model is not None or effort is not None:
+        contexts = terminal.get('caller_contexts', [])
+        if not contexts or any(c.get('model') != model or c.get('effort') != effort for c in contexts):
+            issues.append('unexpected_caller_model_or_effort')
+    if (terminal.get('http_status') or {}).get('cleanup_complete') is False:
+        issues.append('incomplete_process_cleanup')
     return issues
 
 
@@ -255,7 +285,6 @@ def api_collection_main(argv):
     parser.add_argument('--binary-sha256')
     parser.add_argument('--wall-time-budget-seconds', type=int, default=14400)
     parser.add_argument('--jobs', type=int, default=1)
-    parser.add_argument('--tool-name', default='mcp__webstone_capture__fetch')
     args = parser.parse_args(argv)
     local = args.operation.startswith('moli-')
     official = args.operation.startswith('cli-')
@@ -269,8 +298,6 @@ def api_collection_main(argv):
     os.umask(0o077)
     dataset = home / 'experiments/codex-luna-single-530-20261122/dataset.json'
     if operation == 'api-init':
-        if not re.fullmatch(r'mcp__\w+__fetch', args.tool_name):
-            raise ValueError('Bind the connected MCP fetch tool name')
         selected = _inputs(home)
         if not local and not all(repository_env().get(k) for k in ('LEXMOUNT_API_KEY', 'LEXMOUNT_PROJECT_ID')):
             raise ValueError('Missing repository credentials')
@@ -286,13 +313,13 @@ def api_collection_main(argv):
                         retries=0, timeout_seconds=300, max_in_flight=2,
                         model='gpt-6-luna', reasoning_effort='medium', fork_turns='none',
                         content_scope='full', score_scope='full', admitted=False,
-                        transport='one blocking MCP call; no terminal or model polling fallback',
-                        receipt_protocol='single_blocking_tool_v1', tool_name=args.tool_name,
+                        transport='one frozen functions.exec script; model waits up to 300 seconds for its final receipt',
+                        receipt_protocol='single_blocking_script_v1', caller_wait_ms=300000,
                         output='unaltered complete HTTP response bytes; receipt only to subagent',
                         scoring='after all 530 subagents terminate; shared native API projection and score_attempt',
                         plan_changes=['direct API with explicit auto replaces default CLI Markdown',
                                       'native API fields replace CLI Markdown as scoring input',
-                                      'capture bridge waits and saves bytes before its only tool response'])
+                                      'capture bridge waits and saves bytes before its only receipt'])
         if markdown:
             contract.update(mode='moli-cli-receipt' if local else 'lexmount-cli-receipt', executable=str(args.binary.resolve()),
                             binary_sha256=args.binary_sha256,
@@ -302,7 +329,7 @@ def api_collection_main(argv):
                             output='complete native Markdown stdout; receipt only to subagent',
                             scoring='after all 530 subagents terminate; shared score_attempt and task predicate',
                             plan_changes=['local Moli defaults; explicit Markdown and debug only'] if local else
-                                         ['official CLI defaults; blocking receipt-only transport'])
+                                         ['official CLI defaults; single-script receipt-only transport'])
         from harness.web_fetch.native_projection import native_projection_policy
         if not markdown:
             contract['native_projection_policy'] = native_projection_policy('lexmount')
@@ -316,11 +343,8 @@ def api_collection_main(argv):
             scoring_source_sha256=SCORING_SOURCE_SHA256,
             source_files={source.name: file_sha256(source) for source in SCORING_SOURCE_FILES},
             phase='frozen_before_collection'))
-        (root / 'dispatch').mkdir()
         print(json.dumps({'run': str(root), 'cases': len(selected), 'admitted': False,
-            'mcp_server': {'name': 'webstone_capture', 'required': True, 'tool_timeout_sec': 300,
-                'enabled_tools': ['fetch'], 'command': shutil.which('node'), 'args': [str(_BRIDGE), str(root),
-                '--receipt-tool', *([] if local else [str(ROOT / '.env')])]}}))
+            'caller': {'tool': 'functions.exec', 'wait_ms': 300000, 'intermediate_model_returns': False}}))
         return
     contract = read_json(root / 'contract.json')
     if markdown and file_sha256(Path(contract['executable'])) != contract['binary_sha256']:
@@ -355,9 +379,13 @@ def api_collection_main(argv):
         work = root / slot
         work.mkdir()
         agent = ('moli_' if local else 'lx_cli_' if official else 'lx_api_') + slot
-        prompt = ('Call ' + contract['tool_name'] + ' exactly once with {"url":' + json.dumps(url) + '}. '
-                  'The tool waits for completion and saves the full response itself. '
-                  'After its saved/failed receipt, end with no message. Use no other tools.')
+        command = shlex.join([shutil.which('node'), str(_BRIDGE), str(work),
+                    *(['--moli-url', url] if local else [str(ROOT / '.env'), '--invoke-url', url])])
+        caller_script = receipt_caller_script(command)
+        prompt = ('Use functions.exec exactly once with the following complete script, including its pragma. '
+                  'The program waits and saves the response; never read or print response files. '
+                  'After the final saved/failed receipt, end without a message. Use no other tool calls.\n'
+                  + caller_script)
         deadline = int((time.time()+300)*1000)
         _write_json(work / 'contract.json', dict(mode='moli-cli' if local else 'lexmount-cli' if official else 'lexmount-api', url=url,
                     endpoint=contract['endpoint'], deadline=deadline,
@@ -366,10 +394,8 @@ def api_collection_main(argv):
                     **(dict(executable=contract['executable'], binary_sha256=contract['binary_sha256'],
                             answer=str(work/'answer.md'),
                             stderr=str(work/'debug.log')) if markdown else {})))
-        _write_json(root / 'dispatch' / (hashlib.sha256(url.encode()).hexdigest()+'.json'),
-                    dict(url=url, slot=slot, deadline=deadline))
         row = dict(case_id=case_id, url=url, scope=scope, slot=slot, agent=agent,
-                   prompt=prompt, reserved_at=time.time(),
+                   prompt=prompt, command=command, caller_script=caller_script, reserved_at=time.time(),
                    answer_path=slot+('/answer.md' if markdown else '/response.bin'))
         with manifest.open('a') as stream:
             stream.write(json.dumps(row)+'\n'); stream.flush(); os.fsync(stream.fileno())
@@ -378,12 +404,16 @@ def api_collection_main(argv):
     if operation == 'api-sync':
         by_agent = {r['agent']: r for r in rows if not (root/r['slot']/'terminal.json').exists()}
         if by_agent:
-            for session in (Path.home()/'.codex/sessions').glob('*/*/*/*.jsonl'):
+            snapshots = root/'private_artifacts/subagent-sessions'
+            sessions = [*snapshots.glob('*.jsonl'),
+                        *(Path.home()/'.codex/sessions').glob('*/*/*/*.jsonl')]
+            for session in sessions:
                 with session.open() as stream:
                     first = stream.readline()
                     if not any(name in first for name in by_agent):
                         continue
-                    events = [json.loads(first), *(json.loads(line) for line in stream)]
+                    contents = first + stream.read()
+                    events = [json.loads(line) for line in contents.splitlines()]
                 meta = events[0].get('payload', {})
                 spawn = meta.get('source', {}).get('subagent', {}).get('thread_spawn', {})
                 row = by_agent.get(spawn.get('agent_path', '').removeprefix('/root/'))
@@ -395,7 +425,7 @@ def api_collection_main(argv):
                               if p.get('type')=='token_count' and p.get('info')), None)
                 contexts = [e['payload'] for e in events if e['type']=='turn_context']
                 calls = [e['payload'] for e in events if e['type']=='response_item' and
-                         e['payload'].get('type') in ('function_call','custom_tool_call')]
+                         e['payload'].get('type', '').endswith('_call')]
                 final = next(e for e in reversed(events) if e.get('payload') is terminal)
                 if __import__('datetime').datetime.fromisoformat(final['timestamp'].replace('Z', '+00:00')).timestamp() < row['reserved_at']:
                     continue  # A resumed agent may still contain its earlier rejected turn.
@@ -407,6 +437,7 @@ def api_collection_main(argv):
                               session_started_at=started_event['timestamp'], reserved_at=row['reserved_at'],
                               model=contexts[-1].get('model') if contexts else None,
                               effort=contexts[-1].get('effort') if contexts else None,
+                              caller_contexts=[{'model':c.get('model'),'effort':c.get('effort')} for c in contexts],
                               final_text=terminal.get('last_agent_message', ''),
                               calls=[{'name':p.get('name'),'input':p.get('input',p.get('arguments'))} for p in calls],
                               tool_outputs=[e['payload']['output'] for e in events
@@ -418,8 +449,23 @@ def api_collection_main(argv):
                 result.update(provider_invocations=sum(e['event'] in ('client_started','api_started') for e in capture),
                               capture_invocations=sum(e['event']=='tool_called' for e in capture))
                 if contract.get('receipt_protocol'):
-                    result['protocol_issues'] = receipt_protocol_issues(result, row['url'], contract['tool_name'])
+                    result['protocol_issues'] = receipt_protocol_issues(result, row['caller_script'],
+                        model=contract['model'], effort=contract['reasoning_effort'])
+                snapshots.mkdir(parents=True, exist_ok=True)
+                snapshot_sha = hashlib.sha256(contents.encode()).hexdigest()
+                snapshot = (session if session.parent == snapshots else
+                            snapshots/(row['slot']+'-'+snapshot_sha[:16]+'.jsonl'))
+                if not snapshot.exists():
+                    with snapshot.open('x') as stream:
+                        stream.write(contents); stream.flush(); os.fsync(stream.fileno())
+                if file_sha256(snapshot) != snapshot_sha:
+                    raise ValueError('Retained subagent trace changed')
+                result.update(session_snapshot=snapshot.relative_to(root).as_posix(),
+                              session_snapshot_sha256=snapshot_sha)
                 _write_json(work/'terminal.json', result)
+                by_agent.pop(row['agent'])
+                if not by_agent:
+                    break
         formal = [r for r in rows if r['scope']=='formal']
         preflight = [r for r in rows if r['scope']=='preflight']
         result = dict(reserved=len(formal), terminal=sum((root/r['slot']/'terminal.json').exists() for r in formal),
@@ -430,7 +476,14 @@ def api_collection_main(argv):
     if operation == 'api-admit':
         selected = [r for r in rows if r['scope']=='preflight']
         preflight = [read_json(root/r['slot']/'terminal.json') for r in selected]
-        protocol_failed = any(receipt_protocol_issues(terminal, row['url'], contract['tool_name'])
+        inherited = [r for r in rows if r['scope']=='formal' and r.get('inherited_source')]
+        if any(r['scope']=='formal' and not r.get('inherited_source') for r in rows):
+            raise ValueError('Formal calls cannot precede preflight admission')
+        if any(receipt_protocol_issues(read_json(root/r['slot']/'terminal.json'), r['caller_script'],
+                model=contract['model'], effort=contract['reasoning_effort']) for r in inherited):
+            raise ValueError('Inherited caller evidence does not satisfy the same protocol')
+        protocol_failed = any(receipt_protocol_issues(terminal, row['caller_script'],
+                              model=contract['model'], effort=contract['reasoning_effort'])
                               for row, terminal in zip(selected, preflight, strict=True))
         if contract['admitted'] or len(preflight)!=2 or any(
             not r['response_saved'] or r['usage'] is None or r['final_text'] or
@@ -443,7 +496,9 @@ def api_collection_main(argv):
         receipt=dict(completed_calls=2, wall_seconds=elapsed, max_in_flight=2, results=preflight)
         _write_json(root/'preflight.json',receipt)
         plan=dict(execution_policy={'purpose':'quality','max_in_flight':2,
-                  'resources':{('local_moli_host' if local else 'lexmount_account'):{'capacity':2}}},planned_calls=530,setup_seconds=0,
+                  'resources':{('local_moli_host' if local else 'lexmount_account'):{'capacity':2}}},
+                  planned_calls=contract.get('cases',530)-len(inherited),logical_cases=contract.get('cases',530),
+                  inherited_calls=len(inherited),setup_seconds=0,
                   wall_time_budget_seconds=args.wall_time_budget_seconds,preflight=dict(completed_calls=2,wall_seconds=elapsed,
                   max_in_flight=2,evidence_path='preflight.json',evidence_sha256=file_sha256(root/'preflight.json')))
         assessment=assess_execution(plan,evidence_root=root)
@@ -512,7 +567,8 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
             raise ValueError('Require exactly one actual Moli invocation: ' + case.id)
         if terminal['terminal_type'] != 'task_complete' or not terminal.get('usage'):
             raise ValueError('Missing final subagent telemetry: ' + case.id)
-        if contract.get('receipt_protocol') and receipt_protocol_issues(terminal, row['url'], contract['tool_name']):
+        if contract.get('receipt_protocol') and receipt_protocol_issues(terminal, row['caller_script'],
+                model=contract['model'], effort=contract['reasoning_effort']):
             raise ValueError('Receipt-only caller protocol violation: ' + case.id)
         verified.append((case, row, work, status, terminal, events))
     output = root / 'scored'
@@ -548,6 +604,14 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
             diagnostic_log_path=debug.as_posix(), diagnostic_log_sha256=file_sha256(output / debug),
             diagnostic_log_bytes=(output / debug).stat().st_size)
         metadata['moli_cli_ms' if local else 'lexmount_cli_ms'] = status['elapsed_ms']
+        origin = row.get('inherited_source', {})
+        metadata['inherited_capture'] = bool(origin)
+        metadata['caller_implementation_sha256'] = (origin.get('collection_sha256') if origin
+                                                   else contract.get('collection_sha256'))
+        if origin:
+            metadata['source_collection_contract_sha256'] = origin['contract_sha256']
+        if row.get('caller_script'):
+            metadata['caller_script_sha256'] = hashlib.sha256(row['caller_script'].encode()).hexdigest()
         if receipts:
             metadata['receipt_to_exit_ms'] = (timestamp(terminal['ended_at']) -
                 timestamp(receipts[-1]['timestamp'])) * 1000

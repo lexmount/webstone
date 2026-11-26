@@ -34,6 +34,24 @@ def capture_event(path, event, **fields):
         os.fsync(stream.fileno())
 
 
+def _jsonl_prefix(data, *, terminated):
+    records, consumed = [], 0
+    parts = data.splitlines(keepends=True)
+    for index, line in enumerate(parts):
+        try:
+            record = json.loads(line) if line.strip() else None
+        except (ValueError, UnicodeDecodeError):
+            if terminated and index == len(parts) - 1:
+                return records, consumed, data[consumed:]
+            raise
+        if record is not None:
+            if not isinstance(record, dict):
+                raise ValueError("Expected a JSONL object")
+            records.append(record)
+        consumed += len(line)
+    return records, consumed, b""
+
+
 def parse_returns(url, mode, events, session):
     items = [e["payload"] for e in session if e.get("type") == "response_item"]
     calls = [p for p in items if p["type"].endswith("_call")]
@@ -86,7 +104,9 @@ def parse_returns(url, mode, events, session):
             if block.get("data") and block.get("mimeType"):
                 files.append({"data": base64.b64decode(block["data"], validate=True)})
             body = block.get("text", "")
-            tool_error |= "Failed to fetch" in body or "Internal Error" in body
+            first_line = re.search(r"^L\d+(?:@P\d+(?:-\d+)?)?:", body, re.M)
+            header = body[:first_line.start()] if first_line else body
+            tool_error |= bool(re.search(r"^(?:Error:\s*)?(?:Failed to fetch\b|Internal Error(?:\s*\(\))?\s*$)", header, re.M))
             for number, value in re.findall(r"^L(\d+)(?:@P\d+(?:-\d+)?)?: ?(.*)$", body, re.M):
                 lines.setdefault(int(number), value)
     content = "\n".join(lines[n] for n in sorted(lines))
@@ -182,27 +202,36 @@ class CodexProvider(Provider):
             timed_out = True
             self.cancel()
             stdout, stderr = self.process.communicate()
-        events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
-        thread = next((e["thread_id"] for e in events if e.get("type") == "thread.started"), None)
-        if not thread or (self.thread and self.thread != thread):
-            raise RuntimeError(
-                "Missing or changed Codex conversation: " + stderr.decode(errors="replace")[-400:]
+        events, session = [], []
+        chunk, stdout_tail, session_tail = b"", b"", b""
+        record_error = None
+        try:
+            events, _, stdout_tail = _jsonl_prefix(
+                stdout, terminated=timed_out or self.process.returncode != 0
             )
-        if self.session is None:
-            self.thread = str(UUID(thread))
-            home = Path(os.getenv("CODEX_HOME", Path.home() / ".codex"))
-            paths = list((home / "sessions").rglob(f"*-{self.thread}.jsonl"))
-            if len(paths) != 1:
-                raise RuntimeError("Expected one saved Codex session for " + self.thread)
-            self.session = paths[0]
-        with self.session.open("rb") as stream:
-            stream.seek(self.offset)
-            chunk = stream.read()
-            self.offset = stream.tell()
-        session = [json.loads(line) for line in chunk.splitlines()]
-        result = parse_returns(case.url, self.mode, events, session)
+            thread = next((e["thread_id"] for e in events if e.get("type") == "thread.started"), None)
+            if not thread or (self.thread and self.thread != thread):
+                raise ValueError("Missing or changed Codex conversation")
+            if self.session is None:
+                selected_thread = str(UUID(thread))
+                home = Path(os.getenv("CODEX_HOME", Path.home() / ".codex"))
+                paths = list((home / "sessions").rglob(f"*-{selected_thread}.jsonl"))
+                if len(paths) != 1:
+                    raise ValueError("Expected one saved Codex session")
+                self.thread, self.session = selected_thread, paths[0]
+            with self.session.open("rb") as stream:
+                stream.seek(self.offset)
+                chunk = stream.read()
+            session, consumed, session_tail = _jsonl_prefix(
+                chunk, terminated=timed_out or self.process.returncode != 0
+            )
+            result = parse_returns(case.url, self.mode, events, session)
+            self.offset += consumed
+        except (ValueError, UnicodeDecodeError, KeyError, TypeError) as error:
+            record_error = type(error).__name__
+            result = ProviderResult(False, "", error_message="Invalid or incomplete Codex records")
         usage = next(
-            (e["usage"] for e in reversed(events) if e.get("type") == "turn.completed"), None
+            (e.get("usage") for e in reversed(events) if e.get("type") == "turn.completed"), None
         )
         delta = {k: v - self.usage.get(k, 0) for k, v in usage.items()} if usage else None
         if usage:
@@ -212,13 +241,18 @@ class CodexProvider(Provider):
             result.error_message = (
                 "Codex timed out" if timed_out else "Codex failed or returned no usable content"
             )
-        raw = json.dumps(
-            dict(
+        diagnostics = dict(
                 stdout=events,
                 session=session,
                 stderr=stderr.decode(errors="replace"),
                 prompt=prompt,
-            ),
+            )
+        if record_error or stdout_tail or session_tail:
+            diagnostics.update(record_error=record_error,
+                raw_stdout_b64=base64.b64encode(stdout).decode(),
+                raw_session_b64=base64.b64encode(chunk).decode())
+        raw = json.dumps(
+            diagnostics,
             ensure_ascii=False,
         ).encode()
         result.metadata.update(
