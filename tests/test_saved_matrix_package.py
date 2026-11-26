@@ -32,6 +32,10 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
         audit_path = root/'saved-matrix-audit.json'
         audit = json.loads(audit_path.read_bytes())
         audit['files'][page.name] = hashlib.sha256(page.read_bytes()).hexdigest()
+        viewer = root/'evidence/viewer/original.html'
+        viewer.parent.mkdir(parents=True, exist_ok=True)
+        viewer.write_text('<html><body><a href="../references/first--same.txt">Source</a></body></html>')
+        audit['files'][viewer.relative_to(root).as_posix()] = hashlib.sha256(viewer.read_bytes()).hexdigest()
         audit_path.write_text(json.dumps(audit))
         entry['audit']['sha256'] = hashlib.sha256(audit_path.read_bytes()).hexdigest()
     value = json.loads(spec.read_bytes())
@@ -50,6 +54,8 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
             prefix = 'evidence/saved-reports/' + entry['id'] + '/'
             page = reconstruct_packed_file(manifest, prefix + 'lazy-evidence.html', packs)
             assert ('data-file="' + prefix).encode() in page
+            viewer = reconstruct_packed_file(manifest, prefix + 'evidence/viewer/original.html', packs)
+            assert b'href="../../references/first--same.txt"' in viewer
         assert reconstruct_packed_file(manifest, 'results.jsonl', packs) == prior
     results = source/'results.jsonl'
     altered = [json.loads(line) for line in prior.splitlines()]

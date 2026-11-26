@@ -209,7 +209,7 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
         else:
             results_raw = data("results.jsonl")
             source_results = (source / "results.jsonl").read_bytes()
-            privacy_results = project_file("results.jsonl", source_results)[0]
+            privacy_results = source_results if composition else project_file("results.jsonl", source_results)[0]
             expected_results, expected_footprint = project_redundant_result_streams(
                 "results.jsonl", privacy_results
             )
@@ -359,7 +359,7 @@ def check(archive, source, overlay=None, *, presentation_binding=None, external_
             if risk:
                 raise ValueError("Potential " + risk + " remains: " + name)
             if composition and name != 'publication-privacy.json':
-                expected = project_file(name, (source/name).read_bytes())[0]
+                expected = (source/name).read_bytes()
                 expected = project_redundant_result_streams(name, expected)[0]
                 if name.endswith('.html'):
                     expected = namespace_saved_evidence(name, expected.decode(), namespaces).encode()

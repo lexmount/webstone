@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 from lexbench_webfetch.paths import contained_path
 
 from harness.record_io import file_sha256, load_jsonl
-from harness.reporting.links import validate_virtual_links
+from harness.reporting.links import frozen_source_html, validate_virtual_links
 from harness.reporting.packs import (
     ByteBlockStore,
     DecompressedPackCache,
@@ -285,7 +285,11 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
         source_sha256 = hashlib.sha256(data).hexdigest()
         if path.is_symlink():
             raise ValueError("Publication source must not contain symlinks: " + name)
-        data, redaction = project_file(name, data)
+        if composition:
+            _require(not publication_file_risk(name, data), 'Private content in saved composition: ' + name)
+            redaction = None
+        else:
+            data, redaction = project_file(name, data)
         data, footprint_projection = project_redundant_result_streams(name, data)
         if footprint_projection:
             footprint_projections.append(footprint_projection)
@@ -462,13 +466,21 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
         (json.dumps(privacy, ensure_ascii=False, indent=2) + "\n").encode(),
     )
     # Privacy projection and block deduplication remain report-specific.
-    blocks, index = write_packs(
-        raw_blocks.items(),
-        destination,
-        limit=4 * 1024 * 1024,
-        pattern="data/{index:03d}.gz",
-        compresslevel=9,
-    )
+    validate_virtual_links(files, lambda name: b"".join(raw_blocks[key] for key in files[name]["parts"]))
+    if composition:
+        entries = ((name, {k:v for k,v in entry.items() if k != 'parts'},
+                    b''.join(raw_blocks[key] for key in entry['parts']))
+                   for name,entry in files.items())
+        compact = write_compact_packs(entries, destination)
+        blocks, index = {}, len(compact['packs'])
+    else:
+        blocks, index = write_packs(
+            raw_blocks.items(),
+            destination,
+            limit=4 * 1024 * 1024,
+            pattern="data/{index:03d}.gz",
+            compresslevel=9,
+        )
     manifest = {
         "schema_version": 2,
         "architecture": {
@@ -482,7 +494,13 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
         "files": files,
         "blocks": blocks,
     }
-    (destination / "manifest.json").write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
+    if composition:
+        compact['architecture'].update(manifest['architecture'])
+        compact['architecture'].pop('block_bytes', None)
+        manifest = compact
+        _save_wire_manifest(destination, manifest)
+    else:
+        (destination / "manifest.json").write_text(json.dumps(manifest, separators=(",", ":")), encoding="utf-8")
     (destination / "style.css").write_bytes((source / "assets/style.css").read_bytes())
     js = (source / "assets/report.js").read_text(encoding="utf-8")
     if not webmainbench:
@@ -529,7 +547,6 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
             == digest,
             name,
         )
-    validate_virtual_links(files, lambda name: b"".join(raw_blocks[key] for key in files[name]["parts"]))
     # Verify packed data independently, not just in-memory deduplication.
     for name in sorted({v["pack"] for v in blocks.values()}):
         raw = gzip.decompress((destination / name).read_bytes())
@@ -558,7 +575,7 @@ def _build_content(source, destination, archive, *, webmainbench, raw_blocks, de
     )
     # Yours publishes large bundles through staged per-file uploads.
     # Its documented total limit is 300 MB, not the former local 50 MB budget.
-    if total > 300*1024*1024:
+    if total > 300*1024*1024 and not composition:
         compact = destination.parent/'compact'
         manifest = _compact_cached_content(destination, compact, source=source)
         destination = compact
@@ -1008,14 +1025,33 @@ def saved_report_namespaces(source):
 
 def namespace_saved_evidence(name, text, namespaces):
     """Preserve nested source pages while resolving their own lazy evidence."""
+    if frozen_source_html(name, text):
+        return text
     _namespace_extension_evidence(text, prefix='')
     keys = re.findall(r'\b(?:data-file|data-evidence-file)="([^"]+)"', text)
-    if not keys:
-        return text
     for prefix in sorted(namespaces, key=len, reverse=True):
         files = namespaces[prefix]
         if name.startswith(prefix) and name[len(prefix):] in files and all(key in files for key in keys):
-            return _namespace_extension_evidence(text, prefix=prefix)
+            text = _namespace_extension_evidence(text, prefix=prefix)
+            inventory = namespaces['']
+            def relative_link(match, inventory=inventory, files=files, prefix=prefix):
+                value = urlsplit(html.unescape(match[2]))
+                if value.scheme or value.netloc or not value.path:
+                    return match[0]
+                target = posixpath.normpath(posixpath.join(posixpath.dirname(name), unquote(value.path)))
+                if target in inventory:
+                    return match[0]
+                path, candidates = unquote(value.path), set()
+                while path.startswith('../'):
+                    path = path[3:]
+                    if path in files:
+                        candidates.add(prefix + path)
+                if len(candidates) != 1:
+                    return match[0]
+                relative = posixpath.relpath(candidates.pop(), posixpath.dirname(name) or '.')
+                return match[1] + html.escape(relative + ('?' + value.query if value.query else '')
+                    + ('#' + value.fragment if value.fragment else ''), quote=True) + '"'
+            return re.sub(r'((?:href|src)=")([^"]*)"', relative_link, text)
     raise ValueError('Saved evidence has no owning report: ' + name)
 
 
