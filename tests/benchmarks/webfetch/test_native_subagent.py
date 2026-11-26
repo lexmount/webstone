@@ -24,12 +24,13 @@ from harness.web_fetch.report_usage import token_usage
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Native capture transfer uses Node")
 @pytest.mark.parametrize("retained", [False, True])
-def test_documented_capture_transfer_preserves_shell_literals_and_split_unicode(tmp_path, retained):
+@pytest.mark.parametrize("body_kind", ["unicode", "shell_escaping"])
+def test_documented_capture_transfer_preserves_shell_literals_and_split_unicode(tmp_path, retained, body_kind):
     guide = Path("src/harness/web_fetch/NATIVE_SUBAGENT.md").read_text()
     capture = guide.split("```javascript\n")[2].split("```", 1)[0]
     directory = tmp_path / "case with spaces"
     directory.mkdir()
-    body = "x" * 32767 + "😀\n'$() `literal` 中文"
+    body = "x" * 32767 + "😀\n'$() `literal` 中文" if body_kind == "unicode" else "'" * 40000
     script = r"""
 const fs = require('node:fs'), vm = require('node:vm'), cp = require('node:child_process');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -38,6 +39,7 @@ const tools = {exec_command: async ({cmd,workdir}) => {
   if(cmd.startsWith(
     'uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent '))
     return {exit_code:0,output:'receipt'};
+  if(Buffer.byteLength(cmd,'utf8')>=131072) throw Error('Linux per-argument limit exceeded');
   return {exit_code:0,output:cp.execSync(cmd,{cwd:workdir,encoding:'utf8'})};
 }};
 const receipts = [];
@@ -332,3 +334,36 @@ def test_saved_native_delivery_retains_plain_and_command_text(value):
     result = project_native_delivery(value)
     assert result.content == (value["output"] if isinstance(value, dict) else value)
     assert result.ok
+
+
+@pytest.mark.parametrize('damage', [None, 'body', 'extra_field', 'commentary', 'missing_receipt'])
+@pytest.mark.parametrize('tool_name', ['exec', 'another_native_route'])
+def test_receipt_audit_preserves_tool_choice_and_rejects_context_pollution(damage, tool_name):
+    from harness.web_fetch.native_subagent import receipt_only_trace_issues
+    receipt={'status':'saved','path':'answer.txt','artifacts':[{'path':'answer.txt','bytes':5,'sha256':'0'*64}]}
+    if damage=='extra_field': receipt['body']='fetched document'
+    output=json.dumps(receipt) if damage!='body' else 'fetched document'
+    events=[{'type':'response_item','payload':{'type':'custom_tool_call','call_id':'a','name':tool_name}},
+        {'type':'response_item','payload':{'type':'custom_tool_call_output','call_id':'a','output':[
+            {'type':'input_text','text':'Script completed\nWall time 1.2 seconds\nOutput:\n'},
+            {'type':'input_text','text':output}]}},
+        # Execution-side raw evidence is retained without printing it to the model.
+        {'type':'event_msg','payload':{'type':'item_completed','item':{'result':'fetched document'}}}]
+    if damage=='commentary':
+        events.append({'type':'response_item','payload':{'type':'message','role':'assistant',
+            'content':[{'type':'output_text','text':'Checking completion.'}]}})
+    if damage=='missing_receipt': events.pop(1)
+    assert bool(receipt_only_trace_issues(events)) == bool(damage)
+
+
+def test_receipt_audit_accepts_fragmented_and_multiple_receipts_in_one_native_call():
+    from harness.web_fetch.native_subagent import receipt_only_trace_issues
+    events=[{'type':'response_item','payload':{'type':'custom_tool_call','call_id':'a','name':'exec'}}]
+    for output in ['Script completed\nWall time 1.2 seconds\nOutput:\n',
+                   json.dumps({'status':'saved','path':'first/answer.txt'}),
+                   json.dumps({'status':'saved','path':'second/answer.txt'})]:
+        events.append({'type':'response_item','payload':{'type':'custom_tool_call_output',
+            'call_id':'a','output':output}})
+    assert receipt_only_trace_issues(events)==[]
+    events[-1]['payload']['output']='unrelated fetched body'
+    assert receipt_only_trace_issues(events)

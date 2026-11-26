@@ -10,7 +10,7 @@ from tests.test_saved_matrix_evidence import build, fixture, write
 
 
 def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False,
-            families=False, public=False, usage=False):
+            families=False, public=False, usage=False, mixed_latency=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
@@ -28,7 +28,20 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
                 output_tokens=10 * (i + 1), total_tokens=110 * (i + 1))
         if i and undecidable:
             record['metrics']['acceptance_checks'] = {'content': None}
-        raw = (json.dumps(record) + '\n').encode()
+        records = [record]
+        if mixed_latency:
+            from copy import deepcopy
+            data = json.loads((source/'dataset.json').read_text())
+            data['cases'].append({**data['cases'][0], 'id':'second'})
+            spec['suites'][0]['dataset'] = write(source/'dataset.json', data)
+            spec['sources'][0]['case_ids'].append('second')
+            second = deepcopy(record)
+            second.update(case_id='second', attempt_id='second-'+str(i), elapsed_ms=1000)
+            if i:
+                second.update(ok=False)
+                second['metrics'].update(request_ok=False, content_pass=False)
+            records.append(second)
+        raw = ''.join(json.dumps(row)+'\n' for row in records).encode()
         (source / 'results.jsonl').write_bytes(raw)
         spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
         if i and different_task:
@@ -139,6 +152,7 @@ def test_composition_selects_method_without_changing_saved_results(tmp_path, sha
     assert check_saved_matrix(output, spec_path=path)['valid']
     model = json.loads((output / 'matrix.json').read_bytes())
     assert [p['id'] for p in model['providers']] == ['method-1']
+    assert {group['provider'] for group in model['execution_settings']} == {'method-1'}
     assert len(model['rows']) == 1
     row = model['rows'][0]
     original = json.loads((source / 'matrix.json').read_bytes())['rows'][1]
@@ -1146,8 +1160,7 @@ def _assert_passing_latency_once(output):
     assert ranking.select_one('td[data-rank]')
     assert '--rank-column' in page.head.select_one('style[data-report-page-style]').get_text()
     assert len(ranking.select('[data-metric^="final_call_latency"]')) == 6
-    assert '通过项耗时' in ranking.thead.get_text()
-    assert page.select_one('a[href="analysis/index.html#all-final-call-timing"]')
+    assert '最终调用耗时' in ranking.thead.get_text()
     rows = ranking.select('tbody tr')
     assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
     analysis = BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
@@ -1376,3 +1389,34 @@ def test_ranked_extension_aggregates_both_native_usage_receipt_shapes(tmp_path):
     rows[1].decompose()
     with pytest.raises(ValueError, match='Token usage participant coverage'):
         check_token_usage_presentation(str(page), records)
+
+
+def test_composition_applies_family_override_without_source_families(tmp_path):
+    path, _ = reports(tmp_path, public=True)
+    spec = json.loads(path.read_text())
+    spec['report_families'] = [{'id': 'web', 'label': 'Requested web content'}]
+    write(path, spec)
+    output = build_saved_matrix(path, tmp_path/'joined').parent
+    assert check_saved_matrix(output, spec_path=path)['valid']
+    model = json.loads((output/'matrix.json').read_text())
+    assert model['report_families'] == spec['report_families']
+    assert 'Requested web content' in (output/'index.html').read_text()
+
+
+def test_published_composition_keeps_failed_calls_in_headline_latency(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
+    _, entries = reports(tmp_path, families=True, mixed_latency=True)
+    overview = write(tmp_path/'methods.json', [{'id':'method-1','label':'Method 1',
+        'execution':'Fixture','configuration':'Default','price':'Unavailable',
+        'billing':'Synthetic','sources':[{'url':'https://example.test/','label':'Fixture'}]}])
+    path=tmp_path/'extension.json'
+    write(path, {'published_base':entries[0], 'additional_report':entries[1],
+        'method_overview':overview, 'comparison_note':'Saved results.', 'presentation':'ranked'})
+    output=tmp_path/'extension'
+    build_published_extension(path,output)
+    assert check_published_extension(output)['valid']
+    page=BeautifulSoup((output/'index.html').read_text(),'html.parser')
+    row=next(row for row in page.select('#ranking-overall tbody tr')
+             if row.select_one('a')['href']=='additional/providers/method-1.html')
+    assert [float(cell['data-sort']) for cell in row.select('td[data-metric-direction="min"]')] == [506, 506, 1000]

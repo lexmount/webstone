@@ -329,13 +329,15 @@ def _shared_presentations(output):
     model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
     labels = model.labels
     with renderer.rendering(model, descriptive_ranks=True, result_views=views):
-        overall = renderer.overall_ranking(records, cases, passing_latency=True)
+        overall = renderer.overall_ranking(records, cases)
         return {'overall': overall, 'usage': renderer.token_usage_comparison(records),
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
+                'analysis': (renderer.analysis_body(records, cases)
+                             + renderer.successful_final_call_latency(records, cases, prefix='../')
+                             + renderer.all_final_call_latency(records)),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
 
 
@@ -1107,7 +1109,9 @@ def composition_model(output, spec, snapshots):
             raise ValueError('Saved comparisons have duplicate methods')
         providers.extend(model['providers'])
         paths = {name: snapshot['path'] + '/' + name for name in audit['files']}
-        execution_settings.extend(_project(model.get('execution_settings', []), paths))
+        retained = {provider['id'] for provider in model['providers']}
+        execution_settings.extend(_project([group for group in model.get('execution_settings', [])
+                                            if group['provider'] in retained], paths))
         population = set()
         for row in model['rows']:
             key = row['suite'], row['case_id']
@@ -1133,7 +1137,7 @@ def composition_model(output, spec, snapshots):
                   source_bindings=[{'name': s['id'], 'sha256': s['sha256']} for s in snapshots],
                   scores_changed=any(row.get('score_revision') for row in rows))
     result['execution_settings'] = execution_settings
-    if families is not None:
+    if 'report_families' in spec or families is not None:
         result['report_families'] = spec.get('report_families', families)
     for key in ('scope_notes', 'ranking'):
         if key in spec:

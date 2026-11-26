@@ -38,7 +38,7 @@ async function persistCapture(nativeReturn, directory, fetchMs) {
   const serialized = JSON.stringify(nativeReturn);
   if (typeof serialized !== "string") throw new Error("Native return is not JSON-serializable");
   for (let offset=0; offset<serialized.length;) {
-    let end=Math.min(offset+32768,serialized.length);
+    let end=Math.min(offset+16384,serialized.length);
     if(end<serialized.length) {
       const last=serialized.charCodeAt(end-1);
       if(last>=0xD800 && last<=0xDBFF) end--;
@@ -267,6 +267,62 @@ def assess_protocol(calls):
         }:
             violations.append({**item, "type": "lexmount_tool_attempt"})
     return violations, probes
+
+
+def receipt_only_trace_issues(events):
+    """Audit visible receipts without prescribing native acquisition tools.
+
+    A tool return can arrive in multiple response-item fragments. Group them by
+    call identity before checking its content; nested event evidence is not a
+    model-visible result. Inspect programs and artifact hashes separately.
+    """
+    issues, calls, outputs = [], [], {}
+    allowed = {'status', 'path', 'saved_at', 'artifacts', 'blocks', 'fetch_ms', 'save_ms',
+               'ref_id', 'total_lines', 'first_line', 'last_line', 'new_lines', 'error'}
+    for line, event in enumerate(events, 1):
+        if event.get('type') != 'response_item':
+            continue
+        payload = event.get('payload', {})
+        kind = payload.get('type', '')
+        if kind == 'message' and payload.get('role') == 'assistant':
+            if any(block.get('text', '').strip() for block in payload.get('content', [])):
+                issues.append({'line': line, 'type': 'visible_assistant_message'})
+        elif kind.endswith('_call'):
+            calls.append(payload.get('call_id'))
+        elif kind in {'function_call_output', 'custom_tool_call_output'}:
+            entry = outputs.setdefault(payload.get('call_id'), {'line': line, 'parts': []})
+            value = payload.get('output')
+            if isinstance(value, list):
+                if any(not isinstance(b, dict) or set(b) - {'type', 'text'}
+                       or b.get('type') not in {'text', 'input_text'} for b in value):
+                    value = None
+                else:
+                    value = ''.join(b.get('text', '') for b in value)
+            entry['parts'].append(value)
+    decoder = json.JSONDecoder()
+    for entry in outputs.values():
+        valid = all(isinstance(part, str) for part in entry['parts'])
+        text = ''.join(entry['parts']) if valid else ''
+        text = re.sub(r'^Script completed\nWall time [\d.]+ seconds\nOutput:\n', '', text).strip()
+        receipts = []
+        while valid and text:
+            try:
+                value, end = decoder.raw_decode(text)
+            except ValueError:
+                valid = False
+                break
+            receipts.append(value)
+            text = text[end:].strip()
+        valid = valid and bool(receipts) and all(
+            isinstance(value, dict) and set(value) <= allowed
+            and value.get('status') in {'saved', 'failed'}
+            and isinstance(value.get('path'), str) and bool(value['path']) for value in receipts)
+        if not valid:
+            issues.append({'line': entry['line'], 'type': 'nonreceipt_model_visible_output'})
+    if (not calls or None in calls or len(set(calls)) != len(calls)
+            or set(calls) != set(outputs)):
+        issues.append({'type': 'missing_or_unmatched_capture_receipts'})
+    return issues
 
 
 def audit_single_open(events, url):

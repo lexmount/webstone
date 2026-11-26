@@ -1767,7 +1767,9 @@ def token_usage_comparison(records):
    values+=cell(text,value)
   rows.append((' data-provider="'+esc(item['provider'])+'"',values))
  comparable=len({item['count'] for item in usage})==1 and all(item['observed']==item['count'] for item in usage)
- rows=comparative_rows(rows,{2:('total_tokens','min')} if comparable else {})
+ totals=[item['total_tokens'] for item in usage]
+ unique_minimum=comparable and totals.count(min(totals))==1
+ rows=comparative_rows(rows,{2:('total_tokens','min')} if unique_minimum else {})
  heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
  return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the lower total for the same number of tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
 

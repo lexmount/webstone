@@ -148,7 +148,10 @@ def test_token_usage_leaves_incomparable_or_tied_totals_neutral(state):
         records[1].pop('provider_metadata')
     elif state == 'unequal':
         records.append(deepcopy(records[1]))
-    content = token_usage_comparison(records)
+    from harness.web_fetch.report_model import RenderContext, rendering, set_render_context
+    with rendering():
+        set_render_context(RenderContext(descriptive_ranks=True))
+        content = token_usage_comparison(records)
     check_token_usage_presentation(content, records)
     soup = BeautifulSoup(content, 'html.parser')
     assert not soup.select('.comparison-winner')
