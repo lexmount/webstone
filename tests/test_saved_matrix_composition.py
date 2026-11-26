@@ -156,6 +156,19 @@ def test_missing_legacy_configuration_does_not_create_placeholder_rows(tmp_path)
     assert '未记录' not in table.get_text()
 
 
+def test_complete_joined_home_omits_base_only_coverage_counts(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    output, path = _real_extension(tmp_path)
+    spec = json.loads(path.read_text())
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    assert not page.select('.reliability, #overview p.callout, #completion')
+    assert len(page.select('#ranking-overall tbody tr')) == 2
+
+
 @pytest.mark.parametrize('selected', [[], ['unknown'], ['method-0', 'method-0'], 'method-0', [None], None])
 def test_composition_rejects_invalid_method_selection(tmp_path, selected):
     path, _ = reports(tmp_path)

@@ -419,6 +419,11 @@ def _unified_home(page, base_model, added_model, presentation):
     """Install shared-renderer views without grouping contestants by source."""
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_style import RANKING_STICKY
+    rows = base_model['rows'] + added_model['rows']
+    if rows and all(row.get('called') and row.get('passed') is not None for row in rows):
+        # A complete joined comparison must not inherit base-only coverage counts.
+        for node in page.select('.reliability, #overview p.callout, #completion'):
+            node.decompose()
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
     method_section = page.find(id='method-overview-section')
