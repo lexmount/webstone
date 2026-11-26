@@ -10,7 +10,7 @@ from tests.test_saved_matrix_evidence import build, fixture, write
 
 
 def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False,
-            families=False, public=False, usage=False, mixed_latency=False):
+            families=False, public=False, usage=False, mixed_latency=False, two_families=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
@@ -33,6 +33,10 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
             from copy import deepcopy
             data = json.loads((source/'dataset.json').read_text())
             data['cases'].append({**data['cases'][0], 'id':'second'})
+            if two_families:
+                data['cases'][1]['track'] = 'document'
+                spec['report_families'] = [{'id':'web', 'label':'Static websites'},
+                                           {'id':'document', 'label':'Documents'}]
             spec['suites'][0]['dataset'] = write(source/'dataset.json', data)
             spec['sources'][0]['case_ids'].append('second')
             second = deepcopy(record)
@@ -642,7 +646,7 @@ def test_extension_refresh_rejection_preserves_prior_tree(tmp_path, monkeypatch,
     spec = json.loads(path.read_bytes())
     if failure == 'render':
         spec['presentation'] = 'ranked'
-        monkeypatch.setattr(composition, '_shared_presentations', lambda _: {})
+        monkeypatch.setattr(composition, '_shared_presentations', lambda _, **kwargs: {})
         monkeypatch.setattr(composition, '_unified_home', lambda *args: None)
         def reject(*args, **kwargs):
             raise ValueError('injected render rejection')
@@ -1384,7 +1388,7 @@ def test_ranked_extension_aggregates_both_native_usage_receipt_shapes(tmp_path):
     assert [row['data-provider'] for row in rows] == ['method-0', 'method-1']
     assert [row.select('td')[2].get_text() for row in rows] == ['110', '220']
     assert rows[1].a['href'] == 'additional/providers/method-1.html'
-    assert len(page.select('#token-usage .comparison-winner.good')) == 1
+    assert len(page.select('#token-usage .comparison-winner.good')) == 7
     records = [json.loads(line) for root in ('', 'additional/')
                for line in (output/root/'results.jsonl').read_text().splitlines()]
     rows[1].decompose()
@@ -1451,3 +1455,60 @@ def test_extension_preserves_existing_method_overview_columns(tmp_path, columns)
     assert len(table.select('thead th')) == columns
     assert len(table.select('tbody tr')) == 1
     assert all(len(row.select('td')) == columns for row in table.select('tbody tr'))
+
+
+
+def test_published_presentation_options_order_families_and_collapse_configuration(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
+    _, entries = reports(tmp_path, families=True, mixed_latency=True, two_families=True)
+    _, path = _real_extension(tmp_path, source_reports=entries)
+    spec = json.loads(path.read_text())
+    spec['presentation'] = 'ranked'
+    spec['presentation_options'] = {'family_order':['document','web'], 'collapse_configuration':True, 'ranking_prices':False}
+    base = Path(spec['published_base']['root'])
+    home = base/'index.html'
+    home.write_text(home.read_text().replace('<section id="method-overview-section">',
+        '<section id="method-overview-section"><h2>Configuration</h2>'))
+    audit = json.loads((base/'saved-matrix-audit.json').read_text())
+    audit['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+    spec['published_base']['audit'] = write(base/'saved-matrix-audit.json', audit)
+    write(path, spec)
+    output = tmp_path/'reordered'
+    build_published_extension(path, output)
+    assert check_published_extension(output)['valid']
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    headers = [h.get_text(' ',strip=True).replace(' ↕','') for h in page.select('#ranking-overall thead th')]
+    assert headers[4:6] == ['Documents','Static websites']
+    assert headers[-1] != '参考价格'
+    buttons = page.select('#home-rankings .tab-bar button')
+    assert [button['data-tab'] for button in buttons] == ['document','web']
+    cards = page.select_one('#overview .grid').get_text(' ',strip=True)
+    assert cards.index('Documents') < cards.index('Static websites')
+    details = page.select_one('#method-overview-section details.method-configuration')
+    assert details is not None and not details.has_attr('open')
+    assert details.select_one('summary') and details.select_one('#method-overview')
+    page.select_one('#ranking-overall thead tr').insert(4, page.select('#ranking-overall thead th')[5].extract())
+    (output/'index.html').write_text(str(page))
+    proof = json.loads((output/'saved-extension.json').read_text())
+    proof['files']['index.html'] = hashlib.sha256((output/'index.html').read_bytes()).hexdigest()
+    write(output/'saved-extension.json', proof)
+    with pytest.raises(ValueError, match='comparison differs'):
+        check_published_extension(output)
+
+
+@pytest.mark.parametrize('options', [
+    {'family_order':['web','web']}, {'family_order':['missing']},
+    {'collapse_configuration':'yes'}, {'unknown':True},
+])
+def test_invalid_presentation_options_preserve_original_report(tmp_path, options):
+    from harness.web_fetch.report_saved_composition import refresh_published_extension
+    from harness.safety import evidence_tree_identity
+    output, path = _real_extension(tmp_path)
+    before = evidence_tree_identity(output)
+    spec = json.loads(path.read_text())
+    spec.update(presentation='ranked', presentation_options=options)
+    write(path, spec)
+    with pytest.raises(ValueError, match='presentation|collapse'):
+        refresh_published_extension(output, spec_path=path)
+    assert evidence_tree_identity(output) == before

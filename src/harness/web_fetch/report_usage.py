@@ -1,6 +1,9 @@
 """Native model usage from immutable per-result receipts."""
 
 from collections import defaultdict
+import statistics
+
+from lexbench_webfetch.metrics import percentile
 
 
 def token_usage(records):
@@ -32,5 +35,8 @@ def token_usage(records):
                   for key in ('input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens')}
         totals['uncached_input_tokens'] = (totals['input_tokens'] - totals['cached_input_tokens']
                                           if observed else None)
-        result.append(dict(provider=provider, count=len(group), observed=len(observed), **totals))
+        values = [u['total_tokens'] for u in observed]
+        result.append(dict(provider=provider, count=len(group), observed=len(observed), **totals,
+                           mean_tokens=statistics.mean(values) if values else None,
+                           p50_tokens=percentile(values, .5), p95_tokens=percentile(values, .95)))
     return result

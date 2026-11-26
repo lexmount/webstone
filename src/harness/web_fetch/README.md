@@ -1678,6 +1678,14 @@ tables use final-call latency; accumulated retry cost stays in the evidence.
 - Check portable report files with `scripts/check_report.py /absolute/new-report --variant saved-matrix`. Audit reports support this portable check. Final selected results must share one valid saved scorer identity after any validated offline revision; mixed or missing identities remain diagnostic. Final reports require `--source-spec /absolute/input-spec.json` and original native evidence; only the source-validating builder can authorize final rendering, never caller-authored configuration summaries. Source paths are resolved beside that external specification; the report audit contains only names and hashes.
 - Keep complete suite definitions when selecting methods and bind a receipt for every skipped cell. Retain physical retries for each selected logical result. Current-only selection does not establish why earlier results were replaced; corrections still require disclosure of scope and score, denominator and latency effects. Instance specifications, captures and HTML remain outside Git.
 
+Saved publication refreshes can select `presentation_options` in the external
+extension specification: `family_order` lists every existing family once,
+`collapse_configuration` folds the configuration section by default, and
+`ranking_prices` controls the compact price column. These choices affect display
+only. Caller token tables derive totals and per-task mean/P50/P95 from retained
+receipts, including failures, and recompute each unique minimum across all shown
+methods with complete equal-size coverage.
+
 ## Report method metadata
 
 A frozen published report can retain its existing pages while adding another

@@ -76,8 +76,8 @@ def test_native_token_comparison_uses_receipts_and_rejects_presentation_errors(t
     soup = BeautifulSoup(content, 'html.parser')
     table = soup.select_one('#token-usage')
     rows = table.select('tbody tr')
-    assert [cell.get_text() for cell in rows[0].select('td')][1:] == ['1/1', '110', '20', '80', '10']
-    assert len(table.select('.comparison-winner')) == 1
+    assert [cell.get_text() for cell in rows[0].select('td')][1:] == ['1/1', '110', '110.0', '110.0', '110.0', '20', '80', '10']
+    assert len(table.select('.comparison-winner')) == 7
     assert not soup.select('#overview .callout')
     assert not soup.select('#successful-final-call-latency')
     for mutation in ('missing', 'wrong-value', 'missing-highlight', 'wrong-highlight'):
@@ -90,8 +90,8 @@ def test_native_token_comparison_uses_receipts_and_rejects_presentation_errors(t
         elif mutation == 'missing-highlight':
             target.select_one('.comparison-winner').unwrap()
         else:
-            target.select('tbody td')[4].append(BeautifulSoup(
-                '<strong class="comparison-winner good">80</strong>', 'html.parser'))
+            target.select('tbody tr')[1].select('td')[2].append(BeautifulSoup(
+                '<strong class="comparison-winner good">220</strong>', 'html.parser'))
         with pytest.raises(ValueError, match='Token usage'):
             check_token_usage_presentation(str(altered), records)
 
@@ -157,7 +157,7 @@ def test_token_usage_leaves_incomparable_or_tied_totals_neutral(state):
     assert not soup.select('.comparison-winner')
     if state == 'missing':
         assert [c.get_text() for c in soup.select('tbody tr')[1].select('td')][1:] == [
-            '0/1', '—', '—', '—', '—']
+            '0/1', '—', '—', '—', '—', '—', '—', '—']
 
 
 @pytest.mark.parametrize('tie', [False, True])
@@ -688,3 +688,23 @@ def test_same_ranked_case_requires_one_definition_across_providers(tmp_path):
     write(root/row['case_path'], {**original, 'expected_any': ['different rule']})
     with pytest.raises(ValueError, match='Conflicting saved case definitions for first--same'):
         generate_saved_matrix(root, model)
+
+
+
+def test_token_statistics_use_all_receipts_including_failed_tasks():
+    from harness.web_fetch.report_usage import token_usage
+    from harness.web_fetch.report import token_usage_comparison
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    records = [dict(provider='native', ok=i != 2,
+        provider_metadata={'terminal_usage': dict(input_tokens=value, cached_input_tokens=0,
+            output_tokens=0, total_tokens=value)}) for i, value in enumerate([10, 20, 100])]
+    actual = token_usage(records)[0]
+    assert actual['total_tokens'] == 130
+    assert actual['mean_tokens'] == pytest.approx(130/3)
+    assert actual['p50_tokens'] == 20
+    assert actual['p95_tokens'] == 100
+    html = token_usage_comparison(records)
+    check_token_usage_presentation(html, records)
+    page = BeautifulSoup(html, 'html.parser')
+    assert len(page.select('#token-usage thead button')) == 9
+    assert '43.3' in page.get_text() and '100.0' in page.get_text()

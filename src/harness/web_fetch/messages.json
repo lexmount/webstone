@@ -2484,10 +2484,14 @@
     "token_usage_cached": "缓存输入",
     "token_usage_output": "输出",
     "token_usage_definition": "总量 = 未缓存输入 + 缓存输入 + 输出。按各题 subagent 的记录合计，缓存只计一次；单位为 token。",
-    "token_usage_minimum": "同等题数下，总量较小值用绿色加粗。",
+    "token_usage_minimum": "同等题数且记录完整时，各列唯一最小值用绿色加粗。",
     "passing_latency_detail": "通过任务的耗时",
     "latency_column_minimum": "耗时列的较小值用绿色加粗。",
     "token_usage_partial": "已记录部分",
-    "saved_comparison_population": "{tasks} 个任务 · {methods} 种方法。对比已记录的任务通过率与调用耗时。"
+    "saved_comparison_population": "{tasks} 个任务 · {methods} 种方法。对比已记录的任务通过率与调用耗时。",
+    "token_usage_mean": "Token 均值",
+    "token_usage_p50": "Token P50",
+    "token_usage_p95": "Token P95",
+    "token_usage_distribution": "均值、P50（中位数）和 P95 按每题 token 总量计算，包含成功与失败的全部已记录调用。"
   }
 }

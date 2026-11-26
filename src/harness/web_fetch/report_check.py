@@ -99,36 +99,37 @@ def check_token_usage_presentation(content, records):
         if table is not None:
             raise ValueError('Token usage table has no native receipts')
         return
-    if table is None or len(table.select('thead button')) != 6:
+    if table is None or len(table.select('thead button')) != 9:
         raise ValueError('Token usage comparison or sorting is missing')
     rows = table.select('tbody tr')
     if len(rows) != len(expected):
         raise ValueError('Token usage participant coverage differs')
     comparable = (len({item['count'] for item in expected}) == 1
                   and all(item['observed'] == item['count'] for item in expected))
-    totals = [item['total_tokens'] for item in expected]
-    minimum = min(totals) if comparable else None
+    fields = ('total_tokens', 'mean_tokens', 'p50_tokens', 'p95_tokens',
+              'uncached_input_tokens', 'cached_input_tokens', 'output_tokens')
     for item, row in zip(expected, rows, strict=True):
         if row.get('data-provider') != item['provider']:
             raise ValueError('Token usage participant differs')
         cells = row.select('td')
-        if len(cells) != 6 or cells[1].get_text() != f"{item['observed']}/{item['count']}":
+        if len(cells) != 9 or cells[1].get_text() != f"{item['observed']}/{item['count']}":
             raise ValueError('Token usage receipt coverage differs')
-        for index, key in enumerate(('total_tokens', 'uncached_input_tokens',
-                                     'cached_input_tokens', 'output_tokens'), start=2):
+        for index, key in enumerate(fields, start=2):
             value = item[key]
             cell = cells[index]
             partial = cell.select_one('[data-partial-usage]')
-            needs_partial = index == 2 and value is not None and item['observed'] < item['count']
+            needs_partial = value is not None and item['observed'] < item['count']
             if bool(partial) != needs_partial:
                 raise ValueError('Token usage subset label differs from receipt coverage')
             if partial is not None:
                 partial.decompose()
             if (cell.get('data-sort') != (None if value is None else str(value))
-                    or cell.get_text() != ('—' if value is None else f'{value:,}')):
+                    or cell.get_text() != ('—' if value is None else
+                        f'{value:,.1f}' if key in {'mean_tokens', 'p50_tokens', 'p95_tokens'} else f'{value:,}')):
                 raise ValueError('Token usage value differs from native receipts')
-            winner = (index == 2 and comparable and totals.count(minimum) == 1
-                      and value == minimum)
+            population = [entry[key] for entry in expected]
+            winner = (comparable and all(v is not None for v in population)
+                      and population.count(min(population)) == 1 and value == min(population))
             if bool(cell.select('.comparison-winner.good')) != winner:
                 raise ValueError('Token usage highlight differs from its metric direction')
 

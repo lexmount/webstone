@@ -323,16 +323,65 @@ def _joined_presentation(output):
     return cases, records, providers, base.get('report_suites', []), views
 
 
-def _shared_presentations(output):
+def _presentation_suites(suites, options):
+    options = options or {}
+    if not isinstance(options, dict) or set(options) - {'family_order', 'collapse_configuration', 'ranking_prices'}:
+        raise ValueError('Unsupported saved-report presentation options')
+    for key in ('collapse_configuration', 'ranking_prices'):
+        if key in options and type(options[key]) is not bool:
+            raise ValueError('Presentation collapse/pricing options must be boolean')
+    order = options.get('family_order')
+    if order is None:
+        return suites
+    if (not isinstance(order, list) or not all(isinstance(key, str) for key in order)
+            or len(order) != len(set(order)) or set(order) != {suite['id'] for suite in suites}):
+        raise ValueError('Family presentation order must name every family exactly once')
+    by_id = {suite['id']: suite for suite in suites}
+    return [by_id[key] for key in order]
+
+
+def _apply_presentation_options(page, presentation):
+    order = presentation['family_order']
+    for bar in page.select('.tab-bar'):
+        buttons = bar.find_all('button', recursive=False)
+        by_key = {button.get('data-tab'): button for button in buttons}
+        if len(buttons) != len(order) or set(by_key) != set(order):
+            continue
+        for key in order:
+            bar.append(by_key[key].extract())
+        panels = [page.find(id=by_key[key].get('aria-controls')) for key in order]
+        if all(panel is not None and panel.parent is bar.parent for panel in panels):
+            for panel in panels:
+                bar.parent.append(panel.extract())
+    if presentation['options'].get('collapse_configuration'):
+        owner = page.find(id='method-overview-section')
+        if owner is not None and owner.select_one('details.method-configuration') is None:
+            container = owner.select_one('.wrap') or owner
+            heading = container.find('h2')
+            if heading is None:
+                raise ValueError('Method configuration heading is missing')
+            details = page.new_tag('details', attrs={'class': 'method-configuration'})
+            summary = page.new_tag('summary')
+            heading['style'] = 'display:inline'
+            summary.append(heading.extract())
+            details.append(summary)
+            for node in list(container.contents):
+                details.append(node.extract())
+            container.append(details)
+
+
+def _shared_presentations(output, *, options=None):
     """Render one participant matrix through the existing shared components."""
     from harness.web_fetch import report as renderer
     cases, records, providers, suites, views = _joined_presentation(output)
+    suites = _presentation_suites(suites, options)
     from harness.web_fetch.report_model import report_model
     model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
     labels = model.labels
     with renderer.rendering(model, descriptive_ranks=True, result_views=views):
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
-        return {'overall': overall, 'usage': renderer.token_usage_comparison(records),
+        return {'options': options or {}, 'family_order': [suite['id'] for suite in suites],
+                'overall': overall, 'usage': renderer.token_usage_comparison(records),
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
@@ -406,12 +455,14 @@ def _unified_home(page, base_model, added_model, presentation):
         text = text.replace(_text('extension_audit_basis'), _text('extension_ordering'))
         if text != str(node):
             node.replace_with(text)
+    _apply_presentation_options(page, presentation)
     added_ids = {provider['id'] for provider in added_model['providers']}
     for link in page.select('a[href^="providers/"]'):
         if Path(link['href']).stem in added_ids:
             link['href'] = 'additional/' + link['href']
     _model_fetch_badges(page)
-    _home_method_summary(page, presentation.get('method_prices', {}))
+    if presentation['options'].get('ranking_prices', True):
+        _home_method_summary(page, presentation.get('method_prices', {}))
 
 
 def _home_method_summary(page, prices=None):
@@ -761,7 +812,7 @@ def _extension_english_views(output, primary):
             for route, content in primary.items()}
 
 
-def _extension_views(output, base_model, added_model, overview, note, *, ranked=True):
+def _extension_views(output, base_model, added_model, overview, note, *, ranked=True, options=None):
     """Return deterministic non-home views; source pages remain hash-bound copies."""
     result = {}
     if not ranked:
@@ -777,7 +828,7 @@ def _extension_views(output, base_model, added_model, overview, note, *, ranked=
             result[route] = _extension_page(source.read_text(encoding='utf-8'),
                 addition.read_text(encoding='utf-8'), route, base_model, added_model, overview, note)
     from bs4 import BeautifulSoup
-    presentation = _shared_presentations(output)
+    presentation = _shared_presentations(output, options=options)
     added_providers = {p['id'] for p in added_model['providers']}
     for route, key in [('analysis/index.html', 'analysis'), ('guide/index.html', 'guide')]:
         if route not in result:
@@ -792,6 +843,7 @@ def _extension_views(output, base_model, added_model, overview, note, *, ranked=
                 if match[1] in added_providers:
                     link['href'] = link['href'][:match.start()] + 'additional/' + link['href'][match.start():]
         _model_fetch_badges(page)
+        _apply_presentation_options(page, presentation)
         result[route] = str(page)
 
     result.update(_extension_english_views(output,
@@ -851,8 +903,9 @@ def build_published_extension(spec_path, output):
     ranked = spec.get('presentation') == 'ranked'
     (output / 'index.html').write_text(_extended_home(
         (base_root / 'index.html').read_text(encoding='utf-8'), (added_root / 'index.html').read_text(encoding='utf-8'),
-        base, added, overview, spec['comparison_note'], ranked=ranked, presentation=_shared_presentations(output) if ranked else None), encoding='utf-8')
-    pages = _extension_views(output, base, added, overview, spec['comparison_note'], ranked=ranked)
+        base, added, overview, spec['comparison_note'], ranked=ranked, presentation=_shared_presentations(output, options=spec.get('presentation_options')) if ranked else None), encoding='utf-8')
+    pages = _extension_views(output, base, added, overview, spec['comparison_note'], ranked=ranked,
+                             options=spec.get('presentation_options'))
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
         if (output/route).is_file():
@@ -867,6 +920,7 @@ def build_published_extension(spec_path, output):
         'additional_audit_sha256': _hash(added_root / 'saved-matrix-audit.json'),
         'comparison_note': spec['comparison_note'], 'provider_calls_added': 0,
         'presentation': spec.get('presentation', 'audit'), 'presentation_pages': list(pages),
+        'presentation_options': spec.get('presentation_options', {}),
         'providers': base['providers'] + added['providers'],
         'files': {p.relative_to(output).as_posix(): _hash(p) for p in output.rglob('*') if p.is_file()}})
     check_published_extension(output)
@@ -907,12 +961,13 @@ def check_published_extension(output):
         (output / 'additional/index.html').read_text(encoding='utf-8'), _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
         proof['comparison_note'], ranked=proof.get('presentation') == 'ranked',
-        presentation=_shared_presentations(output) if proof.get('presentation') == 'ranked' else None)
+        presentation=_shared_presentations(output, options=proof.get('presentation_options')) if proof.get('presentation') == 'ranked' else None)
     if (output / 'index.html').read_text(encoding='utf-8') != expected:
         raise ValueError('Published extension comparison differs from source metrics')
     views = _extension_views(output, _read(output / 'matrix.json'),
         _read(output / 'additional/matrix.json'), _read(output / 'extension-methods.json'),
-        proof['comparison_note'], ranked=proof.get('presentation') == 'ranked')
+        proof['comparison_note'], ranked=proof.get('presentation') == 'ranked',
+        options=proof.get('presentation_options'))
     if set(views) != set(proof.get('presentation_pages', [])):
         raise ValueError('Published extension omitted comparison pages')
     for route, content in views.items():
@@ -1008,7 +1063,8 @@ def _refresh_published_extension(output, *, spec_path=None):
             prices = _selected_method_prices(spec_path, spec)
     ranked = (spec.get('presentation') if spec_path is not None else proof.get('presentation')) == 'ranked'
     note = spec['comparison_note'] if spec_path is not None else proof['comparison_note']
-    presentation = _shared_presentations(output) if ranked else None
+    options = spec.get('presentation_options', {}) if spec_path is not None else proof.get('presentation_options', {})
+    presentation = _shared_presentations(output, options=options) if ranked else None
     if presentation is not None:
         presentation['method_prices'] = prices
     home = _extended_home((output / 'extension-base-home.txt').read_text(encoding='utf-8'),
@@ -1027,7 +1083,7 @@ def _refresh_published_extension(output, *, spec_path=None):
         atomic_write(output/'extension-prices.json', json_bytes(prices))
         proof['files']['extension-prices.json'] = _hash(output/'extension-prices.json')
     pages = _extension_views(output, _read(output / 'matrix.json'),
-        _read(output / 'additional/matrix.json'), overview, note, ranked=ranked)
+        _read(output / 'additional/matrix.json'), overview, note, ranked=ranked, options=options)
     for route, content in pages.items():
         retained = output / 'extension-base-pages' / route
         if route in baseline['files'] and not retained.exists():
@@ -1048,6 +1104,7 @@ def _refresh_published_extension(output, *, spec_path=None):
     proof['presentation_pages'] = list(pages)
     proof['presentation'] = 'ranked' if ranked else 'audit'
     proof['comparison_note'] = note
+    proof['presentation_options'] = options
     if spec_path is not None:
         atomic_write(output / 'extension-methods.json', json_bytes(overview))
         proof['files']['extension-methods.json'] = _hash(output / 'extension-methods.json')

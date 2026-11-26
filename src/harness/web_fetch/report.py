@@ -1755,23 +1755,27 @@ def token_usage_comparison(records):
  usage=token_usage(records)
  if not usage:return ''
  usage.sort(key=lambda item:(item['total_tokens'] is None,item['total_tokens'] or 0,item['provider']))
- fields=('total_tokens','uncached_input_tokens','cached_input_tokens','output_tokens')
+ fields=('total_tokens','mean_tokens','p50_tokens','p95_tokens','uncached_input_tokens','cached_input_tokens','output_tokens')
  rows=[]
  for item in usage:
   values=cell(link('providers/'+item['provider']+'.html',provider_label(item['provider'])))+cell(f"{item['observed']}/{item['count']}")
   for key in fields:
    value=item[key]
-   text='—' if value is None else f'{value:,}'
-   if key=='total_tokens' and value is not None and item['observed']<item['count']:
+   text='—' if value is None else (f'{value:,.1f}' if key in {'mean_tokens','p50_tokens','p95_tokens'} else f'{value:,}')
+   if value is not None and item['observed']<item['count']:
     text+='<br><small data-partial-usage>'+t('token_usage_partial','Recorded subset')+'</small>'
    values+=cell(text,value)
   rows.append((' data-provider="'+esc(item['provider'])+'"',values))
  comparable=len({item['count'] for item in usage})==1 and all(item['observed']==item['count'] for item in usage)
- totals=[item['total_tokens'] for item in usage]
- unique_minimum=comparable and totals.count(min(totals))==1
- rows=comparative_rows(rows,{2:('total_tokens','min')} if unique_minimum else {})
- heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
- return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the lower total for the same number of tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
+ directions={}
+ if comparable:
+  for index,key in enumerate(fields,start=2):
+   values=[item[key] for item in usage]
+   if all(value is not None for value in values) and values.count(min(values))==1:
+    directions[index]=(key,'min')
+ rows=comparative_rows(rows,directions)
+ heads=[t('method','Method'),t('token_usage_coverage','Recorded / tasks'),t('token_usage_total','Total tokens'),t('token_usage_mean','Mean tokens'),t('token_usage_p50','P50 tokens'),t('token_usage_p95','P95 tokens'),t('token_usage_uncached','Uncached input'),t('token_usage_cached','Cached input'),t('token_usage_output','Output')]
+ return section(t('token_usage_title','Token usage'),'<p>'+t('token_usage_definition','Total = uncached input + cached input + output. Each row sums the recorded task subagents; cached input is included once. Figures are token counts.')+'</p><p>'+t('token_usage_distribution','Mean, P50 (median) and P95 use per-task total tokens across all recorded calls, including failures.')+'</p>'+('<p class="source-note">'+t('token_usage_minimum','Green bold marks the unique lowest value in each column for the same number of fully recorded tasks.')+'</p>' if comparable else '')+table(heads,rows,'token-usage',True,metrics=[],include_index=False,default_sort=(2,'asc')),'token-consumption')
 
 
 def all_final_call_latency(records):
