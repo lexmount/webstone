@@ -51,6 +51,19 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
             page = reconstruct_packed_file(manifest, prefix + 'lazy-evidence.html', packs)
             assert ('data-file="' + prefix).encode() in page
         assert reconstruct_packed_file(manifest, 'results.jsonl', packs) == prior
+    results = source/'results.jsonl'
+    altered = [json.loads(line) for line in prior.splitlines()]
+    altered[0]['elapsed_ms'] = 0
+    results.write_text(''.join(json.dumps(row)+'\n' for row in altered))
+    audit_path = source/'saved-matrix-audit.json'
+    audit_bytes = audit_path.read_bytes()
+    audit = json.loads(audit_bytes)
+    audit['files']['results.jsonl'] = hashlib.sha256(results.read_bytes()).hexdigest()
+    audit_path.write_text(json.dumps(audit))
+    with pytest.raises(ValueError, match='projection differs'):
+        package(source, tmp_path/'altered-result.zip')
+    results.write_bytes(prior)
+    audit_path.write_bytes(audit_bytes)
     artifact = source / json.loads(prior.splitlines()[0])['artifact_path']
     artifact.write_text('changed')
     with pytest.raises(ValueError, match='changed|differs'):

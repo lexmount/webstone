@@ -88,8 +88,8 @@ def _release_identity(source: Path, presentation_binding, snapshot_audit) -> boo
         check_published_extension(source)
         return False
     if (source / 'saved-composition.json').is_file():
-        from harness.web_fetch.report_saved_matrix import check_saved_matrix
-        check_saved_matrix(source)
+        from harness.web_fetch.report_saved_composition import check_composition
+        check_composition(source)
         return False
     manifest_path = source / 'report-manifest.json'
     manifest=json.loads(manifest_path.read_text(encoding='utf-8')) if manifest_path.is_file() else {}

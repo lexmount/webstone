@@ -1538,8 +1538,17 @@ def build_composition(spec_path, output):
 
 
 def check_composition(output, spec_path=None):
+    from harness.web_fetch.report_saved_matrix import _saved_renderer_projection
     stored = _read(output / 'saved-composition.json')
     if spec_path is not None and _public_spec(_read(Path(spec_path))) != stored['spec']:
         raise ValueError('Saved composition specification changed')
-    if composition_model(output, stored['spec'], stored['snapshots']) != _read(output / 'matrix.json'):
+    model = _read(output / 'matrix.json')
+    if composition_model(output, stored['spec'], stored['snapshots']) != model:
         raise ValueError('Saved composition differs from its immutable source reports')
+    _frozen_files(output, {'sha256': _hash(output/'saved-matrix-audit.json')}, 'saved-matrix-audit.json')
+    dataset, records, identities, scope = _saved_renderer_projection(output, model, None)
+    if (dataset != _read(output/'dataset.json')
+            or records != [json.loads(line) for line in (output/'results.jsonl').read_bytes().splitlines() if line.strip()]
+            or identities != _read(output/'execution.json')['identities']
+            or scope != _read(output/'summary.json')):
+        raise ValueError('Saved composition projection differs from its immutable source reports')
