@@ -176,7 +176,7 @@ def test_composition_preserves_shared_revision_attachments(tmp_path):
         check_saved_matrix(output)
 
 
-def _published_extension(tmp_path, *, external=True, reviewed=False):
+def _published_extension(tmp_path, *, external=True, reviewed=False, base_method_overview=True):
     from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
     families = ['web', 'document']
 
@@ -195,7 +195,11 @@ def _published_extension(tmp_path, *, external=True, reviewed=False):
         home += table('ranking-overall', [90, 80, *values, 10, 20, 30]) + '</section>'
         for family in families:
             home += table('ranking-' + family, [1])
-        home += '<section id="method-overview-section"><p>Old billing disclaimer</p><div><table id="method-overview"><tbody><tr><td>original configuration</td></tr></tbody></table></div></section></body></html>'
+        if name != 'base' or base_method_overview:
+            home += ('<section id="method-overview-section"><p>Old billing disclaimer</p>'
+                     '<div><table id="method-overview"><tbody><tr>'
+                     '<td>original configuration</td></tr></tbody></table></div></section>')
+        home += '</body></html>'
         home = home.replace('</body>', '<img src="logo.png"></body>')
         (root / 'logo.png').write_bytes(b'synthetic public image')
         (root / 'index.html').write_text(home, encoding='utf-8')
@@ -1324,3 +1328,17 @@ def test_extension_preserves_each_source_review_scope(tmp_path):
     assert check_published_extension(output)['valid']
     assert (output/'extension-base-pages/review/index.html').read_bytes() == originals[0]
     assert (output/'additional/review/index.html').read_bytes() == originals[1]
+
+
+def test_published_extension_accepts_fresh_base_without_method_overview(tmp_path):
+    from bs4 import BeautifulSoup
+
+    from harness.web_fetch.report_saved_composition import check_published_extension
+
+    output, _, _, _ = _published_extension(
+        tmp_path, external=False, base_method_overview=False)
+    home = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    assert home.select_one('#method-overview-section h2')
+    assert len(home.select('#method-overview tbody tr')) == 1
+    assert home.select_one('[data-added-method="extra"]')
+    assert check_published_extension(output)['valid']

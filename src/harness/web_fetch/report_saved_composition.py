@@ -136,7 +136,28 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
     if methods is None:
-        raise ValueError('Published base has no method overview')
+        # Fresh saved-matrix reports need not have a configuration table.
+        # Add its ordinary container here; the same bound rows below fill it.
+        from harness.web_fetch.report_i18n import t
+        section = old.new_tag('section', id='method-overview-section')
+        heading = old.new_tag('h2')
+        heading.string = t('configuration', 'Configuration')
+        section.append(heading)
+        wrapper = old.new_tag('div', attrs={'class': 'table-wrap'})
+        methods = old.new_tag('table', id='method-overview')
+        header = old.new_tag('thead')
+        row = old.new_tag('tr')
+        for label in (t('method', 'Method'), t('configuration', 'Configuration'),
+                      _text('extension_price_column')):
+            cell = old.new_tag('th')
+            cell.string = label
+            row.append(cell)
+        header.append(row)
+        methods.append(header)
+        methods.append(old.new_tag('tbody'))
+        wrapper.append(methods)
+        section.append(wrapper)
+        old.find(id='overall-ranking').insert_after(section)
     for method in overview:
         row = old.new_tag('tr', attrs={'data-added-method': method['id']})
         settings = '<p>' + escape(method['configuration']) + '</p>'
