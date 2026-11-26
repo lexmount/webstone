@@ -71,7 +71,7 @@ def test_file_scope_checks_bytes_and_declares_its_actual_matrix(experiment):
     original_dataset = (root / 'dataset.json').read_bytes()
     result = run('--providers', 'bytes', '--task-kind', 'file', '--fail-on-failure')
     assert result.returncode == 2, result.stdout + result.stderr
-    assert paths == ['/good', '/wrong', '/wrong', '/invalid', '/invalid']
+    assert paths == ['/good', '/wrong', '/invalid']
     rows = [json.loads(line) for line in (root / 'run/results.jsonl').read_text(encoding='utf-8').splitlines()]
     assert {row['case_id']: row['metrics']['raw_file_pass'] for row in rows} == {
         'good': True, 'wrong': False, 'invalid': False}

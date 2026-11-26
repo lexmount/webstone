@@ -33,7 +33,7 @@ def test_defaults():
     args = build_parser().parse_args(['run'])
     assert args.timeout is None  # resolved from the selected benchmark adapter
     assert BENCHMARKS.get(args.benchmark).default_timeout == 30
-    assert args.max_failure_retries == 1
+    assert args.max_failure_retries == 0
 
 
 @pytest.mark.parametrize('name', SELECTED)
@@ -87,7 +87,8 @@ def test_hosted_native_retry_persists_every_physical_answer(tmp_path, name, answ
         opener.return_value.open.side_effect = respond
         rows, _ = run_evaluation(output_dir=tmp_path, dataset_meta={'id':'offline', 'cases':[asdict(c)]},
             dataset_path=tmp_path/'dataset.json', cases=[c], providers=[p],
-            provider_config_path=tmp_path/'providers.json', runs=1, timeout=30, delay=0)
+            provider_config_path=tmp_path/'providers.json', runs=1, timeout=30, delay=0,
+            max_failure_retries=1)
     assert opener.return_value.open.call_count == len(answers)
     row = rows[0]
     assert (tmp_path/row['artifact_path']).read_text(encoding='utf-8') == answers[-1]
@@ -122,7 +123,7 @@ def test_malformed_api_response_is_retained_as_failure(tmp_path, name):
         rows, _ = run_evaluation(output_dir=tmp_path, dataset_meta={'id':'offline', 'cases':[asdict(c)]},
             dataset_path=tmp_path/'dataset.json', cases=[c], providers=[p],
             provider_config_path=tmp_path/'providers.json', runs=1, timeout=30, delay=0)
-    assert opener.return_value.open.call_count == 2
+    assert opener.return_value.open.call_count == 1
     row = rows[0]
     assert not row['ok'] and row['error_type'] == 'invalid_response'
     assert (tmp_path/row['artifact_path']).read_text(encoding='utf-8') == ''
@@ -173,7 +174,7 @@ def test_configured_cli_selection_reaches_runner(tmp_path):
         command_run(args)
     assert [p.name for p in run.call_args.kwargs['providers']] == ['fixture']
     assert run.call_args.kwargs['timeout'] == 30
-    assert run.call_args.kwargs['max_failure_retries'] == 1
+    assert run.call_args.kwargs['max_failure_retries'] == 0
 
 
 # An origin 404 separates exposing from non-exposing adapters, so every adapter runs it on

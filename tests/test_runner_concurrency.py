@@ -590,7 +590,7 @@ class RunnerConcurrencyTest(unittest.TestCase):
                         cases=[EvalCase('only', 'Only', 'https://example.com', 'static', [])],
                         providers=[Unstoppable('slow', {})],
                         provider_config_path=Path('providers.json'), runs=1,
-                        timeout=.02, delay=0,
+                        timeout=.02, delay=0, max_failure_retries=1,
                     )
                 records = [json.loads(line) for line in (root/'results.jsonl').read_text(encoding='utf-8').splitlines()]
                 self.assertEqual(len(records), 1)
@@ -633,7 +633,7 @@ class RunnerConcurrencyTest(unittest.TestCase):
                 providers=[Cancellable('slow', {})], provider_config_path=Path('providers.json'),
                 runs=1, timeout=.02, delay=0,
             )
-        self.assertEqual(calls, ['case-0', 'case-0', 'case-1', 'case-1'])
+        self.assertEqual(calls, ['case-0', 'case-1'])
         self.assertEqual([record['error_type'] for record in records], ['timeout', 'timeout'])
         self.assertTrue(all(record['elapsed_ms'] < 100 for record in records))
 

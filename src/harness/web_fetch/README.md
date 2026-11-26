@@ -529,11 +529,13 @@ validation, not each measured fetch; a changed binary requires revalidation.
 A repair run may retain successful results and rerun only cases with a declared cause (changed input, provider route or version, runtime contract, source validity or infrastructure failure), not failures as such; without one, label the results cumulative and diagnostic. A predeclared failure retry is part of the run contract. Keep every physical call and select the final response under the declared retry/correction policy. Recompute scores for the complete selected result population when the scorer changes; rescoring does not require new provider calls. If executable builds differ, disclose their fingerprints and selected result counts as cumulative results. This does not establish the full-suite result or speed of one build.
 
 
-All methods default to one retry after a failed task. Set
-`--max-failure-retries N` to any nonnegative integer; `0` disables retries.
-There are at most N+1 calls per task, stopping as soon as the task passes.
-The same rule covers request errors, timeouts, empty output and content-rule
-failures, including methods using native parameters.
+Methods default to one call per task: `--max-failure-retries 0`. This does not
+disable retries implemented inside the product. `--max-failure-retries 1`
+explicitly enables a caller-added diagnostic retry, including after a successful
+request that fails a content rule. Such a run measures the product plus the
+caller's retry policy; it is not evidence of the product's own retry capability.
+The extra call receives the same per-call deadline and stops on a passing task.
+Retain its complete execution cost and distinguish it from single-call results.
 
 Each method and task produces one current authoritative result. The final call,
 never the best one, replaces the earlier answer, verdict, metrics and profile-defined

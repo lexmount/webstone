@@ -260,7 +260,7 @@ else:
                     dataset_meta={'id': 'cleanup', 'cases': []},
                     dataset_path=root / 'dataset.json', cases=cases,
                     providers=[provider], provider_config_path=root / 'providers.json',
-                    runs=1, timeout=5, delay=0)
+                    runs=1, timeout=5, delay=0, max_failure_retries=1)
             # Neither a retry nor the next case may overlap a live worker.
             self.assertEqual(calls, ['first'])
             records = [json.loads(line) for line in (root / 'run' / 'results.jsonl').read_text(encoding='utf-8').splitlines()]

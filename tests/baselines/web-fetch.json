@@ -1,7 +1,7 @@
 {
  "records": [
   {
-   "artifact_path": "artifacts/fixture/fixture-body/run-001-physical-001.txt",
+   "artifact_path": "artifacts/fixture/fixture-body/run-001.txt",
    "attempt_id": "fixture__fixture-body__r001",
    "case_id": "fixture-body",
    "elapsed_ms": 0.0,
@@ -90,7 +90,7 @@
    "status_code": 200
   },
   {
-   "artifact_path": "artifacts/fixture/fixture-failure/run-001-physical-002.txt",
+   "artifact_path": "artifacts/fixture/fixture-failure/run-001.txt",
    "attempt_id": "fixture__fixture-failure__r001",
    "case_id": "fixture-failure",
    "elapsed_ms": 0.0,
@@ -269,10 +269,8 @@
      "h2: 运行与评分信息",
      "h2: 运行日志与证据",
      "h3: 程序错误",
-     "h3: 物理调用 1",
-     "h2: 物理调用 1",
-     "h3: 物理调用 2",
-     "h2: 物理调用 2",
+     "h3: 最终物理调用",
+     "h2: 最终物理调用",
      "h2: 原始运行证据"
     ],
     "tables": [
@@ -435,10 +433,8 @@
      "h2: Run and scoring details",
      "h2: Run logs and evidence",
      "h3: Program error",
-     "h3: Physical call 1",
-     "h2: Physical call 1",
-     "h3: Physical call 2",
-     "h2: Physical call 2",
+     "h3: Final physical call",
+     "h2: Final physical call",
      "h2: Original run evidence"
     ],
     "tables": [
@@ -610,7 +606,7 @@
     "tables": [
      [
       "No. | Method | Batch | Outer timeout | Method minimum interval | Runner delay between calls | Planned runs | Failure retry limit",
-      "1 | fixture | 1 | 30 seconds | 0 seconds | 0 seconds | 1 | 1"
+      "1 | fixture | 1 | 30 seconds | 0 seconds | 0 seconds | 1 | 0"
      ],
      [
       "No. | Task family | Tasks | Identity required | Literal text | Fact groups | Body regions | Records | Resource targets | Full reference | Minimum length ≤1",
@@ -765,7 +761,7 @@
     "tables": [
      [
       "序号 | 方法 | 批次 | 外层超时 | 方法最小调用间隔 | 运行器调用间延迟 | 计划轮数 | 失败重试上限",
-      "1 | fixture | 1 | 30 秒 | 0 秒 | 0 秒 | 1 | 1"
+      "1 | fixture | 1 | 30 秒 | 0 秒 | 0 秒 | 1 | 0"
      ],
      [
       "序号 | 任务类别 | 任务数 | 要求页身份 | 固定文字 | 事实组 | 正文范围 | 记录结构 | 资源目标 | 全文参考 | 长度下限≤1",
@@ -827,19 +823,17 @@
    "accounts/index.html 4b05118f613dbba568a4",
    "adoption/index.html 62552eaad2f8641542a2",
    "analysis/index.html 19973ff6e40daeac9f82",
-   "artifacts/fixture/fixture-body/run-001-physical-001.txt 3cc1bcd96fa85d877a2f",
-   "artifacts/fixture/fixture-failure/run-001-physical-001.txt 6117969f2b18de8feeb5",
-   "artifacts/fixture/fixture-failure/run-001-physical-002.txt 6117969f2b18de8feeb5",
+   "artifacts/fixture/fixture-body/run-001.txt 3cc1bcd96fa85d877a2f",
+   "artifacts/fixture/fixture-failure/run-001.txt 6117969f2b18de8feeb5",
    "assets/methodology/annotation.png ca37357825ee094e1aee",
    "assets/methodology/scoring.png 76a05e398ac6d49513a9",
    "assets/methodology/validation.png 45141f56838bd4416c5a",
    "assets/report.js ad535d3b132e04a165f8",
    "assets/style.css d5363da7b204732325ee",
-   "attempts/fixture__fixture-body__r001.html 7c93d2807a26d8170eb2",
-   "attempts/fixture__fixture-failure__r001.html 593ae3a8084280e9de1b",
-   "call-logs/fixture/fixture-body/run-001-physical-001.json 254342b035c9740f344c",
-   "call-logs/fixture/fixture-failure/run-001-physical-001.json da19785be0ed9c0ce774",
-   "call-logs/fixture/fixture-failure/run-001-physical-002.json 38c2c42d1846f99e3927",
+   "attempts/fixture__fixture-body__r001.html 33cad2f9d3c7316437d4",
+   "attempts/fixture__fixture-failure__r001.html e1b49267d3feb81fd968",
+   "call-logs/fixture/fixture-body/run-001-physical-001.json 310ba2f010b33496afb2",
+   "call-logs/fixture/fixture-failure/run-001-physical-001.json 5989a3723c4fe507b293",
    "changes/index.html 55e4d08a417f890db898",
    "dataset.json 8c8a952ccb27cd99d884",
    "datasets/fixture-body.html d429107fb939cdf5adba",
@@ -848,22 +842,22 @@
    "en/accounts/index.html c73155a78d481b6747b6",
    "en/adoption/index.html 715749a133526cf463f2",
    "en/analysis/index.html ef9b269211c1bec10fd5",
-   "en/attempts/fixture__fixture-body__r001.html 5c8319fdea14786e86f5",
-   "en/attempts/fixture__fixture-failure__r001.html cbdec2a88549b1270289",
+   "en/attempts/fixture__fixture-body__r001.html e7054c2038c12419b55c",
+   "en/attempts/fixture__fixture-failure__r001.html 4c9e40c8d56d130ead7a",
    "en/changes/index.html 3238b2af37b54ce90370",
    "en/datasets/fixture-body.html ab5896b4dd40ec778e79",
    "en/datasets/fixture-failure.html 8d1773e0162ca1d47911",
    "en/datasets/index.html 6fb79b9392dec9119c50",
    "en/guide/index.html 804bb32a07192108485f",
    "en/index.html bf905a94b2e21ca64e03",
-   "en/methodology/index.html 2f2af6b67cf3685ef2be",
+   "en/methodology/index.html 8870afc7952baa0c5fd6",
    "en/providers/fixture.html e832984eebfbda9ab53b",
    "en/reproduce/index.html 5dab7d3281735a1f3528",
    "en/review/index.html 0fef61dc1f1697ca027f",
-   "execution.json c217a0f8a42b1166f1aa",
+   "execution.json 56db1c13fa3a3e2db7a2",
    "guide/index.html 59f3ceb8c9e1af9b5d3a",
    "index.html 5e2facaa11e649f5109d",
-   "methodology/index.html 864c150370625cbbcd73",
+   "methodology/index.html faac9dcddb1921e08e9e",
    "providers/fixture.html ae064a2de2b13894cea6",
    "references/fixture-body.txt 1bdcf2f4d6204108d756",
    "references/fixture-failure.txt 1bdcf2f4d6204108d756",
@@ -871,19 +865,17 @@
    "report-languages.json 157feaf364b79467aabe",
    "report-manifest.json 5cc3da2b3a5f8e929305",
    "reproduce/index.html 93a450c6537ef81aa4fa",
-   "results.jsonl d4cf1167e81ce1cf51f5",
+   "results.jsonl df9f480766fa07063d59",
    "review/index.html c31ae8340203f57d92c0",
    "summary.json 7e7be63a178bb3e35f48",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  },
  "run_files": [
-  "artifacts/fixture/fixture-body/run-001-physical-001.txt",
-  "artifacts/fixture/fixture-failure/run-001-physical-001.txt",
-  "artifacts/fixture/fixture-failure/run-001-physical-002.txt",
+  "artifacts/fixture/fixture-body/run-001.txt",
+  "artifacts/fixture/fixture-failure/run-001.txt",
   "call-logs/fixture/fixture-body/run-001-physical-001.json",
   "call-logs/fixture/fixture-failure/run-001-physical-001.json",
-  "call-logs/fixture/fixture-failure/run-001-physical-002.json",
   "dataset.json",
   "manifest.json",
   "results.jsonl",

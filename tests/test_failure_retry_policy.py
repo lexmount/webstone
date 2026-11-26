@@ -50,10 +50,10 @@ def run_task(tmp_path):
     ({'ok': True, 'content': 'incomplete answer'}, False),
     ({'ok': True, 'content': ''}, True),
 ])
-def test_default_retry_treats_all_task_failures_equally(tmp_path, run_task, failure, native):
+def test_explicit_retry_treats_all_task_failures_equally(tmp_path, run_task, failure, native):
     first = ProviderResult(**{'ok': False, 'content': '', **failure})
     provider = Responses([first, ProviderResult(True, 'Expected')], native=native)
-    row = run_task(provider)
+    row = run_task(provider, max_failure_retries=1)
     assert provider.calls == 2
     assert row['metrics']['content_pass']
     assert (tmp_path/row['artifact_path']).read_text(encoding='utf-8') == 'Expected'
@@ -83,12 +83,25 @@ def test_success_stops_retries_before_exhausting_budget(run_task):
     assert (row['status_code'], row['title'], row['error_type'], row['elapsed_ms']) == (200, 'new title', None, 7)
 
 
-def test_cli_defaults_to_one_retry_and_rejects_larger_bounds():
+def test_cli_defaults_to_no_caller_retry_and_rejects_larger_bounds():
     parser = build_parser()
-    assert parser.parse_args(['run']).max_failure_retries == 1
+    assert parser.parse_args(['run']).max_failure_retries == 0
+    assert parser.parse_args(['run', '--max-failure-retries', '1']).max_failure_retries == 1
     for value in ('4', '-1', '1.5'):
         with pytest.raises(SystemExit):
             parser.parse_args(['run', '--max-failure-retries', value])
+
+
+@pytest.mark.parametrize('native', [False, True])
+@pytest.mark.parametrize('first', [ProviderResult(False, '', status_code=503),
+                                  ProviderResult(True, 'incomplete answer')])
+def test_default_run_preserves_first_failure_without_caller_assistance(run_task, native, first):
+    provider = Responses([first, ProviderResult(True, 'Expected')], native=native)
+    row = run_task(provider)
+    assert provider.calls == 1
+    assert not row['metrics']['content_pass']
+    assert row['status_code'] == first.status_code
+    assert row['provider_metadata'].get('retry', {}).get('retries_used', 0) == 0
 
 
 def test_hosted_credit_budget_accounts_for_all_configured_retries():
@@ -128,7 +141,7 @@ def test_late_first_call_is_discarded_then_retried_without_overlap(run_task):
 
     provider = SlowFirst([])
     provider.finished = threading.Event()
-    row = run_task(provider, timeout=.3)
+    row = run_task(provider, timeout=.3, max_failure_retries=1)
     assert provider.calls == 2
     assert not row['ok'] and row['error_type'] == 'second_failure'
     attempts = row['provider_metadata']['retry']['attempts']
@@ -159,7 +172,7 @@ def test_cleanup_events_and_native_logs_are_retained_before_retry(run_task, tmp_
     provider = CleanupLogging([])
     provider.config['log_level'] = 'debug'
     provider.finished = None
-    row = run_task(provider, timeout=.3)
+    row = run_task(provider, timeout=.3, max_failure_retries=1)
     first, second = row['provider_metadata']['retry']['attempts']
     assert first['error_type'] == 'timeout' and not first['task_pass']
     assert second['task_pass'] and row['elapsed_ms'] == second['elapsed_ms']

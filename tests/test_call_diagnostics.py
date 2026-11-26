@@ -101,7 +101,8 @@ def test_runner_keeps_real_observations_for_every_outcome(tmp_path, outcome):
         dataset_path=source, cases=[case], providers=[provider], provider_config_path=config,
         # Only the timeout scenario exercises a short deadline. Successful
         # diagnostics must not depend on a shared CI host scheduling within 100ms.
-        runs=1, timeout=0.1 if outcome == 'timeout' else 2, delay=0)
+        runs=1, timeout=0.1 if outcome == 'timeout' else 2, delay=0,
+        max_failure_retries=1)
     assert len(records) == 1
     record = records[0];meta = record['provider_metadata']
     raw = (tmp_path/'evidence'/meta['diagnostic_log_path']).read_bytes()

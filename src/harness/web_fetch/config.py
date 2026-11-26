@@ -17,7 +17,7 @@ from harness.web_fetch.retrieval_hints import (
     task_definition_sha256,
 )
 
-DEFAULT_FAILURE_RETRIES = 1
+DEFAULT_FAILURE_RETRIES = 0
 DEFAULT_CALL_TIMEOUT_SECONDS = 30
 
 
@@ -47,8 +47,9 @@ RUN_OPTIONS: dict[str, tuple[str, dict[str, Any]]] = {
                               'help': 'Positive per-call deadline in seconds, retained in execution evidence'}),
     'max_failure_retries': ('--max-failure-retries', {
         'type': nonnegative_int, 'choices': (0, 1), 'default': DEFAULT_FAILURE_RETRIES,
-        'help': (f'Retry a failed task once at most (default: {DEFAULT_FAILURE_RETRIES}; '
-                 '0 disables retries); use the final call')}),
+        'help': (f'Caller-added retries after a failed task (default: {DEFAULT_FAILURE_RETRIES}); '
+                 '1 explicitly enables a diagnostic retry and uses the final call. '
+                 'Product-internal retries are unaffected')}),
     'workers': ('--workers', {'type': int, 'default': 1,
                               'help': 'Providers run in parallel; cases stay sequential within each provider'}),
     'call_order': ('--call-order', {
