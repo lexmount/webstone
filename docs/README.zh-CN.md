@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/overview.png" alt="Webstone：为你的 Agent 选对上网工具。" width="640">
+<img src="assets/overview.png" alt="Webstone 标志" width="640">
 
 [English](../README.md) · **简体中文**
 
@@ -15,6 +15,8 @@
 </div>
 
 **为你的 Agent 选对上网工具。**
+
+Agent 网页浏览的试金石。
 
 Webstone 用可重复的任务评测 Web Tools、浏览器和自主操作网页的 Agent，对比正确性、耗时、资源占用和已记录的成本。报告可以逐条查看结果和证据。
 
