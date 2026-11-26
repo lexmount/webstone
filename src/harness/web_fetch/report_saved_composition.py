@@ -331,15 +331,13 @@ def _shared_presentations(output):
     model = report_model({'cases': list(cases.values())}, records, participants=providers, suites=suites)
     labels = model.labels
     with renderer.rendering(model, descriptive_ranks=True, result_views=views):
-        overall = renderer.overall_ranking(records, cases)
+        overall = renderer.overall_ranking(records, cases, passing_latency=True)
         return {'overall': overall, 'usage': renderer.token_usage_comparison(records),
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': (renderer.analysis_body(records, cases)
-                             + renderer.successful_final_call_latency(records, cases, prefix='../')
-                             + renderer.all_final_call_latency(records)),
+                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
 
 

@@ -1160,7 +1160,8 @@ def _assert_passing_latency_once(output):
     assert ranking.select_one('td[data-rank]')
     assert '--rank-column' in page.head.select_one('style[data-report-page-style]').get_text()
     assert len(ranking.select('[data-metric^="final_call_latency"]')) == 6
-    assert '最终调用耗时' in ranking.thead.get_text()
+    assert '通过项耗时' in ranking.thead.get_text()
+    assert page.select_one('a[href="analysis/index.html#all-final-call-timing"]')
     rows = ranking.select('tbody tr')
     assert {r.a['href'] for r in rows} == {'providers/method-0.html', 'additional/providers/method-1.html'}
     analysis = BeautifulSoup((output/'analysis/index.html').read_text(encoding='utf-8'), 'html.parser')
@@ -1403,7 +1404,7 @@ def test_composition_applies_family_override_without_source_families(tmp_path):
     assert 'Requested web content' in (output/'index.html').read_text()
 
 
-def test_published_composition_keeps_failed_calls_in_headline_latency(tmp_path):
+def test_published_composition_retains_distinct_passing_and_all_call_latency(tmp_path):
     from bs4 import BeautifulSoup
     from harness.web_fetch.report_saved_composition import build_published_extension, check_published_extension
     _, entries = reports(tmp_path, families=True, mixed_latency=True)
@@ -1419,7 +1420,11 @@ def test_published_composition_keeps_failed_calls_in_headline_latency(tmp_path):
     page=BeautifulSoup((output/'index.html').read_text(),'html.parser')
     row=next(row for row in page.select('#ranking-overall tbody tr')
              if row.select_one('a')['href']=='additional/providers/method-1.html')
-    assert [float(cell['data-sort']) for cell in row.select('td[data-metric-direction="min"]')] == [506, 506, 1000]
+    assert [float(cell['data-sort']) for cell in row.select('td[data-metric-direction="min"]')] == [12, 12, 12]
+    analysis=BeautifulSoup((output/'analysis/index.html').read_text(),'html.parser')
+    all_row=next(row for row in analysis.select('#all-final-call-latency tbody tr')
+                 if row.select_one('a')['href']=='../additional/providers/method-1.html')
+    assert [float(cell['data-sort']) for cell in all_row.select('td[data-sort]')][-3:] == [506, 506, 1000]
 
 
 @pytest.mark.parametrize('columns', [2, 3])
