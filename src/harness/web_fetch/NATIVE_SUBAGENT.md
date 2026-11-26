@@ -41,12 +41,13 @@ The parent supplies these arguments directly to `collaboration.spawn_agent`:
 The prompt and delivery label are external frozen inputs, including their
 original language. Keep their hashes in the contract. Set the fetch budget to
 one for single-fetch and to unlimited for autonomous multiple-fetch. The latter
-leaves the fetch tools and methods to each child. The historical prompts
-prohibited mixing
-Browser Use click, scroll, input and other interactive actions into fetching.
-That historical policy is not a new requirement: for unrestricted native fetch,
-freeze only the requested single/unlimited budget and delivery boundary. Do not
-force `openPage`, a particular route or the historical browser restriction.
+leaves the fetch tools and methods to each child within the frozen allowed-action
+policy. Record that policy separately from acquisition count. The historical
+prompts prohibit Browser Use click, scroll, input and other interactive actions;
+retain that restriction when the owner selects it. An explicitly selected action
+restriction is not itself a protocol defect or a reason to rerun saved calls.
+Do not infer permission for browser interaction merely from an unlimited fetch
+budget, or prescribe `openPage` or another route within the permitted tools.
 The child chooses retrieval tools, parameters and intermediate observations.
 It may inspect fetched content, discover available tools, reason about progress,
 and select further acquisitions within the frozen budget. Preserve these actual
