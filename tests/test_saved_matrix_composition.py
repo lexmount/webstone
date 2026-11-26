@@ -9,7 +9,8 @@ from harness.web_fetch.report_saved_matrix import build_saved_matrix, check_save
 from tests.test_saved_matrix_evidence import build, fixture, write
 
 
-def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False, public=False):
+def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False,
+            families=False, public=False, usage=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
@@ -21,6 +22,10 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
         provider = 'method' if duplicate else 'method-' + str(i)
         spec['providers'] = [{'id': provider, 'label': provider}]
         record.update(provider=provider, attempt_id='run-' + str(i))
+        if usage:
+            record['provider_metadata']['terminal_usage' if i == 0 else 'subagent_usage'] = dict(
+                input_tokens=100 * (i + 1), cached_input_tokens=80 * (i + 1),
+                output_tokens=10 * (i + 1), total_tokens=110 * (i + 1))
         if i and undecidable:
             record['metrics']['acceptance_checks'] = {'content': None}
         raw = (json.dumps(record) + '\n').encode()
@@ -1342,3 +1347,32 @@ def test_published_extension_accepts_fresh_base_without_method_overview(tmp_path
     assert len(home.select('#method-overview tbody tr')) == 1
     assert home.select_one('[data-added-method="extra"]')
     assert check_published_extension(output)['valid']
+
+
+def test_ranked_extension_aggregates_both_native_usage_receipt_shapes(tmp_path):
+    from bs4 import BeautifulSoup
+
+    from harness.web_fetch.report_check import check_token_usage_presentation
+    from harness.web_fetch.report_saved_composition import (
+        check_published_extension,
+        refresh_published_extension,
+    )
+
+    _, entries = reports(tmp_path, families=True, usage=True)
+    output, path = _real_extension(tmp_path, source_reports=entries)
+    spec = json.loads(path.read_bytes())
+    spec['presentation'] = 'ranked'
+    write(path, spec)
+    refresh_published_extension(output, spec_path=path)
+    assert check_published_extension(output)['valid']
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    rows = page.select('#token-usage tbody tr')
+    assert [row['data-provider'] for row in rows] == ['method-0', 'method-1']
+    assert [row.select('td')[2].get_text() for row in rows] == ['110', '220']
+    assert rows[1].a['href'] == 'additional/providers/method-1.html'
+    assert len(page.select('#token-usage .comparison-winner.good')) == 1
+    records = [json.loads(line) for root in ('', 'additional/')
+               for line in (output/root/'results.jsonl').read_text().splitlines()]
+    rows[1].decompose()
+    with pytest.raises(ValueError, match='Token usage participant coverage'):
+        check_token_usage_presentation(str(page), records)

@@ -135,29 +135,19 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         explanation.string = note
         old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
+    legacy_overview = methods is None
+    show_prices = not legacy_overview or any(re.search(r'\d', m['price']) for m in overview)
     if methods is None:
-        # Fresh saved-matrix reports need not have a configuration table.
-        # Add its ordinary container here; the same bound rows below fill it.
+        from harness.web_fetch.report import section, table
         from harness.web_fetch.report_i18n import t
-        section = old.new_tag('section', id='method-overview-section')
-        heading = old.new_tag('h2')
-        heading.string = t('configuration', 'Configuration')
-        section.append(heading)
-        wrapper = old.new_tag('div', attrs={'class': 'table-wrap'})
-        methods = old.new_tag('table', id='method-overview')
-        header = old.new_tag('thead')
-        row = old.new_tag('tr')
-        for label in (t('method', 'Method'), t('configuration', 'Configuration'),
-                      _text('extension_price_column')):
-            cell = old.new_tag('th')
-            cell.string = label
-            row.append(cell)
-        header.append(row)
-        methods.append(header)
-        methods.append(old.new_tag('tbody'))
-        wrapper.append(methods)
-        section.append(wrapper)
-        old.find(id='overall-ranking').insert_after(section)
+        headers = [t('method', 'Method'), t('configuration', 'Configuration'),
+                   _text('extension_price_column')]
+        fragment = section(headers[1],
+            table(headers if show_prices else headers[:2], [], 'method-overview',
+                  metrics=[], include_index=False),
+            'method-overview-section')
+        old.find(id='overall-ranking').insert_after(BeautifulSoup(fragment, 'html.parser'))
+        methods = old.find('table', id='method-overview')
     for method in overview:
         row = old.new_tag('tr', attrs={'data-added-method': method['id']})
         settings = '<p>' + escape(method['configuration']) + '</p>'
@@ -170,7 +160,15 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
                 + '</ul>' + ('<p>' + escape(group['note']) + '</p>' if group.get('note') else '')
                 + '</dd></div>' for group in method['configurations']) + '</dl>'
         sources = ' · '.join('<a href="' + escape(s['url'], quote=True) + '">' + escape(s['label']) + '</a>' for s in method['sources'])
-        fragment = BeautifulSoup('<td><a href="additional/providers/' + escape(method['id']) + '.html">' + escape(method['label']) + '</a><small class="method-execution">' + escape(method['execution']) + '</small></td><td>' + settings + '</td><td>' + escape(method['price']) + '<p>' + escape(method['billing']) + '</p>' + sources + '</td>', 'html.parser')
+        pricing = (
+            '<td>' + escape(method['price']) + '<p>' + escape(method['billing'])
+            + '</p>' + sources + '</td>'
+        ) if show_prices else ''
+        fragment = BeautifulSoup(
+            '<td><a href="additional/providers/' + escape(method['id']) + '.html">'
+            + escape(method['label']) + '</a><small class="method-execution">'
+            + escape(method['execution']) + '</small></td><td>' + settings + '</td>' + pricing,
+            'html.parser')
         for cell in list(fragment.contents):
             row.append(cell)
         methods.tbody.append(row)
@@ -332,7 +330,7 @@ def _shared_presentations(output):
     labels = model.labels
     with renderer.rendering(model, descriptive_ranks=True, result_views=views):
         overall = renderer.overall_ranking(records, cases, passing_latency=True)
-        return {'overall': overall,
+        return {'overall': overall, 'usage': renderer.token_usage_comparison(records),
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
@@ -378,6 +376,13 @@ def _unified_home(page, base_model, added_model, presentation):
             if identifier == 'ranking-overall':
                 page.select_one('#overall-ranking h2').string = _text('extension_audit_title')
         fragment['data-row-index'] = 'false'
+    if presentation.get('usage'):
+        rendered_usage = BeautifulSoup(presentation['usage'], 'html.parser')
+        target = page.find(id='token-consumption')
+        if target is not None:
+            target.replace_with(rendered_usage)
+        else:
+            page.find(id='overall-ranking').insert_after(rendered_usage)
     if page.head and page.select_one('#ranking-overall td[data-rank]'):
         style = page.new_tag('style', attrs={'data-report-page-style': ''})
         style.string = RANKING_STICKY
@@ -921,6 +926,10 @@ def check_published_extension(output):
             expected_rows = len(_read(output / 'matrix.json')['rows']) + len(_read(output / 'additional/matrix.json')['rows'])
             if len(analysis.select('#filtered-table tbody tr')) != expected_rows:
                 raise ValueError('Unified result inventory omitted saved results')
+    if proof.get('presentation') == 'ranked':
+        from harness.web_fetch.report_check import check_token_usage_presentation
+        records = _joined_presentation(output)[1]
+        check_token_usage_presentation((output/'index.html').read_text(), records)
     home = BeautifulSoup((output / 'index.html').read_text(encoding='utf-8'), 'html.parser')
     count = len(proof['providers'])
     homes = [home]
