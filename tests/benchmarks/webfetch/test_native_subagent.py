@@ -34,7 +34,8 @@ const fs = require('node:fs'), vm = require('node:vm'), cp = require('node:child
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const tools = {exec_command: async ({cmd,workdir}) => {
   if(cmd.endsWith(' --capture-script')) return {exit_code:0,output:input.helper};
-  if(cmd.startsWith('uv run --frozen python -m harness.web_fetch.native_subagent '))
+  if(cmd.startsWith(
+    'uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent '))
     return {exit_code:0,output:'receipt'};
   return {exit_code:0,output:cp.execSync(cmd,{cwd:workdir,encoding:'utf8'})};
 }};

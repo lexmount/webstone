@@ -48,7 +48,8 @@ async function persistCapture(nativeReturn, directory, fetchMs) {
     offset=end;
   }
   const receipt = await checkedCommand(
-    "uv run --frozen python -m harness.web_fetch.native_subagent --save-native-response "
+    "uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent "
+    + "--save-native-response "
     + shellQuote(directory) + " --fetch-ms " + String(fetchMs));
   notify(receipt.output);
 }

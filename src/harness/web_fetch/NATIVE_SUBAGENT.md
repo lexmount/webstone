@@ -73,7 +73,7 @@ directory must already exist and belong exclusively to that case.
 
 ```javascript
 const helper = await tools.exec_command({
-  cmd: "uv run --frozen python -m harness.web_fetch.native_subagent --capture-script",
+  cmd: "uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent --capture-script",
   workdir: executionRoot, max_output_tokens: 4000
 });
 if (helper.exit_code !== 0) throw new Error("Capture helper unavailable");
