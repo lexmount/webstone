@@ -106,7 +106,7 @@ def parse_returns(url, mode, events, session):
             body = block.get("text", "")
             first_line = re.search(r"^L\d+(?:@P\d+(?:-\d+)?)?:", body, re.M)
             header = body[:first_line.start()] if first_line else body
-            tool_error |= bool(re.search(r"^(?:Error:\s*)?(?:Failed to fetch\b|Internal Error(?:\s*\(\))?\s*$)", header, re.M))
+            tool_error |= bool(re.search(r"^(?:Error:\s*)?(?:Failed to fetch(?:\s+https?://\S+(?::\s.*)?)?\s*$|Internal Error(?:\s*\(\))?\s*$)", header, re.M))
             for number, value in re.findall(r"^L(\d+)(?:@P\d+(?:-\d+)?)?: ?(.*)$", body, re.M):
                 lines.setdefault(int(number), value)
     content = "\n".join(lines[n] for n in sorted(lines))

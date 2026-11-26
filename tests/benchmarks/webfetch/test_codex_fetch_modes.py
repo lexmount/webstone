@@ -42,6 +42,8 @@ def test_error_words_in_page_body_are_not_transport_failures(phrase):
     assert parse_returns('url','single',events,session).ok
     session[1]['payload']['output'][0]['text'] = 'How to fix ' + phrase + '\nL12: body'
     assert parse_returns('url','single',events,session).ok
+    session[1]['payload']['output'][0]['text'] = phrase + ' troubleshooting guide (https://example.test/)\nL12: body'
+    assert parse_returns('url','single',events,session).ok
     session[1]['payload']['output'][0]['text'] = phrase + '\nL12: body'
     assert not parse_returns('url','single',events,session).ok
 

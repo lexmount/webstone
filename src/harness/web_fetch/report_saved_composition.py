@@ -205,6 +205,8 @@ def _extend_token_usage(page, records, model, *, provider_prefix='additional/'):
         raise ValueError('Unrecognized frozen token-usage table schema')
     fields = ('input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens')
     for provider in model['providers']:
+        if target.select_one('tr[data-provider="' + provider['id'] + '"]') is not None:
+            continue
         usage = []
         for record in records:
             if record['provider'] != provider['id']:
@@ -241,6 +243,8 @@ def saved_token_usage(page, records, model):
         return
     from bs4 import BeautifulSoup
     from harness.web_fetch.report import model_text, section, table
+    if page.find('table', id='token-usage') is not None:
+        return False
     headers = [model_text(zh, en) for zh, en in (
         ('方法', 'Method'), ('记录 / 题数', 'Recorded / cases'), ('Token 总量', 'Total tokens'),
         ('未缓存输入', 'Uncached input'), ('缓存输入', 'Cached input'), ('输出', 'Output'))]
@@ -401,14 +405,16 @@ def _shared_presentations(output):
               (renderer._REPORT_SUITES, renderer._REPORT_SUITES.set(tuple(suites))),
               (renderer._RENDER_CONTEXT, renderer._RENDER_CONTEXT.set(renderer.RenderContext(descriptive_ranks=True, result_views=views)))]
     try:
-        overall = renderer.overall_ranking(records, cases, passing_latency=True)
+        overall = renderer.overall_ranking(records, cases, include_successful_latency=False)
         return {'overall': overall,
                 'usage_records': records,
                 'method_prices': _read(output/'extension-prices.json') if (output/'extension-prices.json').is_file() else {},
                 'families': {f['id']: renderer.saved_suite_ranking(records, cases, f['id']) for f in suites},
                 'timing': renderer.overview_matched_latency(records, cases),
                 'cards': ''.join(renderer.overview_card(records, cases, f['id'], f['label'], list(labels)) for f in suites),
-                'analysis': renderer.analysis_body(records, cases) + renderer.all_final_call_latency(records),
+                'analysis': (renderer.analysis_body(records, cases)
+                             + renderer.successful_final_call_latency(records, cases, prefix='../')
+                             + renderer.all_final_call_latency(records)),
                 'guide': renderer.render_explainer(output, cases, records, authored=False)}
     finally:
         for variable, token in reversed(tokens):

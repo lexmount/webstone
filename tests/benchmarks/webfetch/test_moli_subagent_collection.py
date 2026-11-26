@@ -12,7 +12,7 @@ import pytest
 BRIDGE = Path(__file__).parents[3] / "src/harness/web_fetch/providers/codex_capture.cjs"
 
 
-@pytest.mark.parametrize('damage', [None, 'changed_answer', 'missing_terminal', 'second_provider_call', 'wrong_model'])
+@pytest.mark.parametrize('damage', [None, 'changed_answer', 'missing_terminal', 'second_provider_call', 'wrong_model', 'missing_trace', 'changed_trace', 'forged_terminal'])
 @pytest.mark.parametrize('product', ['moli', 'lexmount'])
 def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch, damage, product):
     from harness.web_fetch.lexmount_collection import score_cli_collection
@@ -65,8 +65,39 @@ def test_completed_moli_collection_scores_saved_bytes_only(tmp_path, monkeypatch
             provider_invocations=1,capture_invocations=1,
             caller_contexts=[{'model':'another-model','effort':'medium'}])
         (work/'terminal.json').write_text(json.dumps(terminal))
+    if damage in ('missing_trace', 'changed_trace', 'forged_terminal'):
+        from harness.web_fetch.lexmount_collection import _trace_terminal
+        script = 'frozen capture script'
+        rows[0]['caller_script'] = script
+        contract.update(receipt_protocol='single_blocking_script_v1',
+                        model='gpt-6-luna', reasoning_effort='medium')
+        data = [('session_meta', {'id':'synthetic-session', 'source':{'subagent':{
+            'thread_spawn':{'agent_path':'/root/synthetic-agent'}}}}),
+            ('event_msg', {'type':'task_started'}),
+            ('turn_context', {'model':'gpt-6-luna','effort':'medium'}),
+            ('response_item', {'type':'custom_tool_call','name':'exec','input':script}),
+            ('response_item', {'type':'custom_tool_call_output','output':json.dumps({
+                'status':'saved','path':'answer.md'})}),
+            ('event_msg', {'type':'token_count','info':{'total_token_usage':terminal['usage']}}),
+            ('event_msg', {'type':'task_complete','last_agent_message':''})]
+        trace = [{'type':kind,'payload':payload,'timestamp':
+                  '2026-11-25T00:00:01Z' if i==len(data)-1 else '2026-11-25T00:00:00Z'}
+                 for i,(kind,payload) in enumerate(data)]
+        snapshot = tmp_path/'trace.jsonl'
+        snapshot.write_text(''.join(json.dumps(e)+'\n' for e in trace))
+        terminal.update(_trace_terminal(trace),provider_invocations=1,capture_invocations=1,
+                        session_snapshot='trace.jsonl',
+                        session_snapshot_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest())
+        if damage=='missing_trace': snapshot.unlink()
+        elif damage=='changed_trace': snapshot.write_text('{}\n')
+        else:
+            terminal['usage']={**terminal['usage'],'input_tokens':41,'total_tokens':43}
+        (work/'terminal.json').write_text(json.dumps(terminal))
     if damage:
-        expected = {'changed_answer': 'integrity failure',
+        expected = {'missing_trace':'trace integrity failure',
+                    'changed_trace':'trace integrity failure',
+                    'forged_terminal':'trace projection mismatch',
+                    'changed_answer': 'integrity failure',
                     'missing_terminal': 'Missing completed call evidence',
                     'second_provider_call': 'exactly one actual Moli invocation',
                     'wrong_model': 'Receipt-only caller protocol violation'}[damage]
@@ -255,7 +286,8 @@ def test_blocking_api_capture_preserves_complete_response(tmp_path):
         server.shutdown(); server.server_close(); thread.join()
 
 
-def test_capture_stops_descendants_before_freezing_output(tmp_path):
+@pytest.mark.parametrize('cleanup_observable', [False, True])
+def test_capture_stops_descendants_before_freezing_output(tmp_path, monkeypatch, cleanup_observable):
     import os
     import signal
     node=shutil.which('node')
@@ -277,9 +309,21 @@ setTimeout(()=>{process.stdout.write('leader done\\n');process.exit(0);},200);
         executable=str(binary),binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
         deadline=int((time.time()+10)*1000),answer=str(answer),answerPath=str(answer),
         stderr=str(tmp_path/'debug.log'),events=str(tmp_path/'events.jsonl'))))
+    if not cleanup_observable:
+        fakebin=tmp_path/'bin';fakebin.mkdir()
+        (fakebin/'ps').write_text('#!/bin/sh\nexit 1\n')
+        (fakebin/'ps').chmod(0o700)
+        monkeypatch.setenv('PATH',str(fakebin)+os.pathsep+os.environ['PATH'])
     try:
         result=subprocess.run([node,str(BRIDGE),str(tmp_path),'--moli-url',url],
             capture_output=True,check=True,timeout=5)
+        if not cleanup_observable:
+            assert json.loads(result.stdout)['status']=='failed'
+            assert not answer.exists() and not (tmp_path/'status.json').exists()
+            assert (tmp_path/'answer.md.partial').exists()
+            events=[json.loads(line) for line in (tmp_path/'events.jsonl').read_text().splitlines()]
+            assert any(e['event']=='group_cleanup_finished' and not e['complete'] for e in events)
+            return
         assert json.loads(result.stdout)['status']=='saved'
         status=json.loads((tmp_path/'status.json').read_text())
         assert status['cleanup_complete']
@@ -436,6 +480,11 @@ def test_formal_sync_audits_all_calls_and_caller_contexts(tmp_path, monkeypatch,
     session.parent.mkdir(parents=True)
     session.write_text(''.join(json.dumps({'type':kind,'payload':p,
         'timestamp':'2026-11-26T00:00:00Z'})+'\n' for kind,p in payloads))
+    original_session=session.read_bytes()
+    session.write_bytes(original_session+b'{"type":')
+    collector.api_collection_main(['moli-sync','--run',str(run)])
+    assert not (work/'terminal.json').exists()
+    session.write_bytes(original_session)
     collector.api_collection_main(['moli-sync','--run',str(run)])
     terminal=json.loads((work/'terminal.json').read_text())
     assert bool(terminal['protocol_issues']) == bool(damage)
@@ -452,3 +501,48 @@ def test_formal_sync_audits_all_calls_and_caller_contexts(tmp_path, monkeypatch,
         collector.api_collection_main(['moli-sync','--run',str(run)])
         restored=json.loads((work/'terminal.json').read_text())
         assert restored['usage']==terminal['usage'] and not restored['protocol_issues']
+
+
+@pytest.mark.parametrize('suffix', ['{"type":', '{"type":"event_msg"}\n{"type":'])
+def test_live_session_sync_defers_partial_record_without_accepting_corruption(suffix):
+    from harness.web_fetch.lexmount_collection import _session_events
+    complete = json.dumps({'type':'event_msg','payload':{'type':'task_complete'}})+'\n'
+    assert _session_events(complete+suffix, live=True) is None
+    with pytest.raises(ValueError):
+        _session_events(complete+suffix, live=False)
+    with pytest.raises(ValueError):
+        _session_events(complete+'{broken}\n', live=True)
+    assert _session_events(b'{"text":"\xe4\xb8',live=True) is None
+    with pytest.raises(UnicodeDecodeError):
+        _session_events(b'{"text":"\xff"}\n',live=True)
+    event={'type':'response_item','payload':{'text':'first\u2028second\u2029third'}}
+    assert _session_events(json.dumps(event,ensure_ascii=False)+'\n',live=True)==[event]
+
+
+def test_visible_child_commentary_is_not_a_clean_receipt():
+    from harness.web_fetch.lexmount_collection import _trace_terminal, receipt_protocol_issues
+    events=[{'type':'session_meta','timestamp':'2026-11-26T00:00:00Z','payload':{'id':'synthetic'}},
+        {'type':'response_item','payload':{'type':'message','role':'assistant','phase':'commentary',
+            'content':[{'type':'output_text','text':'Checking whether fetch finished.'}]}},
+        {'type':'event_msg','timestamp':'2026-11-26T00:00:01Z',
+         'payload':{'type':'task_complete','last_agent_message':''}}]
+    projected=_trace_terminal(events)
+    assert projected['assistant_messages']
+    assert 'unexpected_final_message' in receipt_protocol_issues(projected,'script')
+
+
+@pytest.mark.parametrize('phrase', ['Internal Error', 'Failed to fetch'])
+@pytest.mark.parametrize('failed', [False, True])
+def test_legacy_capture_does_not_treat_error_words_in_page_titles_as_failure(tmp_path, failed, phrase):
+    node=shutil.which('node')
+    if not node: pytest.skip('Node.js is required')
+    (tmp_path/'contract.json').write_text(json.dumps({'mode':'same-page',
+        'deadline':int((time.time()+10)*1000)}))
+    title=phrase if failed else phrase+' troubleshooting guide (https://example.test/)'
+    body=title+'\nSource: open({}); Total lines: 1\nL0: useful content'
+    request={'jsonrpc':'2.0','id':1,'method':'tools/call',
+        'params':{'name':'save','arguments':{'response':json.dumps(body)}}}
+    completed=subprocess.run([node,str(BRIDGE),str(tmp_path)],input=json.dumps(request)+'\n',
+        capture_output=True,text=True,check=True,timeout=5)
+    reply=json.loads(completed.stdout)['result']
+    assert json.loads(reply['content'][0]['text'])['error'] is failed

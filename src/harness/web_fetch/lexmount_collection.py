@@ -82,7 +82,7 @@ def receipt_protocol_issues(terminal, caller_script, *, model=None, effort=None)
     if not (isinstance(value, dict) and set(value) == {'status', 'path'}
             and value['status'] in ('saved', 'failed') and isinstance(value['path'], str) and value['path']):
         issues.append('expected_only_final_status_and_path')
-    if terminal.get('final_text'):
+    if terminal.get('final_text') or terminal.get('assistant_messages'):
         issues.append('unexpected_final_message')
     usage = terminal.get('usage') or {}
     counters = ('input_tokens', 'cached_input_tokens', 'output_tokens', 'total_tokens')
@@ -101,6 +101,84 @@ def receipt_protocol_issues(terminal, caller_script, *, model=None, effort=None)
     if (terminal.get('http_status') or {}).get('cleanup_complete') is False:
         issues.append('incomplete_process_cleanup')
     return issues
+
+
+def _session_events(contents, *, live=False):
+    """JSONL is delimited by LF; a live writer may leave its last record partial."""
+    if isinstance(contents, bytes):
+        try:
+            contents = contents.decode('utf-8')
+        except UnicodeDecodeError as error:
+            if live and error.end == len(contents) and error.reason == 'unexpected end of data':
+                return None
+            raise
+    lines = contents.split('\n')
+    events = []
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            if live and index == len(lines) - 1 and not contents.endswith('\n'):
+                return None
+            raise
+        if not isinstance(event, dict):
+            raise ValueError('Expected a session JSONL object')
+        events.append(event)
+    return events
+
+
+def _trace_terminal(events):
+    payloads = [e for e in events if e['type'] == 'event_msg']
+    final = next((e for e in reversed(payloads) if e.get('payload', {}).get('type')
+                  in ('task_complete', 'turn_aborted')), None)
+    if final is None:
+        return None
+    usage = next((e['payload']['info'].get('total_token_usage') for e in reversed(payloads)
+                  if e['payload'].get('type') == 'token_count' and e['payload'].get('info')), None)
+    contexts = [e['payload'] for e in events if e['type'] == 'turn_context']
+    items = [e['payload'] for e in events if e['type'] == 'response_item']
+    calls = [p for p in items if p.get('type', '').endswith('_call')]
+    messages = [p for p in items if p.get('type') == 'message' and p.get('role') == 'assistant'
+                and any(block.get('text', '').strip() for block in p.get('content', []))]
+    started = next((e for e in events if e.get('payload', {}).get('type') == 'task_started'), events[0])
+    return dict(session_id=events[0]['payload']['id'], terminal_type=final['payload']['type'],
+                ended_at=final['timestamp'], session_started_at=started['timestamp'], usage=usage,
+                model=contexts[-1].get('model') if contexts else None,
+                effort=contexts[-1].get('effort') if contexts else None,
+                caller_contexts=[{'model': c.get('model'), 'effort': c.get('effort')} for c in contexts],
+                final_text=final['payload'].get('last_agent_message', ''),
+                assistant_messages=messages,
+                calls=[{'name': p.get('name'), 'input': p.get('input', p.get('arguments'))} for p in calls],
+                tool_outputs=[p['output'] for p in items if p.get('type')
+                              in ('function_call_output', 'custom_tool_call_output')])
+
+
+def _verified_terminal(root, row, terminal):
+    """Rebuild caller evidence from its immutable trace at the scoring boundary."""
+    relative = Path(terminal.get('session_snapshot', ''))
+    if relative.is_absolute() or '..' in relative.parts or not relative.parts:
+        raise ValueError('Invalid retained subagent trace path')
+    path = root
+    for part in relative.parts:
+        path = path / part
+        if path.is_symlink():
+            raise ValueError('Symlinked retained subagent trace')
+    if not path.is_file() or file_sha256(path) != terminal.get('session_snapshot_sha256'):
+        raise ValueError('Retained subagent trace integrity failure')
+    events = _session_events(path.read_text(encoding="utf-8"))
+    actual = _trace_terminal(events)
+    spawn = events[0].get('payload', {}).get('source', {}).get('subagent', {}).get('thread_spawn', {})
+    if actual is None or spawn.get('agent_path') != '/root/' + row['agent']:
+        raise ValueError('Retained subagent trace identity mismatch')
+    for key, value in actual.items():
+        # Older receipts did not project messages; derive them from the trace now.
+        if key == 'assistant_messages' and key not in terminal:
+            continue
+        if terminal.get(key) != value:
+            raise ValueError('Retained subagent trace projection mismatch: ' + key)
+    return {**terminal, **actual}
 
 
 def subagent_tool_main(argv):
@@ -409,41 +487,26 @@ def api_collection_main(argv):
             sessions = [*snapshots.glob('*.jsonl'),
                         *(Path.home()/'.codex/sessions').glob('*/*/*/*.jsonl')]
             for session in sessions:
-                with session.open() as stream:
+                with session.open('rb') as stream:
                     first = stream.readline()
-                    if not any(name in first for name in by_agent):
+                    if not any(name.encode() in first for name in by_agent):
                         continue
                     contents = first + stream.read()
-                    events = [json.loads(line) for line in contents.splitlines()]
+                    events = _session_events(contents, live=session.parent != snapshots)
+                if not events:
+                    continue
                 meta = events[0].get('payload', {})
                 spawn = meta.get('source', {}).get('subagent', {}).get('thread_spawn', {})
                 row = by_agent.get(spawn.get('agent_path', '').removeprefix('/root/'))
                 if row is None: continue
-                payloads = [e.get('payload', {}) for e in events if e['type']=='event_msg']
-                terminal = next((p for p in reversed(payloads) if p.get('type') in ('task_complete','turn_aborted')), None)
-                if terminal is None: continue
-                usage = next((p.get('info', {}).get('total_token_usage') for p in reversed(payloads)
-                              if p.get('type')=='token_count' and p.get('info')), None)
-                contexts = [e['payload'] for e in events if e['type']=='turn_context']
-                calls = [e['payload'] for e in events if e['type']=='response_item' and
-                         e['payload'].get('type', '').endswith('_call')]
-                final = next(e for e in reversed(events) if e.get('payload') is terminal)
-                if __import__('datetime').datetime.fromisoformat(final['timestamp'].replace('Z', '+00:00')).timestamp() < row['reserved_at']:
-                    continue  # A resumed agent may still contain its earlier rejected turn.
-                started_event = next((e for e in events if e.get('payload', {}).get('type') == 'task_started'), events[0])
+                projected = _trace_terminal(events)
+                if projected is None:
+                    continue
+                if __import__('datetime').datetime.fromisoformat(projected['ended_at'].replace('Z', '+00:00')).timestamp() < row['reserved_at']:
+                    continue
                 work = root/row['slot']
-                result = dict(agent=row['agent'], session_id=meta['id'], session_path=str(session),
-                              terminal_type=terminal['type'], ended_at=final['timestamp'],
-                              started_at=row['reserved_at'], usage=usage,
-                              session_started_at=started_event['timestamp'], reserved_at=row['reserved_at'],
-                              model=contexts[-1].get('model') if contexts else None,
-                              effort=contexts[-1].get('effort') if contexts else None,
-                              caller_contexts=[{'model':c.get('model'),'effort':c.get('effort')} for c in contexts],
-                              final_text=terminal.get('last_agent_message', ''),
-                              calls=[{'name':p.get('name'),'input':p.get('input',p.get('arguments'))} for p in calls],
-                              tool_outputs=[e['payload']['output'] for e in events
-                                  if e['type']=='response_item' and e['payload'].get('type')
-                                  in ('function_call_output','custom_tool_call_output')],
+                result = dict(projected, agent=row['agent'], session_path=str(session),
+                              started_at=row['reserved_at'], reserved_at=row['reserved_at'],
                               response_saved=(work/('answer.md' if markdown else 'response.bin')).is_file(),
                               http_status=read_json(work/'status.json') if (work/'status.json').exists() else None)
                 capture = load_jsonl(work/'events.jsonl') if (work/'events.jsonl').exists() else []
@@ -453,11 +516,11 @@ def api_collection_main(argv):
                     result['protocol_issues'] = receipt_protocol_issues(result, row['caller_script'],
                         model=contract['model'], effort=contract['reasoning_effort'])
                 snapshots.mkdir(parents=True, exist_ok=True)
-                snapshot_sha = hashlib.sha256(contents.encode()).hexdigest()
+                snapshot_sha = hashlib.sha256(contents).hexdigest()
                 snapshot = (session if session.parent == snapshots else
                             snapshots/(row['slot']+'-'+snapshot_sha[:16]+'.jsonl'))
                 if not snapshot.exists():
-                    with snapshot.open('x') as stream:
+                    with snapshot.open('xb') as stream:
                         stream.write(contents); stream.flush(); os.fsync(stream.fileno())
                 if file_sha256(snapshot) != snapshot_sha:
                     raise ValueError('Retained subagent trace changed')
@@ -571,6 +634,11 @@ def score_cli_collection(root, dataset, rows, contract, *, jobs=1):
         if contract.get('receipt_protocol') and receipt_protocol_issues(terminal, row['caller_script'],
                 model=contract['model'], effort=contract['reasoning_effort']):
             raise ValueError('Receipt-only caller protocol violation: ' + case.id)
+        if contract.get('receipt_protocol'):
+            terminal = _verified_terminal(root, row, terminal)
+            if receipt_protocol_issues(terminal, row['caller_script'],
+                    model=contract['model'], effort=contract['reasoning_effort']):
+                raise ValueError('Receipt-only caller protocol violation: ' + case.id)
         verified.append((case, row, work, status, terminal, events))
     output = root / 'scored'
     output.mkdir(exist_ok=False)

@@ -177,6 +177,7 @@ async function extractWithCli(id, active = contract, work = folder) {
         clearTimeout(timer);
         exit.cleanup_complete = await finishGroup(child.pid, stop, event);
         event('group_cleanup_finished', { process_group: child.pid, complete: exit.cleanup_complete });
+        if (!exit.cleanup_complete) throw new Error('Process group cleanup incomplete');
         process.removeListener('exit', stop);
         if (!isMoli) {
             const diagnostics = fs.readFileSync(contract.stderr, 'utf8')
@@ -263,7 +264,7 @@ function saveNative(id, response) {
         first_line: numbers[0] ?? null,
         last_line: numbers.at(-1) ?? null,
         new_lines: seenLines.size - previous,
-        error: /Failed to fetch|Internal Error/.test(header),
+        error: /^(?:Error:\s*)?(?:Failed to fetch(?:\s+https?:\/\/\S+(?::\s.*)?)?\s*$|Internal Error(?:\s*\(\))?\s*$)/m.test(header),
     };
     return reply(id, { content: [{ type: 'text', text: JSON.stringify(result) }] });
 }

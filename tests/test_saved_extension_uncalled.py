@@ -56,7 +56,12 @@ def test_ranked_extension_preserves_uncalled_position(tmp_path, damage):
                 '<td data-sort="240">240</td><td data-sort="30">30</td>'
                 '<td data-sort="200">200</td><td data-sort="10">10</td>'
                 '</tr></tbody></table>')
-            home.write_text(home.read_text().replace('</body>', token_table + '</body>'))
+            legacy = BeautifulSoup(home.read_text(), 'html.parser')
+            existing = legacy.select_one('#token-consumption') or legacy.select_one('#token-usage')
+            if existing is not None:
+                existing.decompose()
+            legacy.body.append(BeautifulSoup(token_table, 'html.parser'))
+            home.write_text(str(legacy))
         if not index and damage:
             if damage == 'drop_called':
                 (root / 'results.jsonl').write_text('')
@@ -93,11 +98,13 @@ def test_ranked_extension_preserves_uncalled_position(tmp_path, damage):
     assert '未完成' in page.select_one('#ranking-overall').get_text()
     method = next(row for row in page.select('#ranking-overall tbody tr')
                   if row.select_one('a')['href'] == 'additional/providers/method-1.html')
-    assert float(method.find_all('td')[-4]['data-sort']) == 12
+    # All calls, including the 1000 ms failed call, belong in headline latency.
+    assert [float(cell['data-sort']) for cell in method.find_all('td')[-3:]] == [506, 506, 1000]
     assert 'second' in page.select_one('#saved-missing').get_text()
-    assert len(page.select('#method-overview tbody tr')) == 2
-    assert len(page.select('#method-overview thead th')) == 3
-    assert all(len(row.find_all('td')) == 3 for row in page.select('#method-overview tbody tr'))
+    # Only the added method has retained configuration; do not invent a base row.
+    assert len(page.select('#method-overview tbody tr')) == 1
+    assert len(page.select('#method-overview thead th')) == 2
+    assert all(len(row.find_all('td')) == 2 for row in page.select('#method-overview tbody tr'))
     token_rows = page.select('#token-usage tbody tr')
     assert len(token_rows) == 2
     assert token_rows[0].find_all('td')[2].get_text() == '240'
@@ -107,3 +114,21 @@ def test_ranked_extension_preserves_uncalled_position(tmp_path, damage):
     timings = next(row for row in analysis.select('#all-final-call-latency tbody tr')
                    if row.select_one('a')['href'] == '../additional/providers/method-1.html')
     assert '506 ms' in timings.get_text()
+
+
+def test_existing_common_token_table_is_not_duplicated_or_extended_twice():
+    from harness.web_fetch.report_saved_composition import saved_token_usage, _extend_token_usage
+    page=BeautifulSoup('<section id="overall-ranking"></section>'
+        '<table id="token-usage"><thead><tr>'+('<th>Value</th>'*6)+'</tr></thead>'
+        '<tbody><tr data-provider="base"><td>base</td><td>1/1</td>'
+        '<td data-sort="42">42</td><td>10</td><td>30</td><td>2</td></tr></tbody></table>', 'html.parser')
+    records=[{'provider':'extra','provider_metadata':{'subagent_usage':{
+        'input_tokens':40,'cached_input_tokens':30,'output_tokens':2,'total_tokens':42}}}]
+    model={'providers':[{'id':'extra'}], 'rows':[{'provider':'extra'}]}
+    before=str(page)
+    assert saved_token_usage(page,records,model) is False
+    assert str(page)==before
+    _extend_token_usage(page,records,model)
+    _extend_token_usage(page,records,model)
+    assert len(page.select('#token-usage'))==1
+    assert len(page.select('#token-usage tbody tr'))==2
