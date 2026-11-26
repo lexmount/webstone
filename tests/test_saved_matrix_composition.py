@@ -165,7 +165,7 @@ def test_complete_joined_home_omits_base_only_coverage_counts(tmp_path):
     write(path, spec)
     refresh_published_extension(output, spec_path=path)
     page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
-    assert not page.select('.reliability, #overview p.callout, #completion')
+    assert not page.select('.reliability, #overview p.callout, #completion, #saved-limitations')
     assert len(page.select('#ranking-overall tbody tr')) == 2
 
 

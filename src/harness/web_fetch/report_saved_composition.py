@@ -424,6 +424,9 @@ def _unified_home(page, base_model, added_model, presentation):
         # A complete joined comparison must not inherit base-only coverage counts.
         for node in page.select('.reliability, #overview p.callout, #completion'):
             node.decompose()
+    limits = page.find(id='saved-limitations')
+    if limits is not None and not limits.find('li'):
+        limits.decompose()
     for note in page.select('[data-composition-scope], [data-added-report]'):
         note.decompose()
     method_section = page.find(id='method-overview-section')
