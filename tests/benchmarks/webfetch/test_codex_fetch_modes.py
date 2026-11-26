@@ -128,3 +128,73 @@ else{
         assert base64.b64decode(diagnostic['raw_session_b64']).endswith(b'{"type":"response_item"')
     finally:
         provider.cancel();provider.work.cleanup()
+
+
+def test_timeout_kills_pipe_holding_descendant_after_cli_leader_exits(tmp_path):
+    import time
+    from harness.web_fetch.providers.codex import CodexProvider
+
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node.js is required')
+    binary = tmp_path / 'synthetic-codex'
+    binary.write_text(f'#!{node}\n' + r"""
+const {spawn} = require('node:child_process');
+spawn(process.execPath, ['-e', 'setTimeout(()=>{},6000)'], {stdio:'inherit'});
+process.stdout.write('leader exited\n');
+setTimeout(()=>process.exit(0),20);
+""", encoding='utf-8')
+    binary.chmod(0o700)
+    provider = CodexProvider('synthetic', {'mode':'single', 'executable':str(binary)})
+    try:
+        started = time.monotonic()
+        result = provider.fetch(SimpleNamespace(url='https://example.test/', task_prompt='Read.'), 2)
+        elapsed = time.monotonic() - started
+        assert not result.ok and result.metadata['timed_out']
+        diagnostic = json.loads(base64.b64decode(result.metadata['_diagnostic_log_b64']))
+        assert b'leader exited' in base64.b64decode(diagnostic['raw_stdout_b64'])
+        assert elapsed < 4, f'Pipe-holding descendant survived cancellation: {elapsed}'
+    finally:
+        provider.cancel()
+        provider.work.cleanup()
+
+
+def test_timeout_bounds_drain_when_detached_child_keeps_pipes(tmp_path, monkeypatch):
+    import os
+    import signal
+    import time
+    from harness.web_fetch.providers.codex import CodexProvider
+
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node.js is required')
+    pid_path = tmp_path / 'child.pid'
+    binary = tmp_path / 'synthetic-codex'
+    binary.write_text(f'#!{node}\n' + r"""
+const fs = require('node:fs');
+const {spawn} = require('node:child_process');
+const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},6000)'], {stdio:'inherit', detached:true});
+fs.writeFileSync(__dirname+'/child.pid', String(child.pid));
+process.stdout.write('retained diagnostic\n');
+setTimeout(()=>process.exit(0),20);
+""", encoding='utf-8')
+    binary.chmod(0o700)
+    monkeypatch.setattr(CodexProvider, 'cancellation_cleanup_seconds', property(lambda _: .2))
+    provider = CodexProvider('synthetic', {'mode':'single', 'executable':str(binary)})
+    try:
+        started = time.monotonic()
+        result = provider.fetch(SimpleNamespace(url='https://example.test/', task_prompt='Read.'), 2)
+        assert time.monotonic() - started < 4
+        assert not result.ok and result.metadata['pipe_drain_incomplete']
+        diagnostic = json.loads(base64.b64decode(result.metadata['_diagnostic_log_b64']))
+        assert b'retained diagnostic' in base64.b64decode(diagnostic['raw_stdout_b64'])
+        assert provider.thread is None
+        assert provider.process.stdout.closed and provider.process.stderr.closed
+    finally:
+        provider.cancel()
+        if pid_path.exists():
+            try:
+                os.killpg(int(pid_path.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        provider.work.cleanup()

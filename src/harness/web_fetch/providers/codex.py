@@ -139,11 +139,13 @@ class CodexProvider(Provider):
         return [] if shutil.which(self.cli) else ["Codex CLI executable"]
 
     def cancel(self):
-        if self.process and self.process.poll() is None:
+        if self.process is not None:
             try:
                 os.killpg(self.process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+            except PermissionError as error:
+                return type(error).__name__
 
     @property
     def cancellation_cleanup_seconds(self):
@@ -188,6 +190,8 @@ class CodexProvider(Provider):
         )
         started = time.monotonic()
         timed_out = False
+        pipe_drain_incomplete = False
+        cancellation_error = None
         self.process = subprocess.Popen(
             cmd,
             cwd=self.work.name,
@@ -200,8 +204,16 @@ class CodexProvider(Provider):
             stdout, stderr = self.process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            self.cancel()
-            stdout, stderr = self.process.communicate()
+            cancellation_error = self.cancel()
+            try:
+                stdout, stderr = self.process.communicate(timeout=self.cancellation_cleanup_seconds)
+            except subprocess.TimeoutExpired as error:
+                # A detached descendant may retain the pipes after group termination.
+                # Keep the available bytes without waiting indefinitely for EOF.
+                stdout, stderr = error.output or b"", error.stderr or b""
+                pipe_drain_incomplete = True
+                self.process.stdout.close()
+                self.process.stderr.close()
         events, session = [], []
         chunk, stdout_tail, session_tail = b"", b"", b""
         record_error = None
@@ -236,7 +248,7 @@ class CodexProvider(Provider):
         delta = {k: v - self.usage.get(k, 0) for k, v in usage.items()} if usage else None
         if usage:
             self.usage = usage
-        result.ok &= self.process.returncode == 0
+        result.ok &= not timed_out and self.process.returncode == 0
         if not result.ok and not result.error_message:
             result.error_message = (
                 "Codex timed out" if timed_out else "Codex failed or returned no usable content"
@@ -258,6 +270,8 @@ class CodexProvider(Provider):
         result.metadata.update(
             elapsed_ms=round((time.monotonic() - started) * 1000, 2),
             timed_out=timed_out,
+            pipe_drain_incomplete=pipe_drain_incomplete,
+            cancellation_error=cancellation_error,
             exit_code=self.process.returncode,
             thread_id=self.thread,
             cumulative_usage=usage,

@@ -1405,3 +1405,29 @@ def test_extension_preserves_each_source_review_scope(tmp_path):
     assert check_published_extension(output)['valid']
     assert (output/'extension-base-pages/review/index.html').read_bytes() == originals[0]
     assert (output/'additional/review/index.html').read_bytes() == originals[1]
+
+
+@pytest.mark.parametrize('columns', [2, 3])
+def test_extension_preserves_existing_method_overview_columns(tmp_path, columns):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import build_published_extension
+    _, spec_path = _real_extension(tmp_path)
+    spec = json.loads(spec_path.read_text())
+    base = Path(spec['published_base']['root'])
+    home = base/'index.html'
+    headings = '<thead><tr><th>Method</th><th>Configuration</th>' + (
+        '<th>Price</th>' if columns == 3 else '') + '</tr></thead>'
+    home.write_text(home.read_text().replace(
+        '<table id="method-overview"><tbody>',
+        '<table id="method-overview">' + headings + '<tbody>'))
+    audit = json.loads((base/'saved-matrix-audit.json').read_text())
+    audit['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+    spec['published_base']['audit'] = write(base/'saved-matrix-audit.json', audit)
+    write(spec_path, spec)
+    output = tmp_path/'column-preserving-extension'
+    build_published_extension(spec_path, output)
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    table = page.select_one('#method-overview')
+    assert len(table.select('thead th')) == columns
+    assert len(table.select('tbody tr')) == 1
+    assert all(len(row.select('td')) == columns for row in table.select('tbody tr'))
