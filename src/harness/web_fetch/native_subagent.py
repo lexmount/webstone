@@ -17,6 +17,43 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Loaded execution-side so children do not transcribe capture infrastructure.
+CAPTURE_SCRIPT = r"""const shellQuote = s => "'" + s.replaceAll("'", "'\\''") + "'";
+async function checkedCommand(cmd) {
+  const result = await tools.exec_command({cmd, workdir:executionRoot, max_output_tokens:2000});
+  if (result.exit_code !== 0) throw new Error("Capture command failed: " + result.output);
+  return result;
+}
+async function prepareCapture(directory, toolName, args) {
+  const code = 'const fs=require("node:fs");const d=process.argv[1];'
+    + 'fs.writeFileSync(d+"/.raw-response.partial","",{flag:"wx"});'
+    + 'fs.writeFileSync(d+"/events.jsonl",process.argv[2]+"\\n",{flag:"wx"});';
+  const event = JSON.stringify({
+    sequence:1,tool:toolName,parameters:args,time:new Date().toISOString()
+  });
+  await checkedCommand("node -e " + shellQuote(code) + " "
+    + shellQuote(directory) + " " + shellQuote(event));
+}
+async function persistCapture(nativeReturn, directory, fetchMs) {
+  const serialized = JSON.stringify(nativeReturn);
+  if (typeof serialized !== "string") throw new Error("Native return is not JSON-serializable");
+  for (let offset=0; offset<serialized.length;) {
+    let end=Math.min(offset+32768,serialized.length);
+    if(end<serialized.length) {
+      const last=serialized.charCodeAt(end-1);
+      if(last>=0xD800 && last<=0xDBFF) end--;
+    }
+    await checkedCommand("printf %s " + shellQuote(serialized.slice(offset,end))
+      + " >> " + shellQuote(directory+"/.raw-response.partial"));
+    offset=end;
+  }
+  const receipt = await checkedCommand(
+    "uv run --frozen python -m harness.web_fetch.native_subagent --save-native-response "
+    + shellQuote(directory) + " --fetch-ms " + String(fetchMs));
+  notify(receipt.output);
+}
+"""
+
 
 def capture_event(path, event, **fields):
     row = {"event": event, "timestamp": datetime.now(UTC).isoformat(), **fields}
@@ -96,6 +133,7 @@ def save_native_response(folder, *, fetch_ms=None):
         )
     receipt = {
         "status": "saved",
+        "saved_at": datetime.now(UTC).isoformat(),
         "path": "answer.txt",
         "artifacts": artifacts,
         "blocks": blocks,
@@ -154,10 +192,10 @@ def assess_protocol(calls):
                 violations.append({**item, "type": "browser_control_api_attempt", "code": code})
         elif re.search(r"tools\.mcp__cua_repl\w*\s*\(", source):
             violations.append({**item, "type": "nested_browser_control_api_attempt"})
-        if (
-            re.search(r"tools\.mcp__lexmount__lexmount_fetch\s*\(", source)
-            or name == "lexmount_fetch"
-        ):
+        if re.search(r"tools\.mcp__lexmount__lexmount_fetch\s*\(", source) or name in {
+            "lexmount_fetch",
+            "mcp__lexmount__lexmount_fetch",
+        }:
             violations.append({**item, "type": "lexmount_tool_attempt"})
     return violations, probes
 
@@ -194,6 +232,12 @@ def audit_single_open(events, url):
             or set(args) - {"open", "response_length"}
         ):
             raise ValueError("Unexpected single-fetch route or arguments")
+        # A same-URL extension may be another standalone open. Only an
+        # explicit parent association establishes that it belongs to this MCP.
+        if extensions and (
+            not call.get("id") or any(item.get("parent_id") != call["id"] for item in extensions)
+        ):
+            raise ValueError("Ambiguous mixed MCP and native open events")
         route = "codex_apps.search_service.web_run"
     else:
         if len(extensions) != 1:
@@ -253,14 +297,45 @@ def trace_telemetry(events):
     return {"tool_calls": calls, "terminal_usage": usage, "physical_http_request_count": None}
 
 
+def delivery_timing(*, started_at, saved_at=None, ended_at=None):
+    """Keep delivery latency separate from terminal/cleanup latency.
+
+    saved_at must come from a retained execution-side save receipt, never file
+    mtime or a parent poll. Missing delivery is unavailable, even on termination.
+    This does not estimate or subtract tokens from the actual usage receipt.
+    """
+
+    def timestamp(value):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Timing timestamps require a timezone")
+        return parsed
+
+    start = timestamp(started_at)
+    saved = timestamp(saved_at) if saved_at else None
+    end = timestamp(ended_at) if ended_at else None
+    if (saved and saved < start) or (end and end < start) or (saved and end and saved > end):
+        raise ValueError("Inconsistent delivery lifecycle timestamps")
+    return {
+        "delivery_ms": (saved - start).total_seconds() * 1000 if saved else None,
+        "terminal_ms": (end - start).total_seconds() * 1000 if end else None,
+        "post_delivery_ms": (end - saved).total_seconds() * 1000 if saved and end else None,
+    }
+
+
 def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(description="Save a staged native return without fetching")
-    parser.add_argument("--save-native-response", required=True, type=Path)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--save-native-response", type=Path)
+    action.add_argument("--capture-script", action="store_true")
     parser.add_argument("--fetch-ms", type=float)
     args = parser.parse_args(argv)
-    print(json.dumps(save_native_response(args.save_native_response, fetch_ms=args.fetch_ms)))
+    if args.capture_script:
+        print(CAPTURE_SCRIPT)
+    else:
+        print(json.dumps(save_native_response(args.save_native_response, fetch_ms=args.fetch_ms)))
     return 0
 
 

@@ -10,8 +10,10 @@ from pathlib import Path
 import pytest
 
 from harness.web_fetch.native_subagent import (
+    CAPTURE_SCRIPT,
     assess_protocol,
     audit_single_open,
+    delivery_timing,
     dispatch_checks,
     main,
     save_native_response,
@@ -31,25 +33,38 @@ def test_documented_capture_transfer_preserves_shell_literals_and_split_unicode(
 const fs = require('node:fs'), vm = require('node:vm'), cp = require('node:child_process');
 const input = JSON.parse(fs.readFileSync(0, 'utf8'));
 const tools = {exec_command: async ({cmd,workdir}) => {
+  if(cmd.endsWith(' --capture-script')) return {exit_code:0,output:input.helper};
   if(cmd.startsWith('uv run --frozen python -m harness.web_fetch.native_subagent '))
     return {exit_code:0,output:'receipt'};
   return {exit_code:0,output:cp.execSync(cmd,{cwd:workdir,encoding:'utf8'})};
 }};
-const context = {tools, notify:()=>{}, executionRoot:input.directory, input};
-vm.runInNewContext(input.capture + `
+const receipts = [];
+const context = {tools, notify:value=>receipts.push(value), executionRoot:input.directory, input};
+vm.runInNewContext(`
 (async()=>{
+${input.capture}
   await prepareCapture(input.directory,'fixture_fetch',{url:'https://example.test/'});
   await persistCapture(input.body,input.directory,12.5);
-})()`, context).catch(e=>{console.error(e);process.exitCode=1;});
+})()`, context).then(()=>process.stdout.write(JSON.stringify(receipts)))
+  .catch(e=>{console.error(e);process.exitCode=1;});
 """
-    subprocess.run(
+    completed = subprocess.run(
         ["node", "-e", script],
-        input=json.dumps({"capture": capture, "directory": str(directory), "body": body}),
+        input=json.dumps(
+            {
+                "capture": capture,
+                "helper": CAPTURE_SCRIPT,
+                "directory": str(directory),
+                "body": body,
+            }
+        ),
         text=True,
         check=True,
         capture_output=True,
         timeout=15,
     )
+    assert json.loads(completed.stdout) == ["receipt"]
+    assert body not in completed.stdout
     save_native_response(directory, fetch_ms=12.5)
     assert (directory / "answer.txt").read_text() == body
     event = json.loads((directory / "events.jsonl").read_text())
@@ -73,6 +88,7 @@ def test_capture_keeps_native_text_order_binary_and_raw_envelope(tmp_path, capsy
     assert main(["--save-native-response", str(tmp_path), "--fetch-ms", "12.5"]) == 0
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["fetch_ms"] == 12.5
+    assert receipt["saved_at"]
     assert (tmp_path / "raw-response.json").read_bytes() == raw
     assert (tmp_path / "answer.txt").read_bytes() == b"first\n\nlast"
     assert (tmp_path / "block-0001.txt").read_text() == "resource text"
@@ -173,6 +189,7 @@ def test_dispatch_rejects_history_inheritance_and_preserves_unknown_plaintext():
         ),
         ({"name": "exec", "input": "text(ALL_TOOLS.filter(x=>/browser/.test(x.name)));"}, 0, 0),
         ({"name": "lexmount_fetch", "namespace": "mcp__lexmount", "arguments": "{}"}, 1, 0),
+        ({"name": "mcp__lexmount__lexmount_fetch", "arguments": "{}"}, 1, 0),
     ],
 )
 def test_namespace_aware_protocol_controls(call, violations, probes):
@@ -187,11 +204,17 @@ def completed(item):
 def test_single_open_does_not_double_count_nested_native_action():
     url = "https://example.test/"
     native = completed(
-        {"type": "Extension", "kind": "web.search", "action": {"type": "openPage", "url": url}}
+        {
+            "type": "Extension",
+            "kind": "web.search",
+            "parent_id": "mcp-1",
+            "action": {"type": "openPage", "url": url},
+        }
     )
     mcp = completed(
         {
             "type": "McpToolCall",
+            "id": "mcp-1",
             "server": "codex_apps",
             "tool": "search_service.web_run",
             "arguments": {"open": [{"ref_id": url}], "response_length": "long"},
@@ -203,7 +226,8 @@ def test_single_open_does_not_double_count_nested_native_action():
         "invocation_count": 1,
         "nested_extension_events": 1,
     }
-    for events in ([mcp, mcp], [], [native, native]):
+    standalone = completed({**native["payload"]["item"], "parent_id": None})
+    for events in ([mcp, mcp], [], [native, native], [mcp, standalone], [mcp, native, standalone]):
         with pytest.raises(ValueError):
             audit_single_open(events, url)
     with pytest.raises(ValueError):
@@ -249,3 +273,25 @@ def test_terminal_usage_is_last_cumulative_receipt_and_cache_is_not_added_twice(
         totals["uncached_input_tokens"],
     ) == (110, 80, 20)
     assert trace_telemetry([])["terminal_usage"] is None
+
+
+def test_delivery_timing_excludes_parent_cleanup_and_keeps_missing_unavailable():
+    assert delivery_timing(
+        started_at="2026-01-01T00:00:00Z",
+        saved_at="2026-01-01T00:00:02Z",
+        ended_at="2026-01-01T00:04:02Z",
+    ) == {"delivery_ms": 2000, "terminal_ms": 242000, "post_delivery_ms": 240000}
+    assert delivery_timing(started_at="2026-01-01T00:00:00Z", ended_at="2026-01-01T00:04:02Z") == {
+        "delivery_ms": None,
+        "terminal_ms": 242000,
+        "post_delivery_ms": None,
+    }
+    with pytest.raises(ValueError, match="Inconsistent"):
+        delivery_timing(started_at="2026-01-01T00:00:02Z", saved_at="2026-01-01T00:00:01Z")
+    with pytest.raises(ValueError, match="timezone"):
+        delivery_timing(started_at="2026-01-01T00:00:00")
+
+
+def test_capture_loader_cli_returns_the_shared_source_without_fetching(capsys):
+    assert main(["--capture-script"]) == 0
+    assert capsys.readouterr().out == CAPTURE_SCRIPT + "\n"

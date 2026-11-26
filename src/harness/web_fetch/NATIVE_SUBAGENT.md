@@ -41,8 +41,14 @@ The parent supplies these arguments directly to `collaboration.spawn_agent`:
 The prompt and delivery label are external frozen inputs, including their
 original language. Keep their hashes in the contract. Set the fetch budget to
 one for single-fetch and to unlimited for autonomous multiple-fetch. The latter
-leaves the fetch tools and methods to each child. Both prompts prohibit mixing
+leaves the fetch tools and methods to each child. The historical prompts
+prohibited mixing
 Browser Use click, scroll, input and other interactive actions into fetching.
+That historical policy is not a new requirement: for unrestricted native fetch,
+freeze only the requested single/unlimited budget and delivery boundary. Do not
+force `openPage`, a particular route or the historical browser restriction.
+Intermediate retrieval, inspection and decision-making are allowed; the final
+delivered body must not be echoed back into the child context.
 The original comparison used a 300-second case deadline, zero retries, two
 concurrent children and full-content scoring. These are instance settings.
 
@@ -57,41 +63,30 @@ result remains unknown in the retained proof.
 ## Single-fetch native capture
 
 The original single-fetch collection saved the untouched native tool return
-without asking the child to rewrite its text. The following capture functions
-can be pasted into a child's `functions.exec` invocation. Bind `executionRoot`,
+without asking the child to rewrite its text. Load the following capture
+functions execution-side in the child's
+`functions.exec` invocation. The helper source stays in the execution runtime;
+do not print it to the child or transcribe it into another model-generated call.
+Bind `executionRoot`,
 `directory` and `fetchArguments` from the admitted contract before use. The
 directory must already exist and belong exclusively to that case.
 
 ```javascript
-const shellQuote = s => "'" + s.replaceAll("'", "'\\''") + "'";
-async function checkedCommand(cmd) {
-  const result = await tools.exec_command({cmd, workdir:executionRoot, max_output_tokens:2000});
-  if (result.exit_code !== 0) throw new Error("Capture command failed: " + result.output);
-  return result;
-}
-async function prepareCapture(directory, toolName, args) {
-  const code = 'const fs=require("node:fs");const d=process.argv[1];fs.writeFileSync(d+"/.raw-response.partial","",{flag:"wx"});fs.writeFileSync(d+"/events.jsonl",process.argv[2]+"\\n",{flag:"wx"});';
-  const event = JSON.stringify({sequence:1,tool:toolName,parameters:args,time:new Date().toISOString()});
-  await checkedCommand("node -e " + shellQuote(code) + " " + shellQuote(directory) + " " + shellQuote(event));
-}
-async function persistCapture(nativeReturn, directory, fetchMs) {
-  const serialized = JSON.stringify(nativeReturn);
-  if (typeof serialized !== "string") throw new Error("Native return is not JSON-serializable");
-  for (let offset=0; offset<serialized.length;) {
-    let end=Math.min(offset+32768,serialized.length);
-    if(end<serialized.length) {
-      const last=serialized.charCodeAt(end-1);
-      if(last>=0xD800 && last<=0xDBFF) end--;
-    }
-    await checkedCommand("printf %s " + shellQuote(serialized.slice(offset,end)) + " >> " + shellQuote(directory+"/.raw-response.partial"));
-    offset=end;
-  }
-  const receipt = await checkedCommand("uv run --frozen python -m harness.web_fetch.native_subagent --save-native-response " + shellQuote(directory) + " --fetch-ms " + String(fetchMs));
-  notify(receipt.output);
-}
+const helper = await tools.exec_command({
+  cmd: "uv run --frozen python -m harness.web_fetch.native_subagent --capture-script",
+  workdir: executionRoot, max_output_tokens: 4000
+});
+if (helper.exit_code !== 0) throw new Error("Capture helper unavailable");
+const {prepareCapture, persistCapture} = new Function(
+  "tools", "notify", "executionRoot",
+  helper.output + "\nreturn {prepareCapture, persistCapture};"
+)(tools, notify, executionRoot);
 ```
 
-Call `prepareCapture` before the chosen fetch. Time only that tool invocation,
+Keep helper loading, `prepareCapture`, the chosen fetch and `persistCapture`
+in the same `functions.exec` invocation. This runtime discards local variables
+between invocations. Call `prepareCapture` before the chosen fetch. Time only
+that tool invocation,
 catch a tool exception as `{fetch_error: String(error)}`, then pass the untouched
 return and duration to `persistCapture`. Print only the save receipt. End the
 child after delivery; the parent retains its actual terminal state. This capture
@@ -99,9 +94,37 @@ helper performs no network request. Its exclusive save claim prevents a second
 save to the same directory. Raw JSON, ordered text, binary blocks, hashes and
 fetch/save timers remain separate artifacts.
 
-Autonomous multiple-fetch children instead write their final selected delivery
-to the specified path. Preserve that file and its hash at termination; leave
-absent delivery absent. Capture does not transform it into a synthetic response.
+Autonomous multiple-fetch children may inspect intermediate returns and choose
+how to fetch. Once the final delivery is saved, return only a small save receipt
+(status, path, byte count and hash). Never read the delivered body back for
+confirmation or print it again. The same rule applies to single-fetch.
+The final save must use `persistCapture` above (with a string delivery or the
+untouched selected native envelope); its execution-side writer returns only the
+receipt. Do not append `cat`, `head`, `tail`, previews or model summaries to that
+save. File writing runs in the execution layer; the model need not reproduce
+bytes already held there.
+Use the same capture functions in a distinct per-call directory when preserving
+multiple raw returns. Preserve the selected delivery and all raw calls; leave
+absent delivery absent. Capture does not transform a model-written delivery into
+a synthetic native response.
+
+Do not add child progress messages, process polling or a post-save sleep. A
+pending execution is awaited by the runtime/parent, without a new child model
+turn to ask whether it finished. After the save receipt, end the child; retain
+any unavoidable terminal status separately. The parent reclaims the child slot
+only after its terminal state is observed. Do not instruct the child to stay
+pending until interrupted just to suppress a final status.
+
+Freeze the delivery boundary before calls: session start through the execution
+layer's successful save receipt is delivery latency; session start through
+termination is total lifecycle latency. Keep the post-delivery interval separate.
+`save_native_response` now retains `saved_at` in its receipt. `delivery_timing`
+projects these intervals and leaves a missing receipt unavailable. Historical
+receipts without timestamps may use a hash-bound successful save-command
+completion from the runtime trace, labeled as that boundary; never substitute
+filesystem mtime or the parent's next poll. Keep the original timing unchanged.
+Retain all actual child tokens. Do not subtract estimated confirmation/polling
+cost to present a contaminated execution as a clean one.
 
 ## Offline audit, usage and scoring
 
@@ -115,7 +138,10 @@ call IDs; do not remove flagged cases or change their answers.
 `audit_single_open` checks the original native open routes using runtime
 `item_completed` events. An MCP call with its nested native extension is one
 logical invocation. It rejects multiple opens, changed URLs and unexpected
-request arguments. Retain and inspect shell commands separately.
+request arguments. Mixed MCP/extension events require an explicit `parent_id`
+association; matching URL text alone does not establish nesting. This historical
+open-route audit is not a restriction on future native fetch tool selection.
+Retain and inspect shell commands separately.
 
 `trace_telemetry` projects whole-tool call durations and the last cumulative
 `token_count.info.total_token_usage`, leaving unmatched durations and missing
@@ -147,3 +173,12 @@ provider calls:
 ```sh
 uv run --frozen python -m pytest tests/benchmarks/webfetch/test_native_subagent.py
 ```
+
+## Metric meanings
+
+Keep task acceptance separate from delivery completion and origin HTTP success.
+A completed child with a saved error explanation establishes a delivery, not a
+successful HTTP request. Missing HTTP status stays unavailable. Do not turn
+`terminal_state == completed` or a save receipt into an HTTP-success claim.
+The existing saved report's `ok`/normal-return metric retains its adapter-defined
+meaning; it does not measure origin HTTP success for these native children.
