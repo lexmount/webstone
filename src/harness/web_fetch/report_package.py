@@ -1049,7 +1049,7 @@ def namespace_saved_evidence(name, text, namespaces):
                 if len(candidates) != 1:
                     return match[0]
                 relative = posixpath.relpath(candidates.pop(), posixpath.dirname(name) or '.')
-                return match[1] + html.escape(relative + ('?' + value.query if value.query else '')
+                return match[1] + html.escape(quote(relative, safe='/') + ('?' + value.query if value.query else '')
                     + ('#' + value.fragment if value.fragment else ''), quote=True) + '"'
             return re.sub(r'((?:href|src)=")([^"]*)"', relative_link, text)
     raise ValueError('Saved evidence has no owning report: ' + name)

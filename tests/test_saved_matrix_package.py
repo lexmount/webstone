@@ -19,6 +19,7 @@ def test_saved_matrix_cannot_be_packaged_for_release(tmp_path):
 def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
     import json
     import zipfile
+    from urllib.parse import quote
     from harness.reporting.packs import DecompressedPackCache, read_packed_manifest, reconstruct_packed_file
     from harness.web_fetch.publication_check import check
     from harness.web_fetch.report_saved_matrix import build_saved_matrix
@@ -34,7 +35,13 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
         audit['files'][page.name] = hashlib.sha256(page.read_bytes()).hexdigest()
         viewer = root/'evidence/viewer/original.html'
         viewer.parent.mkdir(parents=True, exist_ok=True)
-        viewer.write_text('<html><body><a href="../references/first--same.txt">Source</a></body></html>')
+        links = '<a href="../references/first--same.txt">Source</a>'
+        for name in ('a#b.txt', 'a?b.txt', 'a%b.txt'):
+            artifact = root/'references'/name
+            artifact.write_text('Encoded filename evidence')
+            audit['files']['references/'+name] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+            links += '<a href="../references/'+quote(name, safe='')+'?download=1#raw">Source</a>'
+        viewer.write_text('<html><body>'+links+'</body></html>')
         audit['files'][viewer.relative_to(root).as_posix()] = hashlib.sha256(viewer.read_bytes()).hexdigest()
         audit_path.write_text(json.dumps(audit))
         entry['audit']['sha256'] = hashlib.sha256(audit_path.read_bytes()).hexdigest()
@@ -56,6 +63,8 @@ def test_composition_package_keeps_nested_evidence_and_frozen_scores(tmp_path):
             assert ('data-file="' + prefix).encode() in page
             viewer = reconstruct_packed_file(manifest, prefix + 'evidence/viewer/original.html', packs)
             assert b'href="../../references/first--same.txt"' in viewer
+            for name in ('a#b.txt', 'a?b.txt', 'a%b.txt'):
+                assert ('href="../../references/'+quote(name, safe='')+'?download=1#raw"').encode() in viewer
         assert reconstruct_packed_file(manifest, 'results.jsonl', packs) == prior
     results = source/'results.jsonl'
     altered = [json.loads(line) for line in prior.splitlines()]
