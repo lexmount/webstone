@@ -136,7 +136,9 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
     legacy_overview = methods is None
-    show_prices = not legacy_overview or any(re.search(r'\d', m['price']) for m in overview)
+    column_count = len(methods.select('thead th')) if methods is not None else 0
+    show_prices = column_count == 3 if column_count else (
+        not legacy_overview or any(re.search(r'\d', m['price']) for m in overview))
     if methods is None:
         from harness.web_fetch.report import section, table
         from harness.web_fetch.report_i18n import t
