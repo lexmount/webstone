@@ -9,6 +9,34 @@ from bs4 import BeautifulSoup
 from tests.test_saved_matrix_evidence import fixture, build, write
 
 
+def test_saved_report_shows_complete_caller_usage_without_double_counting_cache(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    record['provider_metadata']['subagent_usage'] = dict(
+        input_tokens=100, cached_input_tokens=80, output_tokens=7, total_tokens=107)
+    raw = (json.dumps(record) + '\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    root = build(tmp_path, spec).parent
+    from harness.report_languages import REPORT_PAGE_MARKER
+    assert REPORT_PAGE_MARKER in (root/'index.html').read_text()
+    home = BeautifulSoup((root/'index.html').read_text(), 'html.parser')
+    usage = home.select_one('#token-usage tbody tr')
+    assert [cell.get_text(strip=True) for cell in usage.find_all('td')][1:] == [
+        '1/1', '107', '20', '80', '7']
+    assert usage.select_one('a')['href'] == 'providers/method.html'
+
+
+def test_saved_report_rejects_inconsistent_caller_usage(tmp_path):
+    spec, source, record, _ = fixture(tmp_path)
+    record['provider_metadata']['subagent_usage'] = dict(
+        input_tokens=100, cached_input_tokens=101, output_tokens=7, total_tokens=107)
+    raw = (json.dumps(record) + '\n').encode()
+    (source/'results.jsonl').write_bytes(raw)
+    spec['sources'][0]['results']['sha256'] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(ValueError, match='Inconsistent saved subagent token receipt'):
+        build(tmp_path, spec)
+
+
 @pytest.mark.parametrize('tie', [False, True])
 def test_saved_ranking_keeps_failed_call_latency_neutral(tmp_path, tie):
     spec, source, record, raw = fixture(tmp_path)

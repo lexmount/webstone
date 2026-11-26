@@ -136,17 +136,12 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
         old.find('table', id='ranking-overall').parent.insert_before(explanation)
     methods = old.find('table', id='method-overview')
     legacy_overview = methods is None
+    show_prices = not legacy_overview or any(re.search(r'\d', m['price']) for m in overview)
     if methods is None:
-        from harness.web_fetch.report import cell, link, section, table
-        rows = []
-        for method in base_model['providers']:
-            href = 'providers/' + method['id'] + '.html'
-            rows.append(('', cell(link(href, escape(method.get('label', method['id'])))
-                + '<small class="method-execution">' + _text('extension_retained_settings') + '</small>')
-                + cell(link(href, _text('extension_retained_settings')))
-                + cell('—<p>' + _text('extension_unrecorded') + '</p>')))
-        fragment = section(_text('extension_method_overview_title'),
-            table(_text('extension_method_overview_headers'), rows, 'method-overview',
+        from harness.web_fetch.report import section, table
+        headers = _text('extension_method_overview_headers')
+        fragment = section(_text('extension_method_overview_title') if show_prices else headers[1],
+            table(headers if show_prices else headers[:2], [], 'method-overview',
                   metrics=[], include_index=False),
             'method-overview-section')
         old.find(id='overall-ranking').insert_after(BeautifulSoup(fragment, 'html.parser'))
@@ -163,13 +158,14 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
                 + '</ul>' + ('<p>' + escape(group['note']) + '</p>' if group.get('note') else '')
                 + '</dd></div>' for group in method['configurations']) + '</dl>'
         sources = ' · '.join('<a href="' + escape(s['url'], quote=True) + '">' + escape(s['label']) + '</a>' for s in method['sources'])
-        fragment = BeautifulSoup('<td><a href="additional/providers/' + escape(method['id']) + '.html">' + escape(method['label']) + '</a><small class="method-execution">' + escape(method['execution']) + '</small></td><td>' + settings + '</td><td>' + escape(method['price']) + '<p>' + escape(method['billing']) + '</p>' + sources + '</td>', 'html.parser')
+        pricing = '<td>' + escape(method['price']) + '<p>' + escape(method['billing']) + '</p>' + sources + '</td>' if show_prices else ''
+        fragment = BeautifulSoup('<td><a href="additional/providers/' + escape(method['id']) + '.html">' + escape(method['label']) + '</a><small class="method-execution">' + escape(method['execution']) + '</small></td><td>' + settings + '</td>' + pricing, 'html.parser')
         for cell in list(fragment.contents):
             row.append(cell)
         methods.tbody.append(row)
     if legacy_overview:
         methods['style'] = 'table-layout:fixed;width:100%'
-        for heading, width in zip(methods.select('thead th'), ('28%', '47%', '25%'), strict=True):
+        for heading, width in zip(methods.select('thead th'), ('28%', '47%', '25%') if show_prices else ('32%', '68%'), strict=True):
             heading['style'] = 'width:' + width
         for cell in methods.select('tbody td'):
             cell['style'] = 'white-space:normal;overflow-wrap:anywhere;vertical-align:top'
@@ -198,7 +194,7 @@ def _extended_home(base, addition, base_model, added_model, overview, note, *, r
     return str(old)
 
 
-def _extend_token_usage(page, records, model):
+def _extend_token_usage(page, records, model, *, provider_prefix='additional/'):
     """Append observed usage while retaining the frozen source's token cells."""
     from bs4 import BeautifulSoup
     from harness.web_fetch.report import cell, esc, link
@@ -225,7 +221,7 @@ def _extend_token_usage(page, records, model):
         totals = {key: sum(item[key] for item in usage) for key in fields}
         values = (totals['total_tokens'], totals['input_tokens'] - totals['cached_input_tokens'],
                   totals['cached_input_tokens'], totals['output_tokens'])
-        cells = cell(link('additional/providers/' + provider['id'] + '.html',
+        cells = cell(link(provider_prefix + 'providers/' + provider['id'] + '.html',
                           esc(provider.get('label', provider['id']))))
         cells += cell(f'{len(usage)}/{planned}')
         cells += ''.join(cell(f'{value:,}' if usage else '—', value if usage else None) for value in values)
@@ -236,6 +232,26 @@ def _extend_token_usage(page, records, model):
     for row in sorted(rows, key=lambda row: float(row.find_all('td')[2].get('data-sort', 'inf'))):
         target.tbody.append(row)
     target['data-col'], target['data-dir'] = '2', 'asc'
+
+
+def saved_token_usage(page, records, model):
+    """Render actual caller usage for the selected methods, including cached input once."""
+    if not any(r.get('provider_metadata', {}).get('subagent_usage')
+               or r.get('provider_metadata', {}).get('terminal_usage') for r in records):
+        return
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report import model_text, section, table
+    headers = [model_text(zh, en) for zh, en in (
+        ('方法', 'Method'), ('记录 / 题数', 'Recorded / cases'), ('Token 总量', 'Total tokens'),
+        ('未缓存输入', 'Uncached input'), ('缓存输入', 'Cached input'), ('输出', 'Output'))]
+    fragment = section(model_text('Token 消耗', 'Token usage'),
+        '<p>' + model_text('总量 = 未缓存输入 + 缓存输入 + 输出。缓存只计一次。',
+        'Total = uncached input + cached input + output. Cached input is counted once.') + '</p>'
+        + table(headers, [], 'token-usage', sortable=True, metrics=[], include_index=False), 'token-consumption')
+    owner = page.find(id='overall-ranking')
+    owner.insert_after(BeautifulSoup(fragment, 'html.parser'))
+    _extend_token_usage(page, records, model, provider_prefix='')
+    return True
 
 
 def _rank_extension_table(table, score_column, *, minimize=(), maximize=(), ascending=False):
@@ -471,6 +487,8 @@ def _home_method_summary(page, prices=None):
     prices = prices or {}
     overview = page.select_one('#method-overview')
     heading = overview.select_one('thead') if overview else None
+    if heading and len(heading.select('th')) == 2:
+        return
     overview_unit = bool(heading and re.search(r'千次|1,?000\s*(?:requests?|calls?)', heading.get_text(), re.I))
     for row in page.select('#method-overview tbody tr'):
         cells = row.find_all('td', recursive=False)
@@ -1125,14 +1143,24 @@ def _project(value, paths):
 
 
 def _public_spec(spec):
-    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking') if k in spec}
+    result = {k: deepcopy(spec[k]) for k in ('title', 'limitations', 'presentation', 'combined_ranking', 'ranking') if k in spec}
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = True
     return result
 
 
+def _composition_source(root, binding, mode):
+    if mode == 'frozen_report':
+        return _frozen_report(root, binding)
+    if mode != 'verified':
+        raise ValueError('Unknown saved report source mode')
+    from harness.web_fetch.report_saved_matrix import check_saved_matrix
+    check_saved_matrix(root)
+    return _read(root/'matrix.json')
+
+
 def composition_model(output, spec, snapshots):
-    from harness.web_fetch.report_saved_matrix import _case_identity, _totals, check_saved_matrix
+    from harness.web_fetch.report_saved_matrix import _case_identity, _totals
     providers, rows, cases, suites, families = [], [], {}, None, None
     expected_population = None
     for snapshot in snapshots:
@@ -1141,8 +1169,9 @@ def composition_model(output, spec, snapshots):
         root = contained_path(output, snapshot['path'], reject_symlinks=True)
         if _hash(root / 'saved-matrix-audit.json') != snapshot['sha256']:
             raise ValueError('Saved composition source audit changed')
-        check_saved_matrix(root)
-        audit, model = _read(root / 'saved-matrix-audit.json'), _read(root / 'matrix.json')
+        model = _composition_source(root, {'sha256': snapshot['sha256']},
+                                    snapshot.get('source_mode', 'verified'))
+        audit = _read(root / 'saved-matrix-audit.json')
         if 'providers' in snapshot:
             selected = snapshot['providers']
             available = {p['id'] for p in model['providers']}
@@ -1182,6 +1211,8 @@ def composition_model(output, spec, snapshots):
                   scores_changed=any(row.get('score_revision') for row in rows))
     if families is not None:
         result['report_families'] = families
+    if 'ranking' in spec:
+        result['ranking'] = spec['ranking']
     if spec.get('native_policy_registry'):
         result['native_policy_registry'] = {'path': 'native-policy-registry.json',
                                            'sha256': _hash(output / 'native-policy-registry.json')}
@@ -1207,16 +1238,18 @@ def build_composition(spec_path, output):
         audit_path = root / 'saved-matrix-audit.json'
         if _hash(audit_path) != item['audit']['sha256']:
             raise ValueError('Saved report audit differs from binding')
-        check_saved_matrix(root)
+        mode = item.get('source_mode', 'verified')
+        model = _composition_source(root, item['audit'], mode)
         relative = 'evidence/saved-reports/' + identifier
         shutil.copytree(root, output / relative)
         snapshot = {'id': identifier, 'path': relative, 'sha256': _hash(audit_path)}
+        if mode != 'verified':
+            snapshot['source_mode'] = mode
         if 'providers' in item:
             snapshot['providers'] = item['providers']
         snapshots.append(snapshot)
         # Revision receipts use report-root review attachment links. Preserve
         # those exact bytes, rejecting ambiguous collisions across sources.
-        model = _read(root / 'matrix.json')
         receipt_paths = {row['score_revision']['receipt_path'] for row in model['rows']
                          if row.get('score_revision')}
         for receipt_path in sorted(receipt_paths):

@@ -9,7 +9,7 @@ from harness.web_fetch.report_saved_matrix import build_saved_matrix, check_save
 from tests.test_saved_matrix_evidence import build, fixture, write
 
 
-def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False):
+def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=False, families=False, usage=False):
     entries = []
     for i in range(2):
         folder = tmp_path / str(i)
@@ -19,6 +19,9 @@ def reports(tmp_path, *, different_task=False, duplicate=False, undecidable=Fals
         provider = 'method' if duplicate else 'method-' + str(i)
         spec['providers'] = [{'id': provider, 'label': provider}]
         record.update(provider=provider, attempt_id='run-' + str(i))
+        if usage:
+            record['provider_metadata']['subagent_usage'] = dict(
+                input_tokens=100+i, cached_input_tokens=80, output_tokens=7, total_tokens=107+i)
         if i and undecidable:
             record['metrics']['acceptance_checks'] = {'content': None}
         raw = (json.dumps(record) + '\n').encode()
@@ -100,6 +103,57 @@ def test_composition_selects_method_without_changing_saved_results(tmp_path):
     original = json.loads((source / 'matrix.json').read_bytes())['rows'][1]
     assert (output / row['record_path']).read_bytes() == (source / original['record_path']).read_bytes()
     assert row['passed'] == original['passed'] and row['elapsed_ms'] == original['elapsed_ms']
+
+
+@pytest.mark.parametrize('source_mode', ['verified', 'frozen_report'])
+def test_method_selection_updates_usage_and_removes_incomplete_population_notice(tmp_path, source_mode):
+    from bs4 import BeautifulSoup
+    _, entries = reports(tmp_path, usage=True)
+    spec = {'schema_version': 1, 'title': 'Selected caller', 'ranking': 'saved_task_pass_rate',
+            'saved_reports': [{**entries[1], 'providers': ['method-1'], 'source_mode': source_mode}]}
+    path = tmp_path/'selected.json'
+    write(path, spec)
+    output = build_saved_matrix(path, tmp_path/'selected').parent
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    assert 'method-0' not in page.get_text()
+    assert '结果未覆盖同一组完整任务' not in page.get_text()
+    rows = page.select('#token-usage tbody tr')
+    assert len(rows) == 1 and '108' in rows[0].get_text()
+
+
+def test_frozen_selection_rejects_changed_source_bytes(tmp_path):
+    _, entries = reports(tmp_path)
+    source = Path(entries[1]['root'])
+    (source/'index.html').write_text('changed')
+    spec = {'schema_version': 1, 'title': 'Selected caller', 'saved_reports': [
+        {**entries[1], 'providers': ['method-1'], 'source_mode': 'frozen_report'}]}
+    path = tmp_path/'selected.json'
+    write(path, spec)
+    with pytest.raises(ValueError, match='Frozen report file changed'):
+        build_saved_matrix(path, tmp_path/'selected')
+
+
+def test_missing_legacy_configuration_does_not_create_placeholder_rows(tmp_path):
+    from bs4 import BeautifulSoup
+    from harness.web_fetch.report_saved_composition import build_published_extension
+    _, spec_path = _real_extension(tmp_path)
+    spec = json.loads(spec_path.read_text())
+    base = Path(spec['published_base']['root'])
+    home = base/'index.html'
+    home.write_text(home.read_text().replace(
+        '<section id="method-overview-section"><table id="method-overview"><tbody></tbody></table></section>', ''))
+    audit = json.loads((base/'saved-matrix-audit.json').read_text())
+    audit['files']['index.html'] = hashlib.sha256(home.read_bytes()).hexdigest()
+    spec['published_base']['audit'] = write(base/'saved-matrix-audit.json', audit)
+    write(spec_path, spec)
+    output = tmp_path/'compact-extension'
+    build_published_extension(spec_path, output)
+    page = BeautifulSoup((output/'index.html').read_text(), 'html.parser')
+    table = page.select_one('#method-overview')
+    assert len(table.select('tbody tr')) == 1
+    assert len(table.select('thead th')) == 2
+    assert '沿用原报告设置' not in table.get_text()
+    assert '未记录' not in table.get_text()
 
 
 @pytest.mark.parametrize('selected', [[], ['unknown'], ['method-0', 'method-0'], 'method-0', [None], None])

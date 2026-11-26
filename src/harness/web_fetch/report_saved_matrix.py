@@ -3061,6 +3061,16 @@ def render_saved_with_standard_generator(output, model):
     label_token = _REPORT_PROVIDER_LABELS.set({p['id']: p['label'] for p in model['providers']})
     try:
         entry = generate(output,dataset,records,[],authored_interpretation=False,frozen_scores=True)
+        from bs4 import BeautifulSoup
+        from harness.web_fetch.report_saved_composition import saved_token_usage
+        home = BeautifulSoup(entry.read_text(encoding='utf-8'), 'html.parser')
+        if saved_token_usage(home, records, model):
+            from harness.report_languages import REPORT_PAGE_MARKER
+            marker = home.find('meta', attrs={'name': 'webstone-report'})
+            rendered = str(home)
+            if marker:
+                rendered = rendered.replace(str(marker), REPORT_PAGE_MARKER)
+            entry.write_text(rendered, encoding='utf-8')
         from harness.web_fetch.report import write, hero, esc, saved_matrix_scope_section, local_audit_banner
         for provider in providers:
             if not any(r['provider'] == provider for r in records):
