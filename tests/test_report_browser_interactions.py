@@ -22,6 +22,49 @@ DESKTOP_LIGHT = {"viewport": {"width": 1280, "height": 900}, "color_scheme": "li
 NARROW_DARK = {"viewport": {"width": 390, "height": 844}, "color_scheme": "dark"}
 
 
+@pytest.mark.parametrize("language", ["en", "zh-CN"])
+@pytest.mark.parametrize("ranked", [False, True])
+def test_saved_scope_footer_preserves_scores_errors_and_methodology(tmp_path, browser, language, ranked):
+    from pathlib import Path
+    from harness.web_fetch import report
+
+    (tmp_path / "app.js").write_bytes((Path(report.__file__).parent / "assets/report.js").read_bytes())
+    state = 'saved_results' if ranked else 'saved_diagnostic'
+    ranking = ' data-ranking-scope="saved-task-pass-rate"' if ranked else ''
+    (tmp_path / "index.html").write_text(f'''<!doctype html><html lang="{language}">
+    <head><script defer src="app.js"></script></head><body>
+    <div class="wrap callout" data-evidence-state="{state}"{ranking}>Repeated certification alert</div>
+    <div class="wrap reliability failure" data-saved-completion>Repeated coverage alert</div>
+    <section id="overall-ranking"><p class="callout">Repeated ranking warning</p>
+    <table><tbody><tr><td>209/530</td></tr></tbody></table></section>
+    <section id="overview"><p class="callout">Repeated coverage</p><div class="home-overview-grid">
+    <div class="card"><h3>Static text</h3><p>Card summary</p></div></div></section>
+    <section id="results"><p class="callout">Repeated ranking warning</p></section>
+    <section id="methodology"><p data-saved-certification="not-conferred">Scoring provenance and limits</p></section>
+    <p class="callout success" id="explanation">Retained explanation</p>
+    <div class="reliability failure" id="error">proxy CONNECT returned HTTP 502</div>
+    <pre id="log">Original request log</pre>
+    <footer><p>Methodology and version history</p></footer></body></html>''', encoding='utf-8')
+    with local_report_server(tmp_path) as origin:
+        page = local_page(browser, origin)
+        try:
+            page.goto(origin)
+            expect(page.locator('footer p')).to_have_attribute('data-evidence-state', state)
+            assert page.locator('.callout,[data-saved-completion]').count() == 0
+            assert page.locator('#overview .card p').count() == int(ranked)
+            expect(page.locator('table')).to_have_text('209/530')
+            expect(page.locator('#error')).to_have_text('proxy CONNECT returned HTTP 502')
+            expect(page.locator('#log')).to_have_text('Original request log')
+            expect(page.locator('#explanation')).to_have_text('Retained explanation')
+            expect(page.locator('[data-saved-certification]')).to_be_visible()
+            if ranked:
+                expect(page.locator('footer p')).to_have_attribute('data-ranking-scope', 'saved-task-pass-rate')
+            page.evaluate("window.dispatchEvent(new Event('report-ready'))")
+            assert page.locator('[data-saved-status]').count() == 1
+        finally:
+            page.close()
+
+
 @pytest.fixture
 def display(request):
     return getattr(request, "param", NARROW_DARK)

@@ -83,6 +83,10 @@ does not confer certification or require new provider calls.
 Retain each selected source's execution settings. Presentation gates verify the
 hash-bound predecessor HTML and apply current semantic checks to new projections,
 including embedded comparisons; diagnostic views do not introduce winner styling.
+Keep repeated saved-result coverage and certification notices out of the page
+body. Use the ordinary footer for page scope and the methodology for complete
+counts, scoring provenance and limits; preserve case errors and evidence controls.
+Frozen source pages use the same shared presentation controls.
 
 When adding saved methods to an existing publication, inspect both frozen task
 contracts and scorer identities before combining ranks. Different editions retain

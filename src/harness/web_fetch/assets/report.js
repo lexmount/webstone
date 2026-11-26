@@ -17,6 +17,28 @@ function cascadeFilters(changed){let rows=[...document.querySelectorAll('#rows t
 function outcomes(row,key){return new Set((row.dataset[key]||'').split(' ').filter(Boolean))}
 function compareMethods(){let a=document.getElementById('compare-a'),relation=document.getElementById('compare-relation'),track=document.getElementById('compare-track'),count=document.getElementById('compare-count');if(!a||!relation||!track||!count)return;let boxes=[...document.querySelectorAll('[data-compare-method]')];boxes.forEach(box=>{box.disabled=box.value===a.value;box.closest('label')?.classList.toggle('disabled',box.disabled);if(box.disabled)box.checked=false});let others=boxes.filter(box=>box.checked&&!box.disabled).map(box=>box.value),selected=[a.value,...others],shown=0;document.querySelectorAll('#compare-rows tr').forEach(row=>{let pass=outcomes(row,'pass'),fail=outcomes(row,'fail'),match=others.length>0&&(!track.value||row.dataset.track===track.value);if(match)match={mixed:selected.some(x=>pass.has(x))&&selected.some(x=>fail.has(x)),a_pass_others_fail:pass.has(a.value)&&others.every(x=>fail.has(x)),a_fail_others_pass:fail.has(a.value)&&others.every(x=>pass.has(x)),all_pass:selected.every(x=>pass.has(x)),all_fail:selected.every(x=>fail.has(x)),exact_pass:selected.every(x=>pass.has(x))&&pass.size===selected.length}[relation.value];row.hidden=!match;if(match)shown++});count.textContent=others.length?tr(`找到 ${shown} 个任务`,`${shown} tasks found`):tr('请至少选择一个对比方法','Select at least one comparison method')}
 function wmbCompare(){let a=document.getElementById('wmb-compare-a'),relation=document.getElementById('wmb-compare-relation'),axis=document.getElementById('wmb-compare-axis'),category=document.getElementById('wmb-compare-category'),count=document.getElementById('wmb-compare-count');if(!a||!relation||!axis||!category||!count)return;let boxes=[...document.querySelectorAll('[data-wmb-compare-method]')];boxes.forEach(box=>{box.disabled=box.value===a.value;box.closest('label')?.classList.toggle('disabled',box.disabled);if(box.disabled)box.checked=false});let others=boxes.filter(box=>box.checked&&!box.disabled).map(box=>box.value),selected=[a.value,...others],rows=[...document.querySelectorAll('#wmb-compare-rows tr')],allowed=new Set(rows.map(row=>row.dataset[axis.value]).filter(Boolean));for(let option of category.options)option.disabled=!!option.value&&!!axis.value&&!allowed.has(option.value);if(category.value&&!allowed.has(category.value))category.value='';category.disabled=!axis.value;let shown=0;for(let row of rows){let delivered=outcomes(row,'delivered'),failed=outcomes(row,'failed'),match=others.length>0&&(!axis.value||!category.value||row.dataset[axis.value]===category.value);if(match)match={mixed:selected.some(x=>delivered.has(x))&&selected.some(x=>failed.has(x)),a_success_others_fail:delivered.has(a.value)&&others.every(x=>failed.has(x)),a_fail_others_success:failed.has(a.value)&&others.every(x=>delivered.has(x)),all_success:selected.every(x=>delivered.has(x)),all_fail:selected.every(x=>failed.has(x)),exact_success:selected.every(x=>delivered.has(x))&&delivered.size===selected.length}[relation.value];row.hidden=!match;if(match){shown++;row.cells[0].textContent=shown}}count.textContent=others.length?tr(`显示 ${shown} / ${rows.length} 页`,`Showing ${shown} / ${rows.length} pages`):tr('请至少选择一个对比方法','Select at least one comparison method')}
+// Frozen source pages share these controls with newly rendered pages. Keep their
+// evidence bytes intact while presenting scope once, in the ordinary footer.
+function compactSavedNotices(){
+ const notices=[...document.querySelectorAll('.wrap.callout[data-evidence-state],.wrap.source-note[data-evidence-state]')];
+ const footer=document.querySelector('footer p');
+ if(!footer||!notices.length)return;
+ const scope=notices[0].dataset;
+ footer.dataset.evidenceState=scope.evidenceState;
+ if(scope.rankingScope)footer.dataset.rankingScope=scope.rankingScope;
+ if(!footer.querySelector('[data-saved-status]')){
+  const status=document.createElement('span');status.dataset.savedStatus='';
+  status.textContent=tr('保存结果对照，未作基准认证。','Saved-result comparison; not benchmark certification. ');
+  footer.prepend(status);
+ }
+ notices.forEach(node=>node.remove());
+ document.querySelectorAll('[data-saved-completion],#overall-ranking p.callout,#overview p.callout,#results p.callout').forEach(node=>node.remove());
+ if(scope.evidenceState==='saved_diagnostic')document.querySelectorAll('#overview .home-overview-grid .card > p').forEach(node=>node.remove());
+ // Other explanatory notes retain their content without colored alert styling.
+ document.querySelectorAll('.callout').forEach(node=>node.classList.remove('callout','success'));
+}
+window.addEventListener('report-ready',compactSavedNotices);
+window.addEventListener('DOMContentLoaded',compactSavedNotices);
 let callLogTrigger=null;
 async function loadDiagnosticEvidence(dialog){
  for(const pre of dialog.querySelectorAll('pre[data-file],pre[data-record],pre[data-evidence-file]')){
