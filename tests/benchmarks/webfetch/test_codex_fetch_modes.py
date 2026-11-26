@@ -159,11 +159,12 @@ setTimeout(()=>process.exit(0),20);
         provider.work.cleanup()
 
 
-def test_timeout_bounds_drain_when_detached_child_keeps_pipes(tmp_path, monkeypatch):
+def test_unresolved_detached_child_quarantines_provider_and_retains_diagnostics(tmp_path, monkeypatch):
     import os
     import signal
     import time
     from harness.web_fetch.providers.codex import CodexProvider
+    from harness.web_fetch.providers.base import ProcessCleanupError
 
     node = shutil.which('node')
     if not node:
@@ -183,13 +184,19 @@ setTimeout(()=>process.exit(0),20);
     provider = CodexProvider('synthetic', {'mode':'single', 'executable':str(binary)})
     try:
         started = time.monotonic()
-        result = provider.fetch(SimpleNamespace(url='https://example.test/', task_prompt='Read.'), 2)
+        with pytest.raises(ProcessCleanupError) as failed:
+            provider.fetch(SimpleNamespace(url='https://example.test/', task_prompt='Read.'), 2)
+        result = failed.value.result
         assert time.monotonic() - started < 4
         assert not result.ok and result.metadata['pipe_drain_incomplete']
         diagnostic = json.loads(base64.b64decode(result.metadata['_diagnostic_log_b64']))
         assert b'retained diagnostic' in base64.b64decode(diagnostic['raw_stdout_b64'])
         assert provider.thread is None
         assert provider.process.stdout.closed and provider.process.stderr.closed
+        original_pid = provider.process.pid
+        with pytest.raises(ProcessCleanupError, match='Prior Codex'):
+            provider.fetch(SimpleNamespace(url='https://next.example.test/', task_prompt='Read.'), 5)
+        assert provider.process.pid == original_pid
     finally:
         provider.cancel()
         if pid_path.exists():

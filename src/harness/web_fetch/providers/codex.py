@@ -15,7 +15,8 @@ from pathlib import Path
 from uuid import UUID
 
 from harness.web_fetch.models import ProviderResult
-from harness.web_fetch.providers.base import Provider
+from harness.web_fetch.diagnostics import emit
+from harness.web_fetch.providers.base import Provider, ProcessCleanupError, terminate_owned_process_tree
 
 
 _BRIDGE = Path(__file__).with_name("codex_capture.cjs")
@@ -134,24 +135,34 @@ class CodexProvider(Provider):
         self.offset = 0
         self.usage = {}
         self.process = None
+        self.cleanup_unresolved = False
 
     def validate(self):
         return [] if shutil.which(self.cli) else ["Codex CLI executable"]
 
     def cancel(self):
         if self.process is not None:
+            unresolved = False
+            if self.process.poll() is None:
+                if terminate_owned_process_tree(self.process):
+                    return
+                unresolved = True
             try:
                 os.killpg(self.process.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             except PermissionError as error:
                 return type(error).__name__
+            if unresolved:
+                return "ProcessCleanupError"
 
     @property
     def cancellation_cleanup_seconds(self):
         return 5
 
     def fetch(self, case, timeout, **kwargs):
+        if self.cleanup_unresolved:
+            raise ProcessCleanupError("Prior Codex process cleanup remains unresolved")
         rule = (
             "End immediately after one call, even if incomplete."
             if self.mode == "single"
@@ -288,4 +299,12 @@ class CodexProvider(Provider):
                 or self.process.returncode != 0 or not turn_completed):
             # Preserve diagnostics, but never append a task to an unknown turn boundary.
             self.thread, self.session, self.offset, self.usage = None, None, 0, {}
+        if pipe_drain_incomplete or cancellation_error:
+            self.cleanup_unresolved = True
+            emit("codex_process_cleanup_failed", process_id=self.process.pid,
+                 pipe_drain_incomplete=pipe_drain_incomplete,
+                 cancellation_error=cancellation_error, diagnostics=diagnostics)
+            error = ProcessCleanupError("Codex descendant cleanup could not be confirmed")
+            error.result = result
+            raise error
         return result
