@@ -50,8 +50,19 @@ async function persistCapture(nativeReturn, directory, fetchMs) {
   const receipt = await checkedCommand(
     "uv run --frozen --no-cache --no-sync python -m harness.web_fetch.native_subagent "
     + "--save-native-response "
-    + shellQuote(directory) + " --fetch-ms " + String(fetchMs));
+    + shellQuote(directory) + (fetchMs === null ? "" : " --fetch-ms " + String(fetchMs)));
   notify(receipt.output);
+}
+async function captureNative(directory, toolName, args, acquireOrValue) {
+  await prepareCapture(directory, toolName, args);
+  let nativeReturn = acquireOrValue, fetchMs = null;
+  if (typeof acquireOrValue === "function") {
+    const started = Date.now();
+    try { nativeReturn = await acquireOrValue(); }
+    catch (error) { nativeReturn = {fetch_error: String(error)}; }
+    fetchMs = Date.now() - started;
+  }
+  await persistCapture(nativeReturn, directory, fetchMs);
 }
 """
 

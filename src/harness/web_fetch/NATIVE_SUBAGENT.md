@@ -77,33 +77,40 @@ const helper = await tools.exec_command({
   workdir: executionRoot, max_output_tokens: 4000
 });
 if (helper.exit_code !== 0) throw new Error("Capture helper unavailable");
-const {prepareCapture, persistCapture} = new Function(
+const {captureNative} = new Function(
   "tools", "notify", "executionRoot",
-  helper.output + "\nreturn {prepareCapture, persistCapture};"
+  helper.output + "\nreturn {captureNative};"
 )(tools, notify, executionRoot);
 ```
 
-Keep helper loading, `prepareCapture`, the chosen fetch and `persistCapture`
-in the same `functions.exec` invocation. This runtime discards local variables
-between invocations. Call `prepareCapture` before the chosen fetch. Time only
-that tool invocation,
-catch a tool exception as `{fetch_error: String(error)}`, then pass the untouched
-return and duration to `persistCapture`. Print only the save receipt. End the
-child after delivery; the parent retains its actual terminal state. This capture
-helper performs no network request. Its exclusive save claim prevents a second
-save to the same directory. Raw JSON, ordered text, binary blocks, hashes and
-fetch/save timers remain separate artifacts.
+Keep helper loading and use in the same `functions.exec` invocation. This
+runtime discards local variables between invocations. Use exactly one awaited
+capture call for the final delivery:
+
+```javascript
+await captureNative(directory, chosenToolName, chosenArguments,
+  () => tools[chosenToolName](chosenArguments));
+```
+
+The wrapper awaits preparation, acquisition and persistence itself; it saves a
+thrown acquisition error without retrying. Do not omit the outer `await`.
+For a previously retained multi-step delivery, pass its execution-side value as
+the fourth argument instead of a function. This performs no new fetch and leaves
+`fetch_ms` unavailable. Tool/route selection stays with the child. The wrapper
+emits only the save receipt. End the child after delivery; retain its actual
+terminal state. Exclusive save claims, raw JSON, ordered text, binary blocks,
+hashes and separate fetch/save timers keep their existing owner.
 
 Autonomous multiple-fetch children may inspect intermediate returns and choose
 how to fetch. Once the final delivery is saved, return only a small save receipt
 (status, path, byte count and hash). Never read the delivered body back for
 confirmation or print it again. The same rule applies to single-fetch.
-The final save must use `persistCapture` above (with a string delivery or the
+The final save must use `await captureNative(...)` above (with a string delivery or the
 untouched selected native envelope); its execution-side writer returns only the
 receipt. Do not append `cat`, `head`, `tail`, previews or model summaries to that
 save. File writing runs in the execution layer; the model need not reproduce
 bytes already held there.
-Use the same capture functions in a distinct per-call directory when preserving
+Use the same capture wrapper in a distinct per-call directory when preserving
 multiple raw returns. Preserve the selected delivery and all raw calls; leave
 absent delivery absent. Capture does not transform a model-written delivery into
 a synthetic native response.

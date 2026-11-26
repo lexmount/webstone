@@ -23,7 +23,8 @@ from harness.web_fetch.report_usage import token_usage
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Native capture transfer uses Node")
-def test_documented_capture_transfer_preserves_shell_literals_and_split_unicode(tmp_path):
+@pytest.mark.parametrize("retained", [False, True])
+def test_documented_capture_transfer_preserves_shell_literals_and_split_unicode(tmp_path, retained):
     guide = Path("src/harness/web_fetch/NATIVE_SUBAGENT.md").read_text()
     capture = guide.split("```javascript\n")[2].split("```", 1)[0]
     directory = tmp_path / "case with spaces"
@@ -44,8 +45,8 @@ const context = {tools, notify:value=>receipts.push(value), executionRoot:input.
 vm.runInNewContext(`
 (async()=>{
 ${input.capture}
-  await prepareCapture(input.directory,'fixture_fetch',{url:'https://example.test/'});
-  await persistCapture(input.body,input.directory,12.5);
+  await captureNative(input.directory,'fixture_fetch',{url:'https://example.test/'},
+    input.retained ? input.body : () => Promise.resolve(input.body));
 })()`, context).then(()=>process.stdout.write(JSON.stringify(receipts)))
   .catch(e=>{console.error(e);process.exitCode=1;});
 """
@@ -55,6 +56,7 @@ ${input.capture}
             {
                 "capture": capture,
                 "helper": CAPTURE_SCRIPT,
+                "retained": retained,
                 "directory": str(directory),
                 "body": body,
             }
