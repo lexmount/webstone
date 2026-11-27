@@ -475,3 +475,56 @@ def test_docx_explicit_breaks_and_nonbreaking_hyphens_survive_both_extraction_pa
     assert extract_document_text(raw)[0] == "first second\u2011third"
     view, _ = document_view(raw, DOCX)
     assert html.fromstring(view).xpath("string(//main/section/p)") == "first second\u2011third\n"
+
+
+@pytest.mark.parametrize("location", ["body", "paragraph", "row", "cell"])
+def test_docx_mutually_exclusive_representations_cannot_supply_combined_evidence(location):
+    from harness.document_text import extract_document_text
+
+    def paragraph(value):
+        return "<w:p><w:r><w:t>" + value + "</w:t></w:r></w:p>"
+
+    choice, fallback = paragraph("Choice only"), paragraph("Fallback only")
+    if location == "paragraph":
+        choice, fallback = (
+            "<w:r><w:t>Choice only</w:t></w:r>",
+            "<w:r><w:t>Fallback only</w:t></w:r>",
+        )
+    elif location == "row":
+        choice, fallback = (
+            "<w:tr><w:tc>" + choice + "</w:tc></w:tr>",
+            "<w:tr><w:tc>" + fallback + "</w:tc></w:tr>",
+        )
+    elif location == "cell":
+        choice, fallback = "<w:tc>" + choice + "</w:tc>", "<w:tc>" + fallback + "</w:tc>"
+    alternate = (
+        '<mc:AlternateContent><mc:Choice Requires="w14">'
+        + choice
+        + "</mc:Choice><mc:Fallback>"
+        + fallback
+        + "</mc:Fallback></mc:AlternateContent>"
+    )
+    body = (
+        alternate
+        if location == "body"
+        else "<w:p>" + alternate + "</w:p>"
+        if location == "paragraph"
+        else "<w:tbl>" + alternate + "</w:tbl>"
+        if location == "row"
+        else "<w:tbl><w:tr>" + alternate + "</w:tr></w:tbl>"
+    )
+    xml = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
+        'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:body>'
+        + body
+        + "</w:body></w:document>"
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    raw = output.getvalue()
+    with pytest.raises(ValueError, match="AlternateContent"):
+        document_view(raw, DOCX)
+    with pytest.raises(ValueError, match="AlternateContent"):
+        extract_document_text(raw)

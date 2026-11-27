@@ -135,7 +135,7 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             for name in _docx_parts(archive):
                 section = ET.SubElement(main, "section", {"data-part": name})
-                project(ET.fromstring(archive.read(name)), section)
+                project(_docx_root(archive, name), section)
         extractor = "docx_xml"
     implementation = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     identity = extractor + "/document-view/1/" + implementation
@@ -158,7 +158,7 @@ def _extract_docx(raw: bytes, *, preserve_whitespace: bool = False) -> str:
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         lines = []
         for name in _docx_parts(archive):
-            root = ET.fromstring(archive.read(name))
+            root = _docx_root(archive, name)
             lines.extend(
                 (line if preserve_whitespace else line.strip())
                 for line in "".join(_text_nodes(root)).splitlines()
@@ -173,6 +173,14 @@ def _docx_parts(archive):
         for name in archive.namelist()
         if re.fullmatch(r"word/(footnotes|endnotes|header\d+|footer\d+)\.xml", name)
     )
+
+
+def _docx_root(archive, name):
+    root = ET.fromstring(archive.read(name))
+    alternate = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent"
+    if next(root.iter(alternate), None) is not None:
+        raise ValueError("DOCX AlternateContent requires an explicit rendering representation")
+    return root
 
 
 def _text_nodes(node):

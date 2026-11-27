@@ -165,7 +165,8 @@ Evidence selectors address this deterministic view's `//main[@id='document']`.
 PDF sections identify pages with `data-page` and extracted lines with `data-line`;
 DOCX sections identify package
 parts with `data-part` and preserve table rows, cells and horizontal/vertical
-merges as `colspan`/`rowspan`. Unsupported legacy merge or leading-gap layouts
+merges as `colspan`/`rowspan`. Unsupported legacy merge, leading-gap layouts or
+mutually exclusive `mc:AlternateContent` representations
 fail qualification. Plain-text paragraphs
 have `data-block` identifiers and retain their line breaks. The extractor identity
 binds its implementation hash and, for PDF, the installed pypdf version. Text
