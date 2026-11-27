@@ -1110,7 +1110,7 @@ def test_live_dynamic_queries_require_current_rendered_evidence(tmp_path, monkey
             headers={"content-type": "text/html"},
         ),
     )
-    rendered = [(tmp_path / "rendered.html").read_text()]
+    rendered = [(tmp_path / "rendered.html").read_text(encoding="utf-8")]
     captures = []
 
     def observe(cases, **kwargs):
@@ -1126,7 +1126,7 @@ def test_live_dynamic_queries_require_current_rendered_evidence(tmp_path, monkey
             for c in cases
         }
 
-    monkeypatch.setattr("harness.web_fetch.browser_observations.capture_batch", observe)
+    monkeypatch.setattr("harness.web_extract.queries._observe_live", observe)
     checked = queries.qualify_live(home, list(truth))
     assert len(captures) == 1 and len(captures[0]) == 1
     assert checked[0]["rendered_html_sha256"] == pipeline.digest(rendered[0].encode())
@@ -1134,7 +1134,7 @@ def test_live_dynamic_queries_require_current_rendered_evidence(tmp_path, monkey
     with pytest.raises(ValueError, match="Live reference no longer supported"):
         queries.qualify_live(home, list(truth))
     monkeypatch.setattr(
-        "harness.web_fetch.browser_observations.capture_batch",
+        "harness.web_extract.queries._observe_live",
         lambda cases, **kwargs: {c["id"]: {"status": "failure"} for c in cases},
     )
     with pytest.raises(records.LiveSourceAccessError):
@@ -1183,3 +1183,118 @@ def test_live_dynamic_catalog_requires_a_completion_condition(tmp_path):
     pipeline.save_json(source, value)
     with pytest.raises(ValueError, match="explicit selector and minimum"):
         queries.prepare(tmp_path / "live", source)
+
+
+@pytest.mark.parametrize("fresh,http_status", [(True, 200), (True, 403), (False, 200)])
+def test_rendered_live_reference_fallback_binds_both_stored_captures(
+    tmp_path, monkeypatch, fresh, http_status
+):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from harness.web_extract import records
+
+    source = catalog(tmp_path)
+    value = pipeline.read_json(source)
+    value.update(
+        input_mode="live",
+        pages=value["pages"][1:],
+        live_reference_policy={"maximum_observation_age_seconds": 60},
+    )
+    page = value["pages"][0]
+    page["live_observation"] = {"selector": "#products article", "minimum": 1}
+    page["source"]["observed_at"] = (
+        datetime.now(UTC).isoformat() if fresh else "2000-01-01T00:00:00Z"
+    )
+    pipeline.save_json(source, value)
+    home = tmp_path / "live"
+    queries.prepare(home, source)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    monkeypatch.setattr(
+        "harness.http_client.request",
+        lambda url, **kwargs: SimpleNamespace(
+            status=http_status,
+            body=(tmp_path / "static.html").read_bytes(),
+            url=url,
+            headers={"content-type": "text/html"},
+        ),
+    )
+    monkeypatch.setattr(
+        queries,
+        "_observe_live",
+        lambda cases, **kwargs: {c["id"]: {"status": "failure"} for c in cases},
+    )
+    if not fresh:
+        with pytest.raises(records.LiveSourceAccessError):
+            queries.qualify_live(home, list(truth))
+        return
+    row = queries.qualify_live(home, list(truth))[0]
+    assert row["verification_mode"] == "independent_captured_reference"
+    assert row["rendered_html_sha256"] == page["source"]["rendered_sha256"]
+    assert row["observed_html_sha256"] == page["source"]["sha256"]
+    if http_status == 403:
+        # A valid current DOM is a separate observation from the historical pair.
+        current = "<!-- fresh -->" + (tmp_path / "rendered.html").read_text(encoding="utf-8")
+        monkeypatch.setattr(
+            queries,
+            "_observe_live",
+            lambda cases, **kwargs: {
+                c["id"]: {
+                    "status": "success",
+                    "independent": True,
+                    "url": c["url"],
+                    "outer_html": current,
+                    "completion": {"satisfied": True},
+                }
+                for c in cases
+            },
+        )
+        row = queries.qualify_live(home, list(truth))[0]
+        assert row["rendered_html_sha256"] != pipeline.digest(current.encode())
+        assert row["current_browser_observation"]["outer_html"] == current
+        changed = current.replace("29.50", "39.50")
+        monkeypatch.setattr(
+            queries,
+            "_observe_live",
+            lambda cases, **kwargs: {
+                c["id"]: {
+                    "status": "success",
+                    "independent": True,
+                    "url": c["url"],
+                    "outer_html": changed,
+                    "completion": {"satisfied": True},
+                }
+                for c in cases
+            },
+        )
+        with pytest.raises(ValueError, match="Live reference no longer supported"):
+            queries.qualify_live(home, list(truth))
+        monkeypatch.setattr(
+            queries,
+            "_observe_live",
+            lambda cases, **kwargs: {c["id"]: {"status": "failure"} for c in cases},
+        )
+    cid = next(iter(truth))
+    retained = home / "dataset/references" / cid / "rendered.html"
+    retained.write_bytes(retained.read_bytes().replace(b"29.50", b"39.50"))
+    with pytest.raises(records.LiveSourceAccessError):
+        queries.qualify_live(home, list(truth))
+
+
+def test_rendered_source_observation_uses_the_registered_artifact_stage(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    seen = []
+
+    def stage(args):
+        assert args[:2] == ["webfetch", "headless-observations"]
+        cases = pipeline.read_json(Path(args[args.index("--dataset") + 1]))["cases"]
+        seen.extend(cases)
+        output = Path(args[args.index("--output") + 1])
+        pipeline.save_json(output, {c["id"]: {"status": "failure"} for c in cases})
+        raise SystemExit(1)
+
+    monkeypatch.setattr("harness.cli.main", stage)
+    cases = [{"id": "one", "url": "https://example.com/"}]
+    assert queries._observe_live(cases, timeout=5) == {"one": {"status": "failure"}}
+    assert seen == cases

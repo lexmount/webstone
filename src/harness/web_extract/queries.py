@@ -287,14 +287,53 @@ def _live_observation(page):
     return {**rule, "content_selector": "html", "text_mode": "dom", "retain_html": True}
 
 
+def _observe_live(cases, *, timeout):
+    """Call the registered observation stage through its persisted public boundary."""
+    import os
+    import tempfile
+
+    from harness.cli import main
+    from harness.web_extract.pipeline import read_json, save_json
+
+    with tempfile.TemporaryDirectory(prefix="webstone-live-source-") as directory:
+        root = Path(directory)
+        dataset, output = root / "cases.json", root / "observations.json"
+        save_json(dataset, {"cases": cases})
+        args = [
+            "webfetch",
+            "headless-observations",
+            "--dataset",
+            str(dataset),
+            "--case-ids",
+            ",".join(case["id"] for case in cases),
+            "--output",
+            str(output),
+            "--timeout-ms",
+            str(int(timeout * 1000)),
+            "--attempts",
+            "1",
+            "--workers",
+            str(min(4, len(cases))),
+        ]
+        if os.environ.get("CHROME_PATH"):
+            args.extend(["--browser-binary", os.environ["CHROME_PATH"]])
+        try:
+            main(args)
+        except SystemExit as error:
+            # The observation command retains all per-page results before returning
+            # one for source access failures. Policy-aware admission happens below.
+            if error.code != 1 or not output.is_file():
+                raise
+        return read_json(output)
+
+
 def qualify_live(home, case_ids, *, timeout=30):
     """Reuse live acquisition with the query adapter's scoped, typed source contract."""
-    import os
-
     from harness.web_extract.pipeline import digest, read_json
 
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     selected = {cid: truth[cid] for cid in case_ids}
+    provenance = read_json(home / "dataset/provenance.json")
     dynamic = {}
     for reference in selected.values():
         task = reference["task"]
@@ -305,16 +344,9 @@ def qualify_live(home, case_ids, *, timeout=30):
                 "source_verification": {"browser_observation": _live_observation(task)},
             }
     observations = {}
+    unavailable = set()
     if dynamic:
-        from harness.web_fetch.browser_observations import capture_batch
-
-        observations = capture_batch(
-            list(dynamic.values()),
-            timeout_ms=int(timeout * 1000),
-            attempts=1,
-            browser_binary=os.environ.get("CHROME_PATH"),
-            workers=min(4, len(dynamic)),
-        )
+        observations = _observe_live(list(dynamic.values()), timeout=timeout)
         for pid, case in dynamic.items():
             observed = observations.get(pid, {})
             if (
@@ -324,30 +356,76 @@ def qualify_live(home, case_ids, *, timeout=30):
                 or not observed.get("completion", {}).get("satisfied")
                 or not observed.get("outer_html")
             ):
-                raise records.LiveSourceAccessError(pid, [{"browser_observation": observed}])
+                unavailable.add(pid)
 
-    def support(reference, raw, *, encoding=None, **kwargs):
+    def page_for(reference):
         task = reference["task"]
-        observed = observations.get(task["page_id"])
-        rendered = observed["outer_html"].encode("utf-8") if observed else raw
-        page = {
-            "source": {"rendered_input": True} if observed else {},
+        return {
+            "source": {},
             "queries": task["queries"],
             "regions": task["regions"],
             "required_characteristics": task["required_characteristics"],
         }
+
+    # A successful rendered observation demonstrating drift takes precedence over
+    # historical fallback, even when the independent raw-HTML request is blocked.
+    for reference in selected.values():
+        pid = reference["task"]["page_id"]
+        if pid in dynamic and pid not in unavailable:
+            rendered = observations[pid]["outer_html"].encode("utf-8")
+            page = page_for(reference)
+            page["required_characteristics"] = [
+                tag for tag in page["required_characteristics"] if tag != "javascript"
+            ]
+            try:
+                _qualify_content(page, rendered, rendered, "utf-8")
+            except ValueError as error:
+                raise ValueError("Live reference no longer supported: " + pid) from error
+
+    def support(reference, raw, *, encoding=None, **kwargs):
+        task = reference["task"]
+        if task["page_id"] in unavailable:
+            raise records.LiveSourceAccessError(
+                task["page_id"], [{"browser_observation_unavailable": task["page_id"]}]
+            )
+        observed = observations.get(task["page_id"])
+        rendered = observed["outer_html"].encode("utf-8") if observed else raw
+        page = page_for(reference)
+        page["source"] = {"rendered_input": True} if observed else {}
         try:
             _qualify_content(page, raw, rendered, encoding)
         except ValueError as error:
             return [str(error)]
         return []
 
-    rows = records.qualify_live(home, case_ids, timeout=timeout, source_check=support)
+    def captured_support(reference, raw, **kwargs):
+        cid = reference["schema_id"]
+        page = page_for(reference)
+        page["source"] = provenance[cid]["qualification"]["source"]
+        try:
+            captured, _ = qualify_page(page, home / "dataset")
+            if captured != raw:
+                return ["Captured raw source differs from its qualification"]
+        except (ValueError, OSError) as error:
+            return [str(error)]
+        return []
+
+    rows = records.qualify_live(
+        home,
+        case_ids,
+        timeout=timeout,
+        source_check=support,
+        captured_source_check=captured_support,
+    )
     for row in rows:
         pid = selected[row["case_id"]]["task"]["page_id"]
-        if pid in observations:
-            row["browser_observation"] = observations[pid]
-            row["rendered_html_sha256"] = digest(observations[pid]["outer_html"].encode())
+        if pid in dynamic:
+            row["current_browser_observation"] = observations.get(pid, {})
+            row["rendered_html_sha256"] = (
+                provenance[row["case_id"]]["qualification"]["source"]["rendered_sha256"]
+                if row.get("verification_mode") == "independent_captured_reference"
+                else digest(observations[pid]["outer_html"].encode())
+            )
     return rows
 
 

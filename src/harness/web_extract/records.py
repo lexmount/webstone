@@ -324,7 +324,7 @@ def score(truth, predictions, **options):
     return score_fields(truth, predictions, **options)
 
 
-def qualify_live(home, case_ids, *, timeout=30, source_check=None):
+def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_source_check=None):
     """Check declared original values on the current source, independently of answers."""
     import time
     from collections import defaultdict
@@ -338,6 +338,7 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None):
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     policy = read_json(home / "dataset/manifest.json").get("live_reference_policy")
     check = reference_support if source_check is None else source_check
+    captured_check = check if captured_source_check is None else captured_source_check
 
     def value_count(value):
         if isinstance(value, dict):
@@ -361,7 +362,7 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None):
             or receipt["source_url"] != reference["url"]
             or digest(raw) != receipt["input_sha256"]
             or access_interstitial(raw)
-            or check(
+            or captured_check(
                 reference,
                 raw,
                 encoding=receipt.get("encoding"),
@@ -424,12 +425,16 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None):
         except (ParserError, LookupError) as error:
             attempts[-1]["error"] = type(error).__name__
             return unavailable(cid, attempts)
-        missing = check(
-            reference,
-            response.body,
-            source_url=response.url,
-            encoding=encoding,
-        )
+        try:
+            missing = check(
+                reference,
+                response.body,
+                source_url=response.url,
+                encoding=encoding,
+            )
+        except LiveSourceAccessError as error:
+            attempts.extend(error.source_attempts)
+            return unavailable(cid, attempts)
         if missing:
             raise ValueError("Live reference no longer supported: " + cid + "; " + str(missing[:3]))
         return {

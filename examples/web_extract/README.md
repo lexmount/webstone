@@ -183,13 +183,16 @@ shared Web Fetch observer captures the current rendered HTML once per page per
 source check; the query adapter verifies it against the current raw HTML and
 records both hashes. Install the `headless-eval` extra for these source checks;
 `CHROME_PATH` may select an existing browser in the execution environment.
-An incomplete capture or changed answer stops collection.
+A changed answer stops collection. An incomplete capture requires the explicit
+historical-reference policy below to proceed.
 
 An optional `live_reference_policy` with `maximum_observation_age_seconds`
 (at most 86,400) permits a previously verified, hash-bound observation to support
 a temporarily inaccessible source within that declared window. Its receipt
-retains the failed current checks and reference age. A successful current check
-showing changed content overrides the fallback. Without this policy, unavailable
+retains the failed current checks and reference age. Rendered sources revalidate
+both saved captures and their hashes; the current DOM is kept as a separate
+observation. A successful current check showing changed content overrides the
+fallback, including when the raw-HTML request is blocked. Without this policy, unavailable
 source checks stop the run. Freeze this choice before participant calls.
 
 Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
