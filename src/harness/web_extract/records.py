@@ -477,11 +477,12 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
         if response.status != 200:
             return unavailable(cid, attempts)
         native = reference.get("source_media_type", "text/html") != "text/html"
-        if not native and access_interstitial(response.body):
-            attempts[-1]["access_interstitial"] = True
-            return unavailable(cid, attempts)
         content_type = Message()
         content_type["content-type"] = getattr(response, "headers", {}).get("content-type", "")
+        html_response = content_type.get_content_type() in {"text/html", "application/xhtml+xml"}
+        if (not native or html_response) and access_interstitial(response.body):
+            attempts[-1]["access_interstitial"] = True
+            return unavailable(cid, attempts)
         from lxml import html
         from lxml.etree import ParserError
 

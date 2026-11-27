@@ -323,7 +323,10 @@ def test_native_plain_text_uses_declared_encoding_and_literal_text(tmp_path, mon
     source, _, _ = catalog(tmp_path, "txt")
     data = pipeline.read_json(source)
     page = data["pages"][0]
-    raw = b"Harbor Lab completed 40 trials. caf\xe9 <script>literal source text</script>"
+    raw = (
+        b"Harbor Lab completed 40 trials. caf\xe9 <script>literal source text</script>"
+        b'<title>Just a moment...</title><form id="challenge-form"></form>'
+    )
     (tmp_path / "source.txt").write_bytes(raw)
     view, extractor = document_view(raw, "text/plain", encoding="iso-8859-1")
     assert b"&lt;script&gt;literal source text&lt;/script&gt;" in view
@@ -528,3 +531,29 @@ def test_docx_mutually_exclusive_representations_cannot_supply_combined_evidence
         document_view(raw, DOCX)
     with pytest.raises(ValueError, match="AlternateContent"):
         extract_document_text(raw)
+
+
+@pytest.mark.parametrize("kind", ["pdf", "docx", "txt"])
+def test_native_url_html_access_gates_remain_unavailable_instead_of_reference_drift(
+    tmp_path, monkeypatch, kind
+):
+    from harness.web_extract.records import LiveSourceAccessError
+
+    source, _, _ = catalog(tmp_path, kind)
+    home = tmp_path / "home"
+    pipeline.prepare(home, benchmark="queries", source=source)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    gate = (
+        b"<html><head><title>Just a moment...</title></head><body>"
+        b'<form id="challenge-form"></form></body></html>'
+    )
+    monkeypatch.setattr(
+        "harness.http_client.request",
+        lambda url, **kw: SimpleNamespace(
+            status=200, url=url, body=gate, headers={"content-type": "text/html"}
+        ),
+    )
+    with pytest.raises(LiveSourceAccessError) as error:
+        queries.qualify_live(home, list(truth))
+    assert error.value.validity == "unresolved"
+    assert error.value.source_attempts[-1]["access_interstitial"] is True
