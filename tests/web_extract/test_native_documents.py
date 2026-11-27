@@ -341,3 +341,14 @@ def test_native_plain_text_uses_declared_encoding_and_literal_text(tmp_path, mon
     page["source"]["view"]["extractor"] = "unbound-extractor"
     with pytest.raises(ValueError, match="extractor"):
         queries.qualify_page(page, tmp_path)
+
+
+def test_native_plain_text_keeps_independent_paragraph_evidence_scopes(tmp_path):
+    from lxml import html
+
+    raw = b"Organization: Harbor Lab\nTrials: 40\r\n\r\nOrganization: Other Lab\nTrials: 4"
+    view, _ = document_view(raw, "text/plain")
+    tree = html.fromstring(view)
+    assert tree.xpath("//main/p/@data-block") == ["1", "2"]
+    assert tree.xpath("string(//p[@data-block='1'])") == "Organization: Harbor Lab\nTrials: 40"
+    assert tree.xpath("string(//p[@data-block='2'])") == "Organization: Other Lab\nTrials: 4"

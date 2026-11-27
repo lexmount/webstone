@@ -163,7 +163,8 @@ as `source.view.sha256` and `source.view.extractor`.
 
 Evidence selectors address this deterministic view's `//main[@id='document']`.
 PDF sections identify pages with `data-page`; DOCX sections identify package
-parts with `data-part` and preserve table rows and cells. The extractor identity
+parts with `data-part` and preserve table rows and cells. Plain-text paragraphs
+have `data-block` identifiers and retain their line breaks. The extractor identity
 binds its implementation hash and, for PDF, the installed pypdf version. Text
 documents can declare `source.encoding`. Qualification verifies the view and
 checks every requested fact against it; live checks regenerate it from newly

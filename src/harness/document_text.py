@@ -36,7 +36,10 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
             ET.SubElement(section, "p").text = page.extract_text() or ""
         extractor = "pypdf/" + __version__
     elif media_type == "text/plain":
-        ET.SubElement(main, "pre").text = raw.decode(encoding or "utf-8")
+        for index, paragraph in enumerate(
+            re.split(r"\r?\n[ \t]*\r?\n", raw.decode(encoding or "utf-8")), 1
+        ):
+            ET.SubElement(main, "p", {"data-block": str(index)}).text = paragraph
         extractor = "plain_text"
     else:
         if not zipfile.is_zipfile(io.BytesIO(raw)):
