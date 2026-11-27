@@ -895,3 +895,49 @@ def test_local_schema_pointer_requires_a_valid_array_index(tmp_path, index):
         query_contract.compile_cases(data)
     branch["$ref"] = "#/prefixItems/0"
     query_contract.compile_cases(data)
+
+
+def test_unsigned_suffix_of_a_signed_number_cannot_support_an_answer(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b">40<", b">USD-12<")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query["answer"]["trials"] = 12
+    query["evidence"]["leaves"][1]["raw_value"] = "12"
+    with pytest.raises(ValueError, match="evidence"):
+        queries.qualify_page(page, tmp_path)
+    raw = raw.replace(b"USD-12", b"USD -12")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query["answer"]["trials"] = -12
+    query["evidence"]["leaves"][1]["raw_value"] = "-12"
+    queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("value,source_word", [(True, "untrue"), (False, "falsehood")])
+def test_boolean_evidence_requires_the_complete_word(tmp_path, value, source_word):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    original = path.read_bytes()
+    raw = original.replace(b">40<", b">" + source_word.encode() + b"<")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query.update(schema=schema({"flag": {"type": "boolean"}}), answer={"flag": value})
+    query["evidence"] = {
+        "leaves": [
+            {"pointer": "/flag", "raw_value": str(value).lower(), "selector": ".//p[@id='trials']"}
+        ],
+        "negative_answers": [{"flag": not value}],
+    }
+    page["queries"] = [query]
+    with pytest.raises(ValueError, match="evidence"):
+        queries.qualify_page(page, tmp_path)
+    raw = original.replace(b">40<", b">" + str(value).lower().encode() + b"<")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    queries.qualify_page(page, tmp_path)
