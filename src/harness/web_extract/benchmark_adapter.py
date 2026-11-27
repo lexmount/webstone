@@ -69,9 +69,22 @@ class ExtractBenchmarkAdapter:
             return module.score(truth, predictions, **reference_policy)
         return pipeline.evaluate_predictions(truth, predictions, self._upstream)
 
+    def prediction(self, row, reference):
+        """A typed-JSON adapter may validate native framing before projecting its answer."""
+        if row.get("http_status") != 200:
+            return None if self.benchmark.reference_format == "json" else {}
+        if self.benchmark.reference_format == "json":
+            module = benchmark_config(self.home)["adapter"]
+            return module.scored_prediction(row, reference)
+        return row.get("normalized_fields") or {}
+
     def populations(self) -> list[dict[str, Any]]:
         """The declared population: its denominator and the fields it scores."""
         truth = self.truth()
+        if self.benchmark.reference_format == "json":
+            return [{"id": self.name, "cases": len(truth),
+                     "pages": len({case["task"]["page_id"] for case in truth.values()}),
+                     "queries": sum(len(case["task"]["queries"]) for case in truth.values())}]
         if self.benchmark.fields:
             fields = (*self.benchmark.fields, *self.benchmark.derived_fields)
         else:

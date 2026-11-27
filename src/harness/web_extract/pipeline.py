@@ -32,6 +32,7 @@ from harness.data_home import data_home as shared_data_home
 from harness.distribution import repository_root
 from harness.http_client import request
 from harness.record_io import bytes_sha256 as digest
+from harness.record_io import json_dumps
 from harness.record_io import read_json as shared_read_json
 from harness.runtime_env import load_runtime_env
 from harness.web_extract.call_records import validate_calls
@@ -66,13 +67,21 @@ def execution_identity(row):
         "physical_attempts",
     }
     value = {key: item for key, item in row.items() if key not in derived}
-    return digest(json.dumps(value, sort_keys=True, ensure_ascii=False).encode())
+    return digest(json_dumps(value, sort_keys=True, ensure_ascii=False).encode())
 
 
 def decoded_response(text):
     """Preserve malformed/nonfinite replies as text, so a completed call can checkpoint."""
     try:
-        value = json.loads(text)
+        def unique_keys(pairs):
+            result = {}
+            for key, item in pairs:
+                if key in result:
+                    raise ValueError("Duplicate native JSON object key")
+                result[key] = item
+            return result
+
+        value = json.loads(text, object_pairs_hook=unique_keys)
 
         def finite(item):
             if isinstance(item, float) and not math.isfinite(item):
@@ -87,13 +96,13 @@ def decoded_response(text):
         finite(value)
         return value
     except ValueError:
-        return {"non_json_response": text}
+        return {"non_json_response": redact_json_text(text)}
 
 
 def read_json(path: Path):
     if path.is_symlink() or unsafe_parents(path):
         raise ValueError("Symlink inputs are prohibited")
-    return shared_read_json(path)
+    return shared_read_json(path, preserve_decimal=True)
 
 
 def unsafe_parents(path: Path):
@@ -112,7 +121,7 @@ def save_json(path: Path, data, *, exclusive=False):
             mode="w", encoding="utf-8", dir=path.parent, prefix="." + path.name + ".", delete=False
         ) as f:
             temporary = Path(f.name)
-            json.dump(data, f, ensure_ascii=False, indent=2, allow_nan=False)
+            f.write(json_dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
@@ -200,7 +209,11 @@ def data_home() -> Path:
 
 
 def prepare(destination: Path, profile=PROFILE, *, benchmark=None, source=None,
-            dataset=None, revision=None):
+            dataset=None, revision=None, unit=None, draft=False):
+    if unit is not None and unit not in benchmark_config(name=benchmark)["benchmark"].task_units:
+        raise ValueError("Selected benchmark does not support this task unit")
+    if draft and not benchmark_config(name=benchmark)["benchmark"].task_units:
+        raise ValueError("Selected benchmark does not support draft task preparation")
     if dataset is not None:
         # Registered editions are record datasets prepared by their own task adapter.
         if (source is not None or benchmark_config(name=benchmark)["adapter"] is not None
@@ -215,7 +228,8 @@ def prepare(destination: Path, profile=PROFILE, *, benchmark=None, source=None,
     if adapter:
         if source is None:
             raise ValueError("This benchmark requires its pinned source archive")
-        return adapter.prepare(destination, Path(source))
+        return adapter.prepare(destination, Path(source), **({"unit": unit} if unit else {}),
+                               **({"draft": True} if draft else {}))
     require_external_output(destination)
     contract = read_json(profile)
     pin = contract["dataset"]
@@ -238,12 +252,15 @@ def selected_profile(home):
 
 
 def validate_dataset(home: Path, profile=None):
+    preparation = home / "preparation.json"
+    if preparation.exists() and read_json(preparation).get("state") == "draft":
+        raise ValueError("Draft query catalogs cannot be collected or certified")
     contract = read_json(profile or selected_profile(home))
     root = home / "dataset"
     manifest = read_json(root / "manifest.json")
     pin = contract["dataset"]
     inventory = digest(
-        json.dumps(manifest["files"], sort_keys=True, separators=(",", ":")).encode()
+        json_dumps(manifest["files"], sort_keys=True, separators=(",", ":")).encode()
     )
     if pin.get("inventory_sha256") and inventory != pin["inventory_sha256"]:
         from harness.web_extract.dataset import verify_distribution
@@ -376,15 +393,52 @@ def probe_cases(truth: dict):
     return selected
 
 
+def _sensitive_key(key):
+    return re.search(
+        r"(?:^|[_-])(?:token|secret|authorization|password|cookies?|api[_-]?key)(?:$|[_-])",
+        re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key),
+        re.I,
+    )
+
+
+def redact_json_text(text):
+    """Redact JSON value spans without reserializing unrelated numeric lexemes."""
+    decoder = json.JSONDecoder()
+    parts, cursor = [], 0
+    for token in re.finditer(r'"(?:\\.|[^"\\])*"', text):
+        if token.start() < cursor:
+            continue
+        colon = re.match(r"\s*:\s*", text[token.end():])
+        try:
+            key = json.loads(token.group())
+        except ValueError:
+            continue
+        if colon is None or not _sensitive_key(key):
+            clean = redact(key)
+            if clean != key:
+                parts.extend((text[cursor:token.start()], json_dumps(clean, ensure_ascii=False)))
+                cursor = token.end()
+            continue
+        start = token.end() + colon.end()
+        try:
+            _, end = decoder.raw_decode(text, start)
+            suffix = text[end:].lstrip()
+            if suffix and suffix[0] not in ",}]":
+                end = len(text)
+        except ValueError:
+            # A malformed sensitive value must not fall back to unredacted text.
+            end = len(text)
+        parts.extend((text[cursor:start], '"[REDACTED]"'))
+        cursor = end
+    parts.append(text[cursor:])
+    return redact("".join(parts))
+
+
 def redact(value):
     if isinstance(value, dict):
         return {
             k: "[REDACTED]"
-            if re.search(
-                r"(?:^|[_-])(?:token|secret|authorization|password|cookies?|api[_-]?key)(?:$|[_-])",
-                re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", k),
-                re.I,
-            )
+            if _sensitive_key(k)
             else redact(v)
             for k, v in value.items()
         }
@@ -532,6 +586,9 @@ class ExtractMethod:
     projection_controls: dict[str, Callable[[str], None]] = dataclasses.field(
         default_factory=dict
     )
+    # Native channel for an explicit case query; fixed field-list cohorts keep
+    # their existing schema-description-only instruction protocol.
+    task_prompt_location: str | None = None
 
     @property
     def self_hosted(self):
@@ -545,12 +602,15 @@ class ExtractMethod:
                 ("requires_custom_schema", self.requires_custom_schema),
                 ("self_hosted", self.self_hosted),
                 ("retired", self.retired),
+                ("task_prompt", bool(self.task_prompt_location)),
             )
             if enabled
         }
         return Capabilities(
             frozenset(flags),
-            {"input": self.input, "options": self.options, "engine": self.engine},
+            {"input": self.input, "options": self.options, "engine": self.engine,
+             **({"task_prompt_location": self.task_prompt_location}
+                if self.task_prompt_location else {})},
         )
 
     def implementation_identity(self):
@@ -607,6 +667,8 @@ def _cloudflare_request(
         "html": html,
         "response_format": {"type": "json_schema", "json_schema": schema or SCHEMA},
     }
+    if prompt:
+        body["prompt"] = prompt
     body.update({k: v for k, v in native_options.items() if k != "input_route"})
     if native_options.get("input_route") == "url":
         if not fixture_url:
@@ -664,6 +726,8 @@ def _firecrawl_json_request(
         "onlyMainContent": False,
         "maxAge": 0,
     }
+    if prompt:
+        body["formats"][0]["prompt"] = prompt
     return "https://api.firecrawl.dev/v2/scrape", headers, body
 
 
@@ -719,7 +783,7 @@ def _firecrawl_parse_request(
     body, content_type = encode_multipart_formdata(
         [
             ("file", ("snapshot.html", html.encode("utf-8"), "text/html")),
-            ("options", (None, json.dumps(options), "application/json")),
+            ("options", (None, json_dumps(options), "application/json")),
         ]
     )
     return (
@@ -1068,6 +1132,7 @@ for _name, _engine in {
         project=_self_hosted_project,
         deployment=SELF_HOSTED,
         engine=_engine,
+        task_prompt_location="instruction",
     )
 register_method(
     "firecrawl-parse-json",
@@ -1076,6 +1141,7 @@ register_method(
     custom_schema=True,
     requires_custom_schema=True,
     request=_firecrawl_parse_request,
+    task_prompt_location="options.formats[0].prompt",
     project=_firecrawl_project,
     usage=_firecrawl_parse_usage,
 )
@@ -1085,6 +1151,7 @@ register_method(
     input="url",
     custom_schema=True,
     request=_firecrawl_json_request,
+    task_prompt_location="formats[0].prompt",
     project=_firecrawl_project,
 )
 def _record_projection_control(method):
@@ -1103,6 +1170,7 @@ register_method(
     custom_schema=True,
     options=("setJavaScriptEnabled", "rejectResourceTypes", "input_route", "rejectRequestPattern"),
     request=_cloudflare_request,
+    task_prompt_location="prompt",
     project=lambda payload, preserve_native_types: payload.get("result"),
     projection_controls={"record": _record_projection_control},
 )
@@ -1144,6 +1212,7 @@ register_method(
     input="html",
     custom_schema=True,
     schema_prompt="Extract the fields defined by the schema.",
+    task_prompt_location="prompt",
     options=("input_route",),
     request=_scrapegraph_request,
     project=lambda payload, preserve_native_types: payload.get("json"),
@@ -1206,6 +1275,15 @@ def record_instructions(home):
     return prompt
 
 
+def task_instructions(home, case, *, shared=None):
+    """Deliver a case's frozen question in addition to its dataset-wide instructions."""
+    prompt = record_instructions(home) if shared is None else shared
+    query = case.get("query")
+    if query is not None and (not isinstance(query, str) or not query.strip()):
+        raise ValueError("Per-case extraction queries must be nonempty strings")
+    return "\n\n".join(part for part in (prompt, query) if part)
+
+
 def validate_live_route(method, native_options=None):
     spec = METHODS.get(method)
     if spec.input != "url" and (
@@ -1230,7 +1308,9 @@ def instruction_schema(schema, prompt):
     if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
         raise ValueError("Extraction instructions require an object schema")
     result = copy.deepcopy(schema)
-    for field in result["properties"].values():
+    for name, field in result["properties"].items():
+        if isinstance(field, bool):
+            field = result["properties"][name] = {"allOf": [field]}
         field["description"] = " ".join(filter(None, [field.get("description"), prompt]))
     return result
 
@@ -1241,7 +1321,8 @@ def validate_instruction_schema(method, schema):
         schema is not None
         and limit is not None
         and any(
-            len(field.get("description", "")) > limit for field in schema["properties"].values()
+            isinstance(field, dict) and len(field.get("description", "")) > limit
+            for field in schema["properties"].values()
         )
     ):
         raise ValueError(f"{method} attribute descriptions exceed its {limit}-character limit")
@@ -1259,10 +1340,20 @@ def provider_call(
     native_options=None,
     schema=None,
     prompt=None,
+    task_prompt=None,
 ):
     """One native route per provider; no hidden fallback or quality retry."""
     native_options = validate_native_options(method, native_options)
     spec = METHODS.get(method)
+    if task_prompt is not None:
+        if schema is None or not isinstance(task_prompt, str) or not task_prompt.strip():
+            raise ValueError("Task instructions require a schema and nonempty text")
+        if prompt is None:
+            prompt = task_prompt
+    native_prompt = (
+        task_prompt if task_prompt is not None and spec.task_prompt_location
+        else spec.schema_prompt
+    )
     if schema is not None:
         if not spec.custom_schema:
             raise ValueError("Selected native interface does not support arbitrary schemas")
@@ -1279,7 +1370,7 @@ def provider_call(
         **(
             {
                 "schema": schema,
-                "prompt": spec.schema_prompt,
+                "prompt": native_prompt,
             }
             if schema is not None
             else {}
@@ -1304,6 +1395,7 @@ def provider_call(
         "http_status": response.status,
         "elapsed_seconds": time.monotonic() - started,
         "response": redact(payload),
+        "response_text": redact_json_text(response.text()),
         "provider_usage": {
             **{
                 k: v
@@ -1322,7 +1414,9 @@ def provider_call(
             "instructions": {"text": prompt, "location": "schema.properties.*.description"}
             if prompt
             else None,
-            "standalone_prompt": spec.schema_prompt if schema else None,
+            "standalone_prompt": native_prompt if schema else None,
+            **({"task_prompt": {"text": task_prompt, "location": spec.task_prompt_location}}
+               if task_prompt is not None and spec.task_prompt_location else {}),
             "fixture_url": fixture_url,
             "source_url": source_url,
             "native_options": native_options,
@@ -1869,9 +1963,14 @@ def collect_calls(
             raise ValueError("Frozen extraction HTML changed before dispatch")
         schema_options = {}
         if custom_schema:
+            instructions = task_instructions(
+                home, truth[case_id],
+                shared=contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
+            )
             schema_options = {
                 "schema": adapter.task_schema(home, truth[case_id]),
-                "prompt": contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
+                "prompt": instructions,
+                **({"task_prompt": instructions} if truth[case_id].get("query") else {}),
             }
         row = {
             "method": method,
@@ -1963,7 +2062,7 @@ def collect_calls(
         save_json(path, redact(row), exclusive=True)
         entry = {"path": path.relative_to(run).as_posix(), "sha256": digest(path.read_bytes())}
         with journal.open("a", encoding="utf-8") as checkpoint:
-            checkpoint.write(json.dumps(entry) + "\n")
+            checkpoint.write(json_dumps(entry) + "\n")
             checkpoint.flush()
             os.fsync(checkpoint.fileno())
         pending_calls.pop((method, case_id), None)
@@ -2648,9 +2747,7 @@ def score_rows(home, truth, rows, methods, *, reference_policy=None):
         method: hooks.score(
             truth,
             {
-                r["case_id"]: (r.get("normalized_fields") or {})
-                if r.get("http_status") == 200
-                else {}
+                r["case_id"]: hooks.prediction(r, truth[r["case_id"]])
                 for r in rows
                 if r["method"] == method
             },

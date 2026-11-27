@@ -88,6 +88,150 @@ new files use the canonical format names. No legacy command alias is registered.
 
 ## Prepare and reproduce
 
+### Page-specific query catalogs
+
+The `queries` benchmark adapter accepts independently authored
+`web-extract-query-catalog/1` inputs. It reuses the track's preparation, native
+method collection and `score` stages. It does not use SWDE page-hit matching or
+product-only fields to decide whether a query was answered correctly.
+
+A catalog records each page's explicit `url`, source task IDs, observed content
+kind, primary regions and required characteristics. Each query has its own
+instruction, closed JSON Schema, typed `answer`, source evidence and
+`selection.region_id`/`selection.rationale`. Provider inputs always contain the
+URL, query and schema; answers and qualification evidence stay separate.
+
+Choose the question from the page's primary content and source characteristics.
+Article tasks extract facts or records from the article body. Product tasks ask
+for relevant attributes such as price, currency, variants or stock, when actually
+present. Table/feed tasks preserve record relationships. A dynamic task targets
+the asynchronously materialized records, rather than a static heading or loading
+indicator. An inline script containing all answers is an **embedded-state**
+source, not sufficient evidence of JavaScript-required acquisition.
+
+Inventory an existing locked population without dropping difficult pages:
+
+```sh
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  source-inventory --dataset webfetch --population content-scopes-530 \
+  --output /absolute/data/source-inventory.json
+```
+
+Author a page's independent questions once, then select the actual request unit:
+
+```sh
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  --home /absolute/data/query-draft prepare --benchmark queries \
+  --source /absolute/data/catalog.json --unit query --draft
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  --home /absolute/data/page-draft prepare --benchmark queries \
+  --source /absolute/data/catalog.json --unit page --draft
+```
+
+`query` emits one request per question. `page` composes one instruction and a
+schema whose properties are the exact query IDs, with each original query schema
+nested below its ID. The result is `{"query_id": {...}, ...}`. It is an actual
+request composition change and needs its own measurements. Do not maintain a
+second answer set or relabel standalone measurements as combined calls.
+
+Draft preparation writes `catalog.json`, input-only `requests.json` and a
+`preparation.json` receipt. It makes no provider calls and cannot enter the
+collection/certification boundary. Use `source-inventory --catalog` to bind the
+authored questions to the original source IDs, retaining all remaining source
+tasks as pending. Dataset definitions and generated drafts stay outside Git.
+
+Runnable preparation omits `--draft` and requires a source-qualified catalog with
+`input_mode: "snapshot"` or `input_mode: "live"`. Each `source` names original
+`input`/`sha256`, its annotation status and,
+where applicable, separate `rendered_input`/`rendered_sha256`. Every selected
+region must be primary and cover the declared characteristics. Each answer leaf
+needs a source lexeme and scoped locator; null/no-match answers need an empty
+selection inside the complete target region. Every question also needs a
+schema-valid, rejected page-shell or missing-characteristic answer control.
+Arrays of objects bind each answer record to one source record using
+`evidence.record_regions`: a JSON Pointer maps to its primary `target_index` and
+relative `selector`. Field evidence is checked inside that record, so a value in
+another row cannot qualify a wrongly associated reference answer.
+Numbers keep their precision through catalog loading, schema delivery, saved
+references and offline scoring. Numeric strings remain strings.
+JavaScript-required answer data must be absent before rendering and supported by
+the independent rendered capture. An empty placeholder may exist in the original
+HTML; answers already available in static content or embedded state do not prove
+JavaScript dependence. Rendered qualification references are hash-bound under
+`references/`, separately from publishable input HTML and assets.
+
+Snapshot hosting disables scripts and remote resources. The served HTML must
+therefore support every answer independently of any private rendered capture.
+Preparation rejects an empty page shell whose answers appear only after rendering.
+A rendered snapshot can measure extraction from the frozen content; it does not
+measure whether a method can execute JavaScript on the original website.
+
+Keep live URLs and snapshots as separate execution scopes. A live run must call
+the original URL and independently check the declared answer region before and
+after collection, within its frozen freshness policy. Changed answers need a new
+reference revision and execution scope. A snapshot binds the served bytes and
+assets, alongside its original URL and observation evidence. Both units compile
+from the same frozen questions, schemas and answers; each unit needs its own plan
+and physical calls. Direct PDF, image and video URLs stay in the source inventory
+until a native media input and qualification contract supports them; an HTML
+replacement does not preserve their original task.
+
+Live preparation retains the same scoped evidence and typed reference checks as
+snapshot preparation. Collection uses the existing live-source checker with the
+query adapter's evidence contract. If a source requires rendering, its page also
+declares a completion condition, for example
+`"live_observation": {"selector": ".quote", "minimum": 10}`. This condition uses
+CSS syntax and must describe the initial content needed by the question. The
+shared Web Fetch observer captures the current rendered HTML once per page per
+source check; the query adapter verifies it against the current raw HTML and
+records both hashes. Install the `headless-eval` extra for these source checks;
+`CHROME_PATH` may select an existing browser in the execution environment.
+A changed answer stops collection. An incomplete capture requires the explicit
+historical-reference policy below to proceed.
+
+An optional `live_reference_policy` with `maximum_observation_age_seconds`
+(at most 86,400) permits a previously verified, hash-bound observation to support
+a temporarily inaccessible source within that declared window. Its receipt
+retains the failed current checks and reference age. Rendered sources revalidate
+both saved captures and their hashes; the current DOM is kept as a separate
+observation. A successful current check showing changed content overrides the
+fallback, including when the raw-HTML request is blocked. Without this policy, unavailable
+source checks stop the run. Freeze this choice before participant calls.
+
+Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
+Each compiled question reaches the schema field descriptions and the API's
+documented native prompt or instruction field when that channel is available.
+Saved request receipts identify both instruction carriers. Fixed field-list
+cohorts retain their existing instruction protocol. Changing the unit creates a different prepared cohort and
+frozen execution plan. Report-template views for this answer format are not yet
+supplied by this adapter; query results must not be rendered as field-list scores.
+
+Acceptance is deterministic: strict native JSON, schema validity and exact
+typed-answer equality under declared normalization. Whitespace normalization is
+the default for text; identifiers can select literal matching. Arrays retain
+order unless their JSON Pointer explicitly selects unordered comparison; either
+mode retains record relationships and duplicate multiplicity. All requested
+object keys are required and extra keys rejected. Scalar absence is `null`, no
+matching records is `[]`, and unknown reference coverage remains unavailable.
+Schemas use Draft 2020-12. Local references and anchors must target declared
+schema locations; external references are rejected in every branch. Each nested
+query keeps its own reference scope when combined in a page request.
+The current contract rejects model-judge configuration rather than silently
+calling a model. Use objective questions with explicit answers; a future semantic
+judge needs its own frozen rubric, evidence and unresolved-judgment policy.
+
+Scoring always returns atomic query verdicts, query accuracy, page-average query
+accuracy, fully correct page rate and actual request acceptance. A wrong child
+answer does not erase correct siblings in a parseable combined response; an
+invalid request envelope prevents a fully correct page. Unparseable output loses
+every child in that request. Costs and timings belong to physical requests and
+are not duplicated across child queries. Keep query and page execution results
+separate, with the same frozen question population.
+
+The offline public-boundary tests in `tests/web_extract/test_queries.py` exercise
+both request units, primary-content admission, raw/rendered feature controls,
+native JSON framing, typed answers, source inventory and the existing collector.
+
 ```sh
 uv sync --frozen --extra web-extract-eval --extra test
 uv run --frozen python -m harness.benchmarks.data web-extract

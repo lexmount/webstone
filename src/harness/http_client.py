@@ -10,6 +10,7 @@ from email.message import Message
 from typing import Any
 
 from harness.call_diagnostics import emit
+from harness.record_io import json_dumps
 from lexbench_webfetch.paths import validate_http_url
 
 
@@ -75,7 +76,7 @@ def request(
     data = body
     final_headers = {"User-Agent": "webstone/0.1", **(headers or {})}
     if json_body is not None:
-        data = json.dumps(json_body).encode("utf-8")
+        data = json_dumps(json_body).encode("utf-8")
         final_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=final_headers, method=method)
     emit("http_request_started", url=url, method=method, headers=final_headers, json_body=json_body, timeout=timeout)

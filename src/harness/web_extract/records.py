@@ -6,12 +6,66 @@ does not generate questions or answers and does not infer values from provider o
 
 from __future__ import annotations
 
-import json
 import re
 import tempfile
 from datetime import UTC
 from pathlib import Path
 from urllib.parse import urljoin
+
+from harness.record_io import json_dumps
+
+
+def source_text(node):
+    """Preserve inline adjacency and structural value boundaries in source evidence."""
+    return "".join(text for _, text in source_text_parts(node))
+
+
+def source_text_parts(node):
+    """Retain physical text-slot identities alongside the shared source projection."""
+    # Ordinary inline markup preserves words. Blocks, controls and neighboring
+    # labelled fields delimit values; comments do not contribute text.
+    blocks = set(
+        (
+            "address article aside blockquote br caption dd details dialog div dl dt fieldset "
+            "figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre "
+            "section summary table tbody td text tfoot th thead tr ul"
+        ).split()
+    )
+
+    def labelled(node):
+        return (
+            node is not None
+            and node.tag == "span"
+            and any(
+                child.tag in {"strong", "label"} and child.text_content().strip().endswith(":")
+                for child in node
+            )
+        )
+
+    def visible(node):
+        if not isinstance(node.tag, str) or node.tag in {"script", "style"}:
+            return
+        previous = node.getprevious()
+        before = (
+            node.tag in blocks
+            or node.tag == "button"
+            or (labelled(node) and labelled(previous) and not (previous.tail or ""))
+        )
+        after = (
+            node.tag in blocks
+            or node.tag == "button"
+            or (labelled(node) and labelled(node.getnext()) and not (node.tail or ""))
+        )
+        if before:
+            yield None, " "
+        yield (node, "text"), node.text or ""
+        for child in node:
+            yield from visible(child)
+            yield (child, "tail"), child.tail or ""
+        if after:
+            yield None, " "
+
+    yield from visible(node)
 
 
 def source_encoding(raw, encoding=None):
@@ -47,12 +101,17 @@ class LiveSourceAccessError(ValueError):
         super().__init__(f"Live source unavailable: {case_id}; {attempts[-1]}")
 
 
-def prepare(home: Path, source: Path, *, distribution=None):
+def prepare(home: Path, source: Path, *, distribution=None, definition=None, benchmark="records"):
+    """Materialize both field-list and typed-JSON tasks through one source boundary."""
+    from harness.web_extract.dataset import benchmark_config
     from harness.web_extract.pipeline import digest, read_json, require_external_output, save_json
 
     require_external_output(home)
-    definition = read_json(source)
-    if definition.get("schema") != "source-qualified-extraction-cohort/1":
+    definition = read_json(source) if definition is None else definition
+    config = benchmark_config(name=benchmark)
+    typed = config["benchmark"].reference_format == "json"
+    version = "2" if typed else "1"
+    if definition.get("schema") != "source-qualified-extraction-cohort/" + version:
         raise ValueError("A source-qualified cohort definition is required")
     mode = definition.get("input_mode")
     if mode not in {"live", "snapshot"}:
@@ -96,18 +155,24 @@ def prepare(home: Path, source: Path, *, distribution=None):
             schema = case["schema"]
             if not references or set(references) != set(schema.get("properties", {})):
                 raise ValueError("Scored fields and requested fields differ")
-            if any(
+            if not typed and any(
                 not isinstance(values, list) or any(not isinstance(v, str) for v in values)
                 for values in references.values()
             ):
                 raise ValueError("References must be explicit string lists")
-            validate_value_counts(case)
+            if typed:
+                from harness.web_extract.query_contract import Validator, scoring_schema
+
+                Validator.check_schema(schema)
+                Validator(scoring_schema(schema)).validate(references)
+            else:
+                validate_value_counts(case)
             receipt = case.get("qualification")
             if (
                 not receipt
                 or receipt.get("input_sha256") != digest(raw)
                 or receipt.get("reference_sha256")
-                != digest(json.dumps(references, sort_keys=True, ensure_ascii=False).encode())
+                != digest(json_dumps(references, sort_keys=True, ensure_ascii=False).encode())
             ):
                 raise ValueError("Every input needs its source qualification receipt")
             if live_policy is not None:
@@ -143,6 +208,7 @@ def prepare(home: Path, source: Path, *, distribution=None):
                 "source_value_counts": case.get("source_value_counts", {}),
                 **({"document_base_url": base} if base != case["url"] else {}),
                 **({"query": case["query"]} if case.get("query") else {}),
+                **({"task": case["task"]} if "task" in case else {}),
             }
             schemas[cid] = schema
             provenance[cid] = {
@@ -150,20 +216,23 @@ def prepare(home: Path, source: Path, *, distribution=None):
                 "original_reference": case.get("original_reference", references),
                 "unscored_fields": case.get("unscored_fields", {}),
             }
-            for asset in case.get("assets", []):
-                name = Path(asset["path"])
-                if name.is_absolute() or ".." in name.parts or name.parts[:2] != ("assets", cid):
-                    raise ValueError("Assets must belong to their case")
-                blob = _source_bytes(source.parent, asset["input"])
-                if digest(blob) != asset["sha256"]:
-                    raise ValueError("Source resource differs from qualification")
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(blob)
+            for prefix, resources in (("assets", case.get("assets", [])),
+                                      ("references", case.get("reference_files", []))):
+                for asset in resources:
+                    name = Path(asset["path"])
+                    if (name.is_absolute() or ".." in name.parts
+                            or name.parts[:2] != (prefix, cid)):
+                        raise ValueError("Source resources must belong to their case")
+                    blob = _source_bytes(source.parent, asset["input"])
+                    if digest(blob) != asset["sha256"]:
+                        raise ValueError("Source resource differs from qualification")
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(blob)
         save_json(root / "dataset/ground-truth.json", truth)
         save_json(root / "schemas.json", schemas)
         save_json(root / "provenance.json", provenance)
-        (root / "evaluate.py").write_bytes(exported_evaluator())
+        (root / "evaluate.py").write_bytes(config["adapter"].exported_evaluator())
         (root / "LICENSE").write_text(definition["source_license"], encoding="utf-8")
         save_json(root / "source-versions.json", definition["source_versions"])
         files = {
@@ -174,14 +243,15 @@ def prepare(home: Path, source: Path, *, distribution=None):
             for path in sorted(root.rglob("*"))
             if path.is_file()
         }
-        commit = digest(json.dumps(definition["source_versions"], sort_keys=True).encode())
+        commit = digest(json_dumps(definition["source_versions"], sort_keys=True).encode())
         manifest = {
-            "benchmark": "records",
+            "benchmark": benchmark,
             "input_mode": mode,
             "commit": commit,
             "cases": len(cases),
             "selection": definition["selection"],
             "files": files,
+            **({"task_unit": definition["task_unit"]} if "task_unit" in definition else {}),
             **({"live_reference_policy": live_policy} if live_policy is not None else {}),
         }
         profile = {
@@ -195,14 +265,14 @@ def prepare(home: Path, source: Path, *, distribution=None):
                 "cases": len(cases),
                 "files": {name: entry["sha256"] for name, entry in files.items()},
                 "inventory_sha256": digest(
-                    json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+                    json_dumps(files, sort_keys=True, separators=(",", ":")).encode()
                 ),
             },
-            "scoring": {
+            "scoring": definition.get("scoring", {
                 "primary": "value_micro",
                 "text_matching": "whitespace",
                 "official_reproduction": False,
-            },
+            }),
             "source_versions": definition["source_versions"],
             **(
                 {"extraction_instructions": definition["extraction_instructions"]}
@@ -308,7 +378,7 @@ def score(truth, predictions, **options):
     return score_fields(truth, predictions, **options)
 
 
-def qualify_live(home, case_ids, *, timeout=30):
+def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_source_check=None):
     """Check declared original values on the current source, independently of answers."""
     import time
     from collections import defaultdict
@@ -321,6 +391,15 @@ def qualify_live(home, case_ids, *, timeout=30):
 
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     policy = read_json(home / "dataset/manifest.json").get("live_reference_policy")
+    check = reference_support if source_check is None else source_check
+    captured_check = check if captured_source_check is None else captured_source_check
+
+    def value_count(value):
+        if isinstance(value, dict):
+            return sum(value_count(child) for child in value.values())
+        if isinstance(value, list):
+            return sum(map(value_count, value))
+        return 1
 
     def unavailable(cid, attempts):
         if policy is None:
@@ -337,7 +416,7 @@ def qualify_live(home, case_ids, *, timeout=30):
             or receipt["source_url"] != reference["url"]
             or digest(raw) != receipt["input_sha256"]
             or access_interstitial(raw)
-            or reference_support(
+            or captured_check(
                 reference,
                 raw,
                 encoding=receipt.get("encoding"),
@@ -356,8 +435,8 @@ def qualify_live(home, case_ids, *, timeout=30):
             "reference_observed_at": receipt["observed_at"],
             "encoding": receipt.get("encoding"),
             "observed_html_sha256": digest(raw),
-            "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
-            "reference_values_verified": sum(map(len, reference["values"].values())),
+            "reference_sha256": digest(json_dumps(reference["values"], sort_keys=True).encode()),
+            "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
 
@@ -400,12 +479,16 @@ def qualify_live(home, case_ids, *, timeout=30):
         except (ParserError, LookupError) as error:
             attempts[-1]["error"] = type(error).__name__
             return unavailable(cid, attempts)
-        missing = reference_support(
-            reference,
-            response.body,
-            source_url=response.url,
-            encoding=encoding,
-        )
+        try:
+            missing = check(
+                reference,
+                response.body,
+                source_url=response.url,
+                encoding=encoding,
+            )
+        except LiveSourceAccessError as error:
+            attempts.extend(error.source_attempts)
+            return unavailable(cid, attempts)
         if missing:
             raise ValueError("Live reference no longer supported: " + cid + "; " + str(missing[:3]))
         return {
@@ -414,8 +497,8 @@ def qualify_live(home, case_ids, *, timeout=30):
             "http_status": response.status,
             "encoding": encoding,
             "observed_html_sha256": digest(response.body),
-            "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
-            "reference_values_verified": sum(map(len, reference["values"].values())),
+            "reference_sha256": digest(json_dumps(reference["values"], sort_keys=True).encode()),
+            "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
 
@@ -490,50 +573,7 @@ def reference_support(reference, raw, *, source_url=None, encoding=None, documen
         ]
     for node in tree.xpath("//script|//style"):
         node.drop_tree()
-    # Ordinary inline markup preserves words. Blocks, controls and neighboring
-    # labelled fields delimit values; comments do not contribute text.
-    blocks = set(
-        (
-            "address article aside blockquote br caption dd details dialog div dl dt fieldset "
-            "figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre "
-            "section summary table tbody td tfoot th thead tr ul"
-        ).split()
-    )
-
-    def labelled(node):
-        return (
-            node is not None
-            and node.tag == "span"
-            and any(
-                child.tag in {"strong", "label"} and child.text_content().strip().endswith(":")
-                for child in node
-            )
-        )
-
-    def visible(node):
-        if not isinstance(node.tag, str):
-            return
-        previous = node.getprevious()
-        before = (
-            node.tag in blocks
-            or node.tag == "button"
-            or (labelled(node) and labelled(previous) and not (previous.tail or ""))
-        )
-        after = (
-            node.tag in blocks
-            or node.tag == "button"
-            or (labelled(node) and labelled(node.getnext()) and not (node.tail or ""))
-        )
-        if before:
-            yield " "
-        yield node.text or ""
-        for child in node:
-            yield from visible(child)
-            yield child.tail or ""
-        if after:
-            yield " "
-
-    text = text_key("".join(visible(tree)))
+    text = text_key(source_text(tree))
     base = (
         document_base
         if document_base is not None

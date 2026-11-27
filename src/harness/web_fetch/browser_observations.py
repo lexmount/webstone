@@ -86,6 +86,7 @@ class CapturePolicy:
     content_selector: str = "body"
     text_mode: str = "reference"
     description: str = "body"
+    retain_html: bool = False
 
 
 def capture_policy(case: dict, observation_scope: str = "reference") -> CapturePolicy:
@@ -123,6 +124,7 @@ def capture_policy(case: dict, observation_scope: str = "reference") -> CaptureP
         type(policy.minimum) is not int
         or policy.minimum < 1
         or policy.text_mode not in {"reference", "visible", "dom"}
+        or type(policy.retain_html) is not bool
         or any(
             not isinstance(value, str) or not value.strip()
             for value in (policy.selector, policy.content_selector, policy.description)
@@ -485,7 +487,7 @@ def capture(
         "observation_method": observation_method,
         **(
             {"outer_html": outer_html, "settle_budget_ms": 2000, "visible_frames": frames}
-            if observation_scope == "visible_page"
+            if observation_scope == "visible_page" or policy.retain_html
             else {}
         ),
         "observed_records": count,

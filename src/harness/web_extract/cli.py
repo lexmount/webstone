@@ -49,9 +49,21 @@ def build_parser(prog=None):
     p.add_argument("--benchmark", choices=BENCHMARKS.names(),
                    help="Registered benchmark; defaults to the single-schema product benchmark")
     p.add_argument("--source", type=Path)
+    p.add_argument("--unit", choices=sorted({unit for _, item in BENCHMARKS.items()
+                                            for unit in item.task_units}),
+                   help="Compile the selected benchmark as one request per query or per page")
+    p.add_argument("--draft", action="store_true",
+                   help="Validate and export a query catalog without qualifying it for collection")
     p.add_argument("--dataset", help="Registered Hugging Face dataset; see datasets")
     p.add_argument("--revision", help="Full dataset commit recorded by pin-dataset")
     sub.add_parser("datasets", help="List registered datasets, editions and populations")
+    p = sub.add_parser("source-inventory",
+                       help="Inventory a locked source population for query authoring")
+    p.add_argument("--dataset", required=True)
+    p.add_argument("--population", required=True)
+    p.add_argument("--catalog", type=Path,
+                   help="Bind authored pages back to every original source ID")
+    p.add_argument("--output", type=Path, required=True)
     sub.add_parser("reproduce")
     for command in ("snapshots-build", "snapshots-verify"):
         p = sub.add_parser(command)
@@ -303,12 +315,14 @@ def main(argv=None, *, prog=None):
 
         print(json.dumps(registered_datasets(), ensure_ascii=False, indent=2))
     elif args.command == "prepare":
-        print(
-            "Verified",
-            prepare(args.home, benchmark=args.benchmark, source=args.source,
-                    dataset=args.dataset, revision=args.revision)["cases"],
-            "frozen pages",
-        )
+        prepared = prepare(args.home, benchmark=args.benchmark, source=args.source,
+                           dataset=args.dataset, revision=args.revision, unit=args.unit,
+                           draft=args.draft)
+        print({"state": prepared.get("state", "prepared"), "cases": prepared["cases"]})
+    elif args.command == "source-inventory":
+        from harness.web_extract.queries import source_inventory
+
+        print(source_inventory(args.dataset, args.population, args.output, catalog=args.catalog))
     elif args.command == "reproduce":
         print(reproduce(args.home))
     elif args.command == "plan":

@@ -7,6 +7,18 @@ from pathlib import Path
 
 @unittest.skipUnless(importlib.util.find_spec('bs4') and importlib.util.find_spec('requests'),'requires reference-audit extra')
 class SourceExtractionTests(unittest.TestCase):
+    def test_markdown_body_precedes_unrelated_article_shell(self):
+        from harness.web_fetch.source_capture import extract_html
+        raw = b'''<html><body><nav>Site menu</nav>
+        <div class="article-inner markdown-body"><h1>Database conventions</h1>
+        <p>Partition a table after the documented size limit.</p></div>
+        <article>Subscribe to the newsletter</article></body></html>'''
+        _, text, _, _ = extract_html(raw, 'https://source.example/guide')
+        self.assertIn('Database conventions', text)
+        self.assertIn('Partition a table', text)
+        self.assertNotIn('Subscribe', text)
+        self.assertNotIn('Site menu', text)
+
     def test_wikipedia_navbox_drift_does_not_change_article_reference(self):
         from harness.web_fetch.source_capture import extract_html
         def extract(navbox,body='Stable article prose'):

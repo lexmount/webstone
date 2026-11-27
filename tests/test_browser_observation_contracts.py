@@ -27,6 +27,7 @@ def case_with(rule=None):
         {"minimum": True},
         {"selector": []},
         {"text_mode": "best"},
+        {"retain_html": "yes"},
         {"unknown": 1},
         [],
     ],
@@ -239,14 +240,21 @@ def rendered_page():
     not os.getenv("WEBSTONE_TEST_BROWSER_BINARY"), reason="explicit Chromium required"
 )
 @pytest.mark.parametrize("mode", ["visible", "dom", "reference"])
-def test_live_multielement_completion_preserves_declared_content_scope(rendered_page, mode):
+@pytest.mark.parametrize("retain_html", [False, True])
+def test_live_multielement_completion_preserves_declared_content_scope(
+    rendered_page, mode, retain_html
+):
     case = case_with(
-        {"selector": ".quote", "minimum": 10, "content_selector": "main", "text_mode": mode}
+        {"selector": ".quote", "minimum": 10, "content_selector": "main",
+         "text_mode": mode, "retain_html": retain_html}
     )
     case["url"] = rendered_page
     row = capture.capture(case, 10000, os.environ["WEBSTONE_TEST_BROWSER_BINARY"])
     assert row["completion"]["satisfied"] is True
     assert row["observed_records"] == 10
+    assert ("outer_html" in row) == retain_html
+    if retain_html:
+        assert '<main>' in row["outer_html"] and 'Card 9' in row["outer_html"]
     assert all(f"Card {i}" in row["content_text"] for i in range(10))
     assert "Navigation only" not in row["content_text"]
     assert "Footer only" not in row["content_text"]

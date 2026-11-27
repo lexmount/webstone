@@ -86,7 +86,10 @@ class ExtractBenchmark:
     hash-bound into its cohorts. A benchmark without one declares a single
     schema through ``fields`` and uses the pinned upstream scorer. ``profile``
     is a card under ``benchmarks/cards``, or ``None`` when the prepared home
-    carries its own ``profile.json``.
+    carries its own ``profile.json``. ``reference_format="json"`` additionally
+    declares the adapter's ``scored_prediction(row, reference)`` hook, which
+    preserves native framing/types before scoring. ``task_units`` advertises
+    supported preparation groupings; legacy field-list contracts keep their defaults.
     """
 
     name: str
@@ -106,6 +109,8 @@ class ExtractBenchmark:
     snapshot_distribution: dict | None = None
     reference_coverage_archive: str | None = None
     capabilities: Capabilities = Capabilities()
+    reference_format: str = "string-lists"
+    task_units: tuple[str, ...] = ()
 
 
 # Prepared record datasets must hold the evaluator exported by this runtime.
@@ -251,6 +256,13 @@ BENCHMARKS.register("records", ExtractBenchmark(
     name="records",
     module="harness.web_extract.records",
     review_prompts=RECORD_REVIEW_PROMPTS,
+    capabilities=Capabilities(frozenset({EXPORTED_EVALUATOR})),
+))
+BENCHMARKS.register("queries", ExtractBenchmark(
+    name="queries",
+    module="harness.web_extract.queries",
+    reference_format="json",
+    task_units=("query", "page"),
     capabilities=Capabilities(frozenset({EXPORTED_EVALUATOR})),
 ))
 BENCHMARKS.register("zyte", ExtractBenchmark(

@@ -679,17 +679,30 @@ def test_continuously_streaming_response_has_a_total_deadline(transport):
 
 
 def test_json_checkpoint_survives_partial_write_and_exclusive_collision(tmp_path):
+    from contextlib import contextmanager
+    from unittest.mock import Mock
+
     from harness.web_extract import pipeline
 
     target = tmp_path / "checkpoint.json"
     pipeline.save_json(target, {"committed": True})
     original = target.read_bytes()
 
-    def interrupted(value, stream, **kwargs):
-        stream.write('{"partial":')
-        raise KeyboardInterrupt
+    temporary_file = pipeline.tempfile.NamedTemporaryFile
 
-    with patch.object(pipeline.json, "dump", side_effect=interrupted):
+    @contextmanager
+    def interrupted_file(**kwargs):
+        with temporary_file(**kwargs) as stream:
+            def interrupted(text):
+                stream.write(text[:5])
+                raise KeyboardInterrupt
+
+            writer = Mock(wraps=stream)
+            writer.name = stream.name
+            writer.write.side_effect = interrupted
+            yield writer
+
+    with patch.object(pipeline.tempfile, "NamedTemporaryFile", side_effect=interrupted_file):
         with pytest.raises(KeyboardInterrupt):
             pipeline.save_json(target, {"next": True})
         with pytest.raises(KeyboardInterrupt):
