@@ -10,9 +10,9 @@ import posixpath
 import re
 import shutil
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from harness.reporting.visual import browser_executable, local_page, local_report_server
 
