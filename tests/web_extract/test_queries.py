@@ -696,11 +696,12 @@ def test_inline_markup_preserves_literal_identifiers_during_source_qualification
         queries.qualify_page(page, tmp_path)
 
 
-def test_sentence_punctuation_is_not_part_of_numeric_evidence(tmp_path):
+@pytest.mark.parametrize("suffix", [b".", b", followed by discussion"])
+def test_sentence_punctuation_is_not_part_of_numeric_evidence(tmp_path, suffix):
     source = catalog(tmp_path)
     page = pipeline.read_json(source)["pages"][0]
     path = tmp_path / "article.html"
-    raw = path.read_bytes().replace(b">40<", b">40.<")
+    raw = path.read_bytes().replace(b">40<", b">40" + suffix + b"<")
     path.write_bytes(raw)
     page["source"]["sha256"] = pipeline.digest(raw)
     queries.qualify_page(page, tmp_path)
@@ -861,3 +862,36 @@ def test_nested_dialect_keeps_exact_native_decimal_validation(tmp_path, unit):
     truth = {case["id"]: {"task": {"unit": unit, "page_id": "article", "queries": [query]}}}
     result = queries.score(truth, {case["id"]: value})
     assert result["request_accuracy"]["rate"] == 1
+
+
+def test_local_references_cannot_reach_unadmitted_schema_locations(tmp_path):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    contract = data["pages"][0]["queries"][0]["schema"]
+    contract["properties"]["trials"] = {
+        "anyOf": [
+            {"type": "integer"},
+            {"$ref": "#/hidden"},
+        ]
+    }
+    contract["hidden"] = {"$ref": "https://untrusted.invalid/schema"}
+    with pytest.raises(ValueError, match="declared schema locations"):
+        query_contract.compile_cases(data)
+    del contract["hidden"]
+    contract["$defs"] = {"count": {"type": "integer"}}
+    contract["properties"]["trials"]["anyOf"][1]["$ref"] = "#/$defs/count"
+    query_contract.compile_cases(data)
+
+
+@pytest.mark.parametrize("index", ["-1", "00"])
+def test_local_schema_pointer_requires_a_valid_array_index(tmp_path, index):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    contract = data["pages"][0]["queries"][0]["schema"]
+    contract["prefixItems"] = [{"type": "integer"}]
+    branch = {"$ref": "#/prefixItems/" + index}
+    contract["properties"]["trials"] = {"anyOf": [{"type": "integer"}, branch]}
+    with pytest.raises(ValueError, match="declared schema locations"):
+        query_contract.compile_cases(data)
+    branch["$ref"] = "#/prefixItems/0"
+    query_contract.compile_cases(data)

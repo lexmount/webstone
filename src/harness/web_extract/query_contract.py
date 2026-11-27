@@ -13,7 +13,7 @@ import re
 from collections import Counter, defaultdict
 from decimal import Decimal
 from fractions import Fraction
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from jsonschema import Draft202012Validator, ValidationError, validators
 
@@ -150,17 +150,19 @@ def validate_query(query, value):
     }
 
 
-def schema_nodes(schema):
+def schema_scopes(schema, resource=None):
     """Visit schema locations, preserving literal data in const, enum and defaults."""
-    yield schema
+    if resource is None or isinstance(schema, dict) and "$id" in schema:
+        resource = schema
+    yield schema, resource
     if isinstance(schema, bool):
         return
     for key in ("$defs", "definitions", "properties", "patternProperties", "dependentSchemas"):
         for child in schema.get(key, {}).values():
-            yield from schema_nodes(child)
+            yield from schema_scopes(child, resource)
     for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
         for child in schema.get(key, []):
-            yield from schema_nodes(child)
+            yield from schema_scopes(child, resource)
     for key in (
         "items",
         "contains",
@@ -175,17 +177,47 @@ def schema_nodes(schema):
         "contentSchema",
     ):
         if key in schema:
-            yield from schema_nodes(schema[key])
+            yield from schema_scopes(schema[key], resource)
+
+
+def schema_nodes(schema):
+    return (node for node, _ in schema_scopes(schema))
 
 
 def validate_schema(schema):
     """Keep all schema branches closed and reproducible without external lookups."""
     Draft202012Validator.check_schema(schema)
-    for node in schema_nodes(schema):
+    scopes = list(schema_scopes(schema))
+    declared = {id(node) for node, _ in scopes}
+    for node, resource in scopes:
         if isinstance(node, bool):
             continue
         if any(key in node and not node[key].startswith("#") for key in ("$ref", "$dynamicRef")):
             raise ValueError("Task schemas must not depend on external references")
+        for key in ("$ref", "$dynamicRef"):
+            if key not in node:
+                continue
+            fragment = unquote(node[key][1:])
+            if fragment.startswith("/"):
+                target = resource
+                try:
+                    for part in fragment[1:].split("/"):
+                        part = part.replace("~1", "/").replace("~0", "~")
+                        if isinstance(target, list) and not re.fullmatch(r"0|[1-9][0-9]*", part):
+                            raise ValueError("Invalid JSON Pointer array index")
+                        target = target[int(part)] if isinstance(target, list) else target[part]
+                except (KeyError, IndexError, TypeError, ValueError):
+                    target = None
+                valid = id(target) in declared
+            else:
+                valid = not fragment or any(
+                    owner is resource
+                    and isinstance(candidate, dict)
+                    and fragment in {candidate.get("$anchor"), candidate.get("$dynamicAnchor")}
+                    for candidate, owner in scopes
+                )
+            if not valid:
+                raise ValueError("Local references must target declared schema locations")
         if "$schema" in node and node["$schema"].rstrip("#") not in {
             "https://json-schema.org/draft/2020-12/schema",
             "http://json-schema.org/draft/2020-12/schema",

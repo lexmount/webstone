@@ -114,7 +114,7 @@ def _source_contains(text, raw, value):
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
         # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
         tokens = re.findall(
-            r"(?<![A-Za-z0-9_.])[+-]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)"
+            r"(?<![A-Za-z0-9_.])[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)"
             r"(?:[eE][+-]?\d+)?(?![A-Za-z0-9_]|[.,]\d)",
             text,
         )

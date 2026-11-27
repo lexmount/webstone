@@ -50,6 +50,7 @@ def extract_html(raw: bytes, url: str):
         )
     selectors = [
         "article.markdown-body",
+        ".markdown-body",
         "article#docs-content",
         "#mw-content-text .mw-parser-output",
         '[itemprop="articleBody"]',

@@ -186,6 +186,9 @@ order unless their JSON Pointer explicitly selects unordered comparison; either
 mode retains record relationships and duplicate multiplicity. All requested
 object keys are required and extra keys rejected. Scalar absence is `null`, no
 matching records is `[]`, and unknown reference coverage remains unavailable.
+Schemas use Draft 2020-12. Local references and anchors must target declared
+schema locations; external references are rejected in every branch. Each nested
+query keeps its own reference scope when combined in a page request.
 The current contract rejects model-judge configuration rather than silently
 calling a model. Use objective questions with explicit answers; a future semantic
 judge needs its own frozen rubric, evidence and unresolved-judgment policy.
