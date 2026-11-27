@@ -1185,6 +1185,126 @@ def test_live_dynamic_catalog_requires_a_completion_condition(tmp_path):
         queries.prepare(tmp_path / "live", source)
 
 
+def test_dynamic_data_can_fill_existing_empty_record_elements(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][1]
+    raw = (
+        b'<html><section id="products"><article><h2></h2>'
+        b'<p class="price">Loading...</p></article></section>'
+        b'<script>fetch("/products").then(render)</script></html>'
+    )
+    (tmp_path / "static.html").write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    queries.qualify_page(page, tmp_path)
+    raw = (tmp_path / "rendered.html").read_bytes()
+    (tmp_path / "static.html").write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    with pytest.raises(ValueError, match="Dynamic tasks"):
+        queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        b"<table><tr><td>1</td><td>2</td></tr></table>",
+        b'<svg><text x="0">1</text><text x="50">2</text></svg>',
+    ],
+)
+def test_adjacent_numeric_cells_do_not_manufacture_a_reference_value(tmp_path, markup):
+    page = pipeline.read_json(catalog(tmp_path))["pages"][0]
+    path = tmp_path / "article.html"
+    path.write_bytes(
+        path.read_bytes().replace(
+            b'<p id="trials">40</p>',
+            b'<div id="trials">' + markup + b"</div>",
+        )
+    )
+    page["source"]["sha256"] = pipeline.digest(path.read_bytes())
+    question = page["queries"][0]
+    question["answer"]["trials"] = 12
+    question["evidence"]["leaves"][1].update(selector=".//*[@id='trials']", raw_value="12")
+    with pytest.raises(ValueError, match="Answer evidence"):
+        queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("tag,accepted", [("script", False), ("pre", True)])
+def test_visible_code_examples_and_hidden_implementation_data_are_distinct(tmp_path, tag, accepted):
+    page = pipeline.read_json(catalog(tmp_path))["pages"][0]
+    path = tmp_path / "article.html"
+    path.write_bytes(
+        path.read_bytes().replace(
+            b'<p id="trials">40</p>',
+            f'<div id="trials"><{tag}>var count = 40;</{tag}></div>'.encode(),
+        )
+    )
+    page["source"]["sha256"] = pipeline.digest(path.read_bytes())
+    page["queries"][0]["evidence"]["leaves"][1]["selector"] = ".//*[@id='trials']"
+    if accepted:
+        queries.qualify_page(page, tmp_path)
+    else:
+        with pytest.raises(ValueError, match="Answer evidence"):
+            queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("markup", [b"<p>New</p><p>York</p>", b"New<br>York"])
+def test_block_boundaries_preserve_multiword_reference_text(tmp_path, markup):
+    page = pipeline.read_json(catalog(tmp_path))["pages"][0]
+    path = tmp_path / "article.html"
+    path.write_bytes(
+        path.read_bytes().replace(
+            b'<p id="org">Harbor Lab</p>', b'<div id="org">' + markup + b"</div>"
+        )
+    )
+    page["source"]["sha256"] = pipeline.digest(path.read_bytes())
+    question = page["queries"][0]
+    question["answer"]["organization"] = "New York"
+    question["evidence"]["leaves"][0].update(selector=".//*[@id='org']", raw_value="New York")
+    queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("source_text", ["−5", "− 5", "﹣5", "－ 5", "⁻5", "₋ 5", "−$5"])
+def test_unicode_negative_signs_cannot_qualify_positive_reference_values(tmp_path, source_text):
+    page = pipeline.read_json(catalog(tmp_path))["pages"][0]
+    path = tmp_path / "article.html"
+    path.write_bytes(path.read_bytes().replace(b">40<", b">" + source_text.encode() + b"<"))
+    page["source"]["sha256"] = pipeline.digest(path.read_bytes())
+    page["source"]["encoding"] = "utf-8"
+    question = page["queries"][0]
+    question["answer"]["trials"] = 5
+    proof = question["evidence"]["leaves"][1]
+    proof["raw_value"] = "5"
+    with pytest.raises(ValueError, match="Answer evidence"):
+        queries.qualify_page(page, tmp_path)
+    question["answer"]["trials"] = -5
+    proof["raw_value"] = source_text
+    queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text,value",
+    [
+        ("1,234", 1234),
+        ("−1,234", -1234),
+        ("$1,234.50", 1234.5),
+        ("1,234e-3", 1.234),
+    ],
+)
+def test_grouped_source_numbers_preserve_their_complete_typed_value(tmp_path, source_text, value):
+    page = pipeline.read_json(catalog(tmp_path))["pages"][0]
+    path = tmp_path / "article.html"
+    path.write_bytes(path.read_bytes().replace(b">40<", b">" + source_text.encode() + b"<"))
+    page["source"].update(sha256=pipeline.digest(path.read_bytes()), encoding="utf-8")
+    question = page["queries"][0]
+    question["schema"]["properties"]["trials"] = {"type": "number"}
+    question["answer"]["trials"] = value
+    question["evidence"]["leaves"][1]["raw_value"] = source_text
+    queries.qualify_page(page, tmp_path)
+    question["answer"]["trials"] = 234
+    question["evidence"]["leaves"][1]["raw_value"] = "234"
+    with pytest.raises(ValueError, match="Answer evidence"):
+        queries.qualify_page(page, tmp_path)
+
+
 @pytest.mark.parametrize("fresh,http_status", [(True, 200), (True, 403), (False, 200)])
 def test_rendered_live_reference_fallback_binds_both_stored_captures(
     tmp_path, monkeypatch, fresh, http_status

@@ -14,6 +14,54 @@ from pathlib import Path
 from urllib.parse import urljoin
 
 
+def source_text(node):
+    """Preserve inline adjacency and structural value boundaries in source evidence."""
+    # Ordinary inline markup preserves words. Blocks, controls and neighboring
+    # labelled fields delimit values; comments do not contribute text.
+    blocks = set(
+        (
+            "address article aside blockquote br caption dd details dialog div dl dt fieldset "
+            "figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre "
+            "section summary table tbody td text tfoot th thead tr ul"
+        ).split()
+    )
+
+    def labelled(node):
+        return (
+            node is not None
+            and node.tag == "span"
+            and any(
+                child.tag in {"strong", "label"} and child.text_content().strip().endswith(":")
+                for child in node
+            )
+        )
+
+    def visible(node):
+        if not isinstance(node.tag, str) or node.tag in {"script", "style"}:
+            return
+        previous = node.getprevious()
+        before = (
+            node.tag in blocks
+            or node.tag == "button"
+            or (labelled(node) and labelled(previous) and not (previous.tail or ""))
+        )
+        after = (
+            node.tag in blocks
+            or node.tag == "button"
+            or (labelled(node) and labelled(node.getnext()) and not (node.tail or ""))
+        )
+        if before:
+            yield " "
+        yield node.text or ""
+        for child in node:
+            yield from visible(child)
+            yield child.tail or ""
+        if after:
+            yield " "
+
+    return "".join(visible(node))
+
+
 def source_encoding(raw, encoding=None):
     """Use declared charsets, valid UTF-8, then the HTML parser's legacy fallback."""
     if encoding is not None or not raw.strip():
@@ -519,50 +567,7 @@ def reference_support(reference, raw, *, source_url=None, encoding=None, documen
         ]
     for node in tree.xpath("//script|//style"):
         node.drop_tree()
-    # Ordinary inline markup preserves words. Blocks, controls and neighboring
-    # labelled fields delimit values; comments do not contribute text.
-    blocks = set(
-        (
-            "address article aside blockquote br caption dd details dialog div dl dt fieldset "
-            "figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main nav ol p pre "
-            "section summary table tbody td tfoot th thead tr ul"
-        ).split()
-    )
-
-    def labelled(node):
-        return (
-            node is not None
-            and node.tag == "span"
-            and any(
-                child.tag in {"strong", "label"} and child.text_content().strip().endswith(":")
-                for child in node
-            )
-        )
-
-    def visible(node):
-        if not isinstance(node.tag, str):
-            return
-        previous = node.getprevious()
-        before = (
-            node.tag in blocks
-            or node.tag == "button"
-            or (labelled(node) and labelled(previous) and not (previous.tail or ""))
-        )
-        after = (
-            node.tag in blocks
-            or node.tag == "button"
-            or (labelled(node) and labelled(node.getnext()) and not (node.tail or ""))
-        )
-        if before:
-            yield " "
-        yield node.text or ""
-        for child in node:
-            yield from visible(child)
-            yield child.tail or ""
-        if after:
-            yield " "
-
-    text = text_key("".join(visible(tree)))
+    text = text_key(source_text(tree))
     base = (
         document_base
         if document_base is not None

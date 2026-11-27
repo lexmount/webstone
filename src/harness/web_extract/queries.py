@@ -81,7 +81,7 @@ def _record_paths(value, pointer=""):
 
 
 def _text(nodes):
-    return " ".join("".join(n.itertext()) if hasattr(n, "itertext") else str(n) for n in nodes)
+    return " ".join(records.source_text(n) if hasattr(n, "itertext") else str(n) for n in nodes)
 
 
 def _scoped_nodes(target, selector):
@@ -109,8 +109,29 @@ def _lexeme_matches(raw, value):
         return False
 
 
+_SIGNS = str.maketrans(
+    {
+        "−": "-",
+        "﹣": "-",
+        "－": "-",
+        "➖": "-",
+        "⁻": "-",
+        "₋": "-",
+        "﹢": "+",
+        "＋": "+",
+        "➕": "+",
+        "⁺": "+",
+        "₊": "+",
+    }
+)
+
+
 def _numeric_lexeme(raw):
-    return re.sub(r"^([+-]?)\s*[£$€¥]\s*", r"\1", raw.strip())
+    token = re.sub(r"^([+-]?)\s*[£$€¥]\s*", r"\1", raw.strip().translate(_SIGNS))
+    token = re.sub(r"^([+-])\s+", r"\1", token)
+    if re.fullmatch(r"[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?(?:[eE][+-]?\d+)?", token):
+        token = token.replace(",", "")
+    return token
 
 
 def _source_contains(text, raw, value):
@@ -122,10 +143,11 @@ def _source_contains(text, raw, value):
             re.search(r"(?<![A-Za-z0-9_])" + re.escape(raw) + r"(?![A-Za-z0-9_])", text) is not None
         )
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        text = text.translate(_SIGNS)
         # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
         number = r"(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?"
         monetary = r"(?<![0-9_.+£$€¥,-])(?:[+-]\s*)?[£$€¥]\s*[+-]?\s*" + number
-        plain = r"(?<![A-Za-z0-9_.+£$€¥,-])[+-]?" + number
+        plain = r"(?<![A-Za-z0-9_.+£$€¥,-])[+-]?\s*" + number
         for token in re.finditer(
             "(?:" + monetary + "|" + plain + r")(?![A-Za-z0-9_]|[.,]\d)", text
         ):
@@ -185,10 +207,26 @@ def _qualify_content(page, raw, rendered, encoding):
         if not targets or not _text(targets).strip():
             raise ValueError("The selected primary content is absent from the independent source")
         if "javascript" in page["required_characteristics"]:
-            if not source.get("rendered_input") or static.xpath(region["selector"]):
+            available_without_rendering = False
+            if static.xpath(region["selector"]):
+                original = {
+                    **page,
+                    "source": {},
+                    "queries": [query],
+                    "required_characteristics": [
+                        tag for tag in page["required_characteristics"] if tag != "javascript"
+                    ],
+                }
+                try:
+                    _qualify_content(original, raw, raw, encoding)
+                except ValueError:
+                    pass
+                else:
+                    available_without_rendering = True
+            if not source.get("rendered_input") or available_without_rendering:
                 raise ValueError(
-                    "Dynamic tasks need target records absent before JavaScript "
-                    "and present after rendering"
+                    "Dynamic tasks need answer data absent before JavaScript "
+                    "and supported after rendering"
                 )
         evidence = query["evidence"]
         record_regions = evidence.get("record_regions", {})
