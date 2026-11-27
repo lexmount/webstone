@@ -483,3 +483,14 @@ def test_prepared_reset_preserves_validated_bytes(tmp_path, monkeypatch, damage)
         with pytest.raises(ValueError, match="output already exists"):
             remote_runtime.main_prepared_reset(args)
         assert output.read_bytes() == before
+
+
+def test_rebind_compiled_selectors_preserves_existing_scheme_alternatives(tmp_path):
+    sites = load_remote_sites(_site_map(tmp_path))
+    previous = {**sites, WebArenaSite.SHOPPING: 'http://old-shop.example/'}
+    selector = 'a:is([href="http://old-shop.example/orders"],[href="https://old-shop.example/orders"]):visible'
+    calls = [{"action": "click", "selector": selector}]
+    rebound = rebind_remote_calls(calls, sites, set(), previous, expand_href_schemes=False)
+    assert rebound == [{"action": "click", "selector":
+        'a:is([href="http://shop.example/orders"],[href="https://shop.example/orders"]):visible'}]
+    assert calls[0]["selector"] == selector

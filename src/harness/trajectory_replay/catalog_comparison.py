@@ -225,6 +225,7 @@ def _attempt(
         actions = rebind_remote_calls(
             actions, load_remote_sites(deployment_map),
             set(TRUSTED_RECORDED_HOSTS), canonical_sites,
+            expand_href_schemes=False,
         )
     uses_current_actions = (
         physical.get("executed_actions_sha256") == canonical_json_sha256(actions)
