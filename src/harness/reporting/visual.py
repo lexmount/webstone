@@ -226,9 +226,17 @@ def settle_theme(page) -> None:
         .map(animation => animation.finished.catch(() => {})))""")
 
 
-def local_page(browser, origin: str, **options):
+def local_page(browser, origin: str, *, context=None, **options):
     """Render frozen local bytes; optional remote enhancements use their fallback."""
-    page = browser.new_page(**options)
+    if context is None:
+        page = browser.new_page(**options)
+    else:
+        viewport = options.pop("viewport", None)
+        if options:
+            raise ValueError("shared-context pages support only viewport options")
+        page = context.new_page()
+        if viewport is not None:
+            page.set_viewport_size(viewport)
     expected = urlsplit(origin)
 
     def dispatch(route):

@@ -617,7 +617,7 @@
     "tables": [
      [
       "Round | Scope | Finding | Correction | Open",
-      "Trajectory qualification | 1 task: 1 autonomous success and 0 repaired trajectories. | 0 candidate trajectories required repair before use as frozen inputs. | Recorded per-task acceptance yielded 1/1 passes on Chromium. Frozen trajectories contain no Agent or model decisions. | Method-specific frozen inputs and official evaluations are available on each result page.",
+      "Trajectory qualification | 1 task; Autonomous success: 1. | Each task retains its recorded source and frozen action sequence. | Recorded per-task acceptance yielded 1/1 passes on Chromium. Frozen trajectories contain no Agent or model decisions. | Method-specific frozen inputs and official evaluations are available on each result page.",
       "Failure evidence review | 1 final failed outcomes. | 0 browser-session setup failures; 1 browser-action failures; 0 evidence-finalization failures; 0 evaluator-execution failures; 0 network-acceptance failures. | 1/1 reviews are bound to the current evidence hash. Program errors, action locators, reviewed causes and treatment states are separate; official scores did not change. | Failure causes and treatment status appear on each failed result page."
      ]
     ]
@@ -782,7 +782,7 @@
     "tables": [
      [
       "轮次 | 范围 | 发现 | 纠正 | 未完成",
-      "轨迹资格核验 | 1 题；1 条来自自主执行，0 条经修复。 | 0 条候选轨迹需要修复后才能作为固定输入。 | 记录的逐题验收中，Chromium 通过 1/1 题；固定轨迹不包含 Agent 或模型决策。 | 逐方法冻结输入及官方验收证据可在结果页查看。",
+      "轨迹资格核验 | 1 个任务；自主执行成功: 1。 | 每个任务保留原始来源标记与冻结动作序列。 | 记录的逐题验收中，Chromium 通过 1/1 题；固定轨迹不包含 Agent 或模型决策。 | 逐方法冻结输入及官方验收证据可在结果页查看。",
       "失败证据复核 | 1 条最终失败结果。 | 0 条浏览器会话初始化失败；1 条动作执行失败；0 条证据收尾失败；0 条评测器执行失败；0 条网络验收失败。 | 1/1 条绑定当前证据哈希；分别展示程序报错、动作位置、复核原因和处理状态，原始分数未改。 | 失败根因与处理状态见逐题结果详情。"
      ]
     ]
@@ -821,9 +821,9 @@
    "data/trajectory/chromium-29.json 4dbd87bb8442b8983070",
    "data/trajectory/moli-fixed-29.json 4eebb464e35447d582ff",
    "data/trajectory/moli-old-29.json e23ca9b49bdc27567ec3",
-   "dataset.html e3b2d47aa7f2976459b4",
+   "dataset.html 3977b5c18232804ca9a4",
    "en/article.html bd7546059c8b49131654",
-   "en/dataset.html cd1408f6f7b0834ede35",
+   "en/dataset.html 004df654e9ff15d8c98f",
    "en/environment.html 76ffed44db6f7fe361b7",
    "en/evidence-viewer.html 9efe88b9668811e8d430",
    "en/index.html eb437ea163b5b7a263cd",
@@ -832,19 +832,19 @@
    "en/result/moli-fixed-29.html 83d26ec869ac8127cf5d",
    "en/result/moli-old-29.html 69a6a719f28a27461981",
    "en/results.html 5472580ccff6aca83193",
-   "en/review.html 3d7700f48498b31910cf",
-   "en/task/29.html 0ffa6d1101b0f3fd3573",
+   "en/review.html c42a317c522ed220df9a",
+   "en/task/29.html 0f0ff0b293a1ad5ddbd8",
    "environment.html c6f1edbf4396facccc3c",
    "evidence-viewer.html 7ffb910475987a3d3e76",
    "index.html 1cd0d5b32188b013ffdf",
    "interpretation.html 6cfe3b324cd2f51892f8",
-   "report-manifest.json 1df797612d17917282c3",
+   "report-manifest.json 1184d20c2c08232d7f20",
    "result/chromium-29.html 5e336cd13c43aca36316",
    "result/moli-fixed-29.html bc20f4b9cbab59f6d2e3",
    "result/moli-old-29.html 4b078608fac197e68451",
    "results.html e6386f909f4ccd88c6eb",
-   "review.html 0038559547e95459507e",
-   "task/29.html 751b1e6a72a357fa19a8",
+   "review.html 3f9206f3c284093d16a0",
+   "task/29.html 50c8256804f3dfcf5a4d",
    "webstone-version.json 561aadb67df5738a512b"
   ]
  },

@@ -1104,3 +1104,75 @@ def test_failed_click_records_actionability_probe_without_adding_a_step():
     assert len(trace) == 1
     assert trace[0]["status"] == "fail"
     assert trace[0]["actionability_probe"]["rect"]["width"] == 0
+
+
+@pytest.mark.parametrize('wait_until, submitted', [('domcontentloaded', False), ('load', True)])
+def test_navigation_policy_waits_for_deferred_button_handlers(wait_until, submitted):
+    class HydratingPage(FakePage):
+        handlers_bound = False
+        submitted = False
+
+        def goto(self, url, **kwargs):
+            result = super().goto(url, **kwargs)
+            self.handlers_bound = kwargs['wait_until'] == 'load'
+            return result
+
+        def wait_for_load_state(self, state, **kwargs):
+            # A persistent request prevents network-idle even after load.
+            raise TimeoutError('stream still active')
+
+        def locator(self, selector):
+            target = super().locator(selector)
+            click = target.click
+
+            def submit(**kwargs):
+                click(**kwargs)
+                if not kwargs.get('trial'):
+                    self.submitted = self.handlers_bound
+
+            target.click = submit
+            return target
+
+    page = HydratingPage()
+    trace = []
+    execute_steps(page, [
+        {'action': 'navigate', 'url': 'https://example.com/form'},
+        {'action': 'click', 'selector': '#submit'},
+    ], trace=trace, default_navigation_wait_until=wait_until)
+    assert page.submitted is submitted
+    assert len(trace) == 2
+
+
+def test_navigation_policy_preserves_an_explicit_call_wait():
+    class Page(FakePage):
+        def goto(self, url, **kwargs):
+            self.selected_wait = kwargs['wait_until']
+            return super().goto(url, **kwargs)
+
+    page = Page()
+    execute_steps(page, [{'action': 'navigate', 'url': 'https://example.com/',
+                          'wait_until': 'domcontentloaded'}],
+                  default_navigation_wait_until='load')
+    assert page.selected_wait == 'domcontentloaded'
+
+
+def test_invalid_navigation_policy_fails_before_dispatch():
+    page = FakePage()
+    with pytest.raises(ValueError, match='navigation'):
+        execute_steps(page, [{'action': 'navigate', 'url': 'https://example.com/'}],
+                      default_navigation_wait_until='invalid')
+    assert not page.calls
+
+
+def test_pending_document_load_stops_before_interaction():
+    class PendingPage(FakePage):
+        def goto(self, url, **kwargs):
+            assert kwargs["wait_until"] == "load"
+            raise TimeoutError("document load deadline exceeded")
+
+    page = PendingPage()
+    with pytest.raises(TimeoutError, match="document load deadline"):
+        execute_steps(page, [{"action": "navigate", "url": "https://example.com/"},
+                             {"action": "click", "selector": "button"}],
+                      default_navigation_wait_until="load")
+    assert not any(call[0] == "click" for call in page.calls)

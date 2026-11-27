@@ -22,16 +22,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 import time
 import urllib.parse
+import urllib.request
 import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
-from http.client import RemoteDisconnected
+from http.client import IncompleteRead, RemoteDisconnected
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -43,12 +42,18 @@ from harness.reporting.publication import (
     PublicationClient,
     PublicationOperation,
     PublicationSnapshot,
+    _rate_limit_delay,
     archive_inventory,
     atomic_write,
     bind_publication_files,
     binding_receipt_matches,
+    export_manifest_files,
+    export_original_url,
     multipart_archive,
+    public_delivery_manifest,
+    public_original_html,
     public_share_context,
+    read_public_response,
     recover_binding,
     response_json,
     snapshot_publication,
@@ -95,21 +100,6 @@ def updated_receipt(receipt, response):
     current = {key: value for key, value in receipt.items() if key != 'version'}
     return {**current, 'versionId': version, 'last_update': response}
 
-
-def _rate_limit_delay(error):
-    header = error.headers.get('Retry-After', '') if error.headers else ''
-    delay = 30.0
-    if header:
-        try:
-            delay = float(header)
-        except ValueError:
-            try:
-                delay = parsedate_to_datetime(header).timestamp() - time.time()
-            except (TypeError, ValueError, OverflowError):
-                pass
-    if not math.isfinite(delay) or delay > 120:
-        raise error
-    return max(1.0, delay)
 
 
 def put_file(request, path, data):
@@ -252,14 +242,85 @@ def site_version(site: dict) -> str:
     return version
 
 
-def verify_export(request: Callable, slug: str, archive: Path) -> None:
-    """Prove the live site serves exactly the frozen package."""
-    status, exported = request(f"/api/sites/{quote(slug)}/export")
+def verify_export(
+    request: Callable, slug: str, archive: Path, *, public_base: str | None = None,
+) -> None:
+    """Verify ZIP exports or version-pinned original files from manifest exports."""
+    site_path = "/api/sites/" + quote(slug, safe="")
+    status, exported = request(site_path + "/export")
     if status != 200:
         response_json(status, exported, operation="site export")
-    if archive_inventory(exported) != archive_inventory(archive):
+    wanted = archive_inventory(archive)
+    if zipfile.is_zipfile(BytesIO(exported)):
+        if archive_inventory(exported) != wanted:
+            raise RuntimeError("deployed Yours file tree differs from package")
+        return
+    status, raw = request(site_path)
+    version = site_version(response_json(status, raw, operation="site metadata"))
+    if not exported.lstrip().startswith(b"{"):
+        archive_inventory(exported)  # Preserve malformed ZIP rejection for legacy exports.
+    manifest = response_json(200, exported, operation="site export")
+    files = export_manifest_files(manifest, version)
+    if {item["path"] for item in files} != set(wanted):
         raise RuntimeError("deployed Yours file tree differs from package")
 
+    delivery = None
+    if public_base is not None:
+        endpoint = public_base.rstrip("/") + "/api/preview/" + quote(slug, safe="")
+        try:
+            served = read_public_response(endpoint, lambda response: response.read())
+        except HTTPError as error:
+            if error.code not in (401, 403, 404):
+                raise
+            error.close()
+        else:
+            delivery = public_delivery_manifest(
+                served, base=public_base, version=version, path="index.html",
+            )
+            if delivery is not None:
+                if {item["path"] for item in delivery["files"]} != set(wanted):
+                    raise RuntimeError("Public delivery file tree differs from package")
+                delivery = {item["path"]: item for item in delivery["files"]}
+
+    def verify_original(entry):
+        path = entry["path"]
+        if delivery is None:
+            query = urllib.parse.urlencode({"version": version, "file": path})
+            status, raw = request(site_path + "/download?" + query)
+            if status != 200:
+                response_json(status, raw, operation="original download")
+            digest, count = hashlib.sha256(raw), len(raw)
+            if digest.hexdigest() == wanted[path]:
+                if count != entry["size"]:
+                    raise RuntimeError("Original file size differs from package: " + path)
+                return
+            descriptor = response_json(200, raw, operation="original download descriptor")
+        else:
+            descriptor = {"assembled": False, "versionId": version,
+                          "filename": path, "url": delivery[path]["url"]}
+        address = export_original_url(descriptor, version, path)
+        def consume(response):
+            digest, count = hashlib.sha256(), 0
+            while chunk := response.read(min(1024 * 1024, entry["size"] - count + 1)):
+                count += len(chunk)
+                if count > entry["size"]:
+                    raise ValueError("Original file exceeds export size: " + path)
+                digest.update(chunk)
+            if count < entry["size"]:
+                raise IncompleteRead(b"", entry["size"] - count)
+            return digest, count
+        # Signed storage URLs never receive the publication credential.
+        digest, count = read_public_response(urllib.request.Request(address), consume)
+        if count != entry["size"] or digest.hexdigest() != wanted[path]:
+            raise RuntimeError("deployed Yours file bytes differ from package: " + path)
+
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        for index, _ in enumerate(workers.map(verify_original, files), 1):
+            if index % 100 == 0 or index == len(files):
+                print(f"Verified {index}/{len(files)} deployed files", flush=True)
+    status, raw = request(site_path)
+    if site_version(response_json(status, raw, operation="site metadata after verification")) != version:
+        raise RuntimeError("Remote version changed during export verification")
 
 # Receipt lifecycle
 
@@ -660,7 +721,9 @@ def staged_release_upload(
             )
         return status, raw
 
-    return upload_large_archive(staged_request, archive, slug, expected_version, title=title)
+    return upload_large_archive(
+        staged_request, archive, slug, expected_version, title=title, max_workers=4,
+    )
 
 
 def _publish_bound_release(track: BoundTrack, *, create: bool, transport=None) -> None:
@@ -728,6 +791,7 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
         track.receipt, base=base, archive_sha256=release.sha256, slug=bound_slug,
         version=expected_version, version_field=track.version_field,
     )
+    verified_version = None
     if bound_slug or expected_version:
         if create and not resume_binding:
             raise ValueError(f"{track.label} report is already bound; update it without --create")
@@ -745,7 +809,8 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
             # A previous upload may have committed before a post-upload check failed.
             # Resume only when the exported tree proves that the remote version is
             # byte-identical to the current package.
-            verify_export(send, slug, release.archive)
+            verify_export(send, slug, release.archive, public_base=base)
+            verified_version = remote_version
         else:
             query = urllib.parse.urlencode({"expected_version": expected_version})
             status, raw = upload(
@@ -760,7 +825,7 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
             result = json.loads(track.receipt.read_bytes())
             if track.operation_journal.exists():
                 operations.pending(identity, allow_create=False)
-            verify_export(send, slug, release.archive)
+            verify_export(send, slug, release.archive, public_base=base)
         else:
             status, raw = upload("/api/sites", slug=None, expected=None, allow_create=create)
             result = response_json(status, raw, operation="site creation")
@@ -787,7 +852,8 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
         if not 200 <= status < 300:
             response_json(status, raw, operation="site title update")
         result["title"] = title
-    verify_export(send, slug, release.archive)
+    if verified_version != version:
+        verify_export(send, slug, release.archive, public_base=base)
     share_path, share_token = public_share_context(base, share_url)
     release.check()
     status, _ = public_request(base, share_path)[:2]
@@ -795,8 +861,13 @@ def _publish_bound(track: BoundTrack, release: PublicationSnapshot, *, create: b
         raise RuntimeError(f"public report returned HTTP {status}")
     release.check()
     status, body = public_request(
-        base, f"/api/preview/{quote(slug)}", extra_headers={"X-Artifact-Share": share_token}
+        base, f"/api/preview/{quote(slug)}", extra_headers={"X-Artifact-Share": share_token} if share_token else None
     )[:2]
+    delivered = public_original_html(body, base=base, version=version, path="index.html")
+    if delivered is not None:
+        if hashlib.sha256(delivered).hexdigest() != archive_inventory(release.archive)["index.html"]:
+            raise ValueError("Public delivery entry differs from the validated package")
+        body = delivered
     track.check_preview(status, body)
     release.check()
     track.validate_package()
@@ -999,9 +1070,10 @@ def _publish_staged_update(update: StagedUpdate, *, transport=None) -> str:
         published = json.loads(raw)
         if published['version']['id'] != version or published['version']['entry'] != 'index.html':
             raise ValueError(f'Published {label} site does not bind the activated home page')
-        _, exported = request(site_path + '/export')
-        if archive_inventory(exported) != archive_inventory(release.archive):
-            raise ValueError(f'Deployed {label} bytes differ from the validated package')
+        try:
+            verify_export(request, slug, release.archive, public_base=update.base)
+        except RuntimeError as error:
+            raise ValueError(f'Deployed {label} bytes differ from the validated package') from error
         _, shared = request(update.share_path, auth=False)
         if not shared:
             raise ValueError(f'{label} public share page is empty')

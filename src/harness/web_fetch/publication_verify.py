@@ -12,19 +12,24 @@ import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from http.client import IncompleteRead
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
-from harness.benchmarks.data import _TokenRedirects
-from harness.reporting.publication import archive_inventory
-from harness.reporting.publish import _rate_limit_delay
 from harness.artifact_auth import load_token
+from harness.benchmarks.data import _TokenRedirects
+from harness.reporting.publication import (
+    archive_inventory,
+    export_manifest_files,
+    export_original_url,
+    public_original_html,
+)
 from harness.reporting.publication_target import (
     publication_base,
     publication_document,
     validate_service_base,
 )
+from harness.reporting.publish import _rate_limit_delay
 
 
 def _validate_metadata(data, slug, *, require_slug=False):
@@ -213,34 +218,6 @@ def verify_public_files(slug, expected_archive, base):
         injected = served[len(prefix) : len(served) - len(suffix) if suffix else None]
         return known_injection(injected)
 
-    def delivered_html(name, served):
-        """Resolve the host's navigation wrapper, then verify the original bytes."""
-        match = re.search(
-            rb'<script id="artifact-delivery-config" type="application/json">(.*?)</script>',
-            served, re.S,
-        )
-        if not match:
-            return None
-        config = json.loads(match.group(1))
-        root = config.get('root', '')
-        if (not isinstance(root, str) or not root.startswith(base + '/api/delivery/d1.')
-                or not re.fullmatch(r'[A-Za-z0-9._-]+/', root[len(base + '/api/delivery/'):])
-                or config.get('file') != name
-                or config.get('manifestUrl') != root.rstrip('/') + '?__manifest=1'):
-            raise ValueError('Invalid delivery configuration')
-        with urllib.request.urlopen(config['manifestUrl'], timeout=180) as response:
-            manifest = json.load(response)
-        if manifest.get('versionId') != before['version']['id']:
-            raise ValueError('Delivery version differs')
-        matches = [item for item in manifest.get('files', []) if item.get('path') == name]
-        if len(matches) != 1:
-            raise ValueError('Delivery omitted requested HTML')
-        target = urlsplit(matches[0]['url'])
-        if target.scheme != 'https' or not target.hostname or target.username or target.password:
-            raise ValueError('Invalid delivery file URL')
-        with urllib.request.urlopen(matches[0]['url'], timeout=180) as response:
-            return response.read()
-
     def digest(name):
         url = base + "/api/preview/" + quote(slug, safe="") + "/" + quote(name, safe="/")
         for attempt in range(3):
@@ -251,7 +228,9 @@ def verify_public_files(slug, expected_archive, base):
                         digest = hashlib.sha256(served).hexdigest()
                         if digest == wanted[name]:
                             return name, digest, "byte_identical"
-                        delivered = delivered_html(name, served)
+                        delivered = public_original_html(
+                            served, base=base, version=before["version"]["id"], path=name,
+                        )
                         if delivered is not None:
                             return name, hashlib.sha256(delivered).hexdigest(), "delivery_original"
                         if injected_html_matches(name, served):
@@ -331,22 +310,7 @@ def _assemble_manifest_export(request, path, version):
     manifest = json.loads(path.read_bytes())
     if not isinstance(manifest, dict) or 'assembled' not in manifest:
         return
-    if manifest.get('assembled') is not False or manifest.get('versionId') != version:
-        raise ValueError('Export manifest differs from its version baseline')
-    files = manifest.get('files')
-    if not isinstance(files, list) or not files:
-        raise ValueError('Export manifest omitted original files')
-    names = set()
-    for entry in files:
-        if not isinstance(entry, dict):
-            raise ValueError('Invalid original file in export manifest')
-        name, size = entry.get('path'), entry.get('size')
-        if (not isinstance(name, str) or not name or '\\' in name
-                or PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts
-                or str(PurePosixPath(name)) != name or name in names
-                or type(size) is not int or size < 0):
-            raise ValueError('Invalid original file in export manifest')
-        names.add(name)
+    files = export_manifest_files(manifest, version)
     endpoint = urlsplit(request.full_url)
     if not endpoint.path.endswith('/export'):
         raise ValueError('Export manifest came from an unexpected endpoint')
@@ -372,14 +336,9 @@ def _assemble_manifest_export(request, path, version):
                                 and descriptor.get('assembled') is False
                                 and isinstance(descriptor.get('filename'), str)
                                 and 'url' in descriptor and 'versionId' in descriptor):
-                            address = urlsplit(descriptor['url'])
-                            if (descriptor['versionId'] != version or address.scheme != 'https'
-                                    or not address.hostname or address.username or address.password
-                                    or address.fragment or descriptor.get('filename') not in
-                                    {entry['path'], PurePosixPath(entry['path']).name}):
-                                raise ValueError('Original download descriptor differs from its file binding')
+                            address = export_original_url(descriptor, version, entry['path'])
                             # Object storage uses its signed URL, never the service's bearer token.
-                            with _open_export_file(urllib.request.Request(descriptor['url'])) as original_file:
+                            with _open_export_file(urllib.request.Request(address)) as original_file:
                                 while chunk := original_file.read(1024 * 1024):
                                     stream.write(chunk)
                         else:

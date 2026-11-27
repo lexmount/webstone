@@ -189,12 +189,15 @@ def execute_steps(
     trace_observer: Callable[[list[dict[str, Any]]], None] | None = None,
     task_timeout_ms: int | None = None,
     default_action_timeout_ms: int = 30_000,
+    default_navigation_wait_until: str = "domcontentloaded",
 ) -> dict[str, str]:
     """Execute declared calls; implicit readiness waits are internal and not calls."""
     if task_timeout_ms is not None and task_timeout_ms < 1:
         raise ValueError("task_timeout_ms must be positive when provided")
     if default_action_timeout_ms < 1:
         raise ValueError("default_action_timeout_ms must be positive")
+    if default_navigation_wait_until not in {"domcontentloaded", "load"}:
+        raise ValueError("invalid default navigation wait state")
     captured = outputs if outputs is not None else {}
     records = trace if trace is not None else []
     deadline = time.monotonic() + task_timeout_ms / 1000 if task_timeout_ms is not None else None
@@ -282,7 +285,7 @@ def execute_steps(
                 prior_url = str(getattr(action_page, "url", ""))
                 response = action_page.goto(
                     call["url"],
-                    wait_until=call.get("wait_until", "domcontentloaded"),
+                    wait_until=call.get("wait_until", default_navigation_wait_until),
                     timeout=action_remaining(),
                 )
                 if (
@@ -291,7 +294,7 @@ def execute_steps(
                     and _same_document_url(prior_url, str(call["url"]))
                 ):
                     response = action_page.reload(
-                        wait_until=call.get("wait_until", "domcontentloaded"),
+                        wait_until=call.get("wait_until", default_navigation_wait_until),
                         timeout=action_remaining(),
                     )
                 if navigation_response_observer is not None:
@@ -345,7 +348,7 @@ def execute_steps(
                 )
                 navigation = (
                     action_page.expect_navigation(
-                        wait_until=call.get("wait_until", "domcontentloaded"),
+                        wait_until=call.get("wait_until", default_navigation_wait_until),
                         timeout=operation_timeout(),
                     )
                     if call.get("wait_for_navigation")
@@ -408,7 +411,7 @@ def execute_steps(
                 )
                 navigation = (
                     action_page.expect_navigation(
-                        wait_until=call.get("wait_until", "domcontentloaded"),
+                        wait_until=call.get("wait_until", default_navigation_wait_until),
                         timeout=operation_timeout(),
                     )
                     if call.get("wait_for_navigation")
@@ -610,7 +613,7 @@ def execute_steps(
             elif action == "wait_for_url":
                 action_page.wait_for_url(
                     str(call["url"]),
-                    wait_until=call.get("wait_until", "domcontentloaded"),
+                    wait_until=call.get("wait_until", default_navigation_wait_until),
                     timeout=timeout,
                 )
                 observation = f"URL ready: {getattr(action_page, 'url', '')}"

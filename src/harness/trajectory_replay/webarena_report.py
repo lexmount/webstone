@@ -990,6 +990,25 @@ def _detail_page(
                   notice=validity_notice, depth=1, current_route=f"result/{key}.html")
 
 
+def _trajectory_source_category(kind: str) -> str:
+    if kind == "authoritative_successful_browser_use_execution":
+        return "autonomous"
+    if kind == "expert_repair_spec":
+        return "repaired"
+    return "recorded"
+
+
+def _trajectory_source_label(kind: str, lang: str) -> str:
+    code = kind if kind in {"autonomous", "repaired", "recorded"} else _trajectory_source_category(kind)
+    t = report_text(lang)
+    labels = {
+        "autonomous": t("dataset.source.autonomous", "Autonomous success"),
+        "repaired": t("dataset.source.repaired", "Repaired and checked"),
+        "recorded": t("dataset.source.recorded", "Recorded trajectory"),
+    }
+    return labels[code]
+
+
 def _task_page(
     lang: str, task: dict[str, Any], peers: list[dict[str, Any]], validity_notice: str = "",
     reference_validity: dict[str, Any] | None = None,
@@ -998,11 +1017,7 @@ def _task_page(
     t = report_text(lang)
     task_id = int(task["task_id"])
     source_kind = str((task.get("source") or {}).get("kind") or "")
-    source_label = (
-        t("task.source.autonomous", "From a successful autonomous browser run")
-        if source_kind == "authoritative_successful_browser_use_execution"
-        else t("task.source.repaired", "Repaired and checked on the reference browser under the recorded protocol")
-    )
+    source_label = _trajectory_source_label(_trajectory_source_category(source_kind), lang)
     peer_rows = "".join(
         f'<tr><td><a href="../{_e(peer.get("detail_url") or "result/" + peer["participant_id"] + "-" + str(task_id) + ".html")}">{_e(peer["browser"])}</a></td>'
         f'<td class="status-{peer["status"]}">{_verdict_label(peer["status"], peer.get("semantic_status"), lang)}</td>'
@@ -1294,9 +1309,7 @@ def build_webarena_replay_report(
 
     source_counts: dict[str, int] = defaultdict(int)
     for task in tasks.values():
-        source_counts[str((task.get("source") or {}).get("kind") or "unknown")] += 1
-    browser_use_source_count = source_counts["authoritative_successful_browser_use_execution"]
-    repaired_source_count = source_counts["expert_repair_spec"]
+        source_counts[_trajectory_source_category(str((task.get("source") or {}).get("kind") or ""))] += 1
     reference_engine = str((profile.get("qualification") or {}).get("reference_participant_id") or "")
     if not reference_engine:
         reference_engine = resolve_participant_id(
@@ -1433,8 +1446,8 @@ def build_webarena_replay_report(
         matrix_rows = []
         for task_id, task in tasks.items():
             source = str((task.get("source") or {}).get("kind") or "")
-            source_code = "autonomous" if source == "authoritative_successful_browser_use_execution" else "repaired"
-            source_text = (t("dataset.source.autonomous", "Autonomous success")) if source_code == "autonomous" else (t("dataset.source.repaired", "Repaired and checked"))
+            source_code = _trajectory_source_category(source)
+            source_text = _trajectory_source_label(source_code, lang)
             task_type = str((task.get("evaluation_input") or {}).get("task_type") or "")
             type_text = _task_type_label(task_type, lang) or "—"
             sites = task["task"].get("sites") or []
@@ -1446,7 +1459,20 @@ def build_webarena_replay_report(
         dataset_site_options = "".join(f'<option value="{_e(site)}">{_e(site)}</option>' for site in dataset_sites)
         dataset_type_options = "".join(f'<option value="{code}">{_e(label)}</option>' for code, label in (("RETRIEVE", t("dataset.type_filter.retrieve", "Retrieve")), ("NAVIGATE", t("dataset.type_filter.navigate", "Navigate")), ("MUTATE", t("dataset.type_filter.mutate", "Mutate"))))
         dataset_lead = f'''<section class="hero"><p>{t("dataset.lead", "{tasks} {tasks|task shares|tasks share} goals and acceptance rules. This page retains the dataset reference path; method-specific frozen inputs and measured verdicts appear on result pages.", tasks=task_count)}</p></section>'''
-        dataset_body = f'''<section><div class="dataset-browser"><h2>{t("dataset.tasks_heading", "Tasks and reference paths")}</h2><p>{t("dataset.tasks_lead", "{autonomous} came from successful autonomous runs; {repaired} were repaired and checked under the recorded protocol on {reference}. Open a task for its acceptance input, full trajectory, and evidence from every browser.", autonomous=browser_use_source_count, repaired=repaired_source_count, reference=reference_label)}</p><div class="dataset-controls"><label>{t("dataset.filter.search", "Search tasks")}<input data-dataset-filter="q" type="search" placeholder="{t('dataset.filter.placeholder', 'ID, site, or goal')}"></label><label>{t("common.site", "Site")}<select data-dataset-filter="site"><option value="">{t("common.all", "All")}</option>{dataset_site_options}</select></label><label>{t("common.task_type", "Task type")}<select data-dataset-filter="type"><option value="">{t("common.all", "All")}</option>{dataset_type_options}</select></label><label>{t("common.trajectory_source", "Trajectory source")}<select data-dataset-filter="source"><option value="">{t("common.all", "All")}</option><option value="autonomous">{t("dataset.source.autonomous", "Autonomous success")}</option><option value="repaired">{t("dataset.source.repaired", "Repaired and checked")}</option></select></label></div><p class="dataset-count" data-dataset-count></p><div class="table-scroll dataset-table" data-dataset-table><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in headers)}</tr></thead><tbody>{"".join(matrix_rows)}</tbody></table></div><p class="dataset-empty" data-dataset-empty hidden>{t("dataset.empty", "No matching tasks. Change the filters.")}</p></div></section>'''
+        source_scope = "; ".join(
+            f"{_trajectory_source_label(code, lang)}: {count}"
+            for code, count in sorted(source_counts.items()) if count
+        )
+        source_summary = "".join(
+            f'<span data-source-category="{code}" data-source-count="{count}">'
+            f"{_e(_trajectory_source_label(code, lang))}: {count}</span> "
+            for code, count in sorted(source_counts.items()) if count
+        )
+        source_options = "".join(
+            f'<option value="{code}">{_e(_trajectory_source_label(code, lang))}</option>'
+            for code, count in sorted(source_counts.items()) if count
+        )
+        dataset_body = f'''<section><div class="dataset-browser"><h2>{t("dataset.tasks_heading", "Tasks and reference paths")}</h2><p>{source_summary}{t("dataset.tasks_detail", "Open a task for its acceptance input, full trajectory, and evidence from every browser.")}</p><div class="dataset-controls"><label>{t("dataset.filter.search", "Search tasks")}<input data-dataset-filter="q" type="search" placeholder="{t('dataset.filter.placeholder', 'ID, site, or goal')}"></label><label>{t("common.site", "Site")}<select data-dataset-filter="site"><option value="">{t("common.all", "All")}</option>{dataset_site_options}</select></label><label>{t("common.task_type", "Task type")}<select data-dataset-filter="type"><option value="">{t("common.all", "All")}</option>{dataset_type_options}</select></label><label>{t("common.trajectory_source", "Trajectory source")}<select data-dataset-filter="source"><option value="">{t("common.all", "All")}</option>{source_options}</select></label></div><p class="dataset-count" data-dataset-count></p><div class="table-scroll dataset-table" data-dataset-table><table><thead><tr>{"".join(f"<th>{_e(h)}</th>" for h in headers)}</tr></thead><tbody>{"".join(matrix_rows)}</tbody></table></div><p class="dataset-empty" data-dataset-empty hidden>{t("dataset.empty", "No matching tasks. Change the filters.")}</p></div></section>'''
         (root / "dataset.html").write_text(_shell(lang, "dataset", t("dataset.title", "Dataset"), {"lead": dataset_lead, "inventory": dataset_body}, heading=t("dataset.title", "Dataset"), eyebrow=f"WebArena-Verified · {task_count}", notice=notice_html, current_route="dataset.html"), encoding="utf-8")
 
         stage_labels = {
@@ -1645,8 +1671,8 @@ def build_webarena_replay_report(
         review_rows = (
             (
                 t("review.trajectory.title", "Trajectory qualification"),
-                t("review.trajectory.scope", "{tasks} {tasks|task|tasks}: {autonomous} autonomous {autonomous|success|successes} and {repaired} repaired {repaired|trajectory|trajectories}.", tasks=task_count, autonomous=browser_use_source_count, repaired=repaired_source_count),
-                t("review.trajectory.finding", "{repaired} candidate trajectories required repair before use as frozen inputs.", repaired=repaired_source_count),
+                t("review.trajectory.source_scope", "{tasks} {tasks|task|tasks}; {sources}.", tasks=task_count, sources=source_scope),
+                t("review.trajectory.source_binding", "Each task retains its recorded source and frozen action sequence."),
                 t("review.trajectory.correction", "Recorded per-task acceptance yielded {passed}/{total} passes on {reference}. Frozen trajectories contain no Agent or model decisions.", reference=reference_label, passed=reference_row['passed'], total=reference_row['total']),
                 t("review.trajectory.open", "Method-specific frozen inputs and official evaluations are available on each result page."),
             ),
@@ -1797,6 +1823,7 @@ def build_webarena_replay_report(
         "dataset_sha256": file_sha256(Path(dataset_path)),
         "review_sha256": file_sha256(Path(review_path)),
         "task_count": len(tasks),
+        "trajectory_source_counts": dict(source_counts),
         "participant_count": len(comparison_methods),
         "browser_count": browser_count,
         "method_count": method_count,

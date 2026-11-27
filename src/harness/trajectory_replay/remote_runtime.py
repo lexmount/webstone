@@ -132,6 +132,8 @@ def rebind_remote_calls(
     sites: dict[WebArenaSite, str],
     trusted_source_hosts: set[str],
     source_sites: dict[WebArenaSite, str] | None = None,
+    *,
+    expand_href_schemes: bool = True,
 ) -> list[dict[str, Any]]:
     """Bind frozen WebArena URLs while tolerating HTTP-to-HTTPS proxy upgrades.
 
@@ -179,6 +181,12 @@ def rebind_remote_calls(
         rebound = rebind_url(url)
         if rebound == url:
             return match.group(0)
+        if not expand_href_schemes:
+            target = urlsplit(rebound)
+            rebound = urlunsplit((urlsplit(url).scheme, target.netloc, target.path,
+                                  target.query, target.fragment))
+            quote = match.group("quote")
+            return f"{match.group('before')}{quote}{rebound}{quote}{match.group('after')}"
         parsed = urlsplit(rebound)
         other_scheme = "https" if parsed.scheme == "http" else "http"
         alternative = urlunsplit(

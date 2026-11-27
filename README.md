@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/overview.png" alt="Webstone: the touchstone for your agent's web tools." width="640">
+<img src="docs/assets/overview.png" alt="Webstone logo" width="640">
 
 **English** · [简体中文](docs/README.zh-CN.md)
 
@@ -14,7 +14,7 @@
 
 </div>
 
-**Find the right tools for your agent to browse the web.**
+**The touchstone for your agent’s web browsing.**
 
 Webstone evaluates web tools, browsers and browser agents on repeatable tasks. Compare correctness, latency, resource use and recorded cost, with per-task evidence in the reports.
 

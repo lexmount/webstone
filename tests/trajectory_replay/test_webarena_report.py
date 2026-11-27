@@ -73,7 +73,8 @@ STEP_DURATION_SAMPLES = ({"duration_ms": 0}, {}, {"duration_ms": None})
 
 
 def build_replay_fixture(
-    tmp_path: Path, monkeypatch, extra_methods=0, *, failed=False, step_samples=None
+    tmp_path: Path, monkeypatch, extra_methods=0, *, failed=False, step_samples=None,
+    source_kind="authoritative_successful_browser_use_execution",
 ):
     """Build the synthetic report.
 
@@ -147,7 +148,7 @@ def build_replay_fixture(
         ("dataset.json", {"trajectories": [{"task_id": 29,
             "task": {"intent": "Find a post", "sites": ["reddit"]},
             "tool_calls": actions,
-            "source": {"kind": "authoritative_successful_browser_use_execution"},
+            "source": {"kind": source_kind},
             "evaluation_input": {"task_type": "NAVIGATE"}}]}),
         ("results.json", data),
         ("review.json", {}),
@@ -1093,8 +1094,10 @@ def _step_dialog_status(output: Path, edition: Path, method: str) -> str:
     dialog = soup.select_one("#step-dialog")
     payload = {
         "lang": soup.html["lang"],
-        "evidence": json.loads((page.parent / dialog["data-evidence-url"]).read_text("utf-8")),
-        "standard": json.loads((page.parent / dialog["data-standard-url"]).read_text("utf-8")),
+        "evidence": json.loads(
+            (page.parent / dialog["data-evidence-url"]).read_text(encoding="utf-8")),
+        "standard": json.loads(
+            (page.parent / dialog["data-standard-url"]).read_text(encoding="utf-8")),
     }
     script = (output / "assets" / "app.js").read_text(encoding="utf-8")
     harness = STEP_DIALOG_DRIVER.replace("PAYLOAD", json.dumps(payload)).replace(
@@ -1436,3 +1439,43 @@ def test_only_failed_inventory_rows_offer_a_diagnosis(tmp_path, monkeypatch):
     assert any(row["data-status"] != "pass" for row in rows)
     for row in rows:
         assert bool(row.select("[data-open-diagnosis]")) == (row["data-status"] != "pass")
+
+
+@pytest.mark.parametrize("kind,category,label", [
+    ("authoritative_successful_browser_use_execution", "autonomous", "Autonomous success"),
+    ("expert_repair_spec", "repaired", "Repaired and checked"),
+    ("first_pass_portable_suite", "recorded", "Recorded trajectory"),
+    ("future_recorded_source", "recorded", "Recorded trajectory"),
+])
+def test_report_sources_cover_catalog_and_future_recordings(
+    tmp_path, monkeypatch, kind, category, label,
+):
+    output, manifest, *_ = build_replay_fixture(tmp_path, monkeypatch, source_kind=kind)
+    assert manifest["trajectory_source_counts"] == {category: 1}
+    page = BeautifulSoup((output / "en/dataset.html").read_text(encoding="utf-8"), "html.parser")
+    summary = page.select_one("[data-source-category]")
+    assert summary["data-source-category"] == category
+    assert summary["data-source-count"] == "1" and label in summary.get_text()
+    assert page.select_one("[data-dataset-table] tbody tr")["data-source"] == category
+    detail = BeautifulSoup((output / "en/task/29.html").read_text(encoding="utf-8"), "html.parser")
+    assert label in detail.get_text()
+
+
+@pytest.mark.parametrize("changed", ["summary", "row", "filter"])
+def test_source_release_gate_rejects_misleading_inventory(tmp_path, monkeypatch, changed):
+    from harness.trajectory_replay.webarena_report_check import _check_trajectory_sources
+    output, manifest, *_ = build_replay_fixture(
+        tmp_path, monkeypatch, source_kind="first_pass_portable_suite",
+    )
+    _check_trajectory_sources(output, manifest)
+    file = output / "dataset.html"
+    source = file.read_text(encoding="utf-8")
+    old, new = {
+        "summary": ('data-source-count="1"', 'data-source-count="0"'),
+        "row": ('data-source="recorded"', 'data-source="repaired"'),
+        "filter": ('<option value="recorded">', '<option value="repaired">'),
+    }[changed]
+    assert old in source
+    file.write_text(source.replace(old, new), encoding="utf-8")
+    with pytest.raises(ValueError, match="trajectory source"):
+        _check_trajectory_sources(output, manifest)

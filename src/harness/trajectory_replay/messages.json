@@ -219,7 +219,6 @@
     "dataset.source.autonomous": "自主执行成功",
     "dataset.source.repaired": "修复后验证",
     "dataset.tasks_heading": "任务与基准轨迹",
-    "dataset.tasks_lead": "{autonomous} 条来自成功的自主执行，{repaired} 条经修复后按记录的协议在 {reference} 验证。点开任务可查看验收输入、完整轨迹和各浏览器实测证据。",
     "dataset.title": "评测集",
     "dataset.type_filter.mutate": "页面操作",
     "dataset.type_filter.navigate": "页面导航",
@@ -937,9 +936,7 @@
     "review.status_unverifiable": "不可核验参考答案 {tasks} 题，在核心指标中单列分母。",
     "review.title": "核验记录",
     "review.trajectory.correction": "记录的逐题验收中，{reference} 通过 {passed}/{total} 题；固定轨迹不包含 Agent 或模型决策。",
-    "review.trajectory.finding": "{repaired} 条候选轨迹需要修复后才能作为固定输入。",
     "review.trajectory.open": "逐方法冻结输入及官方验收证据可在结果页查看。",
-    "review.trajectory.scope": "{tasks} 题；{autonomous} 条来自自主执行，{repaired} 条经修复。",
     "review.trajectory.title": "轨迹资格核验",
     "source_and_tests": "源码与测试",
     "stage.browser_action": "浏览器动作",
@@ -969,8 +966,6 @@
     "task.reference.arguments": "参数",
     "task.reference.heading": "评测集基准轨迹",
     "task.reference.lead": "这里保留评测集的基准动作；各方法实际采用的冻结输入及执行结果见对应结果页。",
-    "task.source.autonomous": "来自已通过的自主浏览器执行",
-    "task.source.repaired": "修复后按记录的协议在基准浏览器验证",
     "task.title": "任务 #{task} · 评测集",
     "task.validity.body": "站点证据无法唯一确认本题参考答案；官方验收得分与题意正确性分开解读。",
     "task.validity.heading": "答案无法独立核验",
@@ -1001,6 +996,10 @@
     "chart.result_and_process": "结果正确与结果、过程均正确",
     "chart.result_and_process_caption": "两点之间的差距是答案正确但参考过程没有完成的任务。",
     "chart.result_only": "结果正确",
-    "chart.both": "结果与过程均正确"
+    "chart.both": "结果与过程均正确",
+    "dataset.source.recorded": "已记录的冻结轨迹",
+    "dataset.tasks_detail": "点击任务可查看验收输入、完整轨迹和各方法的实测证据。",
+    "review.trajectory.source_scope": "{tasks} 个任务；{sources}。",
+    "review.trajectory.source_binding": "每个任务保留原始来源标记与冻结动作序列。"
   }
 }

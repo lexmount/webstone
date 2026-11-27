@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from harness.record_io import file_sha256
 from harness.browser_use import report_publish as autonomous
+from harness.record_io import file_sha256
 from harness.reporting.publication import snapshot_publication
 from harness.reporting.publish import staged_release_upload, upload_large_archive
 from harness.trajectory_replay import webarena_report_publish as replay
@@ -202,17 +202,121 @@ def test_browser_publication_verifies_full_export_before_binding(tmp_path, monke
             assert request.get_header('X-artifact-share') == 'token'
         return Response()
     monkeypatch.setattr(urllib.request, 'urlopen', urlopen)
-    monkeypatch.setattr(urllib.request, 'build_opener', lambda *handlers: SimpleNamespace(open=urllib.request.urlopen))
+    monkeypatch.setattr(urllib.request, 'build_opener',
+                        lambda *handlers: SimpleNamespace(open=urllib.request.urlopen))
     before = (profile.read_bytes(), proof.read_bytes(), receipt.read_bytes())
     if outcome == 'success':
         autonomous.main(create=False)
         publication = json.loads(profile.read_text(encoding='utf-8'))['publication']
         assert publication['expected_version'] == 'ver_new'
         assert publication['site_slug'] == 'site-1' and publication['share_url'] == share_url
-        assert json.loads(proof.read_text(encoding='utf-8'))['profile_sha256'] == file_sha256(profile)
+        assert json.loads(proof.read_text(encoding='utf-8'))['profile_sha256'] == (
+            file_sha256(profile))
     else:
         with pytest.raises((ValueError, RuntimeError)):
             autonomous.main(create=False)
         assert (profile.read_bytes(), proof.read_bytes(), receipt.read_bytes()) == before
         if outcome in ('missing-field', 'empty-map') or outcome.startswith('linked-'):
             assert not calls
+
+
+@pytest.mark.parametrize("damage", [None, "bytes", "version", "missing", "duplicate", "cursor",
+     "retry-preview", "retry-manifest", "retry-storage", "retry-short-storage"])
+def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
+    tmp_path, monkeypatch, damage,
+):
+    import io
+    from urllib.parse import parse_qs, urlsplit
+
+    from harness.reporting.publish import verify_export
+
+    base = "https://reports.example/artifact-site"
+    version = "ver_saved"
+    originals = {"index.html": b"<html>Exact report</html>", "data.json": b'{"score":780}'}
+    archive = tmp_path / "report.zip"
+    with zipfile.ZipFile(archive, "w") as bundle:
+        for name, raw in originals.items():
+            bundle.writestr(name, raw)
+    files = [{"path": name, "size": len(raw), "url": "https://storage.example/" + name}
+             for name, raw in originals.items()]
+    exported = {"assembled": False, "versionId": version,
+                "files": [{"path": row["path"], "size": row["size"]} for row in files]}
+    if damage == "version":
+        exported["versionId"] = "ver_other"
+    elif damage == "missing":
+        exported["files"].pop()
+    elif damage == "duplicate":
+        exported["files"].append(exported["files"][0])
+    calls = []
+    def service(path):
+        calls.append(path)
+        if path.endswith("/export"):
+            return 200, json.dumps(exported).encode()
+        assert path == "/api/sites/site-1", "Per-file service downloads are unnecessary"
+        return 200, json.dumps({"site": {"currentVersionId": version}}).encode()
+    root = base + "/api/delivery/d1.fixture/"
+    config = {"root": root, "file": "index.html",
+              "manifestUrl": root.rstrip("/") + "?__manifest=1"}
+    wrapper = ('<script id="artifact-delivery-config" type="application/json">'
+               + json.dumps(config) + "</script>").encode()
+    monkeypatch.setattr("harness.reporting.publication.time.sleep", lambda delay: None)
+    from harness.reporting import publication
+    monkeypatch.setattr(publication.time, "sleep", lambda delay: None)
+    attempts = {}
+    def public(request, timeout):
+        from http.client import IncompleteRead
+        from urllib.error import HTTPError
+        address = request if isinstance(request, str) else request.full_url
+        attempts[address] = attempts.get(address, 0) + 1
+        target = ("preview" if "/api/preview/" in address else
+                  "manifest" if "__manifest" in address else "storage")
+        if damage == "retry-short-storage" and target == "storage" and attempts[address] == 1:
+            return io.BytesIO(originals[urlsplit(address).path.lstrip("/")][:1])
+        if damage == "retry-" + target and attempts[address] == 1:
+            if target == "storage":
+                class Interrupted(io.BytesIO):
+                    def read(self, size=-1):
+                        if self.tell():
+                            raise IncompleteRead(b"partial")
+                        return super().read(1)
+                return Interrupted(originals[urlsplit(address).path.lstrip("/")])
+            raise HTTPError(address, 429 if target == "preview" else 503,
+                            "temporary", {"Retry-After": "0"}, None)
+        if isinstance(request, str):
+            if "/api/preview/" in request:
+                return io.BytesIO(wrapper)
+            query = parse_qs(urlsplit(request).query)
+            cursor = int(query.get("cursor", ["0"])[0])
+            return io.BytesIO(json.dumps({
+                "versionId": version, "files": [files[cursor]],
+                "nextCursor": 1 if cursor == 0 or damage == "cursor" else None,
+            }).encode())
+        assert request.get_header("Authorization") is None
+        assert urlsplit(request.full_url).netloc == "storage.example"
+        name = urlsplit(request.full_url).path.lstrip("/")
+        raw = b"x" * len(originals[name]) if damage == "bytes" and name == "data.json" else originals[name]
+        return io.BytesIO(raw)
+    monkeypatch.setattr(urllib.request, "urlopen", public)
+    monkeypatch.setattr("harness.reporting.publication.time.sleep", lambda delay: None)
+    if damage and not damage.startswith("retry-"):
+        with pytest.raises((ValueError, RuntimeError)):
+            verify_export(service, "site-1", archive, public_base=base)
+        if damage == "bytes":
+            assert attempts["https://storage.example/data.json"] == 1
+    else:
+        verify_export(service, "site-1", archive, public_base=base)
+        assert calls.count("/api/sites/site-1") == 2
+        if damage:
+            assert 2 in attempts.values()
+
+
+@pytest.mark.parametrize("base,share,expected", [
+    ("https://reports.example", "https://reports.example/v/token", ("/v/token", "token")),
+    ("https://reports.example/artifact-site",
+     "https://reports.example/artifact-site/s/site-1", ("/s/site-1", "")),
+    ("https://reports.example/artifact-site",
+     "https://reports.example/artifact-site/v/token", ("/v/token", "token")),
+])
+def test_share_urls_keep_service_mount_and_main_link_access(base, share, expected):
+    from harness.reporting.publication import public_share_context
+    assert public_share_context(base, share) == expected
