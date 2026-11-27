@@ -20,6 +20,10 @@ def local_command(
         "127.0.0.1",
         "--port",
         str(port),
+        # Serve skips web subresources unless explicitly enabled.
+        # Serve disables these resources by default; replay needs normal page loading.
+        *(argument for resource in ("stylesheet", "iframe", "image", "worker", "beacon")
+          for argument in ("--load-resources", resource)),
     ]
 
 

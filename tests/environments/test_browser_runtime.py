@@ -98,11 +98,30 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
                 import time
                 time.sleep(3)
             received.append(("GET", self.path, ""))
-            body = (b'<a id="next" href="/next">Next</a>'
+            body = (b'<link rel="stylesheet" href="/style.css">'
+                    b'<a class="resource-hidden" href="/wrong">Next</a>'
+                    b'<a id="next" href="/next">Next</a>'
+                    b'<iframe src="/frame"></iframe><img src="/pixel.png">'
+                    b'<script>window.probeWorker=new Worker("/worker.js");'
+                    b'navigator.sendBeacon("/beacon","ready");</script>'
                     b'<form method="post" action="/save">'
                     b'<input id="name" name="name"><button id="save">Save</button></form>')
+            content_type = "text/html"
+            if self.path == "/style.css":
+                body, content_type = b".resource-hidden { display: none; }", "text/css"
+            elif self.path == "/frame":
+                body = b"<p>Frame ready</p>"
+            elif self.path == "/worker.js":
+                body, content_type = b"postMessage(\"ready\");", "text/javascript"
+            elif self.path == "/pixel.png":
+                import base64
+                body = base64.b64decode(
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
+                    "/x8AAwMCAO+aXioAAAAASUVORK5CYII="
+                )
+                content_type = "image/png"
             self.send_response(200)
-            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -110,6 +129,10 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
         def do_POST(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
             received.append(("POST", self.path, body))
+            if self.path == "/beacon":
+                self.send_response(204)
+                self.end_headers()
+                return
             self.send_response(302)
             self.send_header("Location", "/saved")
             self.send_header("Set-Cookie", "mage-messages=saved; Path=/")
@@ -141,12 +164,19 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
         ]:
             status, output = _execute_replay_call(tool, {**call, "timeout_ms": 5000})
             assert status == "success", output
+            if call["action"] == "navigate":
+                assert tool._page.get_by_role("link", name="Next", exact=True).count() == 1
+            if call["action"] == "navigate":
+                assert tool._page.get_by_role("link", name="Next", exact=True).count() == 1
         tool._page.wait_for_timeout(100)
         output = tmp_path / "network.har"
         recorder.stop(tool._context, output)
         entries = json.loads(output.read_text(encoding="utf-8"))["log"]["entries"]
         by_request = {(entry["request"]["method"], urlsplit(entry["request"]["url"]).path): entry
                       for entry in entries}
+        for resource in ("/style.css", "/frame", "/pixel.png", "/worker.js"):
+            assert ("GET", resource, "") in received
+        assert ("POST", "/beacon", "ready") in received
         assert ("GET", "/next", "") in received
         assert ("POST", "/save", "name=Ada") in received
         navigation = by_request[("GET", "/next")]
