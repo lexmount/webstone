@@ -739,7 +739,7 @@ def run_replay_task(
             tool.close()
         except Exception as exc:
             error += f"\n{backend} close failed: {exc}"
-    if cdp_headers:
+    if cdp_headers is not None:
         error = sanitize_remote_text(error, endpoint, cdp_headers)
         records = _sanitize_remote_payload(records, endpoint, cdp_headers)  # type: ignore[assignment]
         readiness_records = _sanitize_remote_payload(  # type: ignore[assignment]

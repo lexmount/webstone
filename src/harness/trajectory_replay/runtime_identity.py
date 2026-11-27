@@ -71,17 +71,20 @@ def runtime_identity(binding: dict[str, Any]) -> tuple[str, dict[str, object]]:
         "browser",
         "protocol",
         "endpoint_contract",
-        "account_id_sha256",
         "runtime_metadata",
     }
     if not isinstance(remote, dict) or required - set(remote):
         raise ValueError("run browser runtime identity is missing")
-    for key in required - {"runtime_metadata"}:
+    scopes = set(remote) & {"account_id_sha256", "deployment_id_sha256"}
+    if len(scopes) != 1:
+        raise ValueError("run remote browser requires exactly one identity scope")
+    scope = next(iter(scopes))
+    for key in (required | scopes) - {"runtime_metadata"}:
         if not isinstance(remote.get(key), str) or not remote[key]:
             raise ValueError(f"run remote browser identity has invalid {key}")
-    account_digest = remote["account_id_sha256"]
-    if len(account_digest) != 64 or any(char not in "0123456789abcdef" for char in account_digest):
-        raise ValueError("run remote browser account identity is invalid")
+    scope_digest = remote[scope]
+    if len(scope_digest) != 64 or any(char not in "0123456789abcdef" for char in scope_digest):
+        raise ValueError("run remote browser scope identity is invalid")
     metadata = remote["runtime_metadata"]
     if (
         not isinstance(metadata, dict)
