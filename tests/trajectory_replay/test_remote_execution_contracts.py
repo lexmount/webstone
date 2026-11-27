@@ -231,6 +231,16 @@ def test_comparison_browsers_use_their_native_cdp_serve_contracts() -> None:
         "127.0.0.1",
         "--port",
         "9222",
+        "--load-resources",
+        "stylesheet",
+        "--load-resources",
+        "iframe",
+        "--load-resources",
+        "image",
+        "--load-resources",
+        "worker",
+        "--load-resources",
+        "beacon",
     ]
     assert obscura == [
         "/opt/obscura",
