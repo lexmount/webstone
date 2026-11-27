@@ -4,11 +4,13 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
 import stat
 import tempfile
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -16,9 +18,11 @@ import zipfile
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
+from http.client import IncompleteRead
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from harness.artifact_auth import load_token
 from harness.benchmarks.data import _TokenRedirects
@@ -280,6 +284,40 @@ def export_original_url(descriptor: dict, version: str, path: str) -> str:
     return descriptor["url"]
 
 
+def _rate_limit_delay(error):
+    header = error.headers.get('Retry-After', '') if error.headers else ''
+    delay = 30.0
+    if header:
+        try:
+            delay = float(header)
+        except ValueError:
+            try:
+                delay = parsedate_to_datetime(header).timestamp() - time.time()
+            except (TypeError, ValueError, OverflowError):
+                pass
+    if not math.isfinite(delay) or delay > 120:
+        raise error
+    return max(1.0, delay)
+
+def read_public_response(address, consume):
+    """Retry an anonymous read, recreating all consumer state on each attempt."""
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(address, timeout=180) as response:
+                return consume(response)
+        except HTTPError as error:
+            if error.code != 429 and not 500 <= error.code < 600 or attempt == 2:
+                raise
+            delay = _rate_limit_delay(error) if error.code == 429 else 2**attempt
+            error.close()
+        except (URLError, TimeoutError, IncompleteRead, ConnectionError):
+            if attempt == 2:
+                raise
+            delay = 2**attempt
+        time.sleep(delay)
+    raise RuntimeError("Public read exhausted retries")
+
+
 def public_delivery_manifest(served: bytes, *, base: str, version: str, path: str) -> dict | None:
     """Read one immutable delivery inventory using the host loader pagination contract."""
     match = re.search(
@@ -300,8 +338,7 @@ def public_delivery_manifest(served: bytes, *, base: str, version: str, path: st
     cursor = -1
     files = []
     for _ in range(21):
-        with urllib.request.urlopen(manifest_url, timeout=180) as response:
-            manifest = json.load(response)
+        manifest = read_public_response(manifest_url, json.load)
         if manifest.get("versionId") != version:
             raise ValueError("Delivery version differs")
         files.extend(manifest.get("files") or [])
@@ -332,8 +369,7 @@ def public_original_html(served: bytes, *, base: str, version: str, path: str) -
         raise ValueError("Delivery omitted requested HTML")
     url = export_original_url({"assembled": False, "versionId": version,
                                "filename": path, "url": files[0]["url"]}, version, path)
-    with urllib.request.urlopen(url, timeout=180) as response:
-        return response.read()
+    return read_public_response(url, lambda response: response.read())
 
 def atomic_write(path: Path, payload: bytes) -> None:
     _destination(path)

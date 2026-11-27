@@ -510,7 +510,7 @@ def test_comparison_accepts_only_the_bound_participant_deployment(tmp_path, chan
     )
     participant["site_map_path"] = str(runtime_map)
     inputs_path = tmp_path / "moli" / "moli-0" / "inputs.json"
-    inputs = json.loads(inputs_path.read_text())
+    inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
     inputs["site_map_sha256"] = file_sha256(runtime_map)
     _write(inputs_path, inputs)
     task = {

@@ -158,7 +158,7 @@ def validate_compact_report(report: Path, *, max_files: int, source: Path | None
         raise ValueError(f'compact report file count is outside 1..{max_files}: {len(files)}')
     for path in files:
         if path.suffix == ".html" and sum(
-            1 for _ in BeautifulSoup(path.read_text(), "html.parser").descendants
+            1 for _ in BeautifulSoup(path.read_text(encoding="utf-8"), "html.parser").descendants
         ) > PREVIEW_MAX_NODES:
             raise ValueError("compact HTML exceeds the host preview node budget")
     manifest = json.loads((report / 'report-manifest.json').read_text(encoding='utf-8'))
@@ -185,12 +185,12 @@ def validate_compact_report(report: Path, *, max_files: int, source: Path | None
                 if values != expected:
                     raise ValueError('compact report pages differ from validated source')
         large_bundle = report / prefix / "pages/page-00.json"
-        large_pages = json.loads(large_bundle.read_text()) if large_bundle.exists() else {}
+        large_pages = json.loads(large_bundle.read_text(encoding="utf-8")) if large_bundle.exists() else {}
         if source is not None and large_pages != _large_top_level_pages(source, prefix):
             raise ValueError("compact top-level pages differ from validated source")
         for name in large_pages:
             language = "en" if prefix else "zh"
-            if (report / prefix / f"{name}.html").read_text() != _loader(
+            if (report / prefix / f"{name}.html").read_text(encoding="utf-8") != _loader(
                 "page", language, fixed_key=name,
             ):
                 raise ValueError("compact top-level loader differs from validated route")
@@ -231,7 +231,7 @@ def check_compact_navigation(report: Path, *, single_process: bool = False) -> N
                 prefix = '' if language == 'zh' else language + '/'
                 page = local_page(browser, origin, context=context)
                 bundle = report / prefix / "pages/page-00.json"
-                for name in json.loads(bundle.read_text()) if bundle.exists() else []:
+                for name in json.loads(bundle.read_text(encoding="utf-8")) if bundle.exists() else []:
                     page.goto(f"{origin}/{prefix}{name}.html")
                     page.locator("h1").wait_for()
                     if page.locator("[data-results]").count():

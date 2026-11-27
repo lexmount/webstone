@@ -283,3 +283,28 @@ def test_share_context_supports_mounted_main_and_legacy_links():
                 "https://reports.example/elsewhere/s/report", base + "/s/report?x=1"]:
         with pytest.raises(ValueError):
             public_share_context(base, url)
+
+
+@pytest.mark.parametrize("status,failures,expected_calls", [(503, 1, 2), (429, 1, 2),
+                                                          (503, 3, 3), (404, 1, 1)])
+def test_public_read_retries_only_transient_failures(monkeypatch, status, failures, expected_calls):
+    import io
+    from urllib.error import HTTPError
+
+    from harness.reporting import publication
+    calls, delays = [], []
+    def open_response(address, timeout):
+        calls.append(address)
+        if len(calls) <= failures:
+            raise HTTPError(address, status, "temporary", {"Retry-After": "2"}, None)
+        return io.BytesIO(b"exact bytes")
+    monkeypatch.setattr(publication.urllib.request, "urlopen", open_response)
+    monkeypatch.setattr(publication.time, "sleep", delays.append)
+    if failures >= expected_calls:
+        with pytest.raises(HTTPError):
+            publication.read_public_response("https://storage.example/file", lambda r: r.read())
+    else:
+        assert publication.read_public_response(
+            "https://storage.example/file", lambda r: r.read()) == b"exact bytes"
+    assert len(calls) == expected_calls
+    assert delays == ([2] if status == 429 else [1, 2][:expected_calls - 1])

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import re
 import time
 import urllib.parse
@@ -31,7 +30,6 @@ import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
 from http.client import RemoteDisconnected
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -44,6 +42,7 @@ from harness.reporting.publication import (
     PublicationClient,
     PublicationOperation,
     PublicationSnapshot,
+    _rate_limit_delay,
     archive_inventory,
     atomic_write,
     bind_publication_files,
@@ -54,6 +53,7 @@ from harness.reporting.publication import (
     public_delivery_manifest,
     public_original_html,
     public_share_context,
+    read_public_response,
     recover_binding,
     response_json,
     snapshot_publication,
@@ -100,21 +100,6 @@ def updated_receipt(receipt, response):
     current = {key: value for key, value in receipt.items() if key != 'version'}
     return {**current, 'versionId': version, 'last_update': response}
 
-
-def _rate_limit_delay(error):
-    header = error.headers.get('Retry-After', '') if error.headers else ''
-    delay = 30.0
-    if header:
-        try:
-            delay = float(header)
-        except ValueError:
-            try:
-                delay = parsedate_to_datetime(header).timestamp() - time.time()
-            except (TypeError, ValueError, OverflowError):
-                pass
-    if not math.isfinite(delay) or delay > 120:
-        raise error
-    return max(1.0, delay)
 
 
 def put_file(request, path, data):
@@ -283,8 +268,7 @@ def verify_export(
     if public_base is not None:
         endpoint = public_base.rstrip("/") + "/api/preview/" + quote(slug, safe="")
         try:
-            with urllib.request.urlopen(endpoint, timeout=180) as response:
-                served = response.read()
+            served = read_public_response(endpoint, lambda response: response.read())
         except HTTPError as error:
             if error.code not in (401, 403, 404):
                 raise
@@ -315,14 +299,16 @@ def verify_export(
             descriptor = {"assembled": False, "versionId": version,
                           "filename": path, "url": delivery[path]["url"]}
         address = export_original_url(descriptor, version, path)
-        digest, count = hashlib.sha256(), 0
-        # Signed storage URLs never receive the publication credential.
-        with urllib.request.urlopen(urllib.request.Request(address), timeout=180) as response:
+        def consume(response):
+            digest, count = hashlib.sha256(), 0
             while chunk := response.read(min(1024 * 1024, entry["size"] - count + 1)):
                 count += len(chunk)
                 if count > entry["size"]:
                     raise ValueError("Original file exceeds export size: " + path)
                 digest.update(chunk)
+            return digest, count
+        # Signed storage URLs never receive the publication credential.
+        digest, count = read_public_response(urllib.request.Request(address), consume)
         if count != entry["size"] or digest.hexdigest() != wanted[path]:
             raise RuntimeError("deployed Yours file bytes differ from package: " + path)
 

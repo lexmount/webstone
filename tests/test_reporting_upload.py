@@ -202,14 +202,16 @@ def test_browser_publication_verifies_full_export_before_binding(tmp_path, monke
             assert request.get_header('X-artifact-share') == 'token'
         return Response()
     monkeypatch.setattr(urllib.request, 'urlopen', urlopen)
-    monkeypatch.setattr(urllib.request, 'build_opener', lambda *handlers: SimpleNamespace(open=urllib.request.urlopen))
+    monkeypatch.setattr(urllib.request, 'build_opener',
+                        lambda *handlers: SimpleNamespace(open=urllib.request.urlopen))
     before = (profile.read_bytes(), proof.read_bytes(), receipt.read_bytes())
     if outcome == 'success':
         autonomous.main(create=False)
         publication = json.loads(profile.read_text(encoding='utf-8'))['publication']
         assert publication['expected_version'] == 'ver_new'
         assert publication['site_slug'] == 'site-1' and publication['share_url'] == share_url
-        assert json.loads(proof.read_text(encoding='utf-8'))['profile_sha256'] == file_sha256(profile)
+        assert json.loads(proof.read_text(encoding='utf-8'))['profile_sha256'] == (
+            file_sha256(profile))
     else:
         with pytest.raises((ValueError, RuntimeError)):
             autonomous.main(create=False)
@@ -218,7 +220,8 @@ def test_browser_publication_verifies_full_export_before_binding(tmp_path, monke
             assert not calls
 
 
-@pytest.mark.parametrize("damage", [None, "bytes", "version", "missing", "duplicate", "cursor"])
+@pytest.mark.parametrize("damage", [None, "bytes", "version", "missing", "duplicate", "cursor",
+     "retry-preview", "retry-manifest", "retry-storage"])
 def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
     tmp_path, monkeypatch, damage,
 ):
@@ -256,7 +259,27 @@ def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
               "manifestUrl": root.rstrip("/") + "?__manifest=1"}
     wrapper = ('<script id="artifact-delivery-config" type="application/json">'
                + json.dumps(config) + "</script>").encode()
+    monkeypatch.setattr("harness.reporting.publication.time.sleep", lambda delay: None)
+    from harness.reporting import publication
+    monkeypatch.setattr(publication.time, "sleep", lambda delay: None)
+    attempts = {}
     def public(request, timeout):
+        from http.client import IncompleteRead
+        from urllib.error import HTTPError
+        address = request if isinstance(request, str) else request.full_url
+        attempts[address] = attempts.get(address, 0) + 1
+        target = ("preview" if "/api/preview/" in address else
+                  "manifest" if "__manifest" in address else "storage")
+        if damage == "retry-" + target and attempts[address] == 1:
+            if target == "storage":
+                class Interrupted(io.BytesIO):
+                    def read(self, size=-1):
+                        if self.tell():
+                            raise IncompleteRead(b"partial")
+                        return super().read(1)
+                return Interrupted(originals[urlsplit(address).path.lstrip("/")])
+            raise HTTPError(address, 429 if target == "preview" else 503,
+                            "temporary", {"Retry-After": "0"}, None)
         if isinstance(request, str):
             if "/api/preview/" in request:
                 return io.BytesIO(wrapper)
@@ -272,12 +295,15 @@ def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
         raw = b"corrupt" if damage == "bytes" and name == "data.json" else originals[name]
         return io.BytesIO(raw)
     monkeypatch.setattr(urllib.request, "urlopen", public)
-    if damage:
+    monkeypatch.setattr("harness.reporting.publication.time.sleep", lambda delay: None)
+    if damage and not damage.startswith("retry-"):
         with pytest.raises((ValueError, RuntimeError)):
             verify_export(service, "site-1", archive, public_base=base)
     else:
         verify_export(service, "site-1", archive, public_base=base)
         assert calls.count("/api/sites/site-1") == 2
+        if damage:
+            assert 2 in attempts.values()
 
 
 @pytest.mark.parametrize("base,share,expected", [

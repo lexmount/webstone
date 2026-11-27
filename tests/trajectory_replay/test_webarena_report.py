@@ -1094,8 +1094,10 @@ def _step_dialog_status(output: Path, edition: Path, method: str) -> str:
     dialog = soup.select_one("#step-dialog")
     payload = {
         "lang": soup.html["lang"],
-        "evidence": json.loads((page.parent / dialog["data-evidence-url"]).read_text("utf-8")),
-        "standard": json.loads((page.parent / dialog["data-standard-url"]).read_text("utf-8")),
+        "evidence": json.loads(
+            (page.parent / dialog["data-evidence-url"]).read_text(encoding="utf-8")),
+        "standard": json.loads(
+            (page.parent / dialog["data-standard-url"]).read_text(encoding="utf-8")),
     }
     script = (output / "assets" / "app.js").read_text(encoding="utf-8")
     harness = STEP_DIALOG_DRIVER.replace("PAYLOAD", json.dumps(payload)).replace(
@@ -1450,12 +1452,12 @@ def test_report_sources_cover_catalog_and_future_recordings(
 ):
     output, manifest, *_ = build_replay_fixture(tmp_path, monkeypatch, source_kind=kind)
     assert manifest["trajectory_source_counts"] == {category: 1}
-    page = BeautifulSoup((output / "en/dataset.html").read_text(), "html.parser")
+    page = BeautifulSoup((output / "en/dataset.html").read_text(encoding="utf-8"), "html.parser")
     summary = page.select_one("[data-source-category]")
     assert summary["data-source-category"] == category
     assert summary["data-source-count"] == "1" and label in summary.get_text()
     assert page.select_one("[data-dataset-table] tbody tr")["data-source"] == category
-    detail = BeautifulSoup((output / "en/task/29.html").read_text(), "html.parser")
+    detail = BeautifulSoup((output / "en/task/29.html").read_text(encoding="utf-8"), "html.parser")
     assert label in detail.get_text()
 
 
@@ -1467,13 +1469,13 @@ def test_source_release_gate_rejects_misleading_inventory(tmp_path, monkeypatch,
     )
     _check_trajectory_sources(output, manifest)
     file = output / "dataset.html"
-    source = file.read_text()
+    source = file.read_text(encoding="utf-8")
     old, new = {
         "summary": ('data-source-count="1"', 'data-source-count="0"'),
         "row": ('data-source="recorded"', 'data-source="repaired"'),
         "filter": ('<option value="recorded">', '<option value="repaired">'),
     }[changed]
     assert old in source
-    file.write_text(source.replace(old, new))
+    file.write_text(source.replace(old, new), encoding="utf-8")
     with pytest.raises(ValueError, match="trajectory source"):
         _check_trajectory_sources(output, manifest)

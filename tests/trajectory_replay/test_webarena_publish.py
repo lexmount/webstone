@@ -32,15 +32,16 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_public_share_must_be_same_origin_and_token_route() -> None:
+def test_public_share_must_be_same_origin_and_supported_share_route() -> None:
     base = "https://reports.example"
     assert public_share_context(base, base + "/v/token") == (
         "/v/token",
         "token",
     )
+    assert public_share_context(base, base + "/s/slug") == ("/s/slug", "")
+    assert public_share_context(base, base + "/s/slug") == ("/s/slug", "")
     for url in (
         "https://other.example/v/token",
-        base + "/s/slug",
         base + "/v/",
         base + "/v/token/extra",
         base + "/v/token%2Fextra",

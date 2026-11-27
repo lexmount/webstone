@@ -228,7 +228,8 @@ def _check_result_comparison(page, results: list[dict]) -> None:
     methods = baseline_control.locator("option").evaluate_all(
         "items => items.map(item => item.value)"
     )
-    assert len(methods) >= 2
+    if len(methods) < 2:
+        raise ValueError("Result comparison requires at least two methods")
     for baseline in dict.fromkeys((methods[0], methods[-1])):
         baseline_control.select_option(baseline)
         compared = page.locator("[data-explorer-compare] input:checked").evaluate_all(
@@ -255,7 +256,10 @@ def _check_result_comparison(page, results: list[dict]) -> None:
             actual = page.locator("[data-explorer-row]:not([hidden])").evaluate_all(
                 "items => items.map(item => Number(item.dataset.task || item.dataset.search))"
             )
-            assert sorted(actual) == sorted(expected), (baseline, relation, actual, expected)
+            if sorted(actual) != sorted(expected):
+                raise ValueError(
+                    f"Result comparison mismatch: {baseline=}, {relation=}, {actual=}, {expected=}"
+                )
     page.locator("[data-explorer-relation]").select_option("differs")
 
 

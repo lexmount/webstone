@@ -1671,7 +1671,7 @@ def build_webarena_replay_report(
         review_rows = (
             (
                 t("review.trajectory.title", "Trajectory qualification"),
-                t("review.trajectory.source_scope", "{tasks} tasks; {sources}.", tasks=task_count, sources=source_scope),
+                t("review.trajectory.source_scope", "{tasks} {tasks|task|tasks}; {sources}.", tasks=task_count, sources=source_scope),
                 t("review.trajectory.source_binding", "Each task retains its recorded source and frozen action sequence."),
                 t("review.trajectory.correction", "Recorded per-task acceptance yielded {passed}/{total} passes on {reference}. Frozen trajectories contain no Agent or model decisions.", reference=reference_label, passed=reference_row['passed'], total=reference_row['total']),
                 t("review.trajectory.open", "Method-specific frozen inputs and official evaluations are available on each result page."),

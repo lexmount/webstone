@@ -335,9 +335,44 @@ def test_live_comparison_gate_rejects_incorrect_visible_tasks(broken_filter):
             page.set_content("<!doctype html><html><body>" + body +
                              "<script>" + script + "</script></body></html>")
             if broken_filter:
-                with pytest.raises(AssertionError):
+                with pytest.raises(ValueError, match="Result comparison mismatch"):
                     _MODULE._check_result_comparison(page, results)
             else:
                 _MODULE._check_result_comparison(page, results)
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("mode", ["minimum", "mismatch"])
+def test_comparison_validation_survives_optimized_python(mode):
+    import subprocess
+    import sys
+    code = '''
+from harness.trajectory_replay.webarena_report_visual import _check_result_comparison
+class Locator:
+    def __init__(self, selector=""):
+        self.selector = selector
+    def locator(self, selector):
+        return Locator(selector)
+    def select_option(self, value):
+        pass
+    def evaluate_all(self, script):
+        if self.selector == "option":
+            return METHODS
+        if "input:checked" in self.selector:
+            return ["b"]
+        return [99]
+try:
+    _check_result_comparison(Locator(), [
+        {"task_id": 1, "participant_id": "a", "status": "pass"},
+        {"task_id": 1, "participant_id": "b", "status": "pass"},
+    ])
+except ValueError:
+    pass
+else:
+    raise RuntimeError("Invalid comparison was accepted with optimization")
+'''
+    methods = ["a"] if mode == "minimum" else ["a", "b"]
+    result = subprocess.run([sys.executable, "-O", "-c", f"METHODS = {methods!r}\n" + code],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
