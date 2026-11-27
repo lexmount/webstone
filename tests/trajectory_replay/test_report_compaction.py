@@ -103,3 +103,36 @@ def test_bilingual_compaction_preserves_language_links_and_evidence(tmp_path):
     page.write_text(json.dumps({'browser-1': '<p>Missing task and evidence</p>'}), encoding='utf-8')
     with pytest.raises(ValueError, match='pages differ'):
         validate_compact_report(output, max_files=200, source=source)
+
+
+def test_large_inventory_uses_the_existing_page_loader_without_losing_rows(tmp_path):
+    import pytest
+    source = tmp_path / "source"
+    for name in ["task", "result", "data/trajectory", "data/evidence", "assets"]:
+        (source / name).mkdir(parents=True, exist_ok=True)
+    (source / "assets/app.js").write_text("window.ready=true", encoding="utf-8")
+    (source / "task/1.html").write_text(
+        '<a href="../result/browser-1.html">Result</a>', encoding="utf-8")
+    (source / "result/browser-1.html").write_text(
+        '<a href="../task/1.html">Task</a>', encoding="utf-8")
+    (source / "report-manifest.json").write_text(json.dumps({
+        "languages": ["zh"], "task_count": 1, "logical_results": 1,
+    }), encoding="utf-8")
+    inventory = "<!doctype html><html><body><h1>Results</h1><table><tbody>" + "".join(
+        f"<tr><td>Task {i}</td><td>Exact outcome {i}</td></tr>" for i in range(21000)
+    ) + "</tbody></table></body></html>"
+    (source / "results.html").write_text(inventory, encoding="utf-8")
+    output = tmp_path / "compact"
+    compact_report(source, output)
+    payload = output / "pages/page-00.json"
+    assert payload.is_file()
+    saved = json.loads(payload.read_text(encoding="utf-8"))
+    assert saved["results"] == inventory
+    assert "Task 20999" not in (output / "results.html").read_text(encoding="utf-8")
+    validate_compact_report(output, max_files=200, source=source)
+    payload.write_text(
+        json.dumps({"results": inventory.replace("Exact outcome 20999", "Wrong")}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="pages differ"):
+        validate_compact_report(output, max_files=200, source=source)

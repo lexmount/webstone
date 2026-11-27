@@ -103,7 +103,11 @@ def package(
             raise ValueError("diagnostic-only appendices cannot enter the replay release")
         if packaged != report:
             compact = validate_compact_report(packaged, max_files=MAX_FILES, source=report)
-            check_compact_navigation(packaged)
+            visual = json.loads(visual_receipt.read_text(encoding="utf-8"))
+            check_compact_navigation(
+                packaged,
+                single_process="--single-process" in visual.get("browser_launch_args", []),
+            )
             if compact["task_routes"] != report_manifest["task_count"] or compact[
                 "result_routes"
             ] != report_manifest["logical_results"]:

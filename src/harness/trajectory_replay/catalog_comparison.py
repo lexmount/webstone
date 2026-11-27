@@ -17,7 +17,11 @@ from harness.trajectory_replay.catalog_contracts import (
     load_catalog_inputs,
     row_source_sites,
 )
-from harness.trajectory_replay.remote_runtime import rebind_remote_calls, remote_benchmark
+from harness.trajectory_replay.remote_runtime import (
+    load_remote_sites,
+    rebind_remote_calls,
+    remote_benchmark,
+)
 from harness.trajectory_replay.runtime_identity import (
     assert_observed_runtime,
     request_bridge_identity,
@@ -182,6 +186,7 @@ def _attempt(
     site_resets: dict[str, dict[str, str]],
     ledger_runtimes: dict[str, dict[str, object]],
     ledger_request_bridge: dict[str, object] | None,
+    canonical_sites: dict | None = None,
 ) -> dict[str, Any] | None:
     if summary.get("status") == "candidate_setup_failure":
         return None
@@ -210,6 +215,18 @@ def _attempt(
     binary_sha256 = physical_runtime.get("binary_sha256")
     remote_browser = physical_runtime.get("remote_browser")
     actions = task["tool_calls"]
+    deployment_digest = None
+    if participant.get("site_map_path") is not None:
+        if canonical_sites is None:
+            raise ValueError("participant deployment requires the canonical site map")
+        deployment_map = unlinked_path(Path(participant["site_map_path"]).expanduser())
+        deployment_digest = inputs.get("site_map_sha256")
+        _artifact(deployment_map, deployment_digest)
+        actions = rebind_remote_calls(
+            actions, load_remote_sites(deployment_map),
+            set(TRUSTED_RECORDED_HOSTS), canonical_sites,
+            expand_href_schemes=False,
+        )
     uses_current_actions = (
         physical.get("executed_actions_sha256") == canonical_json_sha256(actions)
         and physical.get("action_count") == len(actions)
@@ -258,6 +275,7 @@ def _attempt(
         "engine": participant["engine"],
         "task_id": task_id,
         "task_contract_sha256": contract_sha256,
+        **({"deployment_site_map_sha256": deployment_digest} if deployment_digest else {}),
         **(
             {
                 "planned_actions": actions,
@@ -305,10 +323,16 @@ def build_catalog_comparison_results(
     scope_sha256: str,
     site_map_sha256: str,
     participants: list[dict[str, Any]],
+    canonical_site_map_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build one complete logical matrix and retain every valid physical call."""
 
     tasks = {int(row["task_id"]): row for row in dataset["trajectories"]}
+    canonical_sites = None
+    if canonical_site_map_path is not None:
+        canonical_site_map_path = unlinked_path(canonical_site_map_path)
+        _artifact(canonical_site_map_path, site_map_sha256)
+        canonical_sites = load_remote_sites(canonical_site_map_path)
     attempts = []
     physical_executions = []
     seen_participants = set()
@@ -343,6 +367,7 @@ def build_catalog_comparison_results(
                     site_resets=site_resets,
                     ledger_runtimes=ledger_runtimes,
                     ledger_request_bridge=ledger_request_bridge,
+                    canonical_sites=canonical_sites,
                 )
                 if row is not None:
                     physical_for_task.append(row)
@@ -406,6 +431,7 @@ def inputs_main(argv=None) -> None:
         scope_sha256=file_sha256(Path(config["scope_path"])),
         site_map_sha256=file_sha256(Path(config["site_map_path"])),
         participants=config["participants"],
+        canonical_site_map_path=Path(config["site_map_path"]),
     )
     write_new_file(args.dataset_output, dataset_bytes)
     write_new_file(args.results_output,

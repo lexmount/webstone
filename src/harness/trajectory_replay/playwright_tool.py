@@ -381,9 +381,13 @@ class PlaywrightReplayTool:
         headers: dict[str, str] | None = None,
         request_bridge_origins: set[str] | None = None,
         request_bridge_host_overrides: list[dict[str, str]] | None = None,
+        navigation_wait_until: str | None = None,
     ):
         if engine not in BROWSERS:
             raise ValueError(f"unknown Playwright replay engine: {engine}")
+        if navigation_wait_until not in {None, "domcontentloaded", "load"}:
+            raise ValueError("invalid default navigation wait state")
+        self._default_navigation_wait_until = navigation_wait_until or "domcontentloaded"
         adapter = BROWSERS.get(engine)
         self._engine = engine
         self._supports_multiple_pages = MULTIPLE_PAGES in adapter.flags
@@ -1313,6 +1317,9 @@ class PlaywrightReplayTool:
                 trace=records,
                 layout_observer=self.layout_observer,
                 document_observer=self.document_observer,
+                default_navigation_wait_until=getattr(
+                    self, "_default_navigation_wait_until", "domcontentloaded"
+                ),
             )
         except Exception as exc:
             return ReplayResult("error", f"{type(exc).__name__}: {exc}")

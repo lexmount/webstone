@@ -458,6 +458,7 @@ def run_replay_task(
     candidate_override_path: Path | None = None,
     portable_task: BrowserTask | None = None,
     portable_action_timeout_ms: int = 30_000,
+    navigation_wait_until: str | None = None,
     backend: str = "browsertool",
     engine: str | None = None,
     cdp_headers: dict[str, str] | None = None,
@@ -468,6 +469,8 @@ def run_replay_task(
 ) -> dict:
     if task_timeout_ms < 1:
         raise ValueError("task_timeout_ms must be positive")
+    if navigation_wait_until is not None and backend != "playwright":
+        raise ValueError("navigation wait policy requires the Playwright backend")
     official = benchmark.get_task(task_id)
     correction = apply_correction(official, catalog) if task_id in catalog.records else None
     evaluators = EvaluatorRegistry(benchmark=benchmark)
@@ -489,6 +492,8 @@ def run_replay_task(
             headers=cdp_headers,
             request_bridge_origins=request_bridge_origins,
             request_bridge_host_overrides=request_bridge_host_overrides,
+            **({"navigation_wait_until": navigation_wait_until}
+               if navigation_wait_until is not None else {}),
         )
     else:
         raise ValueError(f"unknown replay backend: {backend}")
@@ -565,6 +570,7 @@ def run_replay_task(
                     outputs=portable_outputs,
                     task_timeout_ms=remaining_task_ms(),
                     default_action_timeout_ms=portable_action_timeout_ms,
+                    default_navigation_wait_until=(navigation_wait_until or "domcontentloaded"),
                     layout_observer=getattr(service, "layout_observer", None),
                     navigation_response_observer=recorder.record_navigation_response,
                     document_observer=getattr(service, "document_observer", None),

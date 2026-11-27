@@ -1,6 +1,7 @@
 (async()=>{
-  const value=new URLSearchParams(location.search).get('__ROUTE_PARAMETER__')||'';
-  const match=value.match(/(?:^|-)(\d+)$/);
+  const fixed=__FIXED_KEY__;
+  const value=fixed??(new URLSearchParams(location.search).get('__ROUTE_PARAMETER__')||'');
+  const match=fixed===null?value.match(/(?:^|-)(\d+)$/):[null,0];
   if(!match)throw Error('invalid __ROUTE_KIND__ route');
   const shard=String(Number(match[1])%__SHARD_COUNT__).padStart(2,'0');
   const response=await fetch(`pages/__ROUTE_KIND__-${shard}.json`);

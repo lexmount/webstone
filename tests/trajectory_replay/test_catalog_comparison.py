@@ -487,3 +487,59 @@ def test_comparison_rejected_results_leave_no_partial_dataset(tmp_path, monkeypa
         catalog_comparison.inputs_main(["--config", str(config), "--dataset-output", str(dataset),
                                        "--results-output", str(results)])
     assert not dataset.exists() and not results.exists()
+
+
+@pytest.mark.parametrize("change", [None, "runtime_map", "action"])
+def test_comparison_accepts_only_the_bound_participant_deployment(tmp_path, change):
+    canonical_sites = {
+        "shopping": "https://old.example.test",
+        "shopping_admin": "https://admin.example.test/admin",
+        "reddit": "https://reddit.example.test",
+        "gitlab": "https://gitlab.example.test",
+    }
+    runtime_sites = {**canonical_sites, "shopping": "https://example.test"}
+    canonical_map = tmp_path / "canonical-sites.json"
+    runtime_map = tmp_path / "runtime-sites.json"
+    for path, sites in [(canonical_map, canonical_sites), (runtime_map, runtime_sites)]:
+        _write(path, {"schema": "lex_webarena_remote_sites/1", "sites": sites})
+    reset = tmp_path / "reset.json"
+    _write(reset, {"schema": "fixture"})
+    participant = _participant_fixture(
+        tmp_path / "moli", participant_id="moli", engine="moli",
+        rows=[{"status": "pass"}], site_reset=reset,
+    )
+    participant["site_map_path"] = str(runtime_map)
+    inputs_path = tmp_path / "moli" / "moli-0" / "inputs.json"
+    inputs = json.loads(inputs_path.read_text(encoding="utf-8"))
+    inputs["site_map_sha256"] = file_sha256(runtime_map)
+    _write(inputs_path, inputs)
+    task = {
+        "task_id": 0,
+        "task": {"sites": ["shopping"], "start_urls": ["https://old.example.test/0"]},
+        "evaluation_input": {"task_type": "NAVIGATE", "status": "SUCCESS"},
+        "tool_calls": [{"action": "navigate", "url": "https://old.example.test/0"}],
+    }
+    if change == "runtime_map":
+        runtime_sites["shopping"] = "https://unbound.example.test"
+        _write(runtime_map, {"schema": "lex_webarena_remote_sites/1", "sites": runtime_sites})
+    elif change == "action":
+        task["tool_calls"][0]["url"] += "/different-action"
+    kwargs = dict(
+        dataset={"trajectories": [task]}, dataset_sha256="1" * 64,
+        profile_sha256="2" * 64, scope_sha256="3" * 64,
+        site_map_sha256=file_sha256(canonical_map), participants=[participant],
+        canonical_site_map_path=canonical_map,
+    )
+    if change is not None:
+        with pytest.raises(ValueError):
+            catalog_comparison.build_catalog_comparison_results(**kwargs)
+        return
+    result = catalog_comparison.build_catalog_comparison_results(**kwargs)
+    attempt = result["attempts"][0]
+    assert attempt["planned_actions"] == [
+        {"action": "navigate", "url": "https://example.test/0"}
+    ]
+    assert attempt["deployment_site_map_sha256"] == file_sha256(runtime_map)
+    assert attempt["task_contract_sha256"] == canonical_json_sha256(
+        {"task": task["task"], "evaluation_input": task["evaluation_input"]}
+    )

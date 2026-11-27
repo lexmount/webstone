@@ -129,13 +129,15 @@ def test_render_failure_or_input_change_cannot_install_receipt(tmp_path, monkeyp
         ("https://example.invalid/script.js", False),
     ],
 )
-def test_local_rendering_does_not_request_remote_resources(url, allowed):
+@pytest.mark.parametrize("shared_context", [False, True])
+def test_local_rendering_does_not_request_remote_resources(url, allowed, shared_context):
     from harness.reporting.visual import local_page
 
     handlers = []
     page = SimpleNamespace(route=lambda pattern, handler: handlers.append(handler))
     browser = SimpleNamespace(new_page=lambda **kwargs: page)
-    assert local_page(browser, "http://127.0.0.1:1234") is page
+    context = SimpleNamespace(new_page=lambda: page) if shared_context else None
+    assert local_page(browser, "http://127.0.0.1:1234", context=context) is page
     actions = []
     route = SimpleNamespace(
         request=SimpleNamespace(url=url),

@@ -110,6 +110,60 @@ def test_environment_preparation_rejects_partial_component_restart(tmp_path):
         validate_environment_preparation(receipt, profile)
 
 
+def test_environment_preparation_accepts_restart_of_existing_app(tmp_path):
+    receipt, profile = _files(tmp_path)
+    environment = json.loads(profile.read_text(encoding="utf-8"))
+    environment["deployment"]["acceptance_app_id"] = 195
+    profile.write_text(json.dumps(environment), encoding="utf-8")
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload.update(
+        method="component_restarts_from_pinned_images",
+        fresh_app_id=195,
+        reset_scope=["shopping", "shopping_admin", "reddit", "gitlab"],
+    )
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert validate_environment_preparation(receipt, profile)["fresh_app_id"] == 195
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    ["new_app", "partial_reset", "persistent_data", "wrong_image", "not_ready", "missing_identity"],
+)
+def test_existing_app_restart_keeps_environment_guards(tmp_path, invalid):
+    receipt, profile = _files(tmp_path)
+    environment = json.loads(profile.read_text(encoding="utf-8"))
+    environment["deployment"]["acceptance_app_id"] = 195
+    profile.write_text(json.dumps(environment), encoding="utf-8")
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload.update(
+        method="component_restarts_from_pinned_images",
+        fresh_app_id=195,
+        reset_scope=["shopping", "shopping_admin", "reddit", "gitlab"],
+    )
+    if invalid == "new_app":
+        payload["method"] = "new_rainbond_application_from_pinned_images"
+    elif invalid == "partial_reset":
+        payload["reset_scope"] = ["shopping"]
+    elif invalid == "persistent_data":
+        payload["database_volume_mounts"]["gitlab"] = 1
+    elif invalid == "wrong_image":
+        payload["site_component_images"]["reddit"] = "registry.example/image@sha256:other"
+    elif invalid == "missing_identity":
+        payload.pop("source_app_id")
+        payload.pop("fresh_app_id")
+        environment = json.loads(profile.read_text(encoding="utf-8"))
+        environment["deployment"].pop("source_app_id")
+        environment["deployment"].pop("acceptance_app_id")
+        profile.write_text(json.dumps(environment), encoding="utf-8")
+    else:
+        payload["public_http_status"]["shopping"] = 503
+    receipt.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        validate_environment_preparation(receipt, profile)
+
+
 def test_repository_root_is_independent_of_current_working_directory():
     root = repository_root(Path(__file__))
     assert (root / "pyproject.toml").is_file()
