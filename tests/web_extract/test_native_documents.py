@@ -368,3 +368,58 @@ def test_native_pdf_preserves_independent_line_evidence_scopes():
     assert tree.xpath("//section/@data-page") == ["1"]
     assert tree.xpath("//section/p/@data-line") == ["1", "2"]
     assert tree.xpath("//section/p/text()") == ["Books 1", "Pens 3"]
+
+
+@pytest.mark.parametrize("span", [1, 2])
+def test_docx_reference_view_keeps_horizontal_and_vertical_merged_cell_geometry(span):
+    from lxml import html
+
+    def cell(text, properties=""):
+        return f"<w:tc><w:tcPr>{properties}</w:tcPr><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+
+    horizontal = f'<w:gridSpan w:val="{span}"/>'
+    first = cell("Shared category", horizontal + '<w:vMerge w:val="restart"/>')
+    continuation = cell("", horizontal + "<w:vMerge/>")
+    xml = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:tbl><w:tr>"
+        + first
+        + cell("First", "")
+        + "</w:tr><w:tr>"
+        + continuation
+        + cell("Second", "")
+        + "</w:tr></w:tbl></w:body></w:document>"
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    view, _ = document_view(output.getvalue(), DOCX)
+    tree = html.fromstring(view)
+    origin = tree.xpath("//table/tr[1]/td[1]")[0]
+    assert int(origin.get("colspan", "1")) == span
+    assert origin.get("rowspan") == "2"
+    assert tree.xpath("//table/tr[1]/td[2]/p/text()") == ["First\n"]
+    assert tree.xpath("//table/tr[2]/td/p/text()") == ["Second\n"]
+
+
+@pytest.mark.parametrize(
+    "row_properties,cell_properties",
+    [
+        ("", "<w:vMerge/>"),
+        ("", '<w:gridSpan w:val="0"/>'),
+        ("", '<w:hMerge w:val="restart"/>'),
+        ('<w:gridBefore w:val="1"/>', ""),
+    ],
+)
+def test_docx_reference_view_rejects_geometry_it_cannot_represent(row_properties, cell_properties):
+    output = io.BytesIO()
+    xml = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        f"<w:body><w:tbl><w:tr><w:trPr>{row_properties}</w:trPr>"
+        f"<w:tc><w:tcPr>{cell_properties}</w:tcPr><w:p/></w:tc>"
+        "</w:tr></w:tbl></w:body></w:document>"
+    )
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    with pytest.raises(ValueError):
+        document_view(output.getvalue(), DOCX)

@@ -56,7 +56,63 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
             )
         }
 
+        def table_view(node, parent):
+            table = ET.SubElement(parent, "table")
+            active = {}
+            for row in node.findall(f"{{{namespace}}}tr"):
+                before = row.find(f"{{{namespace}}}trPr/{{{namespace}}}gridBefore")
+                if before is not None and int(before.get(f"{{{namespace}}}val", "0")):
+                    raise ValueError(
+                        "DOCX tables with omitted leading grid cells are not supported"
+                    )
+                target_row = ET.SubElement(table, "tr")
+                after = row.find(f"{{{namespace}}}trPr/{{{namespace}}}gridAfter")
+                if after is not None:
+                    target_row.set("data-grid-after", after.get(f"{{{namespace}}}val", "0"))
+                column, continued = 0, {}
+                for cell in row.findall(f"{{{namespace}}}tc"):
+                    properties = cell.find(f"{{{namespace}}}tcPr")
+                    span, merge = 1, None
+                    if properties is not None:
+                        if properties.find(f"{{{namespace}}}hMerge") is not None:
+                            raise ValueError("Legacy DOCX horizontal merge cells are not supported")
+                        horizontal = properties.find(f"{{{namespace}}}gridSpan")
+                        if horizontal is not None:
+                            span = int(horizontal.get(f"{{{namespace}}}val", "0"))
+                        merge = properties.find(f"{{{namespace}}}vMerge")
+                    if span < 1:
+                        raise ValueError("DOCX cell spans must be positive")
+                    state = (
+                        merge.get(f"{{{namespace}}}val", "continue") if merge is not None else None
+                    )
+                    if state == "continue":
+                        prior = active.get(column)
+                        if prior is None or prior[1] != span:
+                            raise ValueError(
+                                "DOCX vertical continuation has no matching merged cell"
+                            )
+                        if "".join(_text_nodes(cell)).strip():
+                            raise ValueError("DOCX vertical continuation contains separate text")
+                        target = prior[0]
+                        target.set("rowspan", str(int(target.get("rowspan", "1")) + 1))
+                        continued[column] = prior
+                    else:
+                        if state not in {None, "restart"}:
+                            raise ValueError("Unsupported DOCX vertical merge state")
+                        target = ET.SubElement(target_row, "td")
+                        if span > 1:
+                            target.set("colspan", str(span))
+                        for child in cell:
+                            project(child, target)
+                        if state == "restart":
+                            continued[column] = (target, span)
+                    column += span
+                active = continued
+
         def project(node, parent):
+            if node.tag == f"{{{namespace}}}tbl":
+                table_view(node, parent)
+                return
             if node.tag == f"{{{namespace}}}p":
                 ET.SubElement(parent, "p").text = "".join(_text_nodes(node))
                 return
