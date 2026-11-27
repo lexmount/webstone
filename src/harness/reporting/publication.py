@@ -16,7 +16,7 @@ import zipfile
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from urllib.error import HTTPError
 
@@ -234,21 +234,106 @@ def package_archive(
 
 
 def public_share_context(base: str, share_url: str) -> tuple[str, str]:
-    target = urllib.parse.urlsplit(share_url)
-    authority = urllib.parse.urlsplit(base)
-    if (
-        target.scheme != authority.scheme
-        or target.netloc != authority.netloc
-        or not target.path.startswith("/v/")
-        or target.query
-        or target.fragment
-    ):
+    """Resolve a legacy share or main work link within the selected service mount."""
+    target, authority = urllib.parse.urlsplit(share_url), urllib.parse.urlsplit(base)
+    mount = authority.path.rstrip("/")
+    if (target.scheme != authority.scheme or target.netloc != authority.netloc
+            or not target.path.startswith(mount + "/") or target.query or target.fragment):
         raise ValueError("publication has no valid same-origin public share URL")
-    token = target.path.removeprefix("/v/")
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+    relative = target.path[len(mount):]
+    match = re.fullmatch(r"/(v|s)/([A-Za-z0-9_-]+)", relative)
+    if match is None:
         raise ValueError("publication has no valid public share token")
-    return target.path, token
+    return relative, match[2] if match[1] == "v" else ""
 
+
+def export_manifest_files(manifest: dict, version: str) -> list[dict]:
+    """Validate the immutable file inventory returned by a manifest export."""
+    if (not isinstance(manifest, dict) or manifest.get("assembled") is not False
+            or manifest.get("versionId") != version):
+        raise ValueError("Export manifest differs from its version baseline")
+    files = manifest.get("files")
+    if not isinstance(files, list) or not files:
+        raise ValueError("Export manifest omitted original files")
+    names = set()
+    for entry in files:
+        if not isinstance(entry, dict):
+            raise ValueError("Invalid original file in export manifest")
+        name, size = entry.get("path"), entry.get("size")
+        if (not isinstance(name, str) or not name or "\\" in name
+                or PurePosixPath(name).is_absolute() or ".." in PurePosixPath(name).parts
+                or str(PurePosixPath(name)) != name or name in names
+                or type(size) is not int or size < 0):
+            raise ValueError("Invalid original file in export manifest")
+        names.add(name)
+    return files
+
+
+def export_original_url(descriptor: dict, version: str, path: str) -> str:
+    """Bind a signed original download to its version and submitted filename."""
+    address = urllib.parse.urlsplit(str(descriptor.get("url") or ""))
+    if (descriptor.get("assembled") is not False or descriptor.get("versionId") != version
+            or descriptor.get("filename") not in {path, PurePosixPath(path).name}
+            or address.scheme != "https" or not address.hostname
+            or address.username or address.password or address.fragment):
+        raise ValueError("Original download descriptor differs from its file binding")
+    return descriptor["url"]
+
+
+def public_delivery_manifest(served: bytes, *, base: str, version: str, path: str) -> dict | None:
+    """Read one immutable delivery inventory using the host loader pagination contract."""
+    match = re.search(
+        rb'<script id="artifact-delivery-config" type="application/json">(.*?)</script>',
+        served, re.S,
+    )
+    if not match:
+        return None
+    config = json.loads(match[1])
+    root = config.get("root", "")
+    prefix = base.rstrip("/") + "/api/delivery/"
+    if (not isinstance(root, str) or not root.startswith(prefix + "d1.")
+            or not re.fullmatch(r"[A-Za-z0-9._-]+/", root[len(prefix):])
+            or config.get("file") != path
+            or config.get("manifestUrl") != root.rstrip("/") + "?__manifest=1"):
+        raise ValueError("Invalid delivery configuration")
+    manifest_url = config["manifestUrl"]
+    cursor = -1
+    files = []
+    for _ in range(21):
+        with urllib.request.urlopen(manifest_url, timeout=180) as response:
+            manifest = json.load(response)
+        if manifest.get("versionId") != version:
+            raise ValueError("Delivery version differs")
+        files.extend(manifest.get("files") or [])
+        if len(files) > 2000:
+            raise ValueError("Too many delivery files")
+        next_cursor = manifest.get("nextCursor")
+        if next_cursor is None:
+            export_manifest_files({"assembled": False, "versionId": version,
+                                   "files": [{"path": item.get("path"), "size": item.get("size", 0)}
+                                             for item in files]}, version)
+            return {**manifest, "files": files}
+        if type(next_cursor) is not int or next_cursor <= cursor:
+            raise ValueError("Invalid delivery file cursor")
+        cursor = next_cursor
+        manifest_url = config["manifestUrl"] + "&" + urllib.parse.urlencode(
+            {"cursor": cursor, "file": path}
+        )
+    raise ValueError("Too many delivery inventory pages")
+
+
+def public_original_html(served: bytes, *, base: str, version: str, path: str) -> bytes | None:
+    """Resolve a delivery entry without forwarding publication credentials."""
+    manifest = public_delivery_manifest(served, base=base, version=version, path=path)
+    if manifest is None:
+        return None
+    files = [item for item in manifest["files"] if item.get("path") == path]
+    if len(files) != 1:
+        raise ValueError("Delivery omitted requested HTML")
+    url = export_original_url({"assembled": False, "versionId": version,
+                               "filename": path, "url": files[0]["url"]}, version, path)
+    with urllib.request.urlopen(url, timeout=180) as response:
+        return response.read()
 
 def atomic_write(path: Path, payload: bytes) -> None:
     _destination(path)

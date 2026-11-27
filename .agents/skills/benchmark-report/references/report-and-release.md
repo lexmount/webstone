@@ -85,6 +85,10 @@ The release reader pass runs when measured results, rendered layout or content h
 
 Visual gates that already go further keep their present scope: Browser Use and WebArena replay receipts bind their schema, viewports and checker hashes, and the WCXB check, the published-snapshot audit and the Lexbench `ui_check.js` gate cover their own themes and widths. Existing receipts must keep verifying. New gates follow the pass above; narrowing an existing gate needs a new receipt schema and a code change, not a rule edit.
 
+When package routes or host delivery behavior change, exercise the changed reader
+path in the deployed sandbox. A local base-URL fixture does not cover the host's
+HTML preparation limits.
+
 Render release history like a report, not a heading plus a raw table: show the current version summary first, keep evidence/handling/impact details expandable, retain older versions in a compact history, and provide the structured record download. Each entry states what changed, why, the formal handling, and the score, denominator, latency, evidence, and limitation effects.
 Keep localized release text beside each structured release record and render every language from that record. Do not copy release-specific prose or historical measurements into report renderers or exact-string translation tables. Check the rendered release IDs, summary, effects and evidence links against the record; wording changes alone must not require a release-gate code edit. Browser Use and Browser Trajectory Replay keep their existing structured release models.
 

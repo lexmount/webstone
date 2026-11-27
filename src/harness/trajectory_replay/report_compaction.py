@@ -10,12 +10,15 @@ import posixpath
 import re
 import shutil
 from pathlib import Path
+
+from bs4 import BeautifulSoup
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from harness.reporting.visual import browser_executable, local_page, local_report_server
 
 ASSETS = Path(__file__).with_name("assets")
 SHARD_COUNT = 16
+PREVIEW_MAX_NODES = 100_000
 
 
 def _task_id(value: str) -> int:
@@ -58,11 +61,11 @@ def _script(name: str, **values: object) -> str:
     return source
 
 
-def _loader(kind: str, lang: str = "zh") -> str:
+def _loader(kind: str, lang: str = "zh", *, fixed_key: str | None = None) -> str:
     loading = "Loading detail…" if lang == "en" else "正在读取详情…"
     error = "Unable to read detail: " if lang == "en" else "详情读取失败："
     script = _script("compact-detail-loader.js", ROUTE_PARAMETER="id" if kind == "task" else "key",
-                     ROUTE_KIND=kind, ERROR_PREFIX=error)
+                     ROUTE_KIND=kind, ERROR_PREFIX=error, FIXED_KEY=json.dumps(fixed_key))
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{"Replay detail" if lang == "en" else "轨迹重放详情"}</title></head><body><main><p>{loading}</p></main><script>
 {script}</script></body></html>'''
 
@@ -76,6 +79,18 @@ def _raw_evidence_loader(lang: str = "zh") -> str:
     return f'''<!doctype html><html lang="{lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>body{{margin:0;background:#071722;color:#e6edf3;font:14px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}main{{max-width:1180px;margin:auto;padding:24px}}a{{color:#86b7ff}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}</style></head><body><main><p><a href="javascript:history.back()">{back}</a></p><h1>{title}</h1><pre>{loading}</pre></main><script>
 {script}</script></body></html>'''
 
+
+
+def _large_top_level_pages(source: Path, prefix: str) -> dict[str, str]:
+    """Keep large HTML trees below the host preparation budget without dropping rows."""
+    pages = {}
+    for path in (source / prefix).glob("*.html"):
+        html = path.read_text(encoding="utf-8")
+        if sum(1 for _ in BeautifulSoup(html, "html.parser").descendants) > PREVIEW_MAX_NODES:
+            pages[path.stem] = _rewrite_links(
+                html, source_route=prefix + path.name, target_route=prefix + path.name,
+            )
+    return pages
 
 def compact_report(source: Path, destination: Path) -> dict[str, int]:
     if destination.exists():
@@ -114,6 +129,15 @@ def compact_report(source: Path, destination: Path) -> dict[str, int]:
                 (pages / f'{kind}-{index:02d}.json').write_text(json.dumps(rows, ensure_ascii=False, separators=(',', ':')), encoding='utf-8')
             (root / f'{kind}.html').write_text(_loader(kind, language), encoding='utf-8')
         (root / 'evidence-raw.html').write_text(_raw_evidence_loader(language), encoding='utf-8')
+        large_pages = _large_top_level_pages(source, prefix)
+        if large_pages:
+            (pages / "page-00.json").write_text(
+                json.dumps(large_pages, ensure_ascii=False, separators=(",", ":")), encoding="utf-8",
+            )
+            for name in large_pages:
+                (root / f"{name}.html").write_text(
+                    _loader("page", language, fixed_key=name), encoding="utf-8",
+                )
     (destination / 'data').mkdir(exist_ok=True)
     for kind in ('trajectory', 'evidence'):
         shards = [{} for _ in range(SHARD_COUNT)]
@@ -132,6 +156,11 @@ def validate_compact_report(report: Path, *, max_files: int, source: Path | None
     files = [path for path in report.rglob('*') if path.is_file()]
     if not files or len(files) > max_files:
         raise ValueError(f'compact report file count is outside 1..{max_files}: {len(files)}')
+    for path in files:
+        if path.suffix == ".html" and sum(
+            1 for _ in BeautifulSoup(path.read_text(), "html.parser").descendants
+        ) > PREVIEW_MAX_NODES:
+            raise ValueError("compact HTML exceeds the host preview node budget")
     manifest = json.loads((report / 'report-manifest.json').read_text(encoding='utf-8'))
     prefixes = ['' if lang == 'zh' else lang + '/' for lang in manifest.get('languages') or ['zh']]
     for prefix in prefixes:
@@ -155,6 +184,16 @@ def validate_compact_report(report: Path, *, max_files: int, source: Path | None
                             target_route=prefix + kind + '.html') for p in (source / prefix / kind).glob('*.html')}
                 if values != expected:
                     raise ValueError('compact report pages differ from validated source')
+        large_bundle = report / prefix / "pages/page-00.json"
+        large_pages = json.loads(large_bundle.read_text()) if large_bundle.exists() else {}
+        if source is not None and large_pages != _large_top_level_pages(source, prefix):
+            raise ValueError("compact top-level pages differ from validated source")
+        for name in large_pages:
+            language = "en" if prefix else "zh"
+            if (report / prefix / f"{name}.html").read_text() != _loader(
+                "page", language, fixed_key=name,
+            ):
+                raise ValueError("compact top-level loader differs from validated route")
     for kind in ('trajectory', 'evidence'):
         values = {}
         for index in range(SHARD_COUNT):
@@ -191,6 +230,12 @@ def check_compact_navigation(report: Path, *, single_process: bool = False) -> N
             for language in manifest.get('languages') or ['zh']:
                 prefix = '' if language == 'zh' else language + '/'
                 page = local_page(browser, origin, context=context)
+                bundle = report / prefix / "pages/page-00.json"
+                for name in json.loads(bundle.read_text()) if bundle.exists() else []:
+                    page.goto(f"{origin}/{prefix}{name}.html")
+                    page.locator("h1").wait_for()
+                    if page.locator("[data-results]").count():
+                        page.locator('[data-results-ready="true"]').wait_for()
                 for row in samples:
                     if row is None:
                         continue

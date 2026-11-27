@@ -43,6 +43,11 @@ The Browser Trajectory Replay `visual` command accepts `--single-process` for
 hosts without Chromium IPC services. It keeps one browser context open across
 the page checks and records the Chromium launch arguments in the visual receipt.
 
+Yours limits HTML preview preparation to 100,000 nodes per document. The
+Browser Trajectory Replay package uses its existing page loader for larger
+top-level documents, preserving their complete HTML in a source-bound JSON
+bundle. Package checks validate both the loader and the retained page.
+
 ## Report languages
 
 The Web Fetch CLI falls back to English. `WEBSTONE_REPORT_LANGUAGE=zh` changes the environment default, and `--language` overrides it. A rebuild without `--language` keeps the saved choice.

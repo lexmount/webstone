@@ -267,3 +267,19 @@ def test_operation_recovery_handles_real_http_errors_without_replacing_key(tmp_p
             operation.completed(pending['key'], request=request, decode=lambda *_: None)
         assert caught.value.code == status
     assert operation.journal.read_bytes() == before
+
+
+def test_share_context_supports_mounted_main_and_legacy_links():
+    import pytest
+
+    from harness.reporting.publication import public_share_context
+    base = "https://reports.example/artifact-site"
+    assert public_share_context(base, base + "/s/report") == ("/s/report", "")
+    assert public_share_context(base, base + "/v/token") == ("/v/token", "token")
+    assert public_share_context("https://reports.example", "https://reports.example/v/token") == (
+        "/v/token", "token",
+    )
+    for url in ["https://foreign.example/artifact-site/s/report",
+                "https://reports.example/elsewhere/s/report", base + "/s/report?x=1"]:
+        with pytest.raises(ValueError):
+            public_share_context(base, url)
