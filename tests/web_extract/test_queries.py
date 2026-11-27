@@ -455,23 +455,42 @@ def synthetic_request(method, html, source_url, fixture_url, **options):
 
 
 @pytest.mark.parametrize("unit", ["query", "page"])
+@pytest.mark.parametrize("mode", ["snapshot", "live"])
 def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
-    tmp_path, monkeypatch, unit
+    tmp_path, monkeypatch, unit, mode
 ):
+    from types import SimpleNamespace
+
     source = catalog(tmp_path)
     value = pipeline.read_json(source)
     value["pages"] = value["pages"][:1]
+    value["input_mode"] = mode
     pipeline.save_json(source, value)
     home = tmp_path / "home"
     pipeline.prepare(home, benchmark="queries", source=source, unit=unit)
+
+    raw = (tmp_path / "article.html").read_bytes()
+    if mode == "live":
+        monkeypatch.setattr(
+            "harness.http_client.request",
+            lambda url, **kwargs: SimpleNamespace(
+                status=200, body=raw, url=url, headers={"content-type": "text/html"}
+            ),
+        )
+
+    def native_request(method, html, source_url, fixture_url, **options):
+        if mode == "live":
+            assert html == "" and fixture_url == value["pages"][0]["url"]
+            html = raw.decode()
+        return synthetic_request(method, html, source_url, fixture_url, **options)
 
     pipeline.METHODS.register(
         "query-synthetic",
         pipeline.ExtractMethod(
             name="query-synthetic",
             keys=(),
-            input="html",
-            request=synthetic_request,
+            input="url" if mode == "live" else "html",
+            request=native_request,
             project=lambda payload, preserve: payload.get("result"),
             custom_schema=True,
         ),
@@ -1034,3 +1053,133 @@ def test_http_failures_remain_invalid_at_the_registered_json_boundary(tmp_path):
     }
     assert all(value is None for value in predictions.values())
     assert adapter.score(truth, predictions)["query_accuracy"]["accepted"] == 0
+
+
+@pytest.mark.parametrize("unit", ["query", "page"])
+def test_live_query_source_checks_typed_values_and_scoped_absence(tmp_path, monkeypatch, unit):
+    from types import SimpleNamespace
+
+    source = catalog(tmp_path)
+    value = pipeline.read_json(source)
+    value.update(input_mode="live", pages=value["pages"][:1])
+    pipeline.save_json(source, value)
+    home = tmp_path / "live"
+    queries.prepare(home, source, unit=unit)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    raw = (tmp_path / "article.html").read_bytes()
+    current = [raw]
+    monkeypatch.setattr(
+        "harness.http_client.request",
+        lambda url, **kwargs: SimpleNamespace(
+            status=200, body=current[0], url=url, headers={"content-type": "text/html"}
+        ),
+    )
+    checked = queries.qualify_live(home, list(truth))
+    assert {row["case_id"] for row in checked} == set(truth)
+    assert all(row["observed_html_sha256"] == pipeline.digest(raw) for row in checked)
+    current[0] = raw.replace(b">40<", b">41<")
+    with pytest.raises(ValueError, match="Live reference no longer supported"):
+        queries.qualify_live(home, list(truth))
+    current[0] = raw.replace(
+        b"No contact is supplied.", b'<a href="mailto:now@example.com">Email</a>'
+    )
+    with pytest.raises(ValueError, match="Live reference no longer supported"):
+        queries.qualify_live(home, list(truth))
+
+
+def test_live_dynamic_queries_require_current_rendered_evidence(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from harness.web_extract import records
+
+    source = catalog(tmp_path)
+    value = pipeline.read_json(source)
+    page = value["pages"][1]
+    value.update(input_mode="live", pages=[page])
+    page["live_observation"] = {"selector": "#products article", "minimum": 1}
+    pipeline.save_json(source, value)
+    home = tmp_path / "live-dynamic"
+    queries.prepare(home, source)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    monkeypatch.setattr(
+        "harness.http_client.request",
+        lambda url, **kwargs: SimpleNamespace(
+            status=200,
+            body=(tmp_path / "static.html").read_bytes(),
+            url=url,
+            headers={"content-type": "text/html"},
+        ),
+    )
+    rendered = [(tmp_path / "rendered.html").read_text()]
+    captures = []
+
+    def observe(cases, **kwargs):
+        captures.append(cases)
+        return {
+            c["id"]: {
+                "status": "success",
+                "independent": True,
+                "url": c["url"],
+                "outer_html": rendered[0],
+                "completion": {"satisfied": True},
+            }
+            for c in cases
+        }
+
+    monkeypatch.setattr("harness.web_fetch.browser_observations.capture_batch", observe)
+    checked = queries.qualify_live(home, list(truth))
+    assert len(captures) == 1 and len(captures[0]) == 1
+    assert checked[0]["rendered_html_sha256"] == pipeline.digest(rendered[0].encode())
+    rendered[0] = rendered[0].replace("29.50", "39.50")
+    with pytest.raises(ValueError, match="Live reference no longer supported"):
+        queries.qualify_live(home, list(truth))
+    monkeypatch.setattr(
+        "harness.web_fetch.browser_observations.capture_batch",
+        lambda cases, **kwargs: {c["id"]: {"status": "failure"} for c in cases},
+    )
+    with pytest.raises(records.LiveSourceAccessError):
+        queries.qualify_live(home, list(truth))
+
+
+@pytest.mark.parametrize("fresh", [True, False])
+def test_live_query_access_failure_obeys_frozen_reference_age(tmp_path, monkeypatch, fresh):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from harness.web_extract import records
+
+    source = catalog(tmp_path)
+    value = pipeline.read_json(source)
+    value.update(
+        input_mode="live",
+        pages=value["pages"][:1],
+        live_reference_policy={"maximum_observation_age_seconds": 60},
+    )
+    value["pages"][0]["source"]["observed_at"] = (
+        datetime.now(UTC).isoformat() if fresh else "2000-01-01T00:00:00Z"
+    )
+    pipeline.save_json(source, value)
+    home = tmp_path / "live"
+    queries.prepare(home, source)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    monkeypatch.setattr(
+        "harness.http_client.request",
+        lambda url, **kwargs: SimpleNamespace(status=403, body=b"Forbidden", url=url, headers={}),
+    )
+    if not fresh:
+        with pytest.raises(records.LiveSourceAccessError):
+            queries.qualify_live(home, list(truth))
+        return
+    rows = queries.qualify_live(home, list(truth))
+    assert all(row["verification_mode"] == "independent_captured_reference" for row in rows)
+    assert all(row["http_status"] == 403 for row in rows)
+    assert sorted(row["reference_values_verified"] for row in rows) == [1, 2]
+
+
+def test_live_dynamic_catalog_requires_a_completion_condition(tmp_path):
+    source = catalog(tmp_path)
+    value = pipeline.read_json(source)
+    value.update(input_mode="live", pages=value["pages"][1:])
+    pipeline.save_json(source, value)
+    with pytest.raises(ValueError, match="explicit selector and minimum"):
+        queries.prepare(tmp_path / "live", source)

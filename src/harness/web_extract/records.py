@@ -324,7 +324,7 @@ def score(truth, predictions, **options):
     return score_fields(truth, predictions, **options)
 
 
-def qualify_live(home, case_ids, *, timeout=30):
+def qualify_live(home, case_ids, *, timeout=30, source_check=None):
     """Check declared original values on the current source, independently of answers."""
     import time
     from collections import defaultdict
@@ -337,6 +337,14 @@ def qualify_live(home, case_ids, *, timeout=30):
 
     truth = read_json(home / "dataset/dataset/ground-truth.json")
     policy = read_json(home / "dataset/manifest.json").get("live_reference_policy")
+    check = reference_support if source_check is None else source_check
+
+    def value_count(value):
+        if isinstance(value, dict):
+            return sum(value_count(child) for child in value.values())
+        if isinstance(value, list):
+            return sum(map(value_count, value))
+        return 1
 
     def unavailable(cid, attempts):
         if policy is None:
@@ -353,7 +361,7 @@ def qualify_live(home, case_ids, *, timeout=30):
             or receipt["source_url"] != reference["url"]
             or digest(raw) != receipt["input_sha256"]
             or access_interstitial(raw)
-            or reference_support(
+            or check(
                 reference,
                 raw,
                 encoding=receipt.get("encoding"),
@@ -373,7 +381,7 @@ def qualify_live(home, case_ids, *, timeout=30):
             "encoding": receipt.get("encoding"),
             "observed_html_sha256": digest(raw),
             "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
-            "reference_values_verified": sum(map(len, reference["values"].values())),
+            "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
 
@@ -416,7 +424,7 @@ def qualify_live(home, case_ids, *, timeout=30):
         except (ParserError, LookupError) as error:
             attempts[-1]["error"] = type(error).__name__
             return unavailable(cid, attempts)
-        missing = reference_support(
+        missing = check(
             reference,
             response.body,
             source_url=response.url,
@@ -431,7 +439,7 @@ def qualify_live(home, case_ids, *, timeout=30):
             "encoding": encoding,
             "observed_html_sha256": digest(response.body),
             "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
-            "reference_values_verified": sum(map(len, reference["values"].values())),
+            "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
 

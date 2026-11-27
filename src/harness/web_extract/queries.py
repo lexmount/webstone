@@ -144,8 +144,6 @@ def _source_supports(target, proof, raw, value):
 
 def qualify_page(page, base):
     """Verify primary-region evidence, including raw-vs-rendered dynamic controls."""
-    from lxml import html
-
     from harness.web_extract.pipeline import digest
 
     source = page["source"]
@@ -165,6 +163,15 @@ def qualify_page(page, base):
         if digest(rendered) != source["rendered_sha256"]:
             raise ValueError("Rendered page hash changed")
     encoding = records.source_encoding(raw, source.get("encoding"))
+    _qualify_content(page, raw, rendered, encoding)
+    return raw, encoding
+
+
+def _qualify_content(page, raw, rendered, encoding):
+    """Use the same source contract for captured and independently observed bytes."""
+    from lxml import html
+
+    source = page["source"]
     static = html.fromstring(raw, parser=html.HTMLParser(encoding=encoding))
     tree = html.fromstring(
         rendered, parser=html.HTMLParser(encoding="utf-8" if rendered != raw else encoding)
@@ -264,7 +271,84 @@ def qualify_page(page, base):
                     "Target answers are already embedded in static source; "
                     "classify this region as embedded state instead of JavaScript-required data"
                 )
-    return raw, encoding
+
+
+def _live_observation(page):
+    rule = page.get("live_observation")
+    if (
+        not isinstance(rule, dict)
+        or set(rule) != {"selector", "minimum"}
+        or not isinstance(rule["selector"], str)
+        or not rule["selector"].strip()
+        or type(rule["minimum"]) is not int
+        or rule["minimum"] < 1
+    ):
+        raise ValueError("Rendered live sources require an explicit selector and minimum count")
+    return {**rule, "content_selector": "html", "text_mode": "dom", "retain_html": True}
+
+
+def qualify_live(home, case_ids, *, timeout=30):
+    """Reuse live acquisition with the query adapter's scoped, typed source contract."""
+    import os
+
+    from harness.web_extract.pipeline import digest, read_json
+
+    truth = read_json(home / "dataset/dataset/ground-truth.json")
+    selected = {cid: truth[cid] for cid in case_ids}
+    dynamic = {}
+    for reference in selected.values():
+        task = reference["task"]
+        if task.get("needs_rendered_source"):
+            dynamic[task["page_id"]] = {
+                "id": task["page_id"],
+                "url": reference["url"],
+                "source_verification": {"browser_observation": _live_observation(task)},
+            }
+    observations = {}
+    if dynamic:
+        from harness.web_fetch.browser_observations import capture_batch
+
+        observations = capture_batch(
+            list(dynamic.values()),
+            timeout_ms=int(timeout * 1000),
+            attempts=1,
+            browser_binary=os.environ.get("CHROME_PATH"),
+            workers=min(4, len(dynamic)),
+        )
+        for pid, case in dynamic.items():
+            observed = observations.get(pid, {})
+            if (
+                observed.get("status") != "success"
+                or not observed.get("independent")
+                or observed.get("url") != case["url"]
+                or not observed.get("completion", {}).get("satisfied")
+                or not observed.get("outer_html")
+            ):
+                raise records.LiveSourceAccessError(pid, [{"browser_observation": observed}])
+
+    def support(reference, raw, *, encoding=None, **kwargs):
+        task = reference["task"]
+        observed = observations.get(task["page_id"])
+        rendered = observed["outer_html"].encode("utf-8") if observed else raw
+        page = {
+            "source": {"rendered_input": True} if observed else {},
+            "queries": task["queries"],
+            "regions": task["regions"],
+            "required_characteristics": task["required_characteristics"],
+        }
+        try:
+            _qualify_content(page, raw, rendered, encoding)
+        except ValueError as error:
+            return [str(error)]
+        return []
+
+    rows = records.qualify_live(home, case_ids, timeout=timeout, source_check=support)
+    for row in rows:
+        pid = selected[row["case_id"]]["task"]["page_id"]
+        if pid in observations:
+            row["browser_observation"] = observations[pid]
+            row["rendered_html_sha256"] = digest(observations[pid]["outer_html"].encode())
+    return rows
 
 
 def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=False):
@@ -290,13 +374,14 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
         }
         save_json(home / "preparation.json", summary, exclusive=True)
         return summary
-    if catalog.get("input_mode") != "snapshot":
-        raise ValueError(
-            "Runnable query catalogs currently require independently qualified frozen inputs"
-        )
+    mode = catalog.get("input_mode")
+    if mode not in {"snapshot", "live"}:
+        raise ValueError("Declare snapshot inputs or original live URLs")
     sources = {pid: qualify_page(page, source.parent) for pid, page in by_page.items()}
     for page in by_page.values():
-        if page["source"].get("rendered_input"):
+        if mode == "live" and page["source"].get("rendered_input"):
+            _live_observation(page)
+        if mode == "snapshot" and page["source"].get("rendered_input"):
             # Snapshot hosting disables scripts and remote resources. Its served bytes
             # must independently support the answer, not only a private browser capture.
             served = copy.deepcopy(page)
@@ -353,7 +438,14 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                     "unit": unit,
                     "page_id": page["id"],
                     "queries": requested,
+                    "regions": page["regions"],
                     "required_characteristics": page["required_characteristics"],
+                    "needs_rendered_source": bool(page["source"].get("rendered_input")),
+                    **(
+                        {"live_observation": page["live_observation"]}
+                        if "live_observation" in page
+                        else {}
+                    ),
                     "catalog_sha256": digest(source.read_bytes()),
                 },
                 "qualification": {
@@ -363,6 +455,7 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                         json.dumps(reference, sort_keys=True, ensure_ascii=False).encode()
                     ),
                     "source_url": page["url"],
+                    "observed_at": page["source"]["observed_at"],
                     "source": source_receipt,
                 },
                 "assets": assets,
@@ -374,7 +467,12 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
         "id": catalog["id"],
         "name": catalog["name"],
         "repository": catalog["repository"],
-        "input_mode": "snapshot",
+        "input_mode": mode,
+        **(
+            {"live_reference_policy": catalog["live_reference_policy"]}
+            if "live_reference_policy" in catalog
+            else {}
+        ),
         "task_unit": unit,
         "cases": cases,
         "source_versions": {

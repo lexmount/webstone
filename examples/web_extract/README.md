@@ -140,8 +140,9 @@ collection/certification boundary. Use `source-inventory --catalog` to bind the
 authored questions to the original source IDs, retaining all remaining source
 tasks as pending. Dataset definitions and generated drafts stay outside Git.
 
-Runnable preparation omits `--draft` and currently requires a qualified snapshot
-catalog. Each `source` names original `input`/`sha256`, its annotation status and,
+Runnable preparation omits `--draft` and requires a source-qualified catalog with
+`input_mode: "snapshot"` or `input_mode: "live"`. Each `source` names original
+`input`/`sha256`, its annotation status and,
 where applicable, separate `rendered_input`/`rendered_sha256`. Every selected
 region must be primary and cover the declared characteristics. Each answer leaf
 needs a source lexeme and scoped locator; null/no-match answers need an empty
@@ -172,12 +173,30 @@ and physical calls. Direct PDF, image and video URLs stay in the source inventor
 until a native media input and qualification contract supports them; an HTML
 replacement does not preserve their original task.
 
+Live preparation retains the same scoped evidence and typed reference checks as
+snapshot preparation. Collection uses the existing live-source checker with the
+query adapter's evidence contract. If a source requires rendering, its page also
+declares a completion condition, for example
+`"live_observation": {"selector": ".quote", "minimum": 10}`. This condition uses
+CSS syntax and must describe the initial content needed by the question. The
+shared Web Fetch observer captures the current rendered HTML once per page per
+source check; the query adapter verifies it against the current raw HTML and
+records both hashes. Install the `headless-eval` extra for these source checks;
+`CHROME_PATH` may select an existing browser in the execution environment.
+An incomplete capture or changed answer stops collection.
+
+An optional `live_reference_policy` with `maximum_observation_age_seconds`
+(at most 86,400) permits a previously verified, hash-bound observation to support
+a temporarily inaccessible source within that declared window. Its receipt
+retains the failed current checks and reference age. A successful current check
+showing changed content overrides the fallback. Without this policy, unavailable
+source checks stop the run. Freeze this choice before participant calls.
+
 Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
 The compiled question is delivered per case through the existing instruction
 delivery contract. Changing the unit creates a different prepared cohort and
-frozen execution plan. Native live-URL qualification and report-template views
-for this new answer format are not yet supplied by this adapter; draft/live URLs
-must not be presented as a certified live comparison or a field-list report.
+frozen execution plan. Report-template views for this answer format are not yet
+supplied by this adapter; query results must not be rendered as field-list scores.
 
 Acceptance is deterministic: strict native JSON, schema validity and exact
 typed-answer equality under declared normalization. Whitespace normalization is
