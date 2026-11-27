@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from harness.reporting.visual import browser_executable, local_report_server
+from harness.reporting.visual import browser_executable, local_page, local_report_server
 
 ASSETS = Path(__file__).with_name("assets")
 SHARD_COUNT = 16
@@ -172,7 +172,7 @@ def validate_compact_report(report: Path, *, max_files: int, source: Path | None
     return {'files': len(files), 'task_routes': manifest['task_count'], 'result_routes': manifest['logical_results']}
 
 
-def check_compact_navigation(report: Path) -> None:
+def check_compact_navigation(report: Path, *, single_process: bool = False) -> None:
     """Exercise the exported query routes and evidence, in every saved language."""
     from playwright.sync_api import sync_playwright
 
@@ -182,11 +182,15 @@ def check_compact_navigation(report: Path) -> None:
     samples = [next((row for row in rows if (row['status'] == 'pass') == passed), None)
                for passed in (True, False)]
     with local_report_server(report) as origin, sync_playwright() as playwright:
-        browser = playwright.chromium.launch(executable_path=browser_executable(), headless=True)
+        browser = playwright.chromium.launch(
+            executable_path=browser_executable(), headless=True,
+            args=["--single-process", "--in-process-gpu"] if single_process else [],
+        )
+        context = browser.new_context() if single_process else None
         try:
             for language in manifest.get('languages') or ['zh']:
                 prefix = '' if language == 'zh' else language + '/'
-                page = browser.new_page()
+                page = local_page(browser, origin, context=context)
                 for row in samples:
                     if row is None:
                         continue

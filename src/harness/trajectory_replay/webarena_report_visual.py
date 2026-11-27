@@ -218,7 +218,48 @@ def receipt_is_current(report: Path, receipt: Path) -> bool:
         return False
 
 
-def check(report: Path, receipt: Path) -> None:
+
+def _check_result_comparison(page, results: list[dict]) -> None:
+    """Compare visible same-task rows with the frozen result matrix."""
+    by_task: dict[int, dict[str, str]] = {}
+    for row in results:
+        by_task.setdefault(int(row["task_id"]), {})[row["participant_id"]] = row["status"]
+    baseline_control = page.locator("[data-explorer-baseline]")
+    methods = baseline_control.locator("option").evaluate_all(
+        "items => items.map(item => item.value)"
+    )
+    assert len(methods) >= 2
+    for baseline in dict.fromkeys((methods[0], methods[-1])):
+        baseline_control.select_option(baseline)
+        compared = page.locator("[data-explorer-compare] input:checked").evaluate_all(
+            "items => items.map(item => item.value)"
+        )
+        compared = [method for method in compared if method != baseline]
+        for relation in ("all_pass", "differs", "baseline_passes",
+                         "comparison_passes", "all_fail"):
+            expected = []
+            for task_id, outcomes in by_task.items():
+                base = outcomes[baseline]
+                others = [outcomes[method] for method in compared]
+                states = [base, *others]
+                matches = {
+                    "all_pass": all(state == "pass" for state in states),
+                    "all_fail": all(state == "fail" for state in states),
+                    "differs": len(set(states)) > 1,
+                    "baseline_passes": base == "pass" and "fail" in others,
+                    "comparison_passes": base == "fail" and "pass" in others,
+                }[relation]
+                if matches:
+                    expected.append(task_id)
+            page.locator("[data-explorer-relation]").select_option(relation)
+            actual = page.locator("[data-explorer-row]:not([hidden])").evaluate_all(
+                "items => items.map(item => Number(item.dataset.task || item.dataset.search))"
+            )
+            assert sorted(actual) == sorted(expected), (baseline, relation, actual, expected)
+    page.locator("[data-explorer-relation]").select_option("differs")
+
+
+def check(report: Path, receipt: Path, *, single_process: bool = False) -> None:
     prepare_check(report, receipt)
     from playwright.sync_api import sync_playwright
 
@@ -226,6 +267,7 @@ def check(report: Path, receipt: Path) -> None:
     before = _tree_sha256(report)
     executable = _browser_executable()
     browser_hash = file_sha256(Path(executable))
+    launch_args = ["--single-process", "--in-process-gpu"] if single_process else []
     routes = _routes(report)
     validate_routes(report, routes)
     report = report.resolve()
@@ -246,14 +288,16 @@ def check(report: Path, receipt: Path) -> None:
             browser = playwright.chromium.launch(
                 executable_path=executable,
                 headless=True,
+                args=launch_args,
             )
+            shared_context = browser.new_context() if single_process else None
             try:
                 failed_key = _first_failed_key(report)
                 hosted_origin = f"http://127.0.0.1:{server.server_port}"
                 if failed_key is not None:
                     route_page = local_page(
                         browser,
-                        hosted_origin,
+                        hosted_origin, context=shared_context,
                     )
                     page_errors: list[str] = []
                     route_page.on("pageerror", lambda error: page_errors.append(str(error)))
@@ -326,7 +370,8 @@ def check(report: Path, receipt: Path) -> None:
                     route_page.close()
                     for language in report_languages(report):
                         modal_page = local_page(
-                            browser, hosted_origin, viewport={"width": 390, "height": 844}
+                            browser, hosted_origin, context=shared_context,
+                            viewport={"width": 390, "height": 844}
                         )
                         prefix = "" if language == "zh" else "en/"
                         modal_page.goto(
@@ -370,7 +415,7 @@ def check(report: Path, receipt: Path) -> None:
                 if passed_key is not None:
                     passed_page = local_page(
                         browser,
-                        hosted_origin,
+                        hosted_origin, context=shared_context,
                     )
                     passed_page.goto(
                         hosted_origin + f"/api/preview/replay~fixture/result/{passed_key}.html",
@@ -380,14 +425,14 @@ def check(report: Path, receipt: Path) -> None:
                     passed_page.close()
                 drill_page = local_page(
                     browser,
-                    hosted_origin,
+                    hosted_origin, context=shared_context,
                 )
                 if "en" not in report_languages(report):
                     drill_page.goto(
                         hosted_origin + "/api/preview/replay~fixture/index.html",
                         wait_until="domcontentloaded",
                     )
-                    drill_page.locator("a.language").click()
+                    drill_page.locator('a[hreflang="en"]').click()
                     drill_page.locator("[data-english-not-generated]").wait_for()
                     drill_page.locator('a[href="../index.html"]').click()
                     drill_page.wait_for_url(
@@ -424,7 +469,8 @@ def check(report: Path, receipt: Path) -> None:
                     for width, height in VIEWPORTS:
                         for theme in ("light", "dark"):
                             page = local_page(
-                                browser, hosted_origin, viewport={"width": width, "height": height}
+                                browser, hosted_origin, context=shared_context,
+                                viewport={"width": width, "height": height}
                             )
                             url = f"http://127.0.0.1:{server.server_port}/{route}"
                             # The optional Mermaid module is hosted remotely; core report
@@ -515,28 +561,11 @@ return node && node.textContent.trim().startsWith('{');
                                 )
                                 table_filter.fill("")
                             if route.endswith("results.html"):
-                                page.wait_for_function(
-                                    "() => document.querySelector('[data-matrix-count]')"
-                                    "?.textContent.includes('/')",
-                                    timeout=5_000,
-                                )
-                                page.locator("[data-matrix-relation]").select_option("all-pass")
-                                page.wait_for_function(
-                                    "() => [...document.querySelectorAll("
-                                    "'[data-task-matrix] tbody tr:not([hidden])')]"
-                                    ".every(row => !row.dataset.fail)"
-                                )
-                                page.locator("[data-matrix-relation]").select_option("different")
-                                page.wait_for_function(
-                                    "() => [...document.querySelectorAll("
-                                    "'[data-task-matrix] tbody tr:not([hidden])')]"
-                                    ".every(row => !!row.dataset.pass && !!row.dataset.fail)"
-                                )
-                                assert page.locator("[data-matrix-method]").count() >= 2
+                                _check_result_comparison(page, results)
                                 page.locator('[data-results-ready="true"]').wait_for(timeout=5_000)
-                                page.locator('[data-filter="status"]').select_option("")
+                                page.locator('[data-filter="status"]').select_option("fail")
                                 diagnosis_trigger = page.locator(
-                                    ".inventory tbody tr:not([hidden]) [data-open-diagnosis]"
+                                    ".inventory [data-open-diagnosis]:visible"
                                 ).first
                                 # Only failed rows open a diagnosis; an all-pass run has none.
                                 if diagnosis_trigger.count():
@@ -670,6 +699,7 @@ return {
             "checker_sources": source_hashes,
             "browser_executable": executable,
             "browser_sha256": browser_hash,
+            "browser_launch_args": launch_args,
             "route_classes": len(routes),
             "states_checked": len(states),
             "states": states,
@@ -689,8 +719,12 @@ def main() -> None:
         type=Path,
         default=Path("publish/trajectory-replay-visual-qa.json"),
     )
+    parser.add_argument(
+        "--single-process", action="store_true",
+        help="Run Chromium in one process when host IPC services are unavailable",
+    )
     args = parser.parse_args()
-    check(args.report, args.receipt)
+    check(args.report, args.receipt, single_process=args.single_process)
 
 
 if __name__ == "__main__":

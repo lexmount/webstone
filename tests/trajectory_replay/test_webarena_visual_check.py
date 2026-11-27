@@ -277,3 +277,67 @@ def test_current_replay_receipt_binds_full_visual_scope(tmp_path, monkeypatch, d
         binary.write_text("changed binary", encoding="utf-8")
     receipt.write_text(json.dumps(value), encoding="utf-8")
     assert _MODULE.receipt_is_current(report, receipt) is (damage == "none")
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_visual_cli_selects_browser_process_mode(monkeypatch, tmp_path, enabled):
+    import sys
+    report, receipt = tmp_path / "report", tmp_path / "visual.json"
+    calls = []
+    monkeypatch.setattr(_MODULE, "check", lambda root, proof, *, single_process=False:
+                        calls.append((root, proof, single_process)))
+    argv = ["visual", str(report), "--receipt", str(receipt)]
+    if enabled:
+        argv.append("--single-process")
+    monkeypatch.setattr(sys, "argv", argv)
+    _MODULE.main()
+    assert calls == [(report, receipt, enabled)]
+
+
+@pytest.mark.parametrize("broken_filter", [False, True])
+def test_live_comparison_gate_rejects_incorrect_visible_tasks(broken_filter):
+    import os
+    binary = os.environ.get("BROWSER_USE_VISUAL_BROWSER")
+    if not binary:
+        pytest.skip("Set BROWSER_USE_VISUAL_BROWSER for live report controls")
+    from playwright.sync_api import sync_playwright
+
+    from harness.reporting import explorer
+    labels = explorer.Labels(
+        title="Comparison", description="Recorded outcomes", task="Task", baseline="Baseline",
+        compare="Compare", relation="Relation", any="All",
+        relations={name: name for name in explorer.RELATIONS},
+    )
+    methods = ["a", "b", "c"]
+    cases = {1: "ppf", 2: "fpp", 3: "ppp", 4: "fff"}
+    results, tasks = [], []
+    for task_id, states in cases.items():
+        outcomes = {}
+        for method, state in zip(methods, states, strict=True):
+            status = "pass" if state == "p" else "fail"
+            results.append({"participant_id": method, "task_id": task_id, "status": status})
+            outcomes[method] = explorer.Outcome(status, status)
+        tasks.append(explorer.Task(cell=str(task_id), search=str(task_id), outcomes=outcomes))
+    body = explorer.same_task_explorer(
+        "comparison", [explorer.Participant(key, key) for key in methods], tasks,
+        baseline="a", labels=labels,
+    )
+    script = explorer.SCRIPT
+    if broken_filter:
+        script = script.replace("all_pass:states.length>0&&states.every(s=>s==='pass')",
+                                "all_pass:true")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            executable_path=binary, args=["--single-process", "--in-process-gpu"], headless=True,
+        )
+        try:
+            page = browser.new_page()
+            page.set_content("<!doctype html><html><body>" + body +
+                             "<script>" + script + "</script></body></html>")
+            if broken_filter:
+                with pytest.raises(AssertionError):
+                    _MODULE._check_result_comparison(page, results)
+            else:
+                _MODULE._check_result_comparison(page, results)
+        finally:
+            browser.close()

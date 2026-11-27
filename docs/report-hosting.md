@@ -39,6 +39,10 @@ by rebuilding it from the same profile and evidence with the track's `report`
 command, then run `check` again. Visual receipts still name the checker that
 produced them and need a new visual check after that checker changes.
 
+The Browser Trajectory Replay `visual` command accepts `--single-process` for
+hosts without Chromium IPC services. It keeps one browser context open across
+the page checks and records the Chromium launch arguments in the visual receipt.
+
 ## Report languages
 
 The Web Fetch CLI falls back to English. `WEBSTONE_REPORT_LANGUAGE=zh` changes the environment default, and `--language` overrides it. A rebuild without `--language` keeps the saved choice.
