@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from harness.environments.browser import (
     NETWORK_RESET_CDP,
+    PLAYWRIGHT_HAR_CAPTURE,
     BrowserAdapter,
     register_browser,
 )
@@ -19,6 +20,10 @@ def local_command(
         "127.0.0.1",
         "--port",
         str(port),
+        # Serve skips web subresources unless explicitly enabled.
+        # Serve disables these resources by default; replay needs normal page loading.
+        *(argument for resource in ("stylesheet", "iframe", "image", "worker", "beacon")
+          for argument in ("--load-resources", resource)),
     ]
 
 
@@ -26,7 +31,7 @@ ADAPTER = register_browser(
     BrowserAdapter(
         name="lightpanda",
         label="Lightpanda",
-        flags=frozenset({NETWORK_RESET_CDP}),
+        flags=frozenset({NETWORK_RESET_CDP, PLAYWRIGHT_HAR_CAPTURE}),
         local_command=local_command,
     )
 )
