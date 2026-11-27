@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import json
 from decimal import Decimal
 
 import pytest
@@ -163,6 +164,13 @@ def catalog(root):
 
 def prepare(tmp_path, unit="query", *, draft=False):
     source = catalog(tmp_path)
+    if not draft:
+        data = pipeline.read_json(source)
+        frozen = data["pages"][1]
+        frozen["required_characteristics"] = ["product_records"]
+        frozen["source"]["input"] = "rendered.html"
+        frozen["source"]["sha256"] = frozen["source"]["rendered_sha256"]
+        pipeline.save_json(source, data)
     home = tmp_path / (unit + ("-draft" if draft else ""))
     main(
         [
@@ -534,3 +542,121 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
         assert plan["case_count"] == (2 if unit == "query" else 1)
     finally:
         pipeline.METHODS.unregister("query-synthetic")
+
+
+@pytest.mark.parametrize("keyword", ["const", "enum", "multipleOf", "minimum", "maximum"])
+@pytest.mark.parametrize("unit", ["query", "page"])
+def test_native_decimal_schema_constraints_match_reference_numbers(tmp_path, keyword, unit):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    data["pages"] = data["pages"][:1]
+    query = data["pages"][0]["queries"][0]
+    data["pages"][0]["queries"] = [query]
+    constraint = [0.1] if keyword == "enum" else 0.1
+    query.update(
+        schema=schema({"amount": {"type": "number", keyword: constraint}}), answer={"amount": 0.1}
+    )
+    query["schema"]["$schema"] = "https://json-schema.org/draft/2020-12/schema"
+    cases = query_contract.compile_cases(data, unit)
+    case = cases[0]
+    truth = {case["id"]: {"task": {"unit": unit, "page_id": "article", "queries": [query]}}}
+    good = '{"amount": 0.1}' if unit == "query" else '{"research": {"amount": 1e-1}}'
+    bad_value = 0 if keyword == "minimum" else 0.15
+    bad = {"amount": bad_value}
+    if unit == "page":
+        bad = {"research": bad}
+    for text, accepted in [(good, True), (json.dumps(bad), False)]:
+        prediction = queries.scored_prediction(
+            {"method": "cloudflare-json", "response_text": '{"result":' + text + "}"}, {}
+        )
+        result = queries.score(truth, {case["id"]: prediction})
+        assert bool(result["query_accuracy"]["accepted"]) == accepted
+        assert result["requests"][0]["schema_valid"] == accepted
+
+
+def test_unordered_native_numbers_keep_equivalence_and_duplicate_counts():
+    query = {
+        "id": "values",
+        "schema": schema({"values": {"type": "array", "items": {"type": "number"}}}),
+        "answer": {"values": [10, 11, 10]},
+        "equality": {"paths": {"/values": {"array": "unordered"}}},
+    }
+    for raw, accepted in [
+        (' {"values": [11, 1e1, 10.0]}', True),
+        (' {"values": [11, 1e1, 11]}', False),
+    ]:
+        assert (
+            query_contract.validate_query(query, query_contract.strict_json(raw))["accepted"]
+            == accepted
+        )
+
+
+@pytest.mark.parametrize("unit", ["query", "page"])
+def test_local_schema_references_work_in_both_request_units(tmp_path, unit):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    data["pages"] = data["pages"][:1]
+    query = data["pages"][0]["queries"][0]
+    query["schema"]["$defs"] = {"count": {"type": "integer", "minimum": 1}}
+    query["schema"]["properties"]["trials"] = {"$ref": "#/$defs/count"}
+    query["evidence"]["negative_answers"] = [{"organization": "Navigation", "trials": 1}]
+    pipeline.save_json(source, data)
+    home = tmp_path / "home"
+    pipeline.prepare(home, benchmark="queries", source=source, unit=unit)
+    truth = pipeline.read_json(home / "dataset/dataset/ground-truth.json")
+    predictions = {cid: case["values"] for cid, case in truth.items()}
+    assert queries.score(truth, predictions)["query_accuracy"]["rate"] == 1
+    cid = next(iter(truth))
+    bad = copy.deepcopy(predictions)
+    if unit == "page":
+        bad[cid]["research"]["trials"] = 0
+    else:
+        bad[cid]["trials"] = 0
+    assert queries.score(truth, bad)["query_accuracy"]["rate"] < 1
+
+
+def test_one_source_record_cannot_qualify_two_sibling_answer_records(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    query = page["queries"][0]
+    query.update(
+        schema=schema({"rows": {"type": "array", "items": schema({"name": {"type": "string"}})}}),
+        answer={"rows": [{"name": "Harbor Lab"}, {"name": "Harbor Lab"}]},
+    )
+    query["evidence"] = {
+        "record_regions": {
+            f"/rows/{i}": {"target_index": 0, "selector": ".//p[@id='org']"} for i in range(2)
+        },
+        "leaves": [
+            {"pointer": f"/rows/{i}/name", "raw_value": "Harbor Lab", "selector": "."}
+            for i in range(2)
+        ],
+        "negative_answers": [{"rows": []}],
+    }
+    with pytest.raises(ValueError, match="distinct source records"):
+        queries.qualify_page(page, tmp_path)
+    query["answer"]["rows"].pop()
+    del query["evidence"]["record_regions"]["/rows/1"]
+    query["evidence"]["leaves"].pop()
+    queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("claimed", [4, 0])
+def test_partial_numeric_lexemes_cannot_qualify_reference_counts(tmp_path, claimed):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    query = page["queries"][0]
+    query["answer"]["trials"] = claimed
+    query["evidence"]["leaves"][1]["raw_value"] = str(claimed)
+    with pytest.raises(ValueError, match="evidence"):
+        queries.qualify_page(page, tmp_path)
+    query["answer"]["trials"] = 40
+    query["evidence"]["leaves"][1]["raw_value"] = "40"
+    queries.qualify_page(page, tmp_path)
+
+
+def test_snapshot_cannot_serve_a_shell_whose_answers_only_exist_after_rendering(tmp_path):
+    source = catalog(tmp_path)
+    with pytest.raises(ValueError, match="Snapshot input does not contain"):
+        pipeline.prepare(tmp_path / "home", benchmark="queries", source=source)
+    assert not (tmp_path / "home/dataset").exists()

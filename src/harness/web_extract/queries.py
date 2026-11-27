@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 from collections import Counter, defaultdict
@@ -106,6 +107,19 @@ def _lexeme_matches(raw, value):
         return False
 
 
+def _source_contains(text, raw, value):
+    text, raw = " ".join(text.split()), " ".join(raw.split())
+    if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+        # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
+        tokens = re.findall(
+            r"(?<![A-Za-z0-9_.])[+-]?(?:\d[\d,]*(?:\.\d*)?|\.\d+)"
+            r"(?:[eE][+-]?\d+)?(?![A-Za-z0-9_.])",
+            text,
+        )
+        return re.sub(r"^[£$€¥]\s*", "", raw) in tokens
+    return raw in text
+
+
 def qualify_page(page, base):
     """Verify primary-region evidence, including raw-vs-rendered dynamic controls."""
     from lxml import html
@@ -152,6 +166,7 @@ def qualify_page(page, base):
         if set(record_regions) != set(_record_paths(query["answer"])):
             raise ValueError("Repeated object records need individual source-region bindings")
         scopes = {}
+        sibling_sources = defaultdict(set)
         for pointer, binding in record_regions.items():
             index = binding["target_index"]
             if type(index) is not int or not 0 <= index < len(targets):
@@ -159,6 +174,10 @@ def qualify_page(page, base):
             selected = _scoped_nodes(targets[index], binding["selector"])
             if len(selected) != 1 or not hasattr(selected[0], "iterancestors"):
                 raise ValueError("Each answer record must bind one source record element")
+            siblings = sibling_sources[pointer.rsplit("/", 1)[0]]
+            if selected[0] in siblings:
+                raise ValueError("Sibling answer records must bind distinct source records")
+            siblings.add(selected[0])
             scopes[pointer] = selected
         positive = {item["pointer"]: item for item in evidence.get("leaves", [])}
         absent = {item["pointer"]: item for item in evidence.get("absences", [])}
@@ -190,8 +209,9 @@ def qualify_page(page, base):
                 not raw_value
                 or not _lexeme_matches(raw_value, value)
                 or not any(
-                    " ".join(raw_value.split())
-                    in " ".join(_text(_scoped_nodes(node, proof.get("selector", "."))).split())
+                    _source_contains(
+                        _text(_scoped_nodes(node, proof.get("selector", "."))), raw_value, value
+                    )
                     for node in leaf_targets
                 )
             ):
@@ -248,6 +268,22 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
             "Runnable query catalogs currently require independently qualified frozen inputs"
         )
     sources = {pid: qualify_page(page, source.parent) for pid, page in by_page.items()}
+    for page in by_page.values():
+        if page["source"].get("rendered_input"):
+            # Snapshot hosting disables scripts and remote resources. Its served bytes
+            # must independently support the answer, not only a private browser capture.
+            served = copy.deepcopy(page)
+            served["source"].pop("rendered_input")
+            served["required_characteristics"] = [
+                tag for tag in served["required_characteristics"] if tag != "javascript"
+            ]
+            try:
+                qualify_page(served, source.parent)
+            except ValueError as error:
+                raise ValueError(
+                    "Snapshot input does not contain the qualified answer; "
+                    "dynamic acquisition requires a live URL or self-contained frozen input"
+                ) from error
     cases = []
     for compiled_case in compiled:
         page = by_page[compiled_case["page_id"]]

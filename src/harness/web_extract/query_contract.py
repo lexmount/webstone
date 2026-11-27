@@ -10,11 +10,12 @@ import copy
 import hashlib
 import json
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
+from fractions import Fraction
 from urllib.parse import urlsplit
 
-from jsonschema import Draft202012Validator, validators
+from jsonschema import Draft202012Validator, ValidationError, validators
 
 
 def json_integer(checker, value):
@@ -26,8 +27,51 @@ def json_integer(checker, value):
     )
 
 
+def decimal_numbers(value):
+    """Interpret JSON decimal spellings identically in schemas and native answers."""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    if isinstance(value, dict):
+        return {key: decimal_numbers(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [decimal_numbers(child) for child in value]
+    return value
+
+
+def decimal_keyword(name):
+    original = Draft202012Validator.VALIDATORS[name]
+
+    def validate(validator, constraint, instance, schema):
+        yield from original(
+            validator, decimal_numbers(constraint), decimal_numbers(instance), schema
+        )
+
+    return validate
+
+
+def multiple_of(validator, divisor, instance, schema):
+    if validator.is_type(instance, "number"):
+        if (Fraction(Decimal(str(instance))) / Fraction(Decimal(str(divisor)))).denominator != 1:
+            yield ValidationError(f"{instance!r} is not a multiple of {divisor}")
+
+
 Validator = validators.extend(
     Draft202012Validator,
+    validators={
+        **{
+            name: decimal_keyword(name)
+            for name in (
+                "const",
+                "enum",
+                "minimum",
+                "maximum",
+                "exclusiveMinimum",
+                "exclusiveMaximum",
+                "uniqueItems",
+            )
+        },
+        "multipleOf": multiple_of,
+    },
     type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", json_integer),
 )
 
@@ -86,7 +130,7 @@ def canonical(value, policy=None, path=""):
         mode = overrides.get("array", "ordered")
         if mode not in {"ordered", "unordered"}:
             raise ValueError("Unsupported array equality policy")
-        return ("array", tuple(sorted(items, key=repr) if mode == "unordered" else items))
+        return ("array", frozenset(Counter(items).items()) if mode == "unordered" else tuple(items))
     raise ValueError("Unsupported native JSON type")
 
 
@@ -192,6 +236,28 @@ def validate_dataset(dataset):
                 raise ValueError("Reference answer fails its own contract")
 
 
+def page_schema(queries):
+    """Keep local references and anchors scoped to their original query schema."""
+    properties = {}
+    for query in queries:
+        child = copy.deepcopy(query["schema"])
+        # The combined root owns the dialect; retaining it here makes jsonschema
+        # switch back to its default validator and lose our exact numeric rules.
+        child.pop("$schema", None)
+        identity = hashlib.sha256(
+            json.dumps([query["id"], child], sort_keys=True).encode()
+        ).hexdigest()
+        child["$id"] = "urn:webstone:query:" + identity
+        properties[query["id"]] = child
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": properties,
+        "required": [q["id"] for q in queries],
+        "additionalProperties": False,
+    }
+
+
 def compile_cases(dataset, unit="query", *, max_schema_bytes=None):
     """Select actual request packaging, rather than merely regrouping reported scores."""
     if unit not in {"query", "page"}:
@@ -211,13 +277,7 @@ def compile_cases(dataset, unit="query", *, max_schema_bytes=None):
                     ).hexdigest()[:24]
                 )
             else:
-                schema = {
-                    "$schema": "https://json-schema.org/draft/2020-12/schema",
-                    "type": "object",
-                    "properties": {q["id"]: copy.deepcopy(q["schema"]) for q in queries},
-                    "required": [q["id"] for q in queries],
-                    "additionalProperties": False,
-                }
+                schema = page_schema(queries)
                 instruction = (
                     "Answer every named task independently on this one page. Preserve each task's "
                     "scope and filter. Return a single JSON object keyed by the exact task IDs. "
@@ -259,12 +319,7 @@ def score(truth, predictions, **options):
         if unit == "query":
             valid = validate_query(queries[0], answer)["schema_valid"]
         else:
-            schema = {
-                "type": "object",
-                "properties": {q["id"]: q["schema"] for q in queries},
-                "required": [q["id"] for q in queries],
-                "additionalProperties": False,
-            }
+            schema = page_schema(queries)
             valid = Validator(schema).is_valid(answer)
         accepted = []
         for query in queries:

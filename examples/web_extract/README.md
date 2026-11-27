@@ -156,6 +156,22 @@ independent rendered capture, with the answer data not already inlined in the
 original source. Rendered qualification references are hash-bound under
 `references/`, separately from publishable input HTML and assets.
 
+Snapshot hosting disables scripts and remote resources. The served HTML must
+therefore support every answer independently of any private rendered capture.
+Preparation rejects an empty page shell whose answers appear only after rendering.
+A rendered snapshot can measure extraction from the frozen content; it does not
+measure whether a method can execute JavaScript on the original website.
+
+Keep live URLs and snapshots as separate execution scopes. A live run must call
+the original URL and independently check the declared answer region before and
+after collection, within its frozen freshness policy. Changed answers need a new
+reference revision and execution scope. A snapshot binds the served bytes and
+assets, alongside its original URL and observation evidence. Both units compile
+from the same frozen questions, schemas and answers; each unit needs its own plan
+and physical calls. Direct PDF, image and video URLs stay in the source inventory
+until a native media input and qualification contract supports them; an HTML
+replacement does not preserve their original task.
+
 Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
 The compiled question is delivered per case through the existing instruction
 delivery contract. Changing the unit creates a different prepared cohort and
