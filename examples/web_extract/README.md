@@ -88,6 +88,104 @@ new files use the canonical format names. No legacy command alias is registered.
 
 ## Prepare and reproduce
 
+### Page-specific query catalogs
+
+The `queries` benchmark adapter accepts independently authored
+`web-extract-query-catalog/1` inputs. It reuses the track's preparation, native
+method collection and `score` stages. It does not use SWDE page-hit matching or
+product-only fields to decide whether a query was answered correctly.
+
+A catalog records each page's explicit `url`, source task IDs, observed content
+kind, primary regions and required characteristics. Each query has its own
+instruction, closed JSON Schema, typed `answer`, source evidence and
+`selection.region_id`/`selection.rationale`. Provider inputs always contain the
+URL, query and schema; answers and qualification evidence stay separate.
+
+Choose the question from the page's primary content and source characteristics.
+Article tasks extract facts or records from the article body. Product tasks ask
+for relevant attributes such as price, currency, variants or stock, when actually
+present. Table/feed tasks preserve record relationships. A dynamic task targets
+the asynchronously materialized records, rather than a static heading or loading
+indicator. An inline script containing all answers is an **embedded-state**
+source, not sufficient evidence of JavaScript-required acquisition.
+
+Inventory an existing locked population without dropping difficult pages:
+
+```sh
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  source-inventory --dataset webfetch --population content-scopes-530 \
+  --output /absolute/data/source-inventory.json
+```
+
+Author a page's independent questions once, then select the actual request unit:
+
+```sh
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  --home /absolute/data/query-draft prepare --benchmark queries \
+  --source /absolute/data/catalog.json --unit query --draft
+uv run --frozen --extra web-extract-eval python -m harness.web_extract.cli \
+  --home /absolute/data/page-draft prepare --benchmark queries \
+  --source /absolute/data/catalog.json --unit page --draft
+```
+
+`query` emits one request per question. `page` composes one instruction and a
+schema whose properties are the exact query IDs, with each original query schema
+nested below its ID. The result is `{"query_id": {...}, ...}`. It is an actual
+request composition change and needs its own measurements. Do not maintain a
+second answer set or relabel standalone measurements as combined calls.
+
+Draft preparation writes `catalog.json`, input-only `requests.json` and a
+`preparation.json` receipt. It makes no provider calls and cannot enter the
+collection/certification boundary. Use `source-inventory --catalog` to bind the
+authored questions to the original source IDs, retaining all remaining source
+tasks as pending. Dataset definitions and generated drafts stay outside Git.
+
+Runnable preparation omits `--draft` and currently requires a qualified snapshot
+catalog. Each `source` names original `input`/`sha256`, its annotation status and,
+where applicable, separate `rendered_input`/`rendered_sha256`. Every selected
+region must be primary and cover the declared characteristics. Each answer leaf
+needs a source lexeme and scoped locator; null/no-match answers need an empty
+selection inside the complete target region. Every question also needs a
+schema-valid, rejected page-shell or missing-characteristic answer control.
+Arrays of objects bind each answer record to one source record using
+`evidence.record_regions`: a JSON Pointer maps to its primary `target_index` and
+relative `selector`. Field evidence is checked inside that record, so a value in
+another row cannot qualify a wrongly associated reference answer.
+JavaScript-required regions must be absent in original HTML and present in the
+independent rendered capture, with the answer data not already inlined in the
+original source. Rendered qualification references are hash-bound under
+`references/`, separately from publishable input HTML and assets.
+
+Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
+The compiled question is delivered per case through the existing instruction
+delivery contract. Changing the unit creates a different prepared cohort and
+frozen execution plan. Native live-URL qualification and report-template views
+for this new answer format are not yet supplied by this adapter; draft/live URLs
+must not be presented as a certified live comparison or a field-list report.
+
+Acceptance is deterministic: strict native JSON, schema validity and exact
+typed-answer equality under declared normalization. Whitespace normalization is
+the default for text; identifiers can select literal matching. Arrays retain
+order unless their JSON Pointer explicitly selects unordered comparison; either
+mode retains record relationships and duplicate multiplicity. All requested
+object keys are required and extra keys rejected. Scalar absence is `null`, no
+matching records is `[]`, and unknown reference coverage remains unavailable.
+The current contract rejects model-judge configuration rather than silently
+calling a model. Use objective questions with explicit answers; a future semantic
+judge needs its own frozen rubric, evidence and unresolved-judgment policy.
+
+Scoring always returns atomic query verdicts, query accuracy, page-average query
+accuracy, fully correct page rate and actual request acceptance. A wrong child
+answer does not erase correct siblings in a parseable combined response; an
+invalid request envelope prevents a fully correct page. Unparseable output loses
+every child in that request. Costs and timings belong to physical requests and
+are not duplicated across child queries. Keep query and page execution results
+separate, with the same frozen question population.
+
+The offline public-boundary tests in `tests/web_extract/test_queries.py` exercise
+both request units, primary-content admission, raw/rendered feature controls,
+native JSON framing, typed answers, source inventory and the existing collector.
+
 ```sh
 uv sync --frozen --extra web-extract-eval --extra test
 uv run --frozen python -m harness.benchmarks.data web-extract

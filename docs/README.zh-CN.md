@@ -69,6 +69,12 @@ Track 包括 `webfetch`、`web-search`、`web-extract`、`trajectory-replay` 和
 
 可使用这些评测集，也可[接入自己的任务](benchmarks.md)。新的浏览器和工具通过已有[适配接口](provider-contract.md)接入。
 
+Web Extract 也支持[网页专属 query 目录](../examples/web_extract/README.md#page-specific-query-catalogs)：
+每页保存 URL、主要内容区域、来源特点及多个独立问题，输入始终为 `url + query + schema`。
+使用 `prepare --benchmark queries --unit query|page` 选择逐问题请求或同页组合请求；
+`--draft` 只导出草案，不能进入正式采集。验收使用明确的 JSON 答案及程序规则，分别统计问题和网页表现。
+文章问题围绕正文，动态问题需要目标记录的原始页面与渲染证据；完整格式和当前支持范围见上述指南。
+
 实验性的 [Browser Use](../examples/browser_use/README.md) 则把任务交给 Agent，由它自行决定浏览器动作，再由任务评测器检查执行结果。它包含模型和规划带来的波动，因此单独评测。
 
 <details>

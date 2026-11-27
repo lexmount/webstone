@@ -47,12 +47,17 @@ class LiveSourceAccessError(ValueError):
         super().__init__(f"Live source unavailable: {case_id}; {attempts[-1]}")
 
 
-def prepare(home: Path, source: Path, *, distribution=None):
+def prepare(home: Path, source: Path, *, distribution=None, definition=None, benchmark="records"):
+    """Materialize both field-list and typed-JSON tasks through one source boundary."""
+    from harness.web_extract.dataset import benchmark_config
     from harness.web_extract.pipeline import digest, read_json, require_external_output, save_json
 
     require_external_output(home)
-    definition = read_json(source)
-    if definition.get("schema") != "source-qualified-extraction-cohort/1":
+    definition = read_json(source) if definition is None else definition
+    config = benchmark_config(name=benchmark)
+    typed = config["benchmark"].reference_format == "json"
+    version = "2" if typed else "1"
+    if definition.get("schema") != "source-qualified-extraction-cohort/" + version:
         raise ValueError("A source-qualified cohort definition is required")
     mode = definition.get("input_mode")
     if mode not in {"live", "snapshot"}:
@@ -96,12 +101,18 @@ def prepare(home: Path, source: Path, *, distribution=None):
             schema = case["schema"]
             if not references or set(references) != set(schema.get("properties", {})):
                 raise ValueError("Scored fields and requested fields differ")
-            if any(
+            if not typed and any(
                 not isinstance(values, list) or any(not isinstance(v, str) for v in values)
                 for values in references.values()
             ):
                 raise ValueError("References must be explicit string lists")
-            validate_value_counts(case)
+            if typed:
+                from harness.web_extract.query_contract import Validator
+
+                Validator.check_schema(schema)
+                Validator(schema).validate(references)
+            else:
+                validate_value_counts(case)
             receipt = case.get("qualification")
             if (
                 not receipt
@@ -143,6 +154,7 @@ def prepare(home: Path, source: Path, *, distribution=None):
                 "source_value_counts": case.get("source_value_counts", {}),
                 **({"document_base_url": base} if base != case["url"] else {}),
                 **({"query": case["query"]} if case.get("query") else {}),
+                **({"task": case["task"]} if "task" in case else {}),
             }
             schemas[cid] = schema
             provenance[cid] = {
@@ -150,20 +162,23 @@ def prepare(home: Path, source: Path, *, distribution=None):
                 "original_reference": case.get("original_reference", references),
                 "unscored_fields": case.get("unscored_fields", {}),
             }
-            for asset in case.get("assets", []):
-                name = Path(asset["path"])
-                if name.is_absolute() or ".." in name.parts or name.parts[:2] != ("assets", cid):
-                    raise ValueError("Assets must belong to their case")
-                blob = _source_bytes(source.parent, asset["input"])
-                if digest(blob) != asset["sha256"]:
-                    raise ValueError("Source resource differs from qualification")
-                path = root / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(blob)
+            for prefix, resources in (("assets", case.get("assets", [])),
+                                      ("references", case.get("reference_files", []))):
+                for asset in resources:
+                    name = Path(asset["path"])
+                    if (name.is_absolute() or ".." in name.parts
+                            or name.parts[:2] != (prefix, cid)):
+                        raise ValueError("Source resources must belong to their case")
+                    blob = _source_bytes(source.parent, asset["input"])
+                    if digest(blob) != asset["sha256"]:
+                        raise ValueError("Source resource differs from qualification")
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(blob)
         save_json(root / "dataset/ground-truth.json", truth)
         save_json(root / "schemas.json", schemas)
         save_json(root / "provenance.json", provenance)
-        (root / "evaluate.py").write_bytes(exported_evaluator())
+        (root / "evaluate.py").write_bytes(config["adapter"].exported_evaluator())
         (root / "LICENSE").write_text(definition["source_license"], encoding="utf-8")
         save_json(root / "source-versions.json", definition["source_versions"])
         files = {
@@ -176,12 +191,13 @@ def prepare(home: Path, source: Path, *, distribution=None):
         }
         commit = digest(json.dumps(definition["source_versions"], sort_keys=True).encode())
         manifest = {
-            "benchmark": "records",
+            "benchmark": benchmark,
             "input_mode": mode,
             "commit": commit,
             "cases": len(cases),
             "selection": definition["selection"],
             "files": files,
+            **({"task_unit": definition["task_unit"]} if "task_unit" in definition else {}),
             **({"live_reference_policy": live_policy} if live_policy is not None else {}),
         }
         profile = {
@@ -198,11 +214,11 @@ def prepare(home: Path, source: Path, *, distribution=None):
                     json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
                 ),
             },
-            "scoring": {
+            "scoring": definition.get("scoring", {
                 "primary": "value_micro",
                 "text_matching": "whitespace",
                 "official_reproduction": False,
-            },
+            }),
             "source_versions": definition["source_versions"],
             **(
                 {"extraction_instructions": definition["extraction_instructions"]}

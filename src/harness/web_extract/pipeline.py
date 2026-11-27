@@ -72,7 +72,15 @@ def execution_identity(row):
 def decoded_response(text):
     """Preserve malformed/nonfinite replies as text, so a completed call can checkpoint."""
     try:
-        value = json.loads(text)
+        def unique_keys(pairs):
+            result = {}
+            for key, item in pairs:
+                if key in result:
+                    raise ValueError("Duplicate native JSON object key")
+                result[key] = item
+            return result
+
+        value = json.loads(text, object_pairs_hook=unique_keys)
 
         def finite(item):
             if isinstance(item, float) and not math.isfinite(item):
@@ -200,7 +208,11 @@ def data_home() -> Path:
 
 
 def prepare(destination: Path, profile=PROFILE, *, benchmark=None, source=None,
-            dataset=None, revision=None):
+            dataset=None, revision=None, unit=None, draft=False):
+    if unit is not None and unit not in benchmark_config(name=benchmark)["benchmark"].task_units:
+        raise ValueError("Selected benchmark does not support this task unit")
+    if draft and not benchmark_config(name=benchmark)["benchmark"].task_units:
+        raise ValueError("Selected benchmark does not support draft task preparation")
     if dataset is not None:
         # Registered editions are record datasets prepared by their own task adapter.
         if (source is not None or benchmark_config(name=benchmark)["adapter"] is not None
@@ -215,7 +227,8 @@ def prepare(destination: Path, profile=PROFILE, *, benchmark=None, source=None,
     if adapter:
         if source is None:
             raise ValueError("This benchmark requires its pinned source archive")
-        return adapter.prepare(destination, Path(source))
+        return adapter.prepare(destination, Path(source), **({"unit": unit} if unit else {}),
+                               **({"draft": True} if draft else {}))
     require_external_output(destination)
     contract = read_json(profile)
     pin = contract["dataset"]
@@ -238,6 +251,9 @@ def selected_profile(home):
 
 
 def validate_dataset(home: Path, profile=None):
+    preparation = home / "preparation.json"
+    if preparation.exists() and read_json(preparation).get("state") == "draft":
+        raise ValueError("Draft query catalogs cannot be collected or certified")
     contract = read_json(profile or selected_profile(home))
     root = home / "dataset"
     manifest = read_json(root / "manifest.json")
@@ -1206,6 +1222,15 @@ def record_instructions(home):
     return prompt
 
 
+def task_instructions(home, case, *, shared=None):
+    """Deliver a case's frozen question in addition to its dataset-wide instructions."""
+    prompt = record_instructions(home) if shared is None else shared
+    query = case.get("query")
+    if query is not None and (not isinstance(query, str) or not query.strip()):
+        raise ValueError("Per-case extraction queries must be nonempty strings")
+    return "\n\n".join(part for part in (prompt, query) if part)
+
+
 def validate_live_route(method, native_options=None):
     spec = METHODS.get(method)
     if spec.input != "url" and (
@@ -1304,6 +1329,7 @@ def provider_call(
         "http_status": response.status,
         "elapsed_seconds": time.monotonic() - started,
         "response": redact(payload),
+        "response_text": redact(response.text()),
         "provider_usage": {
             **{
                 k: v
@@ -1871,7 +1897,10 @@ def collect_calls(
         if custom_schema:
             schema_options = {
                 "schema": adapter.task_schema(home, truth[case_id]),
-                "prompt": contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
+                "prompt": task_instructions(
+                    home, truth[case_id],
+                    shared=contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
+                ),
             }
         row = {
             "method": method,
@@ -2648,9 +2677,7 @@ def score_rows(home, truth, rows, methods, *, reference_policy=None):
         method: hooks.score(
             truth,
             {
-                r["case_id"]: (r.get("normalized_fields") or {})
-                if r.get("http_status") == 200
-                else {}
+                r["case_id"]: hooks.prediction(r, truth[r["case_id"]])
                 for r in rows
                 if r["method"] == method
             },

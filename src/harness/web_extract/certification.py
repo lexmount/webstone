@@ -28,6 +28,7 @@ from harness.web_extract.pipeline import (
     save_json,
     score_run,
     selected_profile,
+    task_instructions,
     validate_dataset,
     validate_fixture_base,
     validate_instruction_schema,
@@ -270,7 +271,9 @@ def create_plan(
     if adapter is not None:
         plan["extraction_instructions"] = record_instructions(home)
         for case in truth.values():
-            schema = instruction_schema(adapter.task_schema(home, case), record_instructions(home))
+            schema = instruction_schema(
+                adapter.task_schema(home, case), task_instructions(home, case)
+            )
             for method in methods:
                 validate_instruction_schema(method, schema)
     if require_execution_assessment:
