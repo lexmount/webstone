@@ -1248,3 +1248,112 @@ def test_navigation_policy_rejects_unsupported_backend_before_calls(monkeypatch,
         catalog_runner.main()
     assert exc.value.code == 2
     assert not (tmp_path / "run").exists()
+
+
+def test_pinned_kitesurf_deployment_uses_existing_cdp_backend_without_cloud_credentials(tmp_path):
+    from harness.trajectory_replay.runtime_identity import runtime_identity
+
+    endpoint = "ws://browser.internal.test:8787/devtools/browser"
+    image = "ghcr.io/cloudflare/kitesurf@sha256:" + "a" * 64
+    revision = "b" * 40
+    values = {
+        "KITESURF_CDP_ENDPOINT": endpoint,
+        "KITESURF_IMAGE": image,
+        "KITESURF_SOURCE_COMMIT": revision,
+        "KITESURF_DEPLOYMENT_ID": "private-deployment",
+        "KITESURF_JS_ENGINE": "boa",
+    }
+    credentials = tmp_path / ".env"
+    credentials.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    actual_endpoint, headers, binding = _hosted_cdp_config(credentials, BROWSERS.get("kitesurf"))
+    assert actual_endpoint == endpoint
+    assert headers == {}
+    assert binding["provider"] == "self-hosted"
+    assert binding["deployment_id_sha256"] == hashlib.sha256(b"private-deployment").hexdigest()
+    assert "account_id_sha256" not in binding
+    assert binding["image"] == image
+    assert binding["source_commit"] == revision
+    assert binding["js_engine"] == "boa"
+    assert binding["endpoint_sha256"] == hashlib.sha256(endpoint.encode()).hexdigest()
+    assert endpoint not in json.dumps(binding)
+    assert "private-deployment" not in json.dumps(binding)
+    remote = {**binding, "runtime_metadata": _REMOTE_RUNTIME}
+    identity, public = runtime_identity({"binary_sha256": None, "remote_browser": remote})
+    assert public == {"remote_browser": remote}
+    for change in ({"image": image.replace("a" * 64, "c" * 64)}, {"js_engine": "v8"}):
+        changed, _ = runtime_identity({"remote_browser": {**remote, **change}})
+        assert changed != identity
+
+
+@pytest.mark.parametrize("change", [
+    {"KITESURF_CDP_ENDPOINT": "http://browser.test"},
+    {"KITESURF_CDP_ENDPOINT": "ws://user:private@browser.test/devtools/browser"},
+    {"KITESURF_CDP_ENDPOINT": "ws://browser.test/devtools/browser?secret=private"},
+    {"KITESURF_IMAGE": "ghcr.io/cloudflare/kitesurf:latest"},
+    {"KITESURF_SOURCE_COMMIT": "main"},
+    {"KITESURF_DEPLOYMENT_ID": ""},
+    {"KITESURF_JS_ENGINE": ""},
+    {"KITESURF_JS_ENGINE": "unknown"},
+])
+def test_pinned_kitesurf_deployment_rejects_ambiguous_or_unpinned_configuration(change):
+    values = {
+        "KITESURF_CDP_ENDPOINT": "ws://browser.test/devtools/browser",
+        "KITESURF_IMAGE": "ghcr.io/cloudflare/kitesurf@sha256:" + "a" * 64,
+        "KITESURF_SOURCE_COMMIT": "b" * 40,
+        "KITESURF_DEPLOYMENT_ID": "deployment",
+        "KITESURF_JS_ENGINE": "boa",
+        **change,
+    }
+    with pytest.raises(ValueError):
+        BROWSERS.get("kitesurf").hosted_cdp(values)
+
+
+@pytest.mark.parametrize("scope", [
+    {},
+    {"account_id_sha256": "a" * 64, "deployment_id_sha256": "b" * 64},
+    {"deployment_id_sha256": "not-a-digest"},
+])
+def test_remote_runtime_rejects_missing_ambiguous_or_invalid_identity_scope(scope):
+    from harness.trajectory_replay.runtime_identity import runtime_identity
+
+    remote = {
+        "provider": "self-hosted",
+        "browser": "kitesurf",
+        "protocol": "cdp",
+        "endpoint_contract": "fixture",
+        "runtime_metadata": _REMOTE_RUNTIME,
+        **scope,
+    }
+    with pytest.raises(ValueError, match="identity"):
+        runtime_identity({"binary_sha256": None, "remote_browser": remote})
+
+
+def test_unauthenticated_remote_failure_hides_the_deployment_endpoint(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from harness.trajectory_replay import playwright_tool, remote_execution
+
+    endpoint = "ws://private-kitesurf.example.test:8787/devtools/browser"
+
+    class Tool:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def _get_service(self):
+            raise RuntimeError(f"connection closed: {endpoint}")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(playwright_tool, "PlaywrightReplayTool", Tool)
+    result = remote_execution.run_replay_task(
+        task_id=0, row={"actions": []},
+        benchmark=SimpleNamespace(get_task=lambda _: object()),
+        endpoint=endpoint, output=tmp_path, run_id="private-deployment",
+        origins=set(), sites={}, catalog=SimpleNamespace(records={}),
+        backend="playwright", engine="kitesurf", cdp_headers={},
+    )
+    assert result["status"] == "fail"
+    assert "connection closed" in result["error"]
+    assert endpoint not in result["error"]
+    assert endpoint not in (tmp_path / "task-0" / "result.json").read_text()
