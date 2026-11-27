@@ -423,3 +423,55 @@ def test_docx_reference_view_rejects_geometry_it_cannot_represent(row_properties
         archive.writestr("word/document.xml", xml)
     with pytest.raises(ValueError):
         document_view(output.getvalue(), DOCX)
+
+
+@pytest.mark.parametrize("control", ["row", "cell"])
+def test_docx_table_content_controls_preserve_rows_cells_and_nested_table_boundaries(control):
+    from lxml import html
+
+    def wrapped(value):
+        return "<w:sdt><w:sdtPr/><w:sdtContent>" + value + "</w:sdtContent></w:sdt>"
+
+    def cell(text):
+        value = f"<w:tc><w:p><w:r><w:t>{text}</w:t></w:r></w:p></w:tc>"
+        return wrapped(value) if control == "cell" else value
+
+    rows = []
+    for label, count in [("Books", "1"), ("Pens", "3")]:
+        row = "<w:tr>" + cell(label) + cell(count) + "</w:tr>"
+        rows.append(wrapped(row) if control == "row" else row)
+    nested = "<w:tbl><w:tr>" + cell("Nested") + "</w:tr></w:tbl>"
+    rows.append("<w:tr><w:tc>" + nested + "</w:tc></w:tr>")
+    xml = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:tbl>" + "".join(rows) + "</w:tbl></w:body></w:document>"
+    )
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    view, _ = document_view(output.getvalue(), DOCX)
+    tree = html.fromstring(view)
+    table = tree.xpath("//main/section/table")[0]
+    assert len(table.xpath("./tr")) == 3
+    assert table.xpath("./tr[1]/td/p/text()") == ["Books\n", "1\n"]
+    assert table.xpath("./tr[2]/td/p/text()") == ["Pens\n", "3\n"]
+    assert table.xpath("./tr[3]/td/table/tr/td/p/text()") == ["Nested\n"]
+
+
+def test_docx_explicit_breaks_and_nonbreaking_hyphens_survive_both_extraction_paths():
+    from lxml import html
+
+    from harness.document_text import extract_document_text
+
+    output = io.BytesIO()
+    xml = (
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body><w:p><w:r><w:t>first</w:t><w:cr/><w:t>second</w:t>"
+        "<w:noBreakHyphen/><w:t>third</w:t></w:r></w:p></w:body></w:document>"
+    )
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    raw = output.getvalue()
+    assert extract_document_text(raw)[0] == "first second\u2011third"
+    view, _ = document_view(raw, DOCX)
+    assert html.fromstring(view).xpath("string(//main/section/p)") == "first second\u2011third\n"

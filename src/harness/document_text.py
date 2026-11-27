@@ -1,4 +1,4 @@
-"""Deterministic text extraction for raw documents returned by a provider."""
+"""Deterministic text and reference views for original document bytes."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
     if media_type not in DOCUMENT_EXTENSIONS:
         raise ValueError("Unsupported source document media type: " + media_type)
     root = ET.Element("html")
+    ET.SubElement(ET.SubElement(root, "head"), "meta", charset="utf-8")
     main = ET.SubElement(root, "main", id="document")
     if media_type == "application/pdf":
         if not raw.startswith(b"%PDF"):
@@ -56,10 +57,21 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
             )
         }
 
+        def members(node, tag):
+            for child in node:
+                if child.tag == f"{{{namespace}}}" + tag:
+                    yield child
+                elif child.tag == f"{{{namespace}}}sdt":
+                    content = child.find(f"{{{namespace}}}sdtContent")
+                    if content is not None:
+                        yield from members(content, tag)
+                elif child.tag == f"{{{namespace}}}customXml":
+                    yield from members(child, tag)
+
         def table_view(node, parent):
             table = ET.SubElement(parent, "table")
             active = {}
-            for row in node.findall(f"{{{namespace}}}tr"):
+            for row in members(node, "tr"):
                 before = row.find(f"{{{namespace}}}trPr/{{{namespace}}}gridBefore")
                 if before is not None and int(before.get(f"{{{namespace}}}val", "0")):
                     raise ValueError(
@@ -70,7 +82,7 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
                 if after is not None:
                     target_row.set("data-grid-after", after.get(f"{{{namespace}}}val", "0"))
                 column, continued = 0, {}
-                for cell in row.findall(f"{{{namespace}}}tc"):
+                for cell in members(row, "tc"):
                     properties = cell.find(f"{{{namespace}}}tcPr")
                     span, merge = 1, None
                     if properties is not None:
@@ -167,12 +179,15 @@ def _text_nodes(node):
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph = f"{{{namespace}}}p"
     text = f"{{{namespace}}}t"
-    spacing = {f"{{{namespace}}}tab", f"{{{namespace}}}br"}
+    spacing = {f"{{{namespace}}}tab", f"{{{namespace}}}br", f"{{{namespace}}}cr"}
+    characters = {f"{{{namespace}}}noBreakHyphen": "\u2011", f"{{{namespace}}}softHyphen": "\u00ad"}
 
     if node.tag == text:
         yield node.text or ""
     elif node.tag in spacing:
         yield " "
+    elif node.tag in characters:
+        yield characters[node.tag]
     for child in node:
         yield from _text_nodes(child)
     if node.tag == paragraph:
