@@ -431,6 +431,71 @@ def test_source_inventory_keeps_unsupported_pages_and_checks_catalog_url_binding
         queries.source_inventory("synthetic", "pages", tmp_path / "bad.json", catalog=source)
 
 
+@pytest.mark.parametrize("static_rows,expected,embedded", [
+    ([['A', 'Grace'], ['B', 'Ada']], [['A', 'Ada'], ['B', 'Grace']], False),
+    ([['A', 'Ada'], ['B', 'Grace']], [['A', 'Ada'], ['B', 'Grace']], True),
+    ([['A', 'Ada']], [['A', 'Ada'], ['A', 'Ada']], False),
+    ([['A', 'Ada'], ['A', 'Ada']], [['A', 'Ada'], ['A', 'Ada']], True),
+])
+@pytest.mark.parametrize("single_record", [False, True])
+def test_embedded_record_support_preserves_associations_and_multiplicity(
+    tmp_path, static_rows, expected, embedded, single_record
+):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    page["required_characteristics"] = ["javascript"]
+    page["regions"][0]["characteristics"] = ["javascript"]
+    static = tmp_path / 'article.html'
+    data = {'rows': [dict(company=a, contact=b) for a, b in static_rows]}
+    static.write_text(
+        '<html><main id="story"></main><script>var rows=' + json.dumps(data) + '</script></html>',
+        encoding='utf-8',
+    )
+    rendered = tmp_path / 'rows.html'
+    rendered.write_text(
+        '<html><main id="story"><table>'
+        + ''.join(f'<tr><td>{a}</td><td>{b}</td></tr>' for a, b in expected)
+        + '</table></main></html>', encoding='utf-8',
+    )
+    page['source'].update(
+        sha256=pipeline.digest(static.read_bytes()), rendered_input='rows.html',
+        rendered_sha256=pipeline.digest(rendered.read_bytes()),
+    )
+    page['queries'] = [{
+        'id':'rows', 'query':'Extract the rendered company and contact rows in order.',
+        'schema':schema({'rows':{'type':'array','items':schema({
+            'company':{'type':'string'},'contact':{'type':'string'},
+        })}}),
+        'answer':{'rows':[dict(company=a,contact=b) for a,b in expected]},
+        'selection':{'region_id':'body','rationale':'The asynchronously rendered primary table.'},
+        'evidence':{
+            'record_regions':{f'/rows/{i}':{'target_index':0,'selector':f'.//tr[{i+1}]'}
+                              for i in range(len(expected))},
+            'leaves':[{'pointer':f'/rows/{i}/{key}','selector':f'./td[{column}]','raw_value':value}
+                      for i,row in enumerate(expected)
+                      for column,(key,value) in enumerate(
+                          zip(['company','contact'],row,strict=True),1)],
+            'negative_answers':[{'rows':[]}],
+        },
+    }]
+    if single_record:
+        question = page['queries'][0]
+        question['query'] = 'Extract company and contact from the first rendered row.'
+        question['schema'] = schema({'company':{'type':'string'},'contact':{'type':'string'}})
+        question['answer'] = dict(company=expected[0][0],contact=expected[0][1])
+        question['evidence'] = {
+            'leaves':[{'pointer':'/'+key,'selector':f'.//tr[1]/td[{column}]','raw_value':value}
+                      for column,(key,value) in enumerate(question['answer'].items(),1)],
+            'negative_answers':[{'company':'Navigation','contact':expected[0][1]}],
+        }
+        embedded = expected[0] in static_rows
+    if embedded:
+        with pytest.raises(ValueError, match='embedded in static source'):
+            queries.qualify_page(page,tmp_path)
+    else:
+        queries.qualify_page(page,tmp_path)
+
+
 def test_reference_record_fields_must_be_grounded_in_the_same_source_row(tmp_path):
     source = catalog(tmp_path)
     page = pipeline.read_json(source)["pages"][0]
@@ -502,9 +567,9 @@ def synthetic_request(method, html, source_url, fixture_url, **options):
 
 @pytest.mark.parametrize("unit", ["query", "page"])
 @pytest.mark.parametrize("mode", ["snapshot", "live"])
-@pytest.mark.parametrize("exact_decimal", [False, True])
+@pytest.mark.parametrize("schema_variant", ["regular", "precise", "boolean"])
 def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
-    tmp_path, monkeypatch, unit, mode, exact_decimal
+    tmp_path, monkeypatch, unit, mode, schema_variant
 ):
     from types import SimpleNamespace
 
@@ -513,6 +578,11 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
     value["pages"] = value["pages"][:1]
     value["input_mode"] = mode
     pipeline.save_json(source, value)
+    exact_decimal = schema_variant == "precise"
+    if schema_variant == "boolean":
+        properties = value["pages"][0]["queries"][0]["schema"]["properties"]
+        properties["trials"] = True
+        pipeline.save_json(source, value)
     if exact_decimal:
         exact = "1.0000000000000001"
         page = value["pages"][0]

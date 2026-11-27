@@ -190,10 +190,53 @@ def qualify_page(page, base):
     return raw, encoding
 
 
-def _embedded_answers(static, positive, leaves):
-    """Require structured script values with field context, not HTML substrings."""
+def _embedded_answers(static, query):
+    """Require structured values, complete records and distinct array occurrences."""
     decoder = json.JSONDecoder(parse_float=Decimal)
-    supported = set()
+    proofs = {proof["pointer"]: proof for proof in query["evidence"].get("leaves", [])}
+    if not proofs:
+        return False
+
+    def child_path(pointer, key):
+        return pointer + "/" + str(key).replace("~", "~0").replace("/", "~1")
+
+    def names(pointer, key):
+        selector = proofs.get(pointer, {}).get("selector", "")
+        return {key, *re.findall(r"['\"]([\w-]+)['\"]", selector)}
+
+    def supports(expected, actual, pointer):
+        if isinstance(expected, dict):
+            return isinstance(actual, dict) and all(
+                any(
+                    source_key in names(child_path(pointer, key), key)
+                    and supports(value, source_value, child_path(pointer, key))
+                    for source_key, source_value in actual.items()
+                )
+                for key, value in expected.items()
+            )
+        if isinstance(expected, list):
+            if not isinstance(actual, list) or not expected and actual:
+                return False
+            remaining = iter(actual)
+            return all(
+                any(supports(value, candidate, child_path(pointer, index))
+                    for candidate in remaining)
+                for index, value in enumerate(expected)
+            )
+        return actual is None if expected is None else _lexeme_matches(str(actual), expected)
+
+    objects, arrays = [], []
+
+    def collect(value):
+        if isinstance(value, dict):
+            objects.append(value)
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            arrays.append(value)
+            for child in value:
+                collect(child)
+
     for script in static.xpath("//script"):
         text = script.text or ""
         consumed = 0
@@ -204,20 +247,21 @@ def _embedded_answers(static, positive, leaves):
                 data, consumed = decoder.raw_decode(text, opening.start())
             except ValueError:
                 continue
-            values = list(_leaves(data))
-            for pointer, proof in positive.items():
-                context = set(re.findall(r"[\w-]+", pointer))
-                context.update(re.findall(r"['\"]([\w-]+)['\"]", proof["selector"]))
-                if any(
-                    path.rsplit("/", 1)[-1] in context
-                    and _lexeme_matches(str(value), leaves[pointer])
-                    for path, value in values
-                    if value is not None
-                ):
-                    supported.add(pointer)
-            if positive and supported == set(positive):
-                return True
-    return False
+            collect(data)
+    # A complete record shape binds its fields together. Only genuinely split
+    # top-level payloads may supply independent fields from separate documents.
+    if any(
+        all(any(source_key in names(child_path("", key), key) for source_key in obj)
+            for key in query["answer"])
+        for obj in objects
+    ):
+        return any(supports(query["answer"], obj, "") for obj in objects)
+    return all(
+        any(supports(value, array, child_path("", key)) for array in arrays)
+        if isinstance(value, list) and any(isinstance(item, dict) for item in value)
+        else any(supports({key: value}, obj, "") for obj in objects)
+        for key, value in query["answer"].items()
+    )
 
 
 def _qualify_content(page, raw, rendered, encoding):
@@ -330,7 +374,7 @@ def _qualify_content(page, raw, rendered, encoding):
                 "Each query needs rejected page-shell or characteristic-missing controls"
             )
         if "javascript" in page["required_characteristics"]:
-            if _embedded_answers(static, positive, leaves):
+            if _embedded_answers(static, query):
                 raise ValueError(
                     "Target answers are already embedded in static source; "
                     "classify this region as embedded state instead of JavaScript-required data"

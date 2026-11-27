@@ -1308,7 +1308,9 @@ def instruction_schema(schema, prompt):
     if not isinstance(schema, dict) or not isinstance(schema.get("properties"), dict):
         raise ValueError("Extraction instructions require an object schema")
     result = copy.deepcopy(schema)
-    for field in result["properties"].values():
+    for name, field in result["properties"].items():
+        if isinstance(field, bool):
+            field = result["properties"][name] = {"allOf": [field]}
         field["description"] = " ".join(filter(None, [field.get("description"), prompt]))
     return result
 
@@ -1319,7 +1321,8 @@ def validate_instruction_schema(method, schema):
         schema is not None
         and limit is not None
         and any(
-            len(field.get("description", "")) > limit for field in schema["properties"].values()
+            isinstance(field, dict) and len(field.get("description", "")) > limit
+            for field in schema["properties"].values()
         )
     ):
         raise ValueError(f"{method} attribute descriptions exceed its {limit}-character limit")

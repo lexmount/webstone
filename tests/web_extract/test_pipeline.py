@@ -63,6 +63,35 @@ def test_escaped_environment_credentials_are_redacted_in_native_receipts(monkeyp
     assert "0.1234567890123456789" in row["response_text"]
 
 
+@pytest.mark.parametrize("prompt", [None, "Extract the requested value."])
+def test_native_instruction_delivery_preserves_boolean_property_semantics(monkeypatch, prompt):
+    from jsonschema import Draft202012Validator
+
+    from harness.http_client import HttpResponse
+    from harness.web_extract import pipeline
+
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "synthetic")
+    captured = []
+
+    def send(url, **kwargs):
+        captured.append(kwargs["json_body"]["schema"])
+        return HttpResponse(200, url, {}, b'{}')
+
+    monkeypatch.setattr(pipeline, "request", send)
+    schema = {
+        "type":"object", "properties":{"value":True,"blocked":False},
+        "required":["value"], "additionalProperties":False,
+    }
+    pipeline.provider_call(
+        "browserbase-json", "input", "https://source", "https://snapshot",
+        schema=schema, prompt=prompt,
+    )
+    validator = Draft202012Validator(captured[0])
+    assert validator.is_valid({"value":123})
+    assert not validator.is_valid({"value":123,"blocked":"invented"})
+    assert schema["properties"] == {"value":True,"blocked":False}
+
+
 class PipelineScenarios(unittest.TestCase):
     def test_native_response_redacts_returned_credentials_without_rounding_numbers(self):
         from harness.http_client import HttpResponse
