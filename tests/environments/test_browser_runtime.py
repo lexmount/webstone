@@ -118,9 +118,9 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     args = argparse.Namespace(engine=engine, binary=Path(binary), host_resolver_rules=None)
-    process, endpoint = start_local_browser(args, str(tmp_path / "browser-profile"))
-    tool = None
+    process = tool = None
     try:
+        process, endpoint = start_local_browser(args, str(tmp_path / "browser-profile"))
         tool = PlaywrightReplayTool(endpoint, engine=engine, navigation_wait_until="load")
         recorder = CdpHarRecorder(capture_transport=tool.har_capture_transport,
                                   capture_new_pages=tool._supports_multiple_pages,
@@ -155,7 +155,8 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
     finally:
         if tool is not None:
             tool.close()
-        stop_browser(process)
+        if process is not None:
+            stop_browser(process)
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
