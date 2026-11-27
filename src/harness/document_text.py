@@ -180,6 +180,14 @@ def _docx_root(archive, name):
     alternate = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent"
     if next(root.iter(alternate), None) is not None:
         raise ValueError("DOCX AlternateContent requires an explicit rendering representation")
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    revisions = {"ins", "del", "delText", "delInstrText", "cellIns", "cellDel", "cellMerge"}
+    for node in root.iter():
+        if node.tag.startswith(namespace):
+            name = node.tag[len(namespace):]
+            if (name in revisions or name.endswith("Change")
+                    or name.startswith(("moveFrom", "moveTo"))):
+                raise ValueError("DOCX tracked revisions require an explicit revision policy")
     return root
 
 

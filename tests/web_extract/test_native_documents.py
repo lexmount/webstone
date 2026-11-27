@@ -557,3 +557,29 @@ def test_native_url_html_access_gates_remain_unavailable_instead_of_reference_dr
         queries.qualify_live(home, list(truth))
     assert error.value.validity == "unresolved"
     assert error.value.source_attempts[-1]["access_interstitial"] is True
+
+
+@pytest.mark.parametrize("revision", ["del", "ins", "cellDel", "cellIns", "moveFrom", "trPrChange"])
+def test_docx_unresolved_revisions_cannot_supply_current_reference_values(revision):
+    from harness.document_text import extract_document_text
+
+    paragraph = '<w:p><w:r><w:t>Obsolete 100</w:t></w:r></w:p>'
+    if revision in {"del", "ins", "trPrChange"}:
+        changed = ('<w:tr><w:trPr><w:' + revision + '/></w:trPr><w:tc>'
+                   + paragraph + '</w:tc></w:tr>')
+    elif revision in {"cellDel", "cellIns"}:
+        changed = ('<w:tr><w:tc><w:tcPr><w:' + revision + '/></w:tcPr>'
+                   + paragraph + '</w:tc></w:tr>')
+    else:
+        changed = '<w:tr><w:tc><w:moveFrom>' + paragraph + '</w:moveFrom></w:tc></w:tr>'
+    retained = '<w:tr><w:tc><w:p><w:r><w:t>Current 200</w:t></w:r></w:p></w:tc></w:tr>'
+    xml = ('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+           '<w:body><w:tbl>' + changed + retained + '</w:tbl></w:body></w:document>')
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+    raw = output.getvalue()
+    with pytest.raises(ValueError, match="tracked revision"):
+        document_view(raw, DOCX)
+    with pytest.raises(ValueError, match="tracked revision"):
+        extract_document_text(raw)
