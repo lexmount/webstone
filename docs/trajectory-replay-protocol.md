@@ -269,6 +269,12 @@ revisions. Its catalog, action overrides, environment inputs and evidence valida
 use the same contracts as complete catalog runs. A diagnostic subset does not establish
 a formal complete-cohort score.
 
+Playwright catalog runs can select `--navigation-wait-until load` when pages need
+load-dependent handlers before interaction. The default remains `domcontentloaded`;
+an action's explicit `wait_until` takes priority. The selected policy is bound in
+`inputs.json`, and changing it on resume is rejected. Load waits share the existing
+action deadline. BrowserTool runs retain their native navigation contract.
+
 The historical 36-task input protocol remains available through
 `uv run --frozen python -m harness.trajectory_replay cohort-freeze-original-failures`. `--reference-root` resolves its relative
 candidate paths without depending on the working directory. Overrides are hash-bound;

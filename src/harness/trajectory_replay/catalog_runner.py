@@ -649,6 +649,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--action-timeout-ms", type=int, default=30_000)
     parser.add_argument(
+        "--navigation-wait-until", choices=("domcontentloaded", "load"),
+        help="Default navigation readiness for Playwright; explicit action waits take priority",
+    )
+    parser.add_argument(
         "--task-timeout-ms",
         type=int,
         default=600_000,
@@ -671,6 +675,8 @@ def main() -> None:
         help="JSON selection for a large unresolved-only replay",
     )
     args = parser.parse_args()
+    if args.navigation_wait_until is not None and args.backend != "playwright":
+        parser.error("--navigation-wait-until requires --backend playwright")
     select_env_file(args.credential_env_file)
     if args.catalog is None and args.action_overrides is not None:
         raise ValueError('--action-overrides requires an explicit qualified --catalog')
@@ -780,6 +786,8 @@ def main() -> None:
                 file_sha256(args.task_selection) if args.task_selection is not None else None
             ),
         }
+        if args.navigation_wait_until is not None:
+            binding["navigation_wait_until"] = args.navigation_wait_until
         if "host_overrides" in environment_profile and "host_overrides_env" in environment_profile:
             # The profile bytes only name the routing variables; bind the resolved values.
             binding["environment_host_overrides_sha256"] = hashlib.sha256(
@@ -849,6 +857,8 @@ def main() -> None:
                 portable_tasks[task_id] if frozen["mode"] == "portable" else None
             ),
             portable_action_timeout_ms=args.action_timeout_ms,
+            **({"navigation_wait_until": args.navigation_wait_until}
+               if args.navigation_wait_until is not None else {}),
             backend=args.backend,
             engine=args.engine,
             cdp_headers=cdp_headers,

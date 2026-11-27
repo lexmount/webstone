@@ -1071,7 +1071,8 @@ def test_resume_rejects_partial_orphan_instead_of_rerunning(tmp_path: Path) -> N
 
 
 def _catalog_run_inputs(
-    monkeypatch, tmp_path: Path, output: str, engine: str, address: str
+    monkeypatch, tmp_path: Path, output: str, engine: str, address: str,
+    navigation_wait_until: str | None = None,
 ) -> dict:
     """Run the entry point up to its bound inputs; the empty catalog then has no pending task."""
 
@@ -1115,7 +1116,11 @@ def _catalog_run_inputs(
     )
     monkeypatch.setattr(
         "sys.argv",
-        _run_argv(tmp_path, output, "--engine", engine, "--credential-env-file", str(env_file)),
+        _run_argv(
+            tmp_path, output, "--engine", engine, "--credential-env-file", str(env_file),
+            *(("--navigation-wait-until", navigation_wait_until)
+              if navigation_wait_until is not None else ()),
+        ),
     )
     catalog_runner.main()
     return json.loads((tmp_path / output / "inputs.json").read_text(encoding="utf-8"))
@@ -1216,3 +1221,30 @@ def test_kitesurf_probe_runs_after_account_and_environment_checks(monkeypatch, t
 
     with pytest.raises(ValueError, match="WEBARENA_[A-Z_]+_PASSWORD"):
         catalog_runner.main()
+
+
+def test_navigation_policy_is_frozen_and_cannot_change_on_resume(monkeypatch, tmp_path):
+    first = _catalog_run_inputs(monkeypatch, tmp_path, "run", "moli", "192.0.2.142", "load")
+    assert first["navigation_wait_until"] == "load"
+    assert _catalog_run_inputs(
+        monkeypatch, tmp_path, "run", "moli", "192.0.2.142", "load"
+    ) == first
+    with pytest.raises(ValueError, match="resumed run inputs changed"):
+        _catalog_run_inputs(monkeypatch, tmp_path, "run", "moli", "192.0.2.142", "domcontentloaded")
+
+
+def test_default_navigation_policy_preserves_existing_run_bindings(monkeypatch, tmp_path):
+    inputs = _catalog_run_inputs(monkeypatch, tmp_path, "run", "moli", "192.0.2.142")
+    assert "navigation_wait_until" not in inputs
+
+
+def test_navigation_policy_rejects_unsupported_backend_before_calls(monkeypatch, tmp_path):
+    argv = _run_argv(tmp_path, "run", "--navigation-wait-until", "load")
+    argv[argv.index("--backend") + 1] = "browsertool"
+    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr(catalog_runner, "verify_webarena_runtime_source",
+                        lambda: pytest.fail("runtime verification started"))
+    with pytest.raises(SystemExit) as exc:
+        catalog_runner.main()
+    assert exc.value.code == 2
+    assert not (tmp_path / "run").exists()
