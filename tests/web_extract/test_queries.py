@@ -330,14 +330,22 @@ def test_record_relationship_order_duplicates_and_empty_selections():
     assert not query_contract.validate_query(empty, query["answer"])["accepted"]
 
 
-def test_javascript_classification_rejects_answers_already_embedded_in_static_script(tmp_path):
+@pytest.mark.parametrize("scripts", [
+    '<script>var data={"name":"Desk Lamp","price":"£29.50"};</script>',
+    '<script>var name={"name":"Desk Lamp"};</script>'
+    '<script>var price={"price":"£29.50"};</script>',
+    '<script>var name={"name":"Desk Lamp"}; var price={"price":"£29.50"};</script>',
+])
+def test_javascript_classification_rejects_answers_already_embedded_in_static_script(
+    tmp_path, scripts
+):
     source = catalog(tmp_path)
     value = pipeline.read_json(source)
     page = value["pages"][1]
     path = tmp_path / page["source"]["input"]
     path.write_bytes(
         path.read_bytes()
-        + b'<script>var data={"name":"Desk Lamp","price":"\xc2\xa329.50"};</script>'
+        + scripts.encode('utf-8')
     )
     page["source"]["sha256"] = pipeline.digest(path.read_bytes())
     pipeline.save_json(source, value)

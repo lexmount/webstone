@@ -25,6 +25,25 @@ from harness.web_extract.report import _check_rendered_report, check, image_widt
 pytestmark = pytest.mark.usefixtures("stubbed_serial_collection")
 
 
+@pytest.mark.parametrize("raw", [
+    '{"password":"private-value","x":1,"x":2}',
+    '{"password":123privateSuffix}',
+    '{"password":trueprivateSuffix}',
+    '{"password":nullprivateSuffix}',
+])
+def test_invalid_native_json_never_retains_sensitive_value_fragments(monkeypatch, raw):
+    from harness.http_client import HttpResponse
+    from harness.web_extract import pipeline, queries
+
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "synthetic")
+    monkeypatch.setattr(
+        pipeline, "request", lambda *a, **kw: HttpResponse(200, "url", {}, raw.encode())
+    )
+    row = pipeline.provider_call("browserbase-json", "input", "https://source", "https://snapshot")
+    assert "private" not in json.dumps(row)
+    assert queries.scored_prediction(row, {}) is None
+
+
 class PipelineScenarios(unittest.TestCase):
     def test_native_response_redacts_returned_credentials_without_rounding_numbers(self):
         from harness.http_client import HttpResponse

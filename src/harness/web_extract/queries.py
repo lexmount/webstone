@@ -192,6 +192,7 @@ def qualify_page(page, base):
 def _embedded_answers(static, positive, leaves):
     """Require structured script values with field context, not HTML substrings."""
     decoder = json.JSONDecoder()
+    supported = set()
     for script in static.xpath("//script"):
         text = script.text or ""
         consumed = 0
@@ -203,19 +204,17 @@ def _embedded_answers(static, positive, leaves):
             except ValueError:
                 continue
             values = list(_leaves(data))
-            supported = True
             for pointer, proof in positive.items():
                 context = set(re.findall(r"[\w-]+", pointer))
                 context.update(re.findall(r"['\"]([\w-]+)['\"]", proof["selector"]))
-                if not any(
+                if any(
                     path.rsplit("/", 1)[-1] in context
                     and _lexeme_matches(str(value), leaves[pointer])
                     for path, value in values
                     if value is not None
                 ):
-                    supported = False
-                    break
-            if positive and supported:
+                    supported.add(pointer)
+            if positive and supported == set(positive):
                 return True
     return False
 

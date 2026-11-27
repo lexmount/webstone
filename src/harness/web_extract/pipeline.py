@@ -95,7 +95,7 @@ def decoded_response(text):
         finite(value)
         return value
     except ValueError:
-        return {"non_json_response": text}
+        return {"non_json_response": redact_json_text(text)}
 
 
 def read_json(path: Path):
@@ -417,6 +417,9 @@ def redact_json_text(text):
         start = token.end() + colon.end()
         try:
             _, end = decoder.raw_decode(text, start)
+            suffix = text[end:].lstrip()
+            if suffix and suffix[0] not in ",}]":
+                end = len(text)
         except ValueError:
             # A malformed sensitive value must not fall back to unredacted text.
             end = len(text)
