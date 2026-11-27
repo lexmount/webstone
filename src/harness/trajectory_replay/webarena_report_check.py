@@ -511,9 +511,33 @@ def _check_formal_execution_scope(manifest: dict) -> None:
         raise ValueError("formal report requires a complete method-reset task cohort")
 
 
+def _check_trajectory_sources(root: Path, manifest: dict) -> None:
+    counts = manifest.get("trajectory_source_counts")
+    if counts is None:
+        return  # Earlier frozen reports retain their original presentation contract.
+    if (not isinstance(counts, dict) or not counts
+            or any(type(value) is not int or value <= 0 for value in counts.values())
+            or sum(counts.values()) != manifest["task_count"]):
+        raise ValueError("trajectory source counts do not cover the task cohort")
+    for language_root in language_roots(root):
+        page = read_page(language_root / "dataset.html")
+        rows = page.select("[data-dataset-table] tbody tr[data-task]")
+        observed = {}
+        for row in rows:
+            category = row.get("data-source")
+            observed[category] = observed.get(category, 0) + 1
+        summary = {node["data-source-category"]: int(node["data-source-count"])
+                   for node in page.select("[data-source-category][data-source-count]")}
+        options = {option["value"] for option in page.select(
+            '[data-dataset-filter="source"] option') if option.get("value")}
+        if observed != counts or summary != counts or options != set(counts):
+            raise ValueError("trajectory source labels, totals or filters disagree")
+
+
 def check(report_dir: Path, *, profile_path: Path | None = None) -> dict[str, int]:
     root = open_report(report_dir)
     manifest = read_json(root / "report-manifest.json")
+    _check_trajectory_sources(root, manifest)
     check_report_identity(root, manifest, "trajectory-replay", profile_path)
     # Reports built before the template record keep their earlier page shape.
     templated = "variant" in (manifest.get("template") or {})

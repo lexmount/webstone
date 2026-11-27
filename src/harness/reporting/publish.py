@@ -660,7 +660,9 @@ def staged_release_upload(
             )
         return status, raw
 
-    return upload_large_archive(staged_request, archive, slug, expected_version, title=title)
+    return upload_large_archive(
+        staged_request, archive, slug, expected_version, title=title, max_workers=4,
+    )
 
 
 def _publish_bound_release(track: BoundTrack, *, create: bool, transport=None) -> None:
