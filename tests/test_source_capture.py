@@ -210,7 +210,7 @@ def test_shared_docx_extraction_retains_source_whitespace_and_nested_parts():
     import io
     import zipfile
 
-    from harness.web_fetch.document_text import extract_document_text
+    from harness.document_text import extract_document_text
 
     archive = io.BytesIO()
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"

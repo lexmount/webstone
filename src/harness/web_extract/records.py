@@ -103,7 +103,7 @@ class LiveSourceAccessError(ValueError):
 
 def prepare(home: Path, source: Path, *, distribution=None, definition=None, benchmark="records"):
     """Materialize both field-list and typed-JSON tasks through one source boundary."""
-    from harness.web_extract.dataset import benchmark_config
+    from harness.web_extract.dataset import benchmark_config, case_input_relative
     from harness.web_extract.pipeline import digest, read_json, require_external_output, save_json
 
     require_external_output(home)
@@ -149,8 +149,12 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
             if not re.fullmatch(r"[A-Za-z0-9_-]+", cid):
                 raise ValueError("Unsafe case identity")
             raw = _source_bytes(source.parent, case["input"])
+            media_type = case.get("source_media_type", "text/html")
             if digest(raw) != case["input_sha256"]:
-                raise ValueError("Source HTML differs from qualification")
+                kind = "HTML" if media_type == "text/html" else "document"
+                raise ValueError("Source " + kind + " differs from qualification")
+            if media_type != "text/html" and mode != "live":
+                raise ValueError("Native document inputs currently require original live URLs")
             references = case["values"]
             schema = case["schema"]
             if not references or set(references) != set(schema.get("properties", {})):
@@ -191,13 +195,16 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
             encoding = receipt.get("encoding")
             if encoding is not None and (not isinstance(encoding, str) or not encoding.strip()):
                 raise ValueError("Captured HTTP encoding must be a nonempty charset name")
-            encoding = source_encoding(raw, encoding)
+            encoding = source_encoding(raw, encoding) if media_type == "text/html" else encoding
             receipt = {**receipt, "encoding": encoding}
             base = document_base_url(
                 html.fromstring(raw, parser=html.HTMLParser(encoding=encoding)),
                 case.get("final_url", case["url"]),
-            )
-            (root / "html" / (cid + ".html")).write_bytes(raw)
+            ) if media_type == "text/html" else case["url"]
+            relative = case_input_relative(cid, case)
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
             truth[cid] = {
                 "url": case["url"],
                 "domain": case["domain"],
@@ -206,6 +213,8 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
                 "schema_id": cid,
                 "value_kinds": case.get("value_kinds", {}),
                 "source_value_counts": case.get("source_value_counts", {}),
+                **({"source_media_type": media_type, "input_path": relative}
+                   if media_type != "text/html" else {}),
                 **({"document_base_url": base} if base != case["url"] else {}),
                 **({"query": case["query"]} if case.get("query") else {}),
                 **({"task": case["task"]} if "task" in case else {}),
@@ -410,7 +419,9 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
         receipt = read_json(home / "dataset/provenance.json")[cid]["qualification"]
         observed = datetime.fromisoformat(receipt["observed_at"].replace("Z", "+00:00"))
         age = (datetime.now(UTC) - observed).total_seconds()
-        raw = (home / "dataset/html" / (cid + ".html")).read_bytes()
+        from harness.web_extract.dataset import case_input_relative
+
+        raw = (home / "dataset" / case_input_relative(cid, reference)).read_bytes()
         if (
             not 0 <= age <= policy["maximum_observation_age_seconds"]
             or receipt["source_url"] != reference["url"]
@@ -465,7 +476,8 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
             time.sleep(delay)
         if response.status != 200:
             return unavailable(cid, attempts)
-        if access_interstitial(response.body):
+        native = reference.get("source_media_type", "text/html") != "text/html"
+        if not native and access_interstitial(response.body):
             attempts[-1]["access_interstitial"] = True
             return unavailable(cid, attempts)
         content_type = Message()
@@ -474,8 +486,10 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
         from lxml.etree import ParserError
 
         try:
-            encoding = source_encoding(response.body, content_type.get_content_charset())
-            html.fromstring(response.body, parser=html.HTMLParser(encoding=encoding))
+            encoding = content_type.get_content_charset()
+            if not native:
+                encoding = source_encoding(response.body, encoding)
+                html.fromstring(response.body, parser=html.HTMLParser(encoding=encoding))
         except (ParserError, LookupError) as error:
             attempts[-1]["error"] = type(error).__name__
             return unavailable(cid, attempts)

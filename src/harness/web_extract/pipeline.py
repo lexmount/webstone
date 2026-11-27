@@ -39,6 +39,7 @@ from harness.web_extract.call_records import validate_calls
 from harness.web_extract.dataset import (
     EXPORTED_EVALUATOR,
     benchmark_config,
+    case_input_relative,
     fixed_field_benchmark,
     input_mode,
     registry_sha256,
@@ -292,9 +293,9 @@ def validate_dataset(home: Path, profile=None):
         if manifest["files"].get(name, {}).get("sha256") != expected:
             raise ValueError("Pinned source binding changed")
     truth = read_json(root / "dataset/ground-truth.json")
-    expected = {"html/" + key + ".html" for key in truth}
+    expected = {case_input_relative(key, case) for key, case in truth.items()}
     if len(truth) != pin["cases"] or not expected.issubset(manifest["files"]):
-        raise ValueError("Incomplete HTML population")
+        raise ValueError("Incomplete extraction input population")
     config = benchmark_config(name=manifest.get("benchmark"))
     if config["benchmark"].capabilities.has(EXPORTED_EVALUATOR):
         if (root / "evaluate.py").read_bytes() != config["adapter"].exported_evaluator():
@@ -1958,9 +1959,10 @@ def collect_calls(
         ):
             raise PermissionError("Frozen physical call budget exhausted before dispatch")
         missing = METHODS.get(method).validate()
-        raw = (home / "dataset/html" / (case_id + ".html")).read_bytes()
-        if digest(raw) != frozen_inputs["html/" + case_id + ".html"]["sha256"]:
-            raise ValueError("Frozen extraction HTML changed before dispatch")
+        relative = case_input_relative(case_id, truth[case_id])
+        raw = (home / "dataset" / relative).read_bytes()
+        if digest(raw) != frozen_inputs[relative]["sha256"]:
+            raise ValueError("Frozen extraction input changed before dispatch")
         schema_options = {}
         if custom_schema:
             instructions = task_instructions(
@@ -2203,7 +2205,9 @@ def _probe_unlocked(
             [
                 max(
                     sorted(truth),
-                    key=lambda key: (home / "dataset/html" / (key + ".html")).stat().st_size,
+                    key=lambda key: (
+                        home / "dataset" / case_input_relative(key, truth[key])
+                    ).stat().st_size,
                 )
             ]
             if largest

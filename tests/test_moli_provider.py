@@ -164,7 +164,7 @@ class MoliTests(unittest.TestCase):
             "else:\n"
             "    assert sys.argv[sys.argv.index('--dump') + 1] in ('markdown', 'html')\n"
             "print('native output')\n", uniform_native_parameters=True)
-        with patch("harness.web_fetch.document_text.extract_document_text", side_effect=AssertionError("caller conversion")):
+        with patch("harness.document_text.extract_document_text", side_effect=AssertionError("caller conversion")):
             for track, kind, url, media in [("challenge", "structure", "https://example.com/", "html_page"),
                     ("risk_control", "body", "https://example.com/", "html_page"),
                     ("document", "body", "https://example.com/a.docx", "direct_docx"),
@@ -347,7 +347,7 @@ class MoliTests(unittest.TestCase):
             uniform_native_parameters=True, document_output="markdown", wait_until="done")
         case = self.case_with(track="document", task_kind="body",
                               source_benchmark={"input_media_kind": "direct_pdf"})
-        with patch("harness.web_fetch.document_text.extract_document_text", side_effect=AssertionError("caller conversion")):
+        with patch("harness.document_text.extract_document_text", side_effect=AssertionError("caller conversion")):
             result = provider.fetch(case, 5)
         self.assertFalse(result.ok)
         self.assertEqual(result.content, "")

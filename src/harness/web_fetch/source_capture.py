@@ -28,7 +28,7 @@ from lexbench_webfetch.metrics import normalize_for_match
 from lexbench_webfetch.paths import contained_path, safe_identifier, validate_http_url
 from lexbench_webfetch.reference_quality import audit_reference, clean_reference_text
 
-from harness.web_fetch.document_text import extract_document_text
+from harness.document_text import extract_document_text
 from harness.web_fetch.reference_inputs import read_dataset_bytes
 from harness.web_fetch.reference_lifecycle import scope_identity
 from harness.safety import unlinked_path, write_new_file
