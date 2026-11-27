@@ -30,7 +30,7 @@ import zipfile
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from http.client import RemoteDisconnected
+from http.client import IncompleteRead, RemoteDisconnected
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -306,6 +306,8 @@ def verify_export(
                 if count > entry["size"]:
                     raise ValueError("Original file exceeds export size: " + path)
                 digest.update(chunk)
+            if count < entry["size"]:
+                raise IncompleteRead(b"", entry["size"] - count)
             return digest, count
         # Signed storage URLs never receive the publication credential.
         digest, count = read_public_response(urllib.request.Request(address), consume)

@@ -221,7 +221,7 @@ def test_browser_publication_verifies_full_export_before_binding(tmp_path, monke
 
 
 @pytest.mark.parametrize("damage", [None, "bytes", "version", "missing", "duplicate", "cursor",
-     "retry-preview", "retry-manifest", "retry-storage"])
+     "retry-preview", "retry-manifest", "retry-storage", "retry-short-storage"])
 def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
     tmp_path, monkeypatch, damage,
 ):
@@ -270,6 +270,8 @@ def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
         attempts[address] = attempts.get(address, 0) + 1
         target = ("preview" if "/api/preview/" in address else
                   "manifest" if "__manifest" in address else "storage")
+        if damage == "retry-short-storage" and target == "storage" and attempts[address] == 1:
+            return io.BytesIO(originals[urlsplit(address).path.lstrip("/")][:1])
         if damage == "retry-" + target and attempts[address] == 1:
             if target == "storage":
                 class Interrupted(io.BytesIO):
@@ -292,13 +294,15 @@ def test_manifest_exports_verify_storage_bytes_without_per_file_service_calls(
         assert request.get_header("Authorization") is None
         assert urlsplit(request.full_url).netloc == "storage.example"
         name = urlsplit(request.full_url).path.lstrip("/")
-        raw = b"corrupt" if damage == "bytes" and name == "data.json" else originals[name]
+        raw = b"x" * len(originals[name]) if damage == "bytes" and name == "data.json" else originals[name]
         return io.BytesIO(raw)
     monkeypatch.setattr(urllib.request, "urlopen", public)
     monkeypatch.setattr("harness.reporting.publication.time.sleep", lambda delay: None)
     if damage and not damage.startswith("retry-"):
         with pytest.raises((ValueError, RuntimeError)):
             verify_export(service, "site-1", archive, public_base=base)
+        if damage == "bytes":
+            assert attempts["https://storage.example/data.json"] == 1
     else:
         verify_export(service, "site-1", archive, public_base=base)
         assert calls.count("/api/sites/site-1") == 2
