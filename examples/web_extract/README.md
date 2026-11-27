@@ -152,9 +152,12 @@ Arrays of objects bind each answer record to one source record using
 `evidence.record_regions`: a JSON Pointer maps to its primary `target_index` and
 relative `selector`. Field evidence is checked inside that record, so a value in
 another row cannot qualify a wrongly associated reference answer.
-JavaScript-required regions must be absent in original HTML and present in the
-independent rendered capture, with the answer data not already inlined in the
-original source. Rendered qualification references are hash-bound under
+Numbers keep their precision through catalog loading, schema delivery, saved
+references and offline scoring. Numeric strings remain strings.
+JavaScript-required answer data must be absent before rendering and supported by
+the independent rendered capture. An empty placeholder may exist in the original
+HTML; answers already available in static content or embedded state do not prove
+JavaScript dependence. Rendered qualification references are hash-bound under
 `references/`, separately from publishable input HTML and assets.
 
 Snapshot hosting disables scripts and remote resources. The served HTML must

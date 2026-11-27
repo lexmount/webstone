@@ -482,7 +482,7 @@ def synthetic_request(method, html, source_url, fixture_url, **options):
     tree = parser.fromstring(html)
     fact = {
         "organization": tree.xpath("string(//p[@id='org'])"),
-        "trials": int(tree.xpath("string(//p[@id='trials'])")),
+        "trials": query_contract.strict_json(tree.xpath("string(//p[@id='trials'])")),
     }
     properties = options["schema"]["properties"]
     if "research" in properties:
@@ -502,8 +502,9 @@ def synthetic_request(method, html, source_url, fixture_url, **options):
 
 @pytest.mark.parametrize("unit", ["query", "page"])
 @pytest.mark.parametrize("mode", ["snapshot", "live"])
+@pytest.mark.parametrize("exact_decimal", [False, True])
 def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
-    tmp_path, monkeypatch, unit, mode
+    tmp_path, monkeypatch, unit, mode, exact_decimal
 ):
     from types import SimpleNamespace
 
@@ -512,6 +513,22 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
     value["pages"] = value["pages"][:1]
     value["input_mode"] = mode
     pipeline.save_json(source, value)
+    if exact_decimal:
+        exact = "1.0000000000000001"
+        page = value["pages"][0]
+        path = tmp_path / page["source"]["input"]
+        path.write_bytes(path.read_bytes().replace(b">40<", f">{exact}<".encode()))
+        page["source"]["sha256"] = pipeline.digest(path.read_bytes())
+        question = page["queries"][0]
+        question["schema"]["properties"]["trials"] = {
+            "type": "number", "minimum": "EXACT_NUMBER", "const": "EXACT_NUMBER",
+        }
+        question["answer"]["trials"] = "EXACT_NUMBER"
+        question["evidence"]["leaves"][1]["raw_value"] = exact
+        question["evidence"]["negative_answers"][0]["trials"] = "EXACT_NUMBER"
+        source.write_text(
+            json.dumps(value).replace('"EXACT_NUMBER"', exact), encoding="utf-8"
+        )
     home = tmp_path / "home"
     pipeline.prepare(home, benchmark="queries", source=source, unit=unit)
 
@@ -599,6 +616,25 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
         result = pipeline.read_json(tmp_path / "rescored.json")
         plan = pipeline.read_json(plan_path)
         assert result["scores"]["query-synthetic"]["query_accuracy"]["rate"] == 1
+        if exact_decimal:
+            import copy
+            import runpy
+
+            frozen = runpy.run_path(str(home / "dataset/evaluate.py"))
+            truth = frozen["strict_json"](
+                (home / "dataset/dataset/ground-truth.json").read_text(encoding="utf-8")
+            )
+            predictions = {cid: copy.deepcopy(case["values"]) for cid, case in truth.items()}
+            assert frozen["score"](truth, predictions)["query_accuracy"]["rate"] == 1
+            for prediction in predictions.values():
+                candidate = prediction.get("research", prediction)
+                if "trials" in candidate:
+                    candidate["trials"] = 1.0
+            scored = frozen["score"](truth, predictions)
+            assert not next(q for q in scored["queries"] if q["query_id"] == "research")["accepted"]
+            assert '"minimum": 1.0000000000000001' in (
+                home / "dataset/schemas.json"
+            ).read_text(encoding="utf-8")
         for row in pipeline.load_run(run)[1]:
             text = " ".join(
                 field.get("description", "")
@@ -1435,6 +1471,36 @@ def test_task_queries_reach_available_native_prompt_channels(monkeypatch, method
         assert row["request"]["standalone_prompt"] == instruction
         assert row["request"]["task_prompt"]["text"] == instruction
         assert row["request"]["task_prompt"]["location"] == spec.task_prompt_location
+
+
+def test_multipart_schema_keeps_exact_decimal_number_lexemes(monkeypatch):
+    from email.parser import BytesParser
+    from email.policy import default
+    from types import SimpleNamespace
+
+    monkeypatch.setenv("FIRECRAWL_API_KEY", "synthetic")
+    captured = []
+
+    def send(url, **kwargs):
+        envelope = BytesParser(policy=default).parsebytes(
+            ("Content-Type: " + kwargs["headers"]["Content-Type"] + "\r\n\r\n").encode()
+            + kwargs["body"]
+        )
+        options = next(
+            part for part in envelope.iter_parts()
+            if part.get_param("name", header="content-disposition") == "options"
+        )
+        captured.append(query_contract.strict_json(options.get_payload(decode=True)))
+        return SimpleNamespace(status=200, headers={}, text=lambda: '{}')
+
+    monkeypatch.setattr(pipeline, "request", send)
+    exact = Decimal('1.0000000000000001')
+    pipeline.provider_call(
+        "firecrawl-parse-json", "<main>1.0000000000000001</main>", "https://source.example",
+        schema=schema({"amount": {"type": "number", "minimum": exact}}),
+        task_prompt="Extract the amount as a number.",
+    )
+    assert captured[0]["formats"][0]["schema"]["properties"]["amount"]["minimum"] == exact
 
 
 @pytest.mark.parametrize("fresh,http_status", [(True, 200), (True, 403), (False, 200)])

@@ -32,6 +32,7 @@ from harness.data_home import data_home as shared_data_home
 from harness.distribution import repository_root
 from harness.http_client import request
 from harness.record_io import bytes_sha256 as digest
+from harness.record_io import json_dumps
 from harness.record_io import read_json as shared_read_json
 from harness.runtime_env import load_runtime_env
 from harness.web_extract.call_records import validate_calls
@@ -66,7 +67,7 @@ def execution_identity(row):
         "physical_attempts",
     }
     value = {key: item for key, item in row.items() if key not in derived}
-    return digest(json.dumps(value, sort_keys=True, ensure_ascii=False).encode())
+    return digest(json_dumps(value, sort_keys=True, ensure_ascii=False).encode())
 
 
 def decoded_response(text):
@@ -101,7 +102,7 @@ def decoded_response(text):
 def read_json(path: Path):
     if path.is_symlink() or unsafe_parents(path):
         raise ValueError("Symlink inputs are prohibited")
-    return shared_read_json(path)
+    return shared_read_json(path, preserve_decimal=True)
 
 
 def unsafe_parents(path: Path):
@@ -120,7 +121,7 @@ def save_json(path: Path, data, *, exclusive=False):
             mode="w", encoding="utf-8", dir=path.parent, prefix="." + path.name + ".", delete=False
         ) as f:
             temporary = Path(f.name)
-            json.dump(data, f, ensure_ascii=False, indent=2, allow_nan=False)
+            f.write(json_dumps(data, ensure_ascii=False, indent=2, allow_nan=False))
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
@@ -259,7 +260,7 @@ def validate_dataset(home: Path, profile=None):
     manifest = read_json(root / "manifest.json")
     pin = contract["dataset"]
     inventory = digest(
-        json.dumps(manifest["files"], sort_keys=True, separators=(",", ":")).encode()
+        json_dumps(manifest["files"], sort_keys=True, separators=(",", ":")).encode()
     )
     if pin.get("inventory_sha256") and inventory != pin["inventory_sha256"]:
         from harness.web_extract.dataset import verify_distribution
@@ -415,7 +416,7 @@ def redact_json_text(text):
         if colon is None or not _sensitive_key(key):
             clean = redact(key)
             if clean != key:
-                parts.extend((text[cursor:token.start()], json.dumps(clean, ensure_ascii=False)))
+                parts.extend((text[cursor:token.start()], json_dumps(clean, ensure_ascii=False)))
                 cursor = token.end()
             continue
         start = token.end() + colon.end()
@@ -782,7 +783,7 @@ def _firecrawl_parse_request(
     body, content_type = encode_multipart_formdata(
         [
             ("file", ("snapshot.html", html.encode("utf-8"), "text/html")),
-            ("options", (None, json.dumps(options), "application/json")),
+            ("options", (None, json_dumps(options), "application/json")),
         ]
     )
     return (
@@ -2058,7 +2059,7 @@ def collect_calls(
         save_json(path, redact(row), exclusive=True)
         entry = {"path": path.relative_to(run).as_posix(), "sha256": digest(path.read_bytes())}
         with journal.open("a", encoding="utf-8") as checkpoint:
-            checkpoint.write(json.dumps(entry) + "\n")
+            checkpoint.write(json_dumps(entry) + "\n")
             checkpoint.flush()
             os.fsync(checkpoint.fileno())
         pending_calls.pop((method, case_id), None)

@@ -1,6 +1,7 @@
 """Public HTTP transport preserves binary uploads and existing JSON requests."""
 
 import json
+from decimal import Decimal
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock
@@ -55,6 +56,15 @@ def test_json_request_contract_is_unchanged(endpoint):
     assert http_client.request(url, method="POST", json_body=value).status == 200
     assert json.loads(received[0][1]) == value
     assert received[0][0]["Content-Type"] == "application/json"
+
+
+def test_native_json_request_preserves_exact_schema_numbers(endpoint):
+    url, received = endpoint
+    exact = Decimal('1.0000000000000001')
+    value = {"schema": {"properties": {"amount": {"type": "number", "minimum": exact}}}}
+    assert http_client.request(url, method="POST", json_body=value).status == 200
+    assert json.loads(received[0][1], parse_float=Decimal) == value
+    assert b'"minimum": 1.0000000000000001' in received[0][1]
 
 
 @pytest.mark.parametrize(

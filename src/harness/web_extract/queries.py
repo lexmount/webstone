@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from harness.record_io import json_dumps
 from harness.web_extract import query_contract, records
 from harness.web_extract.query_contract import compile_cases
 from harness.web_extract.query_contract import score as score
@@ -593,7 +594,7 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                     "input_sha256": digest(raw),
                     "encoding": encoding,
                     "reference_sha256": digest(
-                        json.dumps(reference, sort_keys=True, ensure_ascii=False).encode()
+                        json_dumps(reference, sort_keys=True, ensure_ascii=False).encode()
                     ),
                     "source_url": page["url"],
                     "observed_at": page["source"]["observed_at"],

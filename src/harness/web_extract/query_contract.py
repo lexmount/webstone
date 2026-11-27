@@ -16,6 +16,7 @@ from fractions import Fraction
 from urllib.parse import unquote, urlsplit
 
 from jsonschema import Draft202012Validator, ValidationError, validators
+from simplejson import dumps as json_dumps
 
 
 def json_integer(checker, value):
@@ -316,7 +317,7 @@ def page_schema(queries):
         # switch back to its default validator and lose our exact numeric rules.
         child.pop("$schema", None)
         identity = hashlib.sha256(
-            json.dumps([query["id"], child], sort_keys=True).encode()
+            json_dumps([query["id"], child], sort_keys=True).encode()
         ).hexdigest()
         child["$id"] = "urn:webstone:query:" + identity
         properties[query["id"]] = child
@@ -344,7 +345,7 @@ def compile_cases(dataset, unit="query", *, max_schema_bytes=None):
                 case_id = (
                     "query-"
                     + hashlib.sha256(
-                        json.dumps([page["id"], queries[0]["id"]]).encode()
+                        json_dumps([page["id"], queries[0]["id"]]).encode()
                     ).hexdigest()[:24]
                 )
             else:
@@ -357,7 +358,7 @@ def compile_cases(dataset, unit="query", *, max_schema_bytes=None):
                 )
                 case_id = page["id"]
             Draft202012Validator.check_schema(schema)
-            if max_schema_bytes is not None and len(json.dumps(schema).encode()) > max_schema_bytes:
+            if max_schema_bytes is not None and len(json_dumps(schema).encode()) > max_schema_bytes:
                 raise ValueError("Combined/request schema exceeds the frozen limit: " + case_id)
             result.append(
                 {

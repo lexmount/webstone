@@ -1,6 +1,7 @@
 """JSONL records are framed by LF bytes, including during concurrent writes."""
 import hashlib
 import json
+from decimal import Decimal
 from dataclasses import asdict
 from pathlib import Path
 from unittest.mock import patch
@@ -8,6 +9,30 @@ from unittest.mock import patch
 import pytest
 
 from harness.record_io import canonical_json_sha256, load_jsonl, parse_jsonl, read_completed_records, same_json_record
+
+
+def test_exact_json_numbers_round_trip_without_changing_legacy_float_protocol(tmp_path):
+    from harness.record_io import json_bytes, read_json
+
+    path = tmp_path / 'numbers.json'
+    path.write_bytes(b'{"ordinary":0.1,"exact":1.0000000000000001,"tiny":1e-400,"big":1e400}')
+    value = read_json(path, preserve_decimal=True)
+    assert type(value['ordinary']) is float
+    assert value['exact'] == Decimal('1.0000000000000001')
+    assert value['tiny'] == Decimal('1e-400')
+    assert value['big'] == Decimal('1e400')
+    path.write_bytes(json_bytes(value))
+    assert read_json(path, preserve_decimal=True) == value
+    assert json.loads(path.read_bytes(), parse_float=Decimal)['exact'] == value['exact']
+    assert json_bytes({'ordinary': 0.1}) == b'{\n  "ordinary": 0.1\n}\n'
+
+
+@pytest.mark.parametrize('value', ['NaN', 'Infinity', '-Infinity'])
+def test_nonfinite_decimal_is_never_persisted_as_a_json_number(value):
+    from harness.record_io import json_bytes
+
+    with pytest.raises(ValueError, match='Non-finite'):
+        json_bytes({'number': Decimal(value)})
 
 
 def test_canonical_hash_preserves_frozen_utf8_json_bytes_and_distinctions():

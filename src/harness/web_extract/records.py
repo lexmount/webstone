@@ -6,12 +6,13 @@ does not generate questions or answers and does not infer values from provider o
 
 from __future__ import annotations
 
-import json
 import re
 import tempfile
 from datetime import UTC
 from pathlib import Path
 from urllib.parse import urljoin
+
+from harness.record_io import json_dumps
 
 
 def source_text(node):
@@ -166,7 +167,7 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
                 not receipt
                 or receipt.get("input_sha256") != digest(raw)
                 or receipt.get("reference_sha256")
-                != digest(json.dumps(references, sort_keys=True, ensure_ascii=False).encode())
+                != digest(json_dumps(references, sort_keys=True, ensure_ascii=False).encode())
             ):
                 raise ValueError("Every input needs its source qualification receipt")
             if live_policy is not None:
@@ -237,7 +238,7 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
             for path in sorted(root.rglob("*"))
             if path.is_file()
         }
-        commit = digest(json.dumps(definition["source_versions"], sort_keys=True).encode())
+        commit = digest(json_dumps(definition["source_versions"], sort_keys=True).encode())
         manifest = {
             "benchmark": benchmark,
             "input_mode": mode,
@@ -259,7 +260,7 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
                 "cases": len(cases),
                 "files": {name: entry["sha256"] for name, entry in files.items()},
                 "inventory_sha256": digest(
-                    json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+                    json_dumps(files, sort_keys=True, separators=(",", ":")).encode()
                 ),
             },
             "scoring": definition.get("scoring", {
@@ -429,7 +430,7 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
             "reference_observed_at": receipt["observed_at"],
             "encoding": receipt.get("encoding"),
             "observed_html_sha256": digest(raw),
-            "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
+            "reference_sha256": digest(json_dumps(reference["values"], sort_keys=True).encode()),
             "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
@@ -491,7 +492,7 @@ def qualify_live(home, case_ids, *, timeout=30, source_check=None, captured_sour
             "http_status": response.status,
             "encoding": encoding,
             "observed_html_sha256": digest(response.body),
-            "reference_sha256": digest(json.dumps(reference["values"], sort_keys=True).encode()),
+            "reference_sha256": digest(json_dumps(reference["values"], sort_keys=True).encode()),
             "reference_values_verified": value_count(reference["values"]),
             "source_attempts": attempts,
         }
