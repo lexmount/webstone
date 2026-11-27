@@ -14,9 +14,9 @@
 
 </div>
 
-**Find the right tools for your agent to browse the web.**
+**The touchstone for your agent’s web browsing.**
 
-Webstone, **the touchstone**, evaluates web tools, browsers and browser agents on repeatable tasks. Compare correctness, latency, resource use and recorded cost, with per-task evidence in the reports.
+Webstone evaluates web tools, browsers and browser agents on repeatable tasks. Compare correctness, latency, resource use and recorded cost, with per-task evidence in the reports.
 
 See the [Webstone leaderboard](https://webstone.lexmount.io) for published benchmark results and comparison reports.
 
