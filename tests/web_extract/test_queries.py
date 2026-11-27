@@ -496,6 +496,67 @@ def test_embedded_record_support_preserves_associations_and_multiplicity(
         queries.qualify_page(page,tmp_path)
 
 
+@pytest.mark.parametrize("value,raw_value", [('Alice','Alice'), (5,'5'), (5,'$5')])
+@pytest.mark.parametrize("markup,selectors,accepted", [
+    ('<p id="names"><span>Alice</span></p>', ['.//span', './/span'], False),
+    ('<p id="names"><span>Alice</span><span>Alice</span></p>', ['.//span', './/span'], True),
+    ('<p id="names">Alice Alice</p>', ['.//p[@id="names"]', './/p[@id="names"]'], True),
+    ('<p id="names"><span>Alice</span></p>', ['.//p[@id="names"]', './/span'], False),
+    ('<p id="names"><span>Alice</span><span>Alice</span></p>',
+     ['.//p[@id="names"]', './/span[1]'], True),
+    ('<p id="names">Alice<script>Alice</script></p>', ['.', '.'], False),
+])
+def test_primitive_array_duplicates_need_distinct_source_occurrences(
+    tmp_path, markup, selectors, accepted, value, raw_value
+):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / 'article.html'
+    markup = markup.replace('Alice',raw_value).replace('</span><span>','</span> <span>')
+    path.write_text('<main id="story">Names'+markup+'</main>', encoding='utf-8')
+    page['source']['sha256'] = pipeline.digest(path.read_bytes())
+    page['queries'] = [{
+        'id':'names','query':'List the names in their source order, retaining duplicates.',
+        'schema':schema({'names':{'type':'array','items':{
+            'type':'string' if isinstance(value,str) else 'number'}}}),
+        'answer':{'names':[value,value]},
+        'selection':{'region_id':'body','rationale':'The primary name list.'},
+        'evidence':{
+            'leaves':[{'pointer':f'/names/{i}','raw_value':raw_value,'selector':selector}
+                      for i,selector in enumerate(selectors)],
+            'negative_answers':[{'names':[]}],
+        },
+    }]
+    if accepted:
+        queries.qualify_page(page,tmp_path)
+    else:
+        with pytest.raises(ValueError, match='distinct source occurrences'):
+            queries.qualify_page(page,tmp_path)
+
+
+@pytest.mark.parametrize('tag,accepted', [('script',False),('style',False),('pre',True)])
+def test_body_fact_text_node_evidence_uses_the_same_visible_source_contract(
+    tmp_path, tag, accepted
+):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)['pages'][0]
+    path = tmp_path/'article.html'
+    path.write_text(f'<main id="story">Body<{tag}>Alice</{tag}></main>',encoding='utf-8')
+    page['source']['sha256'] = pipeline.digest(path.read_bytes())
+    page['queries'] = [{
+        'id':'name','query':'Extract the displayed body name.',
+        'schema':schema({'name':{'type':'string'}}),'answer':{'name':'Alice'},
+        'selection':{'region_id':'body','rationale':'The primary body example.'},
+        'evidence':{'leaves':[{'pointer':'/name','raw_value':'Alice','selector':f'.//{tag}/text()'}],
+                    'negative_answers':[{'name':'Other'}]},
+    }]
+    if accepted:
+        queries.qualify_page(page,tmp_path)
+    else:
+        with pytest.raises(ValueError, match='evidence'):
+            queries.qualify_page(page,tmp_path)
+
+
 def test_reference_record_fields_must_be_grounded_in_the_same_source_row(tmp_path):
     source = catalog(tmp_path)
     page = pipeline.read_json(source)["pages"][0]

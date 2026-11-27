@@ -98,6 +98,18 @@ def _scoped_nodes(target, selector):
     return nodes
 
 
+def _source_nodes(target, selector):
+    nodes = []
+    for node in _scoped_nodes(target, selector):
+        owner = node if hasattr(node, "iterancestors") else node.getparent()
+        if getattr(node, "is_tail", False):
+            owner = owner.getparent()
+        if any(item.tag in {"script", "style"} for item in [owner, *owner.iterancestors()]):
+            continue
+        nodes.append(node)
+    return nodes
+
+
 def _lexeme_matches(raw, value):
     if isinstance(value, str):
         return " ".join(raw.split()) == " ".join(value.split())
@@ -135,34 +147,106 @@ def _numeric_lexeme(raw):
     return token
 
 
-def _source_contains(text, raw, value):
+def _source_matches(text, raw, value):
     text, raw = " ".join(text.split()), " ".join(raw.split())
     if isinstance(value, str) and not raw:
-        return not text
+        return [(0, 0)] if not text else []
     if isinstance(value, bool):
-        return (
-            re.search(r"(?<![A-Za-z0-9_])" + re.escape(raw) + r"(?![A-Za-z0-9_])", text) is not None
-        )
+        pattern = r"(?<![A-Za-z0-9_])" + re.escape(raw) + r"(?![A-Za-z0-9_])"
+        return [match.span() for match in re.finditer(pattern, text)]
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
         text = text.translate(_SIGNS)
         # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
         number = r"(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?"
         monetary = r"(?<![0-9_.+£$€¥,-])(?:[+-]\s*)?[£$€¥]\s*[+-]?\s*" + number
         plain = r"(?<![A-Za-z0-9_.+£$€¥,-])[+-]?\s*" + number
+        matches = []
         for token in re.finditer(
             "(?:" + monetary + "|" + plain + r")(?![A-Za-z0-9_]|[.,]\d)", text
         ):
             if text[: token.start()].rstrip().endswith(("+", "-")):
                 continue
             if _numeric_lexeme(token.group()) == _numeric_lexeme(raw):
-                return True
-        return False
-    return raw in text
+                matches.append(token.span())
+        return matches
+    return [match.span() for match in re.finditer(re.escape(raw), text)]
+
+
+def _source_contains(text, raw, value):
+    return bool(_source_matches(text, raw, value))
 
 
 def _source_supports(target, proof, raw, value):
-    nodes = _scoped_nodes(target, proof.get("selector", "."))
+    nodes = _source_nodes(target, proof.get("selector", "."))
     return bool(nodes) and _source_contains(_text(nodes), raw, value)
+
+
+def _source_occurrences(nodes, raw, value):
+    parts = []
+    empty = set()
+    for node in nodes:
+        parts.append((None, " "))
+        if hasattr(node, "itertext"):
+            parts.extend(records.source_text_parts(node))
+            empty.add((node, "empty"))
+        else:
+            kind = ("attribute", node.attrname) if node.is_attribute else (
+                ("tail",) if node.is_tail else ("text",)
+            )
+            origin = (node.getparent(), *kind)
+            parts.append((origin, str(node)))
+            empty.add(origin)
+    text, positions = [], []
+    for origin, fragment in parts:
+        for index, char in enumerate(fragment):
+            if char.isspace():
+                if text and text[-1] != " ":
+                    text.append(" ")
+                    positions.append(None)
+            else:
+                text.append(char)
+                positions.append((origin, index))
+    if text and text[-1] == " ":
+        text.pop()
+        positions.pop()
+    text = "".join(text)
+    if not raw.strip() and not text:
+        return empty
+    occurrences = set()
+    for start, end in _source_matches(text, raw, value):
+        if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
+            start += re.search(r"\d|\.", text[start:end]).start()
+        occurrences.add(positions[start])
+    return occurrences
+
+
+def _array_leaf_groups(value, pointer="", group="", repeated=False):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key = key.replace("~", "~0").replace("/", "~1")
+            yield from _array_leaf_groups(child, pointer + "/" + key, group + "/" + key, repeated)
+    elif isinstance(value, list) and value:
+        for index, child in enumerate(value):
+            yield from _array_leaf_groups(child, pointer + "/" + str(index), group + "/*", True)
+    elif repeated:
+        yield pointer, group
+
+
+def _distinct_occurrences(pools):
+    assignments = {}
+
+    def assign(index, seen):
+        for occurrence in pools[index]:
+            if occurrence in seen:
+                continue
+            seen.add(occurrence)
+            if occurrence not in assignments or assign(assignments[occurrence], seen):
+                assignments[occurrence] = index
+                return True
+        return False
+
+    order = sorted(range(len(pools)), key=lambda i: len(pools[i]))
+    return all(assign(index, set()) for index in order)
 
 
 def qualify_page(page, base):
@@ -338,6 +422,13 @@ def _qualify_content(page, raw, rendered, encoding):
             raise ValueError(
                 "Every answer leaf needs exactly one source or scoped-absence evidence"
             )
+        populations = {
+            pointer: (group, query_contract.canonical(leaves[pointer]))
+            for pointer, group in _array_leaf_groups(query["answer"])
+            if pointer in positive
+        }
+        counts = Counter(populations.values())
+        occurrences = defaultdict(list)
         for pointer, value in leaves.items():
             record = max(
                 (path for path in scopes if pointer.startswith(path + "/")), key=len, default=None
@@ -365,6 +456,16 @@ def _qualify_content(page, raw, rendered, encoding):
                 raise ValueError(
                     "Answer evidence does not support the typed value inside its primary region"
                 )
+            population = populations.get(pointer)
+            if population is not None and counts[population] > 1:
+                nodes = [
+                    selected
+                    for node in leaf_targets
+                    for selected in _source_nodes(node, proof.get("selector", "."))
+                ]
+                occurrences[population].append(_source_occurrences(nodes, raw_value, value))
+        if any(not _distinct_occurrences(pools) for pools in occurrences.values()):
+            raise ValueError("Repeated array values need distinct source occurrences")
         negatives = evidence.get("negative_answers", [])
         controls = [query_contract.validate_query(query, value) for value in negatives]
         if not any(control["schema_valid"] for control in controls) or any(

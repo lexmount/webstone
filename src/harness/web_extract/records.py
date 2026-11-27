@@ -17,6 +17,11 @@ from harness.record_io import json_dumps
 
 def source_text(node):
     """Preserve inline adjacency and structural value boundaries in source evidence."""
+    return "".join(text for _, text in source_text_parts(node))
+
+
+def source_text_parts(node):
+    """Retain physical text-slot identities alongside the shared source projection."""
     # Ordinary inline markup preserves words. Blocks, controls and neighboring
     # labelled fields delimit values; comments do not contribute text.
     blocks = set(
@@ -52,15 +57,15 @@ def source_text(node):
             or (labelled(node) and labelled(node.getnext()) and not (node.tail or ""))
         )
         if before:
-            yield " "
-        yield node.text or ""
+            yield None, " "
+        yield (node, "text"), node.text or ""
         for child in node:
             yield from visible(child)
-            yield child.tail or ""
+            yield (child, "tail"), child.tail or ""
         if after:
-            yield " "
+            yield None, " "
 
-    return "".join(visible(node))
+    yield from visible(node)
 
 
 def source_encoding(raw, encoding=None):
