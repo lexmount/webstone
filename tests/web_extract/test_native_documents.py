@@ -624,3 +624,20 @@ def test_docx_reference_parts_follow_document_relationships_and_explicit_support
             document_view(raw, DOCX)
         with pytest.raises(ValueError, match='altChunk|namespace'):
             extract_document_text(raw)
+
+
+def test_docx_source_capture_preserves_tabs_and_in_paragraph_line_boundaries():
+    from harness.document_text import extract_document_text
+
+    output = io.BytesIO()
+    xml = ('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+           '<w:body><w:p><w:r><w:t>Left</w:t><w:tab/><w:t>Right</w:t>'
+           '<w:br/><w:t>Second line</w:t><w:cr/><w:t>Third line</w:t>'
+           '</w:r></w:p></w:body></w:document>')
+    with zipfile.ZipFile(output, 'w') as archive:
+        archive.writestr('word/document.xml', xml)
+    raw = output.getvalue()
+    assert extract_document_text(raw, preserve_whitespace=True)[0] == (
+        'Left\tRight\nSecond line\nThird line'
+    )
+    assert extract_document_text(raw)[0] == 'Left Right Second line Third line'

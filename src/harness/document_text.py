@@ -159,9 +159,10 @@ def _extract_docx(raw: bytes, *, preserve_whitespace: bool = False) -> str:
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         lines = []
         for _, root in _docx_parts(archive):
+            text = "".join(_text_nodes(root, preserve_whitespace=preserve_whitespace))
             lines.extend(
                 (line if preserve_whitespace else line.strip())
-                for line in "".join(_text_nodes(root)).splitlines()
+                for line in text.splitlines()
                 if line.strip()
             )
     return "\n".join(lines)
@@ -229,7 +230,7 @@ def _docx_root(archive, name):
     return root
 
 
-def _text_nodes(node):
+def _text_nodes(node, *, preserve_whitespace=False):
     namespace = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     paragraph = f"{{{namespace}}}p"
     text = f"{{{namespace}}}t"
@@ -239,10 +240,10 @@ def _text_nodes(node):
     if node.tag == text:
         yield node.text or ""
     elif node.tag in spacing:
-        yield " "
+        yield ("\t" if node.tag == f"{{{namespace}}}tab" else "\n") if preserve_whitespace else " "
     elif node.tag in characters:
         yield characters[node.tag]
     for child in node:
-        yield from _text_nodes(child)
+        yield from _text_nodes(child, preserve_whitespace=preserve_whitespace)
     if node.tag == paragraph:
         yield "\n"
