@@ -941,3 +941,30 @@ def test_boolean_evidence_requires_the_complete_word(tmp_path, value, source_wor
     path.write_bytes(raw)
     page["source"]["sha256"] = pipeline.digest(raw)
     queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text,negative_lexeme",
+    [
+        ("-$5", "-$5"),
+        ("-£5", "-£5"),
+        ("USD-$5", "-$5"),
+        ("US$-5", "$-5"),
+    ],
+)
+def test_currency_decoration_cannot_hide_a_negative_sign(tmp_path, source_text, negative_lexeme):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b">40<", b">" + source_text.encode() + b"<")
+    path.write_bytes(raw)
+    page["source"]["encoding"] = "utf-8"
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query["answer"]["trials"] = 5
+    query["evidence"]["leaves"][1]["raw_value"] = "£5" if "£" in source_text else "$5"
+    with pytest.raises(ValueError, match="evidence"):
+        queries.qualify_page(page, tmp_path)
+    query["answer"]["trials"] = -5
+    query["evidence"]["leaves"][1]["raw_value"] = negative_lexeme
+    queries.qualify_page(page, tmp_path)

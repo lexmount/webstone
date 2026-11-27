@@ -104,9 +104,13 @@ def _lexeme_matches(raw, value):
         return raw.casefold() == str(value).casefold()
     try:
         # Units remain in the evidence; only explicit currency/whitespace decoration is removed.
-        return Decimal(re.sub(r"^[£$€¥]\s*", "", raw.strip())) == Decimal(str(value))
+        return Decimal(_numeric_lexeme(raw)) == Decimal(str(value))
     except (InvalidOperation, ValueError):
         return False
+
+
+def _numeric_lexeme(raw):
+    return re.sub(r"^([+-]?)\s*[£$€¥]\s*", r"\1", raw.strip())
 
 
 def _source_contains(text, raw, value):
@@ -117,12 +121,17 @@ def _source_contains(text, raw, value):
         )
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
         # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
-        tokens = re.findall(
-            r"(?<![A-Za-z0-9_.+-])[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)"
-            r"(?:[eE][+-]?\d+)?(?![A-Za-z0-9_]|[.,]\d)",
-            text,
-        )
-        return re.sub(r"^[£$€¥]\s*", "", raw) in tokens
+        number = r"(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?"
+        monetary = r"(?<![0-9_.+£$€¥,-])(?:[+-]\s*)?[£$€¥]\s*[+-]?\s*" + number
+        plain = r"(?<![A-Za-z0-9_.+£$€¥,-])[+-]?" + number
+        for token in re.finditer(
+            "(?:" + monetary + "|" + plain + r")(?![A-Za-z0-9_]|[.,]\d)", text
+        ):
+            if text[: token.start()].rstrip().endswith(("+", "-")):
+                continue
+            if _numeric_lexeme(token.group()) == _numeric_lexeme(raw):
+                return True
+        return False
     return raw in text
 
 
