@@ -548,6 +548,9 @@ class ExtractMethod:
     projection_controls: dict[str, Callable[[str], None]] = dataclasses.field(
         default_factory=dict
     )
+    # Native channel for an explicit case query; fixed field-list cohorts keep
+    # their existing schema-description-only instruction protocol.
+    task_prompt_location: str | None = None
 
     @property
     def self_hosted(self):
@@ -561,12 +564,15 @@ class ExtractMethod:
                 ("requires_custom_schema", self.requires_custom_schema),
                 ("self_hosted", self.self_hosted),
                 ("retired", self.retired),
+                ("task_prompt", bool(self.task_prompt_location)),
             )
             if enabled
         }
         return Capabilities(
             frozenset(flags),
-            {"input": self.input, "options": self.options, "engine": self.engine},
+            {"input": self.input, "options": self.options, "engine": self.engine,
+             **({"task_prompt_location": self.task_prompt_location}
+                if self.task_prompt_location else {})},
         )
 
     def implementation_identity(self):
@@ -623,6 +629,8 @@ def _cloudflare_request(
         "html": html,
         "response_format": {"type": "json_schema", "json_schema": schema or SCHEMA},
     }
+    if prompt:
+        body["prompt"] = prompt
     body.update({k: v for k, v in native_options.items() if k != "input_route"})
     if native_options.get("input_route") == "url":
         if not fixture_url:
@@ -680,6 +688,8 @@ def _firecrawl_json_request(
         "onlyMainContent": False,
         "maxAge": 0,
     }
+    if prompt:
+        body["formats"][0]["prompt"] = prompt
     return "https://api.firecrawl.dev/v2/scrape", headers, body
 
 
@@ -1084,6 +1094,7 @@ for _name, _engine in {
         project=_self_hosted_project,
         deployment=SELF_HOSTED,
         engine=_engine,
+        task_prompt_location="instruction",
     )
 register_method(
     "firecrawl-parse-json",
@@ -1092,6 +1103,7 @@ register_method(
     custom_schema=True,
     requires_custom_schema=True,
     request=_firecrawl_parse_request,
+    task_prompt_location="options.formats[0].prompt",
     project=_firecrawl_project,
     usage=_firecrawl_parse_usage,
 )
@@ -1101,6 +1113,7 @@ register_method(
     input="url",
     custom_schema=True,
     request=_firecrawl_json_request,
+    task_prompt_location="formats[0].prompt",
     project=_firecrawl_project,
 )
 def _record_projection_control(method):
@@ -1119,6 +1132,7 @@ register_method(
     custom_schema=True,
     options=("setJavaScriptEnabled", "rejectResourceTypes", "input_route", "rejectRequestPattern"),
     request=_cloudflare_request,
+    task_prompt_location="prompt",
     project=lambda payload, preserve_native_types: payload.get("result"),
     projection_controls={"record": _record_projection_control},
 )
@@ -1160,6 +1174,7 @@ register_method(
     input="html",
     custom_schema=True,
     schema_prompt="Extract the fields defined by the schema.",
+    task_prompt_location="prompt",
     options=("input_route",),
     request=_scrapegraph_request,
     project=lambda payload, preserve_native_types: payload.get("json"),
@@ -1284,10 +1299,20 @@ def provider_call(
     native_options=None,
     schema=None,
     prompt=None,
+    task_prompt=None,
 ):
     """One native route per provider; no hidden fallback or quality retry."""
     native_options = validate_native_options(method, native_options)
     spec = METHODS.get(method)
+    if task_prompt is not None:
+        if schema is None or not isinstance(task_prompt, str) or not task_prompt.strip():
+            raise ValueError("Task instructions require a schema and nonempty text")
+        if prompt is None:
+            prompt = task_prompt
+    native_prompt = (
+        task_prompt if task_prompt is not None and spec.task_prompt_location
+        else spec.schema_prompt
+    )
     if schema is not None:
         if not spec.custom_schema:
             raise ValueError("Selected native interface does not support arbitrary schemas")
@@ -1304,7 +1329,7 @@ def provider_call(
         **(
             {
                 "schema": schema,
-                "prompt": spec.schema_prompt,
+                "prompt": native_prompt,
             }
             if schema is not None
             else {}
@@ -1348,7 +1373,9 @@ def provider_call(
             "instructions": {"text": prompt, "location": "schema.properties.*.description"}
             if prompt
             else None,
-            "standalone_prompt": spec.schema_prompt if schema else None,
+            "standalone_prompt": native_prompt if schema else None,
+            **({"task_prompt": {"text": task_prompt, "location": spec.task_prompt_location}}
+               if task_prompt is not None and spec.task_prompt_location else {}),
             "fixture_url": fixture_url,
             "source_url": source_url,
             "native_options": native_options,
@@ -1895,12 +1922,14 @@ def collect_calls(
             raise ValueError("Frozen extraction HTML changed before dispatch")
         schema_options = {}
         if custom_schema:
+            instructions = task_instructions(
+                home, truth[case_id],
+                shared=contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
+            )
             schema_options = {
                 "schema": adapter.task_schema(home, truth[case_id]),
-                "prompt": task_instructions(
-                    home, truth[case_id],
-                    shared=contract.get("extraction_instructions", RECORD_INSTRUCTIONS),
-                ),
+                "prompt": instructions,
+                **({"task_prompt": instructions} if truth[case_id].get("query") else {}),
             }
         row = {
             "method": method,

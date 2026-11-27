@@ -196,8 +196,10 @@ fallback, including when the raw-HTML request is blocked. Without this policy, u
 source checks stop the run. Freeze this choice before participant calls.
 
 Qualified inputs use the existing `plan`, `preflight`, `run` and `score` commands.
-The compiled question is delivered per case through the existing instruction
-delivery contract. Changing the unit creates a different prepared cohort and
+Each compiled question reaches the schema field descriptions and the API's
+documented native prompt or instruction field when that channel is available.
+Saved request receipts identify both instruction carriers. Fixed field-list
+cohorts retain their existing instruction protocol. Changing the unit creates a different prepared cohort and
 frozen execution plan. Report-template views for this answer format are not yet
 supplied by this adapter; query results must not be rendered as field-list scores.
 

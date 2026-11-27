@@ -479,6 +479,7 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
         )
 
     def native_request(method, html, source_url, fixture_url, **options):
+        assert "contact email" in options["prompt"] or "trial count" in options["prompt"]
         if mode == "live":
             assert html == "" and fixture_url == value["pages"][0]["url"]
             html = raw.decode()
@@ -493,6 +494,7 @@ def test_existing_collector_delivers_task_queries_and_scores_without_new_runner(
             request=native_request,
             project=lambda payload, preserve: payload.get("result"),
             custom_schema=True,
+            task_prompt_location="prompt",
         ),
     )
     try:
@@ -1303,6 +1305,90 @@ def test_grouped_source_numbers_preserve_their_complete_typed_value(tmp_path, so
     question["evidence"]["leaves"][1]["raw_value"] = "234"
     with pytest.raises(ValueError, match="Answer evidence"):
         queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "firecrawl-json",
+        "firecrawl-parse-json",
+        "scrapegraph-extract",
+        "cloudflare-json",
+        "crawl4ai-json",
+        "scrapegraph-oss-json",
+        "stagehand-local-json",
+        "firecrawl-oss-json",
+        "browserbase-json",
+    ],
+)
+def test_task_queries_reach_available_native_prompt_channels(monkeypatch, method):
+    from email.parser import BytesParser
+    from email.policy import default
+    from types import SimpleNamespace
+
+    spec = pipeline.METHODS.get(method)
+    for key in spec.keys:
+        monkeypatch.setenv(key, "synthetic")
+    captured = []
+
+    def send(url, **kwargs):
+        if "body" in kwargs:
+            envelope = BytesParser(policy=default).parsebytes(
+                ("Content-Type: " + kwargs["headers"]["Content-Type"] + "\r\n\r\n").encode()
+                + kwargs["body"]
+            )
+            options = next(
+                part
+                for part in envelope.iter_parts()
+                if part.get_param("name", header="content-disposition") == "options"
+            )
+            body = json.loads(options.get_payload(decode=True))
+        else:
+            body = kwargs["json_body"]
+        captured.append(body)
+        return SimpleNamespace(status=200, headers={}, text=lambda: "{}")
+
+    monkeypatch.setattr(pipeline, "request", send)
+    native = {}
+    if spec.self_hosted:
+        native = {
+            "endpoint": "https://extractor.example",
+            "runtime_identity": {
+                "engine": spec.engine,
+                "version": "fixture",
+                "model": "fixture",
+                "model_base": "https://model.example",
+                "implementation_sha256": "a" * 64,
+                "environment_sha256": "b" * 64,
+            },
+        }
+    for author in ["Ada", "Grace"]:
+        instruction = f"Extract only quote records authored by {author}, in source order."
+        row = pipeline.provider_call(
+            method,
+            "<main>Source content</main>",
+            "https://source.example/",
+            "https://snapshot.example/page",
+            schema=schema({"quotes": {"type": "array", "items": {"type": "string"}}}),
+            prompt=instruction,
+            task_prompt=instruction,
+            native_options=native,
+        )
+        body = captured[-1]
+        if method.startswith("firecrawl-") and not spec.self_hosted:
+            delivered = body["formats"][0]["prompt"]
+        elif spec.self_hosted:
+            delivered = body["instruction"]
+        elif method in {"cloudflare-json", "scrapegraph-extract"}:
+            delivered = body["prompt"]
+        else:
+            assert instruction in body["schema"]["properties"]["quotes"]["description"]
+            assert "task_prompt" not in row["request"]
+            continue
+        assert delivered == instruction
+        assert row["request"]["standalone_prompt"] == instruction
+        assert row["request"]["task_prompt"]["text"] == instruction
+        assert row["request"]["task_prompt"]["location"] == spec.task_prompt_location
 
 
 @pytest.mark.parametrize("fresh,http_status", [(True, 200), (True, 403), (False, 200)])
