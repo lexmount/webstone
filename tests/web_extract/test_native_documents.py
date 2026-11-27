@@ -583,3 +583,44 @@ def test_docx_unresolved_revisions_cannot_supply_current_reference_values(revisi
         document_view(raw, DOCX)
     with pytest.raises(ValueError, match="tracked revision"):
         extract_document_text(raw)
+
+
+@pytest.mark.parametrize("kind", ["orphan_header", "alt_chunk", "strict"])
+def test_docx_reference_parts_follow_document_relationships_and_explicit_support(kind):
+    from harness.document_text import extract_document_text
+
+    ns = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    if kind == 'strict':
+        ns = 'http://purl.oclc.org/ooxml/wordprocessingml/main'
+    body = '<w:p><w:r><w:t>Current 200</w:t></w:r></w:p>'
+    if kind == 'alt_chunk':
+        body += '<w:altChunk r:id="embedded"/>'
+    if kind == 'orphan_header':
+        body += '<w:sectPr><w:headerReference r:id="active"/></w:sectPr>'
+    xml = ('<w:document xmlns:w="' + ns + '" '
+           'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+           '<w:body>' + body + '</w:body></w:document>')
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("word/document.xml", xml)
+        if kind == 'orphan_header':
+            archive.writestr('word/header1.xml', '<w:hdr xmlns:w="' + ns
+                             + '"><w:p><w:r><w:t>Obsolete 100</w:t></w:r></w:p></w:hdr>')
+            archive.writestr('word/current-banner.xml', '<w:hdr xmlns:w="' + ns
+                             + '"><w:p><w:r><w:t>Active 300</w:t></w:r></w:p></w:hdr>')
+            archive.writestr('word/_rels/document.xml.rels',
+                            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                            '<Relationship Id="active" Target="current-banner.xml" '
+                            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"/>'
+                            '</Relationships>')
+    raw = output.getvalue()
+    if kind == 'orphan_header':
+        text, _ = extract_document_text(raw)
+        view, _ = document_view(raw, DOCX)
+        assert 'Obsolete' not in text and 'Obsolete' not in view.decode()
+        assert 'Active 300' in text and 'Active 300' in view.decode()
+    else:
+        with pytest.raises(ValueError, match='altChunk|namespace'):
+            document_view(raw, DOCX)
+        with pytest.raises(ValueError, match='altChunk|namespace'):
+            extract_document_text(raw)

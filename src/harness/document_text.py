@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import posixpath
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -133,9 +134,9 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
                 project(child, target)
 
         with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-            for name in _docx_parts(archive):
+            for name, source_root in _docx_parts(archive):
                 section = ET.SubElement(main, "section", {"data-part": name})
-                project(_docx_root(archive, name), section)
+                project(source_root, section)
         extractor = "docx_xml"
     implementation = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     identity = extractor + "/document-view/1/" + implementation
@@ -157,8 +158,7 @@ def extract_document_text(raw: bytes, *, preserve_whitespace: bool = False) -> t
 def _extract_docx(raw: bytes, *, preserve_whitespace: bool = False) -> str:
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         lines = []
-        for name in _docx_parts(archive):
-            root = _docx_root(archive, name)
+        for _, root in _docx_parts(archive):
             lines.extend(
                 (line if preserve_whitespace else line.strip())
                 for line in "".join(_text_nodes(root)).splitlines()
@@ -168,19 +168,57 @@ def _extract_docx(raw: bytes, *, preserve_whitespace: bool = False) -> str:
 
 
 def _docx_parts(archive):
-    return ["word/document.xml"] + sorted(
-        name
-        for name in archive.namelist()
-        if re.fullmatch(r"word/(footnotes|endnotes|header\d+|footer\d+)\.xml", name)
-    )
+    main = _docx_root(archive, "word/document.xml")
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    relation_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+    references = []
+    for kind in ("header", "footer", "footnote", "endnote"):
+        references.extend((kind, node) for node in main.iter(namespace + kind + "Reference"))
+    if not references:
+        return [("word/document.xml", main)]
+    rels = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+    relationships = {node.get("Id"): node for node in rels}
+    parts, note_ids = {}, {}
+    for kind, reference in references:
+        if kind in {"header", "footer"}:
+            relation = relationships.get(reference.get(relation_ns + "id"))
+        else:
+            matches = [node for node in rels if node.get("Type", "").endswith("/" + kind + "s")]
+            relation = matches[0] if len(matches) == 1 else None
+        if relation is None or relation.get("TargetMode") == "External":
+            raise ValueError("DOCX content reference needs an internal relationship")
+        if not relation.get("Type", "").endswith("/" + kind + ("s" if "note" in kind else "")):
+            raise ValueError("DOCX content relationship has the wrong type")
+        target = relation.get("Target", "")
+        name = posixpath.normpath(target.lstrip("/") if target.startswith("/")
+                                 else posixpath.join("word", target))
+        if not name.startswith("word/"):
+            raise ValueError("DOCX content relationship is outside the document package")
+        if name not in parts:
+            parts[name] = _docx_root(archive, name)
+        if kind in {"footnote", "endnote"}:
+            note_ids.setdefault(name, set()).add(reference.get(namespace + "id"))
+    for name, ids in note_ids.items():
+        root = parts[name]
+        actual = {node.get(namespace + "id") for node in root}
+        if not ids.issubset(actual):
+            raise ValueError("DOCX note reference has no corresponding note")
+        for node in list(root):
+            if node.get(namespace + "id") not in ids:
+                root.remove(node)
+    return [("word/document.xml", main)] + sorted(parts.items())
 
 
 def _docx_root(archive, name):
     root = ET.fromstring(archive.read(name))
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    if not root.tag.startswith(namespace):
+        raise ValueError("Unsupported DOCX WordprocessingML namespace")
     alternate = "{http://schemas.openxmlformats.org/markup-compatibility/2006}AlternateContent"
     if next(root.iter(alternate), None) is not None:
         raise ValueError("DOCX AlternateContent requires an explicit rendering representation")
-    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    if next(root.iter(namespace + "altChunk"), None) is not None:
+        raise ValueError("DOCX altChunk requires an explicit embedded-content representation")
     revisions = {"ins", "del", "delText", "delInstrText", "cellIns", "cellDel", "cellMerge"}
     for node in root.iter():
         if node.tag.startswith(namespace):

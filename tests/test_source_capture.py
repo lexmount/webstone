@@ -217,18 +217,29 @@ def test_shared_docx_extraction_retains_source_whitespace_and_nested_parts():
     with zipfile.ZipFile(archive, "w") as document:
         document.writestr(
             "word/document.xml",
-            f'''<w:document xmlns:w="{namespace}"><w:body>
+            f'''<w:document xmlns:w="{namespace}" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
         <w:p><w:r><w:t xml:space="preserve">  Body  </w:t></w:r></w:p>
         <w:p><w:r><w:pict><w:txbxContent><w:p><w:r><w:t>Nested box</w:t></w:r></w:p></w:txbxContent></w:pict></w:r></w:p>
+        <w:p><w:r><w:footnoteReference w:id="2"/></w:r></w:p>
+        <w:sectPr><w:headerReference r:id="header"/></w:sectPr>
         </w:body></w:document>''',
         )
         document.writestr(
             "word/footnotes.xml",
-            f'<w:footnotes xmlns:w="{namespace}"><w:footnote><w:p><w:r><w:t>Note</w:t></w:r></w:p></w:footnote></w:footnotes>',
+            f'<w:footnotes xmlns:w="{namespace}"><w:footnote w:id="2"><w:p><w:r><w:t>Note</w:t></w:r></w:p></w:footnote></w:footnotes>',
         )
         document.writestr(
             "word/header1.xml",
             f'<w:hdr xmlns:w="{namespace}"><w:p><w:r><w:t>Header</w:t></w:r></w:p></w:hdr>',
+        )
+        document.writestr(
+            "word/_rels/document.xml.rels",
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="header" Target="header1.xml" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header"/>'
+            '<Relationship Id="notes" Target="footnotes.xml" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"/>'
+            '</Relationships>',
         )
     raw = archive.getvalue()
     source, identity = extract_document_text(raw, preserve_whitespace=True)

@@ -165,7 +165,10 @@ Evidence selectors address this deterministic view's `//main[@id='document']`.
 PDF sections identify pages with `data-page` and extracted lines with `data-line`;
 DOCX sections identify package
 parts with `data-part` and preserve table rows, cells and horizontal/vertical
-merges as `colspan`/`rowspan`. Unsupported legacy merge, leading-gap layouts or
+merges as `colspan`/`rowspan`. Headers, footers and notes follow actual document
+relationships; unreferenced package parts do not provide evidence.
+Unsupported Strict WordprocessingML, embedded `altChunk` content, legacy merges,
+leading-gap layouts,
 mutually exclusive `mc:AlternateContent` representations and unresolved tracked
 revisions fail qualification. Plain-text paragraphs
 have `data-block` identifiers and retain their line breaks. The extractor identity
