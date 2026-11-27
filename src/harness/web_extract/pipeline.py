@@ -392,15 +392,45 @@ def probe_cases(truth: dict):
     return selected
 
 
+def _sensitive_key(key):
+    return re.search(
+        r"(?:^|[_-])(?:token|secret|authorization|password|cookies?|api[_-]?key)(?:$|[_-])",
+        re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key),
+        re.I,
+    )
+
+
+def redact_json_text(text):
+    """Redact JSON value spans without reserializing unrelated numeric lexemes."""
+    decoder = json.JSONDecoder()
+    parts, cursor = [], 0
+    for token in re.finditer(r'"(?:\\.|[^"\\])*"', text):
+        if token.start() < cursor:
+            continue
+        colon = re.match(r"\s*:\s*", text[token.end():])
+        try:
+            key = json.loads(token.group())
+        except ValueError:
+            continue
+        if colon is None or not _sensitive_key(key):
+            continue
+        start = token.end() + colon.end()
+        try:
+            _, end = decoder.raw_decode(text, start)
+        except ValueError:
+            # A malformed sensitive value must not fall back to unredacted text.
+            end = len(text)
+        parts.extend((text[cursor:start], '"[REDACTED]"'))
+        cursor = end
+    parts.append(text[cursor:])
+    return redact("".join(parts))
+
+
 def redact(value):
     if isinstance(value, dict):
         return {
             k: "[REDACTED]"
-            if re.search(
-                r"(?:^|[_-])(?:token|secret|authorization|password|cookies?|api[_-]?key)(?:$|[_-])",
-                re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", k),
-                re.I,
-            )
+            if _sensitive_key(k)
             else redact(v)
             for k, v in value.items()
         }
@@ -1354,7 +1384,7 @@ def provider_call(
         "http_status": response.status,
         "elapsed_seconds": time.monotonic() - started,
         "response": redact(payload),
-        "response_text": redact(response.text()),
+        "response_text": redact_json_text(response.text()),
         "provider_usage": {
             **{
                 k: v

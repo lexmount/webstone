@@ -26,6 +26,29 @@ pytestmark = pytest.mark.usefixtures("stubbed_serial_collection")
 
 
 class PipelineScenarios(unittest.TestCase):
+    def test_native_response_redacts_returned_credentials_without_rounding_numbers(self):
+        from harness.http_client import HttpResponse
+        from harness.web_extract.pipeline import provider_call
+
+        raw = (
+            r'{"result":{"price":1234567890.123456789,"sku":"0007"},'
+            r'"access\u005ftoken":{"value":"generated-secret"},'
+            r'"items":[{"password":"new-password","promptTokens":12}],'
+            r'"message":"not a key: \"token\": 1"}'
+        )
+        response = HttpResponse(200, "https://api.browserbase.com/v1/fetch", {}, raw.encode())
+        with (
+            patch.dict(os.environ, {"BROWSERBASE_API_KEY": "synthetic"}),
+            patch("harness.web_extract.pipeline.request", return_value=response),
+        ):
+            row = provider_call("browserbase-json", "input", "https://source.example", "https://snapshot.example")
+        self.assertNotIn("generated-secret", json.dumps(row))
+        self.assertNotIn("new-password", json.dumps(row))
+        self.assertIn("1234567890.123456789", row["response_text"])
+        self.assertEqual(json.loads(row["response_text"])["result"]["sku"], "0007")
+        self.assertEqual(json.loads(row["response_text"])["items"][0]["promptTokens"], 12)
+        self.assertEqual(json.loads(row["response_text"])["message"], 'not a key: "token": 1')
+
     def test_browserbase_native_json_extracts_fields_without_external_model(self):
         from harness.http_client import HttpResponse
         from harness.web_extract.pipeline import SCHEMA, provider_call

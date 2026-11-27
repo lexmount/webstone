@@ -189,6 +189,37 @@ def qualify_page(page, base):
     return raw, encoding
 
 
+def _embedded_answers(static, positive, leaves):
+    """Require structured script values with field context, not HTML substrings."""
+    decoder = json.JSONDecoder()
+    for script in static.xpath("//script"):
+        text = script.text or ""
+        consumed = 0
+        for opening in re.finditer(r"[\[{]", text):
+            if opening.start() < consumed:
+                continue
+            try:
+                data, consumed = decoder.raw_decode(text, opening.start())
+            except ValueError:
+                continue
+            values = list(_leaves(data))
+            supported = True
+            for pointer, proof in positive.items():
+                context = set(re.findall(r"[\w-]+", pointer))
+                context.update(re.findall(r"['\"]([\w-]+)['\"]", proof["selector"]))
+                if not any(
+                    path.rsplit("/", 1)[-1] in context
+                    and _lexeme_matches(str(value), leaves[pointer])
+                    for path, value in values
+                    if value is not None
+                ):
+                    supported = False
+                    break
+            if positive and supported:
+                return True
+    return False
+
+
 def _qualify_content(page, raw, rendered, encoding):
     """Use the same source contract for captured and independently observed bytes."""
     from lxml import html
@@ -299,12 +330,7 @@ def _qualify_content(page, raw, rendered, encoding):
                 "Each query needs rejected page-shell or characteristic-missing controls"
             )
         if "javascript" in page["required_characteristics"]:
-            text = raw.decode(encoding, errors="replace")
-            lexemes = [proof["raw_value"] for proof in positive.values()]
-            if lexemes and all(
-                value in text or json.dumps(value, ensure_ascii=True)[1:-1] in text
-                for value in lexemes
-            ):
+            if _embedded_answers(static, positive, leaves):
                 raise ValueError(
                     "Target answers are already embedded in static source; "
                     "classify this region as embedded state instead of JavaScript-required data"

@@ -345,6 +345,39 @@ def test_javascript_classification_rejects_answers_already_embedded_in_static_sc
         queries.prepare(tmp_path / "home", source)
 
 
+@pytest.mark.parametrize(
+    "incidental", [b'<meta content="1.0">', b'<script>var config={"version":1};</script>']
+)
+def test_javascript_numeric_answer_requires_contextual_static_data(tmp_path, incidental):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][1]
+    rawpath = tmp_path / page["source"]["input"]
+    rawpath.write_bytes(
+        b'<html><body><section id="products"></section>' + incidental + b'</body></html>'
+    )
+    page["source"]["sha256"] = pipeline.digest(rawpath.read_bytes())
+    rendered = tmp_path / page["source"]["rendered_input"]
+    rendered.write_bytes(
+        b'<html><body><section id="products"><article><p class="count">1</p>'
+        b'</article></section></body></html>'
+    )
+    page["source"]["rendered_sha256"] = pipeline.digest(rendered.read_bytes())
+    page["queries"] = [{
+        "id": "count", "query": "Extract the rendered product count.",
+        "schema": schema({"count": {"type": "integer"}}), "answer": {"count": 1},
+        "selection": page["queries"][0]["selection"],
+        "evidence": {
+            "leaves": [{"pointer": "/count", "selector": ".//p[@class='count']", "raw_value": "1"}],
+            "negative_answers": [{"count": 0}],
+        },
+    }]
+    queries.qualify_page(page, tmp_path)
+    rawpath.write_bytes(rawpath.read_bytes() + b'<script>var data={"count":1};</script>')
+    page["source"]["sha256"] = pipeline.digest(rawpath.read_bytes())
+    with pytest.raises(ValueError, match="embedded in static source"):
+        queries.qualify_page(page, tmp_path)
+
+
 def test_source_inventory_keeps_unsupported_pages_and_checks_catalog_url_bindings(
     tmp_path, monkeypatch
 ):
