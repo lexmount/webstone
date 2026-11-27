@@ -1374,8 +1374,13 @@ def test_snapshot_retries_native_observation_after_navigation_settles():
     assert any(event[:2] == ("load_state", "domcontentloaded") for event in events)
 
 
-def test_snapshot_never_returns_old_document_when_navigation_does_not_settle():
-    events = []
+@pytest.mark.parametrize("settles_at", [3.5, None])
+def test_snapshot_waits_for_navigation_within_the_action_budget(monkeypatch, settles_at):
+    from harness.trajectory_replay import playwright_tool
+
+    elapsed = [0.0]
+    observations = []
+    monkeypatch.setattr(playwright_tool.time, "monotonic", lambda: elapsed[0])
 
     class Locator:
         @property
@@ -1383,25 +1388,38 @@ def test_snapshot_never_returns_old_document_when_navigation_does_not_settle():
             return self
 
         def wait_for(self, **kwargs):
-            events.append("visible")
+            if settles_at is None or elapsed[0] < settles_at:
+                elapsed[0] += min(kwargs["timeout"] / 1_000, 0.5)
+                raise TimeoutError("waiting for navigation to finish")
 
         def aria_snapshot(self, **kwargs):
-            events.append("aria")
-            raise RuntimeError("Execution context was destroyed because of a navigation")
+            observations.append(elapsed[0])
+            return "- main: New document"
 
     class Page:
         def locator(self, selector):
             return Locator()
 
         def wait_for_load_state(self, state, **kwargs):
-            events.append("load_state")
-            raise TimeoutError("new document did not reach DOMContentLoaded")
+            if settles_at is None or elapsed[0] < settles_at:
+                elapsed[0] += min(kwargs["timeout"] / 1_000, 0.5)
+                raise TimeoutError("new document did not reach DOMContentLoaded")
 
-    result = _unit_tool(Page(), object()).execute({"action": "snapshot"})
+        def wait_for_timeout(self, milliseconds):
+            elapsed[0] += milliseconds / 1_000
 
-    assert result.status == "error"
-    assert "did not reach DOMContentLoaded" in result.result
-    assert events == ["load_state", "visible", "aria", "load_state"]
+    result = _unit_tool(Page(), object()).execute({"action": "snapshot", "timeout_ms": 5_000})
+
+    assert elapsed[0] <= 5.001
+    if settles_at is None:
+        assert result.status == "error"
+        assert "budget exhausted" in result.result
+        assert observations == []
+        assert elapsed[0] >= 4.999
+    else:
+        assert result.status == "success"
+        assert result.result == "- main: New document"
+        assert observations and observations[0] >= settles_at
 
 
 def test_snapshot_does_not_hide_a_non_navigation_observation_error():

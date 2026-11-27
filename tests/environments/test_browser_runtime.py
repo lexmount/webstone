@@ -72,7 +72,8 @@ def test_cdp_timeout_includes_browser_container_logs():
     container.reload.assert_called_once()
 
 
-def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_path):
+@pytest.mark.parametrize("replay_mode", [None, "snapshot_ref_semantics"])
+def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_path, replay_mode):
     import argparse
     import os
     from pathlib import Path
@@ -84,6 +85,7 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
     from harness.environments.webarena.har import CdpHarRecorder
     from harness.trajectory_replay.playwright_tool import PlaywrightReplayTool
     from harness.trajectory_replay.remote_execution import start_local_browser, stop_browser
+    from harness.trajectory_replay.webarena_replay import _execute_replay_call
 
     binary = os.environ.get("WEBSTONE_TEST_BROWSER_BINARY")
     engine = os.environ.get("WEBSTONE_TEST_BROWSER_ENGINE")
@@ -92,6 +94,9 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
     received = []
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/next":
+                import time
+                time.sleep(3)
             received.append(("GET", self.path, ""))
             body = (b'<a id="next" href="/next">Next</a>'
                     b'<form method="post" action="/save">'
@@ -128,12 +133,14 @@ def test_local_browser_replay_preserves_navigation_and_mutation_evidence(tmp_pat
         recorder.start(tool._context, tool._page)
         for call in [
             {"action": "navigate", "url": f"http://127.0.0.1:{server.server_port}/"},
-            {"action": "click", "selector": "#next"},
+            {"action": "click", "selector": "#next",
+             **({"replay_mode": replay_mode} if replay_mode else {})},
+            {"action": "snapshot"},
             {"action": "fill", "selector": "#name", "text": "Ada"},
             {"action": "click", "selector": "#save"},
         ]:
-            result = tool.execute({**call, "timeout_ms": 5000})
-            assert result.status == "success", result.result
+            status, output = _execute_replay_call(tool, {**call, "timeout_ms": 5000})
+            assert status == "success", output
         tool._page.wait_for_timeout(100)
         output = tmp_path / "network.har"
         recorder.stop(tool._context, output)

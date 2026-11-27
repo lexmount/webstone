@@ -1283,17 +1283,15 @@ class PlaywrightReplayTool:
                     continue
                 return locator.aria_snapshot(timeout=remaining(maximum))
 
-        try:
-            return observe()
-        except Exception as exc:
-            if not _navigation_interrupted_snapshot(exc):
-                raise
-            self._page.wait_for_load_state(
-                "domcontentloaded",
-                timeout=remaining(SNAPSHOT_NAVIGATION_SETTLE_TIMEOUT_MS),
-            )
-            self._page.wait_for_timeout(min(remaining(), SNAPSHOT_NAVIGATION_GRACE_MS))
-            return observe()
+        while True:
+            try:
+                return observe()
+            except Exception as exc:
+                if not _navigation_interrupted_snapshot(exc):
+                    raise
+                # A redirected or delayed navigation can interrupt several observations.
+                # Keep the original action deadline rather than a fixed retry count.
+                self._page.wait_for_timeout(min(remaining(), SNAPSHOT_NAVIGATION_GRACE_MS))
 
     def execute(self, arguments: dict[str, Any]) -> ReplayResult:
         action = arguments.get("action")
