@@ -639,6 +639,19 @@ def test_one_source_record_cannot_qualify_two_sibling_answer_records(tmp_path):
     del query["evidence"]["record_regions"]["/rows/1"]
     query["evidence"]["leaves"].pop()
     queries.qualify_page(page, tmp_path)
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b"</main>", b'<p id="other">Harbor Lab</p></main>')
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query["answer"]["rows"].append({"name": "Harbor Lab"})
+    query["evidence"]["record_regions"]["/rows/1"] = {
+        "target_index": 0,
+        "selector": ".//p[@id='other']",
+    }
+    query["evidence"]["leaves"].append(
+        {"pointer": "/rows/1/name", "raw_value": "Harbor Lab", "selector": "."}
+    )
+    queries.qualify_page(page, tmp_path)
 
 
 @pytest.mark.parametrize("claimed", [4, 0])
@@ -660,3 +673,191 @@ def test_snapshot_cannot_serve_a_shell_whose_answers_only_exist_after_rendering(
     with pytest.raises(ValueError, match="Snapshot input does not contain"):
         pipeline.prepare(tmp_path / "home", benchmark="queries", source=source)
     assert not (tmp_path / "home/dataset").exists()
+
+
+def test_inline_markup_preserves_literal_identifiers_during_source_qualification(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b"Harbor Lab", b"<span>api.</span><span>fetch</span>")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query.update(schema=schema({"name": {"type": "string"}}), answer={"name": "api.fetch"})
+    query["evidence"] = {
+        "leaves": [{"pointer": "/name", "raw_value": "api.fetch", "selector": ".//p[@id='org']"}],
+        "negative_answers": [{"name": "Navigation"}],
+    }
+    page["queries"] = [query]
+    queries.qualify_page(page, tmp_path)
+    query["answer"]["name"] = "api. fetch"
+    query["evidence"]["leaves"][0]["raw_value"] = "api. fetch"
+    with pytest.raises(ValueError, match="evidence"):
+        queries.qualify_page(page, tmp_path)
+
+
+def test_sentence_punctuation_is_not_part_of_numeric_evidence(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b">40<", b">40.<")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    queries.qualify_page(page, tmp_path)
+
+
+def test_tail_text_outside_the_primary_region_cannot_support_an_answer(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(b"</main>", b"</main>Outside")
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query.update(schema=schema({"name": {"type": "string"}}), answer={"name": "Outside"})
+    query["evidence"] = {
+        "leaves": [
+            {"pointer": "/name", "raw_value": "Outside", "selector": "following-sibling::text()[1]"}
+        ],
+        "negative_answers": [{"name": "Navigation"}],
+    }
+    page["queries"] = [query]
+    with pytest.raises(ValueError, match="escapes"):
+        queries.qualify_page(page, tmp_path)
+    query["answer"]["name"] = "Harbor Lab"
+    query["evidence"]["leaves"][0].update(raw_value="Harbor Lab", selector=".//p[@id='org']/text()")
+    queries.qualify_page(page, tmp_path)
+
+
+def test_nested_answer_records_must_belong_to_their_bound_parent(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    raw = path.read_bytes().replace(
+        b"</main>",
+        b'<section id="a"><b>A</b><i>Alpha</i></section>'
+        b'<section id="b"><b>B</b><i>Beta</i></section></main>',
+    )
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query.update(
+        schema=schema(
+            {
+                "groups": {
+                    "type": "array",
+                    "items": schema(
+                        {
+                            "name": {"type": "string"},
+                            "items": {
+                                "type": "array",
+                                "items": schema({"label": {"type": "string"}}),
+                            },
+                        }
+                    ),
+                }
+            }
+        ),
+        answer={"groups": [{"name": "A", "items": [{"label": "Beta"}]}]},
+    )
+    query["evidence"] = {
+        "record_regions": {
+            "/groups/0": {"target_index": 0, "selector": ".//section[@id='a']"},
+            "/groups/0/items/0": {"target_index": 0, "selector": ".//section[@id='b']/i"},
+        },
+        "leaves": [
+            {"pointer": "/groups/0/name", "raw_value": "A", "selector": "./b"},
+            {"pointer": "/groups/0/items/0/label", "raw_value": "Beta", "selector": "."},
+        ],
+        "negative_answers": [{"groups": []}],
+    }
+    page["queries"] = [query]
+    with pytest.raises(ValueError, match="bound parent"):
+        queries.qualify_page(page, tmp_path)
+    query["answer"]["groups"][0]["items"][0]["label"] = "Alpha"
+    query["evidence"]["record_regions"]["/groups/0/items/0"]["selector"] = ".//section[@id='a']/i"
+    query["evidence"]["leaves"][1]["raw_value"] = "Alpha"
+    queries.qualify_page(page, tmp_path)
+
+
+@pytest.mark.parametrize("location", ["allOf", "$defs"])
+@pytest.mark.parametrize("unit", ["query", "page"])
+def test_boolean_subschemas_can_compile_in_both_units(tmp_path, location, unit):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    data["pages"] = data["pages"][:1]
+    contract = data["pages"][0]["queries"][0]["schema"]
+    contract[location] = [True] if location == "allOf" else {"permitted": True}
+    query_contract.compile_cases(data, unit)
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "prefixItems",
+        "contains",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "patternProperties",
+        "propertyNames",
+        "additionalProperties",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+        "contentSchema",
+    ],
+)
+@pytest.mark.parametrize("reference_keyword", ["$ref", "$dynamicRef"])
+def test_external_schema_references_are_rejected_in_every_schema_location(
+    tmp_path, location, reference_keyword
+):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    contract = data["pages"][0]["queries"][0]["schema"]
+    child = {reference_keyword: "https://untrusted.invalid/schema"}
+    nested = (
+        [child]
+        if location == "prefixItems"
+        else {"unused": child}
+        if location in {"dependentSchemas", "patternProperties"}
+        else child
+    )
+    # Admit a valid reference answer without reaching this branch, then verify
+    # admission still rejects the external lookup before predictions can reach it.
+    contract["if"] = False
+    contract["then"] = {location: nested}
+    with pytest.raises(ValueError, match="external references"):
+        query_contract.compile_cases(data)
+    child[reference_keyword] = "#/$defs/unused"
+    contract["$defs"] = {"unused": True}
+    query_contract.compile_cases(data)
+
+
+@pytest.mark.parametrize("unit", ["query", "page"])
+def test_nested_dialect_keeps_exact_native_decimal_validation(tmp_path, unit):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    data["pages"] = data["pages"][:1]
+    query = data["pages"][0]["queries"][0]
+    query.update(
+        schema=schema(
+            {
+                "amount": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "number",
+                    "const": 0.1,
+                }
+            }
+        ),
+        answer={"amount": 0.1},
+    )
+    data["pages"][0]["queries"] = [query]
+    case = query_contract.compile_cases(data, unit)[0]
+    value = query_contract.strict_json('{"amount": 0.1}')
+    if unit == "page":
+        value = {"research": value}
+    truth = {case["id"]: {"task": {"unit": unit, "page_id": "article", "queries": [query]}}}
+    result = queries.score(truth, {case["id"]: value})
+    assert result["request_accuracy"]["rate"] == 1

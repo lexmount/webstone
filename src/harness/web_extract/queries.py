@@ -81,7 +81,7 @@ def _record_paths(value, pointer=""):
 
 
 def _text(nodes):
-    return " ".join(" ".join(n.itertext()) if hasattr(n, "itertext") else str(n) for n in nodes)
+    return " ".join("".join(n.itertext()) if hasattr(n, "itertext") else str(n) for n in nodes)
 
 
 def _scoped_nodes(target, selector):
@@ -90,6 +90,8 @@ def _scoped_nodes(target, selector):
         raise ValueError("Evidence selectors must identify nodes inside the primary region")
     for node in nodes:
         owner = node if hasattr(node, "iterancestors") else node.getparent()
+        if getattr(node, "is_tail", False):
+            owner = owner.getparent() if owner is not None else None
         if owner is None or owner is not target and target not in owner.iterancestors():
             raise ValueError("Evidence selector escapes its primary content region")
     return nodes
@@ -112,8 +114,8 @@ def _source_contains(text, raw, value):
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
         # Preserve whole numbers, signs, fractional/exponent parts and thousands groups.
         tokens = re.findall(
-            r"(?<![A-Za-z0-9_.])[+-]?(?:\d[\d,]*(?:\.\d*)?|\.\d+)"
-            r"(?:[eE][+-]?\d+)?(?![A-Za-z0-9_.])",
+            r"(?<![A-Za-z0-9_.])[+-]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)"
+            r"(?:[eE][+-]?\d+)?(?![A-Za-z0-9_]|[.,]\d)",
             text,
         )
         return re.sub(r"^[£$€¥]\s*", "", raw) in tokens
@@ -179,6 +181,16 @@ def qualify_page(page, base):
                 raise ValueError("Sibling answer records must bind distinct source records")
             siblings.add(selected[0])
             scopes[pointer] = selected
+        for pointer, selected in scopes.items():
+            parent = max(
+                (path for path in scopes if pointer.startswith(path + "/")),
+                key=len,
+                default=None,
+            )
+            if parent is not None:
+                ancestor, child = scopes[parent][0], selected[0]
+                if child is not ancestor and ancestor not in child.iterancestors():
+                    raise ValueError("Nested source records must remain inside their bound parent")
         positive = {item["pointer"]: item for item in evidence.get("leaves", [])}
         absent = {item["pointer"]: item for item in evidence.get("absences", [])}
         leaves = dict(_leaves(query["answer"]))

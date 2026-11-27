@@ -107,10 +107,10 @@ def prepare(home: Path, source: Path, *, distribution=None, definition=None, ben
             ):
                 raise ValueError("References must be explicit string lists")
             if typed:
-                from harness.web_extract.query_contract import Validator
+                from harness.web_extract.query_contract import Validator, scoring_schema
 
                 Validator.check_schema(schema)
-                Validator(schema).validate(references)
+                Validator(scoring_schema(schema)).validate(references)
             else:
                 validate_value_counts(case)
             receipt = case.get("qualification")

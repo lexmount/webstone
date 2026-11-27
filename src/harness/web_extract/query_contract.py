@@ -135,7 +135,9 @@ def canonical(value, policy=None, path=""):
 
 
 def validate_query(query, value):
-    errors = sorted(Validator(query["schema"]).iter_errors(value), key=lambda e: str(e.path))
+    errors = sorted(
+        Validator(scoring_schema(query["schema"])).iter_errors(value), key=lambda e: str(e.path)
+    )
     content_equal = canonical(value, query.get("equality")) == canonical(
         query["answer"], query.get("equality")
     )
@@ -148,31 +150,68 @@ def validate_query(query, value):
     }
 
 
-def validate_schema(schema):
-    """Keep the answer contract closed and reproducible without external schema lookups."""
-    Draft202012Validator.check_schema(schema)
-    if "$ref" in schema and not schema["$ref"].startswith("#"):
-        raise ValueError("Task schemas must not depend on external references")
-    kind = schema.get("type")
-    if kind == "object" or isinstance(kind, list) and "object" in kind:
-        properties = schema.get("properties", {})
-        if (
-            not properties
-            or set(schema.get("required", [])) != set(properties)
-            or schema.get("additionalProperties") is not False
-        ):
-            raise ValueError(
-                "Every requested object field must be required and extra keys rejected"
-            )
-        for child in properties.values():
-            validate_schema(child)
-    if isinstance(schema.get("items"), dict):
-        validate_schema(schema["items"])
-    for child in schema.get("$defs", {}).values():
-        validate_schema(child)
-    for key in ("anyOf", "allOf", "oneOf"):
+def schema_nodes(schema):
+    """Visit schema locations, preserving literal data in const, enum and defaults."""
+    yield schema
+    if isinstance(schema, bool):
+        return
+    for key in ("$defs", "definitions", "properties", "patternProperties", "dependentSchemas"):
+        for child in schema.get(key, {}).values():
+            yield from schema_nodes(child)
+    for key in ("allOf", "anyOf", "oneOf", "prefixItems"):
         for child in schema.get(key, []):
-            validate_schema(child)
+            yield from schema_nodes(child)
+    for key in (
+        "items",
+        "contains",
+        "additionalProperties",
+        "unevaluatedProperties",
+        "propertyNames",
+        "unevaluatedItems",
+        "not",
+        "if",
+        "then",
+        "else",
+        "contentSchema",
+    ):
+        if key in schema:
+            yield from schema_nodes(schema[key])
+
+
+def validate_schema(schema):
+    """Keep all schema branches closed and reproducible without external lookups."""
+    Draft202012Validator.check_schema(schema)
+    for node in schema_nodes(schema):
+        if isinstance(node, bool):
+            continue
+        if any(key in node and not node[key].startswith("#") for key in ("$ref", "$dynamicRef")):
+            raise ValueError("Task schemas must not depend on external references")
+        if "$schema" in node and node["$schema"].rstrip("#") not in {
+            "https://json-schema.org/draft/2020-12/schema",
+            "http://json-schema.org/draft/2020-12/schema",
+        }:
+            raise ValueError("Query schemas use the Draft 2020-12 dialect")
+        kind = node.get("type")
+        if kind == "object" or isinstance(kind, list) and "object" in kind:
+            properties = node.get("properties", {})
+            if (
+                not properties
+                or set(node.get("required", [])) != set(properties)
+                or node.get("additionalProperties") is not False
+            ):
+                raise ValueError(
+                    "Every requested object field must be required and extra keys rejected"
+                )
+
+
+def scoring_schema(schema):
+    """Use one dialect and exact numeric validator throughout every nested scope."""
+    validate_schema(schema)
+    result = copy.deepcopy(schema)
+    for node in schema_nodes(result):
+        if isinstance(node, dict):
+            node.pop("$schema", None)
+    return result
 
 
 def validate_dataset(dataset):
@@ -230,7 +269,7 @@ def validate_dataset(dataset):
                     "model judges are not enabled"
                 )
             validate_schema(query["schema"])
-            if query["schema"].get("type") != "object":
+            if not isinstance(query["schema"], dict) or query["schema"].get("type") != "object":
                 raise ValueError("Query answers must be JSON objects")
             if not validate_query(query, query["answer"])["accepted"]:
                 raise ValueError("Reference answer fails its own contract")
@@ -320,7 +359,7 @@ def score(truth, predictions, **options):
             valid = validate_query(queries[0], answer)["schema_valid"]
         else:
             schema = page_schema(queries)
-            valid = Validator(schema).is_valid(answer)
+            valid = Validator(scoring_schema(schema)).is_valid(answer)
         accepted = []
         for query in queries:
             key = (task["page_id"], query["id"])
