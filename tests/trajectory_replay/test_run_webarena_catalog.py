@@ -1264,7 +1264,9 @@ def test_pinned_kitesurf_deployment_uses_existing_cdp_backend_without_cloud_cred
         "KITESURF_JS_ENGINE": "boa",
     }
     credentials = tmp_path / ".env"
-    credentials.write_text("".join(f"{key}={value}\n" for key, value in values.items()))
+    credentials.write_text(
+        "".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8"
+    )
     actual_endpoint, headers, binding = _hosted_cdp_config(credentials, BROWSERS.get("kitesurf"))
     assert actual_endpoint == endpoint
     assert headers == {}
@@ -1356,4 +1358,4 @@ def test_unauthenticated_remote_failure_hides_the_deployment_endpoint(monkeypatc
     assert result["status"] == "fail"
     assert "connection closed" in result["error"]
     assert endpoint not in result["error"]
-    assert endpoint not in (tmp_path / "task-0" / "result.json").read_text()
+    assert endpoint not in (tmp_path / "task-0" / "result.json").read_text(encoding="utf-8")
