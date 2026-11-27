@@ -356,7 +356,8 @@ def test_javascript_classification_rejects_answers_already_embedded_in_static_sc
 @pytest.mark.parametrize(
     "incidental", [b'<meta content="1.0">', b'<script>var config={"version":1};</script>']
 )
-def test_javascript_numeric_answer_requires_contextual_static_data(tmp_path, incidental):
+@pytest.mark.parametrize("count", [1, 9007199254740993])
+def test_javascript_numeric_answer_requires_contextual_static_data(tmp_path, incidental, count):
     source = catalog(tmp_path)
     page = pipeline.read_json(source)["pages"][1]
     rawpath = tmp_path / page["source"]["input"]
@@ -366,21 +367,25 @@ def test_javascript_numeric_answer_requires_contextual_static_data(tmp_path, inc
     page["source"]["sha256"] = pipeline.digest(rawpath.read_bytes())
     rendered = tmp_path / page["source"]["rendered_input"]
     rendered.write_bytes(
-        b'<html><body><section id="products"><article><p class="count">1</p>'
-        b'</article></section></body></html>'
+        (f'<html><body><section id="products"><article><p class="count">{count}</p>'
+         '</article></section></body></html>').encode()
     )
     page["source"]["rendered_sha256"] = pipeline.digest(rendered.read_bytes())
     page["queries"] = [{
         "id": "count", "query": "Extract the rendered product count.",
-        "schema": schema({"count": {"type": "integer"}}), "answer": {"count": 1},
+        "schema": schema({"count": {"type": "integer"}}), "answer": {"count": count},
         "selection": page["queries"][0]["selection"],
         "evidence": {
-            "leaves": [{"pointer": "/count", "selector": ".//p[@class='count']", "raw_value": "1"}],
+            "leaves": [{
+                "pointer": "/count", "selector": ".//p[@class='count']", "raw_value": str(count),
+            }],
             "negative_answers": [{"count": 0}],
         },
     }]
     queries.qualify_page(page, tmp_path)
-    rawpath.write_bytes(rawpath.read_bytes() + b'<script>var data={"count":1};</script>')
+    rawpath.write_bytes(
+        rawpath.read_bytes() + f'<script>var data={{"count":{count}.0}};</script>'.encode()
+    )
     page["source"]["sha256"] = pipeline.digest(rawpath.read_bytes())
     with pytest.raises(ValueError, match="embedded in static source"):
         queries.qualify_page(page, tmp_path)

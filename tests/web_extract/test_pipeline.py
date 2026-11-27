@@ -44,6 +44,25 @@ def test_invalid_native_json_never_retains_sensitive_value_fragments(monkeypatch
     assert queries.scored_prediction(row, {}) is None
 
 
+@pytest.mark.parametrize(
+    "encoded", [r'\u0073upersecret', r'super\u0073ecret', r'\u0073\u0075persecret']
+)
+def test_escaped_environment_credentials_are_redacted_in_native_receipts(monkeypatch, encoded):
+    from harness.http_client import HttpResponse
+    from harness.web_extract import pipeline
+
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "synthetic")
+    monkeypatch.setenv("API_TOKEN", "supersecret")
+    raw = '{"message":"' + encoded + '","value":0.1234567890123456789}'
+    monkeypatch.setattr(
+        pipeline, "request", lambda *a, **kw: HttpResponse(200, "url", {}, raw.encode())
+    )
+    row = pipeline.provider_call("browserbase-json", "input", "https://source", "https://snapshot")
+    assert "supersecret" not in json.dumps(json.loads(row["response_text"]))
+    assert "supersecret" not in json.dumps(row["response"])
+    assert "0.1234567890123456789" in row["response_text"]
+
+
 class PipelineScenarios(unittest.TestCase):
     def test_native_response_redacts_returned_credentials_without_rounding_numbers(self):
         from harness.http_client import HttpResponse

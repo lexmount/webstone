@@ -191,7 +191,7 @@ def qualify_page(page, base):
 
 def _embedded_answers(static, positive, leaves):
     """Require structured script values with field context, not HTML substrings."""
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(parse_float=Decimal)
     supported = set()
     for script in static.xpath("//script"):
         text = script.text or ""

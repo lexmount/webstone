@@ -413,6 +413,10 @@ def redact_json_text(text):
         except ValueError:
             continue
         if colon is None or not _sensitive_key(key):
+            clean = redact(key)
+            if clean != key:
+                parts.extend((text[cursor:token.start()], json.dumps(clean, ensure_ascii=False)))
+                cursor = token.end()
             continue
         start = token.end() + colon.end()
         try:
