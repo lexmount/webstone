@@ -82,6 +82,7 @@ web-extract-eval = [
   "jsonschema>=4.25,<5",
   "requests>=2.32,<3",
   "lxml>=5.3.0",
+  "pypdf>=5,<7",
 ]
 
 [tool.uv.sources]
@@ -120,6 +121,7 @@ include = [
   "src/harness/data_home.py",
   "src/harness/agent_workflows.py",
   "src/harness/distribution.py",
+  "src/harness/document_text.py",
   "src/harness/env_file.py",
   "src/harness/fix_log.py",
   "src/harness/numbers.py",

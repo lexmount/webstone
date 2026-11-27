@@ -4724,6 +4724,7 @@ web-extract-eval = [
     { name = "huggingface-hub" },
     { name = "jsonschema" },
     { name = "lxml" },
+    { name = "pypdf" },
     { name = "requests" },
 ]
 webmainbench-eval = [
@@ -4767,6 +4768,7 @@ requires-dist = [
     { name = "psutil", marker = "extra == 'test'", specifier = ">=7,<8" },
     { name = "pypdf", marker = "extra == 'headless-eval'", specifier = ">=5,<7" },
     { name = "pypdf", marker = "extra == 'reference-audit'", specifier = ">=5,<7" },
+    { name = "pypdf", marker = "extra == 'web-extract-eval'", specifier = ">=5,<7" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8,<10" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8,<4" },
     { name = "python-docx", marker = "extra == 'oss-eval'", specifier = "==1.2.0" },

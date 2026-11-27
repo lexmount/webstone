@@ -269,7 +269,16 @@ def qualify_page(page, base):
         rendered = records._source_bytes(base, source["rendered_input"])
         if digest(rendered) != source["rendered_sha256"]:
             raise ValueError("Rendered page hash changed")
-    encoding = records.source_encoding(raw, source.get("encoding"))
+    encoding = (
+        records.source_encoding(raw, source.get("encoding"))
+        if source.get("media_type", "text/html") == "text/html"
+        else source.get("encoding", "utf-8")
+    )
+    if source.get("media_type", "text/html") != "text/html":
+        if source.get("rendered_input") or "javascript" in page["required_characteristics"]:
+            raise ValueError("Native document sources cannot use rendered HTML evidence")
+        if set(source.get("view", {})) != {"sha256", "extractor"}:
+            raise ValueError("Native document evidence needs its view hash and extractor identity")
     _qualify_content(page, raw, rendered, encoding)
     return raw, encoding
 
@@ -353,6 +362,19 @@ def _qualify_content(page, raw, rendered, encoding):
     from lxml import html
 
     source = page["source"]
+    if source.get("media_type", "text/html") != "text/html":
+        from harness.document_text import document_view
+        from harness.record_io import bytes_sha256
+
+        raw, extractor = document_view(
+            raw, source["media_type"], encoding=encoding or source.get("encoding", "utf-8")
+        )
+        view = source.get("view", {})
+        if extractor != view.get("extractor") or (
+            "sha256" in view and bytes_sha256(raw) != view["sha256"]
+        ):
+            raise ValueError("Source document view differs from its qualified extractor or hash")
+        rendered, encoding = raw, "utf-8"
     static = html.fromstring(raw, parser=html.HTMLParser(encoding=encoding))
     tree = html.fromstring(
         rendered, parser=html.HTMLParser(encoding="utf-8" if rendered != raw else encoding)
@@ -570,7 +592,7 @@ def qualify_live(home, case_ids, *, timeout=30):
     def page_for(reference):
         task = reference["task"]
         return {
-            "source": {},
+            "source": task.get("source_contract", {}),
             "queries": task["queries"],
             "regions": task["regions"],
             "required_characteristics": task["required_characteristics"],
@@ -600,7 +622,8 @@ def qualify_live(home, case_ids, *, timeout=30):
         observed = observations.get(task["page_id"])
         rendered = observed["outer_html"].encode("utf-8") if observed else raw
         page = page_for(reference)
-        page["source"] = {"rendered_input": True} if observed else {}
+        if observed:
+            page["source"] = {"rendered_input": True}
         try:
             _qualify_content(page, raw, rendered, encoding)
         except ValueError as error:
@@ -709,7 +732,12 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                 }
             )
             source_receipt["rendered_input"] = path
-        source_receipt["input"] = "html/" + compiled_case["id"] + ".html"
+        media_type = page["source"].get("media_type", "text/html")
+        from harness.web_extract.dataset import case_input_relative
+
+        source_receipt["input"] = case_input_relative(
+            compiled_case["id"], {"source_media_type": media_type}
+        )
         cases.append(
             {
                 "id": compiled_case["id"],
@@ -718,6 +746,7 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                 "site": urlsplit(page["url"]).hostname,
                 "input": page["source"]["input"],
                 "input_sha256": digest(raw),
+                **({"source_media_type": media_type} if media_type != "text/html" else {}),
                 "values": reference,
                 "schema": compiled_case["input"]["schema"],
                 "query": compiled_case["input"]["query"],
@@ -728,6 +757,11 @@ def prepare(home: Path, source: Path, *, distribution=None, unit="query", draft=
                     "regions": page["regions"],
                     "required_characteristics": page["required_characteristics"],
                     "needs_rendered_source": bool(page["source"].get("rendered_input")),
+                    **({"source_contract": {
+                        "media_type": media_type,
+                        "encoding": encoding,
+                        "view": {"extractor": page["source"]["view"]["extractor"]},
+                    }} if media_type != "text/html" else {}),
                     **(
                         {"live_observation": page["live_observation"]}
                         if "live_observation" in page

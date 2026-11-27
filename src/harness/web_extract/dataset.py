@@ -492,3 +492,17 @@ def materialize(home: Path, pin):
             path.write_bytes(raw)
         save_json(stage / "manifest.json", {**manifest, "distribution_revision": revision})
         stage.rename(target)
+def case_input_relative(case_id, case):
+    """Resolve a case's original bytes without treating documents as HTML."""
+    from harness.document_text import DOCUMENT_EXTENSIONS
+
+    media_type = case.get("source_media_type", "text/html")
+    if media_type == "text/html":
+        relative = "html/" + case_id + ".html"
+    elif media_type in DOCUMENT_EXTENSIONS:
+        relative = "inputs/" + case_id + DOCUMENT_EXTENSIONS[media_type]
+    else:
+        raise ValueError("Unsupported source media type: " + media_type)
+    if case.get("input_path", relative) != relative:
+        raise ValueError("Case input path differs from its declared media type")
+    return relative

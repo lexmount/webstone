@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from lexbench_webfetch.paths import validate_http_url
 
 from harness.web_fetch import network_dns
-from harness.web_fetch.document_text import extract_document_text
+from harness.document_text import extract_document_text
 from harness.web_fetch.markdown import CONVERTER, converter_command, require_converter
 from harness.web_fetch.providers.headless import (
     cli_command,

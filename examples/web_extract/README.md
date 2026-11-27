@@ -152,6 +152,33 @@ Arrays of objects bind each answer record to one source record using
 `evidence.record_regions`: a JSON Pointer maps to its primary `target_index` and
 relative `selector`. Field evidence is checked inside that record, so a value in
 another row cannot qualify a wrongly associated reference answer.
+
+Native PDF, DOCX and plain-text documents use original live URLs. Declare
+`source.media_type` as `application/pdf`,
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document` or
+`text/plain`. The original bytes and their `source.sha256` remain the input.
+`harness.document_text.document_view(raw, media_type, encoding="utf-8")` returns
+the reference view bytes and extractor identity. Save their SHA-256 and identity
+as `source.view.sha256` and `source.view.extractor`.
+
+Evidence selectors address this deterministic view's `//main[@id='document']`.
+PDF sections identify pages with `data-page` and extracted lines with `data-line`;
+DOCX sections identify package
+parts with `data-part` and preserve table rows, cells and horizontal/vertical
+merges as `colspan`/`rowspan`. Headers, footers and notes follow actual document
+relationships; unreferenced package parts do not provide evidence.
+Unsupported Strict WordprocessingML, embedded `altChunk` content, legacy merges,
+leading-gap layouts,
+mutually exclusive `mc:AlternateContent` representations and unresolved tracked
+revisions fail qualification. Plain-text paragraphs
+have `data-block` identifiers and retain their line breaks. The extractor identity
+binds its implementation hash and, for PDF, the installed pypdf version. Text
+documents can declare `source.encoding`. Qualification verifies the view and
+checks every requested fact against it; live checks regenerate it from newly
+fetched original bytes. Prepared documents keep their real extensions under
+`inputs/`. Collection sends the original URL, query and schema through the
+method's native URL route. HTML snapshot hosting remains a separate input mode.
+
 Numbers keep their precision through catalog loading, schema delivery, saved
 references and offline scoring. Numeric strings remain strings.
 JavaScript-required answer data must be absent before rendering and supported by
