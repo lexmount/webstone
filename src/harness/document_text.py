@@ -33,7 +33,8 @@ def document_view(raw: bytes, media_type: str, *, encoding="utf-8") -> tuple[byt
 
         for index, page in enumerate(PdfReader(io.BytesIO(raw)).pages, 1):
             section = ET.SubElement(main, "section", {"data-page": str(index)})
-            ET.SubElement(section, "p").text = page.extract_text() or ""
+            for line, text in enumerate((page.extract_text() or "").splitlines(), 1):
+                ET.SubElement(section, "p", {"data-line": str(line)}).text = text
         extractor = "pypdf/" + __version__
     elif media_type == "text/plain":
         for index, paragraph in enumerate(

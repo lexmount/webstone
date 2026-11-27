@@ -16,11 +16,16 @@ pytestmark = pytest.mark.usefixtures("stubbed_serial_collection")
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def source_document(kind):
+def source_document(kind, *, pdf_lines=None):
     if kind == "txt":
         return b"Harbor Lab completed 40 trials.", "text/plain"
     if kind == "pdf":
-        stream = b"BT /F1 12 Tf 72 720 Td (Harbor Lab completed 40 trials.) Tj ET"
+        pdf_lines = pdf_lines or [b"Harbor Lab completed 40 trials."]
+        stream = (
+            b"BT /F1 12 Tf 72 720 Td "
+            + b" 0 -14 Td ".join(b"(" + line + b") Tj" for line in pdf_lines)
+            + b" ET"
+        )
         objects = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
@@ -352,3 +357,14 @@ def test_native_plain_text_keeps_independent_paragraph_evidence_scopes(tmp_path)
     assert tree.xpath("//main/p/@data-block") == ["1", "2"]
     assert tree.xpath("string(//p[@data-block='1'])") == "Organization: Harbor Lab\nTrials: 40"
     assert tree.xpath("string(//p[@data-block='2'])") == "Organization: Other Lab\nTrials: 4"
+
+
+def test_native_pdf_preserves_independent_line_evidence_scopes():
+    from lxml import html
+
+    raw, media_type = source_document("pdf", pdf_lines=[b"Books 1", b"Pens 3"])
+    view, _ = document_view(raw, media_type)
+    tree = html.fromstring(view)
+    assert tree.xpath("//section/@data-page") == ["1"]
+    assert tree.xpath("//section/p/@data-line") == ["1", "2"]
+    assert tree.xpath("//section/p/text()") == ["Books 1", "Pens 3"]
