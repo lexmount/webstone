@@ -968,3 +968,69 @@ def test_currency_decoration_cannot_hide_a_negative_sign(tmp_path, source_text, 
     query["answer"]["trials"] = -5
     query["evidence"]["leaves"][1]["raw_value"] = negative_lexeme
     queries.qualify_page(page, tmp_path)
+
+
+def test_empty_object_requests_are_not_admitted(tmp_path):
+    source = catalog(tmp_path)
+    data = pipeline.read_json(source)
+    query = data["pages"][0]["queries"][0]
+    query.update(schema={"type": "object"}, answer={})
+    with pytest.raises(ValueError, match="Every requested object field"):
+        query_contract.compile_cases(data)
+
+
+@pytest.mark.parametrize("raw", ["{", '{"success":false,"result":{}}', '{"result":null}'])
+def test_invalid_native_replies_remain_distinct_from_json_objects(raw):
+    row = {"method": "cloudflare-json", "response_text": raw}
+    assert queries.scored_prediction(row, {}) is None
+    row["response_text"] = '{"result":{}}'
+    assert queries.scored_prediction(row, {}) == {}
+
+
+def test_explicit_empty_attribute_is_distinct_from_missing_or_nonempty_attribute(tmp_path):
+    source = catalog(tmp_path)
+    page = pipeline.read_json(source)["pages"][0]
+    path = tmp_path / "article.html"
+    original = path.read_bytes()
+    raw = original.replace(b'id="org"', b'id="org" data-value=""')
+    path.write_bytes(raw)
+    page["source"]["sha256"] = pipeline.digest(raw)
+    query = page["queries"][0]
+    query.update(schema=schema({"value": {"type": "string"}}), answer={"value": ""})
+    query["evidence"] = {
+        "leaves": [
+            {"pointer": "/value", "raw_value": "", "selector": ".//p[@id='org']/@data-value"}
+        ],
+        "negative_answers": [{"value": "Navigation"}],
+    }
+    page["queries"] = [query]
+    queries.qualify_page(page, tmp_path)
+    empty_raw = raw
+    for replacement in [b"", b'data-value="not empty"']:
+        raw = empty_raw.replace(b'data-value=""', replacement)
+        path.write_bytes(raw)
+        page["source"]["sha256"] = pipeline.digest(raw)
+        with pytest.raises(ValueError, match="evidence"):
+            queries.qualify_page(page, tmp_path)
+
+
+def test_http_failures_remain_invalid_at_the_registered_json_boundary(tmp_path):
+    from harness.web_extract.benchmark_adapter import ExtractBenchmarkAdapter
+    from harness.web_extract.dataset import benchmark_config
+
+    _, home = prepare(tmp_path)
+    adapter = ExtractBenchmarkAdapter(benchmark_config(home)["benchmark"], home)
+    truth = adapter.truth()
+    predictions = {
+        cid: adapter.prediction(
+            {
+                "method": "cloudflare-json",
+                "http_status": 500,
+                "response": {"result": case["values"]},
+            },
+            case,
+        )
+        for cid, case in truth.items()
+    }
+    assert all(value is None for value in predictions.values())
+    assert adapter.score(truth, predictions)["query_accuracy"]["accepted"] == 0

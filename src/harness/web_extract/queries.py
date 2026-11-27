@@ -36,11 +36,11 @@ def scored_prediction(row, reference):
         payload = (
             query_contract.strict_json(row["response_text"])
             if "response_text" in row
-            else row.get("response", {})
+            else row.get("response")
         )
     except (ValueError, TypeError):
-        return {}
-    return normalize(row["method"], payload, preserve_native_types=True) or {}
+        return None
+    return normalize(row["method"], payload, preserve_native_types=True)
 
 
 def probe_cases(truth):
@@ -115,6 +115,8 @@ def _numeric_lexeme(raw):
 
 def _source_contains(text, raw, value):
     text, raw = " ".join(text.split()), " ".join(raw.split())
+    if isinstance(value, str) and not raw:
+        return not text
     if isinstance(value, bool):
         return (
             re.search(r"(?<![A-Za-z0-9_])" + re.escape(raw) + r"(?![A-Za-z0-9_])", text) is not None
@@ -133,6 +135,11 @@ def _source_contains(text, raw, value):
                 return True
         return False
     return raw in text
+
+
+def _source_supports(target, proof, raw, value):
+    nodes = _scoped_nodes(target, proof.get("selector", "."))
+    return bool(nodes) and _source_contains(_text(nodes), raw, value)
 
 
 def qualify_page(page, base):
@@ -229,16 +236,11 @@ def qualify_page(page, base):
                     )
                 continue
             proof = positive.get(pointer, {})
-            raw_value = proof.get("raw_value", "")
+            raw_value = proof.get("raw_value")
             if (
-                not raw_value
+                not isinstance(raw_value, str)
                 or not _lexeme_matches(raw_value, value)
-                or not any(
-                    _source_contains(
-                        _text(_scoped_nodes(node, proof.get("selector", "."))), raw_value, value
-                    )
-                    for node in leaf_targets
-                )
+                or not any(_source_supports(node, proof, raw_value, value) for node in leaf_targets)
             ):
                 raise ValueError(
                     "Answer evidence does not support the typed value inside its primary region"

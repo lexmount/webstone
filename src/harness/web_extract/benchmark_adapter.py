@@ -72,7 +72,7 @@ class ExtractBenchmarkAdapter:
     def prediction(self, row, reference):
         """A typed-JSON adapter may validate native framing before projecting its answer."""
         if row.get("http_status") != 200:
-            return {}
+            return None if self.benchmark.reference_format == "json" else {}
         if self.benchmark.reference_format == "json":
             module = benchmark_config(self.home)["adapter"]
             return module.scored_prediction(row, reference)
