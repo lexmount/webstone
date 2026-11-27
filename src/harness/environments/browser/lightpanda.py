@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from harness.environments.browser import (
     NETWORK_RESET_CDP,
+    PLAYWRIGHT_HAR_CAPTURE,
     BrowserAdapter,
     register_browser,
 )
@@ -26,7 +27,7 @@ ADAPTER = register_browser(
     BrowserAdapter(
         name="lightpanda",
         label="Lightpanda",
-        flags=frozenset({NETWORK_RESET_CDP}),
+        flags=frozenset({NETWORK_RESET_CDP, PLAYWRIGHT_HAR_CAPTURE}),
         local_command=local_command,
     )
 )
